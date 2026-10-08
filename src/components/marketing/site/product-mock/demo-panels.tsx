@@ -14,7 +14,8 @@
  */
 
 import type { ReactNode } from "react";
-import { BarePanelChrome } from "@/components/marketing/site/product-mock/shared";
+import dynamic from "next/dynamic";
+import { BarePanelChrome, DEMO_PAGE_CLASS, InertDemoLinks } from "@/components/marketing/site/product-mock/shared";
 import { phoneScriptFor } from "@/components/marketing/resident-lifecycle-script";
 import {
   NO_STORY,
@@ -25,11 +26,6 @@ import {
   type DemoStory,
 } from "@/components/marketing/site/product-mock/world";
 import { DEMO_TABS, type DemoPortal, type DemoTab } from "@/components/marketing/site/product-mock/demo-nav";
-import {
-  ManagerDashboardView,
-  ResidentDashboardView,
-  VendorDashboardDemo,
-} from "@/components/marketing/site/product-mock/dashboards";
 import {
   ApplicationsPanel,
   CommunicationPanel,
@@ -62,12 +58,32 @@ import {
   VendorCalendarPanel,
   VendorCommunicationPanel,
   VendorDocumentsPanel,
-  VendorFinancesPanel,
+  VendorFinancesRouter,
   VendorPaymentsPanel,
   VendorReviewsPanel,
   VendorServicesPanel,
   VendorOutgoingPanel,
 } from "@/components/marketing/site/product-mock/panels-vendor";
+
+/**
+ * The three role Dashboards are the real portal's own dashboard components, so
+ * they drag the portal data stores in behind them. The public home page should
+ * not carry that in its first-load JS: they load as their own chunk. SSR is
+ * left on, so the markup the visitor first sees is unchanged and the demo still
+ * looks exactly like the portal; the placeholder only ever shows while a later
+ * tab's chunk arrives, and it holds the panel's own page box so nothing jumps.
+ */
+const dashboards = () => import("@/components/marketing/site/product-mock/dashboards");
+const DashboardPlaceholder = () => <div className={DEMO_PAGE_CLASS} aria-hidden />;
+const ManagerDashboardView = dynamic(() => dashboards().then((m) => m.ManagerDashboardView), {
+  loading: DashboardPlaceholder,
+});
+const ResidentDashboardView = dynamic(() => dashboards().then((m) => m.ResidentDashboardView), {
+  loading: DashboardPlaceholder,
+});
+const VendorDashboardDemo = dynamic(() => dashboards().then((m) => m.VendorDashboardDemo), {
+  loading: DashboardPlaceholder,
+});
 
 export { DEMO_TABS };
 export type { DemoPortal, DemoTab, DemoStory };
@@ -121,7 +137,8 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     // The Money group: Incoming payments · Outgoing payments · Finances (vendor-portal-ia-1007).
     payments: ({ story }) => <VendorPaymentsPanel story={story} />,
     outgoing: () => <VendorOutgoingPanel />,
-    financials: ({ story }) => <VendorFinancesPanel story={story} />,
+    // Finances nests Overview, Balance & payouts and Refunds; bare /vendor/financials lands on Overview.
+    financials: ({ story, sub }) => <VendorFinancesRouter story={story} sub={sub} />,
     documents: () => <VendorDocumentsPanel />,
   },
 };
@@ -145,7 +162,7 @@ export function DemoPanel({ portal, tab, story, stage, sub }: { portal: DemoPort
   const render = panels[tab] ?? panels[DEMO_TABS[portal][0]!.id]!;
   return (
     <BarePanelChrome key={`${portal}:${tab}:${sub ?? ""}`}>
-      {render({ story: story ?? defaultStory(portal), stage, sub })}
+      <InertDemoLinks>{render({ story: story ?? defaultStory(portal), stage, sub })}</InertDemoLinks>
     </BarePanelChrome>
   );
 }

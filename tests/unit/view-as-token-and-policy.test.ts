@@ -195,6 +195,16 @@ describe("view-as private document bytes", () => {
       "/api/portal/inbox-attachments",
       "/api/manager-applications/app-1/pdf",
       "/api/manager-applications/app-1/receipt",
+      "/api/owner/statements/pdf",
+      "/api/owner/documents/doc-1/signed-url",
+      "/api/reports/formal-documents/export",
+      "/api/reports/owner-statement/formal-export",
+      "/api/reports/1099-nec/export",
+      "/api/reports/deposit-disposition/export",
+      "/api/reports/operational-export",
+      "/api/reports/rpt-42/export",
+      "/api/portal/tours-export",
+      "/api/vendor/export",
     ]) {
       expect(viewAsDeniesPrivateBytes("GET", path), path).toBe(true);
     }
@@ -207,10 +217,15 @@ describe("view-as private document bytes", () => {
     expect(viewAsDeniesPrivateBytes("GET", "/api/manager-documents/doc-1%2Fsigned-url")).toBe(true);
   });
 
-  it("still lists document metadata", () => {
+  it("still lists document metadata, reports and vendor rows", () => {
     expect(viewAsDeniesPrivateBytes("GET", "/api/manager-documents")).toBe(false);
     expect(viewAsDeniesPrivateBytes("GET", "/api/vendor/documents")).toBe(false);
     expect(viewAsDeniesPrivateBytes("GET", "/api/property-records")).toBe(false);
+    // The report itself (and the vendor list behind the export) is a read.
+    expect(viewAsDeniesPrivateBytes("GET", "/api/reports/rpt-42")).toBe(false);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/reports/1099-nec")).toBe(false);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/portal/tours")).toBe(false);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/vendor/work-orders")).toBe(false);
   });
 });
 

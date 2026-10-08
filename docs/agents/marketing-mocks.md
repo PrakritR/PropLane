@@ -109,6 +109,24 @@ that tab.
   `fixtures-more.ts`; each copies the real page's tabs, search placeholder, header icon actions and row anatomy
   (read from its component), and the list-band icon vocabulary guard still applies (a Landmark or Withdraw icon
   belongs in the balance strip, not the command band).
+- **Pop-ups and record pages are the real ones, drawn from fixtures** (captain 2026-10-08: "a lot of the pop ups in
+  home page are not accurate to real portal"). The round + opens the real pop-up (same title, step rail, field
+  labels, right-hand preview, footer words), a row opens what the real row opens (a record page, or a modal when the
+  real one is a modal), the row's ⋯ is the real menu for that one selected row (`useRowSelection`), the Filter is the
+  real popover (`DemoFilterSheet`), and sub tabs are the real labels (import the real constants:
+  `MANAGER_TASK_LIST_TAB_LABELS`, `SERVICE_STAGE_TABS`, ...). Never a generic RESIDENT / HOME / STATUS field card and
+  never a bare toast where the real portal opens something. Settings gears navigate in the real portal, so the demo
+  shows the same icon with a "(sample)" toast. Shell: `product-mock/demo-popup.tsx` (`DemoWorkspacePopup`: the real
+  `ListingWorkspace` header, `StepRail`, progress bar, right panel and `AddWorkspace` footer rule, no assistant, no
+  fetch; it renders into the window's popup host so it never covers the page) and `demo-record.tsx`
+  (`DemoRecordPage`: real header, `recordSections()` rail and header icons, `RecordFactCard` bodies). Doors that fetch
+  (`AddWorkspace` doors, `MoveInFormFrame`, `AddResidentWizard`) are static copies built from the same exported pieces
+  (`demo-popups-<area>.tsx`); a door that mounts from props (the New property wizard, `ListingEditorV2`, the Add
+  application / Add resident step bodies) is the real component. Every pop-up is a `next/dynamic` chunk
+  (`demo-popups-lazy-<area>.tsx`), so the home page's first load does not grow. The hero cursor still finds
+  `sheet-primary` (a popup's footer primary, or the record header icon the story clicks). Tests:
+  `tests/unit/home-demo-popups-<area>.test.tsx` assert the real tab labels, the + pop-up's title and rail, the row's
+  record, and that `fetch` is never called.
 - **The Dashboards are the real dashboards' own pieces** (`site/product-mock/dashboards.tsx`). Manager:
   `KpiCard` with bars and "vs last month" deltas, `AttentionPanel` fed by the real `buildManagerAttentionRows`,
   `UpcomingPanel`, `PortfolioPropertiesSection`, the real cash-flow `MonthlyProfitChart`, and "Everything open"

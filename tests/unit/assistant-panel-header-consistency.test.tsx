@@ -30,7 +30,7 @@ import {
   archiveScopedThread,
   deleteScopedThread,
   loadScopedThreads,
-  scopedThreadId,
+  newScopedThreadId,
 } from "@/lib/axis-assistant/assistant-chat-storage";
 import { useAssistantConversation } from "@/lib/axis-assistant/use-assistant-conversation";
 import { initAssistantDockState } from "@/lib/axis-assistant/dock-store";
@@ -170,29 +170,50 @@ describe("a task assistant's History", () => {
       { role: "assistant" as const, content: "Done." },
     ];
     const second = [{ role: "user" as const, content: "Open Saturdays" }];
-    archiveScopedThread(endpoint, scope, first);
-    archiveScopedThread(endpoint, scope, second);
-    // Re-archiving the same thread refreshes it instead of duplicating it.
-    archiveScopedThread(endpoint, scope, [...first, { role: "user", content: "Thanks" }]);
+    const firstId = newScopedThreadId();
+    const secondId = newScopedThreadId();
+    archiveScopedThread(endpoint, scope, first, firstId);
+    archiveScopedThread(endpoint, scope, second, secondId);
+    // Re-archiving the SAME thread refreshes it instead of duplicating it.
+    archiveScopedThread(endpoint, scope, [...first, { role: "user", content: "Thanks" }], firstId);
     expect(loadScopedThreads(endpoint, scope).map((t) => t.title)).toEqual(["Close Tuesdays", "Open Saturdays"]);
     // Another modal's history is separate.
     expect(loadScopedThreads(endpoint, "modal:other")).toEqual([]);
     // An empty conversation is never saved.
-    archiveScopedThread(endpoint, scope, []);
+    archiveScopedThread(endpoint, scope, [], newScopedThreadId());
     expect(loadScopedThreads(endpoint, scope)).toHaveLength(2);
 
-    deleteScopedThread(endpoint, scope, scopedThreadId(second));
+    deleteScopedThread(endpoint, scope, secondId);
     expect(loadScopedThreads(endpoint, scope).map((t) => t.title)).toEqual(["Close Tuesdays"]);
+  });
+
+  it("keeps two threads that open with the same prompt apart", () => {
+    const endpoint = "/api/agent/chat";
+    const scope = "modal:same-prompt";
+    const opener = [{ role: "user" as const, content: "Draft a reply to this tenant" }];
+    const earlier = newScopedThreadId();
+    const later = newScopedThreadId();
+    archiveScopedThread(endpoint, scope, [...opener, { role: "assistant", content: "First draft." }], earlier);
+    archiveScopedThread(endpoint, scope, [...opener, { role: "assistant", content: "Second draft." }], later);
+    expect(loadScopedThreads(endpoint, scope)).toHaveLength(2);
+    // Deleting one leaves the other, which a shared id would not.
+    deleteScopedThread(endpoint, scope, later);
+    expect(loadScopedThreads(endpoint, scope).map((t) => t.messages[1]?.content)).toEqual(["First draft."]);
   });
 });
 
 describe("a task conversation's History actions", () => {
   it("lists saved threads, restores one, and New files the live thread away", async () => {
     const endpoint = "/api/agent/chat";
-    archiveScopedThread(endpoint, "modal:tour-availability", [
-      { role: "user", content: "Close Tuesdays" },
-      { role: "assistant", content: "Done." },
-    ]);
+    archiveScopedThread(
+      endpoint,
+      "modal:tour-availability",
+      [
+        { role: "user", content: "Close Tuesdays" },
+        { role: "assistant", content: "Done." },
+      ],
+      newScopedThreadId(),
+    );
     const { result } = renderHook(() =>
       useAssistantConversation(endpoint, { storageScope: "modal:tour-availability:3", historyScope: "modal:tour-availability" }),
     );
@@ -202,10 +223,11 @@ describe("a task conversation's History actions", () => {
     expect(result.current.historyOpen).toBe(true);
     expect(result.current.threads.map((t) => t.title)).toEqual(["Close Tuesdays"]);
 
-    await act(() => result.current.selectThread(result.current.threads[0]!.id));
+    const chosenId = result.current.threads[0]!.id;
+    await act(() => result.current.selectThread(chosenId));
     expect(result.current.historyOpen).toBe(false);
     expect(result.current.messages.map((m) => m.content)).toEqual(["Close Tuesdays", "Done."]);
-    expect(result.current.activeThreadId).toBe(scopedThreadId(result.current.messages));
+    expect(result.current.activeThreadId).toBe(chosenId);
 
     await act(() => result.current.startNewChat());
     expect(result.current.messages).toEqual([]);

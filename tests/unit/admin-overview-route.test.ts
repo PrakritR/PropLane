@@ -50,10 +50,11 @@ function seed(): Record<string, Row[]> {
     ],
     manager_purchases: [],
     portal_bug_feedback_records: [
-      { id: "f1", status: "open" },
-      { id: "f2", status: "in_progress" },
-      { id: "f3", status: "completed" },
-      { id: "f4", status: "open" },
+      { id: "f1", status: "open", row_data: { status: "open" } },
+      { id: "f2", status: "in_progress", row_data: { status: "in_progress" } },
+      { id: "f3", status: "completed", row_data: { status: "completed" } },
+      // No status at all is still open (the Feedback page's default).
+      { id: "f4", row_data: {} },
     ],
     sms_delivery_log: [
       { id: "s1", status: "failed", created_at: hoursAgo(2) },

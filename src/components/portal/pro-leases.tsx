@@ -196,7 +196,7 @@ export function ManagerLeases({
   const leasesListActions = (
     <>
       {leasesFilterSheet}
-      <ManagerSettingsGear target="leases" label="Lease settings" dataAttr="leases-settings-open" />
+      <ManagerSettingsGear target="leases" label="Lease settings" />
     </>
   );
 

@@ -93,7 +93,6 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
-  const storyRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<DemoCursorApi>(null);
   /** The click step whose real click already happened (a pause and resume must not click twice). */
@@ -242,7 +241,7 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
 
   return (
     <div className="rlp-page">
-      <div className="rlp-story" ref={storyRef}>
+      <div className="rlp-story">
         <div className="rlp-grow" ref={trackRef} data-reduced={reduced ? "true" : undefined}>
           <div className="rlp-grow-frame">
             <section id="resident-lifecycle-walkthrough" className="rlp-hero" aria-labelledby="rlp-hero-title">

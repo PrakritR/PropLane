@@ -16,6 +16,7 @@ function mockDb(tables: Record<string, unknown[]>) {
             return true;
           });
         });
+      const page = () => Promise.resolve({ data: resolveRows(), error: null });
       const chain = {
         select: () => chain,
         eq: (col: string, val: unknown) => {
@@ -27,7 +28,10 @@ function mockDb(tables: Record<string, unknown[]>) {
           return chain;
         },
         in: () => chain,
-        limit: () => Promise.resolve({ data: resolveRows(), error: null }),
+        // The reads are ordered and paged (`collectIdsPaged`); one short page ends them.
+        order: () => chain,
+        range: page,
+        limit: page,
       };
       return chain;
     },

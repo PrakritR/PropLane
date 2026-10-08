@@ -54,7 +54,9 @@ import {
   dollarsInputFromCents,
   expandTypicalRateCells,
   findRosterCatalogMatch,
+  ALL_PROPERTIES_RATE_ID,
   normalizeTypicalRates,
+  typicalRatePropertyIds,
 } from "@/lib/manager-vendor-typical-rates";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 
@@ -115,7 +117,7 @@ function vendorEmailLooksValid(email: string): boolean {
   return Boolean(normalized && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(normalized));
 }
 
-function TypicalPriceFields({
+export function TypicalPriceFields({
   houses,
   trades,
   rates,
@@ -143,7 +145,7 @@ function TypicalPriceFields({
     );
   };
   if (houses.length === 0 || trades.length === 0) {
-    return <p className="text-sm font-semibold">Pick a property and a trade first.</p>;
+    return <p className="text-sm font-semibold">Pick a trade first.</p>;
   }
   return (
     <div className="space-y-5" data-attr="vendor-form-typical-rates">
@@ -589,7 +591,7 @@ export function ManagerVendorFormModal({
       propertyIds: draft.propertyIds.length ? draft.propertyIds : undefined,
       catalogId: draft.catalogId || existing?.catalogId,
       typicalRates: expandTypicalRateCells({
-        propertyIds: (draft.propertyIds.length ? draft.propertyIds : propertyOptions.map((row) => row.id)),
+        propertyIds: typicalRatePropertyIds(draft.propertyIds),
         trades: draft.trades,
         existing: draft.typicalRates,
         fallback: catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
@@ -870,7 +872,7 @@ export function ManagerVendorFormModal({
         email: hit.email ?? draft.email,
         catalogId: hit.source === "catalog" ? hit.id : draft.catalogId,
         typicalRates: expandTypicalRateCells({
-          propertyIds: (draft.propertyIds.length ? draft.propertyIds : propertyOptions.map((row) => row.id)),
+          propertyIds: typicalRatePropertyIds(draft.propertyIds),
           trades: [hit.trade],
           existing: draft.typicalRates,
           fallback:
@@ -917,8 +919,11 @@ export function ManagerVendorFormModal({
   const stepId = steps[current]!.id;
   const onlineOnlyHits = onlineHits.filter((hit) => !inPropLaneHits.some((row) => row.id === hit.id));
   const rateHouses = draft.propertyIds.length
-    ? propertyOptions.filter((row) => draft.propertyIds.includes(row.id))
-    : propertyOptions;
+    ? draft.propertyIds.map((id) => ({
+        id,
+        label: propertyOptions.find((row) => row.id === id)?.label ?? "Property",
+      }))
+    : [{ id: ALL_PROPERTIES_RATE_ID, label: "Every property" }];
   const rateFallback = catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
     ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
     : undefined;

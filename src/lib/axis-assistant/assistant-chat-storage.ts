@@ -74,6 +74,7 @@ export function clearAssistantChatMessages(endpoint: string, storageScope?: stri
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(assistantChatStorageKey(endpoint, storageScope));
+    window.localStorage.removeItem(liveThreadKey(endpoint, storageScope));
   } catch {
     /* ignore */
   }
@@ -99,13 +100,42 @@ function scopedHistoryKey(endpoint: string, historyScope: string): string {
   return `axis:assistant-history:v${STORAGE_VERSION}:${path}:${historyScope.trim()}`;
 }
 
-/** Stable id for a thread: its first user message, so re-archiving replaces rather than duplicates. */
-export function scopedThreadId(messages: ChatMessage[]): string {
-  const first = messages.find((m) => m.role === "user")?.content.trim() ?? "";
-  if (!first) return "";
-  let hash = 0;
-  for (let i = 0; i < first.length; i += 1) hash = (hash * 31 + first.charCodeAt(i)) | 0;
-  return `local:${(hash >>> 0).toString(36)}:${first.length}`;
+/**
+ * A fresh id for a thread, minted when the thread starts.
+ *
+ * It is deliberately NOT derived from the conversation: two threads in the same
+ * modal that open with the same prompt are two threads, and a content-derived
+ * id made the second one overwrite the first in History (and made Delete remove
+ * both). The live thread's id is persisted beside its messages
+ * (`loadLiveThreadId`) so a refresh keeps the same thread rather than archiving
+ * a duplicate.
+ */
+export function newScopedThreadId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return `local:${uuid ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`;
+}
+
+function liveThreadKey(endpoint: string, storageScope?: string): string {
+  return `${assistantChatStorageKey(endpoint, storageScope)}:thread`;
+}
+
+/** The id of the thread whose messages are in storage right now, or "" when there is none. */
+export function loadLiveThreadId(endpoint: string, storageScope?: string): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(liveThreadKey(endpoint, storageScope))?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveLiveThreadId(endpoint: string, threadId: string, storageScope?: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(liveThreadKey(endpoint, storageScope), threadId);
+  } catch {
+    /* quota or private mode */
+  }
 }
 
 export function loadScopedThreads(endpoint: string, historyScope: string): StoredAssistantThread[] {
@@ -134,12 +164,18 @@ function writeScopedThreads(endpoint: string, historyScope: string, threads: Sto
   }
 }
 
-/** Save (or refresh) one thread at the top of this scope's history. */
-export function archiveScopedThread(endpoint: string, historyScope: string, messages: ChatMessage[]): void {
+/** Save (or refresh) one thread, under its own id, at the top of this scope's history. */
+export function archiveScopedThread(
+  endpoint: string,
+  historyScope: string,
+  messages: ChatMessage[],
+  threadId: string,
+): void {
   if (typeof window === "undefined") return;
   const visible = messages.filter((m) => m.content.trim().length > 0).slice(-MAX_STORED_MESSAGES);
-  const id = scopedThreadId(visible);
-  if (!id) return;
+  const id = threadId.trim();
+  // Nothing was said yet, or the caller has no thread: there is nothing to keep.
+  if (!id || !visible.some((m) => m.role === "user")) return;
   const title = (visible.find((m) => m.role === "user")?.content.trim() ?? "Conversation").slice(0, 80);
   const next: StoredAssistantThread = { id, title, updatedAt: new Date().toISOString(), messages: visible };
   writeScopedThreads(endpoint, historyScope, [

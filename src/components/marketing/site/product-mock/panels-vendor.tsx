@@ -1,59 +1,115 @@
 "use client";
 
 /**
- * The vendor portal's tabs for the home page demo — Services, Calendar,
- * Payments, Reviews, Communication — drawn for Pacific Plumbing from the
- * shared "Seattle Homes" fixtures. Mirrors `vendor-work-orders-panel.tsx`
- * (tabs Open · Assigned · Scheduled · Completed, the "Near you" heading, an
- * offered job showing only its general area), `vendor-calendar-panel.tsx`
- * (the calendar's own week grid; tabs All · Services · Availability),
- * `vendor-finances-panel.tsx` (one merged list under a balance card),
- * `vendor-reviews-panel.tsx` (the stats card above All · Needs reply ·
- * Replied) and `vendor-communication.tsx`. The real panels fetch on mount, so
- * these compose the same presentational pieces from fixtures.
+ * The vendor portal's tabs for the home page demo, drawn for Pacific Plumbing from the shared "Seattle Homes"
+ * fixtures. Each mirrors its real page, read from the code (captain 2026-10-08: the pop-ups and record pages on the
+ * home page must match the real portal):
+ *
+ *  - Services (`vendor-work-orders-panel.tsx`): Open · Assigned · Scheduled · Completed · Find work, a Filter popover,
+ *    the Service settings gear, the round "Add bid" (the Submit bid wizard), real `VendorServiceCardRow` rows with a ⋯
+ *    per stage, a row opens the service record page; Find work draws the real `VendorFindWorkList`
+ *  - Calendar (`vendor-calendar-panel.tsx`): All · Services · Availability, Filter, Integrations, "Add availability"
+ *    (the Set availability dialog); a visit opens the quick-look, an availability block re-opens the editor
+ *  - Reviews (`vendor-reviews-panel.tsx`): the four stat cells above All · Needs reply · Replied, star-tile rows, the
+ *    Reply to review dialog
+ *  - Finances (`vendor-finances-*.tsx`): Balance & payouts, Payments, Refunds, Statements and Tax info, the five
+ *    sections the sidebar nests, each with its pop-ups and record pages
+ *  - Documents (`vendor-documents-panel.tsx`) and Communication (`vendor-communication.tsx`)
+ *
+ * Settings gears navigate to a Settings page in the real portal, never a pop-up; here they are the same icon and only
+ * show a small "(sample)" toast. Every pop-up and record page is loaded on demand (`demo-popups-lazy-vendor.tsx`).
+ * The real panels fetch on mount, so these compose the same presentational pieces from fixtures.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ArrowUp,
   ArrowUpFromLine,
-  Check,
   CalendarDays,
   CalendarSync,
+  Check,
   Clock,
+  DollarSign,
   Download,
   FileText,
-  Filter,
   Landmark,
+  PenSquare,
+  Pencil,
   Settings,
   Sparkles,
-  TriangleAlert,
   Undo2,
+  UserRound,
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { PortalApplicantRecordRow, PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { VENDOR_CHECKLIST, VENDOR_PAYOUTS, type VendorPayoutFixture } from "@/components/marketing/site/product-mock/fixtures-more";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { DemoFilterSheet, portalFilterActiveCount } from "@/components/marketing/site/product-mock/demo-filter";
+import {
+  FilterCheckboxList,
+  FilterCollapsibleSection,
+  FilterFieldsAccordion,
+  FilterSingleSelectList,
+  filterMultiSelectSummary,
+  filterSingleSelectSummary,
+} from "@/components/portal/filter-field-lists";
+import { RecordBandFilter } from "@/components/portal/record-list-band";
+import { VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
+import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
+import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { VendorRowMenu, type VendorRowMenuItem } from "@/components/portal/vendor-row-menu";
+import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/components/portal/communication-status-filter";
+import { InboxComposer, InboxConversationRow, InboxThreadView, InboxTwoPane } from "@/components/portal/portal-inbox-ui";
 import { CalendarTimeGrid, type CalendarGridItem } from "@/components/portal/manager-calendar-views";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
-import { VendorRowMenu, type VendorRowMenuItem } from "@/components/portal/vendor-row-menu";
-import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { RecordActionContext } from "@/components/ui/record-action-context";
+import { FIND_WORK_DISTANCE_OPTIONS, FIND_WORK_TRADE_OPTIONS } from "@/lib/vendor-find-work";
+import { RECORD_KIND_FILTER_OPTIONS } from "@/lib/communication-thread-filters";
+import { VENDOR_DOCUMENT_LABELS, VENDOR_DOCUMENT_SECTIONS, isVendorComplianceDocumentKind, type VendorDocumentKind } from "@/lib/vendor-documents";
+import { statementMonthLabel } from "@/lib/vendor-banking/statement-events";
+import { form1099StatusLabel, maskTin, vendorW9EntityLabel, type VendorTaxYearSummary } from "@/lib/vendor-banking/tax";
+import type { PublicBoardServiceView } from "@/lib/public-service-projection";
+import type { RecordKind } from "@/lib/portals/record-kinds";
 import type { GridBand, GridWindow } from "@/lib/calendar-grid";
 import {
-  AREA_BY_PROPERTY,
   CALENDAR_NOW_MIN,
   CALENDAR_TODAY,
   CALENDAR_WEEK,
+  AREA_BY_PROPERTY,
+  VENDOR_CONVERSATIONS,
   VENDOR_NAME,
-  VENDOR_RATING,
   VENDOR_REVIEWS,
   type CommConversationFixture,
-  type VendorPaymentFixture,
   type VendorReviewFixture,
   type VendorServiceFixture,
 } from "@/components/marketing/site/product-mock/fixtures";
+import { VENDOR_CHECKLIST, VENDOR_PAYOUTS, type VendorPayoutFixture } from "@/components/marketing/site/product-mock/fixtures-more";
+import {
+  DEMO_AVAILABLE_CENTS,
+  DEMO_BANK,
+  DEMO_MANAGER_DOCUMENTS,
+  DEMO_REFUNDS,
+  DEMO_STATEMENTS,
+  DEMO_TAX_YEARS,
+  DEMO_W9,
+  DEMO_WEEKLY_WINDOWS,
+  EXTRA_VENDOR_PAYMENTS,
+  EXTRA_VENDOR_SERVICES,
+  FIND_WORK_BOARD,
+  demoVendorServiceActions,
+  jobBidState,
+  jobDetailFor,
+  statementClosingCents,
+  type VendorJobDetail,
+} from "@/components/marketing/site/product-mock/fixtures-popups-vendor";
 import {
   vendorPayments,
   vendorServices,
@@ -62,18 +118,57 @@ import {
   type DemoStory,
   type VendorVisit,
 } from "@/components/marketing/site/product-mock/world";
-import { countBy, FixtureInboxScreen, FixtureListScreen, FixtureMenuItems, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
-import { FixtureField, FixtureSheet, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { countBy, FixtureListScreen, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
+import { DEMO_PAGE_CLASS, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import {
+  DemoVendorAddBankDialog,
+  DemoVendorAvailabilityDialog,
+  DemoVendorComposeDialog,
+  DemoVendorDocumentViewer,
+  DemoVendorInvoiceRecord,
+  DemoVendorJobRecord,
+  DemoVendorPaymentRecord,
+  DemoVendorQuoteWizard,
+  DemoVendorRefundDialog,
+  DemoVendorReplyDialog,
+  DemoVendorStatementDialog,
+  DemoVendorUploadDocumentPopup,
+  DemoVendorVisitDialog,
+  DemoVendorW9Dialog,
+  DemoVendorWithdrawDialog,
+  DemoVendorWithdrawalRecord,
+} from "@/components/marketing/site/product-mock/demo-popups-lazy-vendor";
 
-const CARD = "rounded-xl border border-border bg-card";
+const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const parseMoney = (s: string) => Number(s.replace(/[$,]/g, ""));
+const cents = (n: number) => money(n / 100);
+
+/** A page outside the list frame (a record page, the Refunds list): the same window and page padding. */
+function PageFrame({ path, children, overlay }: { path: string; children: ReactNode; overlay?: ReactNode }) {
+  return (
+    <ProductWindow path={path}>
+      <div className={DEMO_PAGE_CLASS}>{children}</div>
+      {overlay}
+    </ProductWindow>
+  );
+}
+
+/** The messages a service's Communication section opens with: the Alder House thread, or one line from the manager. */
+function jobMessages(title: string, place: string) {
+  if (place.startsWith("Alder House")) return VENDOR_CONVERSATIONS[0]!.messages;
+  return [{ id: "m1", author: "Manager", body: `Thanks for taking a look at ${title}.`, at: "Sep 24, 2:10 PM", direction: "inbound" as const }];
+}
 
 /* ───────────────────────────── Services ───────────────────────────── */
 
-const SERVICE_TABS = [
+type ServiceTab = "open" | "assigned" | "scheduled" | "completed";
+/** `VENDOR_WORK_ORDER_TABS` (the stage vocabulary), then the appended Find work tab (`VENDOR_FIND_WORK_TAB`). */
+const SERVICE_TABS: { id: string; label: string }[] = [
   { id: "open", label: "Open" },
   { id: "assigned", label: "Assigned" },
   { id: "scheduled", label: "Scheduled" },
   { id: "completed", label: "Completed" },
+  { id: "find-work", label: "Find work" },
 ];
 const FACT_ICON: Record<VendorServiceFixture["factIcon"], LucideIcon> = {
   clock: Clock,
@@ -81,6 +176,8 @@ const FACT_ICON: Record<VendorServiceFixture["factIcon"], LucideIcon> = {
   calendar: CalendarDays,
   check: Check,
 };
+/** How far each published job is from the vendor, for the Find work Distance filter. */
+const FIND_WORK_MILES: Record<string, number> = { "board-1": 3, "board-2": 8, "board-3": 4 };
 
 /** The place line: a vendor not hired yet sees only the general area. */
 function placeLine(s: VendorServiceFixture): string {
@@ -88,8 +185,101 @@ function placeLine(s: VendorServiceFixture): string {
   return s.unit ? `${s.property} · ${s.unit}` : s.property;
 }
 
+type ServiceTarget = {
+  job: { id: string; title: string; placeLine: string; hired: boolean; stage: ServiceTab; fact: string; figure?: string; manager: string };
+  detail: VendorJobDetail;
+  section?: string;
+  choice?: "submit_bid" | "book_estimate_visit";
+};
+
+function targetForService(s: VendorServiceFixture, section?: string, choice?: ServiceTarget["choice"]): ServiceTarget {
+  const base = jobDetailFor(s.id);
+  return {
+    job: { id: s.id, title: s.title, placeLine: placeLine(s), hired: s.hired, stage: s.state, fact: s.fact, figure: s.figure, manager: "Manager" },
+    detail: { ...base, bid: jobBidState(s.id, s.fact) },
+    section,
+    choice,
+  };
+}
+
+function targetForBoard(service: PublicBoardServiceView, section: string, choice?: ServiceTarget["choice"]): ServiceTarget {
+  return {
+    job: { id: service.ref, title: service.title, placeLine: [service.area, service.trade].filter(Boolean).join(" · "), hired: false, stage: "open", fact: service.when || "Anytime", manager: service.postedBy || "Manager" },
+    detail: { trade: service.trade, description: service.description, bid: "none", budget: service.budget || undefined },
+    section,
+    choice,
+  };
+}
+
+/** A service's record page inside its own window, with the pop-ups it opens (Request payment) and the toast. */
+function ServiceRecordScreen({
+  target,
+  onBack,
+  invoiced,
+  onInvoiced,
+  onCompleted,
+}: {
+  target: ServiceTarget;
+  onBack: () => void;
+  invoiced: boolean;
+  onInvoiced: () => void;
+  onCompleted: () => void;
+}) {
+  const { show, node: toastNode } = useFixtureToast();
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const { job } = target;
+  return (
+    <PageFrame
+      path={`/vendor/work-orders/${job.id}`}
+      overlay={
+        <>
+          {invoiceOpen ? (
+            <DemoVendorQuoteWizard
+              door="invoice"
+              jobs={[{ id: job.id, title: job.title, place: job.placeLine }]}
+              initialJobId={job.id}
+              onClose={() => setInvoiceOpen(false)}
+              onDone={() => {
+                setInvoiceOpen(false);
+                onInvoiced();
+                show("Payment requested (sample)");
+              }}
+            />
+          ) : null}
+          {toastNode}
+        </>
+      }
+    >
+      <DemoVendorJobRecord
+        job={job}
+        detail={target.detail}
+        messages={jobMessages(job.title, job.placeLine)}
+        initialSection={target.section}
+        initialBidChoice={target.choice}
+        onBack={onBack}
+        onToast={show}
+        onRequestInvoice={() => setInvoiceOpen(true)}
+        onCompleted={onCompleted}
+        invoiceSent={invoiced}
+      />
+    </PageFrame>
+  );
+}
+
 export function VendorServicesPanel({ story }: { story?: DemoStory } = {}) {
-  const services = useMemo(() => vendorServices(story ?? vendorStory(undefined)), [story]);
+  const base = useMemo(() => [...vendorServices(story ?? vendorStory(undefined)), ...EXTRA_VENDOR_SERVICES], [story]);
+  const [completedIds, setCompletedIds] = useState<string[]>([]);
+  const [invoicedIds, setInvoicedIds] = useState<string[]>([]);
+  // A service marked Complete moves to Completed with its invoice still owed; a requested payment reads "Invoice sent".
+  const services = useMemo(
+    () =>
+      base.map((s) => {
+        const done = completedIds.includes(s.id) && s.state !== "completed";
+        const next: VendorServiceFixture = done ? { ...s, state: "completed", fact: "No invoice yet", factIcon: "check" } : s;
+        return invoicedIds.includes(s.id) ? { ...next, fact: "Invoice sent", factIcon: "check" as const } : next;
+      }),
+    [base, completedIds, invoicedIds],
+  );
   const counts = useMemo(() => countBy(services, (s) => s.state, ["open", "assigned", "scheduled", "completed"]), [services]);
   // The faucet job is the first row whenever the story has reached the vendor.
   const jordan = services[0]?.id === "vsvc-willow-faucet" ? services[0].state : null;
@@ -98,34 +288,85 @@ export function VendorServicesPanel({ story }: { story?: DemoStory } = {}) {
     if (jordan !== null) setTab(jordan);
   }, [jordan]);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<VendorServiceFixture | null>(null);
+  const [propertyFilter, setPropertyFilter] = useState("");
+  const [tradeFilter, setTradeFilter] = useState("");
+  const [distanceFilter, setDistanceFilter] = useState("");
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [invoiceFor, setInvoiceFor] = useState<VendorServiceFixture | null>(null);
+  const [record, setRecord] = useState<ServiceTarget | null>(null);
   const { show, node: toastNode } = useFixtureToast();
-  const rows = services.filter((s) => s.state === tab && matchesSearch(search, s.title, s.property));
-  const nearYou = rows.filter((s) => !s.hired);
-  const mine = rows.filter((s) => s.hired);
+
+  const isFindWork = tab === "find-work";
+  const propertyOptions = useMemo(() => [...new Set(services.map((s) => s.property))].sort().map((name) => ({ value: name, label: name })), [services]);
+  const board = FIND_WORK_BOARD.filter(
+    (b) =>
+      matchesSearch(search, b.title, b.area, b.trade, b.postedBy) &&
+      (!tradeFilter || FIND_WORK_TRADE_OPTIONS.find((o) => o.value === tradeFilter)?.label === b.trade) &&
+      (!distanceFilter || (FIND_WORK_MILES[b.ref] ?? 0) <= Number(distanceFilter)),
+  );
+  const rows = services.filter((s) => s.state === tab && (!propertyFilter || s.property === propertyFilter) && matchesSearch(search, s.title, s.property));
+  const nearYou = tab === "open" ? rows.filter((s) => !s.hired && jobBidState(s.id, s.fact) === "none") : [];
+  const others = tab === "open" ? rows.filter((s) => !nearYou.includes(s)) : rows;
+  const wizardJobs = services.filter((s) => s.state === "open").map((s) => ({ id: s.id, title: s.title, place: placeLine(s) }));
+
+  const openRecord = (s: VendorServiceFixture, section?: string, choice?: ServiceTarget["choice"]) => setRecord(targetForService(s, section, choice));
 
   const renderRow = (s: VendorServiceFixture) => {
-    const Icon = FACT_ICON[s.factIcon];
+    const detail = { ...jobDetailFor(s.id), bid: jobBidState(s.id, s.fact) };
+    const invoiceOwed = s.state === "completed" && detail.invoice === "owed" && !invoicedIds.includes(s.id) && s.fact === "No invoice yet";
+    const actions = demoVendorServiceActions(s.state, detail, !s.hired, invoiceOwed);
+    const run = (id: string) => {
+      if (id === "submit_bid") openRecord(s, "bid", "submit_bid");
+      else if (id === "book_visit") openRecord(s, "bid", "book_estimate_visit");
+      else if (id === "visit_done" || id === "decline") openRecord(s, "bid");
+      else if (id === "schedule" || id === "reschedule") openRecord(s, "schedule");
+      else if (id === "message") openRecord(s, "communication");
+      else if (id === "mark_done") {
+        setCompletedIds((cur) => [...cur, s.id]);
+        show("Marked complete (sample)");
+      } else if (id === "send_invoice") setInvoiceFor(s);
+    };
     return (
-      <PortalApplicantRecordRow
-        key={s.id}
-        name={s.title}
-        tileLabel={placeLine(s)}
-        address={placeLine(s)}
-        facts={<PortalRowFact icon={Icon}>{s.fact}</PortalRowFact>}
-        amount={s.figure}
-        onSelectedChange={s.state === "scheduled" ? () => undefined : undefined}
-        onOpen={() => setSelected(s)}
-        dataAttr="vendor-service-row"
-      />
+      <div key={s.id} id={`portal-work-order-${s.id}`}>
+        <VendorServiceCardRow
+          title={s.title}
+          placeLine={placeLine(s)}
+          dateText={s.fact}
+          icon={FACT_ICON[s.factIcon]}
+          figure={s.figure}
+          onOpen={() => openRecord(s)}
+          actions={
+            actions.length > 0 ? (
+              <RowActionsMenu label={s.title} items={actions.map((a) => ({ id: a.id, label: a.label, danger: a.id === "decline", dataAttr: `vendor-service-action-${a.id}`, onSelect: () => run(a.id) }))} />
+            ) : undefined
+          }
+          dataAttr="vendor-service-row"
+        />
+      </div>
     );
   };
+
+  if (record) {
+    const id = record.job.id;
+    return (
+      <ServiceRecordScreen
+        key={id}
+        target={record}
+        onBack={() => setRecord(null)}
+        invoiced={invoicedIds.includes(id)}
+        onInvoiced={() => setInvoicedIds((cur) => [...cur, id])}
+        onCompleted={() => setCompletedIds((cur) => [...cur, id])}
+      />
+    );
+  }
+
+  const emptyTitle = isFindWork ? "No work on the board" : tab === "open" ? "No open services" : tab === "assigned" ? "Nothing assigned" : tab === "scheduled" ? "Nothing scheduled" : "Nothing completed yet";
 
   return (
     <FixtureListScreen
       path="/vendor/work-orders"
       title="Services"
-      tabs={SERVICE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+      tabs={SERVICE_TABS.map((t) => ({ ...t, count: t.id === "find-work" ? FIND_WORK_BOARD.length : counts[t.id] }))}
       activeId={tab}
       onTab={setTab}
       tabAriaLabel="Service status"
@@ -134,49 +375,78 @@ export function VendorServicesPanel({ story }: { story?: DemoStory } = {}) {
       searchPlaceholder="Search services"
       actions={
         <>
-          <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-          <PortalIconAction icon={Settings} label="Service settings" onClick={() => show("Service settings")} />
+          <RecordBandFilter
+            dataAttr="vendor-services-band"
+            fields={
+              isFindWork
+                ? [
+                    { id: "trade", label: "Trade", anyLabel: "Any trade", value: tradeFilter, options: FIND_WORK_TRADE_OPTIONS, onChange: setTradeFilter },
+                    { id: "distance", label: "Distance", anyLabel: "Any distance", value: distanceFilter, options: FIND_WORK_DISTANCE_OPTIONS, onChange: setDistanceFilter },
+                  ]
+                : propertyOptions.length > 0
+                  ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
+                  : []
+            }
+          />
+          <PortalIconAction icon={Settings} label="Service settings" data-attr="vendor-services-settings-gear" onClick={() => show("Service settings (sample)")} />
         </>
       }
-      primary={{ label: "Add bid", onClick: () => show("Add bid") }}
-      isEmpty={rows.length === 0}
-      emptyTitle={tab === "open" ? "No open services" : tab === "assigned" ? "Nothing assigned" : tab === "scheduled" ? "Nothing scheduled" : "Nothing completed yet"}
+      primary={{ label: "Add bid", onClick: () => setQuoteOpen(true) }}
+      isEmpty={isFindWork ? board.length === 0 : rows.length === 0}
+      emptyTitle={emptyTitle}
       emptySection="services"
-      menu={tab === "scheduled" ? <FixtureMenuItems toast={show} items={["Complete"]} /> : undefined}
       overlay={
         <>
-          <FixtureSheet
-            open={!!selected}
-            title={selected?.title ?? ""}
-            onClose={() => setSelected(null)}
-            primaryLabel={selected?.state === "open" ? "Send bid" : undefined}
-            onPrimary={() => { show("Bid sent (sample)"); setSelected(null); }}
-          >
-            {selected ? (
-              <>
-                <FixtureField label="Where" value={placeLine(selected)} />
-                <FixtureField label="Status" value={selected.fact} />
-                {selected.figure ? <FixtureField label="Amount" value={selected.figure} /> : null}
-              </>
-            ) : null}
-          </FixtureSheet>
+          {quoteOpen ? (
+            <DemoVendorQuoteWizard
+              door="quote"
+              jobs={wizardJobs}
+              onClose={() => setQuoteOpen(false)}
+              onDone={() => {
+                setQuoteOpen(false);
+                show("Bid submitted (sample)");
+              }}
+            />
+          ) : null}
+          {invoiceFor ? (
+            <DemoVendorQuoteWizard
+              door="invoice"
+              jobs={[{ id: invoiceFor.id, title: invoiceFor.title, place: placeLine(invoiceFor) }]}
+              initialJobId={invoiceFor.id}
+              onClose={() => setInvoiceFor(null)}
+              onDone={() => {
+                setInvoicedIds((cur) => [...cur, invoiceFor.id]);
+                setInvoiceFor(null);
+                show("Payment requested (sample)");
+              }}
+            />
+          ) : null}
           {toastNode}
         </>
       }
     >
-      {nearYou.length > 0 ? (
+      {isFindWork ? (
+        <VendorFindWorkList
+          services={board}
+          busy={null}
+          onChoose={(service, choice) =>
+            setRecord(targetForBoard(service, choice === "message" ? "communication" : "bid", choice === "bid" ? "submit_bid" : choice === "estimate" ? "book_estimate_visit" : undefined))
+          }
+        />
+      ) : (
         <>
-          <p className="px-3 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted">Near you</p>
+          {nearYou.length > 0 ? <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted">Near you</p> : null}
           {nearYou.map(renderRow)}
+          {others.map(renderRow)}
         </>
-      ) : null}
-      {mine.map(renderRow)}
+      )}
     </FixtureListScreen>
   );
 }
 
 /* ───────────────────────────── Calendar ───────────────────────────── */
 
+/** `VENDOR_CALENDAR_TAB_LABELS`: All · Services · Availability. */
 const CALENDAR_TABS = [
   { id: "all", label: "All" },
   { id: "services", label: "Services" },
@@ -216,17 +486,24 @@ function visitToGridItem(v: VisitFixture): CalendarGridItem {
 }
 
 export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
-  const visit = vendorVisit(story ?? vendorStory(undefined));
+  const current = story ?? vendorStory(undefined);
+  const visit = vendorVisit(current);
   // The grid shows the week the story's visit is in; the rows and counts below are only that week's.
   const week = visit ? NEXT_WEEK : CALENDAR_WEEK;
   /** Open hours: Monday to Friday, 8 AM to 4 PM. */
-  const availabilityDays = week.slice(0, 5);
-  const visits = useMemo(() => [...(visit ? [visit] : []), ...VISITS].filter((v) => week.includes(v.dateStr)), [visit, week]);
+  const availabilityDays = week.slice(0, DEMO_WEEKLY_WINDOWS.length);
+  const allVisits = useMemo(() => [...(visit ? [visit] : []), ...VISITS].filter((v) => week.includes(v.dateStr)), [visit, week]);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<CalendarGridItem | null>(null);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [selected, setSelected] = useState<VisitFixture | null>(null);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const [record, setRecord] = useState<ServiceTarget | null>(null);
+  const [invoicedIds, setInvoicedIds] = useState<string[]>([]);
   const { show, node: toastNode } = useFixtureToast();
 
+  const propertyOptions = useMemo(() => [...new Set(allVisits.map((v) => v.place.split(" · ")[0]!))].sort().map((value) => ({ value, label: value })), [allVisits]);
+  const visits = allVisits.filter((v) => propertyFilters.length === 0 || propertyFilters.includes(v.place.split(" · ")[0]!));
   const counts = { all: visits.length + availabilityDays.length, services: visits.length, availability: availabilityDays.length };
   const items = useMemo(
     () => (tab === "availability" ? [] : visits.filter((v) => matchesSearch(search, v.title, v.place)).map(visitToGridItem)),
@@ -239,6 +516,43 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, week]);
   const noop = () => undefined;
+  const openAvailability = () => setAvailabilityOpen(true);
+
+  const serviceFor = (title: string) => [...vendorServices(current), ...EXTRA_VENDOR_SERVICES].find((s) => s.title === title);
+  const openService = (title: string, section?: string) => {
+    const s = serviceFor(title);
+    if (s) setRecord(targetForService(s, section));
+    setSelected(null);
+  };
+
+  if (record) {
+    return (
+      <ServiceRecordScreen
+        key={record.job.id}
+        target={record}
+        onBack={() => setRecord(null)}
+        invoiced={invoicedIds.includes(record.job.id)}
+        onInvoiced={() => setInvoicedIds((cur) => [...cur, record.job.id])}
+        onCompleted={noop}
+      />
+    );
+  }
+
+  const filterSheet =
+    propertyOptions.length > 1 ? (
+      <DemoFilterSheet activeCount={portalFilterActiveCount([propertyFilters])} onReset={() => setPropertyFilters([])} dataAttr="vendor-calendar-filter-open" commandStripTrigger>
+        <FilterCollapsibleSection
+          label="Property"
+          summary={propertyFilters.length ? propertyFilters.join(", ") : "All properties"}
+          empty={propertyFilters.length === 0}
+          sectionId="property"
+          menuOptionCount={propertyOptions.length}
+          dataAttr="vendor-calendar-filter-property"
+        >
+          <FilterCheckboxList options={propertyOptions} selected={propertyFilters} onChange={setPropertyFilters} dataAttr="vendor-calendar-filter-property-list" />
+        </FilterCollapsibleSection>
+      </DemoFilterSheet>
+    ) : null;
 
   return (
     <FixtureListScreen
@@ -247,24 +561,43 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
       tabs={CALENDAR_TABS.map((t) => ({ ...t, count: counts[t.id as keyof typeof counts] }))}
       activeId={tab}
       onTab={setTab}
+      tabAriaLabel="Calendar view"
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search calendar"
-      actions={<PortalIconAction icon={CalendarSync} label="Google Calendar · not connected" onClick={() => show("Google Calendar")} />}
-      primary={{ label: "Add availability", onClick: () => show("Add availability") }}
+      actions={
+        <>
+          {filterSheet}
+          <PortalIconAction icon={CalendarSync} label="Integrations" badge="warn" data-attr="vendor-calendar-integrations-btn" onClick={() => show("Integrations (sample)")} />
+        </>
+      }
+      primary={{ label: "Add availability", onClick: openAvailability }}
       isEmpty={false}
       emptyTitle=""
       surface={false}
       overlay={
         <>
-          <FixtureSheet open={!!selected} title={selected?.title ?? ""} onClose={() => setSelected(null)}>
-            {selected ? (
-              <>
-                <FixtureField label="Where" value={selected.place} />
-                <FixtureField label="When" value={`${clock(selected.startMin)} – ${clock(selected.startMin + selected.durationMin)}`} />
-              </>
-            ) : null}
-          </FixtureSheet>
+          {availabilityOpen ? (
+            <DemoVendorAvailabilityDialog
+              onClose={() => setAvailabilityOpen(false)}
+              onSaved={() => {
+                setAvailabilityOpen(false);
+                show("Availability saved (sample)");
+              }}
+            />
+          ) : null}
+          {selected ? (
+            <DemoVendorVisitDialog
+              title={selected.title}
+              rows={[
+                { label: "When", value: `${new Date(`${selected.dateStr}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${clock(selected.startMin)} – ${clock(selected.startMin + selected.durationMin)}` },
+                { label: "Property", value: selected.place },
+              ]}
+              onClose={() => setSelected(null)}
+              onOpen={() => openService(selected.title)}
+              onMessage={() => openService(selected.title, "communication")}
+            />
+          ) : null}
           {toastNode}
         </>
       }
@@ -282,10 +615,10 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
           todayDs={CALENDAR_TODAY}
           nowMin={CALENDAR_NOW_MIN}
           isDay={false}
-          canEditAvailability={false}
-          onOpenItem={(item) => setSelected(item)}
-          onBandClick={noop}
-          onDragAdd={noop}
+          canEditAvailability
+          onOpenItem={(item) => setSelected(visits.find((v) => v.id === item.id) ?? null)}
+          onBandClick={openAvailability}
+          onDragAdd={openAvailability}
           minColumnPx={96}
         />
       </div>
@@ -293,118 +626,379 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
   );
 }
 
-/* ───────────────────────────── Payments ───────────────────────────── */
+/* ───────────────────────────── Finances: Payments ───────────────────────────── */
 
-const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const parseMoney = (s: string) => Number(s.replace(/[$,]/g, ""));
+type PaymentRow = {
+  id: string;
+  title: string;
+  place: string;
+  date: string;
+  /** yyyy-mm-dd, for the date filter. */
+  iso: string;
+  due?: string;
+  status: string;
+  amount: string;
+  manager: string;
+  bucket: "pending" | "paid" | "overdue";
+  /** The matching payout, when money has moved. */
+  payoutId?: string;
+};
+
+const PAYOUT_OF_PAYMENT: Record<string, string> = { "vpay-drain": "payout-3", "vpay-heater": "payout-2" };
+
+function isoOf(label: string): string {
+  const d = new Date(label);
+  return Number.isNaN(d.getTime()) ? "" : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function paymentRows(story: DemoStory): PaymentRow[] {
+  const fromWorld: PaymentRow[] = vendorPayments(story).map((p) => ({
+    id: p.id,
+    title: p.title,
+    place: p.place,
+    date: p.date,
+    iso: isoOf(p.date),
+    status: p.status,
+    amount: p.amount,
+    manager: "Seattle Homes",
+    bucket: p.status === "Paid" ? "paid" : "pending",
+    payoutId: PAYOUT_OF_PAYMENT[p.id],
+  }));
+  const overdue: PaymentRow[] = EXTRA_VENDOR_PAYMENTS.map((p) => ({ ...p, iso: isoOf(p.date), bucket: "overdue" as const }));
+  return [...fromWorld, ...overdue];
+}
+
+/** `VENDOR_PAYMENT_BUCKETS`: Pending · Paid · Overdue. */
+const PAYMENT_TABS = [
+  { id: "pending", label: "Pending" },
+  { id: "paid", label: "Paid" },
+  { id: "overdue", label: "Overdue" },
+] as const;
+
+type PaymentTarget = { kind: "invoice" | "payment"; row: PaymentRow };
 
 export function VendorPaymentsPanel({ story }: { story?: DemoStory } = {}) {
-  const payments = useMemo(() => vendorPayments(story ?? vendorStory(undefined)), [story]);
+  const rowsAll = useMemo(() => paymentRows(story ?? vendorStory(undefined)), [story]);
+  const [bucket, setBucket] = useState<(typeof PAYMENT_TABS)[number]["id"]>("pending");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<VendorPaymentFixture | null>(null);
+  const [statusIds, setStatusIds] = useState<string[]>([]);
+  const [propertyIds, setPropertyIds] = useState<string[]>([]);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [editRow, setEditRow] = useState<PaymentRow | null>(null);
+  const [refundFor, setRefundFor] = useState<string | null>(null);
+  const [retracted, setRetracted] = useState<string[]>([]);
+  const [record, setRecord] = useState<PaymentTarget | null>(null);
   const { show, node: toastNode } = useFixtureToast();
-  const rows = payments.filter((p) => matchesSearch(search, p.title, p.place, p.status));
-  // The balance card is derived from the rows below it: money submitted but not
-  // yet approved is pending; the newest paid invoice is what is available now.
-  const pending = payments.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
-  const available = parseMoney(payments.find((p) => p.status === "Paid")?.amount ?? "0");
+
+  const live = rowsAll.filter((r) => !retracted.includes(r.id));
+  const counts = countBy(live, (r) => r.bucket, ["pending", "paid", "overdue"]);
+  const statusOptions = [...new Set(live.map((r) => r.status))].map((value) => ({ value, label: value }));
+  const propertyOptions = [...new Set(live.map((r) => r.place.split(" · ")[0]!))].sort().map((value) => ({ value, label: value }));
+  const rows = live.filter(
+    (r) =>
+      r.bucket === bucket &&
+      matchesSearch(search, r.title, r.place, r.status, r.manager) &&
+      (statusIds.length === 0 || statusIds.includes(r.status)) &&
+      (propertyIds.length === 0 || propertyIds.includes(r.place.split(" · ")[0]!)) &&
+      (!from || r.iso >= from) &&
+      (!to || r.iso <= to),
+  );
+  const filtersActive = statusIds.length + propertyIds.length + (from ? 1 : 0) + (to ? 1 : 0);
+  const refundable = (r: PaymentRow) => Boolean(r.payoutId);
+
+  if (record) {
+    const back = () => setRecord(null);
+    if (record.kind === "invoice") {
+      return (
+        <PageFrame
+          path={`/vendor/financials/invoices/${record.row.id}`}
+          overlay={
+            <>
+              {editRow ? (
+                <DemoVendorQuoteWizard door="invoice" jobs={[{ id: editRow.id, title: editRow.title, place: editRow.place }]} initialJobId={editRow.id} onClose={() => setEditRow(null)} onDone={() => { setEditRow(null); show("Invoice updated (sample)"); }} />
+              ) : null}
+              {toastNode}
+            </>
+          }
+        >
+          <DemoVendorInvoiceRecord
+            invoice={{ id: record.row.id, number: record.row.title, place: record.row.place, date: record.row.date, status: record.row.status, amount: record.row.amount, manager: record.row.manager, service: record.row.place }}
+            messages={VENDOR_CONVERSATIONS[1]!.messages}
+            onBack={back}
+            onToast={show}
+            onEdit={() => setEditRow(record.row)}
+          />
+        </PageFrame>
+      );
+    }
+    const amountCents = Math.round(parseMoney(record.row.amount) * 100);
+    return (
+      <PageFrame
+        path={`/vendor/financials/payouts/${record.row.payoutId ?? record.row.id}`}
+        overlay={
+          <>
+            {refundFor ? <DemoVendorRefundDialog initialPaymentId={refundFor} onClose={() => setRefundFor(null)} onDone={() => { setRefundFor(null); show("Refund started (sample)"); }} /> : null}
+            {toastNode}
+          </>
+        }
+      >
+        <DemoVendorPaymentRecord
+          payment={{ id: record.row.id, title: record.row.title, place: record.row.place, date: record.row.date, amountCents, feeCents: Math.round(amountCents * 0.05), manager: record.row.manager }}
+          messages={VENDOR_CONVERSATIONS[1]!.messages}
+          onBack={back}
+          onToast={show}
+          onRefund={() => setRefundFor(record.row.payoutId ?? DEMO_REFUNDS[0]!.id)}
+        />
+      </PageFrame>
+    );
+  }
 
   return (
     <FixtureListScreen
       path="/vendor/payments/pending"
       title="Incoming payments"
-      tabs={[]}
-      activeId=""
-      onTab={() => undefined}
+      tabs={PAYMENT_TABS.map((t) => ({ ...t, count: counts[t.id], alert: t.id === "overdue" && counts.overdue > 0 }))}
+      activeId={bucket}
+      onTab={(id) => setBucket(id as typeof bucket)}
+      tabAriaLabel="Payment status"
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search payments"
       actions={
         <>
-          <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-          <PortalIconAction icon={Download} label="Export invoices CSV" onClick={() => show("Export")} />
-          <PortalIconAction icon={Settings} label="Payout setup" onClick={() => show("Payout setup")} />
+          <DemoFilterSheet
+            activeCount={filtersActive}
+            compactPanel
+            commandStripTrigger
+            filterFieldCount={4}
+            onReset={() => {
+              setStatusIds([]);
+              setPropertyIds([]);
+              setFrom("");
+              setTo("");
+            }}
+            dataAttr="vendor-finances-filter-open"
+          >
+            <FilterFieldsAccordion>
+              <FilterCollapsibleSection sectionId="status" label="Status" summary={filterMultiSelectSummary(statusIds, statusOptions)} empty={statusIds.length === 0} menuOptionCount={Math.max(1, statusOptions.length)}>
+                <FilterCheckboxList options={statusOptions} selected={statusIds} onChange={setStatusIds} dataAttr="vendor-finances-filter-status" />
+              </FilterCollapsibleSection>
+              <FilterCollapsibleSection sectionId="property" label="Property" summary={filterMultiSelectSummary(propertyIds, propertyOptions)} empty={propertyIds.length === 0} menuOptionCount={Math.max(1, propertyOptions.length)}>
+                <FilterCheckboxList options={propertyOptions} selected={propertyIds} onChange={setPropertyIds} dataAttr="vendor-finances-filter-property" />
+              </FilterCollapsibleSection>
+              <FilterCollapsibleSection sectionId="from" label="From" summary={from || "Any"} empty={!from} menuOptionCount={1}>
+                <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} data-attr="vendor-finances-filter-from" />
+              </FilterCollapsibleSection>
+              <FilterCollapsibleSection sectionId="to" label="To" summary={to || "Any"} empty={!to} menuOptionCount={1}>
+                <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} data-attr="vendor-finances-filter-to" />
+              </FilterCollapsibleSection>
+            </FilterFieldsAccordion>
+          </DemoFilterSheet>
+          <PortalIconAction icon={Download} label="Export invoices CSV" data-attr="vendor-export-invoices-csv" onClick={() => show("Export invoices CSV (sample)")} />
+          <PortalIconAction icon={Settings} label="Payout settings" data-attr="vendor-finances-payout-setup" onClick={() => show("Payout settings (sample)")} />
         </>
       }
-      primary={{ label: "Add payment", onClick: () => show("Add payment") }}
-      above={
-        <div className={`${CARD} mb-2 flex flex-wrap items-start justify-between gap-4 p-4`} data-attr="vendor-balance-card">
-          <div className="flex flex-wrap gap-x-8 gap-y-3">
-            <div>
-              <p className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted">Available now</p>
-              <p className="mt-1 text-2xl font-extrabold tracking-[-0.02em] text-foreground">{money(available)}</p>
-            </div>
-            <div>
-              <p className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-muted">Pending</p>
-              <p className="mt-1 text-2xl font-extrabold tracking-[-0.02em] text-foreground">{money(pending)}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            {(
-              [
-                [FileText, "Statement"],
-                [Undo2, "Refund"],
-                [ArrowUpFromLine, "Withdraw"],
-              ] as const
-            ).map(([Icon, label]) => (
-              <button
-                key={label}
-                type="button"
-                aria-label={label}
-                title={label}
-                onClick={() => show(`${label} (sample)`)}
-                className="grid size-9 place-items-center rounded-full text-muted transition hover:bg-accent/60 hover:text-foreground"
-              >
-                <Icon className="size-[18px]" strokeWidth={1.6} aria-hidden />
-              </button>
-            ))}
-          </div>
-        </div>
-      }
+      primary={{ label: "Add payment", onClick: () => setRequestOpen(true) }}
       isEmpty={rows.length === 0}
-      emptyTitle="No payments yet"
+      emptyTitle={rows.length === 0 && counts[bucket] > 0 && (search.trim() || filtersActive) ? "No payments match these filters" : bucket === "paid" ? "No paid payments" : bucket === "overdue" ? "Nothing overdue" : "No payments yet"}
       emptySection="payments"
       overlay={
         <>
-          <FixtureSheet open={!!selected} title={selected?.title ?? ""} onClose={() => setSelected(null)}>
-            {selected ? (
-              <>
-                <FixtureField label="Property" value={selected.place} />
-                <FixtureField label="Date" value={selected.date} />
-                <FixtureField label="Status" value={selected.status} />
-                <FixtureField label="Amount" value={selected.amount} />
-              </>
-            ) : null}
-          </FixtureSheet>
+          {requestOpen ? (
+            <DemoVendorQuoteWizard
+              door="invoice"
+              jobs={[...vendorServices(story ?? vendorStory(undefined)), ...EXTRA_VENDOR_SERVICES].filter((s) => s.state === "completed").map((s) => ({ id: s.id, title: s.title, place: placeLine(s) }))}
+              onClose={() => setRequestOpen(false)}
+              onDone={() => {
+                setRequestOpen(false);
+                show("Payment requested (sample)");
+              }}
+            />
+          ) : null}
+          {editRow ? (
+            <DemoVendorQuoteWizard door="invoice" jobs={[{ id: editRow.id, title: editRow.title, place: editRow.place }]} initialJobId={editRow.id} onClose={() => setEditRow(null)} onDone={() => { setEditRow(null); show("Invoice updated (sample)"); }} />
+          ) : null}
+          {refundFor ? <DemoVendorRefundDialog initialPaymentId={refundFor} onClose={() => setRefundFor(null)} onDone={() => { setRefundFor(null); show("Refund started (sample)"); }} /> : null}
           {toastNode}
         </>
       }
     >
-      {rows.map((p) => (
+      {rows.map((r) => {
+        const paid = r.bucket === "paid";
+        const items: VendorRowMenuItem[] = [
+          { id: "view", label: paid ? "View payment" : "View invoice", onSelect: () => setRecord({ kind: paid ? "payment" : "invoice", row: r }) },
+          ...(r.status === "Submitted"
+            ? [
+                { id: "edit", label: "Edit", onSelect: () => setEditRow(r) },
+                { id: "withdraw", label: "Retract invoice", onSelect: () => { setRetracted((cur) => [...cur, r.id]); show("Invoice retracted (sample)"); } },
+              ]
+            : []),
+          ...(paid ? [{ id: "download", label: "Download", onSelect: () => show("Download (sample)") }] : []),
+          ...(paid && refundable(r) ? [{ id: "refund", label: "Refund", onSelect: () => setRefundFor(r.payoutId!) }] : []),
+        ];
+        return (
+          <PortalPropertyRecordRow
+            key={r.id}
+            title={r.title}
+            address={r.place}
+            facts={
+              <>
+                <PortalRowFact icon={UserRound} srLabel="Manager">{r.manager}</PortalRowFact>
+                <PortalRowFact icon={CalendarDays} srLabel={paid ? "Paid" : "Due"} tone={r.bucket === "overdue" ? "danger" : undefined}>
+                  {paid ? `Paid ${r.date}` : r.due ? `Due ${r.due}` : r.date}
+                </PortalRowFact>
+                {!paid ? <span>{r.status}</span> : null}
+              </>
+            }
+            leading={
+              <span className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
+                <DollarSign className="size-5" />
+              </span>
+            }
+            leadingShape="square"
+            amount={r.amount}
+            amountTone={r.bucket === "overdue" ? "bad" : undefined}
+            actions={<VendorRowMenu label={r.title} items={items} dataAttr="vendor-payment-row-menu" />}
+            onOpen={() => setRecord({ kind: paid ? "payment" : "invoice", row: r })}
+            dataAttr={paid ? "vendor-income-row" : "vendor-invoice-row"}
+          />
+        );
+      })}
+    </FixtureListScreen>
+  );
+}
+
+/* ───────────────────────────── Finances: Balance & payouts ───────────────────────────── */
+
+type PayoutRow = Omit<VendorPayoutFixture, "status"> & { status: "Paid" | "In transit" | "Failed" };
+/** A failed payout, so the row's ⋯ "Retry" (offered on failed rows only) is reachable. */
+const FAILED_PAYOUT: PayoutRow = { id: "payout-0", kind: "Standard payout", bank: `Bank ····${DEMO_BANK.last4}`, date: "Aug 12, 2025", status: "Failed", amount: "$60.00" };
+
+/**
+ * `vendor-finances-balance.tsx`, Balance & payouts (where bare `/vendor/financials` lands): a stat strip (Available ·
+ * Pending · Held · On the way) with the Bank and Withdraw icon actions, one "Payouts" destination, and the payout rows.
+ * Every figure but the released balance is read off the rows; the faucet job's payout appears once it is paid.
+ */
+export function VendorFinancesPanel({ story }: { story?: DemoStory } = {}) {
+  const current = story ?? vendorStory(undefined);
+  const payments = vendorPayments(current);
+  const payouts: PayoutRow[] = useMemo(
+    () => [
+      ...(current.service === "paid" ? [{ id: "payout-faucet", kind: "Standard payout" as const, bank: `Bank ····${DEMO_BANK.last4}`, date: "Oct 2, 2025", status: "In transit" as const, amount: "$180.00" }] : []),
+      ...VENDOR_PAYOUTS,
+      FAILED_PAYOUT,
+    ],
+    [current.service],
+  );
+  const [bankOpen, setBankOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState<{ amountCents?: number } | null>(null);
+  const [record, setRecord] = useState<PayoutRow | null>(null);
+  const { show, node: toastNode } = useFixtureToast();
+  const pending = payments.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
+  const onTheWay = payouts.filter((p) => p.status === "In transit").reduce((sum, p) => sum + parseMoney(p.amount), 0);
+  const stats: PortalStat[] = [
+    { id: "available", label: "Available", value: cents(DEMO_AVAILABLE_CENTS), dataAttr: "vendor-balance-available" },
+    { id: "pending", label: "Pending", value: money(pending), dataAttr: "vendor-balance-pending" },
+    { id: "held", label: "Held", value: money(0), dataAttr: "vendor-balance-held" },
+    { id: "on-the-way", label: "On the way", value: money(onTheWay), dataAttr: "vendor-balance-on-the-way" },
+  ];
+
+  if (record) {
+    const amountCents = Math.round(parseMoney(record.amount) * 100);
+    return (
+      <PageFrame path={`/vendor/financials/balance/${record.id}`} overlay={toastNode}>
+        <DemoVendorWithdrawalRecord
+          withdrawal={{
+            id: record.id,
+            title: record.kind === "Instant payout" ? "Instant payout" : "Standard payout",
+            amountCents,
+            feeCents: record.fee ? Math.round(parseMoney(record.fee.replace(/^Fee\s*/, "")) * 100) : 0,
+            bank: record.bank,
+            sent: record.date,
+            arrived: record.date,
+            status: record.status === "In transit" ? "In transit" : record.status,
+          }}
+          onBack={() => setRecord(null)}
+          onToast={show}
+        />
+      </PageFrame>
+    );
+  }
+
+  return (
+    <FixtureListScreen
+      path="/vendor/financials/balance"
+      title="Finances"
+      tabs={[{ id: "payouts", label: "Payouts", count: payouts.length }]}
+      activeId="payouts"
+      onTab={() => undefined}
+      tabAriaLabel="Payout history"
+      above={
+        <div className="mb-3 flex items-start gap-3" data-attr="vendor-balance-card">
+          <PortalStatStrip className="min-w-0 flex-1" dataAttr="vendor-balance-stats" items={stats} size="lg" />
+          <div className="flex shrink-0 items-center gap-1.5 pt-1">
+            <PortalIconAction icon={Landmark} label="Bank" data-attr="vendor-balance-bank" onClick={() => setBankOpen(true)} />
+            <PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="vendor-balance-withdraw" onClick={() => setWithdrawOpen({})} />
+          </div>
+        </div>
+      }
+      isEmpty={payouts.length === 0}
+      emptyTitle="No payouts yet"
+      emptySection="financials"
+      overlay={
+        <>
+          {bankOpen ? (
+            <DemoVendorAddBankDialog
+              onClose={() => setBankOpen(false)}
+              onDone={() => {
+                setBankOpen(false);
+                show("Bank account added (sample)");
+              }}
+            />
+          ) : null}
+          {withdrawOpen ? (
+            <DemoVendorWithdrawDialog
+              initialAmountCents={withdrawOpen.amountCents}
+              onClose={() => setWithdrawOpen(null)}
+              onDone={() => {
+                setWithdrawOpen(null);
+                show("Withdrawal started (sample)");
+              }}
+            />
+          ) : null}
+          {toastNode}
+        </>
+      }
+    >
+      {payouts.map((p) => (
         <PortalPropertyRecordRow
           key={p.id}
-          title={p.title}
-          address={p.place}
-          facts={<span className="truncate">{`${p.date} · ${p.status}`}</span>}
-          amount={p.amount}
-          actions={
-            <VendorRowMenu
-              label={p.title}
-              dataAttr="vendor-payment-row-menu"
-              items={[
-                { id: "view", label: "View invoice", onSelect: () => setSelected(p) },
-                ...(p.status === "Submitted"
-                  ? [
-                      { id: "edit", label: "Edit", onSelect: () => show("Edit (sample)") },
-                      { id: "withdraw", label: "Retract invoice", onSelect: () => show("Retract invoice (sample)") },
-                    ]
-                  : []),
-                ...(p.status === "Paid" ? [{ id: "download", label: "Download", onSelect: () => show("Download (sample)") }] : []),
-              ] satisfies VendorRowMenuItem[]}
-            />
+          title={p.kind}
+          address={p.bank}
+          leading={
+            <span className="grid size-14 place-items-center rounded-xl bg-accent/60 text-muted" aria-hidden>
+              {p.kind === "Instant payout" ? <Zap className="size-5" strokeWidth={1.75} /> : <ArrowUp className="size-5" strokeWidth={1.75} />}
+            </span>
           }
-          onOpen={() => setSelected(p)}
-          dataAttr="vendor-payment-row"
+          leadingShape="square"
+          facts={
+            <>
+              <PortalRowFact icon={CalendarDays} srLabel="Sent">{p.date}</PortalRowFact>
+              <span>{p.status}</span>
+              {p.fee ? <PortalRowFact icon={Zap} srLabel="Fee">{p.fee}</PortalRowFact> : null}
+            </>
+          }
+          amount={p.amount}
+          amountTone={p.status === "Failed" ? "bad" : undefined}
+          actions={
+            p.status === "Failed" ? (
+              <VendorRowMenu label={p.kind} dataAttr="vendor-payout-row-menu" items={[{ id: "retry", label: "Retry", onSelect: () => setWithdrawOpen({ amountCents: Math.round(parseMoney(p.amount) * 100) }) }]} />
+            ) : undefined
+          }
+          onOpen={() => setRecord(p)}
+          dataAttr="vendor-payout-history-row"
         />
       ))}
     </FixtureListScreen>
@@ -439,7 +1033,6 @@ export function VendorOutgoingPanel() {
       searchPlaceholder="Search expenses"
       actions={
         <>
-          <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
           <PortalIconAction icon={Download} label="Download expenses" onClick={() => show("Download (sample)")} />
         </>
       }
@@ -474,102 +1067,333 @@ export function VendorOutgoingPanel() {
   );
 }
 
+/* ───────────────────────────── Finances: Refunds ───────────────────────────── */
+
+const REFUND_STATUS = {
+  pending: { icon: Clock, text: "Pending" },
+  succeeded: { icon: Check, text: "Refunded" },
+  failed: { icon: AlertTriangle, text: "Failed" },
+} as const;
+
+/**
+ * `vendor-refunds-panel.tsx`: no tabs; the refund rows (tile, payment, manager, date, status as glyph facts, figure, ⋯
+ * "Refresh status") and the round "Refund a payment". The real list surface carries that action as `add`, which a
+ * populated surface does not draw, so the demo puts it in the page's command bar where every other round + lives.
+ */
+export function VendorRefundsPanel() {
+  const { show, node: toastNode } = useFixtureToast();
+  const [open, setOpen] = useState(false);
+  return (
+    <FixtureListScreen
+      path="/vendor/financials/refunds"
+      title="Finances"
+      tabs={[]}
+      activeId=""
+      onTab={() => undefined}
+      primary={{ label: "Refund a payment", onClick: () => setOpen(true) }}
+      isEmpty={DEMO_REFUNDS.length === 0}
+      emptyTitle="No refunds yet"
+      emptySection="payments"
+      overlay={
+        <>
+          {open ? (
+            <DemoVendorRefundDialog
+              onClose={() => setOpen(false)}
+              onDone={() => {
+                setOpen(false);
+                show("Refund started (sample)");
+              }}
+            />
+          ) : null}
+          {toastNode}
+        </>
+      }
+    >
+      {DEMO_REFUNDS.map((refund) => {
+        const status = REFUND_STATUS[refund.status];
+        return (
+          <PortalPropertyRecordRow
+            key={refund.id}
+            title={refund.paymentLabel}
+            leading={<PortalRowIconTile icon={Undo2} />}
+            leadingShape="square"
+            facts={
+              <>
+                <PortalRowFact icon={UserRound} srLabel="Manager">{refund.manager}</PortalRowFact>
+                <PortalRowFact icon={CalendarDays} srLabel="Date">{refund.date}</PortalRowFact>
+                <PortalRowFact icon={status.icon} srLabel="Status" tone={refund.status === "failed" ? "danger" : undefined}>{status.text}</PortalRowFact>
+              </>
+            }
+            amount={cents(refund.grossCents)}
+            dataAttr="vendor-refund-row"
+            actions={<VendorRowMenu label={refund.paymentLabel} dataAttr="vendor-refund-menu" items={[{ id: "refresh", label: "Refresh status", onSelect: () => show("Status refreshed (sample)") }]} />}
+          />
+        );
+      })}
+    </FixtureListScreen>
+  );
+}
+
+/* ───────────────────────────── Finances: Statements ───────────────────────────── */
+
+export function VendorStatementsPanel() {
+  const { show, node: toastNode } = useFixtureToast();
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
+  return (
+    <FixtureListScreen
+      path="/vendor/financials/statements"
+      title="Finances"
+      tabs={[{ id: "statements", label: "Statements", count: DEMO_STATEMENTS.length }]}
+      activeId="statements"
+      onTab={() => undefined}
+      tabAriaLabel="Statements"
+      actions={<PortalIconAction icon={Download} label="Export all activity CSV" data-attr="vendor-statements-export-all" onClick={() => show("Export all activity CSV (sample)")} />}
+      isEmpty={DEMO_STATEMENTS.length === 0}
+      emptyTitle="No statements yet"
+      emptySection="financials"
+      overlay={
+        <>
+          {openMonth ? <DemoVendorStatementDialog month={openMonth} onClose={() => setOpenMonth(null)} /> : null}
+          {toastNode}
+        </>
+      }
+    >
+      {DEMO_STATEMENTS.map((statement) => {
+        const label = statementMonthLabel(statement.month);
+        return (
+          <PortalPropertyRecordRow
+            key={statement.month}
+            title={label}
+            leading={
+              <span className="grid size-14 place-items-center rounded-xl bg-accent text-primary" aria-hidden>
+                <FileText className="size-5" />
+              </span>
+            }
+            leadingShape="square"
+            facts={
+              <>
+                <span>Opening {cents(statement.openingCents)}</span>
+                <span>Closing {cents(statementClosingCents(statement))}</span>
+                <span>Matches Stripe</span>
+                <PortalRowFact icon={FileText} srLabel="Lines">{statement.lines.length} lines</PortalRowFact>
+              </>
+            }
+            actions={
+              <VendorRowMenu
+                label={label}
+                dataAttr="vendor-statement-row-menu"
+                items={[
+                  { id: "view", label: "View statement", onSelect: () => setOpenMonth(statement.month) },
+                  { id: "pdf", label: "Download PDF", onSelect: () => show("Download PDF (sample)") },
+                  { id: "csv", label: "Download CSV", onSelect: () => show("Download CSV (sample)") },
+                ]}
+              />
+            }
+            onOpen={() => setOpenMonth(statement.month)}
+            dataAttr="vendor-statement-month-row"
+          />
+        );
+      })}
+    </FixtureListScreen>
+  );
+}
+
+/* ───────────────────────────── Finances: Tax info ───────────────────────────── */
+
+export function VendorTaxPanel() {
+  const { show, node: toastNode } = useFixtureToast();
+  const [editing, setEditing] = useState(false);
+  const currentYear = 2025;
+  const hasW9 = true;
+  return (
+    <FixtureListScreen
+      path="/vendor/financials/tax"
+      title="Finances"
+      tabs={[{ id: "years", label: "Tax years", count: DEMO_TAX_YEARS.length }]}
+      activeId="years"
+      onTab={() => undefined}
+      tabAriaLabel="Tax years"
+      above={
+        <PortalSettingsSection title="W-9" action={<PortalIconAction icon={Pencil} label={hasW9 ? "Edit W-9" : "Add W-9"} data-attr="vendor-tax-edit" onClick={() => setEditing(true)} />}>
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Legal name"><span data-attr="vendor-tax-legal-name">{DEMO_W9.legalName}</span></PortalSettingsRow>
+            <PortalSettingsRow label="Tax ID"><span data-attr="vendor-tax-tin">{maskTin(DEMO_W9.tinType, DEMO_W9.tinLast4)}</span></PortalSettingsRow>
+            <PortalSettingsRow label="Entity type">{vendorW9EntityLabel(DEMO_W9.entityType)}</PortalSettingsRow>
+            <PortalSettingsRow label="Address">{[DEMO_W9.city, DEMO_W9.state].filter(Boolean).join(", ")}</PortalSettingsRow>
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
+      }
+      isEmpty={DEMO_TAX_YEARS.length === 0}
+      emptyTitle="No tax years yet"
+      emptySection="financials"
+      overlay={
+        <>
+          {editing ? (
+            <DemoVendorW9Dialog
+              hasW9={hasW9}
+              onClose={() => setEditing(false)}
+              onDone={() => {
+                setEditing(false);
+                show("W-9 saved (sample)");
+              }}
+            />
+          ) : null}
+          {toastNode}
+        </>
+      }
+    >
+      {DEMO_TAX_YEARS.map((year) => {
+        const reportable = Math.max(0, year.earningsCents - year.refundsCents);
+        const summary: VendorTaxYearSummary = { year: year.year, earningsCents: year.earningsCents, feesCents: year.feesCents, refundsCents: year.refundsCents, reportableCents: reportable, thresholdCents: year.thresholdCents, overThreshold: reportable >= year.thresholdCents };
+        return (
+          <PortalPropertyRecordRow
+            key={year.year}
+            title={String(year.year)}
+            leading={
+              <span className="grid size-14 place-items-center rounded-xl bg-accent text-sm font-semibold text-primary" aria-hidden>
+                {year.year}
+              </span>
+            }
+            leadingShape="square"
+            facts={
+              <>
+                <span>Earnings {cents(year.earningsCents)}</span>
+                <span>Fees {cents(year.feesCents)}</span>
+                <span>Refunds {cents(year.refundsCents)}</span>
+                <span data-attr="vendor-tax-1099-status">{form1099StatusLabel(summary, { hasW9, currentYear })}</span>
+              </>
+            }
+            dataAttr="vendor-tax-year-row"
+          />
+        );
+      })}
+    </FixtureListScreen>
+  );
+}
+
+/** The Finances section the sidebar's sub-row names: overview and balance (also bare) or refunds. Payments, Statements and Tax live in their own sections now. */
+export function VendorFinancesRouter({ story, sub }: { story?: DemoStory; sub?: string }) {
+  if (sub === "refunds") return <VendorRefundsPanel />;
+  return <VendorFinancesPanel story={story} />;
+}
+
+/* ───────────────────────────── Dashboard: Balance card ───────────────────────────── */
+
+/**
+ * `VendorDashboardBalanceCard` (the dashboard's `belowKpis` slot): "Available to withdraw", the on-the-way and pending
+ * lines, and the Withdraw icon (Add bank account when no bank is set up). Presentational, fed the same rows the
+ * Balance & payouts tab reads.
+ */
+export function VendorDashboardBalanceDemo({ story }: { story?: DemoStory } = {}) {
+  const current = story ?? vendorStory(undefined);
+  const payments = vendorPayments(current);
+  const pending = payments.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
+  const onTheWay = current.service === "paid" ? 180 : 0;
+  const { show, node: toastNode } = useFixtureToast();
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  return (
+    <div className="rounded-[10px] border border-border bg-card px-4 py-3.5" data-attr="vendor-dashboard-balance">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[13px] font-[550] text-muted">Available to withdraw</p>
+          <p className="my-1 text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground" data-attr="vendor-dashboard-balance-available">
+            {cents(DEMO_AVAILABLE_CENTS)}
+          </p>
+          {onTheWay > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-balance-pending">{money(onTheWay)} on the way to your bank</p> : null}
+          {pending > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-payment-pending">{money(pending)} pending payment</p> : null}
+        </div>
+        <PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="vendor-dashboard-withdraw" onClick={() => setWithdrawOpen(true)} />
+      </div>
+      {withdrawOpen ? (
+        <DemoVendorWithdrawDialog
+          onClose={() => setWithdrawOpen(false)}
+          onDone={() => {
+            setWithdrawOpen(false);
+            show("Withdrawal started (sample)");
+          }}
+        />
+      ) : null}
+      {toastNode}
+    </div>
+  );
+}
+
 /* ───────────────────────────── Reviews ───────────────────────────── */
 
+/** `VENDOR_REVIEW_STATUS_TABS`: All · Needs reply · Replied. */
 const REVIEW_TABS = [
   { id: "all", label: "All" },
   { id: "needs-reply", label: "Needs reply" },
   { id: "replied", label: "Replied" },
 ];
+/** The Filter popover's Rating list (`RATING_FILTER_OPTIONS`). */
+const RATING_FILTER_OPTIONS = [
+  { value: "0", label: "All ratings" },
+  { value: "5", label: "5 stars" },
+  { value: "4", label: "4 stars & up" },
+  { value: "3", label: "3 stars & up" },
+  { value: "2", label: "2 stars & up" },
+  { value: "1", label: "1 star & up" },
+];
 
-/** Reviews carry no reviewer name — a vendor never learns which manager wrote one. */
-function ReviewCard({ review, onReply }: { review: VendorReviewFixture; onReply: (text: string) => void }) {
-  const [draft, setDraft] = useState("");
-  return (
-    <article className={`${CARD} p-4`} data-attr="vendor-review-row">
-      <div className="flex items-center justify-between gap-3">
-        <VendorReviewStarDisplay stars={review.stars} size="md" />
-        <span className="text-[12.5px] text-muted">{review.at}</span>
-      </div>
-      <p className="mt-2 text-[14px] text-foreground">{review.body}</p>
-      {review.reply ? (
-        <p className="mt-3 rounded-lg bg-accent/40 px-3 py-2 text-[13px] text-foreground/80">
-          <span className="font-medium text-foreground">Your reply: </span>
-          {review.reply}
-        </p>
-      ) : (
-        <div className="mt-3 flex flex-col items-end gap-2">
-          <textarea
-            rows={2}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Reply to this review…"
-            aria-label="Reply to this review"
-            className="w-full resize-none rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted focus:border-primary"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              onReply(draft);
-              setDraft("");
-            }}
-            className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white"
-          >
-            Send reply
-          </button>
-        </div>
-      )}
-    </article>
-  );
+function reviewDate(at: string): string {
+  const parts = at.split(",");
+  return parts.length >= 2 ? `${parts[0]!.trim()}, ${parts[1]!.trim()}` : at;
 }
 
-/** The stats card: overall rating plus the 5★ to 1★ distribution, bars scaled to the largest count. */
-function ReviewStats() {
-  const dist = [5, 4, 3, 2, 1].map((stars) => ({ stars, n: VENDOR_REVIEWS.filter((r) => r.stars === stars).length }));
-  const max = Math.max(1, ...dist.map((d) => d.n));
+/** The header stats strip: Average rating, Reviews, Needs reply, Response rate - every figure derived from the rows. */
+function ReviewStatsStrip({ reviews }: { reviews: VendorReviewFixture[] }) {
+  const total = reviews.length;
+  const needsReply = reviews.filter((r) => !r.reply).length;
+  const average = total > 0 ? reviews.reduce((sum, r) => sum + r.stars, 0) / total : null;
+  const responseRate = total > 0 ? Math.round(((total - needsReply) / total) * 100) : null;
+  const cells = [
+    { id: "average", label: "Average rating", value: average == null ? "—" : `${average.toFixed(1)} ★` },
+    { id: "count", label: "Reviews", value: String(total) },
+    { id: "needs-reply", label: "Needs reply", value: String(needsReply) },
+    { id: "response-rate", label: "Response rate", value: responseRate == null ? "—" : `${responseRate}%` },
+  ];
   return (
-    <section className={`${CARD} mb-2 p-4`} data-testid="vendor-reviews-stats">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-[15px] font-semibold text-foreground">Overall</h3>
-        <span className="flex items-center gap-2 text-[13.5px] text-foreground">
-          <VendorReviewStarDisplay stars={VENDOR_RATING.average} size="md" />
-          <span className="font-semibold">
-            {VENDOR_RATING.average.toFixed(1)} ({VENDOR_RATING.count} {VENDOR_RATING.count === 1 ? "review" : "reviews"})
-          </span>
-        </span>
-      </div>
-      <div className="mt-3 flex flex-col gap-1.5">
-        {dist.map((d) => (
-          <div key={d.stars} className="flex items-center gap-2 text-[12.5px] text-muted">
-            <span className="w-6 shrink-0">{d.stars}★</span>
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-accent/60">
-              <span className="block h-full rounded-full bg-primary" style={{ width: `${(d.n / max) * 100}%` }} />
-            </span>
-            <span className="w-4 shrink-0 text-right tabular-nums">{d.n}</span>
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4" data-attr="vendor-reviews-stats" data-testid="vendor-reviews-stats">
+      {cells.map((cell) => (
+        <div key={cell.id} className="rounded-[10px] border border-border bg-card px-4 py-3" data-attr={`vendor-reviews-stat-${cell.id}`}>
+          <p className="text-[13px] text-muted">{cell.label}</p>
+          <p className="mt-1 text-xl font-[650] leading-none tracking-tight text-foreground tabular-nums">{cell.value}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
 export function VendorReviewsPanel() {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [rating, setRating] = useState("0");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [replies, setReplies] = useState<Record<string, string>>({});
+  const [replying, setReplying] = useState<{ review: VendorReviewFixture; quick: boolean } | null>(null);
   const { show, node: toastNode } = useFixtureToast();
 
-  // A reply typed here lives in this panel only; the card then reads as replied.
+  // A reply typed here lives in this panel only; the row then reads as replied.
   const reviews = useMemo(() => VENDOR_REVIEWS.map((r) => (replies[r.id] ? { ...r, reply: replies[r.id] } : r)), [replies]);
   const counts = { all: reviews.length, "needs-reply": reviews.filter((r) => !r.reply).length, replied: reviews.filter((r) => r.reply).length };
-  const rows = reviews.filter(
-    (r) => (tab === "all" || (tab === "needs-reply" ? !r.reply : Boolean(r.reply))) && matchesSearch(search, r.body, r.reply),
-  );
+  const minStars = rating === "0" ? null : Number(rating);
+  const rows = reviews.filter((r) => {
+    if (!(tab === "all" || (tab === "needs-reply" ? !r.reply : Boolean(r.reply)))) return false;
+    if (minStars != null && r.stars < minStars) return false;
+    const iso = isoOf(reviewDate(r.at));
+    if (fromDate && iso < fromDate) return false;
+    if (toDate && iso > toDate) return false;
+    return matchesSearch(search, r.body, r.reply);
+  });
+  const filtersActive = portalFilterActiveCount([rating !== "0" ? rating : "", fromDate, toDate]);
 
   return (
     <FixtureListScreen
       path="/vendor/reviews"
       title="Reviews"
+      above={<ReviewStatsStrip reviews={reviews} />}
       tabs={REVIEW_TABS.map((t) => ({ ...t, count: counts[t.id as keyof typeof counts] }))}
       activeId={tab}
       onTab={setTab}
@@ -577,52 +1401,362 @@ export function VendorReviewsPanel() {
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search reviews"
-      actions={<PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />}
-      above={<ReviewStats />}
-      isEmpty={false}
-      emptyTitle=""
-      surface={false}
-      overlay={toastNode}
-    >
-      <div className="flex flex-col gap-3">
-        {rows.length === 0 ? (
-          <p className={`${CARD} px-4 py-6 text-center text-[13px] text-muted`}>No reviews match these filters.</p>
-        ) : (
-          rows.map((r) => (
-            <ReviewCard
-              key={r.id}
-              review={r}
-              onReply={(text) => {
-                if (!text.trim()) return;
-                setReplies((m) => ({ ...m, [r.id]: text.trim() }));
-                show("Reply sent (sample)");
+      actions={
+        <>
+          <DemoFilterSheet
+            activeCount={filtersActive}
+            compactPanel
+            filterFieldCount={3}
+            commandStripTrigger
+            onReset={() => {
+              setRating("0");
+              setFromDate("");
+              setToDate("");
+            }}
+            dataAttr="vendor-reviews-filter-open"
+          >
+            <FilterFieldsAccordion>
+              <FilterCollapsibleSection sectionId="rating" label="Rating" summary={filterSingleSelectSummary(rating, RATING_FILTER_OPTIONS, "All ratings")} empty={rating === "0"} menuOptionCount={RATING_FILTER_OPTIONS.length} dataAttr="vendor-reviews-filter-rating">
+                <FilterSingleSelectList options={RATING_FILTER_OPTIONS} value={rating} onChange={setRating} dataAttr="vendor-reviews-rating" />
+              </FilterCollapsibleSection>
+              <FilterCollapsibleSection sectionId="from" label="From" summary={fromDate || "Any"} empty={!fromDate} menuOptionCount={1}>
+                <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} data-attr="vendor-reviews-filter-from" />
+              </FilterCollapsibleSection>
+              <FilterCollapsibleSection sectionId="to" label="To" summary={toDate || "Any"} empty={!toDate} menuOptionCount={1}>
+                <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} data-attr="vendor-reviews-filter-to" />
+              </FilterCollapsibleSection>
+            </FilterFieldsAccordion>
+          </DemoFilterSheet>
+          <PortalIconAction icon={Settings} label="Profile settings" data-attr="vendor-reviews-settings-gear" onClick={() => show("Profile settings (sample)")} />
+        </>
+      }
+      isEmpty={rows.length === 0}
+      emptyTitle={reviews.length === 0 ? "No reviews yet" : "No reviews match these filters"}
+      emptySection="reviews"
+      overlay={
+        <>
+          {replying ? (
+            <DemoVendorReplyDialog
+              key={`${replying.review.id}-${replying.quick}`}
+              stars={replying.review.stars}
+              body={replying.review.body}
+              reply={replying.review.reply}
+              openQuickReplies={replying.quick}
+              onClose={() => setReplying(null)}
+              onSaved={(text) => {
+                setReplies((m) => ({ ...m, [replying.review.id]: text.trim() }));
+                setReplying(null);
+                show(replying.review.reply ? "Reply updated (sample)" : "Reply sent (sample)");
               }}
             />
-          ))
-        )}
-      </div>
+          ) : null}
+          {toastNode}
+        </>
+      }
+    >
+      {rows.map((review) => {
+        const replied = Boolean(review.reply);
+        return (
+          <PortalPropertyRecordRow
+            key={review.id}
+            title="A PropLane manager"
+            address={review.body}
+            facts={
+              <>
+                <PortalRowFact icon={CalendarDays} srLabel="Reviewed">{reviewDate(review.at)}</PortalRowFact>
+                {replied ? <PortalRowFact icon={Check} srLabel="Replied">Replied</PortalRowFact> : null}
+              </>
+            }
+            leading={
+              <span className="flex size-14 items-center justify-center rounded-xl bg-accent text-[15px] font-bold text-primary" aria-hidden>
+                {Math.round(review.stars)}{"★"}
+              </span>
+            }
+            leadingShape="square"
+            onOpen={() => setReplying({ review, quick: false })}
+            dataAttr="vendor-review-row"
+            actions={
+              <VendorRowMenu
+                label="A PropLane manager"
+                dataAttr="vendor-review-menu"
+                items={
+                  replied
+                    ? [{ id: "edit-reply", label: "Edit reply", onSelect: () => setReplying({ review, quick: false }) }]
+                    : [
+                        { id: "reply", label: "Reply", onSelect: () => setReplying({ review, quick: false }) },
+                        { id: "reply-quick", label: "Reply with a quick reply", onSelect: () => setReplying({ review, quick: true }) },
+                      ]
+                }
+              />
+            }
+          />
+        );
+      })}
     </FixtureListScreen>
   );
 }
 
 /* ───────────────────────────── Communication ───────────────────────────── */
 
+/** The record kind a conversation is about, when it is about one (an invoice thread carries its INV number). */
+function conversationKind(c: CommConversationFixture): RecordKind | null {
+  if (/INV-/.test(c.subtitle)) return "outgoing-payment";
+  return /change order|faucet|valve|disposal/i.test(c.preview) ? "service" : null;
+}
+
+/**
+ * `vendor-communication.tsx`: Active · Archived, the pinned PropLane assistant row, the list's Filter (Status and About),
+ * the Communication settings gear (a Settings page in the real portal) and the round New message, which opens the
+ * real compose dialog; search says "Search communication".
+ */
 export function VendorCommunicationPanel({ conversations }: { conversations: CommConversationFixture[] }) {
-  return <FixtureInboxScreen path="/vendor/communication/active" conversations={conversations} selfName={VENDOR_NAME} />;
+  const [segment, setSegment] = useState<"active" | "archived">("active");
+  const [status, setStatus] = useState<CommunicationStatus>("active");
+  const [about, setAbout] = useState("");
+  const [selectedId, setSelectedId] = useState(conversations.find((c) => c.segment === "active")?.id ?? conversations[0]?.id ?? "");
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [sent, setSent] = useState<Record<string, { id: string; author: string; body: string; at: string; direction: "outbound" }[]>>({});
+  const { show, node: toastNode } = useFixtureToast();
+  // The list and thread sit side by side from the desktop breakpoint; below it the real inbox shows the list until a row is opened.
+  const [wide, setWide] = useState(false);
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setWide(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const counts = useMemo(() => {
+    const c = { active: 0, archived: 0 };
+    for (const conv of conversations) c[conv.segment] += 1;
+    return c;
+  }, [conversations]);
+  const visible = conversations.filter(
+    (c) =>
+      c.segment === segment &&
+      (status === "unread" ? c.unread : status === "read" ? !c.unread : true) &&
+      (!about || conversationKind(c) === about) &&
+      matchesSearch(query, c.name, c.subtitle, c.preview),
+  );
+  const assistantSelected = selectedId === "propLane-assistant";
+  const selected: CommConversationFixture | undefined = assistantSelected ? undefined : (conversations.find((c) => c.id === selectedId) ?? visible[0]);
+  const messages = selected ? [...selected.messages, ...(sent[selected.id] ?? [])] : [];
+  const filterCount = (status === "active" ? 0 : 1) + (about ? 1 : 0);
+
+  function send() {
+    if (!draft.trim() || !selected) return;
+    setSent((m) => ({
+      ...m,
+      [selected.id]: [...(m[selected.id] ?? []), { id: `local-${(m[selected.id]?.length ?? 0) + 1}`, author: VENDOR_NAME, body: draft, at: "Just now", direction: "outbound" }],
+    }));
+    setDraft("");
+    show("Sent");
+  }
+
+  return (
+    <ProductWindow path="/vendor/communication/active">
+      <div className={DEMO_PAGE_CLASS}>
+        <ManagerPortalPageShell title="Communication" viewportFillBody>
+          <InboxTwoPane
+            threadOpen={wide || opened}
+            fillParent
+            panes="split"
+            list={
+              <div className="flex h-full flex-col">
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                  <LocalDestinationNav
+                    appearance="command"
+                    ariaLabel="Conversations"
+                    items={[
+                      { id: "active", label: "Active", count: counts.active },
+                      { id: "archived", label: "Archived", count: counts.archived },
+                    ]}
+                    activeId={segment}
+                    onChange={(id) => setSegment(id as "active" | "archived")}
+                  />
+                  <span className="flex shrink-0 items-center">
+                    <DemoFilterSheet activeCount={filterCount} compactPanel filterFieldCount={2} commandStripTrigger onReset={() => { setStatus("active"); setAbout(""); }} dataAttr="vendor-communication-filter-open">
+                      <CommunicationStatusFilterDraft value={status} onChange={setStatus} hideArchived />
+                      <FieldSingleSelect
+                        label="About"
+                        value={about}
+                        onChange={setAbout}
+                        options={[{ value: "", label: "All records" }, ...RECORD_KIND_FILTER_OPTIONS]}
+                        placeholder="All records"
+                        dataAttr="vendor-communication-filter-about"
+                      />
+                    </DemoFilterSheet>
+                    <PortalIconAction icon={Settings} label="Communication settings" data-attr="vendor-communication-settings-gear" onClick={() => show("Communication settings (sample)")} />
+                    <PortalPrimaryIconAction label="New message" icon={PenSquare} data-attr="communication-new-message" onClick={() => setComposeOpen(true)} />
+                  </span>
+                </div>
+                <div className="border-b border-border px-3 py-1.5">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search communication"
+                    aria-label="Search messages"
+                    className="h-8 w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted"
+                  />
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {!query.trim() || "proplane".includes(query.trim().toLowerCase()) ? (
+                    <div data-attr="vendor-communication-assistant-row">
+                      <InboxConversationRow
+                        appearance="flat"
+                        name="PropLane"
+                        subtitle="PropLane"
+                        preview="Ask about your services, quotes or payments"
+                        time=""
+                        unread={false}
+                        selected={assistantSelected}
+                        onOpen={() => {
+                          setSelectedId("propLane-assistant");
+                          setOpened(true);
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                  {visible.map((c) => (
+                    <InboxConversationRow
+                      key={c.id}
+                      appearance="flat"
+                      name={c.name}
+                      subtitle={c.subtitle}
+                      preview={c.preview}
+                      time={c.time}
+                      unread={c.unread}
+                      selected={c.id === selected?.id}
+                      onOpen={() => {
+                        setSelectedId(c.id);
+                        setOpened(true);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            }
+            thread={
+              assistantSelected ? (
+                <InboxThreadView
+                  title="PropLane"
+                  subtitle="PropLane"
+                  avatarName="PropLane"
+                  messages={[{ id: "assistant-1", author: "PropLane", body: "Ask about your services, quotes or payments.", at: "Now", direction: "inbound" }]}
+                  onBack={() => setOpened(false)}
+                  composer={<InboxComposer value={draft} onChange={setDraft} onSubmit={() => { setDraft(""); show("Sent"); }} placeholder="Write a message…" dataAttr="demo-panel-composer" />}
+                />
+              ) : selected ? (
+                <InboxThreadView
+                  title={selected.name}
+                  subtitle={selected.subtitle}
+                  avatarName={selected.name}
+                  messages={messages}
+                  onBack={() => setOpened(false)}
+                  composer={<InboxComposer value={draft} onChange={setDraft} onSubmit={send} placeholder="Write a message…" dataAttr="demo-panel-composer" />}
+                />
+              ) : null
+            }
+          />
+        </ManagerPortalPageShell>
+      </div>
+      {composeOpen ? (
+        <DemoVendorComposeDialog
+          onClose={() => setComposeOpen(false)}
+          onSent={() => {
+            setComposeOpen(false);
+            show("Message sent (sample)");
+          }}
+        />
+      ) : null}
+      {toastNode}
+    </ProductWindow>
+  );
 }
 
 /* ───────────────────────────── Documents ───────────────────────────── */
 
+/** Which checklist row (`fixtures-more.ts`) backs each real document kind; the two new kinds have no file yet. */
+const CHECKLIST_OF_KIND: Partial<Record<VendorDocumentKind, string>> = {
+  w9: "vdoc-w9",
+  income_tax_return: "vdoc-return",
+  ein_letter: "vdoc-ein",
+  license: "vdoc-license",
+  bond: "vdoc-bond",
+  insurance: "vdoc-coi",
+  workers_comp: "vdoc-wc",
+};
+
+type OwnDocument = { fileName: string; uploaded: string };
+type DocumentSource = "all" | "mine" | "managers";
+
+const SOURCE_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "mine", label: "Mine" },
+  { value: "managers", label: "From managers" },
+];
+
+/** `VendorDocumentRowOverflow`: View (added with `onOpen`) · Download · Replace/Upload · Delete in the row's one ⋯. */
+function DocumentRowOverflow({ label, hasDoc, onReplace, onDownload, onDelete, children }: { label: string; hasDoc: boolean; onReplace: () => void; onDownload?: () => void; onDelete?: () => void; children: ReactNode }) {
+  return (
+    <RecordActionContext.Provider
+      value={{
+        scope: label,
+        clear: () => {},
+        actions: (
+          <>
+            {onDownload ? <Button type="button" variant="outline" data-attr="vendor-document-download" data-record-action-id="download" onClick={onDownload}>Download</Button> : null}
+            <Button type="button" variant="outline" data-attr="vendor-document-replace" data-record-action-id="edit" onClick={onReplace}>{hasDoc ? "Replace" : "Upload"}</Button>
+            {onDelete ? <Button type="button" variant="danger" data-attr="vendor-document-delete" data-record-action-id="delete" onClick={onDelete}>Delete</Button> : null}
+          </>
+        ),
+      }}
+    >
+      {children}
+    </RecordActionContext.Provider>
+  );
+}
+
 /**
- * `vendor-documents-panel.tsx`: a checklist in sections (Tax · Business license · Insurance), each header the
- * section name with "N of M" uploaded, each row a file glyph, the title, the file name once uploaded, and a plain
- * fact (Uploaded / Required / Not uploaded). Search, Filter and the round "Add document" are in the command bar.
+ * `vendor-documents-panel.tsx`: no tabs; rows grouped by Tax · Business license · Insurance over the nine document
+ * kinds, each section header the name with "N of M" uploaded, then the documents managers shared. Filter has Source
+ * and Section; the round + is "Add document" (Upload document); an uploaded row toggles the inline viewer, a missing
+ * one opens the file picker; the row ⋯ is View, Download, Replace / Upload, Delete.
  */
 export function VendorDocumentsPanel() {
   const [search, setSearch] = useState("");
+  const [source, setSource] = useState<DocumentSource>("all");
+  const [category, setCategory] = useState("");
+  const [uploadOpen, setUploadOpen] = useState<VendorDocumentKind | null | "new">(null);
+  const [previewKind, setPreviewKind] = useState<VendorDocumentKind | null>(null);
+  const [sharedPreview, setSharedPreview] = useState<string | null>(null);
+  const [docs, setDocs] = useState<Partial<Record<VendorDocumentKind, OwnDocument>>>(() => {
+    const out: Partial<Record<VendorDocumentKind, OwnDocument>> = {};
+    for (const [kind, id] of Object.entries(CHECKLIST_OF_KIND)) {
+      const item = VENDOR_CHECKLIST.find((i) => i.id === id);
+      if (item?.file) out[kind as VendorDocumentKind] = { fileName: item.file, uploaded: (item.uploaded ?? "").replace(/^Uploaded\s*/, "") };
+    }
+    return out;
+  });
   const { show, node: toastNode } = useFixtureToast();
-  const items = VENDOR_CHECKLIST.filter((item) => matchesSearch(search, item.title, item.file, item.section));
-  const sections = ["Tax", "Business license", "Insurance"] as const;
+
+  const includesMine = source !== "managers";
+  const includesManagers = source !== "mine";
+  const sectionOptions = [{ value: "", label: "All sections" }, ...VENDOR_DOCUMENT_SECTIONS.map((s) => ({ value: s.id, label: s.label }))];
+  const sections = VENDOR_DOCUMENT_SECTIONS.filter((s) => !category || s.id === category).map((section) => {
+    const all = section.kinds;
+    const shown = includesMine ? all.filter((kind) => matchesSearch(search, VENDOR_DOCUMENT_LABELS[kind], docs[kind]?.fileName, section.label)) : [];
+    return { section, shown, uploaded: all.filter((kind) => docs[kind]).length, total: all.length };
+  });
+  const sharedRows = includesManagers && !category ? DEMO_MANAGER_DOCUMENTS.filter((d) => matchesSearch(search, d.name, d.category)) : [];
+  const visibleCount = sections.reduce((n, s) => n + s.shown.length, 0) + sharedRows.length;
+  const filtersActive = portalFilterActiveCount([source !== "all" ? source : "", category]);
+  const nextMissing = (VENDOR_DOCUMENT_SECTIONS.flatMap((s) => s.kinds) as VendorDocumentKind[]).find((kind) => !docs[kind] && isVendorComplianceDocumentKind(kind));
 
   return (
     <FixtureListScreen
@@ -634,134 +1768,122 @@ export function VendorDocumentsPanel() {
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search documents"
-      actions={<PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />}
-      primary={{ label: "Add document", onClick: () => show("Add document") }}
-      surface={false}
-      isEmpty={items.length === 0}
-      emptyTitle="No documents yet"
+      actions={
+        <DemoFilterSheet
+          activeCount={filtersActive}
+          compactPanel
+          filterFieldCount={2}
+          commandStripTrigger
+          onReset={() => {
+            setSource("all");
+            setCategory("");
+          }}
+          dataAttr="vendor-documents-filter-open"
+        >
+          <FilterFieldsAccordion>
+            <FilterCollapsibleSection sectionId="source" label="Source" summary={filterSingleSelectSummary(source, SOURCE_OPTIONS, "All")} empty={source === "all"} menuOptionCount={SOURCE_OPTIONS.length} dataAttr="vendor-documents-filter-source">
+              <FilterSingleSelectList options={SOURCE_OPTIONS} value={source} onChange={(next) => setSource(next as DocumentSource)} dataAttr="vendor-documents-source" />
+            </FilterCollapsibleSection>
+            <FilterCollapsibleSection sectionId="section" label="Section" summary={filterSingleSelectSummary(category, sectionOptions, "All sections")} empty={!category} menuOptionCount={sectionOptions.length} dataAttr="vendor-documents-filter-section">
+              <FilterSingleSelectList options={sectionOptions} value={category} onChange={setCategory} dataAttr="vendor-documents-section" />
+            </FilterCollapsibleSection>
+          </FilterFieldsAccordion>
+        </DemoFilterSheet>
+      }
+      primary={includesMine ? { label: "Add document", onClick: () => setUploadOpen(nextMissing ?? "new") } : undefined}
+      isEmpty={visibleCount === 0}
+      emptyTitle={search.trim() ? "No documents match this search" : "No documents yet"}
       emptySection="documents"
-      overlay={toastNode}
+      overlay={
+        <>
+          {uploadOpen ? (
+            <DemoVendorUploadDocumentPopup
+              initialKind={uploadOpen === "new" ? undefined : uploadOpen}
+              onClose={() => setUploadOpen(null)}
+              onDone={(kind) => {
+                setDocs((cur) => ({ ...cur, [kind]: { fileName: `${VENDOR_DOCUMENT_LABELS[kind].toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`, uploaded: "Oct 8, 2025" } }));
+                setUploadOpen(null);
+                show(`${VENDOR_DOCUMENT_LABELS[kind]} uploaded (sample)`);
+              }}
+            />
+          ) : null}
+          {toastNode}
+        </>
+      }
     >
-      <div className="space-y-5 pb-4">
-        {sections.map((section) => {
-          const all = VENDOR_CHECKLIST.filter((item) => item.section === section);
-          const shown = items.filter((item) => item.section === section);
-          if (shown.length === 0) return null;
-          return (
-            <section key={section} data-attr="vendor-documents-section">
-              <div className="mb-1.5 flex items-center justify-between px-1">
-                <h2 className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">{section}</h2>
-                <span className="text-[12px] text-muted">
-                  {all.filter((item) => item.file).length} of {all.length}
-                </span>
-              </div>
-              <PortalRecordListSurface isEmpty={false} bulkActions={<FixtureMenuItems toast={show} items={["View", "Download", "Replace", "Delete"]} />}>
-                {shown.map((item) => (
-                  <PortalApplicantRecordRow
-                    key={item.id}
-                    name={item.title}
-                    tileIcon={FileText}
-                    address={item.file}
+      {sections
+        .filter((s) => s.shown.length > 0)
+        .map(({ section, shown, uploaded, total }) => (
+          <div key={section.id} data-attr="vendor-documents-section" className="vdoc-section">
+            <div className="flex items-baseline justify-between px-1 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+              <span>{section.label}</span>
+              <span className="text-[12.5px] font-semibold normal-case tracking-normal">
+                {uploaded} of {total}
+              </span>
+            </div>
+            {shown.map((kind) => {
+              const doc = docs[kind];
+              const complianceMissing = !doc && isVendorComplianceDocumentKind(kind);
+              return (
+                <DocumentRowOverflow
+                  key={kind}
+                  label={VENDOR_DOCUMENT_LABELS[kind]}
+                  hasDoc={Boolean(doc)}
+                  onReplace={() => setUploadOpen(kind)}
+                  onDownload={doc ? () => show("Download (sample)") : undefined}
+                  onDelete={
+                    doc
+                      ? () => {
+                          setDocs((cur) => {
+                            const next = { ...cur };
+                            delete next[kind];
+                            return next;
+                          });
+                          if (previewKind === kind) setPreviewKind(null);
+                          show("Document removed (sample)");
+                        }
+                      : undefined
+                  }
+                >
+                  <PortalPropertyRecordRow
+                    title={VENDOR_DOCUMENT_LABELS[kind]}
+                    attention={complianceMissing}
+                    address={doc?.fileName}
+                    leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
                     facts={
-                      item.file ? (
-                        <PortalRowFact icon={Check}>{item.uploaded}</PortalRowFact>
-                      ) : item.required ? (
-                        <PortalRowFact icon={TriangleAlert} tone="danger">
-                          Required
-                        </PortalRowFact>
+                      doc ? (
+                        <PortalRowFact icon={Check} srLabel="Uploaded">{`Uploaded ${doc.uploaded}`}</PortalRowFact>
+                      ) : complianceMissing ? (
+                        <PortalRowFact icon={AlertTriangle} srLabel="Required">Required</PortalRowFact>
                       ) : (
-                        <PortalRowFact icon={Clock}>Not uploaded</PortalRowFact>
+                        <PortalRowFact icon={Clock} srLabel="Not uploaded">Not uploaded</PortalRowFact>
                       )
                     }
-                    omitActionView
+                    omitActionView={!doc}
+                    checked={false}
                     onSelectedChange={() => undefined}
-                    onOpen={() => show(`${item.title} (sample)`)}
+                    onOpen={doc ? () => setPreviewKind((cur) => (cur === kind ? null : kind)) : () => show("Choose a PDF to upload (sample)")}
                     dataAttr="vendor-document-row"
                   />
-                ))}
-              </PortalRecordListSurface>
-            </section>
-          );
-        })}
-      </div>
-    </FixtureListScreen>
-  );
-}
-
-/* ───────────────────────────── Finances: Balance & payouts ───────────────────────────── */
-
-/**
- * `vendor-finances-panel.tsx`, the Balance & payouts section (where bare `/vendor/financials` lands): a stat strip
- * (Available · Pending · Held · On the way) with the Bank and Withdraw icon actions, one "Payouts" destination, and the
- * payout history rows. Every figure is read off the rows below; the faucet job's payout appears once it is paid.
- */
-export function VendorFinancesPanel({ story }: { story?: DemoStory } = {}) {
-  const current = story ?? vendorStory(undefined);
-  const payments = vendorPayments(current);
-  const payouts: VendorPayoutFixture[] = useMemo(
-    () =>
-      current.service === "paid"
-        ? [{ id: "payout-faucet", kind: "Standard payout", bank: "Bank ····4821", date: "Oct 2, 2025", status: "In transit", amount: "$180.00" }, ...VENDOR_PAYOUTS]
-        : VENDOR_PAYOUTS,
-    [current.service],
-  );
-  const { show, node: toastNode } = useFixtureToast();
-  const pending = payments.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
-  const onTheWay = payouts.filter((p) => p.status === "In transit").reduce((sum, p) => sum + parseMoney(p.amount), 0);
-
-  return (
-    <FixtureListScreen
-      path="/vendor/financials/balance"
-      title="Finances"
-      tabs={[{ id: "payouts", label: "Payouts", count: payouts.length }]}
-      activeId="payouts"
-      onTab={() => undefined}
-      above={
-        <div className="mb-2 flex items-stretch rounded-[10px] border border-border bg-card" data-attr="vendor-balance-strip">
-          {(
-            [
-              ["Available", money(0)],
-              ["Pending", money(pending)],
-              ["Held", money(0)],
-              ["On the way", money(onTheWay)],
-            ] as const
-          ).map(([label, value]) => (
-            <div key={label} className="min-w-0 flex-1 border-r border-border px-4 py-3">
-              <p className="text-[13px] font-[550] text-muted">{label}</p>
-              <p className="my-1 whitespace-nowrap text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground">{value}</p>
-            </div>
-          ))}
-          <div className="flex shrink-0 items-start gap-1 px-2 py-2.5">
-            <PortalIconAction icon={Landmark} label="Bank" onClick={() => show("Bank")} />
-            <PortalIconAction icon={ArrowUpFromLine} label="Withdraw" onClick={() => show("Withdraw")} />
+                </DocumentRowOverflow>
+              );
+            })}
           </div>
-        </div>
-      }
-      isEmpty={payouts.length === 0}
-      emptyTitle="No payouts yet"
-      emptySection="payments"
-      overlay={toastNode}
-    >
-      {payouts.map((p) => (
-        <PortalApplicantRecordRow
-          key={p.id}
-          name={p.kind}
-          tileIcon={p.kind === "Instant payout" ? Zap : ArrowUp}
-          address={p.bank}
-          amount={p.amount}
-          facts={
-            <>
-              <PortalRowFact icon={CalendarDays}>{p.date}</PortalRowFact>
-              <span className="truncate">{p.status}</span>
-              {p.fee ? <PortalRowFact icon={Zap}>{p.fee}</PortalRowFact> : null}
-            </>
-          }
-          omitActionView
-          onSelectedChange={() => undefined}
-          onOpen={() => show(`${p.kind} (sample)`)}
-          dataAttr="vendor-payout-row"
+        ))}
+      {sharedRows.map((doc) => (
+        <PortalPropertyRecordRow
+          key={doc.id}
+          title={doc.name}
+          address={doc.category}
+          leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+          facts={doc.date}
+          selected={sharedPreview === doc.id}
+          onOpen={() => setSharedPreview((cur) => (cur === doc.id ? null : doc.id))}
+          dataAttr="vendor-document-row"
         />
       ))}
+      {previewKind ? <DemoVendorDocumentViewer title={VENDOR_DOCUMENT_LABELS[previewKind]} onDownload={() => show("Download (sample)")} /> : null}
+      {sharedPreview ? <DemoVendorDocumentViewer title={DEMO_MANAGER_DOCUMENTS.find((d) => d.id === sharedPreview)?.name ?? "Document"} downloadLabel="Download" onDownload={() => show("Download (sample)")} /> : null}
     </FixtureListScreen>
   );
 }

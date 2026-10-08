@@ -82,7 +82,7 @@ function useMoveInChecklist(basePath: string): { chargesSettled: MoveInChecklist
   return { chargesSettled, inspectionDone };
 }
 
-function MoveInChecklistRow({ label, status, href }: { label: string; status: MoveInChecklistStatus; href: string }) {
+export function MoveInChecklistRow({ label, status, href }: { label: string; status: MoveInChecklistStatus; href: string }) {
   const Icon = status ? Check : Circle;
   return (
     <Link

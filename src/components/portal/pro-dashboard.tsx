@@ -71,6 +71,7 @@ import {
   unpaidManagerPaymentCharges,
 } from "@/lib/manager-payments-scope";
 import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
+import { loadResidentAccountEmails } from "@/lib/manager-resident-account-emails";
 import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
 import { FinancialCashflowChart } from "@/components/portal/finances/financial-cashflow-chart";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
@@ -650,22 +651,11 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       setResidentAccountEmails(new Set(emails));
       return;
     }
-    void fetch("/api/manager/resident-account-emails", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ emails }),
-    })
-      .then(async (res) => {
-        const body = (await res.json()) as { emails?: string[] };
-        if (!cancelled && res.ok) {
-          setResidentAccountEmails(
-            new Set((body.emails ?? []).map((email) => email.trim().toLowerCase()).filter(Boolean)),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setResidentAccountEmails(new Set());
-      });
+    // The one shared read (`loadResidentAccountEmails`): the Residents page asks
+    // the same question, and a failed read keeps what is on screen.
+    void loadResidentAccountEmails(emails).then((withAccount) => {
+      if (!cancelled && withAccount) setResidentAccountEmails(new Set(withAccount));
+    });
     return () => {
       cancelled = true;
     };

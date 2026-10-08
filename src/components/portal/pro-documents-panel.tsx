@@ -11,6 +11,14 @@ import {
   PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalListSortField } from "@/components/portal/portal-list-sort-field";
+import { FilterFieldsAccordion } from "@/components/portal/filter-field-lists";
+import {
+  HOUSE_LIST_DEFAULT_SORT,
+  HOUSE_LIST_SORT_OPTIONS,
+  houseListSortActiveCount,
+  type HouseListSort,
+} from "@/lib/portal-grouped-list";
 import { FileBarChart } from "lucide-react";
 import {
   PORTAL_DATA_TABLE,
@@ -152,6 +160,8 @@ export function ManagerDocumentsPanel({
   const [expanded1099Id, setExpanded1099Id] = useState<string | null>(null);
   const [generateModalOpen, setGenerateModalOpen] = useState(false);
   const [leasingPropertyFilter, setLeasingPropertyFilter] = useState("");
+  const [applicationsSort, setApplicationsSort] = useState<HouseListSort>(HOUSE_LIST_DEFAULT_SORT);
+  const [applicationsSearch, setApplicationsSearch] = useState("");
   const [librarySearch, setLibrarySearch] = useState("");
   const [libraryCategoryFilter, setLibraryCategoryFilter] = useState("");
   const [libraryScopeFilter, setLibraryScopeFilter] = useState("");
@@ -327,7 +337,10 @@ export function ManagerDocumentsPanel({
     [propertyOptions],
   );
 
-  const resetLeasingFilters = useCallback(() => setLeasingPropertyFilter(""), []);
+  const resetLeasingFilters = useCallback(() => {
+    setLeasingPropertyFilter("");
+    setApplicationsSort(HOUSE_LIST_DEFAULT_SORT);
+  }, []);
   const resetLibraryFilters = useCallback(() => {
     setLibrarySearch("");
     setLibraryCategoryFilter("");
@@ -348,25 +361,41 @@ export function ManagerDocumentsPanel({
 
   const documentsFilterSheet = isLeasingDocumentsTab ? (
     <PortalFilterSortSheet
-      activeCount={portalFilterActiveCount([leasingPropertyFilter])}
+      activeCount={portalFilterActiveCount([
+        leasingPropertyFilter,
+        tabId === "applications" ? houseListSortActiveCount(applicationsSort) : 0,
+      ])}
       compactPanel
-      filterFieldCount={propertyOptions.length > 0 ? 1 : 0}
+      filterFieldCount={(propertyOptions.length > 0 ? 1 : 0) + (tabId === "applications" ? 1 : 0)}
       constrainDropdownToTitleBand
       mobileFlushBody
       commandStripTrigger
       onReset={resetLeasingFilters}
       dataAttr="documents-leasing-filter-sheet-open"
     >
-      <LeasingDocumentsPropertyFilterFields
-        propertyFilter={leasingPropertyFilter}
-        onPropertyFilterChange={setLeasingPropertyFilter}
-        propertyOptions={propertyOptions}
-        dataAttr={
-          tabId === "applications"
-            ? "documents-applications-property-filter"
-            : "documents-leases-property-filter"
-        }
-      />
+      <FilterFieldsAccordion>
+        {tabId === "applications" ? (
+          <PortalListSortField
+            value={applicationsSort}
+            options={HOUSE_LIST_SORT_OPTIONS}
+            defaultValue={HOUSE_LIST_DEFAULT_SORT}
+            onChange={setApplicationsSort}
+            dataAttr="documents-applications-sort"
+          />
+        ) : null}
+        <LeasingDocumentsPropertyFilterFields
+          propertyFilter={leasingPropertyFilter}
+          onPropertyFilterChange={setLeasingPropertyFilter}
+          propertyOptions={propertyOptions}
+          dataAttr={
+            tabId === "applications"
+              ? "documents-applications-property-filter"
+              : "documents-leases-property-filter"
+          }
+          fieldLabel={tabId === "applications" ? "House" : "Property"}
+          allLabel={tabId === "applications" ? "All houses" : "All properties"}
+        />
+      </FilterFieldsAccordion>
     </PortalFilterSortSheet>
   ) : isOtherDocumentsTab ? (
     <PortalFilterSortSheet
@@ -407,14 +436,23 @@ export function ManagerDocumentsPanel({
 
   const activeDocumentsFilterChips = useMemo((): PortalActiveFilterChip[] => {
     if (isLeasingDocumentsTab) {
-      if (!leasingPropertyFilter) return [];
-      return [
-        {
+      const isApplications = tabId === "applications";
+      const chips: PortalActiveFilterChip[] = [];
+      if (isApplications && applicationsSort !== HOUSE_LIST_DEFAULT_SORT) {
+        chips.push({
+          id: "sort",
+          label: `Sort: ${HOUSE_LIST_SORT_OPTIONS.find((o) => o.value === applicationsSort)?.label ?? applicationsSort}`,
+          onRemove: () => setApplicationsSort(HOUSE_LIST_DEFAULT_SORT),
+        });
+      }
+      if (leasingPropertyFilter) {
+        chips.push({
           id: "property",
-          label: `Property: ${leasingPropertyLabel}`,
+          label: `${isApplications ? "House" : "Property"}: ${leasingPropertyLabel}`,
           onRemove: () => setLeasingPropertyFilter(""),
-        },
-      ];
+        });
+      }
+      return chips;
     }
     if (!isOtherDocumentsTab) return [];
     const chips: PortalActiveFilterChip[] = [];
@@ -454,6 +492,8 @@ export function ManagerDocumentsPanel({
   }, [
     isLeasingDocumentsTab,
     isOtherDocumentsTab,
+    tabId,
+    applicationsSort,
     leasingPropertyFilter,
     leasingPropertyLabel,
     librarySearch,
@@ -583,6 +623,16 @@ export function ManagerDocumentsPanel({
         }))}
         activeDestinationId={activeDestinationId}
         destinationAriaLabel="Document view"
+        search={
+          tabId === "applications"
+            ? {
+                value: applicationsSearch,
+                onChange: setApplicationsSearch,
+                placeholder: "Search applications",
+                dataAttr: "documents-applications-search",
+              }
+            : undefined
+        }
         actions={documentsCommandActions}
         primary={documentsPrimaryAction}
         activeFilterChips={
@@ -600,7 +650,10 @@ export function ManagerDocumentsPanel({
                 userId={userId ?? null}
                 basePath={basePath}
                 propertyFilter={leasingPropertyFilter}
+                sort={applicationsSort}
+                search={applicationsSearch}
                 onClearFilter={resetLeasingFilters}
+                onClearSearch={() => setApplicationsSearch("")}
               />
             ) : (
               <ManagerLeaseDocumentsTab
