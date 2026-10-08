@@ -1,5 +1,6 @@
 /**
- * The staff-only route for one account's billing exceptions: property cap, trial end, comp status.
+ * The staff-only route for one account's billing exceptions: property cap, trial end, comp status,
+ * promo code.
  *
  * Three things are worth pinning here, in order of what they cost when wrong:
  *
@@ -12,6 +13,10 @@
  * 3. **Every accepted change leaves an audit row.** The settings blob already records the value;
  *    what it cannot record is who granted the exception and why. A field that did not actually move
  *    writes nothing, so the trail is a list of decisions rather than a list of saves.
+ * 4. **Trial end, complimentary and promo code are LIVE and need a reason.** The route validates
+ *    everything and demands the reason BEFORE it applies anything (so a refused request never
+ *    leaves the property cap changed), then delegates to `admin-billing-actions.server`, whose own
+ *    behaviour (Stripe, resolver date, audit row) is pinned in `admin-billing-actions.test.ts`.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -71,6 +76,15 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => makeDb() }));
 
+const extendAccountTrial = vi.fn();
+const setAccountComplimentary = vi.fn();
+const applyAccountPromoCode = vi.fn();
+vi.mock("@/lib/admin/admin-billing-actions.server", () => ({
+  extendAccountTrial: (...a: unknown[]) => extendAccountTrial(...a),
+  setAccountComplimentary: (...a: unknown[]) => setAccountComplimentary(...a),
+  applyAccountPromoCode: (...a: unknown[]) => applyAccountPromoCode(...a),
+}));
+
 const { GET, PATCH } = await import("@/app/api/admin/manager-billing-overrides/route");
 
 const MANAGER = "mgr-1";
@@ -104,6 +118,9 @@ beforeEach(() => {
   auditInsertError = null;
   getUser.mockResolvedValue({ data: { user: { id: "admin-1" } } });
   isAdminUser.mockResolvedValue(true);
+  extendAccountTrial.mockResolvedValue({ ok: true, auditRecorded: true, trialEndsAt: "2026-12-01", via: "stripe" });
+  setAccountComplimentary.mockResolvedValue({ ok: true, auditRecorded: true, complimentary: true, changed: true });
+  applyAccountPromoCode.mockResolvedValue({ ok: true, auditRecorded: true, promoCode: "FREEFIRST" });
 });
 
 describe("who may call it", () => {
@@ -185,13 +202,16 @@ describe("what it stores", () => {
   });
 
   it("moves ONLY the fields the body names", async () => {
-    await patch({ managerUserId: MANAGER, propertyCap: 4, trialEndsAt: "2026-12-01", complimentary: true });
-    await patch({ managerUserId: MANAGER, complimentary: false });
-    expect(storedOverrides()).toMatchObject({
-      propertyCap: 4,
-      trialEndsAt: "2026-12-01",
-      complimentary: false,
-    });
+    tables.manager_automation_settings = [
+      {
+        manager_user_id: MANAGER,
+        row_data: { billingOverrides: { propertyCap: 4, trialEndsAt: "2026-12-01", complimentary: true } },
+      },
+    ];
+    await patch({ managerUserId: MANAGER, propertyCap: 9 });
+    expect(storedOverrides()).toMatchObject({ propertyCap: 9, trialEndsAt: "2026-12-01", complimentary: true });
+    expect(extendAccountTrial).not.toHaveBeenCalled();
+    expect(setAccountComplimentary).not.toHaveBeenCalled();
   });
 
   it("preserves the sibling settings sharing that row", async () => {
@@ -236,13 +256,21 @@ describe("the audit trail", () => {
     });
   });
 
-  it("writes one row per field that actually moved", async () => {
-    await patch({ managerUserId: MANAGER, propertyCap: 7, trialEndsAt: "2026-12-01", complimentary: true });
-    expect(auditRows().map((r) => (r.input_summary as { field: string }).field).sort()).toEqual([
-      "complimentary",
-      "propertyCap",
-      "trialEndsAt",
-    ]);
+  it("writes the cap's row itself and leaves the live actions to write their own", async () => {
+    const res = await patch({
+      managerUserId: MANAGER,
+      propertyCap: 7,
+      trialEndsAt: "2026-12-01",
+      complimentary: true,
+      promoCode: "FREEFIRST",
+      reason: "Pilot customer",
+    });
+    expect(res.status).toBe(200);
+    expect(auditRows().map((r) => (r.input_summary as { field: string }).field)).toEqual(["propertyCap"]);
+    const expected = { db: expect.anything(), actorUserId: "admin-1", managerUserId: MANAGER, reason: "Pilot customer" };
+    expect(extendAccountTrial).toHaveBeenCalledWith(expect.objectContaining(expected), "2026-12-01");
+    expect(setAccountComplimentary).toHaveBeenCalledWith(expect.objectContaining(expected), true);
+    expect(applyAccountPromoCode).toHaveBeenCalledWith(expect.objectContaining(expected), "FREEFIRST");
   });
 
   it("writes nothing when a save changes nothing", async () => {
@@ -267,5 +295,54 @@ describe("the audit trail", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, auditRecorded: false });
     expect(storedOverrides()).toMatchObject({ propertyCap: 7 });
+  });
+});
+
+describe("the live actions: trial end, complimentary, promo code", () => {
+  it.each([
+    ["trialEndsAt", { trialEndsAt: "2026-12-01" }],
+    ["complimentary", { complimentary: true }],
+    ["promoCode", { promoCode: "FREEFIRST" }],
+  ])("%s without a reason is refused before ANYTHING is applied", async (_field, change) => {
+    const res = await patch({ managerUserId: MANAGER, propertyCap: 7, ...change });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "A reason is required." });
+    // The cap in the same request must not have been written ahead of the refusal.
+    expect(storedOverrides()).toBeUndefined();
+    expect(auditRows()).toHaveLength(0);
+    expect(extendAccountTrial).not.toHaveBeenCalled();
+    expect(setAccountComplimentary).not.toHaveBeenCalled();
+    expect(applyAccountPromoCode).not.toHaveBeenCalled();
+  });
+
+  it("a reason of only spaces counts as none", async () => {
+    expect((await patch({ managerUserId: MANAGER, complimentary: true, reason: "   " })).status).toBe(400);
+    expect(setAccountComplimentary).not.toHaveBeenCalled();
+  });
+
+  it("refuses a trial end of null - clearing a recorded date no longer exists", async () => {
+    const res = await patch({ managerUserId: MANAGER, trialEndsAt: null, reason: "x" });
+    expect(res.status).toBe(400);
+    expect(extendAccountTrial).not.toHaveBeenCalled();
+  });
+
+  it("passes an action's refusal through with its own status and message", async () => {
+    applyAccountPromoCode.mockResolvedValue({ ok: false, status: 404, error: "No active promotion code named NOPE." });
+    const res = await patch({ managerUserId: MANAGER, promoCode: "NOPE", reason: "Sales call" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: "No active promotion code named NOPE." });
+  });
+
+  it("reports a missing audit row from an action as auditRecorded: false", async () => {
+    setAccountComplimentary.mockResolvedValue({ ok: true, auditRecorded: false, complimentary: true, changed: true });
+    const res = await patch({ managerUserId: MANAGER, complimentary: true, reason: "Sales call" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, auditRecorded: false });
+  });
+
+  it("never lets a non-admin reach them", async () => {
+    isAdminUser.mockResolvedValue(false);
+    expect((await patch({ managerUserId: MANAGER, complimentary: true, reason: "x" })).status).toBe(401);
+    expect(setAccountComplimentary).not.toHaveBeenCalled();
   });
 });

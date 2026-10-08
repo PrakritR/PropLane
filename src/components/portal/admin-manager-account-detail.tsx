@@ -1,19 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CalendarPlus, Check, ExternalLink, Gift, Minus, Pencil, Plus, Tag } from "lucide-react";
+import { AdminBillingActionDialog } from "@/components/portal/admin-billing-action-dialog";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { DateField } from "@/components/ui/date-field";
+import { Input } from "@/components/ui/input";
+import { formatPacificDate } from "@/lib/pacific-time";
+import type { AdminAccountBilling } from "@/lib/admin/admin-account-billing.server";
 import { MANAGER_PROPERTY_CAP_OVERRIDE_MAX } from "@/lib/manager-billing-overrides";
 
 /**
- * The manager account editor, as two cards on the account record page
- * (`admin-account-record-page.tsx`, C165): {@link ManagerPlanBillingCard} and
- * {@link ManagerDangerZoneCard}. Billing folded into Accounts (captain:
- * "combine Billing and Accounts") — a staff member who changes a plan must be
- * using the same control regardless of which list they opened it from, or the
- * two grow different rules for the same write. That is exactly the drift
- * "Admin borrows; it does not invent" exists to prevent.
+ * The manager account editor on the account record page
+ * (`admin-account-record-page.tsx`): {@link ManagerBillingCards} (Subscription,
+ * Trial & discounts, Limits) and {@link ManagerDangerZoneCard}. Billing folded
+ * into Accounts (captain: "combine Billing and Accounts") — a staff member who
+ * changes a plan must be using the same control regardless of which list they
+ * opened it from, or the two grow different rules for the same write. That is
+ * exactly the drift "Admin borrows; it does not invent" exists to prevent.
  */
 
 export type ManagerAccountDetailRow = {
@@ -90,314 +97,121 @@ const FEE_PAYER_LABELS: Record<string, string> = {
   proplane: "PropLane",
 };
 
-/**
- * One staff change to who pays a manager's processing fees, as `GET /api/admin/manager-service-fee`
- * returns it (the last ten, newest first). `null` on either side means "manager's own setting".
- */
-type FeeOverrideChange = {
-  id: string;
-  at: string;
-  actorEmail: string | null;
-  actorUserId: string;
-  previousOverride: string | null;
-  newOverride: string | null;
-  effectiveBefore: string;
-  effectiveAfter: string;
-  reason: string | null;
-};
+type FeeSnapshot = { adminOverride?: string | null; effectivePayer?: string };
 
-type FeeSnapshot = { adminOverride?: string | null; effectivePayer?: string; changes?: FeeOverrideChange[] };
-
-function feeOverrideChangeLabel(value: string | null): string {
-  if (value === null) return "Manager's own setting";
-  return FEE_OVERRIDE_OPTIONS.find((opt) => opt.value === value)?.label ?? value;
+/** `YYYY-MM-DD` of tomorrow, UTC - the earliest trial end the server accepts. */
+function tomorrowIso(): string {
+  return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/**
- * Staff need to know the override is the exception, not the default: PropLane charges exactly what
- * Stripe charges and the launch posture is to let each manager's own Payment setup decide. Shown
- * beside the control so nobody reaches for "PropLane absorbs" as a courtesy.
- */
-const FEE_OVERRIDE_HELP_TEXT =
-  "PropLane does not mark up processing fees. The launch default is the manager's own setting; set an override only for an agreed exception.";
-
-const FIELD_LABEL = "text-[11px] font-semibold uppercase tracking-[0.12em] text-muted";
-
-type OverridesState = {
-  propertyCap: number | null;
-  trialEndsAt: string | null;
-  complimentary: boolean;
-};
-
-const EMPTY_OVERRIDES: OverridesState = { propertyCap: null, trialEndsAt: null, complimentary: false };
-
-/**
- * Staff-only billing overrides for one account.
- *
- * Deliberately a SAVE-with-reason form rather than the fee control's save-on-change select: these
- * are commercial exceptions, and the reason is the part a future reader needs. Each save writes one
- * `audit_log` row per field that actually moved.
- *
- * Only the property cap changes what the product does today. The other two are recorded and shown,
- * and the copy under them says so — telling a staff member a comp switch stops billing when nothing
- * reads it would be worse than not having the switch.
- */
-function BillingOverridesEditor({
-  managerUserId,
-  showToast,
-}: {
-  managerUserId: string;
-  showToast: (m: string) => void;
-}) {
-  const [saved, setSaved] = useState<OverridesState>(EMPTY_OVERRIDES);
-  const [capInput, setCapInput] = useState("");
-  const [trialInput, setTrialInput] = useState("");
-  const [comp, setComp] = useState(false);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/api/admin/manager-billing-overrides?managerUserId=${encodeURIComponent(managerUserId)}`,
-        );
-        const data = (await res.json().catch(() => ({}))) as {
-          overrides?: OverridesState;
-          error?: string;
-        };
-        if (cancelled) return;
-        if (!res.ok) {
-          // Showing blank controls over a state we could not read invites a staff member to set a
-          // value on top of one they cannot see, so say so instead.
-          setLoadError(data.error ?? "Could not read this account's overrides.");
-          return;
-        }
-        const overrides = data.overrides ?? EMPTY_OVERRIDES;
-        setSaved(overrides);
-        setCapInput(overrides.propertyCap === null ? "" : String(overrides.propertyCap));
-        setTrialInput(overrides.trialEndsAt ?? "");
-        setComp(overrides.complimentary);
-      } catch {
-        if (!cancelled) setLoadError("Could not read this account's overrides.");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [managerUserId]);
-
-  const capDirty = capInput.trim() !== (saved.propertyCap === null ? "" : String(saved.propertyCap));
-  const trialDirty = trialInput.trim() !== (saved.trialEndsAt ?? "");
-  const compDirty = comp !== saved.complimentary;
-  const dirty = capDirty || trialDirty || compDirty;
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/admin/manager-billing-overrides", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          managerUserId,
-          // Blank means "follow the plan again", which is a different act from pinning the plan's
-          // own number — so it is sent as an explicit null rather than omitted.
-          propertyCap: capInput.trim() === "" ? null : capInput.trim(),
-          trialEndsAt: trialInput.trim() === "" ? null : trialInput.trim(),
-          complimentary: comp,
-          reason: reason.trim() || undefined,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        overrides?: OverridesState;
-        auditRecorded?: boolean;
-      };
-      if (!res.ok) {
-        showToast(data.error || "Could not save billing overrides.");
-        return;
-      }
-      const overrides = data.overrides ?? EMPTY_OVERRIDES;
-      setSaved(overrides);
-      setCapInput(overrides.propertyCap === null ? "" : String(overrides.propertyCap));
-      setTrialInput(overrides.trialEndsAt ?? "");
-      setComp(overrides.complimentary);
-      setReason("");
-      showToast(
-        data.auditRecorded === false
-          ? "Overrides saved, but the audit entry could not be written."
-          : "Billing overrides saved.",
-      );
-    } catch {
-      showToast("Could not save billing overrides.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (loadError) {
-    return (
-      <div className="w-full rounded-2xl border px-4 py-3 text-sm portal-banner-danger" data-attr="admin-billing-overrides-error">
-        {loadError}
-      </div>
-    );
+/** One staff billing write. Returns the sentence to show on failure, or `null` when it landed. */
+async function sendBillingChange(
+  url: string,
+  body: Record<string, unknown>,
+  fallback: string,
+): Promise<{ error: string | null; auditRecorded: boolean }> {
+  try {
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string; auditRecorded?: boolean };
+    if (!res.ok) return { error: data.error || fallback, auditRecorded: true };
+    return { error: null, auditRecorded: data.auditRecorded !== false };
+  } catch {
+    return { error: fallback, auditRecorded: true };
   }
+}
 
+const money = (cents: number) =>
+  `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dateOnly = (iso: string | null | undefined) =>
+  iso ? formatPacificDate(iso, { year: "numeric", month: "short", day: "numeric" }) : "—";
+const sentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+type BillingDialog = "plan" | "trial" | "promo" | "comp" | "cap" | null;
+
+/** Whole-number stepper for the property cap. `null` is "no limit"; the first + from there is 1. */
+function CapStepper({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number | null;
+  onChange: (next: number) => void;
+  disabled?: boolean;
+}) {
+  const stepBtn =
+    "grid size-8 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40";
   return (
-    <div className="w-full rounded-2xl border border-border bg-background/60 px-4 py-3" data-attr="admin-billing-overrides">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <div className="flex flex-col gap-1">
-          <label className={FIELD_LABEL} htmlFor={`cap-${managerUserId}`}>
-            Property cap
-          </label>
-          <Input
-            id={`cap-${managerUserId}`}
-            className="h-9 min-h-0 w-28 rounded-full px-3 py-1.5 text-sm"
-            inputMode="numeric"
-            value={capInput}
-            placeholder="Plan default"
-            max={MANAGER_PROPERTY_CAP_OVERRIDE_MAX}
-            onChange={(e) => setCapInput(e.target.value)}
-            disabled={busy}
-            data-attr="admin-billing-override-cap"
-          />
-          <span className="text-[11px] text-muted">Blank = this plan&rsquo;s own limit.</span>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className={FIELD_LABEL} htmlFor={`trial-${managerUserId}`}>
-            Trial end
-          </label>
-          <Input
-            id={`trial-${managerUserId}`}
-            type="date"
-            className="h-9 min-h-0 w-44 rounded-full px-3 py-1.5 text-sm"
-            value={trialInput}
-            onChange={(e) => setTrialInput(e.target.value)}
-            disabled={busy}
-            data-attr="admin-billing-override-trial"
-          />
-          <span className="text-[11px] text-muted">Recorded only &mdash; the plan still expires on its own date.</span>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <span className={FIELD_LABEL}>Complimentary</span>
-          <label className="flex h-9 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={comp}
-              onChange={(e) => setComp(e.target.checked)}
-              disabled={busy}
-              data-attr="admin-billing-override-comp"
-            />
-            Do not bill this account
-          </label>
-          <span className="text-[11px] text-muted">Recorded only &mdash; billing does not read it yet.</span>
-        </div>
-
-        <div className="flex min-w-[12rem] flex-1 flex-col gap-1">
-          <label className={FIELD_LABEL} htmlFor={`reason-${managerUserId}`}>
-            Reason
-          </label>
-          <Input
-            id={`reason-${managerUserId}`}
-            className="h-9 min-h-0 rounded-full px-3 py-1.5 text-sm"
-            value={reason}
-            placeholder="Why this account is an exception"
-            onChange={(e) => setReason(e.target.value)}
-            disabled={busy}
-            data-attr="admin-billing-override-reason"
-          />
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 rounded-full px-4 text-xs"
-          onClick={() => save()}
-          disabled={busy || !dirty}
-          data-attr="admin-billing-override-save"
-        >
-          {busy ? "Saving…" : "Save overrides"}
-        </Button>
-      </div>
+    <div className="flex items-center gap-2" data-attr="admin-billing-cap-stepper">
+      <button
+        type="button"
+        aria-label="Decrease property cap"
+        disabled={disabled || value === null || value <= 0}
+        onClick={() => onChange(Math.max(0, (value ?? 0) - 1))}
+        className={stepBtn}
+      >
+        <Minus className="size-3.5" aria-hidden />
+      </button>
+      <span className="min-w-[4.5rem] text-center text-[13.5px] font-semibold tabular-nums text-foreground">
+        {value === null ? "No limit" : value}
+      </span>
+      <button
+        type="button"
+        aria-label="Increase property cap"
+        disabled={disabled || (value ?? 0) >= MANAGER_PROPERTY_CAP_OVERRIDE_MAX}
+        onClick={() => onChange(Math.min(MANAGER_PROPERTY_CAP_OVERRIDE_MAX, (value ?? 0) + 1))}
+        className={stepBtn}
+      >
+        <Plus className="size-3.5" aria-hidden />
+      </button>
     </div>
   );
 }
 
 /**
- * Plan, processing fees and staff billing overrides for one manager account —
- * the "Plan & billing" card on the account record page (C165). Split out of
- * the former combined `ManagerAccountDetail` so the record page can render it
- * as its own card, separate from {@link ManagerDangerZoneCard}.
+ * Who pays this manager's processing fees. Loaded per record rather than on the accounts list,
+ * because it needs the manager's settings AND their plan - two reads each. Saves on change, as it
+ * always has; the server is the only truth, so it is re-read after a failed save.
  */
-export function ManagerPlanBillingCard({
-  row,
-  onRefresh,
-  showToast,
-}: {
-  row: ManagerAccountDetailRow;
-  onRefresh: () => void;
-  showToast: (m: string) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [plan, setPlan] = useState<ManagerPlan>(() => normalizeManagerPlan(row.tier));
-  const currentPlan = normalizeManagerPlan(row.tier);
-  const planDirty = plan !== currentPlan;
-
-  useEffect(() => {
-    queueMicrotask(() => setPlan(normalizeManagerPlan(row.tier)));
-  }, [row.tier]);
-
-  // Who pays this manager's processing fees. Loaded per row rather than on the accounts list,
-  // because it needs the manager's settings AND their plan — two reads each — and the list route
-  // already pages every manager. This editor renders for one expanded row at a time.
+function ProcessingFeesRow({ managerUserId, showToast }: { managerUserId: string; showToast: (m: string) => void }) {
   const [feeOverride, setFeeOverride] = useState<FeeOverrideValue>("inherit");
   const [effectivePayer, setEffectivePayer] = useState<string>("");
-  const [feeBusy, setFeeBusy] = useState(false);
-  // An optional note that rides along with the NEXT change and is stored on its audit row.
-  const [feeReason, setFeeReason] = useState("");
-  const [feeChanges, setFeeChanges] = useState<FeeOverrideChange[]>([]);
+  const [busy, setBusy] = useState(false);
 
-  const applyFeeSnapshot = useCallback((data: FeeSnapshot) => {
+  const apply = useCallback((data: FeeSnapshot) => {
     setFeeOverride((data.adminOverride as FeeOverrideValue) ?? "inherit");
     setEffectivePayer(data.effectivePayer ?? "");
-    setFeeChanges(Array.isArray(data.changes) ? data.changes : []);
   }, []);
 
-  // The server is the only truth for this control: it is re-read on mount and after any failed
-  // save, because a save can have been applied and still answered an error (the audit row could
-  // not be written), and restoring the previous selection locally would then show a lie.
-  const loadFee = useCallback(async () => {
-    const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(row.id)}`);
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(managerUserId)}`);
     if (!res.ok) return false;
-    applyFeeSnapshot((await res.json()) as FeeSnapshot);
+    apply((await res.json()) as FeeSnapshot);
     return true;
-  }, [row.id, applyFeeSnapshot]);
+  }, [managerUserId, apply]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(row.id)}`);
+        const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(managerUserId)}`);
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as FeeSnapshot;
-        if (cancelled) return;
-        applyFeeSnapshot(data);
+        if (!cancelled) apply(data);
       } catch {
-        // Leave the control showing "inherit"; saving still works and re-reads the truth.
+        // Leave the control on "inherit"; saving still works and re-reads the truth.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [row.id, applyFeeSnapshot]);
+  }, [managerUserId, apply]);
 
-  const saveFeeOverride = async (next: FeeOverrideValue) => {
-    setFeeBusy(true);
+  const save = async (next: FeeOverrideValue) => {
+    setBusy(true);
     const previous = feeOverride;
     setFeeOverride(next);
     try {
@@ -405,150 +219,326 @@ export function ManagerPlanBillingCard({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         // "inherit" is sent as null, which CLEARS the override and returns this manager to the
-        // plan-and-choice rule — a different act from pinning "resident".
-        body: JSON.stringify({
-          managerUserId: row.id,
-          adminOverride: next === "inherit" ? null : next,
-          reason: feeReason.trim() || undefined,
-        }),
+        // plan-and-choice rule - a different act from pinning "resident".
+        body: JSON.stringify({ managerUserId, adminOverride: next === "inherit" ? null : next }),
       });
       const data = (await res.json().catch(() => ({}))) as FeeSnapshot & { error?: string };
       if (!res.ok) {
-        if (!(await loadFee().catch(() => false))) setFeeOverride(previous);
+        if (!(await load().catch(() => false))) setFeeOverride(previous);
         showToast(data.error || "Could not update processing fees.");
         return;
       }
-      applyFeeSnapshot({ ...data, adminOverride: data.adminOverride ?? (next === "inherit" ? null : next) });
-      setFeeReason("");
+      apply({ ...data, adminOverride: data.adminOverride ?? (next === "inherit" ? null : next) });
       showToast(
         next === "inherit"
           ? "Processing fees follow the manager's own setting again."
           : `Processing fees now charged to ${FEE_OVERRIDE_LABELS[next]}.`,
       );
     } catch {
-      if (!(await loadFee().catch(() => false))) setFeeOverride(previous);
+      if (!(await load().catch(() => false))) setFeeOverride(previous);
       showToast("Could not update processing fees.");
-    } finally {
-      setFeeBusy(false);
-    }
-  };
-
-  const savePlan = async () => {
-    if (!planDirty) return;
-    setBusy(true);
-    try {
-      const res = await fetch("/api/admin/managers", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, tier: plan }),
-      });
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: "Could not update plan." }));
-        showToast((error as string) || "Could not update plan.");
-        return;
-      }
-      showToast(`Plan updated to ${plan === "free" ? "Free" : plan === "pro" ? "Pro" : "Business"}.`);
-      onRefresh();
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-4">
-      <div className="flex items-center gap-2">
-        <p className={FIELD_LABEL}>Plan</p>
-        <Select
-          className="h-9 min-h-0 w-auto min-w-[8.5rem] rounded-full px-3 py-1.5 text-sm"
-          value={plan}
-          onChange={(e) => setPlan(e.target.value as ManagerPlan)}
-          disabled={busy}
-        >
-          {MANAGER_PLAN_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </Select>
-      </div>
-
-      <div className="flex w-full flex-col gap-1.5" data-testid="admin-fee-override">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className={FIELD_LABEL}>Processing fees</p>
-          <Select
-            className="h-9 min-h-0 w-auto min-w-[11rem] rounded-full px-3 py-1.5 text-sm"
+    <>
+      <RecordFactRow
+        label="Processing fees"
+        value={
+          <FieldSingleSelect
+            label="Who pays this manager's processing fees"
+            hideLabel
             value={feeOverride}
-            onChange={(e) => void saveFeeOverride(e.target.value as FeeOverrideValue)}
-            disabled={feeBusy}
-            aria-label="Who pays this manager's processing fees"
-          >
-            {FEE_OVERRIDE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </Select>
-          {/* Stored on the audit row of the next change; optional, staff-authored. */}
-          <Input
-            className="h-9 min-h-0 w-auto min-w-[14rem] rounded-full px-3 py-1.5 text-sm"
-            value={feeReason}
-            onChange={(e) => setFeeReason(e.target.value)}
-            maxLength={240}
-            placeholder="Reason for the change (optional)"
-            aria-label="Reason for changing who pays processing fees"
-            disabled={feeBusy}
+            options={FEE_OVERRIDE_OPTIONS}
+            disabled={busy}
+            onChange={(next) => void save(next as FeeOverrideValue)}
+            wrapperClassName="max-w-[16rem]"
+            dataAttr="admin-fee-override"
           />
-          {/* The NET answer, which can differ from the selection above: a free-tier manager who
-              chose to absorb fees still cannot, and showing only the selection would disagree with
-              what the resident is actually charged. */}
-          {effectivePayer ? (
-            <span className="text-xs text-muted">
-              Currently paid by {FEE_PAYER_LABELS[effectivePayer] ?? effectivePayer}
-            </span>
-          ) : null}
+        }
+      />
+      {/* The NET answer can differ from the selection above: a free-tier manager who chose to
+          absorb fees still cannot, and the selection alone would disagree with what the resident
+          is actually charged. */}
+      {effectivePayer ? (
+        <RecordFactRow label="Fees paid by" value={sentenceCase(FEE_PAYER_LABELS[effectivePayer] ?? effectivePayer)} />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The manager's Billing & plan section: Subscription, Trial & discounts, Limits.
+ *
+ * Plain fact cards with icon actions at each card's top right - no grey block over the values and
+ * no explanatory sentence under a field. Every change opens a small popup with a required
+ * one-line Reason and one primary naming the outcome, and every one is live: it changes the Stripe
+ * subscription or the date/plan the resolver reads, and writes an audit row.
+ */
+export function ManagerBillingCards({
+  row,
+  billing,
+  billingState,
+  onChanged,
+  showToast,
+}: {
+  row: ManagerAccountDetailRow;
+  billing: AdminAccountBilling | null;
+  billingState: "loading" | "ready" | "error";
+  /** Re-read the record and the billing after a change landed. */
+  onChanged: () => void;
+  showToast: (m: string) => void;
+}) {
+  const [dialog, setDialog] = useState<BillingDialog>(null);
+  const currentPlan = normalizeManagerPlan(row.tier);
+  const [plan, setPlan] = useState<ManagerPlan>(currentPlan);
+  const [trialDate, setTrialDate] = useState("");
+  const [promoCode, setPromoCode] = useState("");
+  const [capDraft, setCapDraft] = useState<number | null | undefined>(undefined);
+
+  const planBlock = billing?.plan;
+  const savedCap = billing?.limits.propertyCap ?? null;
+  const cap = capDraft === undefined ? savedCap : capDraft;
+  const capDirty = capDraft !== undefined && capDraft !== savedCap;
+  const complimentary = planBlock?.complimentary ?? false;
+
+  useEffect(() => {
+    queueMicrotask(() => setPlan(normalizeManagerPlan(row.tier)));
+  }, [row.tier]);
+
+  const open = (which: Exclude<BillingDialog, null>) => {
+    if (which === "plan") setPlan(currentPlan);
+    if (which === "trial") setTrialDate(planBlock?.trialEndsAt ? planBlock.trialEndsAt.slice(0, 10) : "");
+    if (which === "promo") setPromoCode("");
+    setDialog(which);
+  };
+
+  const finish = (message: string, auditRecorded: boolean) => {
+    showToast(auditRecorded ? message : `${message} The audit entry could not be written.`);
+    setCapDraft(undefined);
+    onChanged();
+  };
+
+  const submitPlan = async (reason: string) => {
+    const r = await sendBillingChange("/api/admin/managers", { id: row.id, tier: plan, reason }, "Could not update plan.");
+    if (r.error) return r.error;
+    finish(`Plan updated to ${MANAGER_PLAN_OPTIONS.find((o) => o.value === plan)?.label}.`, r.auditRecorded);
+    return null;
+  };
+  const submitTrial = async (reason: string) => {
+    const r = await sendBillingChange(
+      "/api/admin/manager-billing-overrides",
+      { managerUserId: row.id, trialEndsAt: trialDate, reason },
+      "Could not extend the trial.",
+    );
+    if (r.error) return r.error;
+    finish(`Trial now ends ${dateOnly(`${trialDate}T12:00:00.000Z`)}.`, r.auditRecorded);
+    return null;
+  };
+  const submitPromo = async (reason: string) => {
+    const r = await sendBillingChange(
+      "/api/admin/manager-billing-overrides",
+      { managerUserId: row.id, promoCode: promoCode.trim(), reason },
+      "Could not apply that code.",
+    );
+    if (r.error) return r.error;
+    finish(`Promo code ${promoCode.trim().toUpperCase()} applied.`, r.auditRecorded);
+    return null;
+  };
+  const submitComp = async (reason: string) => {
+    const r = await sendBillingChange(
+      "/api/admin/manager-billing-overrides",
+      { managerUserId: row.id, complimentary: !complimentary, reason },
+      "Could not change complimentary status.",
+    );
+    if (r.error) return r.error;
+    finish(complimentary ? "Complimentary removed." : "Account is now complimentary.", r.auditRecorded);
+    return null;
+  };
+  const submitCap = async (reason: string) => {
+    const r = await sendBillingChange(
+      "/api/admin/manager-billing-overrides",
+      { managerUserId: row.id, propertyCap: cap, reason },
+      "Could not save the property cap.",
+    );
+    if (r.error) return r.error;
+    finish("Property cap saved.", r.auditRecorded);
+    return null;
+  };
+
+  const loadingValue = billingState === "loading" ? "…" : "—";
+
+  return (
+    <>
+      <RecordFactCard
+        title="Subscription"
+        dataAttr="admin-billing-subscription"
+        headerActions={
+          <>
+            {billing?.stripe.customerUrl ? (
+              <PortalIconAction
+                icon={ExternalLink}
+                label="Open in Stripe"
+                data-attr="admin-billing-open-stripe"
+                onClick={() => window.open(billing.stripe.customerUrl!, "_blank", "noopener,noreferrer")}
+              />
+            ) : null}
+            <PortalIconAction icon={Pencil} label="Change plan" data-attr="admin-billing-change-plan" onClick={() => open("plan")} />
+          </>
+        }
+      >
+        {billingState === "error" ? (
+          <p className="px-[var(--portal-card-padding,14px)] py-5 text-center text-[13px] text-[var(--status-overdue-fg)]">
+            Could not load this account&rsquo;s billing.
+          </p>
+        ) : (
+          <>
+            <RecordFactRow label="Plan" value={planBlock?.planLabel ?? loadingValue} />
+            <RecordFactRow label="Source" value={planBlock?.sourceLabel ?? loadingValue} />
+            <RecordFactRow label="Status" value={planBlock?.status ?? loadingValue} tone={planBlock?.statusTone ?? undefined} />
+            <RecordFactRow label="Since" value={dateOnly(planBlock?.since)} />
+            {planBlock?.renewsAt ? <RecordFactRow label={planBlock.renewsLabel} value={dateOnly(planBlock.renewsAt)} /> : null}
+            <RecordFactRow
+              label="Paid to date"
+              value={billing ? (billing.paidToDateCents === null ? "—" : money(billing.paidToDateCents)) : loadingValue}
+            />
+            <RecordFactRow label="Promo" value={planBlock?.promoCode ?? (planBlock ? "None" : loadingValue)} />
+            {billing && !billing.stripe.available ? (
+              <RecordFactRow label="Stripe" value="Could not be reached" tone="bad" />
+            ) : null}
+          </>
+        )}
+      </RecordFactCard>
+
+      <RecordFactCard
+        title="Trial & discounts"
+        dataAttr="admin-billing-trial-discounts"
+        headerActions={
+          <>
+            <PortalIconAction icon={CalendarPlus} label="Extend trial" data-attr="admin-billing-extend-trial" onClick={() => open("trial")} />
+            <PortalIconAction icon={Tag} label="Apply promo code" data-attr="admin-billing-apply-promo" onClick={() => open("promo")} />
+            <PortalIconAction
+              icon={Gift}
+              label={complimentary ? "Remove complimentary" : "Make complimentary"}
+              active={complimentary}
+              data-attr="admin-billing-complimentary"
+              onClick={() => open("comp")}
+            />
+          </>
+        }
+      >
+        <RecordFactRow
+          label="Trial ends"
+          value={planBlock ? (planBlock.trialEndsAt ? dateOnly(planBlock.trialEndsAt) : "No trial") : loadingValue}
+        />
+        <RecordFactRow label="Complimentary" value={planBlock ? (complimentary ? "Yes" : "No") : loadingValue} />
+        <RecordFactRow label="Promo" value={planBlock ? (planBlock.promoCode ?? "None") : loadingValue} />
+      </RecordFactCard>
+
+      <RecordFactCard
+        title="Limits"
+        dataAttr="admin-billing-limits"
+        headerActions={
+          capDirty ? (
+            <PortalIconAction
+              icon={Check}
+              label="Save property cap"
+              tone="primary"
+              data-attr="admin-billing-cap-save"
+              onClick={() => open("cap")}
+            />
+          ) : null
+        }
+      >
+        <RecordFactRow
+          label="Property cap"
+          value={billing ? <CapStepper value={cap} onChange={(n) => setCapDraft(n)} /> : loadingValue}
+        />
+        <ProcessingFeesRow managerUserId={row.id} showToast={showToast} />
+      </RecordFactCard>
+
+      <AdminBillingActionDialog
+        open={dialog === "plan"}
+        title="Change plan"
+        submitLabel="Change plan"
+        dataAttr="admin-billing-plan-dialog"
+        canSubmit={plan !== currentPlan}
+        onClose={() => setDialog(null)}
+        onSubmit={submitPlan}
+      >
+        <FieldSingleSelect
+          label="Plan"
+          value={plan}
+          options={MANAGER_PLAN_OPTIONS}
+          onChange={(next) => setPlan(next as ManagerPlan)}
+          dataAttr="admin-billing-plan-select"
+        />
+      </AdminBillingActionDialog>
+
+      <AdminBillingActionDialog
+        open={dialog === "trial"}
+        title="Extend trial"
+        submitLabel="Extend trial"
+        dataAttr="admin-billing-trial-dialog"
+        canSubmit={Boolean(trialDate) && trialDate >= tomorrowIso()}
+        onClose={() => setDialog(null)}
+        onSubmit={submitTrial}
+      >
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground" htmlFor="admin-billing-trial-date">
+            Trial ends
+          </label>
+          <DateField id="admin-billing-trial-date" value={trialDate} min={tomorrowIso()} onChange={setTrialDate} />
         </div>
-        <p className="text-xs text-muted">{FEE_OVERRIDE_HELP_TEXT}</p>
-        {feeChanges.length > 0 ? (
-          <div className="text-xs text-muted">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Changes</p>
-            <ul className="mt-1 flex flex-col gap-0.5">
-              {feeChanges.map((change) => (
-                <li key={change.id} className="flex flex-wrap items-baseline gap-x-1.5">
-                  <span className="font-medium text-foreground">{change.actorEmail ?? "Former staff"}</span>
-                  <span>{formatPacificDateTime(change.at)}</span>
-                  <span>
-                    {feeOverrideChangeLabel(change.previousOverride)} → {feeOverrideChangeLabel(change.newOverride)}
-                  </span>
-                  {change.effectiveBefore !== change.effectiveAfter ? (
-                    <span>
-                      (paid by {FEE_PAYER_LABELS[change.effectiveBefore] ?? change.effectiveBefore} →{" "}
-                      {FEE_PAYER_LABELS[change.effectiveAfter] ?? change.effectiveAfter})
-                    </span>
-                  ) : null}
-                  {change.reason ? <span className="italic">“{change.reason}”</span> : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
+      </AdminBillingActionDialog>
 
-      <div className="ml-auto shrink-0">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 rounded-full px-4 text-xs"
-          onClick={() => savePlan()}
-          disabled={busy || !planDirty}
-        >
-          {busy && planDirty ? "Saving…" : "Save plan"}
-        </Button>
-      </div>
+      <AdminBillingActionDialog
+        open={dialog === "promo"}
+        title="Apply promo code"
+        submitLabel="Apply code"
+        dataAttr="admin-billing-promo-dialog"
+        canSubmit={promoCode.trim().length > 0}
+        onClose={() => setDialog(null)}
+        onSubmit={submitPromo}
+      >
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[13px] font-medium text-foreground" htmlFor="admin-billing-promo-code">
+            Promo code
+          </label>
+          <Input
+            id="admin-billing-promo-code"
+            value={promoCode}
+            maxLength={64}
+            autoComplete="off"
+            className="uppercase"
+            onChange={(e) => setPromoCode(e.target.value.replace(/\s+/g, ""))}
+            data-attr="admin-billing-promo-code"
+          />
+        </div>
+      </AdminBillingActionDialog>
 
-      {/* Beside Plan and Processing fees, not on a screen of their own: an exception to a plan is
-          read together with the plan it excepts. */}
-      <BillingOverridesEditor managerUserId={row.id} showToast={showToast} />
-    </div>
+      <AdminBillingActionDialog
+        open={dialog === "comp"}
+        title={complimentary ? "Remove complimentary" : "Make complimentary"}
+        submitLabel={complimentary ? "Remove complimentary" : "Make complimentary"}
+        dataAttr="admin-billing-comp-dialog"
+        onClose={() => setDialog(null)}
+        onSubmit={submitComp}
+      />
+
+      <AdminBillingActionDialog
+        open={dialog === "cap"}
+        title="Property cap"
+        submitLabel={cap === null ? "Follow the plan" : `Set cap to ${cap}`}
+        dataAttr="admin-billing-cap-dialog"
+        onClose={() => setDialog(null)}
+        onSubmit={submitCap}
+      >
+        <RecordFactRow label="New cap" value={cap === null ? "No limit" : String(cap)} />
+      </AdminBillingActionDialog>
+    </>
   );
 }
 

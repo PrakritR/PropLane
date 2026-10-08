@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { writeAdminBillingAudit, type AdminBillingAuditEntry } from "@/lib/admin-billing-audit.server";
+import {
+  normalizeAdminAuditReason,
+  writeAdminBillingAudit,
+  type AdminBillingAuditEntry,
+} from "@/lib/admin-billing-audit.server";
+import {
+  applyAccountPromoCode,
+  extendAccountTrial,
+  setAccountComplimentary,
+} from "@/lib/admin/admin-billing-actions.server";
 import {
   loadManagerBillingOverrides,
   parseComplimentaryOverride,
@@ -24,11 +33,13 @@ export const runtime = "nodejs";
  * property cap would have no cap.
  *
  * Every accepted change writes an `audit_log` row per field (actor, manager, field, before → after,
- * optional reason), because the value alone never says who granted the exception or why.
+ * reason), because the value alone never says who granted the exception or why.
  *
- * Of the three, only `propertyCap` is read by enforcement today. `trialEndsAt` and `complimentary`
- * are recorded and displayed only — no billing or plan resolver consults them yet — and the admin
- * screen says so beside each control rather than implying a switch that bills.
+ * What each field does:
+ *  - `propertyCap` is read by enforcement (the reason is optional).
+ *  - `trialEndsAt`, `complimentary` and `promoCode` are LIVE (`admin-billing-actions.server.ts`):
+ *    they change the Stripe subscription or the date the plan resolver reads, and each REQUIRES a
+ *    reason, refused before anything is applied.
  */
 async function requireAdminActor(): Promise<{ ok: true; actorId: string } | { ok: false }> {
   const supabase = await createSupabaseServerClient();
@@ -74,72 +85,85 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "managerUserId is required." }, { status: 400 });
     }
 
-    const db = createSupabaseServiceRoleClient();
-    const current = await loadManagerBillingOverrides(db, managerUserId);
-    // Refuse rather than write on top of a state we could not read: the before-value is what makes
-    // the audit row worth having, and a blind write could silently clear a cap staff had set.
-    if (!current.ok) return NextResponse.json({ error: current.error }, { status: 500 });
-
-    // Only the fields actually PRESENT in the body move. A PATCH that names one setting must not
-    // clear the other two — and `null` is a real value here (clear), so absence is the only way to
-    // say "leave it alone".
-    const next: ManagerBillingOverrides = { ...current.overrides };
-    const entries: AdminBillingAuditEntry[] = [];
-
-    if ("propertyCap" in body) {
-      const parsed = parsePropertyCapOverride(body.propertyCap);
-      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-      if (parsed.value !== current.overrides.propertyCap) {
-        entries.push({ field: "propertyCap", before: current.overrides.propertyCap, after: parsed.value });
-      }
-      next.propertyCap = parsed.value;
-    }
-
-    if ("trialEndsAt" in body) {
-      const parsed = parseTrialEndOverride(body.trialEndsAt);
-      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-      if (parsed.value !== current.overrides.trialEndsAt) {
-        entries.push({ field: "trialEndsAt", before: current.overrides.trialEndsAt, after: parsed.value });
-      }
-      next.trialEndsAt = parsed.value;
-    }
-
-    if ("complimentary" in body) {
-      const parsed = parseComplimentaryOverride(body.complimentary);
-      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-      if (parsed.value !== current.overrides.complimentary) {
-        entries.push({ field: "complimentary", before: current.overrides.complimentary, after: parsed.value });
-      }
-      next.complimentary = parsed.value;
-    }
-
-    if (!("propertyCap" in body) && !("trialEndsAt" in body) && !("complimentary" in body)) {
+    const wantsCap = "propertyCap" in body;
+    const wantsTrial = "trialEndsAt" in body;
+    const wantsComp = "complimentary" in body;
+    const wantsPromo = "promoCode" in body;
+    if (!wantsCap && !wantsTrial && !wantsComp && !wantsPromo) {
       return NextResponse.json(
-        { error: "Provide propertyCap, trialEndsAt, and/or complimentary to update." },
+        { error: "Provide propertyCap, trialEndsAt, complimentary, and/or promoCode to update." },
         { status: 400 },
       );
     }
 
-    const saved = await saveManagerBillingOverrides(db, managerUserId, next);
-
-    // The write has landed; the trail is best-effort from here. A failed insert is reported in the
-    // response rather than swallowed, so a staff member is never told a change was recorded when
-    // the only record of WHY is gone.
-    let auditRecorded = true;
-    if (entries.length > 0) {
-      const audit = await writeAdminBillingAudit({
-        db,
-        actorUserId: actor.actorId,
-        managerUserId,
-        entries,
-        reason: typeof body.reason === "string" ? body.reason : null,
-      });
-      auditRecorded = audit.ok;
+    // Everything is validated BEFORE anything is applied: a bad second field must not leave the
+    // first one changed. The three live actions below also refuse a missing reason on their own;
+    // checking here keeps that refusal ahead of the cap write.
+    let capValue: number | null | undefined;
+    if (wantsCap) {
+      const parsed = parsePropertyCapOverride(body.propertyCap);
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      capValue = parsed.value;
+    }
+    let compValue: boolean | undefined;
+    if (wantsComp) {
+      const parsed = parseComplimentaryOverride(body.complimentary);
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      compValue = parsed.value;
+    }
+    if (wantsTrial) {
+      const parsed = parseTrialEndOverride(body.trialEndsAt);
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      if (parsed.value === null) {
+        return NextResponse.json({ error: "Pick the date the trial should end." }, { status: 400 });
+      }
+    }
+    if ((wantsTrial || wantsComp || wantsPromo) && !normalizeAdminAuditReason(body.reason)) {
+      return NextResponse.json({ error: "A reason is required." }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, managerUserId, overrides: saved, auditRecorded });
+    const db = createSupabaseServiceRoleClient();
+    let overrides: ManagerBillingOverrides | null = null;
+    let auditRecorded = true;
+    const reason = typeof body.reason === "string" ? body.reason : null;
+
+    if (wantsCap) {
+      const current = await loadManagerBillingOverrides(db, managerUserId);
+      // Refuse rather than write on top of a state we could not read: the before-value is what makes
+      // the audit row worth having, and a blind write could silently clear a cap staff had set.
+      if (!current.ok) return NextResponse.json({ error: current.error }, { status: 500 });
+      const next: ManagerBillingOverrides = { ...current.overrides, propertyCap: capValue ?? null };
+      const entries: AdminBillingAuditEntry[] = [];
+      if ((capValue ?? null) !== current.overrides.propertyCap) {
+        entries.push({ field: "propertyCap", before: current.overrides.propertyCap, after: capValue ?? null });
+      }
+      overrides = await saveManagerBillingOverrides(db, managerUserId, next);
+      // The write has landed; the trail is best-effort from here. A failed insert is reported in the
+      // response rather than swallowed, so a staff member is never told a change was recorded when
+      // the only record of WHY is gone.
+      if (entries.length > 0) {
+        const audit = await writeAdminBillingAudit({ db, actorUserId: actor.actorId, managerUserId, entries, reason });
+        auditRecorded = auditRecorded && audit.ok;
+      }
+    }
+
+    const ctx = { db, actorUserId: actor.actorId, managerUserId, reason };
+    const results = [];
+    if (wantsTrial) results.push(await extendAccountTrial(ctx, body.trialEndsAt));
+    if (wantsComp) results.push(await setAccountComplimentary(ctx, compValue));
+    if (wantsPromo) results.push(await applyAccountPromoCode(ctx, body.promoCode));
+    for (const result of results) {
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      auditRecorded = auditRecorded && result.auditRecorded;
+    }
+
+    if (results.length > 0 || !overrides) {
+      const read = await loadManagerBillingOverrides(db, managerUserId);
+      if (read.ok) overrides = read.overrides;
+    }
+    return NextResponse.json({ ok: true, managerUserId, overrides, auditRecorded });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not save billing overrides.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("PATCH /api/admin/manager-billing-overrides failed", e);
+    return NextResponse.json({ error: "Could not save billing overrides." }, { status: 500 });
   }
 }

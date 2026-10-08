@@ -67,9 +67,48 @@ describe("admin-account-record-page: header, rail and one read", () => {
     expect(keys).toContain('audit: "Audit trail"');
   });
 
-  it("reuses the existing manager billing editor unchanged", () => {
-    expect(sections).toContain("ManagerPlanBillingCard");
-    expect(sections).toContain('title="Plan & billing"');
+  it("Billing & plan is Subscription · Trial & discounts · Limits fact cards, then the account's payments", () => {
+    const detail = read("src/components/portal/admin-manager-account-detail.tsx");
+    expect(sections).toContain("ManagerBillingCards");
+    expect(sections).toContain('title="Payments from this account"');
+    expect(sections).toContain("/api/admin/accounts/${encodeURIComponent(accountId)}/billing");
+    for (const title of ["Subscription", "Trial & discounts", "Limits"]) {
+      expect(detail).toContain(`title="${title}"`);
+    }
+    // The fact rows the plan names.
+    for (const label of ["Plan", "Source", "Status", "Since", "Paid to date", "Promo", "Trial ends", "Complimentary", "Property cap", "Processing fees"]) {
+      expect(detail).toContain(`label="${label}"`);
+    }
+  });
+
+  it("changes are icon actions at each card's top right, never labelled buttons", () => {
+    const detail = read("src/components/portal/admin-manager-account-detail.tsx");
+    for (const label of ["Open in Stripe", "Change plan", "Extend trial", "Apply promo code"]) {
+      expect(detail).toMatch(new RegExp(`<PortalIconAction[^>]*label="${label}"`, "s"));
+    }
+    expect(detail).toMatch(/label=\{complimentary \? "Remove complimentary" : "Make complimentary"\}/);
+    expect(detail).toContain("headerActions=");
+  });
+
+  it("no grey overlay block and no muted explanation under a field", () => {
+    const detail = read("src/components/portal/admin-manager-account-detail.tsx");
+    expect(detail).not.toContain("Recorded only");
+    expect(detail).not.toContain("billing does not read it yet");
+    expect(detail).not.toContain("FEE_OVERRIDE_HELP_TEXT");
+    expect(detail).not.toContain("bg-background/60");
+    expect(detail).not.toMatch(/text-\[11px\] text-muted/);
+  });
+
+  it("every billing change opens the reason popup and sends the reason with it", () => {
+    const detail = read("src/components/portal/admin-manager-account-detail.tsx");
+    const dialog = read("src/components/portal/admin-billing-action-dialog.tsx");
+    for (const id of ["plan", "trial", "promo", "comp", "cap"]) {
+      expect(detail).toContain(`dataAttr="admin-billing-${id}-dialog"`);
+    }
+    // Required: the primary stays off until a reason is typed.
+    expect(dialog).toContain("disabled: !canSubmit || !trimmed || busy");
+    expect(dialog).toContain("required");
+    expect((detail.match(/reason/g) ?? []).length).toBeGreaterThan(8);
   });
 });
 
