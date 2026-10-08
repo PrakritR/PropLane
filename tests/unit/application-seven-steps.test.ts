@@ -18,6 +18,7 @@ import {
   leaseLengthLabel,
   lengthPatch,
   lengthValueFromForm,
+  longTermHasImplicitMoveOut,
   longTermLengthOptions,
   showLeaseKindToggle,
   storedTermForLength,
@@ -87,10 +88,15 @@ describe("which sides and lengths each property offers", () => {
 
   it("lists the fixed lengths, Custom dates, and Month-to-month only when it is on", () => {
     const labels = (offered: string[], lengths: number[]) => longTermLengthOptions(offered, lengths).map((o) => o.label);
+    // Custom dates is a checkbox under Long-term: offered only when the property ticked it. A Long-term
+    // property with no fixed lengths and no Custom dates still asks for a move-out date (never a dead end).
     expect(labels(LONG, [])).toEqual(["Custom dates"]);
-    expect(labels(LONG, [6, 12])).toEqual(["6 months", "12 months", "Custom dates"]);
-    expect(labels(LONG_M2M, [6, 12])).toEqual(["6 months", "12 months", "Custom dates", "Month-to-month"]);
-    expect(labels(ALL, [1, 12])).toEqual(["1 month", "12 months", "Custom dates", "Month-to-month"]);
+    expect(longTermHasImplicitMoveOut(LONG, [])).toBe(true);
+    expect(labels(LONG, [6, 12])).toEqual(["6 months", "12 months"]);
+    expect(longTermHasImplicitMoveOut(LONG, [6, 12])).toBe(false);
+    expect(labels([...LONG, "Custom"], [6, 12])).toEqual(["6 months", "12 months", "Custom dates"]);
+    expect(labels([...LONG, "Month-to-Month"], [6, 12])).toEqual(["6 months", "12 months", "Month-to-month"]);
+    expect(labels([...LONG, "Custom", "Month-to-Month"], [1, 12])).toEqual(["1 month", "12 months", "Custom dates", "Month-to-month"]);
     // Month-to-month off: it is never offered, whatever else the property has.
     expect(labels(LONG_SHORT, [6])).not.toContain("Month-to-month");
     // Lengths belong to Long-term: a property offering only Custom has none.

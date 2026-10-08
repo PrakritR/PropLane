@@ -41,12 +41,14 @@ import { addMonthsToDateString } from "@/lib/rental-application/long-term-length
 import { sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import {
   CUSTOM_DATES_LENGTH_VALUE,
+  MONTH_TO_MONTH_LENGTH_VALUE,
   effectiveLeaseKind,
   leaseKindPatch,
   leaseKindsOffered,
   leaseLengthLabel,
   lengthPatch,
   lengthValueFromForm,
+  longTermHasImplicitMoveOut,
   longTermLengthOptions,
   monthsOfLengthValue,
   showLeaseKindToggle,
@@ -416,7 +418,21 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
   const soleLength = lengthOptions.length === 1 ? lengthOptions[0]!.value : "";
   const lengthValue =
     lengthValueFromForm(form, fixedLengths, customFor === form.propertyId && form.propertyId !== "") || soleLength;
-  const needsMoveOut = lengthValue === CUSTOM_DATES_LENGTH_VALUE;
+  // Long-term with no fixed lengths and no Custom dates asks for the move-out date directly.
+  const implicitMoveOut = longTermHasImplicitMoveOut(offeredStored, fixedLengths);
+  const needsMoveOut =
+    lengthValue === CUSTOM_DATES_LENGTH_VALUE || (implicitMoveOut && lengthValue !== MONTH_TO_MONTH_LENGTH_VALUE);
+  // Custom dates and Month-to-month are checkboxes under Long-term, offered only when the listing ticked them;
+  // the select holds the fixed lengths. A sole choice needs no question at all.
+  const offeredKinds = leaseKindsOffered(offeredStored);
+  const fixedLengthOptions = lengthOptions.filter((option) => monthsOfLengthValue(option.value) !== null);
+  const askLongTermChoice = lengthOptions.length > 1;
+  const longTermChecks = askLongTermChoice
+    ? [
+        ...(offeredKinds.custom ? [{ value: CUSTOM_DATES_LENGTH_VALUE, label: "Custom dates" }] : []),
+        ...(offeredKinds.monthToMonth ? [{ value: MONTH_TO_MONTH_LENGTH_VALUE, label: "Month-to-month" }] : []),
+      ]
+    : [];
   const shortForm = form.rentalType === "short_term";
 
   const pickKind = (next: LeaseKind) => {
@@ -492,22 +508,42 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
             />
             <FieldError msg={errors.leaseStart} />
           </div>
-          {lengthOptions.length > 1 ? (
+          {askLongTermChoice ? (
             <div className="space-y-2" data-wizard-field="longTermLength">
-              <Label htmlFor="longTermLength" required>Length</Label>
-              <Select
-                id="longTermLength"
-                value={lengthValue}
-                onChange={(e) => pickLength(e.target.value)}
-                className={errors.leaseEnd && !needsMoveOut ? "border-red-400 ring-2 ring-red-100" : ""}
-              >
-                <option value="">Pick a length…</option>
-                {lengthOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
+              {fixedLengthOptions.length > 0 ? (
+                <>
+                  <Label htmlFor="longTermLength" required>Length</Label>
+                  <Select
+                    id="longTermLength"
+                    value={fixedLengthOptions.some((option) => option.value === lengthValue) ? lengthValue : ""}
+                    onChange={(e) => pickLength(e.target.value)}
+                    className={errors.leaseEnd && !needsMoveOut ? "border-red-400 ring-2 ring-red-100" : ""}
+                  >
+                    <option value="">Pick a length…</option>
+                    {fixedLengthOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </>
+              ) : null}
+              {longTermChecks.length > 0 ? (
+                <div className={fixedLengthOptions.length > 0 ? "space-y-2 pl-4" : "space-y-2"} data-wizard-field="longTermOptions">
+                  {longTermChecks.map((check) => (
+                    <label key={check.value} className="flex cursor-pointer items-center gap-2.5 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                        checked={lengthValue === check.value}
+                        onChange={(e) => pickLength(e.target.checked ? check.value : "")}
+                        data-attr={`rental-wizard-long-term-${check.value}`}
+                      />
+                      {check.label}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               {!needsMoveOut ? <FieldError msg={errors.leaseEnd ? "Pick a lease length." : undefined} /> : null}
             </div>
           ) : null}

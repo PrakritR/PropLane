@@ -28,7 +28,7 @@ import {
   resolveAllowedLeaseTerms,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { LEASE_TYPES, leaseTypeIdsFromStored, leaseTypeLabel } from "@/lib/rental-application/lease-terms";
+import { LEASE_PICK_OPTIONS, leasePickFromStored, leasePickSummary, normalizeLeasePick, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 import { WorkspaceDeleteButton } from "@/components/portal/add-workspace/frame";
@@ -2020,10 +2020,11 @@ export function FactRow({
 }
 
 /**
- * "Lease terms": the four lease types a property can offer, from the one owner (`LEASE_TYPES` in
- * `lease-terms.ts`). A multi-select, never pills. What is ticked is what an applicant can pick, and the lease
- * document and charge schedule follow the applicant's pick. Custom lets the applicant choose their own start
- * and end dates; Month-to-month is open-ended rolling rent with no surcharge.
+ * "Lease terms": Long-term and Short-term, from the one owner (`LEASE_PICK_OPTIONS` in `lease-terms.ts`). With
+ * Long-term ticked, Custom dates and Month-to-month appear indented under it; unticking Long-term clears them.
+ * A multi-select, never pills. What is ticked is what an applicant can pick, and the lease document and charge
+ * schedule follow the applicant's pick. Custom lets the applicant choose their own start and end dates;
+ * Month-to-month is open-ended rolling rent with no surcharge. Stored terms are unchanged.
  */
 export function LeaseTermsField({
   sub,
@@ -2034,20 +2035,23 @@ export function LeaseTermsField({
   onPatch: (next: Partial<ManagerListingSubmissionV1>) => void;
   first?: boolean;
 }) {
-  const selectedIds = leaseTypeIdsFromStored(resolveAllowedLeaseTerms(sub));
+  const selectedIds = leasePickFromStored(resolveAllowedLeaseTerms(sub));
   const [refusedEmpty, setRefusedEmpty] = useState(false);
   return (
     <FactRow first={first} label="Lease terms" required>
       <span className="flex min-w-0 flex-col items-end gap-1">
-        <MultiPick
+        <CheckboxMultiSelect
+          hideLabel
           label="Lease terms you offer"
           dataAttr="lease-type"
-          options={LEASE_TYPES.map((type) => type.label)}
-          selected={selectedIds.map(leaseTypeLabel)}
-          allowOther={false}
+          variant="cell"
+          className="min-w-[150px] max-w-[220px]"
+          options={LEASE_PICK_OPTIONS.map((o) => ({ value: o.value, label: o.label, parent: o.parent }))}
+          selected={selectedIds}
+          selectionTriggerLabel={leasePickSummary(selectedIds)}
           emptyLabel="Choose…"
           onChange={(picked) => {
-            const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
+            const ids = normalizeLeasePick(picked as LeaseTypeId[]);
             // A property must offer at least one lease type. Storing none inverted the field:
             // `resolveAllowedLeaseTerms` then returns [] and every reader falls back to what the
             // listing is assumed to offer, so unticking all four said less than it looked like.

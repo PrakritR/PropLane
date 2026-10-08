@@ -87,11 +87,14 @@ describe("room card: Leases offered", () => {
     fireEvent.click(trigger);
     const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
     const labels = [...menu.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim());
-    expect(labels).toEqual(["Long-term", "Short-term", "Custom", "Month-to-month"]);
+    // Long-term is ticked, so its two children show indented under it; Short-term follows.
+    expect(labels).toEqual(["Long-term", "Custom dates", "Month-to-month", "Short-term"]);
+    expect(menu.querySelector('[data-field-select-option-value="custom"]')?.getAttribute("data-child-of")).toBe("long_term");
+    expect(menu.querySelector('[data-field-select-option-value="long_term"]')?.getAttribute("data-child-of")).toBeNull();
     // Short-term is on (shortTermRentalsAllowed); Airbnb is not offered here.
     expect(labels).not.toContain("Airbnb");
-    // Untick Custom: the room now restricts.
-    const custom = menu.querySelector('[data-field-select-option-value="Custom"]')!;
+    // Untick Custom dates: the room now restricts.
+    const custom = menu.querySelector('[data-field-select-option-value="custom"]')!;
     fireEvent.pointerDown(custom, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(custom, { pointerId: 1, clientX: 10, clientY: 10 });
     const room = seen.at(-1)!.rooms.find((r) => r.id === "r1")!;
@@ -107,10 +110,28 @@ describe("room card: Leases offered", () => {
     expect(cards[1]!.textContent).toContain("Long-term, Short-term");
   });
 
-  it("always offers the four lease types; Custom has an (i) and turns on Prorated rent (captain, Oct 3)", () => {
-    open("rooms", undefined, { ...seeded, allowedLeaseTerms: ["Long-term"], shortTermRentalsAllowed: false });
+  it("unticking Long-term clears Custom dates and Month-to-month, and the room stores Short-term only", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("rooms", (s) => seen.push(s));
+    fireEvent.click(screen.getByRole("button", { name: "Open Room A" }));
+    const trigger = screen.getByRole("button", { name: "Leases offered for Room A" });
+    fireEvent.click(trigger);
+    const menu = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+    const longTerm = menu.querySelector('[data-field-select-option-value="long_term"]')!;
+    fireEvent.pointerDown(longTerm, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(longTerm, { pointerId: 1, clientX: 10, clientY: 10 });
+    const room = seen.at(-1)!.rooms.find((r) => r.id === "r1")!;
+    expect(room.offeredLeaseTerms).toEqual(["Short-Term Stay"]);
+    const labels = [...menu.querySelectorAll('[role="option"]')].map((o) => o.textContent?.trim());
+    expect(labels).toEqual(["Long-term", "Short-term"]);
+  });
+
+  it("offers Long-term and Short-term; the room card no longer edits Prorated rent or Daily rent", () => {
+    open("rooms", undefined, { ...seeded, allowedLeaseTerms: ["Long-term", "Custom"], shortTermRentalsAllowed: false });
     fireEvent.click(screen.getByRole("button", { name: "Open Room A" }));
     expect(screen.getByRole("button", { name: "Leases offered for Room A" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Prorated rent for Room A" })).toBeNull();
+    expect(screen.queryByLabelText("Daily rent for Room A")).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-room-prorate"]')).toBeNull();
   });
 });

@@ -109,9 +109,18 @@ export const MONTH_TO_MONTH_LENGTH_VALUE = "mtm";
 export const CUSTOM_DATES_LENGTH_LABEL = "Custom dates";
 export const MONTH_TO_MONTH_LENGTH_LABEL = "Month-to-month";
 
+/** Long-term with no fixed lengths and no Custom dates: the applicant's move-out date IS the term, no checkbox. */
+export function longTermHasImplicitMoveOut(offeredStored: readonly string[], fixedLengths: readonly number[]): boolean {
+  const kinds = leaseKindsOffered(offeredStored);
+  return kinds.longTerm && !kinds.custom && fixedLengths.length === 0;
+}
+
 /**
- * The Length dropdown for a Long-term lease: the property's fixed lengths (only when it offers Long-term),
- * "Custom dates", and "Month-to-month" only when the property offers it.
+ * The Long-term choices: the property's fixed lengths (only when it offers Long-term), "Custom dates" and
+ * "Month-to-month". Custom dates and Month-to-month are the two checkboxes under Long-term (captain, Oct 8
+ * 2026), so each is offered ONLY when the property ticked it. The one exception keeps Long-term from being a
+ * dead end: a property with Long-term, no fixed lengths and no Custom dates still needs a move-out date, so
+ * its single choice is the move-out date.
  */
 export function longTermLengthOptions(offeredStored: readonly string[], fixedLengths: readonly number[]): LengthOption[] {
   const kinds = leaseKindsOffered(offeredStored);
@@ -121,7 +130,7 @@ export function longTermLengthOptions(offeredStored: readonly string[], fixedLen
       out.push({ value: `m:${months}`, label: `${months} ${months === 1 ? "month" : "months"}` });
     }
   }
-  if (kinds.longTerm || kinds.custom) out.push({ value: CUSTOM_DATES_LENGTH_VALUE, label: CUSTOM_DATES_LENGTH_LABEL });
+  if (kinds.custom || longTermHasImplicitMoveOut(offeredStored, fixedLengths)) out.push({ value: CUSTOM_DATES_LENGTH_VALUE, label: CUSTOM_DATES_LENGTH_LABEL });
   if (kinds.monthToMonth) out.push({ value: MONTH_TO_MONTH_LENGTH_VALUE, label: MONTH_TO_MONTH_LENGTH_LABEL });
   return out;
 }

@@ -226,7 +226,7 @@ import {
   wizardFieldErrorClass,
   wizardSectionErrorClass,
 } from "@/lib/wizard-field-errors";
-import { LEASE_TYPES, leaseTypeIdsFromStored } from "@/lib/rental-application/lease-terms";
+import { LEASE_PICK_OPTIONS, leasePickFromStored, leasePickSummary, normalizeLeasePick, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 import {
   CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
@@ -5317,20 +5317,22 @@ export function ManagerAddListingForm({
                   <div data-wizard-field="allowedLeaseTerms" className={wizardSectionErrorClass(Boolean(stepFieldErrors.allowedLeaseTerms))}>
                     <FieldLabel required>Lease terms</FieldLabel>
                     {/*
-                      The four lease types (Long-term, Short-term, Custom, Month-to-month) from the one owner,
-                      `LEASE_TYPES`. Ticked is what the applicant's Lease term select offers.
+                      Long-term and Short-term from the one owner, `LEASE_PICK_OPTIONS`; Custom dates and
+                      Month-to-month sit indented under Long-term while it is ticked. Ticked is what the
+                      applicant's Lease term select offers.
                     */}
                     <CheckboxMultiSelect
                       label="Lease terms you offer"
                       hideLabel
                       dataAttr="lease-type"
                       className="mt-2 w-full max-w-[18rem]"
-                      options={LEASE_TYPES.map((type) => ({ value: type.id, label: type.label }))}
-                      selected={leaseTypeIdsFromStored(resolveAllowedLeaseTerms(sub))}
+                      options={LEASE_PICK_OPTIONS.map((o) => ({ value: o.value, label: o.label, parent: o.parent }))}
+                      selected={leasePickFromStored(resolveAllowedLeaseTerms(sub))}
+                      selectionTriggerLabel={leasePickSummary(leasePickFromStored(resolveAllowedLeaseTerms(sub)))}
                       emptyLabel="Choose…"
                       onChange={(next) => {
                         clearListingFieldError("allowedLeaseTerms");
-                        const ids = LEASE_TYPES.filter((type) => next.includes(type.id)).map((type) => type.id);
+                        const ids = normalizeLeasePick(next as LeaseTypeId[]);
                         setSub((s) => {
                           const patch = leaseTermsPatchForTypes(s, ids);
                           const bundles = patch.shortTermRentalsAllowed

@@ -120,7 +120,12 @@ import {
 import {
   CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
+  LEASE_PICK_OPTIONS,
   LEASE_TYPES,
+  leasePickFromStored,
+  leasePickSummary,
+  storedTermsFromLeasePick,
+  type LeaseTypeId,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
@@ -1127,10 +1132,17 @@ const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = LEAS
   label: type.label,
 }));
 
-/** Captain, Oct 3: a room always offers the four lease types to pick from; Custom explains itself. */
-const ROOM_LEASE_TERM_PICKS = ROOM_LEASE_TERM_LABELS.map((o) =>
-  o.value === CUSTOM_LEASE_TERM ? { ...o, info: "Starts any day of the month" } : o,
-);
+/**
+ * Captain, Oct 8: a room's Leases offered is Long-term and Short-term; Custom dates and Month-to-month are
+ * indented checkboxes under Long-term, shown only while it is ticked. The picker speaks lease-type ids and the
+ * room still stores the same terms (`storedTermsFromLeasePick`).
+ */
+const ROOM_LEASE_PICK_OPTIONS = LEASE_PICK_OPTIONS.map((o) => ({
+  value: o.value,
+  label: o.label,
+  parent: o.parent,
+  ...(o.value === "custom" ? { info: "Starts any day of the month" } : {}),
+}));
 
 /**
  * One patch for a room's Leases offered pick: a type the listing does not offer yet is
@@ -1222,12 +1234,12 @@ export function ListingRoomEditorBody({
   const floorOptions = floorLevelSelectOptions(storiesId, room.floor).map((l) => ({ value: l, label: l }));
   const floorShown = (room.floor ?? "").trim() || floorOptions[0]?.value || "";
   const furnItems = roomFurnitureItems(room);
-  const leaseChoices = ROOM_LEASE_TERM_PICKS;
   // A room that does not restrict shows every lease type the listing offers ticked.
-  const leaseSelected = room.offeredLeaseTerms?.length
-    ? [...room.offeredLeaseTerms]
-    : roomOfferedLeaseTerms(room, roomLeaseTermChoices(sub).map((c) => c.value));
-  const customOffered = leaseSelected.includes(CUSTOM_LEASE_TERM);
+  const leaseSelected = leasePickFromStored(
+    room.offeredLeaseTerms?.length
+      ? [...room.offeredLeaseTerms]
+      : roomOfferedLeaseTerms(room, roomLeaseTermChoices(sub).map((c) => c.value)),
+  );
   const writeBeds = (next: ManagerRoomBed[]) => onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
   const help = (title: string, text: string) => (
     <span className="inline-flex items-center gap-1.5">
@@ -1281,50 +1293,19 @@ export function ListingRoomEditorBody({
           label={`Leases offered for ${who}`}
           variant="cell"
           className="min-w-[150px] max-w-[240px]"
-          options={leaseChoices}
+          options={ROOM_LEASE_PICK_OPTIONS}
           selected={leaseSelected}
+          selectionTriggerLabel={leasePickSummary(leaseSelected)}
           emptyLabel="All lease types"
           dataAttr="listing-v2-room-leases-offered"
-          onChange={(next) =>
-            onLeasesOffered
-              ? onLeasesOffered(next)
-              : onRoom({ offeredLeaseTerms: roomOfferedLeaseTermsFromPick(next, roomLeaseTermChoices(sub).map((c) => c.value)) })
-          }
+          onChange={(next) => {
+            const picked = storedTermsFromLeasePick(next as LeaseTypeId[]);
+            if (onLeasesOffered) onLeasesOffered(picked);
+            else onRoom({ offeredLeaseTerms: roomOfferedLeaseTermsFromPick(picked, roomLeaseTermChoices(sub).map((c) => c.value)) });
+          }}
         />
       </FactRow>
-      {/* Prorated rent only matters when a lease can start any day — shown iff Custom is offered. */}
-      {customOffered ? (
-        <FactRow label="Prorated rent">
-          <FieldSingleSelect
-            hideLabel
-            label={`Prorated rent for ${who}`}
-            variant="cell"
-            wrapperClassName="min-w-[170px] max-w-[240px]"
-            value={room.prorateMethod === "daily_rate" ? "daily_rate" : "auto"}
-            options={[
-              { value: "auto", label: "By days in the month" },
-              { value: "daily_rate", label: "By a daily rate" },
-            ]}
-            dataAttr="listing-v2-room-prorate"
-            onChange={(v) => onRoom({ prorateMethod: v === "daily_rate" ? "daily_rate" : "auto" })}
-          />
-        </FactRow>
-      ) : null}
-      {customOffered && room.prorateMethod === "daily_rate" ? (
-        <FactRow label="Daily rent">
-          <Input
-            aria-label={`Daily rent for ${who}`}
-            inputMode="decimal"
-            className="w-[140px] text-right"
-            value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
-            placeholder="$0"
-            onChange={(e) => {
-              const n = Number(e.target.value.replace(/[^0-9.]/g, ""));
-              onRoom({ dailyRentRate: Number.isFinite(n) && n > 0 ? n : undefined });
-            }}
-          />
-        </FactRow>
-      ) : null}
+      {/* Prorated rent and Daily rent live on Pricing (Partial months); the room card no longer edits them. */}
 
       <MoreRows dataAttr="listing-v2-room-more">
         <FactRow label="Room amenities">
