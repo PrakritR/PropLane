@@ -1221,6 +1221,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 3,
     vendor: { ids: ["vendor_user_id"] },
   },
+  {
+    // A resident's PropLane agent number: the provider release is queued
+    // (queue_resident_agent_number_release) before this row cascades away.
+    table: "resident_agent_numbers",
+    phase: 3,
+    resident: { ids: ["resident_user_id"] },
+  },
 ];
 
 /**

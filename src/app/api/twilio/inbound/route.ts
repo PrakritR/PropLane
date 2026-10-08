@@ -18,6 +18,7 @@ import {
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
 import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
 import { resolveVendorNumberSenderPhone } from "@/lib/vendor-work-identity.server";
+import { ingestResidentAgentNumberSms } from "@/lib/resident-agent-number/inbound.server";
 
 export const runtime = "nodejs";
 // ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
@@ -171,6 +172,22 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     } catch (error) {
       console.error("vendor inbound SMS ingest failed", messageSid, error);
       return NextResponse.json({ error: "Vendor inbox unavailable." }, { status: 503 });
+    }
+  }
+
+  // A subscribed resident's own PropLane number (their personal agent). Flag-gated inside: with
+  // NUMBER_SUBSCRIPTION_ENABLED off this is a no-op that costs no query.
+  if (messageSid) {
+    try {
+      const residentInbound = await ingestResidentAgentNumberSms(db, { toPhone, fromPhone, text: body, messageSid });
+      if (residentInbound.handled) {
+        const agentReply = residentInbound.afterResponse;
+        if (agentReply) after(() => agentReply());
+        return twimlOk();
+      }
+    } catch (error) {
+      console.error("resident agent inbound SMS ingest failed", messageSid, error);
+      return NextResponse.json({ error: "Resident inbox unavailable." }, { status: 503 });
     }
   }
 

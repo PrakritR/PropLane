@@ -85,6 +85,12 @@ and `manager_comms_usage_events`, none of which a vendor or resident has. The me
   USD, undiscounted, owner-bound, once per purchase; refunds and disputes reverse once per provider event.
 - **Routes:** `GET /api/number-subscription` (own status + balance), `POST .../checkout`, `POST .../portal`,
   `POST .../credit-checkout` - vendor or resident via `profile_roles` only, a View-as session is refused.
+- **Resident (Oct 8).** The subscription gives a resident a personal number (`resident_agent_numbers`,
+  `20261008210000_resident_agent_numbers.sql`, provisioned on activation and from Settings > PropLane
+  agent: `GET/POST /api/number-subscription/resident-number`) and the PropLane agent behind it
+  (docs/ai-assistant.md § Resident personal agent). Its texts spend this ledger: AI turn 15c and reply
+  3c/segment reserved before the model or the provider (reply sized to four segments, unused refunded),
+  received text 2c/segment absorbed if unfunded. Out of credit: one short notice only if affordable, else nothing.
 
 ### Vendor side (Oct 8, with `NUMBER_SUBSCRIPTION_ENABLED=1`)
 
