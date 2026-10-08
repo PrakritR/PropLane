@@ -215,6 +215,15 @@ export const DELETE_ORDER = [
   "comms_funder_workspace_spend",
   "comms_workspace_funding",
   "comms_account_pools",
+  // PropLane Number ($5/month, vendors and residents): credit children before the
+  // account row, then the subscription and the resident's agent number. The in-app
+  // purge cancels the Stripe subscription and queues the number release first.
+  "number_credit_usage_events",
+  "number_credit_purchases",
+  "number_credit_adjustments",
+  "number_credit_accounts",
+  "number_subscriptions",
+  "resident_agent_numbers",
   "manager_document_templates",
   "manager_promotion_records",
   "manager_reserve_policies",
@@ -276,6 +285,8 @@ export const DELETE_ORDER = [
   "resident_move_in_forms",
   "resident_housemate_sharing",
   "manager_expense_entries",
+  // A vendor's own logged expenses (Outgoing payments).
+  "vendor_expense_entries",
   // Saved payees after the expenses that reference one, and before the vendor directory
   // row a vendor payee points at.
   "manager_payees",
