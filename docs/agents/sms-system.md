@@ -1416,6 +1416,13 @@ receipt runs before any vendor routing); `deliverVendorWorkIdentity` re-reads su
 before every forward, and the manager send reads it before queueing. The first-text
 attestation and footer are unchanged.
 
+**PropLane Number (flag on).** The number is a $5/month subscription, not a free claim: the claim, the
+candidate search and signup provisioning require `numberServiceEntitled`; every vendor-side text and AI turn reserves
+the vendor's number credit before the provider/model call; a lapsed vendor's number is paused (managers' texts fall
+back to the vendor's phone via `getRoutableVendorNumber`) and released after 30 days. Contract:
+[`comms-billing.md`](comms-billing.md) § PropLane Number and § Vendor side; UI and lifecycle:
+[`vendor-portal.md`](vendor-portal.md) § PropLane Number.
+
 **Fair use.** Vendor-side texts (forwards, routed replies, prompts) are covered by the
 service fee, capped at **1,000 SMS segments per Pacific calendar month** per number
 (`VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH`; `vendor_work_identity_runtime.outbound_message_cap`

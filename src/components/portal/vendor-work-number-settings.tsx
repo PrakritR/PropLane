@@ -5,7 +5,8 @@
  * phone claims a PropLane work number (area code -> pick one of three -> claim);
  * managers then text that number, it forwards to the vendor's verified phone,
  * and the vendor's replies go back to the manager they last talked to.
- * Free: PropLane keeps the service fee on payouts instead (never a subscription).
+ * Free while NUMBER_SUBSCRIPTION_ENABLED is off: PropLane keeps the service fee on payouts instead. With it on,
+ * the number is the $5/month PropLane Number: Subscribe, then Manage and Buy credit (vendor-number-billing.tsx).
  *
  * Labels and controls only - nothing is explained under a row (AGENTS.md § No subtext).
  */
@@ -30,6 +31,12 @@ import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { VENDOR_PAY_FEE_BPS } from "@/lib/platform-fees";
 import type { VendorWorkIdentityResponse } from "@/lib/vendor-work-identity";
 import { PHONE_VERIFIED_EVENT, VENDOR_NUMBER_CAP_NOTICE, VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH } from "@/lib/vendor-work-number";
+import {
+  useVendorNumberBilling,
+  vendorNumberEntitledStatus,
+  VendorNumberSubscribeRow,
+  VendorNumberSubscribedRows,
+} from "@/components/portal/vendor-number-billing";
 
 type Candidate = { phoneNumber: string; claimToken: string };
 
@@ -267,11 +274,12 @@ function WorkEmailRow({ identity, reload }: { identity: VendorWorkIdentityRespon
 export function VendorWorkNumberSettings() {
   const demo = isDemoModeActive();
   const live = useWorkIdentity(demo);
+  const numberBilling = useVendorNumberBilling(demo);
   const toast = useOptionalAppUi();
   const [forwardOverride, setForwardOverride] = useState<boolean | null>(null);
   const [forwardError, setForwardError] = useState<string | null>(null);
   const identity = demo ? DEMO_IDENTITY : live.identity;
-  const load = demo ? "ready" : live.load;
+  const load = demo ? "ready" : live.load === "ready" && !numberBilling.loaded ? "loading" : live.load;
   const reload = live.reload;
 
   useEffect(() => {
@@ -337,6 +345,10 @@ export function VendorWorkNumberSettings() {
   const forwarding = forwardOverride ?? identity.forwardToPhone ?? true;
   const cap = identity.usage.outboundCap > 0 ? identity.usage.outboundCap : VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH;
   const capReached = identity.usage.capState === "exhausted";
+  // PropLane Number (flag on): `billing` is null while it is off, which leaves every row below exactly as it was.
+  const billing = numberBilling.billing;
+  const entitled = billing ? vendorNumberEntitledStatus(billing.subscription?.status) : true;
+  const needsSubscription = Boolean(billing) && !entitled;
 
   return (
     <PortalSettingsSections>
@@ -353,6 +365,11 @@ export function VendorWorkNumberSettings() {
                   onCopy={() => copyTextToClipboard(number ?? "").then((ok) => ok && toast?.showToast("Work number copied."))}
                   data-attr="vendor-work-number-copy"
                 />
+                {needsSubscription ? (
+                  <span className="text-sm text-muted" data-attr="vendor-work-number-paused">
+                    Paused
+                  </span>
+                ) : null}
               </span>
             </PortalSettingsRow>
           ) : settling ? (
@@ -371,10 +388,14 @@ export function VendorWorkNumberSettings() {
                 Verify your phone to get one
               </Link>
             </PortalSettingsRow>
+          ) : needsSubscription && billing ? (
+            <VendorNumberSubscribeRow billing={billing} demo={demo} />
           ) : (
             <ClaimNumber identity={identity} reload={() => void reload()} />
           )}
+          {numberReady && needsSubscription && billing ? <VendorNumberSubscribeRow billing={billing} demo={demo} /> : null}
           <WorkEmailRow identity={identity} reload={() => void reload()} />
+          {billing && entitled ? <VendorNumberSubscribedRows billing={billing} demo={demo} onChanged={() => void numberBilling.reload()} /> : null}
           {numberReady ? (
             <>
               <PortalSettingsRow label="Forward texts to my phone">

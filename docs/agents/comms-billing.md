@@ -25,7 +25,9 @@ environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin
 
 ## Vendor work number (Oct 6): covered by the service fee, not a wallet
 
-A vendor's PropLane number (and work email) is never a subscription and never touches a
+(Superseded when `NUMBER_SUBSCRIPTION_ENABLED=1`: the number is then the $5/month PropLane Number, see
+§ PropLane Number below; this section is exactly true with the flag off.)
+A vendor's PropLane number (and work email) is never a manager-wallet charge and never touches a
 manager wallet. A vendor with a verified phone claims one free; PropLane keeps the
 **service fee on payouts** instead (the 3% `VENDOR_PAY_FEE_BPS`, label "PropLane service fee";
 see [financials.md](financials.md) § PropLane service fee). Two meters stay separate:
@@ -83,6 +85,31 @@ and `manager_comms_usage_events`, none of which a vendor or resident has. The me
   USD, undiscounted, owner-bound, once per purchase; refunds and disputes reverse once per provider event.
 - **Routes:** `GET /api/number-subscription` (own status + balance), `POST .../checkout`, `POST .../portal`,
   `POST .../credit-checkout` - vendor or resident via `profile_roles` only, a View-as session is refused.
+
+### Vendor side (Oct 8, with `NUMBER_SUBSCRIPTION_ENABLED=1`)
+
+The free vendor number above becomes the subscription; flag off, the "Vendor work number" section is exactly true.
+
+- **Meters (reserve before provider/model work, `vendor-number.server.ts`).** A vendor text from the vendor's own
+  number - forwards to the vendor's phone, routed replies, "Reply to" prompts, an inbox reply, a hand-off, an AI reply -
+  all leave through `deliverVendorWorkIdentity`, which reserves `sms_outbound_segment` x segments
+  (`vendorNumberSegments`) under the key `vendor-sms:<idempotencyKey>` AFTER the opt-out / quiet-hours /
+  shield checks and BEFORE the operation claim and the provider call. It keeps the debit once the text is sent or the
+  outcome is uncertain, and `release`s it when the cap blocks, the claim fails or the provider definitively rejects.
+  An AI turn reserves `ai_agent_turn` x 1 under `vendor-ai-turn:<sender hash>:<sid>` before the model runs; a model
+  error or a reply refused before any send was attempted hands it back. A received text debits
+  `sms_inbound_segment` with `allowUnfunded` (an unavoidable cost: the platform absorbs what the balance cannot cover,
+  and a received text is never refused). Email is free and unmetered.
+- **Refusals.** Not entitled -> `subscription_inactive`; balance too low -> `out_of_credit`; an unreadable ledger ->
+  `credit_unavailable` (never a free send). The AI also checks, read-only, that the credit covers a turn plus a
+  full-length reply before it pays the model. The vendor sees **Out of credit** in Settings and the send route's
+  message ("Out of credit. Buy credit in Settings to text from your number."). Inbound keeps landing in the inbox.
+- **The 1,000-segment monthly fair-use cap, the per-sender 5/hour AI limit and the 200/day AI ceiling stay** as
+  additional ceilings; credit does not replace them.
+- **Lapsed** (`canceled` / `incomplete`): nothing leaves the number and no AI runs; managers' texts fall back to the
+  vendor's phone; the number is released after 30 days lapsed. Purchased credit is spendable only while entitled.
+- **Account deletion cancels the subscription** before its rows are purged ([vendor-portal.md](vendor-portal.md)
+  § PropLane Number). Unspent credit is forfeited with the account.
 
 ## Add-ons
 
