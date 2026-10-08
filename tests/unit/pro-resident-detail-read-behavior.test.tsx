@@ -54,6 +54,8 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
 vi.mock("@/components/portal/portal-inbox-ui", () => ({
   INBOX_THREAD_ICON_BTN: "",
   INBOX_THREAD_ICON_BTN_DANGER: "",
+  useInboxDetailsPanelMode: () => false,
+  useRegisterInboxContactEdit: () => {},
   InboxComposer: () => null,
   AiDraftReplyCard: () => null,
   InboxReplyChannelPicker: () => null,

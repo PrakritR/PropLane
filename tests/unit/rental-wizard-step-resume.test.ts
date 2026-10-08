@@ -54,9 +54,17 @@ describe("initialWizardStepFromRequest", () => {
     expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(1);
   });
 
-  it("opens a seeded saved fee-step draft at its persisted step before autosave", () => {
-    mocks.draft = { propertyId: "mgr-alder", wizardStep: 11, wizardStepSchema: RENTAL_WIZARD_STEP_SCHEMA } as Partial<RentalWizardFormState>;
-    expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(11);
+  it("opens a seeded saved last-step draft at its persisted step before autosave", () => {
+    mocks.draft = { propertyId: "mgr-alder", wizardStep: 7, wizardStepSchema: RENTAL_WIZARD_STEP_SCHEMA } as Partial<RentalWizardFormState>;
+    expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(7);
+  });
+
+  it("opens a draft saved by the 11-step wizard on the matching new step", () => {
+    // Old step 10 (Review) and 11 (Application fee) are both the new last step.
+    mocks.draft = { propertyId: "mgr-alder", wizardStep: 11, wizardStepSchema: 2 } as Partial<RentalWizardFormState>;
+    expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(7);
+    mocks.draft = { propertyId: "mgr-alder", wizardStep: 6, wizardStepSchema: 2 } as Partial<RentalWizardFormState>;
+    expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(4);
   });
 
   it("defaults to step 1 for an out-of-range or malformed wizardStep", () => {
@@ -137,18 +145,30 @@ describe("PRP-181: resumeActionForLiveDraft", () => {
 });
 
 describe("parsePersistedWizardStep", () => {
-  it("accepts any real step 1..11 on the current schema", () => {
+  it("accepts any real step 1..7 on the current schema", () => {
     expect(parsePersistedWizardStep(1, RENTAL_WIZARD_STEP_SCHEMA)).toBe(1);
     expect(parsePersistedWizardStep(4, RENTAL_WIZARD_STEP_SCHEMA)).toBe(4);
-    expect(parsePersistedWizardStep(11, RENTAL_WIZARD_STEP_SCHEMA)).toBe(11);
-    expect(parsePersistedWizardStep("11", RENTAL_WIZARD_STEP_SCHEMA)).toBe(11);
+    expect(parsePersistedWizardStep(7, RENTAL_WIZARD_STEP_SCHEMA)).toBe(7);
+    expect(parsePersistedWizardStep("7", RENTAL_WIZARD_STEP_SCHEMA)).toBe(7);
+    expect(parsePersistedWizardStep(8, RENTAL_WIZARD_STEP_SCHEMA)).toBeNull();
   });
 
-  it("remaps legacy 12-step persisted values onto the current flow", () => {
-    expect(parsePersistedWizardStep(12)).toBe(11);
-    expect(parsePersistedWizardStep(11)).toBe(10);
+  it("maps every step of the 11-step wizard (schema 2) onto the matching new step", () => {
+    // 1 lease, 2 signer, 3 dates (now in Your lease), 4 current + 5 previous address, 6 employment,
+    // 7 references, 8 additional, 9 consent + 10 review + 11 fee.
+    const oldToNew = [1, 2, 1, 3, 3, 4, 5, 6, 7, 7, 7];
+    oldToNew.forEach((expected, index) => {
+      expect(parsePersistedWizardStep(index + 1, 2)).toBe(expected);
+    });
+    expect(parsePersistedWizardStep(12, 2)).toBeNull();
+  });
+
+  it("remaps legacy 12-step persisted values through the 11-step flow onto the current one", () => {
+    expect(parsePersistedWizardStep(12)).toBe(7);
+    expect(parsePersistedWizardStep(11)).toBe(7);
     expect(parsePersistedWizardStep(4)).toBe(2);
     expect(parsePersistedWizardStep(2)).toBe(1);
+    expect(parsePersistedWizardStep(3)).toBe(1);
   });
 
   it("rejects out-of-range, missing, or malformed values", () => {

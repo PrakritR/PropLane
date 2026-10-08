@@ -311,8 +311,8 @@ export function VendorPaymentsPanel({ story }: { story?: DemoStory } = {}) {
 
   return (
     <FixtureListScreen
-      path="/vendor/financials/income"
-      title="Payments"
+      path="/vendor/payments/pending"
+      title="Incoming payments"
       tabs={[]}
       activeId=""
       onTab={() => undefined}
@@ -405,6 +405,69 @@ export function VendorPaymentsPanel({ story }: { story?: DemoStory } = {}) {
           }
           onOpen={() => setSelected(p)}
           dataAttr="vendor-payment-row"
+        />
+      ))}
+    </FixtureListScreen>
+  );
+}
+
+/* ───────────────────────────── Outgoing payments ───────────────────────────── */
+
+const VENDOR_EXPENSES = [
+  { id: "exp-1", title: "Faucet cartridge and supply line", category: "Materials", date: "Oct 1, 2025", amount: "$42.18" },
+  { id: "exp-2", title: "Pipe wrench", category: "Tools", date: "Sep 29, 2025", amount: "$36.50" },
+  { id: "exp-3", title: "Fuel", category: "Fuel", date: "Sep 24, 2025", amount: "$58.40" },
+] as const;
+
+export function VendorOutgoingPanel() {
+  const [search, setSearch] = useState("");
+  const { show, node: toastNode } = useFixtureToast();
+  const rows = VENDOR_EXPENSES.filter((e) => matchesSearch(search, e.title, e.category));
+  return (
+    <FixtureListScreen
+      path="/vendor/outgoing/this-month"
+      title="Outgoing payments"
+      tabs={[
+        { id: "this-month", label: "This month", count: VENDOR_EXPENSES.length },
+        { id: "last-month", label: "Last month" },
+        { id: "earlier", label: "Earlier" },
+      ]}
+      activeId="this-month"
+      onTab={() => undefined}
+      search={search}
+      onSearch={setSearch}
+      searchPlaceholder="Search expenses"
+      actions={
+        <>
+          <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
+          <PortalIconAction icon={Download} label="Download expenses" onClick={() => show("Download (sample)")} />
+        </>
+      }
+      primary={{ label: "Add expense", onClick: () => show("Add expense") }}
+      isEmpty={rows.length === 0}
+      emptyTitle="No expenses yet"
+      emptySection="payments"
+      overlay={toastNode}
+    >
+      {rows.map((e) => (
+        <PortalPropertyRecordRow
+          key={e.id}
+          title={e.title}
+          address={e.category}
+          facts={<span className="truncate">{e.date}</span>}
+          amount={e.amount}
+          actions={
+            <VendorRowMenu
+              label={e.title}
+              dataAttr="vendor-expense-row-menu"
+              items={[
+                { id: "edit", label: "Edit", onSelect: () => show("Edit (sample)") },
+                { id: "delete", label: "Delete", destructive: true, onSelect: () => show("Delete (sample)") },
+              ] satisfies VendorRowMenuItem[]}
+            />
+          }
+          onOpen={() => show("Expense (sample)")}
+          dataAttr="vendor-expense-row"
         />
       ))}
     </FixtureListScreen>

@@ -188,7 +188,7 @@ describe("phase 1 regroup: headings and exact order per portal", () => {
     expect(headings("vendor")).toEqual([
       [null, ["dashboard", "communication", "calendar"]],
       ["Work", ["work-orders", "reviews"]],
-      ["Money", ["financials", "documents"]],
+      ["Money", ["payments", "outgoing", "financials", "documents"]],
     ]);
   });
 

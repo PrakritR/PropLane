@@ -24,6 +24,12 @@ function mockFetch(opts: { requested?: string[]; requestFails?: boolean; feedFai
         if (opts.feedFails) return { ok: false, json: async () => ({ ok: false, error: "Calendar link is temporarily unavailable." }) };
         return { ok: true, json: async () => ({ ok: true, url: method === "POST" ? `${FEED_URL}?new` : FEED_URL, revoked: false }) };
       }
+      if (url.includes("/api/vendor/work-identity")) {
+        return {
+          ok: true,
+          json: async () => ({ identity: { sms: { value: "+14255550177" }, email: { value: "dima@vendors.proplane.ai" } } }),
+        };
+      }
       if (url.includes("/api/vendor/integration-requests")) {
         if (method === "POST") {
           return opts.requestFails
@@ -55,9 +61,37 @@ describe("VendorIntegrationsSettings", () => {
     for (const name of ["Jobber", "Housecall Pro", "Thumbtack"]) expect(await findByText(name)).toBeTruthy();
     expect(getAllByText("Request access")).toHaveLength(3);
     const rows = document.body.textContent ?? "";
-    expect(rows.match(/Coming soon\s*·\s*Request access/g)).toHaveLength(3);
+    expect(rows.match(/Coming soon\s*Request access/g)).toHaveLength(3);
     expect(document.querySelector('[aria-label="Copy link"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Reset link"]')).toBeTruthy();
+  });
+
+  it("is grouped Messages · Calendar · Job software, each a manager-style row with its action", async () => {
+    mockFetch();
+    const onManage = vi.fn();
+    const { findByText } = render(<VendorIntegrationsSettings onManage={onManage} />);
+    for (const title of ["Messages", "Calendar", "Job software"]) expect(await findByText(title)).toBeTruthy();
+    for (const name of ["Work number", "Work email", "Calendar link"]) expect(await findByText(name)).toBeTruthy();
+    expect(await findByText("(425) 555-0177")).toBeTruthy();
+    expect(await findByText("dima@vendors.proplane.ai")).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-attr="vendor-integrations-number-manage"]')!);
+    expect(onManage).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll("[data-attr$='-row']").length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("says Not set up when the vendor has no work number or email yet", async () => {
+    mockFetch();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/vendor/work-identity")) return { ok: true, json: async () => ({ identity: { sms: {}, email: {} } }) };
+        if (url.includes("/api/vendor/calendar-feed")) return { ok: true, json: async () => ({ ok: true, url: FEED_URL }) };
+        return { ok: true, json: async () => ({ ok: true, requested: [] }) };
+      }),
+    );
+    const { findAllByText } = render(<VendorIntegrationsSettings />);
+    expect(await findAllByText("Not set up")).toHaveLength(2);
   });
 
   it("Request access records the provider and the row then says Requested", async () => {

@@ -180,7 +180,7 @@ describe("active wizard steps derive from the variant's enabled questions", () =
       applicationConfigForVariant({}, "standard"),
       normalizeCustomApplicationFields,
     );
-    expect(steps).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(steps).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
   it("the short-term default skips the screening sections it turns off", () => {
@@ -188,8 +188,9 @@ describe("active wizard steps derive from the variant's enabled questions", () =
       applicationConfigForVariant({}, "short_term"),
       normalizeCustomApplicationFields,
     );
-    // 4 Current address, 5 Previous address, 6 Employment, 7 References, 8 Additional are gone.
-    expect(steps).toEqual([1, 2, 3, 9, 10, 11]);
+    // 3 Where you live, 4 Work and income, 5 References, 6 More details are gone: Your lease, About you,
+    // and Review, sign and pay remain.
+    expect(steps).toEqual([1, 2, 7]);
   });
 
   it("a short-term form with every built-in re-enabled stays fully enabled (does not revert to the curated default)", () => {
@@ -215,15 +216,15 @@ describe("active wizard steps derive from the variant's enabled questions", () =
   it("re-enabling a question brings its step back for that form only", () => {
     const shortDefault = applicationConfigForVariant({}, "short_term");
     const shortSteps = activeApplicationWizardSteps(shortDefault, normalizeCustomApplicationFields);
-    expect(shortSteps).not.toContain(6);
+    expect(shortSteps).not.toContain(4);
     const reenabled = reenableListingApplicationField(shortDefault, employmentKey);
     const steps = activeApplicationWizardSteps(reenabled, normalizeCustomApplicationFields);
-    expect(steps).toContain(6);
+    expect(steps).toContain(4);
     // The re-add flips the form to a customized config.
     expect(reenabled.applicationConfigMode).toBe("custom");
     const longDefault = applicationConfigForVariant({}, "standard");
     const longSteps = activeApplicationWizardSteps(longDefault, normalizeCustomApplicationFields);
-    expect(longSteps).toContain(6);
+    expect(longSteps).toContain(4);
   });
 });
 

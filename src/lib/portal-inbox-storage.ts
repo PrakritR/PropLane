@@ -63,6 +63,8 @@ export type InboxThreadMessage = {
    * an ordinary bubble, never a guessed system notice.
    */
   automated?: boolean;
+  /** True for a text the AI on a vendor's PropLane number sent on the vendor's behalf; the bubble says "Sent by AI". */
+  sentByAi?: boolean;
   /**
    * The house this turn is about. One conversation spans every house a person
    * is tied to, so each turn names its own; absent = the turn is about no house.

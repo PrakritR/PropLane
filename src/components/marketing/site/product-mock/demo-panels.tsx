@@ -66,6 +66,7 @@ import {
   VendorPaymentsPanel,
   VendorReviewsPanel,
   VendorServicesPanel,
+  VendorOutgoingPanel,
 } from "@/components/marketing/site/product-mock/panels-vendor";
 
 export { DEMO_TABS };
@@ -117,8 +118,10 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     calendar: ({ story }) => <VendorCalendarPanel story={story} />,
     "work-orders": ({ story }) => <VendorServicesPanel story={story} />,
     reviews: () => <VendorReviewsPanel />,
-    // The real Finances nests five sections; bare /vendor/financials lands on Balance & payouts, the sidebar sub-row opens Payments.
-    financials: ({ story, sub }) => (sub === "income" ? <VendorPaymentsPanel story={story} /> : <VendorFinancesPanel story={story} />),
+    // The Money group: Incoming payments · Outgoing payments · Finances (vendor-portal-ia-1007).
+    payments: ({ story }) => <VendorPaymentsPanel story={story} />,
+    outgoing: () => <VendorOutgoingPanel />,
+    financials: ({ story }) => <VendorFinancesPanel story={story} />,
     documents: () => <VendorDocumentsPanel />,
   },
 };

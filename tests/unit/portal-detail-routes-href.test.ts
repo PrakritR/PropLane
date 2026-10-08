@@ -7,14 +7,12 @@ import {
   legacyManagerPortalSectionPath,
   managerDocumentsApplicationDetailHref,
   managerDocumentsApplicationsListHref,
-  parseVendorCalendarViewTab,
   propertyListHref,
   propertyTourDetailHref,
   propertyTourListHref,
   residentDocumentsApplicationDetailHref,
   residentDocumentsApplicationListHref,
-  VENDOR_CALENDAR_VIEW_TABS,
-  vendorCalendarViewHref,
+  vendorCalendarHref,
 } from "@/lib/portal-detail-routes";
 
 describe("portal-detail-routes href helpers", () => {
@@ -47,17 +45,8 @@ describe("portal-detail-routes href helpers", () => {
     expect(legacyManagerPortalSectionPath("dashboard")).toBeNull();
   });
 
-  it("vendor Calendar tabs are the All/Services/Availability kind filter, All canonicalizing to the bare route", () => {
-    expect([...VENDOR_CALENDAR_VIEW_TABS]).toEqual(["all", "services", "availability"]);
-    expect(vendorCalendarViewHref("/vendor", "all")).toBe("/vendor/calendar");
-    expect(vendorCalendarViewHref("/vendor", "services")).toBe("/vendor/calendar/services");
-    expect(vendorCalendarViewHref("/vendor", "availability")).toBe("/vendor/calendar/availability");
-    expect(parseVendorCalendarViewTab("services")).toBe("services");
-    expect(parseVendorCalendarViewTab("availability")).toBe("availability");
-    // Stale day/week/month view-mode ids (pre-grid agenda redesign) and
-    // anything else unrecognized fall back to the default tab.
-    expect(parseVendorCalendarViewTab("week")).toBe("all");
-    expect(parseVendorCalendarViewTab(undefined)).toBe("all");
+  it("vendor Calendar is one view at the bare route", () => {
+    expect(vendorCalendarHref("/vendor")).toBe("/vendor/calendar");
   });
 
   it("builds property-scoped tour bucket URLs", () => {

@@ -120,7 +120,7 @@ npm run linear:export -- --ticket PRP-180 --out ~/proplane-mock-kit/studio/plans
 └── Documents & GL            Owner statements, QuickBooks export
 
 09 — AI Assistant
-├── Manager assistant         Floating popup / dock, manager tools
+├── Manager assistant         Side panel / phone sheet, manager tools
 ├── Resident assistant        Resident-scoped agent
 ├── Vendor assistant          Work-order-pinned vendor agent
 └── SMS agents                Leasing SMS + vendor dispatch SMS

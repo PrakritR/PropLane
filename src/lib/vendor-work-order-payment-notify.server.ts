@@ -111,11 +111,13 @@ export async function deliverVendorPaymentFollowUp(
     text: string;
   },
 ): Promise<{ ok: true; recipientCount: number } | { ok: false; error: string }> {
-  const recipientIds = await resolvePropertyScopedManagerRecipientIds(db, {
-    ownerManagerUserId: input.ownerManagerUserId,
-    propertyId: input.propertyId,
-    channel: "inbox",
-  });
+  const recipientIds = input.ownerManagerUserId
+    ? await resolvePropertyScopedManagerRecipientIds(db, {
+        ownerManagerUserId: input.ownerManagerUserId,
+        propertyId: input.propertyId,
+        channel: "inbox",
+      })
+    : [];
   for (const id of input.extraRecipientIds ?? []) if (id) recipientIds.push(id);
 
   const uniqueRecipientIds = [...new Set(recipientIds.filter(Boolean))];

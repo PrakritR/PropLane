@@ -1302,6 +1302,9 @@ export function CalendarDayPanel({
   onOpenItem,
   onBookSlot,
   onAddAvailability,
+  openLabel = "Open for tours",
+  emptyOpenLabel,
+  showSlots = true,
 }: {
   dateStr: string;
   isToday: boolean;
@@ -1315,6 +1318,12 @@ export function CalendarDayPanel({
   onOpenItem: (item: CalendarGridItem, target: HTMLElement | null) => void;
   onBookSlot: (dateStr: string, startMin: number) => void;
   onAddAvailability: (dateStr: string) => void;
+  /** The section label over the open hours ("Open for tours" for a manager, "Open hours" for a vendor). */
+  openLabel?: string;
+  /** Replaces "No tour times on Mondays" (a vendor has no tours). */
+  emptyOpenLabel?: string;
+  /** Bookable tour-time chips; a vendor has none (their open hours are not bookable slots). */
+  showSlots?: boolean;
 }) {
   const weekday = weekdayOfDateStr(dateStr);
   const list = items
@@ -1375,12 +1384,12 @@ export function CalendarDayPanel({
       ) : null}
       <div className="flex items-center gap-2 border-t border-border pt-1 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">
         <i className="inline-block h-3 w-4 rounded-[3px]" style={bandStyle(bandPaint([]), "key")} aria-hidden />
-        Open for tours
+        {openLabel}
       </div>
       {openStarts.length === 0 ? (
         <>
           <p className="text-[13px] text-muted" data-attr="calendar-day-no-tour-times">
-            No tour times on {DOW_LONG[weekday]}s
+            {emptyOpenLabel ?? `No tour times on ${DOW_LONG[weekday]}s`}
           </p>
           {addLink}
         </>
@@ -1389,7 +1398,7 @@ export function CalendarDayPanel({
           <p className="text-[13px] font-semibold text-foreground" data-attr="calendar-day-open-summary">
             {openSummary}
           </p>
-          {chipStarts.length > 0 ? (
+          {!showSlots ? null : chipStarts.length > 0 ? (
             <div className="grid grid-cols-3 gap-1.5" data-attr="calendar-day-slots">
               {chipStarts.map((start) => (
                 <button

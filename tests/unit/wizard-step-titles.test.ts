@@ -1,20 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
-import { rentalWizardStepTitle } from "@/lib/rental-application/wizard-step-titles";
+import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
+import { RENTAL_WIZARD_STEP_TITLES, rentalWizardStepTitle } from "@/lib/rental-application/wizard-step-titles";
 
 describe("rentalWizardStepTitle", () => {
-  it("opens with the lease question", () => {
-    const form = createInitialRentalWizardState();
-    expect(rentalWizardStepTitle(1, form)).toBe("Which lease are you applying for?");
+  it("is a seven-step application", () => {
+    expect(RENTAL_WIZARD_STEP_COUNT).toBe(7);
+    expect(RENTAL_WIZARD_STEP_TITLES).toHaveLength(7);
   });
 
-  it("asks the lease question of a primary applicant too", () => {
+  it("opens with the lease", () => {
+    const form = createInitialRentalWizardState();
+    expect(rentalWizardStepTitle(1, form)).toBe("Your lease");
+  });
+
+  it("opens with the lease for a primary applicant too", () => {
     const form = { ...createInitialRentalWizardState(), applicantRole: "signer" as const };
-    expect(rentalWizardStepTitle(1, form)).toBe("Which lease are you applying for?");
+    expect(rentalWizardStepTitle(1, form)).toBe("Your lease");
   });
 
-  it("keeps later step titles unchanged", () => {
+  it("names every step", () => {
     const form = createInitialRentalWizardState();
-    expect(rentalWizardStepTitle(3, form)).toBe("Move-in dates");
+    expect([1, 2, 3, 4, 5, 6, 7].map((n) => rentalWizardStepTitle(n, form))).toEqual([
+      "Your lease",
+      "About you",
+      "Where you live",
+      "Work and income",
+      "References",
+      "More details",
+      "Review, sign and pay",
+    ]);
+    expect(rentalWizardStepTitle(8, form)).toBe("");
   });
 });

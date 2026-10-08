@@ -161,7 +161,7 @@ describe("workspace browse slug — trim-run ReDoS", () => {
 
 describe("rental application entered money — leading-whitespace ReDoS", () => {
   const monthlyIncomeError = (monthlyIncome: string): string | undefined =>
-    validateRentalWizardStep(6, {
+    validateRentalWizardStep(4, {
       ...createInitialRentalWizardState(),
       notEmployed: true,
       monthlyIncome,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// C174: the public apply flow's LAST step before the applicant pays (step 11,
+// C174: the public apply flow's LAST step before the applicant pays (step 7,
 // "the fee step") showed only the application fee amount — no itemized
 // breakdown of what is due later at signing (security deposit, first month).
 // That breakdown already existed elsewhere (the step-3 room picker's
@@ -67,7 +67,7 @@ vi.mock("@/lib/rental-application/data", async (importOriginal) => {
 function props(over: Partial<WizardStepsProps>): WizardStepsProps {
   const noop = () => {};
   return {
-    step: 11,
+    step: 7,
     form: {
       ...createInitialRentalWizardState(),
       propertyId: PROPERTY_ID,

@@ -87,7 +87,7 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar (C155 superseded, captain 2026-09-26) is the shared week-grid engine with All/Services/Availability tabs", () => {
+  it("vendor calendar (C155 superseded, captain 2026-09-26) is the manager studio grid in one view, no tabs", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
     // The agenda-only redesign (C155) was reverted: the vendor Calendar is now
     // the same week-grid engine the manager Calendar uses, in `vendorViewer`
@@ -95,14 +95,17 @@ describe("vendor portal matches manager chrome", () => {
     expect(calendar).toContain("PortalCalendarPanels");
     expect(calendar).toContain("vendorViewer");
     expect(calendar).toContain("onVendorAvailabilityEdit");
-    expect(calendar).toContain("hideViewModeControl");
+    expect(calendar).toContain("studioGrid");
+    // No view-mode override and no kind tabs: Day / Week / Month / Agenda come from the grid itself.
+    expect(calendar).not.toContain("hideViewModeControl");
+    expect(calendar).not.toContain("VENDOR_CALENDAR_VIEW_TABS");
     expect(calendar).toContain("VendorCalendarIntegrationsAction");
     // Set-availability edits and removal both go through the one canonical
     // editor — clicking a painted block re-opens it rather than a bespoke
     // grid-level delete.
     expect(calendar).toContain("VendorAvailabilityEditor");
     expect(calendar).toContain("VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT");
-    expect(read("src/lib/portal-detail-routes.ts")).toContain('["all", "services", "availability"]');
+    expect(read("src/lib/portal-detail-routes.ts")).not.toContain('["all", "services", "availability"]');
     // The old "Flexible weekday" / "Add work" vendor-only chrome never
     // returns — those are vendorDayFlexibility/vendorCalendarActions, both
     // deliberately left unset here.

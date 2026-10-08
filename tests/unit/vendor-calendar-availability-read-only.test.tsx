@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import userEvent from "@testing-library/user-event";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,13 +22,13 @@ vi.mock("@/lib/manager-work-orders-storage", () => ({
   syncManagerWorkOrdersFromServer: vi.fn(async () => undefined),
 }));
 
-import { installVendorAvailabilityPaintCache, VendorCalendarPanel } from "@/components/portal/vendor-calendar-panel";
+import { installVendorAvailabilityPaintCache, vendorBlockMeetings, VendorCalendarPanel } from "@/components/portal/vendor-calendar-panel";
 import {
   VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT,
   VendorAvailabilityEditor,
 } from "@/components/portal/vendor-availability-editor";
 import { readAvailabilityDateSetForStorageKey } from "@/lib/demo-admin-scheduling";
-import { resetVendorAvailabilityCacheForTests, type VendorAvailabilityRule } from "@/lib/vendor-availability";
+import { isVendorBlockMeetingId, resetVendorAvailabilityCacheForTests, type VendorAvailabilityRule } from "@/lib/vendor-availability";
 
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
 
@@ -52,6 +53,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  // A Radix menu/dialog closed by unmount can leave its body scroll-lock behind.
+  document.body.style.pointerEvents = "";
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -119,13 +122,55 @@ describe("vendor calendar canonical availability", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("keeps Add availability available from the command bar and opens the dialog", async () => {
+  it("the round + opens the Weekly hours pop-up (the weekly card alone)", async () => {
     demoMode.mockReturnValue(true);
-    render(<VendorCalendarPanel tab="all" />);
+    const user = userEvent.setup();
+    render(<VendorCalendarPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add availability" }));
+    await user.click(screen.getByRole("button", { name: "Add to calendar" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Weekly hours" }));
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Set availability" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Weekly hours" })).toBeTruthy();
+    // The date-override card belongs to Block time.
+    expect(screen.queryByText("Date overrides")).toBeNull();
+  });
+
+  it("the round + opens the Block time pop-up with a blocked date ready to save", async () => {
+    demoMode.mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<VendorCalendarPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Add to calendar" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Block time" }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Block time" })).toBeTruthy();
+    // The add-date form is already open, ready to save.
+    expect(document.querySelector('[data-attr="vendor-availability-save-override"]')).not.toBeNull();
+    expect(screen.queryByText("Weekly hours", { selector: "span" })).toBeNull();
+  });
+
+  it("has no All / Services / Availability tabs: one calendar with Day, Week, Month and Agenda", () => {
+    demoMode.mockReturnValue(true);
+    render(<VendorCalendarPanel />);
+    for (const name of ["All", "Services", "Availability"]) {
+      expect(screen.queryByRole("link", { name })).toBeNull();
+    }
+    for (const mode of ["Day", "Week", "Month", "Agenda"]) {
+      expect(screen.getByRole("button", { name: mode })).toBeTruthy();
+    }
+    expect(screen.getByRole("button", { name: "Today" })).toBeTruthy();
+  });
+
+  it("draws a block rule as a grey Blocked item and weekly open hours stay out of the events", () => {
+    const meetings = vendorBlockMeetings([
+      { id: "b1", kind: "block", specificDate: "2099-08-05", startMinute: 540, endMinute: 600, note: "Dentist" },
+      { id: "b2", kind: "block", specificDate: "2099-08-06", startMinute: 0, endMinute: 1440 },
+      { id: "w1", kind: "weekly", weekday: 1, startMinute: 540, endMinute: 1020 },
+    ]);
+    expect(meetings.map((m) => m.id)).toEqual(["vendor-block-b1", "vendor-block-b2"]);
+    expect(meetings[0]).toMatchObject({ dateStr: "2099-08-05", startSlot: 18, durationMinutes: 60, title: "Blocked" });
+    expect(meetings[1]?.allDay).toBe(true);
+    expect(meetings.every((m) => isVendorBlockMeetingId(m.id))).toBe(true);
   });
 
   it("keeps the availability dialog open when the canonical server rejects a booked-service conflict", async () => {

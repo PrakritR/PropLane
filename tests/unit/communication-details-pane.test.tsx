@@ -3,14 +3,14 @@
 // The contact-details column restates what the open conversation already carries.
 // It draws a row only for a value that exists, a section only for rows that exist,
 // and it lists scheduled sends the thread pane already loaded (no second fetch).
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommunicationDetailsPane,
   communicationDetailsFromRow,
 } from "@/components/portal/communication-details-pane";
-import { InboxTwoPane, inboxMessageClock } from "@/components/portal/portal-inbox-ui";
+import { InboxThreadView, InboxTwoPane, inboxMessageClock } from "@/components/portal/portal-inbox-ui";
 import { usePublishThreadScheduledItems } from "@/components/portal/use-thread-scheduled-cards";
 import type { ThreadScheduledItem } from "@/lib/inbox-scheduled-thread";
 
@@ -110,31 +110,88 @@ describe("CommunicationDetailsPane", () => {
 });
 
 describe("InboxTwoPane panes=flat", () => {
-  it("draws no cards and adds the details column only where 1280px fits", () => {
-    const original = window.matchMedia;
-    const stub = (matches: boolean) =>
-      vi.stubGlobal("matchMedia", (query: string) => ({
-        matches,
-        media: query,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      }));
-    stub(false);
-    const { rerender } = render(
-      <InboxTwoPane panes="flat" threadOpen list={<div>list</div>} thread={<div>thread</div>} details={<div>details</div>} />,
-    );
+  // jsdom has no layout: give the surface a width and a ResizeObserver that never fires.
+  function surface(width: number) {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const w = this.getAttribute("data-attr") === "portal-inbox-two-pane" ? width : 0;
+      return { width: w, height: 0, top: 0, left: 0, right: w, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  }
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const mount = () =>
+    render(<InboxTwoPane panes="flat" threadOpen list={<div>list</div>} thread={<div>thread</div>} details={<div>details</div>} />);
+
+  it("draws no cards and adds the details column only where the surface itself is 1040px wide", () => {
+    surface(1039);
+    mount();
     const root = document.querySelector('[data-attr="portal-inbox-two-pane"]') as HTMLElement;
     expect(root.getAttribute("data-panes")).toBe("flat");
     expect(root.className).not.toMatch(/rounded-2xl|shadow/);
     expect(screen.queryByText("details")).toBeNull();
     cleanup();
+    vi.restoreAllMocks();
 
-    stub(true);
-    render(<InboxTwoPane panes="flat" threadOpen list={<div>list</div>} thread={<div>thread</div>} details={<div>details</div>} />);
+    surface(1040);
+    mount();
     expect(screen.getByText("details")).toBeTruthy();
-    expect(document.querySelector('[data-attr="inbox-details-pane"]')?.className).toMatch(/xl:flex/);
-    void rerender;
-    vi.stubGlobal("matchMedia", original);
+    const aside = document.querySelector('[data-attr="inbox-details-pane"]') as HTMLElement;
+    expect(aside.className).not.toMatch(/xl:/);
+    const grid = aside.parentElement as HTMLElement;
+    expect(grid.className).toContain("grid-cols-[320px_minmax(440px,1fr)_280px]");
+  });
+
+  it("two columns at 760px, the thread alone under it", () => {
+    surface(760);
+    mount();
+    const grid = (document.querySelector('[data-attr="portal-inbox-two-pane"]') as HTMLElement).firstElementChild as HTMLElement;
+    expect(grid.className).toContain("grid-cols-[320px_minmax(440px,1fr)]");
+    expect(grid.className).not.toContain("280px");
+    cleanup();
+    vi.restoreAllMocks();
+
+    surface(759);
+    mount();
+    const grid1 = (document.querySelector('[data-attr="portal-inbox-two-pane"]') as HTMLElement).firstElementChild as HTMLElement;
+    expect(grid1.className).toContain("grid-cols-1");
+    const list = document.querySelector(".portal-inbox-list-pane") as HTMLElement;
+    const thread = document.querySelector(".portal-inbox-thread-pane") as HTMLElement;
+    expect(list.className.split(/\s+/)).toContain("hidden");
+    expect(thread.className.split(/\s+/)).not.toContain("hidden");
+  });
+
+  it("opens the same details as a panel over the thread when the column does not fit", () => {
+    surface(900);
+    render(
+      <InboxTwoPane
+        panes="flat"
+        threadOpen
+        list={<div>list</div>}
+        thread={<InboxThreadView title="Mina" messages={[]} composer={<textarea aria-label="Reply" />} />}
+        details={<div>details</div>}
+      />,
+    );
+    expect(screen.queryByText("details")).toBeNull();
+    const info = screen.getByRole("button", { name: "Contact information" });
+    fireEvent.click(info);
+    expect(screen.getByText("details")).toBeTruthy();
+    expect(document.querySelector('[data-attr="inbox-details-panel"]')).toBeTruthy();
+    // Esc closes it
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByText("details")).toBeNull();
+    // the info icon toggles it
+    fireEvent.click(info);
+    expect(screen.getByText("details")).toBeTruthy();
+    fireEvent.click(info);
+    expect(screen.queryByText("details")).toBeNull();
+    // an outside click closes it
+    fireEvent.click(info);
+    fireEvent.pointerDown(screen.getByText("list"));
+    expect(screen.queryByText("details")).toBeNull();
   });
 });
 

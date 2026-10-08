@@ -9,7 +9,7 @@
 // This drives the REAL step bodies, so it catches a re-wiring that reverts the
 // review row to `displayLabel`, not just a change to the copy helpers.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { RentalWizardStepBody, type WizardStepsProps } from "@/components/marketing/rental-wizard-steps";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
@@ -35,7 +35,7 @@ vi.mock("@/lib/rental-application/data", async (importOriginal) => {
 function props(over: Partial<WizardStepsProps>): WizardStepsProps {
   const noop = () => {};
   return {
-    step: 11,
+    step: 7,
     form: { ...createInitialRentalWizardState(), propertyId: PROPERTY_ID, email: "r@example.com" },
     errors: {},
     mode: "portal",
@@ -62,37 +62,48 @@ afterEach(cleanup);
 const WAIVER_SENTENCE =
   "No application fee is required. Your first application fee already covers additional applications.";
 
-// Review is step 10 and the application-fee step is step 11 (see the
-// `step === 10` / `step === 11` branches in rental-wizard-steps.tsx). These were
-// 11/12 here, one past their real positions, so "Review" rendered the fee step
-// and "the fee step" rendered nothing at all. The waived cases failed loudly;
-// the fee-is-due case passed by accident, because the fee step also prints an
-// "Application fee" label when one is owed.
-describe("application fee: Review and the fee step agree (F8)", () => {
+// Review, consent and the application fee are ONE screen (step 7, "Review, sign and pay"): the summary
+// first, then the fee. Both parts still have to say the same thing about the fee. The fee-is-due case
+// finds the review row inside the summary, because the fee card also prints an "Application fee" label
+// when one is owed.
+function reviewFeeRow(container: HTMLElement): HTMLElement {
+  const summary = container.querySelector<HTMLElement>("[data-jr-review-answers]")!;
+  return within(summary).getByText("Application fee").closest("div")!.parentElement!;
+}
+
+describe("application fee: Review and the fee agree on one screen (F8)", () => {
   it("Review shows $0.00 and states the waiver, instead of the bare published $50.00", () => {
-    render(<RentalWizardStepBody {...props({ step: 10 })} />);
-    const row = screen.getByText("Application fee").closest("div")!.parentElement!;
+    const { container } = render(<RentalWizardStepBody {...props({})} />);
+    const row = reviewFeeRow(container);
     expect(row.textContent).toContain("$0.00");
     expect(row.textContent).toContain(WAIVER_SENTENCE);
     // The $50 is still named — as the listing's published fee, not as what's owed.
     expect(row.textContent).toContain("$50.00");
   });
 
-  it("the fee step one screen later says the SAME thing", () => {
-    render(<RentalWizardStepBody {...props({ step: 11 })} />);
+  it("the fee below the summary says the SAME thing", () => {
+    const { container } = render(<RentalWizardStepBody {...props({})} />);
+    const summary = container.querySelector<HTMLElement>("[data-jr-review-answers]")!;
+    // The summary's fee row carries the sentence inside its note; the fee section states it on its own.
+    expect(summary.textContent).toContain(WAIVER_SENTENCE);
     expect(screen.getByText(WAIVER_SENTENCE)).toBeTruthy();
   });
 
+  it("a manager filling the form on someone's behalf is never asked for the fee", () => {
+    render(<RentalWizardStepBody {...props({ mode: "manager" })} />);
+    // Only the summary's note names it; the fee section is not drawn.
+    expect(screen.queryByText(WAIVER_SENTENCE)).toBeNull();
+  });
+
   it("a fee that IS due still shows the amount on Review", () => {
-    render(
+    const { container } = render(
       <RentalWizardStepBody
         {...props({
-          step: 10,
           applicationFeeGate: { needsFee: true, paid: false, displayLabel: "$50.00", amount: 50, waived: false },
         })}
       />,
     );
-    const row = screen.getByText("Application fee").closest("div")!.parentElement!;
+    const row = reviewFeeRow(container);
     expect(row.textContent).toContain("$50.00");
     expect(row.textContent).not.toContain(WAIVER_SENTENCE);
   });

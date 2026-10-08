@@ -118,8 +118,13 @@ export function isMarketingPath(pathname: string | null): boolean {
  * not fill the gap there. One path decision, next to the lists above, never a CSS hide.
  */
 /** `RESIDENT_PORTAL_BASE_PATH` (a literal here so this site-wide component does not pull the portal section tables into every public bundle). */
-/** The owner portal (`/portal/owner`) is read-only: no bubble over its bottom bar either. */
-const ASSISTANT_FREE_PATHS = ["/resident", "/portal/owner"];
+/**
+ * Every authenticated portal (manager `/portal` incl. owner, vendor, resident, admin) is
+ * assistant-free for the public bubble: the manager and vendor portals carry their own assistant
+ * (side panel, top bar, phone sheet) and the resident portal none. A prefix decision, never a
+ * registration the portal has to remember to make.
+ */
+const ASSISTANT_FREE_PATHS = ["/resident", "/portal", "/vendor", "/admin"];
 export function isAssistantFreePath(pathname: string | null): boolean {
   if (!pathname) return false;
   return ASSISTANT_FREE_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

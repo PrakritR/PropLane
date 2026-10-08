@@ -182,7 +182,8 @@ describe("vendor invoice record page", () => {
     expect(document.querySelector('[data-attr="record-header-action-edit"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="record-header-action-withdraw"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="record-header-action-download"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="record-header-action-submit"]')).not.toBeNull();
+    // A still-submitted invoice has nothing to remind the manager about yet.
+    expect(document.querySelector('[data-attr="record-header-action-remind"]')).toBeNull();
   });
 });
 

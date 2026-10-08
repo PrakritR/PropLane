@@ -1,5 +1,16 @@
+import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
+import { isAssistantSheetViewportNow } from "@/lib/axis-assistant/viewport";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { expandAssistantDock } from "@/lib/axis-assistant/dock-store";
+
 type Listener = () => void;
 
+/**
+ * The assistant has ONE window: the side panel on desktop (`lg` and up, its
+ * state lives in `dock-store`) and a full-screen sheet below `lg`. This store is
+ * the phone sheet's open flag; `openAxisAssistant()` picks the right surface for
+ * the current viewport so callers never need to know which one it is.
+ */
 let open = false;
 const listeners = new Set<Listener>();
 
@@ -18,11 +29,31 @@ export function subscribeAxisAssistantOpen(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Opens the floating popup assistant (default on every viewport). */
-export function openAxisAssistant(): void {
-  setAxisAssistantOpen(true);
+/** Focus the composer once the surface that was just opened has mounted. */
+function focusAssistantInput(): void {
+  if (typeof document === "undefined") return;
+  // The native shell keeps the keyboard down until the user taps the field.
+  if (document.documentElement.hasAttribute("data-native")) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      (document.getElementById(ASSISTANT_DOCK_INPUT_ID) as HTMLTextAreaElement | null)?.focus();
+    });
+  });
 }
 
+/** Opens the assistant: the side panel on lg+, the full-screen sheet below. */
+export function openAxisAssistant(): void {
+  // The /demo sandbox draws its own scripted assistant from this flag, on every
+  // viewport; it never mounts the real side panel.
+  if (isDemoModeActive() || isAssistantSheetViewportNow()) {
+    setAxisAssistantOpen(true);
+  } else {
+    expandAssistantDock();
+  }
+  focusAssistantInput();
+}
+
+/** Closes the phone sheet. The desktop panel closes through `collapseAssistantDock`. */
 export function closeAxisAssistant(): void {
   setAxisAssistantOpen(false);
 }

@@ -64,7 +64,7 @@ describe("vendor settings rail", () => {
     const rail = document.querySelector('nav[aria-label="Settings sections"]')!.textContent!;
     for (const label of [
       "Profile", "Login & security",
-      "Business", "Business details", "Trades & service area", "Licenses & insurance",
+      "Business", "Business details", "Trades & service area", "AI info",
       "Money", "Payouts", "Invoicing",
       "Communication", "Phone & notifications", "Quick replies",
     ]) {
@@ -108,12 +108,6 @@ describe("vendor settings rail", () => {
     await waitFor(() => expect(text()).toContain("Business name"));
     expect(text()).not.toContain("Service area");
     expect(text()).toContain("Work contact & email");
-  });
-
-  it("Licenses & insurance renders the license and coverage fields", async () => {
-    renderAt("licenses");
-    await waitFor(() => expect(text()).toContain("License number"));
-    expect(text()).toContain("Policy number");
   });
 
   it("Invoicing and Payouts are pages in the Money group", async () => {

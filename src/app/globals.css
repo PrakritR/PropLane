@@ -1501,12 +1501,7 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
    higher specificity and wins in the native app, so this only ever governs web. */
 :root {
   --portal-native-bottom-nav-inset: max(2.75rem, calc(env(safe-area-inset-bottom, 0px) + 2rem));
-  /* FAB (~2.75–3rem) + breathing room so the last Needs-attention CTA stays
-     clickable under Ask PropLane (PRP-377). Zeroed when the FAB is hidden. */
-  --portal-assistant-fab-clearance: 3.75rem;
-  --portal-mobile-scroll-bottom-inset: calc(
-    var(--portal-native-bottom-nav-inset) + 0.75rem + var(--portal-assistant-fab-clearance)
-  );
+  --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
   /* How far a floating bottom element (bulk bar, FAB) sits ABOVE the tab bar.
      The nav inset is measured to the bar's exact height, so a small gap read as
      the two touching on a phone; this is the deliberate breathing room. */
@@ -2288,35 +2283,10 @@ html[data-native] .axis-page-frame > footer {
   display: none;
 }
 
-.axis-assistant-backdrop {
-  background: rgba(15, 23, 42, 0.22);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+/* The phone sheet is full-screen; it only needs to clear the keyboard (set inline) and
+   sit above the rest of the chrome. */
+.axis-assistant-sheet {
   animation: axis-assistant-fade-in 180ms ease-out;
-}
-
-[data-theme="dark"] .axis-assistant-backdrop {
-  background: rgba(2, 6, 23, 0.45);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
-}
-
-.axis-assistant-panel {
-  bottom: calc(max(1.25rem, env(safe-area-inset-bottom, 0px)) + 3.75rem);
-  right: max(1.25rem, env(safe-area-inset-right, 0px));
-  max-height: min(38rem, calc(100dvh - 7.5rem));
-  width: min(26rem, calc(100vw - 2.5rem));
-  animation: axis-assistant-panel-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  transform-origin: bottom right;
-}
-
-@media (min-width: 1024px) {
-  .axis-assistant-panel {
-    bottom: calc(1.75rem + 3.75rem);
-    right: 2rem;
-    max-height: min(40rem, calc(100dvh - 8rem));
-    width: min(28rem, calc(100vw - 18rem));
-  }
 }
 
 @keyframes axis-assistant-fade-in {
@@ -2326,29 +2296,6 @@ html[data-native] .axis-page-frame > footer {
   to {
     opacity: 1;
   }
-}
-
-@keyframes axis-assistant-panel-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-html[data-native] .axis-assistant-panel {
-  left: max(0.75rem, var(--native-safe-left));
-  right: max(0.75rem, var(--native-safe-right));
-  bottom: var(--portal-native-bottom-nav-inset);
-  top: auto;
-  width: auto;
-  height: auto;
-  max-height: min(62dvh, calc(100dvh - var(--native-safe-top) - var(--native-safe-bottom) - 4.5rem));
-  border-radius: 22px 22px 16px 16px;
-  transform-origin: bottom center;
 }
 
 /* Keep the composer above the software keyboard; hide Next.js dev issue badge while open. */
@@ -2527,10 +2474,6 @@ html[data-native] .portal-mobile-nav-bar {
     background: var(--background);
   }
 
-  .axis-assistant-panel {
-    bottom: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
-  }
-
   /* List footers: compact dashed add row so content clears the bottom tab bar. */
   .portal-list-page-body .portal-list-add-row-wrap {
     padding-top: 0.5rem;
@@ -2705,35 +2648,9 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
     border-radius: 0.75rem;
   }
 
-  /* G3 — keep the assistant FAB bottom-right without overlapping the send button. */
-  .portal-communication-inbox .portal-inbox-composer-row {
-    padding-right: 3.25rem;
-  }
-
-  /* Float above the fixed bottom tab bar (not inside it) on phone-width web + native. */
-  .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 0.75rem) !important;
-    right: max(1rem, env(safe-area-inset-right)) !important;
-    z-index: 45;
-  }
-
   html[data-bulk-action-bar] #portal-main-content {
     padding-bottom: calc(var(--portal-mobile-scroll-bottom-inset) + 4.25rem);
     scroll-padding-bottom: calc(var(--portal-mobile-scroll-bottom-inset) + 4.25rem);
-  }
-
-  html[data-bulk-action-bar] .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 5.5rem) !important;
-    right: max(1rem, env(safe-area-inset-right)) !important;
-  }
-
-  /* Resident payments keeps a persistent Pay bar — float the assistant above it. */
-  html[data-bulk-action-bar][data-bulk-action-variant="payments"] .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 8.25rem) !important;
-  }
-
-  html[data-bulk-action-bar] [data-bulk-action-actions] {
-    padding-right: 3.5rem;
   }
 
   /* Unified Communication list scrolls inside the left pane — pad it when the
@@ -2742,35 +2659,8 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
     padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
     scroll-padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
   }
-
-  /* Record detail footer actions — float FAB above the centered action row. */
-  html:has([data-slot="portal-page-footer-actions"]) .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 5.75rem) !important;
-  }
-
-  html:has([data-slot="portal-page-footer-actions"][data-pinned]) .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 6.25rem) !important;
-  }
-
-  /* Vendor Dashboard: the Your-jobs section's own header controls (Add,
-     Manage services) can land within ~100px of the fixed FAB — the section
-     is the page's last piece of content, so on a short dashboard (little to
-     attend to, nothing upcoming) there is no scrolling to separate them at
-     all, and reserving scroll room alone does not help. Raise the FAB clear
-     of that corner whenever the section is on screen (N058). */
-  html:has([data-attr="dashboard-your-jobs"]) .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 3.75rem) !important;
-  }
-
-  /* A listing page's sticky action bar (price · Apply · Tour): the assistant floats above it,
-     clear of the buttons, by the bar's own measured height (listing-detail-sections.tsx). */
-  html:has([data-attr="listing-sticky-bar"]) .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + var(--listing-sticky-bar-h, 4rem) + 1rem) !important;
-  }
 }
 
-/* Desktop has no assistant FAB (Ask PropLane lives in the top bar), so
-   nothing here reserves room for one. */
 @media (min-width: 1024px) {
   html[data-bulk-action-bar] [data-communication-inbox-list] {
     padding-bottom: 4.75rem;
@@ -2786,61 +2676,9 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
   }
 }
 
-html[data-hide-assistant-fab] .axis-assistant-fab,
-html[data-rental-wizard-active] .axis-assistant-fab,
-html[data-communication-hide-assistant-fab] .axis-assistant-fab {
+/* Wizards / move-in may hide the side panel. */
+html[data-hide-assistant-fab] .portal-assistant-rail {
   display: none !important;
-}
-
-html[data-communication-surface][data-communication-thread-reading] .axis-assistant-fab,
-html[data-communication-surface][data-communication-thread-selected] .axis-assistant-fab,
-html[data-communication-surface][data-communication-hide-assistant-fab] .axis-assistant-fab {
-  display: none !important;
-}
-
-/* Wizards / move-in may hide the rail. Communication only hides the FAB so
-   header Ask PropLane can still open the dock on an open thread. */
-html[data-hide-assistant-fab] .portal-assistant-dock-rail,
-html[data-hide-assistant-fab] [data-attr="portal-assistant-dock-expand"] {
-  display: none !important;
-}
-
-html[data-hide-assistant-fab],
-html[data-rental-wizard-active] {
-  --portal-assistant-fab-clearance: 0px;
-}
-
-/* Desktop portal pages reserve NOTHING under the content for the Ask PropLane
-   button. A padding-bottom on #portal-main-content (PRP-377) was meant to keep
-   the last CTA of a page-scrolling surface clickable, but almost every portal
-   tab is a CLIPPED fixed-height surface (record lists, record detail, the
-   inbox) whose own inner scroller does the scrolling — on those the padding
-   cannot scroll away and is just an 80px band of dead canvas under the cards,
-   on every tab of every portal. Desktop has no FAB at all now. */
-
-html[data-communication-surface] {
-  --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
-}
-
-@media (max-width: 1023px) {
-  html[data-communication-thread-reading] {
-    --portal-assistant-fab-clearance: 0px;
-  }
-}
-
-html[data-hide-assistant-fab] .portal-communication-inbox .portal-inbox-composer-row,
-html[data-communication-hide-assistant-fab] .portal-communication-inbox .portal-inbox-composer-row,
-html[data-hide-assistant-fab] .portal-resident-detail-inbox .portal-inbox-composer-row,
-html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox .portal-inbox-composer-row {
-  padding-right: 0;
-}
-
-/* Resident detail width is set on `.portal-inbox-bubble-wrap` below. */
-
-@media (max-width: 1023px) {
-  html[data-communication-thread-reading] .portal-inbox-composer-row {
-    padding-right: 0;
-  }
 }
 
 /* Communication + list pages: fixed chrome, scrollable body below. */
@@ -3794,13 +3632,6 @@ html[data-native] [data-listing-subnav] {
 }
 
 @media (min-width: 768px) {
-  html[data-axis-assistant-open] #portal-main-content {
-    margin-right: calc(var(--portal-assistant-rail-width) + 2 * var(--portal-assistant-panel-gap));
-  }
-  .axis-assistant-panel {
-    width: var(--portal-assistant-rail-width);
-    right: var(--portal-assistant-panel-gap);
-  }
 }
 
 /* Only phones use one pane at a time. Tablets and small laptops keep the editor

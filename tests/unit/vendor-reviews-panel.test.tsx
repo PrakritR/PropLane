@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
-// C263 / VD21 (2026-09-27) — the vendor Reviews list gets a Services-style
-// top bar: All / Needs reply / Replied sections, search, and a Filter sheet
-// (Rating + Date). A Property filter was also in the studio spec, but
+// vendor-portal-ia-1007 (D4) — Reviews is ONE list, newest first: no tabs, no stat cards,
+// a plain "★ 3.5 · 2 reviews" header line, search, and a Filter sheet (Rating + Date). A Property filter was also in the studio spec, but
 // `/api/vendor/reviews` never returns which workspace or property a review
 // belongs to (`reviewerLabel` is hardcoded to "A PropLane manager" in
 // `mapPublicVendorReviewRow`, deliberately, so a vendor can never learn which
@@ -10,7 +9,7 @@
 // intentionally dropped.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
@@ -26,7 +25,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
-import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
+import { VendorReviewsPanel, reviewsSummary } from "@/components/portal/vendor-reviews-panel";
 
 afterEach(() => {
   cleanup();
@@ -45,43 +44,55 @@ function stubFetch() {
   })) as unknown as typeof fetch;
 }
 
-describe("VendorReviewsPanel — top bar (VD21)", () => {
-  it("shows the All / Needs reply / Replied sections with real counts and a search + Filter sheet", async () => {
+describe("VendorReviewsPanel — one list (D4)", () => {
+  it("lists every review newest first, with search and a Filter sheet but no tabs and no stat cards", async () => {
     vi.stubGlobal("fetch", stubFetch());
-    render(<VendorReviewsPanel tabId="all" />);
+    render(<VendorReviewsPanel />);
 
     await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(2));
-    expect(document.querySelector('[data-attr="vendor-reviews-tab-all"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="vendor-reviews-tab-needs-reply"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="vendor-reviews-tab-replied"]')).not.toBeNull();
+    const titles = [...document.querySelectorAll('[data-attr="vendor-review-row"]')].map((row) => row.textContent ?? "");
+    expect(titles[0]).toContain("Late");
+    expect(titles[1]).toContain("Great work");
     expect(document.querySelector('[data-attr="vendor-reviews-search"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="vendor-reviews-filter-open"]')).not.toBeNull();
+    for (const id of ["all", "needs-reply", "replied"]) {
+      expect(document.querySelector(`[data-attr="vendor-reviews-tab-${id}"]`)).toBeNull();
+    }
+    expect(document.querySelector('[data-attr="vendor-reviews-stats"]')).toBeNull();
   });
 
-  it("only shows the still-unreplied review on the Needs reply tab", async () => {
+  it("shows the average and the count as plain facts on the header line, derived from the rows", async () => {
     vi.stubGlobal("fetch", stubFetch());
-    render(<VendorReviewsPanel tabId="needs-reply" />);
-    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(1));
-    expect(screen.getByText("Great work")).toBeTruthy();
-  });
-
-  it("only shows the already-replied review on the Replied tab", async () => {
-    vi.stubGlobal("fetch", stubFetch());
-    render(<VendorReviewsPanel tabId="replied" />);
-    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(1));
-    expect(screen.getByText("Late")).toBeTruthy();
-  });
-
-  it("draws the header stats strip from the rows: Average rating, Reviews, Needs reply, Response rate", async () => {
-    vi.stubGlobal("fetch", stubFetch());
-    render(<VendorReviewsPanel tabId="all" />);
+    render(<VendorReviewsPanel />);
     await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(2));
-    const stat = (id: string) => document.querySelector(`[data-attr="vendor-reviews-stat-${id}"]`)?.textContent ?? "";
-    expect(stat("average")).toContain("Average rating");
-    expect(stat("average")).toContain("3.5 ★");
-    expect(stat("count")).toContain("2");
-    expect(stat("needs-reply")).toContain("1");
-    expect(stat("response-rate")).toContain("50%");
+    expect(document.querySelector('[data-slot="portal-list-count"]')?.textContent).toBe("★ 3.5 · 2 reviews");
+    expect(reviewsSummary(REVIEWS.slice(0, 1))).toBe("★ 5.0 · 1 review");
+    expect(reviewsSummary([])).toBeNull();
+    expect(reviewsSummary(null)).toBeNull();
+  });
+
+  it("a failed load (non-2xx) says so and Try again reloads it", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) return { ok: false, status: 403, json: async () => ({ error: "Forbidden." }) };
+        return { ok: true, status: 200, json: async () => ({ reviews: REVIEWS, aggregate: { average: 3.5, count: 2 } }) };
+      }) as unknown as typeof fetch,
+    );
+    render(<VendorReviewsPanel />);
+    expect(await screen.findByText("Could not load reviews.")).toBeTruthy();
+    // An error is never read as "No reviews yet".
+    expect(screen.queryByText("No reviews yet")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(2));
+  });
+
+  it("a 200 whose body is not a review list is also a failed load", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })) as unknown as typeof fetch);
+    render(<VendorReviewsPanel />);
+    expect(await screen.findByText("Could not load reviews.")).toBeTruthy();
   });
 
   it("has a Rating field (plus From/To date) in the Filter sheet — never a Property field (privacy: no workspace/property link on this route)", () => {
@@ -95,7 +106,7 @@ describe("VendorReviewsPanel — top bar (VD21)", () => {
 
   it("never exposes a workspace identity anywhere in the fetched review shape", async () => {
     vi.stubGlobal("fetch", stubFetch());
-    render(<VendorReviewsPanel tabId="all" />);
+    render(<VendorReviewsPanel />);
     await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(2));
     for (const review of REVIEWS) {
       expect(review.reviewerLabel).toBe("A PropLane manager");

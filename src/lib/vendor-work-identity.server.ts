@@ -56,7 +56,7 @@ export type VendorWorkIdentityProvider = {
     phoneSid: string;
   } | null>;
   /** Read-only search — never purchases. Used to offer a vendor a short pick list by area code. */
-  searchSmsCandidates(input: { areaCode: string; count: number }): Promise<{ phoneNumber: string }[]>;
+  searchSmsCandidates(input: { areaCode: string; count: number; /** Used when there is no area code (a non-US verified phone). */ postalCode?: string }): Promise<{ phoneNumber: string }[]>;
   purchaseSms(input: {
     operationId: string;
     webhookUrl: string;
@@ -165,13 +165,15 @@ function createLiveVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       const row = rows[0];
       return row?.sid && row.phoneNumber ? { phoneSid: row.sid, phoneNumber: row.phoneNumber } : null;
     },
-    async searchSmsCandidates({ areaCode, count }) {
+    async searchSmsCandidates({ areaCode, count, postalCode }) {
       const client = createTwilioRestClient();
       if (!client) throw new Error("SMS provider is not configured");
       const digits = areaCode.replace(/\D/g, "").slice(0, 3);
-      if (!/^[2-9]\d{2}$/.test(digits)) return [];
+      const zip = (postalCode ?? "").trim();
+      const near = /^[2-9]\d{2}$/.test(digits) ? { areaCode: Number(digits) } : /^\d{5}$/.test(zip) ? { inPostalCode: zip } : null;
+      if (!near) return [];
       const available = await client.availablePhoneNumbers("US").local.list({
-        areaCode: Number(digits),
+        ...near,
         smsEnabled: true,
         limit: Math.max(1, Math.min(count, 10)),
       });
@@ -437,10 +439,12 @@ export async function findActiveVendorNumberByPhone(db: SupabaseClient, toPhone:
 export async function searchVendorWorkNumberCandidates(
   areaCode: string,
   provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
+  /** Signup provisioning only: a service zip to search near when the phone has no US area code. */
+  postalCode?: string,
 ): Promise<string[]> {
   if (!provider.smsConfigured()) return [];
   if (!isVendorNumberDryRun() && !isProvisioningEnabled(process.env)) return [];
-  const candidates = await provider.searchSmsCandidates({ areaCode, count: 3 });
+  const candidates = await provider.searchSmsCandidates({ areaCode, count: 3, ...(postalCode ? { postalCode } : {}) });
   return candidates.map((c) => c.phoneNumber);
 }
 

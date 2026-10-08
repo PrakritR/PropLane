@@ -5,6 +5,7 @@ import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.serve
 import { deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox-delivery";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { normalizeE164 } from "@/lib/twilio";
+import { profilePhoneVariants } from "@/lib/sms-consent";
 import { bindVendorReplyTarget } from "@/lib/vendor-sponsored-outbound.server";
 import { findActiveVendorNumberByPhone, loadVendorVerifiedPhone, type ActiveVendorNumber } from "@/lib/vendor-work-identity.server";
 import {
@@ -24,6 +25,7 @@ import {
   replyPromptBody,
 } from "@/lib/vendor-work-number";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
+import { runVendorNumberAiReply } from "@/lib/agent/vendor-number-ai.server";
 
 /** Store inbound sponsored-identity mail before any assistant/support fallback. */
 export async function ingestVendorWorkIdentityEmail(
@@ -94,13 +96,18 @@ export async function ingestVendorWorkIdentityEmail(
  *   conversation, or a numbered "Reply to" prompt when two or more are active in
  *   24 hours or none is recent.
  *
+ * - Anyone else (a client, a resident, a stranger) is stored the same way and, when it
+ *   is not a manager or another vendor's number, may get an AI answer from the vendor's
+ *   number. The answer runs AFTER the webhook responds: the result carries it as
+ *   `afterResponse` for the route to schedule.
+ *
  * STOP / START / HELP never reach this function (the webhook handles them first).
  */
 export async function ingestVendorWorkIdentitySms(
   db: SupabaseClient,
   input: { toPhone: string; fromPhone: string; text: string; messageSid: string },
   deps: { provider?: VendorDeliveryProvider; now?: Date } = {},
-): Promise<{ handled: boolean; idempotent?: boolean }> {
+): Promise<{ handled: boolean; idempotent?: boolean; afterResponse?: () => Promise<void> }> {
   const to = normalizeE164(input.toPhone);
   const from = normalizeE164(input.fromPhone);
   if (!to || !from || !input.messageSid) return { handled: false };
@@ -128,7 +135,7 @@ async function storeAndForwardCounterpartText(
   verified: { verified: boolean; phone: string | null },
   provider: VendorDeliveryProvider,
   now?: Date,
-): Promise<{ handled: boolean; idempotent?: boolean }> {
+): Promise<{ handled: boolean; idempotent?: boolean; afterResponse?: () => Promise<void> }> {
   const line = await resolveOwnedWorkNumber(db, input.from);
   const workspaceName = line ? await workspaceNameForLine(db, line) : "";
   const messageId = `vendor-inbound-sms:${input.messageSid}`;
@@ -165,7 +172,53 @@ async function storeAndForwardCounterpartText(
       if (!forwarded.ok && !forwarded.authorized) console.info("vendor number forward skipped", forwarded.reason);
     }
   }
+  // A manager's line texting a vendor is a job conversation, never answered by the AI. A retried
+  // webhook (duplicate) never answers twice.
+  if (!line && !duplicate && input.text.trim() && (await senderMayGetAiAnswer(db, input.from))) {
+    const afterResponse = async () => {
+      try {
+        await runVendorNumberAiReply(
+          db,
+          { number, from: input.from, text: input.text, messageSid: input.messageSid, threadId: stored.threadId, now },
+          { provider },
+        );
+      } catch (error) {
+        console.error("vendor number AI reply failed", input.messageSid, error instanceof Error ? error.message : error);
+      }
+    };
+    return { handled: true, idempotent: duplicate, afterResponse };
+  }
   return { handled: true, idempotent: duplicate };
+}
+
+/**
+ * The AI answers clients and residents, never PropLane staff on a job. `resolveOwnedWorkNumber`
+ * already ruled out a manager's work line; this rules out another vendor's PropLane number (two
+ * AIs would loop) and a manager or admin account texting from a personal phone. An unreadable
+ * lookup means no AI.
+ */
+async function senderMayGetAiAnswer(db: SupabaseClient, from: string): Promise<boolean> {
+  try {
+    const { data: vendorLine, error: lineError } = await db.from("vendor_work_identities")
+      .select("id").eq("phone_number", from).limit(1).maybeSingle();
+    if (lineError || vendorLine) return false;
+    // profiles.phone is whatever the account stored (E.164, bare 10 digits, 1+10), so look up every
+    // stored form of this number and confirm each hit by normalizing its phone to E.164.
+    const target = normalizeE164(from);
+    if (!target) return false;
+    const { data: accounts, error: accountError } = await db.from("profiles").select("id,phone")
+      .in("phone", profilePhoneVariants(target)).limit(50);
+    if (accountError) return false;
+    const ids = ((accounts ?? []) as { id?: unknown; phone?: unknown }[])
+      .filter((row) => normalizeE164(row.phone) === target)
+      .map((row) => String(row.id ?? "")).filter(Boolean);
+    if (ids.length === 0) return true;
+    const { data: roles, error: roleError } = await db.from("profile_roles").select("role").in("user_id", ids);
+    if (roleError) return false;
+    return !((roles ?? []) as { role?: unknown }[]).some((row) => ["manager", "admin"].includes(String(row.role ?? "").toLowerCase()));
+  } catch {
+    return false;
+  }
 }
 
 async function routeVendorOwnText(

@@ -118,6 +118,8 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   PORTAL_INBOX_LIST_TOOLBAR_CLASS: "",
   INBOX_THREAD_ICON_BTN: "",
   INBOX_THREAD_ICON_BTN_DANGER: "",
+  useInboxDetailsPanelMode: () => false,
+  useRegisterInboxContactEdit: () => {},
   PortalInboxEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
   CommunicationInboxInitialState: () => <div>Loading</div>,
   InboxConversationListAddRow: () => null,

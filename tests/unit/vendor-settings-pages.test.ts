@@ -8,6 +8,7 @@ import {
   resolveVendorSettingsTab,
   vendorListGearHref,
   vendorSettingsHref,
+  vendorSettingsMovedHref,
   vendorSettingsPageLabel,
 } from "@/lib/portals/vendor-settings-pages";
 
@@ -18,9 +19,27 @@ describe("settings rail", () => {
     expect(VENDOR_SETTINGS_RAIL.map((g) => g.label)).toEqual(["Profile", "Business", "Money", "Communication"]);
     const labels = (group: string) => VENDOR_SETTINGS_RAIL.find((g) => g.label === group)!.pages.map((p) => p.label);
     expect(labels("Profile")).toEqual(expect.arrayContaining(["Profile", "Login & security"]));
-    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "Licenses & insurance", "Integrations"]));
+    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "AI info", "Integrations"]));
     expect(labels("Money")).toEqual(["Payouts", "Invoicing"]);
     expect(labels("Communication")).toEqual(["Phone & notifications", "Quick replies", "Work number & email"]);
+  });
+
+  it("Availability is not a Settings page any more: it lives on the Calendar", () => {
+    const ids = VENDOR_SETTINGS_RAIL.flatMap((g) => g.pages.map((p) => p.id as string));
+    expect(ids).not.toContain("availability");
+    expect(resolveVendorSettingsTab("availability")).toBeNull();
+    expect(vendorSettingsMovedHref("availability")).toBe("/vendor/calendar?modal=weekly-hours");
+    expect(vendorSettingsMovedHref("availability", "/demo/vendor")).toBe("/demo/vendor/calendar?modal=weekly-hours");
+    expect(vendorSettingsMovedHref("payouts")).toBeNull();
+    expect(vendorSettingsMovedHref(null)).toBeNull();
+    expect(read("src/components/portal/vendor-settings-panel.tsx")).not.toContain("VendorAvailabilityEditor");
+  });
+
+  it("Licenses & insurance is not a Settings page any more: it lives in Documents > Business license", () => {
+    const ids = VENDOR_SETTINGS_RAIL.flatMap((g) => g.pages.map((p) => p.id as string));
+    expect(ids).not.toContain("licenses");
+    expect(resolveVendorSettingsTab("licenses")).toBeNull();
+    expect(vendorSettingsMovedHref("licenses")).toBe("/vendor/documents/license");
   });
 
   it("has no duplicate page ids", () => {
@@ -91,7 +110,7 @@ describe("settings panel", () => {
     expect(panel).toMatch(/case "messaging":[\s\S]*PortalTextNotificationsBlock[\s\S]*VendorNotificationsPane/);
   });
   it("moves, not duplicates: each existing pane renders from exactly one page", () => {
-    for (const component of ["VendorBusinessProfilePane", "VendorWorkIdentitySection", "VendorNotificationsPane", "PortalPayoutsSettingsPage", "VendorAvailabilityEditor"]) {
+    for (const component of ["VendorBusinessProfilePane", "VendorWorkIdentitySection", "VendorNotificationsPane", "PortalPayoutsSettingsPage"]) {
       const uses = panel.match(new RegExp(`<${component}\\b`, "g")) ?? [];
       expect(uses, component).toHaveLength(1);
     }

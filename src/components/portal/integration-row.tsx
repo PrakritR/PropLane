@@ -17,6 +17,7 @@ export function IntegrationRow({
   factDataAttr,
   action,
   comingSoon,
+  comingSoonAction,
   dataAttr,
   className,
 }: {
@@ -28,6 +29,8 @@ export function IntegrationRow({
   factDataAttr?: string;
   action?: ReactNode;
   comingSoon?: boolean;
+  /** An action that sits beside "Coming soon" (Request access); only drawn while `comingSoon`. */
+  comingSoonAction?: ReactNode;
   dataAttr?: string;
   className?: string;
 }) {
@@ -48,7 +51,14 @@ export function IntegrationRow({
             {fact}
           </span>
         ) : null}
-        {comingSoon ? <span className="text-sm text-muted">Coming soon</span> : action}
+        {comingSoon ? (
+          <>
+            <span className="text-sm text-muted">Coming soon</span>
+            {comingSoonAction}
+          </>
+        ) : (
+          action
+        )}
       </div>
     </div>
   );

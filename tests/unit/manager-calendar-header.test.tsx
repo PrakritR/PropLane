@@ -73,14 +73,15 @@ describe("one header row", () => {
     expect(studio).not.toContain("<Select");
   });
 
-  it("the clock menu is Add availability, Copy previous week, Clear week, Copy to houses (C2-CALA1)", () => {
+  it("the one round + holds Add availability, Copy previous week, Clear week, Copy to houses after the create items (C2-CALA1, one-round-plus Oct 7)", () => {
     const studio = panels.slice(panels.indexOf("if (studioActive) {"), panels.indexOf("if (compactAvailability) {"));
-    const order = ["Add availability", "Copy previous week", "Clear week", "Copy to houses"].map((l) => studio.indexOf(l));
+    const order = ["New tour", "Add availability", "Copy previous week", "Clear week", "Copy to houses"].map((l) => studio.indexOf(l));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(studio).not.toContain("Edit tour availability");
     expect(studio).not.toContain("Add availability block");
-    expect(studio).toContain("icon={Clock}");
+    // the separate clock (Availability) icon is gone; the + is the only entry
+    expect(studio).not.toContain("icon={Clock}");
   });
 
   it("the + is the one create action: New tour, New task, New service", () => {

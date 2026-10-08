@@ -41,14 +41,16 @@ describe("scheduled message modal layout", () => {
     expect(client).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
   });
 
-  it("hides resident compose scheduling in ScopedInboxComposeModal", () => {
-    const scoped = portalSource("inbox-scoped-compose-modal.tsx");
+  it("hides resident compose scheduling in the shared composer", () => {
+    const composer = portalSource("pro-communication-compose-modal.tsx");
     const residentInbox = portalSource("resident-inbox-panel.tsx");
 
-    // `hidden`, not `disabled`: every other compose popup now KEEPS the
-    // Schedule row on screen and only makes it inert, so the resident gate
-    // needs the prop that drops the control entirely.
-    expect(scoped).toContain('hidden={portal === "resident"}');
+    // The control is dropped (not disabled) for a role whose capabilities do not
+    // include scheduling; residents schedule from the thread composer only.
+    expect(composer).toContain("{caps.schedule ? <InboxComposerScheduleMenu");
+    expect(
+      readFileSync(join(process.cwd(), "src/lib/role-compose.ts"), "utf8"),
+    ).toMatch(/portal === "resident"\) \{[\s\S]*?schedule: false/);
     expect(residentInbox).not.toContain("resident-inbox-schedule-another");
   });
 });

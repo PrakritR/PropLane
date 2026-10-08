@@ -53,8 +53,9 @@ export function createDryRunVendorWorkIdentityProvider(base: Pick<VendorWorkIden
     async findSmsByOperation() {
       return null;
     },
-    async searchSmsCandidates({ areaCode, count }) {
-      return dryRunCandidateNumbers(areaCode, count).map((phoneNumber) => ({ phoneNumber }));
+    async searchSmsCandidates({ areaCode, count, postalCode }) {
+      // No area code (a non-US verified phone): a fictional Seattle line stands in for "near the zip".
+      return dryRunCandidateNumbers(areaCode || (postalCode ? "206" : ""), count).map((phoneNumber) => ({ phoneNumber }));
     },
     async purchaseSms({ operationId, phoneNumber }) {
       const number = phoneNumber ?? dryRunCandidateNumbers("206", 1)[0]!;

@@ -237,8 +237,9 @@ or `src/lib/agent/`.
   flag). Leasing SMS inline-allows only `escalate_to_manager` and `request_tour`.
 - Approving an application and creating/editing a listing are **not** agent
   tools until charge generation and listing normalization move server-side.
-- Default manager surface is the **popup**. Dock is a per-device localStorage
-  preference (`assistant-display-preferences.ts`). One store, three entry points.
+- One assistant surface: the side panel (desktop) / full-screen sheet (phone),
+  opened from the top bar; no floating button or pop-up. Every portal layout
+  mounts `PortalAssistantRail` on its own role endpoint.
 
 | Role | Resolver | Registry | Route |
 | --- | --- | --- | --- |
@@ -248,6 +249,7 @@ or `src/lib/agent/`.
 | Vendor SMS | `buildVendorAgentContext` | `vendorWorkOrderAgentRegistry` | inbound webhook |
 | Prospect SMS | `buildLeasingSmsAgentContext` | `leasingSmsAgentRegistry` | inbound webhook |
 | Manager SMS | `resolveManagerSmsAgentContext` | `buildManagerSmsRegistry` | inbound webhook |
+| Vendor number AI | `buildVendorNumberAiContext` | `vendorNumberAiRegistry` | inbound webhook |
 
 Resident row scoping is not uniform: charges/leases have `resident_user_id` +
 `resident_email`; work orders/service requests have email only. Use the two

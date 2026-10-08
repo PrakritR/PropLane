@@ -38,6 +38,9 @@ see [financials.md](financials.md) § PropLane service fee). Two meters stay sep
   billing". They are capped at **1,000 SMS segments per Pacific calendar month** per number (fair use),
   reserved atomically in `claim_vendor_work_identity_outbound`; at the cap forwarding and
   replies pause with a notice in Settings while inbound keeps arriving in PropLane.
+- **Vendor-number AI (Oct 8):** the AI's replies on the vendor's number are vendor-side texts like
+  these - no manager wallet, no credit reserve - counted in the same monthly cap, plus 5 AI replies per
+  sender per hour, and sent only when the vendor wrote AI info. See sms-system.md § Vendor-number AI.
 
 Details and the routing rules: [sms-system.md](sms-system.md) § Vendor work number.
 

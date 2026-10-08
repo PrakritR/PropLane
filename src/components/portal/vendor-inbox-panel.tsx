@@ -5,7 +5,8 @@ import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
-import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
+import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
+import type { ScopedInboxSendPayload } from "@/lib/role-compose";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import { Archive, ArchiveRestore, MailOpen, MessageSquare, Trash2 } from "lucide-react";
@@ -503,6 +504,7 @@ export const VendorInboxPanel = forwardRef<
             text: p.body.trim(),
             channel: "email",
             sendId: p.sendId,
+            attachmentUrls: p.attachmentUrls?.length ? p.attachmentUrls : undefined,
           }),
         });
         const data = (await res.json().catch(() => ({}))) as {
@@ -931,6 +933,7 @@ export const VendorInboxPanel = forwardRef<
       return {
         id: m.id,
         automated: m.automated,
+        sentByAi: m.sentByAi,
         eventTitle: m.subject,
         author: m.from,
         body: fields.body,
@@ -1041,7 +1044,7 @@ export const VendorInboxPanel = forwardRef<
           </Button>
         </div>
       ) : null}
-      <ScopedInboxComposeModal
+      <ManagerCommunicationComposeModal
         open={composeOpen}
         onClose={() => {
           setComposeOpen(false);

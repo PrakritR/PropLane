@@ -73,7 +73,6 @@ import {
   type CalendarViewTabId,
   type ManagerTaskListTabId,
   type ToursHubTabId,
-  type VendorCalendarViewTabId,
 } from "@/lib/portal-detail-routes";
 
 import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
@@ -94,11 +93,10 @@ type PortalCalendarProps = {
   calendarView?: CalendarViewTabId;
   schedulingHub?: boolean;
   toursHubTab?: import("@/lib/portal-detail-routes").ToursHubTabId;
-  vendorCalendarView?: VendorCalendarViewTabId;
 };
 
 export function PortalCalendar(props: PortalCalendarProps) {
-  if (props.portal === "vendor") return <VendorCalendarPanel tab={props.vendorCalendarView ?? "all"} />;
+  if (props.portal === "vendor") return <VendorCalendarPanel />;
   return <PortalCalendarManager {...props} portal={props.portal} />;
 }
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
