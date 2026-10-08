@@ -19,7 +19,6 @@ import { describe, expect, it } from "vitest";
  */
 const MODALS = [
   "src/components/portal/pro-communication-compose-modal.tsx",
-  "src/components/portal/inbox-scoped-compose-modal.tsx",
 ];
 
 describe("compose modal render stability", () => {

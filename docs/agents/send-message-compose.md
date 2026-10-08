@@ -22,7 +22,7 @@ Message       [ textarea ]
 
 Use the existing primitives — do not restyle them:
 
-- `ScopedInboxComposeModal` / `PortalNotificationPreviewModal`
+- `ManagerCommunicationComposeModal` / `PortalNotificationPreviewModal`
 - `portal-message-compose-fields.tsx` (`PortalMessageRecipientLockedField`,
   `PortalMessageSubjectField`, `PortalMessageSendViaDropdown`,
   `PortalMessageBodyField`, `PortalMessageScheduleFields`,
@@ -40,6 +40,32 @@ Invite **methods** (link / message / PropLane code) are tabs on the step
 *before* this chrome, for the **vendor invite modal only**
 (`pro-vendor-form-modal.tsx`); they are not a second compose. The manager
 workspace invite has no such chooser — see the next section.
+
+## One New message composer for every role
+
+`ManagerCommunicationComposeModal` (`pro-communication-compose-modal.tsx`) is the
+New message UI for managers, vendors and residents. A vendor or resident panel
+mounts it with `portal="vendor" | "resident"`, its own `liveContacts` (the scoped
+list that role may message today, no fetch of the manager directory) and its own
+`onSend`. The older `ScopedInboxComposeModal` is deleted; do not bring back a
+second window. What differs per role lives in one place,
+`roleComposeCapabilities` in `src/lib/role-compose.ts`:
+
+| | Manager | Vendor | Resident |
+| --- | --- | --- | --- |
+| To | house / Manager / Vendor / admin, typed email or phone | Manager, admin | household, Manager, admin |
+| Channels | In-app, Email, Text (SMS UI on) | none shown: one sponsored email delivery (also the recipient's inbox copy) | In-app, Email |
+| Schedule | yes | no (no vendor scheduled-send route) | no (residents schedule from the thread composer; New message hides it on purpose) |
+| Attach | yes | yes (`/api/vendor/send-inbox-message` takes `attachmentUrls`) | yes (`/api/portal/send-inbox-message`) |
+| Draft with PropLane | yes | no | no (the only draft endpoint, `/api/portal/inbox-draft-reply`, drafts as the manager) |
+
+A hidden control is dropped, never disabled. Text is manager-only and goes from
+the work number. Vendor and resident recipients are picked from the handed list
+only: a typed address is rejected, and the server re-authorizes every recipient.
+The composer never writes to a thread. It hands the panel a
+`ScopedInboxSendPayload`; the panel's send function owns the request and adds to
+the thread only after the send is authorized. A refusal (`false` or a throw)
+keeps the draft, the attachments and the `sendId`, so Retry is idempotent.
 
 ## Listing, application and tour links
 
