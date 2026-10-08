@@ -5,7 +5,7 @@
 // (Listing sites) and Communication carry an Integrations icon that lands on their section of
 // Settings -> Integrations.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -46,9 +46,7 @@ describe("Integrations icon", () => {
   it("draws nothing on /demo, which has no Integrations page", async () => {
     demo = true;
     render(<ManagerIntegrationsAction section="google" />);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(screen.queryByRole("button", { name: "Integrations" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Integrations" })).toBeNull());
   });
 
   it("every section it can point at exists on the Integrations page", () => {
