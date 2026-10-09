@@ -121,6 +121,16 @@ describe("ListingSiteGuide", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
   });
 
+  it("a copy-and-post site shows the hold reason and keeps Copy disabled", async () => {
+    status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_photo", "no_work_number"], postTexts: {} } });
+    guide("craigslist");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
+    const held = document.querySelector('[data-attr="listing-site-guide-held"]') as HTMLElement;
+    expect(held.textContent).toContain("Held: no photo");
+    expect(held.textContent).toContain("Set up work number");
+    expect((document.querySelector('[data-attr="listing-site-copy-craigslist"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("Zillow's guide lists every listing's status and the held reason", async () => {
     status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_photo"], postTexts: {} } });
     guide("zillow");
