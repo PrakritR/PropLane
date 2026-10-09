@@ -13,7 +13,7 @@ export async function GET() {
 const body = z.object({
   keyword: z.string().trim().min(1).max(60),
   reply: z.string().trim().max(1000).nullish(),
-  link: z.string().trim().url().max(500).nullish(),
+  link: z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "https only").nullish(),
 });
 
 export async function POST(req: Request) {

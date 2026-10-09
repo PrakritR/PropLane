@@ -12,7 +12,7 @@ const patch = z
     kind: watchKindSchema,
     topic: z.string().trim().max(200).nullable(),
     notes: z.string().max(2000).nullable(),
-    url: z.string().trim().url().max(500).nullable(),
+    url: z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "https only").nullable(),
   })
   .partial()
   .strict();

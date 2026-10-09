@@ -16,7 +16,7 @@ export async function GET() {
 const body = z.object({
   platform: engagePlatformSchema,
   handle: z.string().trim().min(1).max(120),
-  url: z.string().trim().url().max(500).nullish(),
+  url: z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "https only").nullish(),
   topic: z.string().trim().max(200).nullish(),
   kind: watchKindSchema.default("engage"),
   notes: z.string().max(2000).nullish(),

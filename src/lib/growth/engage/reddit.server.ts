@@ -34,7 +34,7 @@ export function parseRedditListing(json: unknown, nowMs: number = Date.now()): R
     if (!createdUtc || nowMs - createdUtc * 1000 > REDDIT_MAX_AGE_DAYS * 86_400_000) continue;
     if (ups < REDDIT_MIN_UPS) continue;
     const permalink = typeof d.permalink === "string" ? d.permalink : null;
-    if (!permalink) continue;
+    if (!permalink || !permalink.startsWith("/r/")) continue;
     out.push({
       id: d.id,
       title: d.title,
