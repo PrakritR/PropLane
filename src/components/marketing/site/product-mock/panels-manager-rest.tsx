@@ -101,11 +101,9 @@ import {
 } from "@/components/marketing/site/product-mock/demo-popups-lazy-ops";
 import { DemoEditPendingFormPopup, DemoFormViewerPopup, DemoSendFormPopup } from "@/components/marketing/site/product-mock/demo-popups-lazy";
 import { useRowSelection } from "@/components/marketing/site/product-mock/row-selection";
-import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { IntegrationRow } from "@/components/portal/integration-row";
-import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
-import { listingChannelsByGroup, type ListingChannelGroup } from "@/lib/listing-channels/registry";
+import { listingChannelsOrdered } from "@/lib/listing-channels/registry";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import type { MonthlyCashflowPoint } from "@/lib/portal-monthly-profit";
 import {
@@ -800,47 +798,23 @@ export function BookingsPanel() {
 
 /* ───────────────────────────── Promotion ───────────────────────────── */
 
-const SITE_GROUPS: { id: ListingChannelGroup; label: string }[] = [
-  { id: "automatic", label: "Automatic" },
-  { id: "one_click", label: "One-click" },
-  { id: "request_access", label: "Request access" },
-];
-const SITE_TOTAL = SITE_GROUPS.reduce((sum, g) => sum + listingChannelsByGroup(g.id).length, 0);
+const SITE_TOTAL = listingChannelsOrdered().length;
 
-/** Promotion > Listing sites, drawn from the real piece's own rows (`WorkspaceListingSitesPanel`): the Listed with PropLane toggle,
- * the Automatic / One-click / Request access group tabs, and one IntegrationRow per real channel with its plain fact. */
+/** Promotion > Listing sites, drawn from the real piece's own rows (`WorkspaceListingSitesPanel`): one flat list in reach order,
+ * one IntegrationRow per real channel with its plain fact. */
 function DemoListingSites({ houses }: { houses: number }) {
-  const [group, setGroup] = useState<ListingChannelGroup>("automatic");
-  const [attribution, setAttribution] = useState(true);
   const listings = (n: number) => `${n} of ${houses} ${houses === 1 ? "listing" : "listings"}`;
+  const factFor = (def: ReturnType<typeof listingChannelsOrdered>[number]) => {
+    if (def.posting === "feed") return `Posts for you · ${listings(3)}`;
+    if (def.posting === "partner_only") return "Partner feed only";
+    if (def.posting === "api") return "Coming soon · post by hand for now";
+    return "Not posted yet";
+  };
   return (
     <div data-attr="promotion-listing-sites">
-      <IntegrationRow
-        icon={ProPlaneMarkIcon}
-        tone="text-primary"
-        name="Show Listed with PropLane"
-        action={<PortalSettingsToggle checked={attribution} onChange={setAttribution} label="Show Listed with PropLane" />}
-      />
-      <div className="px-4 pb-1 pt-3">
-        <LocalDestinationNav
-          items={SITE_GROUPS.map((g) => ({ id: g.id, label: g.label, count: listingChannelsByGroup(g.id).length }))}
-          activeId={group}
-          onChange={(id) => setGroup(id as ListingChannelGroup)}
-          ariaLabel="Listing site group"
-          appearance="command"
-        />
-      </div>
-      {listingChannelsByGroup(group).map((def) => {
+      {listingChannelsOrdered().map((def) => {
         const glyph = CHANNEL_GLYPH[def.id];
-        if (group === "automatic") {
-          return def.id === "zillow" ? (
-            <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact={`${listings(3)} posting`} />
-          ) : (
-            <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} comingSoon />
-          );
-        }
-        if (group === "one_click") return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact={`${listings(0)} posted by me`} />;
-        return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact="Coming soon" />;
+        return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact={factFor(def)} />;
       })}
     </div>
   );

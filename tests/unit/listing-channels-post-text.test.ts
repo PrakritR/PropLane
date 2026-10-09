@@ -6,6 +6,7 @@ import {
   buildListingPostText,
   listingChannelEligibility,
   listingHoldFact,
+  listingHoldFactParts,
 } from "@/lib/listing-channels/post-text";
 
 const CONTACT = { phone: "(206) 555-0100", email: "work@proplane.test" };
@@ -64,9 +65,18 @@ describe("listing post text", () => {
     expect(result.text).toContain("Text (206) 555-0100");
   });
 
+  it("tags the listing link with the channel it is posted on and keeps the tag on every channel", () => {
+    for (const channel of ["craigslist", "zillow", "facebook_marketplace", "reddit"] as const) {
+      const result = build(projected(), channel);
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.text).toContain(`Details and photos: https://proplane.ai/rent/listings/prop-1?src=${channel}`);
+    }
+  });
+
   it("keeps the attribution line on every channel even when the body is trimmed to the limit", () => {
     const long = projected({}, { houseOverview: "A lovely home near the water. ".repeat(40) });
-    for (const channel of ["instagram", "craigslist", "roomster", "google_business_profile"] as const) {
+    for (const channel of ["instagram", "craigslist", "roomster", "reddit"] as const) {
       const result = build(long, channel);
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
@@ -122,11 +132,11 @@ describe("listing post text", () => {
 
   it("each channel trims the body to its own limit but never cuts the link or contact lines", () => {
     const long = projected({}, { houseOverview: `${"A very long overview sentence. ".repeat(80)}` });
-    for (const channel of ["instagram", "craigslist", "roomster", "google_business_profile"] as const) {
+    for (const channel of ["instagram", "craigslist", "roomster", "reddit"] as const) {
       const result = build(long, channel);
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
-      const limit = { instagram: 2200, craigslist: 5000, roomster: 2000, google_business_profile: 1500 }[channel];
+      const limit = { instagram: 2200, craigslist: 5000, roomster: 2000, reddit: 5000 }[channel];
       expect(result.text.length).toBeLessThanOrEqual(limit);
       expect(result.text).toContain("Text (206) 555-0100");
       expect(result.text).toContain("https://proplane.ai/");
@@ -165,5 +175,15 @@ describe("listing eligibility", () => {
   it("holds a listing with no street address", () => {
     expect(listingChannelEligibility(projected({ address: "  " }))).toEqual(["no_street_address"]);
     expect(listingHoldFact(["no_street_address", "no_photo"])).toBe("Held: no street address and no photo");
+  });
+
+  it("splits the work-number phrase out so a surface links it instead of repeating it", () => {
+    expect(listingHoldFactParts(["no_photo"])).toEqual({ lead: "Held: no photo", workNumberLink: false });
+    expect(listingHoldFactParts(["no_work_number"])).toEqual({ lead: "", workNumberLink: true });
+    expect(listingHoldFactParts(["no_photo", "no_work_number"])).toEqual({ lead: "Held: no photo · ", workNumberLink: true });
+    for (const reasons of [["no_photo"], ["no_work_number"], ["no_photo", "no_work_number"]] as const) {
+      const parts = listingHoldFactParts(reasons);
+      expect(`${parts.lead}${parts.workNumberLink ? "Set up work number" : ""}`).toBe(listingHoldFact(reasons));
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { ensureSignedInResidentAccount } from "@/lib/auth/ensure-signed-in-resident.server";
+import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createTourInquiry, textValue } from "@/lib/tour-inquiry-create.server";
@@ -69,7 +70,11 @@ export async function POST(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     // Only the session's own email counts toward "Application before a tour"; the body's does not.
-    const created = await createTourInquiry(db, { incoming, verifiedApplicantEmail: linkingEmail });
+    const created = await createTourInquiry(db, {
+      incoming,
+      verifiedApplicantEmail: linkingEmail,
+      sourceChannel: textValue(incoming.kind) === "tour" ? await readListingSource(req) : null,
+    });
     if (!created.ok) {
       return NextResponse.json(
         { error: created.error },
