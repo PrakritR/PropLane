@@ -10,9 +10,12 @@ import { PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
+import { channelRowFact } from "@/lib/channel-calendar/channel-row-fact";
+import { channelCalendarUnits } from "@/lib/channel-calendar/property-units";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 
 type ChannelCounts = Record<ChannelCalendarProvider, number | null>;
+type ChannelSyncs = Record<ChannelCalendarProvider, string | null>;
 
 /** Channels that connect today; their rows open the one-page Connect popup. */
 const LIVE_CHANNELS = [
@@ -36,6 +39,7 @@ export function ManagerBookingChannelsPanel() {
   // Every scoped property, drafts included: a draft can still hold a channel
   // link that is syncing, and this panel is the only place to unlink it.
   const scopedIds = useMemo(() => activeWorkspace?.propertyIds ?? [], [activeWorkspace]);
+  const [syncs, setSyncs] = useState<ChannelSyncs>({ airbnb: null, booking_com: null, vrbo: null });
   const propertyKey = scopedIds.join(",");
 
   const loadChannels = useCallback(async () => {
@@ -53,6 +57,12 @@ export function ManagerBookingChannelsPanel() {
           ),
         ).size;
       setCounts({ airbnb: count("airbnb"), booking_com: count("booking_com"), vrbo: count("vrbo") });
+      const latest = (provider: ChannelCalendarProvider) =>
+        properties
+          .flatMap((p) => p.rooms.filter((r) => r.provider === provider && r.hasImportUrl && r.lastSyncedAt).map((r) => r.lastSyncedAt as string))
+          .sort()
+          .at(-1) ?? null;
+      setSyncs({ airbnb: latest("airbnb"), booking_com: latest("booking_com"), vrbo: latest("vrbo") });
     } catch {
       showToast("Could not load channel connections.");
     }
@@ -65,6 +75,7 @@ export function ManagerBookingChannelsPanel() {
     id,
     label: activeWorkspace?.propertyLabels?.[id] ?? id,
   }));
+  const totalUnits = scopedIds.reduce((sum, id) => sum + channelCalendarUnits(id, activeWorkspace?.propertyLabels?.[id] ?? id).length, 0);
   const roomsFact = (rooms: number | null) =>
     rooms ? `Connected · ${rooms} ${rooms === 1 ? "room" : "rooms"}` : "";
   // A Vrbo link a manager already made keeps working and stays manageable; with none, Vrbo is not offered yet.
@@ -79,11 +90,11 @@ export function ManagerBookingChannelsPanel() {
             icon={icon}
             tone={tone}
             name={name}
-            fact={roomsFact(counts[provider])}
+            fact={channelRowFact({ linked: counts[provider] ?? 0, total: totalUnits, lastSyncedAt: syncs[provider] })}
             factDataAttr={`settings-${provider}-status`}
             action={
               <Button variant="ghost" data-attr={`settings-${provider}-manage`} onClick={() => setChannelOpen(provider)}>
-                {counts[provider] ? "Manage" : "Connect"}
+                {counts[provider] && counts[provider] >= totalUnits ? "Manage" : "Connect"}
               </Button>
             }
           />
