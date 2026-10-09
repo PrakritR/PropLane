@@ -1,4 +1,5 @@
 import { parseCsv } from "@/lib/sheet-sync/csv";
+import { resolvesToPublicAddressesOnly } from "@/lib/sheet-sync/public-host.server";
 import { inferHouseKey } from "@/lib/sheet-sync/house-key";
 import {
   isSafePublicHttpsUrl,
@@ -208,9 +209,13 @@ const CSV_MAX_BYTES = 5 * 1024 * 1024;
 const CSV_FETCH_MS = 15_000;
 const CSV_MAX_REDIRECTS = 3;
 
+const CSV_GENERIC_ERROR = "Could not read the CSV.";
+
 /**
  * Fetch a published CSV server-side: https only, public hosts only (every
- * redirect hop is re-checked), 5 MB cap, 15 s timeout, text/csv or
+ * redirect hop is re-checked by name AND by resolved address, so a public
+ * name pointing at a private, loopback, link-local or metadata address is
+ * refused), 5 MB cap, 15 s timeout, text/csv or
  * text/plain. Returns the same `string[][]` table the Google path returns.
  */
 export async function fetchPublishedCsv(
@@ -223,6 +228,10 @@ export async function fetchPublishedCsv(
     let target = url.trim();
     let res: Response | null = null;
     for (let hop = 0; hop <= CSV_MAX_REDIRECTS; hop++) {
+      if (!(await resolvesToPublicAddressesOnly(new URL(target).hostname))) {
+        console.warn("published CSV fetch refused: host resolves to a non-public address", { hop });
+        return { rows: null, error: CSV_GENERIC_ERROR };
+      }
       res = await fetch(target, {
         cache: "no-store",
         redirect: "manual",
@@ -233,7 +242,10 @@ export async function fetchPublishedCsv(
         const location = res.headers.get("location");
         if (!location) return { rows: null, error: "The CSV link redirected without a destination." };
         const next = new URL(location, target).toString();
-        if (!isSafePublicHttpsUrl(next)) return { rows: null, error: "The CSV link redirected somewhere that is not allowed." };
+        if (!isSafePublicHttpsUrl(next)) {
+          console.warn("published CSV fetch refused: redirect to a disallowed URL");
+          return { rows: null, error: CSV_GENERIC_ERROR };
+        }
         target = next;
         res = null;
         continue;
@@ -266,7 +278,8 @@ export async function fetchPublishedCsv(
     if (!text.trim()) return { rows: null, error: "The CSV is empty." };
     return { rows: parseCsv(text), error: null };
   } catch (e) {
-    return { rows: null, error: e instanceof Error ? `Could not read the CSV: ${e.message}` : "Could not read the CSV." };
+    console.error("published CSV fetch failed", e);
+    return { rows: null, error: CSV_GENERIC_ERROR };
   }
 }
 
