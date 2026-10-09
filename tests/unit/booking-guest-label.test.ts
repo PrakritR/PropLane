@@ -4,7 +4,7 @@ import { bookingGuestLabel, bookingGuestShortLabel } from "@/lib/channel-calenda
 describe("bookingGuestLabel", () => {
   it("maps generic Airbnb summaries to a friendly booked label", () => {
     expect(bookingGuestLabel("Reserved")).toBe("Booked (Airbnb)");
-    expect(bookingGuestLabel("not available")).toBe("Booked (Airbnb)");
+    expect(bookingGuestLabel("Airbnb (Not available)")).toBe("Airbnb block");
   });
 
   it("names Booking.com when the imported summary is generic", () => {

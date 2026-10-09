@@ -19,6 +19,7 @@ import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
 function propertyLabelFromRecord(
@@ -55,6 +56,7 @@ function normalizeRanges(imported: ChannelCalendarImportedRange[]): ManagerChann
     start: r.start,
     end: r.end || r.start,
     summary: r.summary?.trim() || "Booked",
+    ...(isHostBlockRange(r) ? { hostBlock: true } : {}),
   }));
 }
 

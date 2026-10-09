@@ -9,6 +9,8 @@ export type ChannelCalendarImportedRange = {
   end: string;
   sourceUid: string;
   summary: string;
+  /** The host's own calendar block ("Not available"), not a reservation. Derived from `summary` when absent. */
+  hostBlock?: boolean;
 };
 
 export type ChannelCalendarConnectionPublic = {
@@ -43,6 +45,8 @@ export type ManagerChannelBookingRange = {
   start: string;
   end: string;
   summary: string;
+  /** The host's own calendar block; shown as "Airbnb block" and never counted as a booking. */
+  hostBlock?: boolean;
 };
 
 export type ManagerChannelBookingRoom = {

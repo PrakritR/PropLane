@@ -21,6 +21,7 @@ import type {
   ChannelCalendarImportedRange,
   ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -30,13 +31,14 @@ import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombst
 
 const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 
-function icalEventsToImportedRanges(
+export function icalEventsToImportedRanges(
   events: ReturnType<typeof parseIcsCalendar>,
 ): ChannelCalendarImportedRange[] {
   return events.map((ev) => ({
     id: ev.uid,
     sourceUid: ev.uid,
     summary: ev.summary,
+    ...(isHostBlockSummary(ev.summary) ? { hostBlock: true } : {}),
     start: ev.startDate,
     end: ev.endDate,
   }));
