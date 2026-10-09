@@ -116,7 +116,10 @@ function publicAccountFate<T extends ResidentAccountOutcome>(fate: T, isAdmin: b
  * every table that could still tie the account to anyone — one query per
  * (table x column) — so a confirm covering many residents asks for counts only
  * and leaves the decision to the delete itself, which re-derives it per resident
- * regardless of what any preview said.
+ * regardless of what any preview said. Those counts are then this manager's own
+ * rows only: the resident's copies of this workspace's conversations go with the
+ * login, so they belong to that per-resident decision and are reported by the
+ * delete's own `account` and `removed.conversations`, not promised up front.
  */
 export async function previewResidentApplicationRemoval(
   db: SupabaseClient,

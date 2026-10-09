@@ -27,6 +27,16 @@ const MANAGER_AGENT_FROM_NAME = "PropLane Assistant";
 /** Compare-and-retry attempts on the shared Assistant thread row. */
 const NOTICE_APPEND_ATTEMPTS = 4;
 
+/**
+ * Jittered pause before a retry. Back-to-back compare-and-set attempts burn all
+ * four inside a millisecond, which loses to the SMS mirror appending to the same
+ * row; the jitter also keeps two notices landing at once from retrying in step.
+ */
+function noticeAppendBackoff(attempt: number): Promise<void> {
+  const base = 25 * 2 ** (attempt - 1);
+  return new Promise((resolve) => setTimeout(resolve, base + Math.floor(Math.random() * base)));
+}
+
 async function managerNoticeWorkspace(
   db: SupabaseClient,
   landlordId: string,
@@ -113,6 +123,7 @@ export async function notifyManagerFromAgent(
     // on the `updated_at` we read and retry, or a turn mirrored in between is
     // silently overwritten.
     for (let attempt = 0; attempt < NOTICE_APPEND_ATTEMPTS && !inboxDelivered; attempt += 1) {
+      if (attempt > 0) await noticeAppendBackoff(attempt);
       const { data: existingRow, error: readError } = await db
         .from("portal_inbox_thread_records")
         .select("row_data, updated_at")
@@ -186,8 +197,16 @@ export async function notifyManagerFromAgent(
       if (error) throw error;
       if ((Array.isArray(written) ? written.length : written ? 1 : 0) > 0) inboxDelivered = true;
     }
-    // Never report a notice as delivered that no row holds.
-    if (!inboxDelivered) throw new Error("The PropLane Assistant thread is busy; the notice was not saved.");
+    // Never report a notice as delivered that no row holds — but a contended
+    // thread must not also cost the manager their text: fall through to the SMS
+    // path and let `delivered` come from whichever channel actually carried it.
+    if (!inboxDelivered) {
+      console.error("manager notice could not be appended to the PropLane Assistant thread", {
+        landlordId: args.landlordId,
+        threadId,
+        attempts: NOTICE_APPEND_ATTEMPTS,
+      });
+    }
   }
 
   if (channels.inbox && args.notify?.push !== false && !inboxAlreadySent) {

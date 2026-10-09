@@ -448,7 +448,12 @@ type ResidentDeleteCounts = {
 /** Residents whose server delete (or delete preview) is in flight at once in a bulk selection. */
 const RESIDENT_DELETE_CONCURRENCY = 3;
 
-type ResidentServerDelete = { serverDeleteError: string | null; removed: ResidentDeleteCounts; accountFailed: boolean };
+type ResidentServerDelete = {
+  serverDeleteError: string | null;
+  removed: ResidentDeleteCounts;
+  /** The server's word on this resident's login, or null when it did not say (admin purge path). */
+  account: ResidentAccountResult | null;
+};
 
 /** `fn` over `items` with at most `limit` running at once; results keep the input order. */
 async function runBounded<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -470,6 +475,42 @@ type ResidentAccountFate = keyof ResidentAccountTally;
 
 function readResidentAccountFate(value: unknown): ResidentAccountFate {
   return value === "deleted" || value === "none" ? value : "kept";
+}
+
+/**
+ * What a completed delete did to the login, including the one outcome a preview
+ * never has: the account purge was attempted and refused.
+ */
+type ResidentAccountResult = ResidentAccountFate | "failed";
+/** What the finished deletes did to the selected residents' logins, per resident. */
+type ResidentAccountResultTally = Record<ResidentAccountResult, number>;
+
+function emptyResidentAccountResultTally(): ResidentAccountResultTally {
+  return { deleted: 0, kept: 0, none: 0, failed: 0 };
+}
+
+/**
+ * Null for a response that carried no `account` at all (the admin purge path), so a
+ * silent server is never tallied as a kept login.
+ */
+function readResidentAccountResult(value: unknown): ResidentAccountResult | null {
+  return value === "deleted" || value === "kept" || value === "none" || value === "failed" ? value : null;
+}
+
+/**
+ * "2 PropLane accounts · 1 deleted, 1 kept" — what the server actually decided for
+ * each login. A multi-resident confirm cannot show this in advance (it asks for
+ * counts only), so the toast is where the manager learns it. Empty when no response
+ * named a login: there is nothing to report rather than a reassuring zero.
+ */
+function describeResidentAccountResults(accounts: ResidentAccountResultTally): string {
+  const parts: string[] = [];
+  if (accounts.deleted) parts.push(`${accounts.deleted} deleted`);
+  if (accounts.kept + accounts.none) parts.push(`${accounts.kept + accounts.none} kept`);
+  if (accounts.failed) parts.push(`${accounts.failed} could not be deleted`);
+  if (parts.length === 0) return "";
+  const total = accounts.deleted + accounts.kept + accounts.none + accounts.failed;
+  return `${total} PropLane account${total === 1 ? "" : "s"} · ${parts.join(", ")}`;
 }
 
 type ResidentDeletePreviewState = {
@@ -2595,7 +2636,7 @@ export function ManagerResidents({
   async function requestResidentDeleteFromServer(selectedResident: ActiveResident): Promise<ResidentServerDelete> {
     let serverDeleteError: string | null = null;
     let removed = emptyResidentDeleteCounts();
-    let accountFailed = false;
+    let account: ResidentAccountResult | null = null;
     try {
       const res = await fetch("/api/portal/delete-resident-access", {
         method: "POST",
@@ -2612,26 +2653,26 @@ export function ManagerResidents({
         serverDeleteError = body?.error ?? "Could not delete resident.";
       } else {
         removed = readResidentDeleteCounts(body?.removed);
-        accountFailed = body?.account === "failed";
+        account = readResidentAccountResult(body?.account);
       }
     } catch {
       serverDeleteError = "Could not delete resident.";
     }
-    return { serverDeleteError, removed, accountFailed };
+    return { serverDeleteError, removed, account };
   }
 
   /** `serverResult` is the already-sent server delete (the bulk path sends several at once, then finishes serially). */
   async function executeResidentDelete(
     selectedResident: ActiveResident,
     serverResult?: ResidentServerDelete,
-  ): Promise<{ ok: true; removed: ResidentDeleteCounts; accountFailed: boolean } | { ok: false }> {
+  ): Promise<{ ok: true; removed: ResidentDeleteCounts; account: ResidentAccountResult | null } | { ok: false }> {
     const allRows = readManagerApplicationRows();
     if (!allRows.some((row) => row.id === selectedResident.id)) {
       showToast("Resident not found.");
       return { ok: false };
     }
 
-    const { serverDeleteError, removed, accountFailed } =
+    const { serverDeleteError, removed, account } =
       serverResult ?? (await requestResidentDeleteFromServer(selectedResident));
 
     if (serverDeleteError) {
@@ -2690,7 +2731,7 @@ export function ManagerResidents({
     setLeaseTick((n) => n + 1);
     setWorkOrderTick((n) => n + 1);
     setInboxTick((n) => n + 1);
-    return { ok: true, removed, accountFailed };
+    return { ok: true, removed, account };
   }
 
   /**
@@ -2721,13 +2762,15 @@ export function ManagerResidents({
     if (listSelectedResidents.length === 0) return;
     setBulkDeleteBusy(true);
     let deleted = 0;
-    let accountsFailed = 0;
+    const accounts = emptyResidentAccountResultTally();
     let removed = emptyResidentDeleteCounts();
     const deletedNames: string[] = [];
     const failed: string[] = [];
     try {
       // The server deletes go out a few at a time (they are independent transactions, and
-      // the confirm already showed what each will do, so nothing is re-previewed here).
+      // each one re-derives its own login decision, so nothing is re-previewed here — a
+      // multi-resident confirm only promised the counts and said the login is decided per
+      // resident, and the toast below reports what each decision came out to).
       // The browser-side cleanup stays serial: each pass rewrites the same local application,
       // lease and inbox stores, so overlapping runs would race each other's read-modify-write.
       const existing = new Set(readManagerApplicationRows().map((row) => row.id));
@@ -2739,7 +2782,7 @@ export function ManagerResidents({
         if (result.ok) {
           deleted += 1;
           removed = addResidentDeleteCounts(removed, result.removed);
-          if (result.accountFailed) accountsFailed += 1;
+          if (result.account) accounts[result.account] += 1;
           deletedNames.push(resident.name || resident.email || resident.id);
         } else failed.push(resident.name || resident.email || resident.id);
       }
@@ -2754,18 +2797,14 @@ export function ManagerResidents({
     }
     if (deleted > 0) {
       // Name what actually went. A count of rows the server confirms is the only
-      // honest version of the old "and all related portal data".
+      // honest version of the old "and all related portal data", and the login tally
+      // is the only place a bulk delete reports the irreversible half of it.
       const subject = deleted === 1 ? deletedNames[0] : `${deleted} residents`;
-      const linked = describeResidentDeleteCounts(removed);
-      showToast(
-        failed.length > 0
-          ? `Deleted ${subject}; ${failed.length} could not be deleted.`
-          : accountsFailed > 0
-            ? `Deleted ${subject}; ${accountsFailed} PropLane account${accountsFailed === 1 ? "" : "s"} could not be deleted.`
-          : linked
-            ? `Deleted ${subject} · ${linked}.`
-            : `Deleted ${subject}.`,
-      );
+      const detail = [describeResidentDeleteCounts(removed), describeResidentAccountResults(accounts)]
+        .filter((part) => part.length > 0)
+        .join(" · ");
+      const body = detail ? `Deleted ${subject} · ${detail}` : `Deleted ${subject}`;
+      showToast(failed.length > 0 ? `${body}; ${failed.length} could not be deleted.` : `${body}.`);
     } else if (failed.length > 0) {
       // Never finish a destructive action in silence: each attempt already
       // toasted its own reason, but a run that deleted nothing must say so. The
@@ -2808,7 +2847,7 @@ export function ManagerResidents({
     }
     const linked = describeResidentDeleteCounts(result.removed);
     showToast(
-      result.accountFailed
+      result.account === "failed"
         ? `Deleted ${label}; their PropLane account could not be deleted.`
         : linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`,
     );
@@ -3122,7 +3161,7 @@ export function ManagerResidents({
           navigate(`${portalBase}/residents/${residentsTab}`);
           const linked = describeResidentDeleteCounts(result.removed);
           showToast(
-            result.accountFailed
+            result.account === "failed"
               ? `Deleted ${label}; their PropLane account could not be deleted.`
               : linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`,
           );
