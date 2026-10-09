@@ -55,6 +55,8 @@ export type ManagerChannelBookingRoom = {
   lastSyncedAt: string | null;
   lastError: string | null;
   hasImportUrl: boolean;
+  /** The manager's own saved channel link; returned only on the manager-scoped bookings route. */
+  importUrl: string | null;
   exportUrl: string;
 };
 

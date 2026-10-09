@@ -86,7 +86,7 @@ describe("Bookings → Settings", () => {
 
     expect(document.body.textContent ?? "").toContain("Connect a channel");
     expect(document.body.querySelector('[data-attr="channel-calendar-link-provider"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-attr="channel-calendar-link-scope"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-scope"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).not.toBeNull();

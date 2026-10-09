@@ -66,9 +66,8 @@ describe("ChannelCalendarLinkModal (one page)", () => {
     render(<ChannelCalendarLinkModal {...baseProps} />);
     await ready();
     expect(screen.getByRole("dialog", { name: "Connect Airbnb" })).toBeTruthy();
-    const scope = within(document.querySelector('[data-attr="channel-calendar-link-scope"]') as HTMLElement);
-    expect(scope.getByText("Entire workspace")).toBeTruthy();
-    expect(scope.getByText("Specific properties")).toBeTruthy();
+    expect(document.querySelector('[data-attr="channel-calendar-link-scope"]')).toBeNull();
+    expect(document.querySelector('[data-attr="channel-calendar-link-property"]')).toBeNull();
     expect(screen.queryByText("Continue")).toBeNull();
     expect(screen.queryByRole("heading", { name: "House" })).toBeNull();
     const sections = Array.from(document.querySelectorAll('[data-attr="channel-calendar-link-table"] section')).map((s) => s.getAttribute("aria-label"));
@@ -77,25 +76,6 @@ describe("ChannelCalendarLinkModal (one page)", () => {
       expect(screen.getByRole("textbox", { name: `${label} Airbnb calendar link` })).toBeTruthy();
       expect(screen.getByLabelText(`${label} PropLane export link`)).toBeTruthy();
     }
-  });
-
-  it("Specific properties adds a properties dropdown and lists only the chosen houses", async () => {
-    render(<ChannelCalendarLinkModal {...baseProps} initialPropertyId="p2" />);
-    await ready();
-    const sections = Array.from(document.querySelectorAll('[data-attr="channel-calendar-link-table"] section')).map((s) => s.getAttribute("aria-label"));
-    expect(sections).toEqual(["Maple"]);
-    expect(document.querySelector('[data-attr="channel-calendar-link-property"]')).not.toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Room 2 Airbnb calendar link" })).toBeNull();
-    await waitFor(() => expect(vi.mocked(fetchManagerChannelBookings)).toHaveBeenLastCalledWith(["p2"]));
-  });
-
-  it("Entire workspace has no properties dropdown", async () => {
-    render(<ChannelCalendarLinkModal {...baseProps} />);
-    await ready();
-    expect(document.querySelector('[data-attr="channel-calendar-link-property"]')).toBeNull();
-    fireEvent.click(within(document.querySelector('[data-attr="channel-calendar-link-scope"]') as HTMLElement).getByText("Specific properties"));
-    expect(document.querySelector('[data-attr="channel-calendar-link-property"]')).not.toBeNull();
-    expect(screen.getByText("Pick a property to list its rooms.")).toBeTruthy();
   });
 
   it("rejects a malformed link inline and keeps Save off", async () => {
@@ -161,10 +141,17 @@ describe("ChannelCalendarLinkModal (one page)", () => {
   });
 
   it("a room that already has a link shows it straight away", async () => {
-    vi.mocked(fetchManagerChannelBookings).mockResolvedValue([{ propertyId: "p1", propertyLabel: "4709A", rooms: [{ connectionId: "c1", roomId: "room-2", roomLabel: "Room 2", provider: "airbnb", label: null, ranges: [], lastSyncedAt: null, lastError: null, hasImportUrl: true, exportUrl: "https://proplane.ai/api/calendar/export/existing.ics" }] }]);
+    vi.mocked(fetchManagerChannelBookings).mockResolvedValue([{ propertyId: "p1", propertyLabel: "4709A", rooms: [{ connectionId: "c1", roomId: "room-2", roomLabel: "Room 2", provider: "airbnb", label: null, ranges: [], lastSyncedAt: null, lastError: null, hasImportUrl: true, importUrl: AIRBNB, exportUrl: "https://proplane.ai/api/calendar/export/existing.ics" }] }]);
     render(<ChannelCalendarLinkModal {...baseProps} />);
     await waitFor(() => expect((screen.getByLabelText("Room 2 PropLane export link") as HTMLInputElement).value).toBe("https://proplane.ai/api/calendar/export/existing.ics"));
-    expect((screen.getByRole("textbox", { name: "Room 2 Airbnb calendar link" }) as HTMLInputElement).placeholder).toContain("Connected");
+    const input = screen.getByRole("textbox", { name: "Room 2 Airbnb calendar link" }) as HTMLInputElement;
+    expect(input.value).toBe(AIRBNB);
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    fireEvent.click(within(input.closest('[data-attr="channel-calendar-room-row"]') as HTMLElement).getByLabelText("Copy Airbnb calendar link"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(AIRBNB));
+    fireEvent.click(screen.getByText("Save"));
+    expect(saveChannelCalendarConnection).not.toHaveBeenCalled();
     vi.mocked(fetchManagerChannelBookings).mockResolvedValue([]);
   });
 
