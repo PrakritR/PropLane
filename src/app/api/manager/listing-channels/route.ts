@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { isAdminUser } from "@/lib/auth/admin-preview";
-import { LISTING_CHANNEL_DEFS, listingChannels, metaAppConfigured, partnerContactHrefs } from "@/lib/listing-channels/registry";
+import { isMissingColumnError } from "@/lib/db-missing-column";
+import { LISTING_CHANNEL_DEFS, listingChannels, metaAppConfigured } from "@/lib/listing-channels/registry";
 import { buildListingPostText, listingChannelEligibility, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection.server";
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
@@ -12,11 +12,9 @@ import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.se
 
 export const runtime = "nodejs";
 
-/** Zillow approves PropLane's feed once for the whole deployment, so this is an env flag. */
-function zillowFeedApproved(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = env.ZILLOW_FEED_APPROVED?.trim().toLowerCase();
-  return v === "1" || v === "true";
-}
+const POST_COLUMNS = "property_id, channel, enabled, state, external_id, last_error, posted_at, posted_url, updated_at";
+/** Same read for a database that has not had `20261008180000_listing_lead_source.sql` applied yet. */
+const POST_COLUMNS_BEFORE_POSTED_URL = "property_id, channel, enabled, state, external_id, last_error, posted_at, updated_at";
 
 /**
  * GET: everything the Listing sites surfaces need for the active workspace, in one read: which
@@ -28,7 +26,6 @@ export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const { db, workspace } = ctx;
-  const isAdmin = await isAdminUser(ctx.userId).catch(() => false);
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() || "";
 
   try {
@@ -37,14 +34,22 @@ export async function GET(request: Request) {
       resolveListingPostContact(db, workspace.ownerUserId, workspace.id),
       resolveWorkspaceListingAttribution(db, workspace.ownerUserId, workspace.id),
       leadCountsByChannel({ workspaceId: workspace.id, propertyId: propertyId || undefined }).catch(() => ({}) as Record<string, number>),
-      (() => {
-        let q = db
-          .from("listing_channel_posts")
-          .select("property_id, channel, enabled, state, external_id, last_error, posted_at, updated_at")
-          .eq("manager_user_id", workspace.ownerUserId)
-          .eq("workspace_id", workspace.id);
-        if (propertyId) q = q.eq("property_id", propertyId);
-        return q;
+      (async () => {
+        const read = async (columns: string) => {
+          let q = db
+            .from("listing_channel_posts")
+            .select(columns)
+            .eq("manager_user_id", workspace.ownerUserId)
+            .eq("workspace_id", workspace.id);
+          if (propertyId) q = q.eq("property_id", propertyId);
+          const { data, error } = await q;
+          return { rows: (data ?? []) as unknown as Record<string, unknown>[], error };
+        };
+        const full = await read(POST_COLUMNS);
+        if (!isMissingColumnError(full.error, "posted_url")) return { ...full, migrated: true };
+        // The new column is not there yet: read the rest of the row rather than
+        // reporting the whole page as broken, and say the schema is not ready.
+        return { ...(await read(POST_COLUMNS_BEFORE_POSTED_URL)), migrated: false };
       })(),
     ]);
 
@@ -72,12 +77,9 @@ export async function GET(request: Request) {
       {
         workspaceId: workspace.id,
         canManage: workspace.owned,
-        // Company-to-company partner contacts: only a PropLane admin ever receives them.
-        partnerContacts: isAdmin ? partnerContactHrefs() : {},
-        // A table that is not migrated yet reads as "no posts", never as a failure of the page.
-        schemaReady: !postsRes.error,
-        // Read here (server only): registry.ts is imported by client components.
-        zillowFeedApproved: zillowFeedApproved(),
+        // A table or column that is not migrated yet reads as "no posts" / "no ad link", never as a
+        // failure of the page.
+        schemaReady: !postsRes.error && postsRes.migrated,
         channels,
         meta: { configured: metaAppConfigured(), ...meta },
         workContact: contact,
@@ -85,7 +87,7 @@ export async function GET(request: Request) {
         attribution: { enabled: attributionState.show, forced: attributionState.forced },
         // Leads that arrived through a tagged (?src=<channel>) link, per channel.
         leadCounts,
-        posts: (postsRes.data ?? []).map((row) => toPostRow(row as Record<string, unknown>)),
+        posts: postsRes.rows.map(toPostRow),
         property,
       },
       { headers: { "Cache-Control": "private, no-store" } },

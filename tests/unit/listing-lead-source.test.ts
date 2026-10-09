@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
 import {
   LEAD_SOURCE_CHANNEL_IDS,
   leadSourceCookieAssignment,
@@ -16,6 +17,10 @@ vi.mock("next/headers", () => ({
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 
 describe("lead source allowlist", () => {
+  it("is the registry's channel ids, so a new site is never silently untracked", () => {
+    expect([...LEAD_SOURCE_CHANNEL_IDS]).toEqual(LISTING_CHANNEL_DEFS.map((def) => def.id));
+  });
+
   it("accepts exactly the channel ids", () => {
     for (const id of LEAD_SOURCE_CHANNEL_IDS) expect(normalizeLeadSource(id)).toBe(id);
     expect(normalizeLeadSource(" ZILLOW ")).toBe("zillow");
@@ -32,6 +37,15 @@ describe("lead source allowlist", () => {
     expect(leadSourceCookieAssignment("craigslist")).toContain("SameSite=Lax");
     expect(leadSourceCookieAssignment("craigslist")).toContain("Max-Age=2592000");
     expect(leadSourceCookieAssignment("nope")).toBeNull();
+  });
+
+  it("adds Secure on https and leaves it off on plain http", () => {
+    expect(leadSourceCookieAssignment("craigslist")).not.toContain("Secure");
+    vi.stubGlobal("location", { protocol: "https:" });
+    expect(leadSourceCookieAssignment("craigslist")).toContain("; Secure");
+    vi.stubGlobal("location", { protocol: "http:" });
+    expect(leadSourceCookieAssignment("craigslist")).not.toContain("Secure");
+    vi.unstubAllGlobals();
   });
 
   it("reads the cookie header and ignores invalid values", () => {

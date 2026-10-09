@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Download, ExternalLink, Undo2 } from "lucide-react";
 
@@ -12,7 +12,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, useModalPresentation } from "@/components/ui/modal";
 import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing-channels";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
-import { listingHoldFact } from "@/lib/listing-channels/post-text";
+import { LISTING_HOLD_WORK_NUMBER_PHRASE, listingHoldFact, listingHoldFactParts, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import { shortDate } from "@/lib/listing-channels/row-fact";
 import { listingChannelDef, type ListingChannelId } from "@/lib/listing-channels/registry";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
@@ -29,6 +29,21 @@ function modeLine(posting: string, metaLive: boolean): string {
   if (posting === "api") return metaLive ? "Posts for you" : "Posts for you once Meta approves · by hand until then";
   if (posting === "partner_only") return "Partner feed only";
   return "Copy and post";
+}
+
+/** The one held line, identical wherever a guide shows it: the work-number phrase is always its link. */
+function HeldLine({ reasons, className }: { reasons: readonly ListingHoldReason[]; className?: string }) {
+  const { lead, workNumberLink } = listingHoldFactParts(reasons);
+  return (
+    <p className={className ?? "text-sm text-foreground"} data-attr="listing-site-guide-held">
+      {lead}
+      {workNumberLink ? (
+        <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">
+          {LISTING_HOLD_WORK_NUMBER_PHRASE}
+        </Link>
+      ) : null}
+    </p>
+  );
 }
 
 function Step({ n, done, title, note, children, action }: { n: number; done?: boolean; title: string; note?: string; children?: ReactNode; action?: ReactNode }) {
@@ -73,12 +88,16 @@ export function ListingSiteGuide({
   const def = listingChannelDef(channelId);
   const { showToast } = useAppUi();
   const [picked, setPicked] = useState<string | null>(null);
-  const [postedUrl, setPostedUrl] = useState("");
+  const [typedUrl, setTypedUrl] = useState<{ key: string; value: string }>({ key: "", value: "" });
   const [busy, setBusy] = useState(false);
   const selectedId = propertyId ?? picked ?? listings[listings.length - 1]?.id ?? "";
   const { status, refresh } = useListingChannels(selectedId || undefined);
 
-  useEffect(() => setPostedUrl(""), [selectedId, channelId]);
+  // The ad link belongs to one listing on one site: keying it by that pair empties the box
+  // when either changes, with no effect that writes state back after a render.
+  const urlKey = `${selectedId}:${channelId}`;
+  const postedUrl = typedUrl.key === urlKey ? typedUrl.value : "";
+  const setPostedUrl = (value: string) => setTypedUrl({ key: urlKey, value });
 
   const row = status?.posts.find((p) => p.propertyId === selectedId && p.channel === channelId) ?? null;
   const posted = row?.state === "posted_by_me";
@@ -104,10 +123,10 @@ export function ListingSiteGuide({
   const glyph = CHANNEL_GLYPH[def.id];
   const Glyph = glyph.icon;
   const guide = def.guide;
-  const feedApproved = def.posting === "feed" && status?.zillowFeedApproved === true;
   const partner = def.posting === "partner_only";
   const feed = def.posting === "feed";
   const apiLive = def.posting === "api" && metaLive;
+  const adUrl = posted && row?.postedUrl?.startsWith("https://") ? row.postedUrl : null;
 
   const write = async (path: "toggle" | "mark-posted", body: Record<string, unknown>) => {
     setBusy(true);
@@ -144,10 +163,8 @@ export function ListingSiteGuide({
     >
       <div className="space-y-3 pb-2" data-attr="listing-site-guide">
         <p className="text-sm text-muted" data-attr="listing-site-guide-mode">{modeLine(def.posting, metaLive)}</p>
-        <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{feedApproved && guide.howApproved ? guide.howApproved : guide.how}</p>
-        {feed && holdReasons.length > 0 ? (
-          <p className="text-sm text-foreground" data-attr="listing-site-guide-held">{listingHoldFact(holdReasons)}</p>
-        ) : null}
+        <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{guide.how}</p>
+        {feed && holdReasons.length > 0 ? <HeldLine reasons={holdReasons} /> : null}
 
         {!partner && !propertyId && listings.length > 0 ? (
           <FieldSingleSelect
@@ -189,7 +206,7 @@ export function ListingSiteGuide({
           </div>
         ) : null}
 
-        {feedApproved ? null : partner ? (
+        {partner ? (
           <div data-attr="listing-site-guide-steps">
             <Step n={1} title="Nothing to post" />
           </div>
@@ -245,16 +262,8 @@ export function ListingSiteGuide({
             >
               {postText ? (
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-accent/40 p-3 text-xs text-foreground" data-attr="listing-site-guide-post">{postText}</pre>
-              ) : holdReasons.length > 0 ? (
-                <p className="mt-1 text-sm text-foreground" data-attr="listing-site-guide-held">
-                  {listingHoldFact(holdReasons)}
-                  {holdReasons.includes("no_work_number") ? (
-                    <>
-                      {" · "}
-                      <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">Set up work number</Link>
-                    </>
-                  ) : null}
-                </p>
+              ) : !feed && holdReasons.length > 0 ? (
+                <HeldLine reasons={holdReasons} className="mt-1 text-sm text-foreground" />
               ) : null}
             </Step>
             <Step
@@ -276,7 +285,22 @@ export function ListingSiteGuide({
               note={posted ? `Posted by you · ${shortDate(row?.postedAt)}` : undefined}
               action={
                 posted ? (
-                  <PortalIconAction icon={Undo2} label="Undo" data-attr={`listing-site-unmark-${def.id}`} disabled={busy || !canManage} onClick={() => write("mark-posted", { posted: false })} />
+                  <>
+                    {adUrl ? (
+                      <a
+                        href={adUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={ICON_LINK}
+                        data-attr={`listing-site-open-ad-${def.id}`}
+                        aria-label="Open ad"
+                        title="Open ad"
+                      >
+                        <ExternalLink className="size-4" aria-hidden />
+                      </a>
+                    ) : null}
+                    <PortalIconAction icon={Undo2} label="Undo" data-attr={`listing-site-unmark-${def.id}`} disabled={busy || !canManage} onClick={() => write("mark-posted", { posted: false })} />
+                  </>
                 ) : (
                   <Button variant="ghost" data-attr={`listing-site-mark-${def.id}`} disabled={busy || !canManage || !selectedId} onClick={() => write("mark-posted", { posted: true, ...(postedUrl.trim() ? { postedUrl: postedUrl.trim() } : {}) })}>
                     Mark

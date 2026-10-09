@@ -32,7 +32,6 @@ function baseStatus(over: Record<string, unknown> = {}) {
     workspaceId: "w1",
     canManage: true,
     schemaReady: true,
-    zillowFeedApproved: false,
     channels: [
       { id: "facebook_page", availability: "coming_soon" },
       { id: "instagram", availability: "coming_soon" },
@@ -60,7 +59,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const rows = () => Array.from(document.querySelectorAll('[data-attr="listing-site-row"]')) as HTMLElement[];
+const rows = () => Array.from(document.querySelectorAll('[data-attr^="listing-site-row-"]')) as HTMLElement[];
 const rowByName = (name: string) => rows().find((r) => r.textContent?.includes(name)) as HTMLElement;
 
 describe("property Promotion › Listing sites", () => {
@@ -70,6 +69,10 @@ describe("property Promotion › Listing sites", () => {
     expect(document.querySelector('[data-attr^="property-listing-sites-tab-"]')).toBeNull();
     expect(screen.queryByText("Show Listed with PropLane")).toBeNull();
     expect(rows()[0]!.textContent).toContain("Zillow Rental Network");
+    // Each row's one data-attr is its own name, so a funnel can tell WHICH site was opened.
+    const named = rows().map((r) => r.getAttribute("data-attr"));
+    expect(named).toContain("listing-site-row-zillow");
+    expect(new Set(named).size).toBe(16);
   });
 
   it("a row opens that site's guide bound to the listing, with no picker; Zillow keeps its per-listing switch", async () => {

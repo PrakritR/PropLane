@@ -35,8 +35,6 @@ export type ListingChannelId =
 export type ListingChannelGuide = {
   /** One paragraph: how this site works and what PropLane does or cannot do for it. */
   how: string;
-  /** Shown instead of `how` once the channel's feed is approved (no by-hand clause). */
-  howApproved?: string;
   signupUrl?: string;
   signupNote: string;
   createUrl?: string;
@@ -84,7 +82,6 @@ export const LISTING_CHANNEL_DEFS: readonly ListingChannelDef[] = [
     createUrl: "https://www.zillow.com/rental-manager/",
     guide: {
       how: "PropLane publishes a feed that Zillow reads every few hours and shows on Zillow, Trulia and HotPads. Zillow has to approve the feed once; until then post by hand in Rental Manager.",
-      howApproved: "PropLane publishes a feed that Zillow reads every few hours and shows on Zillow, Trulia and HotPads.",
       signupUrl: "https://www.zillow.com/rental-manager/",
       signupNote: "Free. Sign up with the work email.",
       createUrl: "https://www.zillow.com/rental-manager/",
@@ -449,5 +446,7 @@ export type ListingChannelPostRow = {
   externalId: string | null;
   lastError: string | null;
   postedAt: string | null;
+  /** The ad link the manager pasted on "Mark as posted"; https only, cleared by Undo. */
+  postedUrl: string | null;
   updatedAt: string | null;
 };

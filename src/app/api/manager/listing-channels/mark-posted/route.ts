@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { z } from "zod";
 
+import { isMissingColumnError } from "@/lib/db-missing-column";
 import { isListingChannelId, listingChannelDef, metaChannelsLive } from "@/lib/listing-channels/registry";
 import { propertyInWorkspace, resolveListingChannelContext } from "@/lib/listing-channels/route-context.server";
 
@@ -28,22 +29,27 @@ export async function POST(request: Request) {
   if (!owned) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
   const now = new Date().toISOString();
-  const { error } = await ctx.db.from("listing_channel_posts").upsert(
-    {
-      manager_user_id: ctx.workspace.ownerUserId,
-      workspace_id: ctx.workspace.id,
-      property_id: owned.id,
-      channel: def.id,
-      enabled: body.posted,
-      state: body.posted ? "posted_by_me" : "off",
-      pending_action: null,
-      posted_at: body.posted ? now : null,
-      // Undo clears the link; a mark without a link also clears any stale one.
-      posted_url: postedUrl,
-      updated_at: now,
-    },
-    { onConflict: "property_id,channel" },
-  );
+  const base = {
+    manager_user_id: ctx.workspace.ownerUserId,
+    workspace_id: ctx.workspace.id,
+    property_id: owned.id,
+    channel: def.id,
+    enabled: body.posted,
+    state: body.posted ? "posted_by_me" : "off",
+    pending_action: null,
+    posted_at: body.posted ? now : null,
+    updated_at: now,
+  };
+  // Undo always clears the link; a mark touches the column only when one was given, so a database
+  // that has not had `20261008180000_listing_lead_source.sql` applied yet still records the post.
+  const writesUrl = !body.posted || postedUrl !== null;
+  const save = (values: Record<string, unknown>) =>
+    ctx.db.from("listing_channel_posts").upsert(values, { onConflict: "property_id,channel" });
+
+  let { error } = await save(writesUrl ? { ...base, posted_url: postedUrl } : base);
+  if (error && writesUrl && isMissingColumnError(error, "posted_url")) {
+    ({ error } = await save(base));
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -6,6 +6,7 @@ import {
   buildListingPostText,
   listingChannelEligibility,
   listingHoldFact,
+  listingHoldFactParts,
 } from "@/lib/listing-channels/post-text";
 
 const CONTACT = { phone: "(206) 555-0100", email: "work@proplane.test" };
@@ -174,5 +175,15 @@ describe("listing eligibility", () => {
   it("holds a listing with no street address", () => {
     expect(listingChannelEligibility(projected({ address: "  " }))).toEqual(["no_street_address"]);
     expect(listingHoldFact(["no_street_address", "no_photo"])).toBe("Held: no street address and no photo");
+  });
+
+  it("splits the work-number phrase out so a surface links it instead of repeating it", () => {
+    expect(listingHoldFactParts(["no_photo"])).toEqual({ lead: "Held: no photo", workNumberLink: false });
+    expect(listingHoldFactParts(["no_work_number"])).toEqual({ lead: "", workNumberLink: true });
+    expect(listingHoldFactParts(["no_photo", "no_work_number"])).toEqual({ lead: "Held: no photo · ", workNumberLink: true });
+    for (const reasons of [["no_photo"], ["no_work_number"], ["no_photo", "no_work_number"]] as const) {
+      const parts = listingHoldFactParts(reasons);
+      expect(`${parts.lead}${parts.workNumberLink ? "Set up work number" : ""}`).toBe(listingHoldFact(reasons));
+    }
   });
 });

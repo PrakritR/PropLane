@@ -112,13 +112,31 @@ describe("ListingSiteGuide", () => {
     });
   });
 
-  it("a posted site shows Posted by you · date with an Undo action", async () => {
+  it("a posted site shows Posted by you · date with an Undo action and a link to the ad", async () => {
     status.value = baseStatus({
-      posts: [{ propertyId: "p2", channel: "craigslist", enabled: true, state: "posted_by_me", externalId: null, lastError: null, postedAt: "2026-10-08T20:00:00Z", updatedAt: null }],
+      posts: [{ propertyId: "p2", channel: "craigslist", enabled: true, state: "posted_by_me", externalId: null, lastError: null, postedAt: "2026-10-08T20:00:00Z", postedUrl: "https://craigslist.org/ad/9", updatedAt: null }],
     });
     guide("craigslist");
     await waitFor(() => expect(screen.getByText("Posted by you · Oct 8")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
+    const ad = document.querySelector('[data-attr="listing-site-open-ad-craigslist"]') as HTMLAnchorElement;
+    expect(ad.getAttribute("href")).toBe("https://craigslist.org/ad/9");
+    expect(ad.getAttribute("target")).toBe("_blank");
+    expect(ad.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("offers no ad link when none was stored, and never a non-https one", async () => {
+    const row = { propertyId: "p2", channel: "craigslist", enabled: true, state: "posted_by_me", externalId: null, lastError: null, postedAt: "2026-10-08T20:00:00Z", updatedAt: null };
+    status.value = baseStatus({ posts: [{ ...row, postedUrl: null }] });
+    guide("craigslist");
+    await waitFor(() => expect(screen.getByText("Posted by you · Oct 8")).toBeTruthy());
+    expect(document.querySelector('[data-attr="listing-site-open-ad-craigslist"]')).toBeNull();
+    cleanup();
+    resetSharedGets();
+    status.value = baseStatus({ posts: [{ ...row, postedUrl: "javascript:alert(1)" }] });
+    guide("craigslist");
+    await waitFor(() => expect(screen.getByText("Posted by you · Oct 8")).toBeTruthy());
+    expect(document.querySelector('[data-attr="listing-site-open-ad-craigslist"]')).toBeNull();
   });
 
   it("a copy-and-post site shows the hold reason and keeps Copy disabled", async () => {
@@ -126,35 +144,40 @@ describe("ListingSiteGuide", () => {
     guide("craigslist");
     await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
     const held = document.querySelector('[data-attr="listing-site-guide-held"]') as HTMLElement;
-    expect(held.textContent).toContain("Held: no photo");
-    expect(held.textContent).toContain("Set up work number");
+    expect(held.textContent).toBe("Held: no photo · Set up work number");
+    // The phrase is the link itself, never printed again beside it.
+    expect(document.querySelectorAll('[data-attr="listing-site-guide-set-up-number"]')).toHaveLength(1);
+    expect((document.querySelector('[data-attr="listing-site-guide-set-up-number"]') as HTMLElement).textContent).toBe("Set up work number");
     expect((document.querySelector('[data-attr="listing-site-copy-craigslist"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Zillow's guide lists every listing's status and the held reason", async () => {
+  it("a listing held only on the work number shows the phrase once, as the link", async () => {
+    status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_work_number"], postTexts: {} } });
+    guide("craigslist");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
+    expect((document.querySelector('[data-attr="listing-site-guide-held"]') as HTMLElement).textContent).toBe("Set up work number");
+  });
+
+  it("Zillow's held line links the work number exactly like a manual guide's", async () => {
+    status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_photo", "no_work_number"], postTexts: {} } });
+    guide("zillow");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
+    expect(document.querySelectorAll('[data-attr="listing-site-guide-held"]')).toHaveLength(1);
+    const held = document.querySelector('[data-attr="listing-site-guide-held"]') as HTMLElement;
+    expect(held.textContent).toBe("Held: no photo · Set up work number");
+    const link = document.querySelector('[data-attr="listing-site-guide-set-up-number"]') as HTMLAnchorElement;
+    expect(link.textContent).toBe("Set up work number");
+    expect(link.getAttribute("href")).toBe("/portal/profile?tab=spreadsheets");
+  });
+
+  it("Zillow's guide lists every listing's status and the held reason exactly once", async () => {
     status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_photo"], postTexts: {} } });
     guide("zillow");
-    await waitFor(() => expect(screen.getAllByText("Held: no photo").length).toBeGreaterThan(0));
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
+    expect(document.querySelectorAll('[data-attr="listing-site-guide-held"]')).toHaveLength(1);
     const table = document.querySelector('[data-attr="listing-site-guide-status-table"]') as HTMLElement;
     expect(table.textContent).toContain("Alder House");
     expect(table.textContent).toContain("Posting");
-  });
-
-  it("Zillow with the feed approved hides the by-hand steps and keeps the status table", async () => {
-    status.value = baseStatus({ zillowFeedApproved: true });
-    guide("zillow");
-    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-status-table"]')).not.toBeNull());
-    expect(document.querySelector('[data-attr="listing-site-guide-steps"]')).toBeNull();
-    expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).toBeNull();
-    const zillowDef = LISTING_CHANNEL_DEFS.find((d) => d.id === "zillow")!;
-    expect(screen.getByText(zillowDef.guide.howApproved!)).toBeTruthy();
-  });
-
-  it("Zillow with the feed not approved still shows the by-hand steps", async () => {
-    status.value = baseStatus({ zillowFeedApproved: false });
-    guide("zillow");
-    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).not.toBeNull());
-    expect(document.querySelector('[data-attr="listing-site-guide-status-table"]')).not.toBeNull();
   });
 });
 

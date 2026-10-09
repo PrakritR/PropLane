@@ -73,12 +73,12 @@ Listing sites UI shows the same three facts as hold reasons.
 ## After approval
 
 1. Record Zillow's approval and any partner/company id they issue.
-2. Set `ZILLOW_FEED_APPROVED=1` (or `true`) in the deployment env. Zillow approves PropLane once, so it is
-   an env flag, not a per-workspace setting. It is read only in `GET /api/manager/listing-channels`
-   (`zillowFeedApproved()` in `route.ts`; `registry.ts` is client-imported) and returned as
-   `zillowFeedApproved` in the status payload.
-3. `src/components/portal/listing-site-guide.tsx` then hides the Zillow guide's by-hand steps and shows the
-   registry's `howApproved` text, the per-listing status table, hold reason and Zillow toggle.
+2. Add a `zillowFeedApproved` boolean to the workspace automation settings row
+   (`workspace_automation_settings.row_data`, the same JSON row the public property route already reads
+   `applicationFormTemplate` from). Follow-up, not implemented yet.
+3. Have the listing-channels GET route read that flag and return it with the channel list, so the Zillow
+   guide in the Listing sites UI drops its by-hand posting steps and shows the feed as the way
+   listings reach Zillow.
 4. Decide with Zillow how the feed key reaches them (per-workspace URL given at onboarding versus a
    directory). Confirm on application.
 5. Add `?src=zillow` to `listingUrl` in the feed so leads from Zillow are counted (lead source cookie
