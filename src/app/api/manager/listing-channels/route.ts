@@ -12,6 +12,12 @@ import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.se
 
 export const runtime = "nodejs";
 
+/** Zillow approves PropLane's feed once for the whole deployment, so this is an env flag. */
+function zillowFeedApproved(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env.ZILLOW_FEED_APPROVED?.trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
 /**
  * GET: everything the Listing sites surfaces need for the active workspace, in one read: which
  * channels are live, the Meta connection (never its token), the workspace work contact, and the
@@ -70,6 +76,8 @@ export async function GET(request: Request) {
         partnerContacts: isAdmin ? partnerContactHrefs() : {},
         // A table that is not migrated yet reads as "no posts", never as a failure of the page.
         schemaReady: !postsRes.error,
+        // Read here (server only): registry.ts is imported by client components.
+        zillowFeedApproved: zillowFeedApproved(),
         channels,
         meta: { configured: metaAppConfigured(), ...meta },
         workContact: contact,

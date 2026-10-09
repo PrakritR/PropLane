@@ -104,6 +104,7 @@ export function ListingSiteGuide({
   const glyph = CHANNEL_GLYPH[def.id];
   const Glyph = glyph.icon;
   const guide = def.guide;
+  const feedApproved = def.posting === "feed" && status?.zillowFeedApproved === true;
   const partner = def.posting === "partner_only";
   const feed = def.posting === "feed";
   const apiLive = def.posting === "api" && metaLive;
@@ -143,7 +144,7 @@ export function ListingSiteGuide({
     >
       <div className="space-y-3 pb-2" data-attr="listing-site-guide">
         <p className="text-sm text-muted" data-attr="listing-site-guide-mode">{modeLine(def.posting, metaLive)}</p>
-        <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{guide.how}</p>
+        <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{feedApproved && guide.howApproved ? guide.howApproved : guide.how}</p>
         {feed && holdReasons.length > 0 ? (
           <p className="text-sm text-foreground" data-attr="listing-site-guide-held">{listingHoldFact(holdReasons)}</p>
         ) : null}
@@ -188,7 +189,7 @@ export function ListingSiteGuide({
           </div>
         ) : null}
 
-        {partner ? (
+        {feedApproved ? null : partner ? (
           <div data-attr="listing-site-guide-steps">
             <Step n={1} title="Nothing to post" />
           </div>

@@ -119,6 +119,8 @@ id when a co-manager is acting in a shared workspace. Regenerating the key is
 out of scope — a manager who already handed this exact URL to Zillow would
 break that registration.
 
+`ZILLOW_FEED_APPROVED=1` (deployment-wide, read only in the listing-channels GET route) marks Zillow's feed approved: the Zillow guide then drops its by-hand steps and shows only the status table.
+
 ## Registering the feed with Zillow
 
 1. Open Settings → Integrations → Posting in the manager portal and copy the

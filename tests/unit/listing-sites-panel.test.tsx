@@ -32,6 +32,7 @@ function baseStatus(over: Record<string, unknown> = {}) {
     workspaceId: "w1",
     canManage: true,
     schemaReady: true,
+    zillowFeedApproved: false,
     channels: [
       { id: "facebook_page", availability: "coming_soon" },
       { id: "instagram", availability: "coming_soon" },

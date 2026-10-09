@@ -17,6 +17,8 @@ export type ListingChannelsStatus = {
   /** Partner contacts; empty unless the viewer is a PropLane admin. */
   partnerContacts?: Partial<Record<ListingChannelId, string>>;
   schemaReady: boolean;
+  /** Deployment-wide: Zillow has approved PropLane's Rentals Feed (`ZILLOW_FEED_APPROVED`). */
+  zillowFeedApproved?: boolean;
   channels: { id: ListingChannelId; availability: ListingChannelAvailability }[];
   meta: { configured: boolean; connected: boolean; pageName: string | null; igUsername: string | null; revoked: boolean };
   workContact: { phone: string | null; email: string | null };
