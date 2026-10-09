@@ -1021,6 +1021,15 @@ export const ManagerSmsPanel = forwardRef<
     }
   }, [active, load, setActiveId, showToast]);
 
+  const activeEmailAvailable = Boolean(active?.resident.residentEmail?.trim());
+  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail);
+  // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
+  const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
+    recipientEmail: active?.resident.residentEmail?.trim() ?? "",
+    smsAvailable: smsUiEnabled && !active?.resident.sendDisabled,
+    enabled: activeCanSchedule,
+  });
+
   /** Same press, scheduled instead of sent: the existing scheduled-send route, no second path. */
   async function scheduleReply() {
     const built = buildSmsThreadScheduleBody({
@@ -1236,15 +1245,6 @@ export const ManagerSmsPanel = forwardRef<
       setSending(false);
     }
   }
-
-  const activeEmailAvailable = Boolean(active?.resident.residentEmail?.trim());
-  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail);
-  // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
-  const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
-    recipientEmail: active?.resident.residentEmail?.trim() ?? "",
-    smsAvailable: smsUiEnabled && !active?.resident.sendDisabled,
-    enabled: activeCanSchedule,
-  });
 
   const showThread = Boolean(activeId && active);
 
