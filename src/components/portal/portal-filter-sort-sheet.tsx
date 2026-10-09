@@ -49,7 +49,7 @@ import { usePortalSurface } from "@/components/ui/portal-surface";
 import { cn } from "@/lib/utils";
 
 
-/** Phone filters always use anchored popovers, regardless of desktop presentation.
+/** Captain, Oct 9: phone Filter opens as a bottom sheet; desktop keeps the anchored popover.
  * Legacy sizing constants remain exported for compatibility with callers.
  */
 export const PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX = 260;
@@ -63,9 +63,11 @@ export function resolveMobileFilterPopover(args: {
   hasExtraModalContent: boolean;
   insets: { bottom: number; bottomNav: number };
 }): boolean {
-  // Every phone filter stays anchored. The positioning helper flips to the
-  // roomier side and caps the scroll area, including near the bottom edge.
-  return ["dropdown", "panel", "inline"].includes(args.desktopPresentation);
+  // No phone filter is an anchored popover any more: the sheet's body scrolls
+  // between a pinned header and footer, so no field clips under the footer.
+  // (Desktop never reads this; it keeps its anchored popover / modal.)
+  void args;
+  return false;
 }
 
 function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; label?: string }) {
@@ -428,6 +430,9 @@ export function PortalFilterSortSheet({
 
   const handleSheetOpenChange = useCallback(
     (next: boolean) => {
+      // Backdrop tap / Escape / swipe-down / ✕. No ghost-click guard here: a menu
+      // pick happens inside the sheet, so a stray synthesized click never lands
+      // on the backdrop.
       setFilterOpen(next, { bypassDismissGuard: true });
     },
     [setFilterOpen],
@@ -715,9 +720,13 @@ export function PortalFilterSortSheet({
       ) : null}
       {useMobileBottomSheet && open ? (
         <VaulBottomSheet
-          dismissible={false}
+          dismissible
           open
           onOpenChange={handleSheetOpenChange}
+          // A portaled field menu owns the first Escape; the next one closes the sheet.
+          onEscapeKeyDown={(event) => {
+            if (document.querySelector(`[${FIELD_SELECT_MENU_DATA_ATTR}]`)) event.preventDefault();
+          }}
           title={title}
           flushBody={mobileFlushBody}
           autoElevate={mobileSheetRaised}

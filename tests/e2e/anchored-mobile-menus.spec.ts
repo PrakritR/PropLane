@@ -78,62 +78,43 @@ test.describe("Anchored mobile row-action menu", () => {
 });
 
 /**
- * Neither `/portal/properties/listed` nor any other Properties tab renders a
- * `PortalFilterSortSheet` at all (its `PortalListControlStack` usage passes no
- * `filter`) — there is no Filter trigger to open there. Communication's Filter
- * (`pro-communication.tsx`) is configured exactly the way `resolveMobileFilterPopover`
- * is documented against — `compactPanel`, `filterFieldCount={4}`, default
- * `desktopPresentation="dropdown"`, no `extraModalContent` — so these two cases run
- * against `/portal/communication/active` instead. This is a deliberate substitution,
- * not a weakened assertion; see the report for why.
+ * Captain, Oct 9: on a phone the Filter opens as a bottom sheet (drag handle,
+ * scrolling body, pinned footer), never an anchored popover. Desktop keeps the
+ * popover. Communication's Filter (`pro-communication.tsx`) is the list used here:
+ * Properties tabs render no `PortalFilterSortSheet`.
  */
-test.describe("Anchored mobile Filter popover", () => {
+test.describe("Phone Filter bottom sheet", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test manager");
   test.beforeEach(async ({ page }) => {
     await signInAsManager(page);
   });
 
-  test("mounts the anchored popover, not the bottom sheet, at 390x844", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/portal/communication/active", { waitUntil: "domcontentloaded" });
-    const trigger = page.locator('[data-attr="communication-filter-sheet-open"]').first();
-    await expect(trigger).toBeVisible({ timeout: 45_000 });
-    const triggerBox = (await trigger.boundingBox())!;
+  for (const [width, height] of [
+    [390, 844],
+    [375, 667],
+  ] as const) {
+    test(`opens a bottom sheet with a pinned footer at ${width}x${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto("/portal/communication/active", { waitUntil: "domcontentloaded" });
+      const trigger = page.locator('[data-attr="communication-filter-sheet-open"]').first();
+      await expect(trigger).toBeVisible({ timeout: 45_000 });
 
-    await trigger.click();
-    const panel = page.locator('[data-attr="portal-filter-dropdown-panel"]');
-    await expect(panel).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('[data-slot="vaul-bottom-sheet"]')).toHaveCount(0);
-
-    const panelBox = (await panel.boundingBox())!;
-    expect(panelBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 2);
-    expect(panelBox.y - (triggerBox.y + triggerBox.height)).toBeLessThanOrEqual(12);
-    // Not full-bleed: at most min(22rem, viewport - 24).
-    const maxWidth = Math.min(22 * 16, 390 - 24);
-    expect(panelBox.width).toBeLessThanOrEqual(maxWidth + 1);
-    expect(panelBox.width).toBeLessThan(390);
-  });
-
-  test("falls back to the bottom sheet at 375x667 when there isn't enough room below the trigger", async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto("/portal/communication/active", { waitUntil: "domcontentloaded" });
-    const trigger = page.locator('[data-attr="communication-filter-sheet-open"]').first();
-    await expect(trigger).toBeVisible({ timeout: 45_000 });
-    const triggerBox = (await trigger.boundingBox())!;
-    const spaceBelow = 667 - triggerBox.y - triggerBox.height;
-
-    await trigger.click();
-    const sheet = page.locator('[data-slot="vaul-bottom-sheet"]');
-    const panel = page.locator('[data-attr="portal-filter-dropdown-panel"]');
-
-    if (spaceBelow < 260) {
+      await trigger.click();
+      const sheet = page.locator('[data-slot="vaul-bottom-sheet"]');
       await expect(sheet).toBeVisible({ timeout: 10_000 });
-      await expect(panel).toHaveCount(0);
-    } else {
-      // This viewport legitimately still has room for the popover here — the
-      // fallback path itself is only exercised by the unit test in that case.
-      await expect(panel).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[data-attr="portal-filter-dropdown-panel"]')).toHaveCount(0);
+
+      const sheetBox = (await sheet.boundingBox())!;
+      expect(sheetBox.width).toBeGreaterThanOrEqual(width - 1);
+      expect(sheetBox.y + sheetBox.height).toBeLessThanOrEqual(height + 1);
+      const save = sheet.locator('[data-attr="portal-filter-save"]');
+      await expect(save).toBeVisible();
+      const saveBox = (await save.boundingBox())!;
+      expect(saveBox.height).toBeGreaterThanOrEqual(44);
+      expect(saveBox.y + saveBox.height).toBeLessThanOrEqual(height + 1);
+
+      await page.keyboard.press("Escape");
       await expect(sheet).toHaveCount(0);
-    }
-  });
+    });
+  }
 });
