@@ -158,6 +158,18 @@ describe("ListingSiteGuide", () => {
     expect((document.querySelector('[data-attr="listing-site-guide-held"]') as HTMLElement).textContent).toBe("Set up work number");
   });
 
+  it("Zillow's held line links the work number exactly like a manual guide's", async () => {
+    status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_photo", "no_work_number"], postTexts: {} } });
+    guide("zillow");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
+    expect(document.querySelectorAll('[data-attr="listing-site-guide-held"]')).toHaveLength(1);
+    const held = document.querySelector('[data-attr="listing-site-guide-held"]') as HTMLElement;
+    expect(held.textContent).toBe("Held: no photo · Set up work number");
+    const link = document.querySelector('[data-attr="listing-site-guide-set-up-number"]') as HTMLAnchorElement;
+    expect(link.textContent).toBe("Set up work number");
+    expect(link.getAttribute("href")).toBe("/portal/profile?tab=spreadsheets");
+  });
+
   it("Zillow's guide lists every listing's status and the held reason exactly once", async () => {
     status.value = baseStatus({ property: { id: "p2", live: true, holdReasons: ["no_photo"], postTexts: {} } });
     guide("zillow");

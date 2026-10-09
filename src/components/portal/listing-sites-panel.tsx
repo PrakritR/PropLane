@@ -65,8 +65,7 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
             name={def.label}
             fact={factFor(def)}
             factDataAttr={`property-listing-site-fact-${def.id}`}
-            dataAttr="listing-site-row"
-            itemDataAttr={`listing-site-row-${def.id}`}
+            dataAttr={`listing-site-row-${def.id}`}
             onOpen={() => setOpenId(def.id)}
           />
         );
@@ -122,8 +121,7 @@ export function WorkspaceListingSitesPanel() {
             name={def.label}
             fact={factFor(def)}
             factDataAttr={`promotion-listing-site-fact-${def.id}`}
-            dataAttr="listing-site-row"
-            itemDataAttr={`listing-site-row-${def.id}`}
+            dataAttr={`listing-site-row-${def.id}`}
             onOpen={() => setOpenId(def.id)}
           />
         );

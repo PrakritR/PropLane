@@ -20,7 +20,6 @@ export function IntegrationRow({
   comingSoon,
   comingSoonAction,
   dataAttr,
-  itemDataAttr,
   className,
   onOpen,
 }: {
@@ -35,11 +34,6 @@ export function IntegrationRow({
   /** An action that sits beside "Coming soon" (Request access); only drawn while `comingSoon`. */
   comingSoonAction?: ReactNode;
   dataAttr?: string;
-  /**
-   * The per-item PostHog name, beside the shared `dataAttr`: a list whose rows all share one
-   * `data-attr` cannot tell a funnel WHICH row was opened.
-   */
-  itemDataAttr?: string;
   className?: string;
   /** Makes the whole row open something (a guide, a drawer) and draws a trailing chevron. */
   onOpen?: () => void;
@@ -47,7 +41,6 @@ export function IntegrationRow({
   return (
     <div
       data-attr={dataAttr}
-      data-item-attr={itemDataAttr}
       className={cn("flex min-h-14 items-center gap-3 border-b border-border px-4 py-2 last:border-0", onOpen && "cursor-pointer hover:bg-foreground/5", className)}
       {...(onOpen
         ? {

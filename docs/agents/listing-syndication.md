@@ -174,7 +174,8 @@ createUrl?, createNote, cost, rules[] }`, rendered verbatim by
 `rel="noopener noreferrer"`), 2 Copy your post (post preview, Copy and
 Download photos icon actions; photos come from
 `/api/manager/listing-channels/photos?propertyId=`, any workspace member who
-can see the listing, host-allowlisted), 3 Post it, 4 Mark as posted
+can see the listing, host-allowlisted, one photo in memory at a time under a
+40 s deadline inside the route's `maxDuration`), 3 Post it, 4 Mark as posted
 (`POST /api/manager/listing-channels/mark-posted`, owner only, optional
 `postedUrl` stored in `listing_channel_posts.posted_url` and surfaced back as
 the step's "Open ad" link). It ends with "Keep the account
@@ -199,8 +200,10 @@ site is tagged and counted the moment it is in the registry. `pl_src` is set
 whatever tagged link that manager happened to open. `source_channel` and
 `posted_url` are the only thing their migration adds, so each write retries once
 without the column (`isMissingColumnError`) rather than failing the applicant's
-submission, the tour request or the manager's "Mark as posted"; the Listing
-sites GET reports `schemaReady: false` instead.
+submission (draft save included), the tour request or the manager's "Mark as
+posted"; the Listing sites GET reports `schemaReady: false` instead. A write
+path that wraps the failure in its own `Error` must pass the original along as
+`cause`, or its prefix hides what the database actually said.
 
 ### "Listed with PropLane"
 
