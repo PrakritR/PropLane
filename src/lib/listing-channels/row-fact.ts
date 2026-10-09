@@ -1,7 +1,7 @@
 import { listingHoldFact, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import type { ListingChannelPostRow } from "@/lib/listing-channels/registry";
 
-function shortDate(iso: string | null | undefined): string {
+export function shortDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";

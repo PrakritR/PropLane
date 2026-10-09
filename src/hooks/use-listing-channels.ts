@@ -14,7 +14,7 @@ import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 export type ListingChannelsStatus = {
   workspaceId: string;
   canManage: boolean;
-  /** Request-access partner contacts; empty unless the viewer is a PropLane admin. */
+  /** Partner contacts; empty unless the viewer is a PropLane admin. */
   partnerContacts?: Partial<Record<ListingChannelId, string>>;
   schemaReady: boolean;
   channels: { id: ListingChannelId; availability: ListingChannelAvailability }[];
@@ -22,6 +22,8 @@ export type ListingChannelsStatus = {
   workContact: { phone: string | null; email: string | null };
   /** "Listed with PropLane": whether the line is included, and whether the plan pins it on. */
   attribution?: { enabled: boolean; forced: boolean };
+  /** Leads that arrived through each site's tagged link; absent channel = 0. */
+  leadCounts?: Record<string, number>;
   posts: ListingChannelPostRow[];
   property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string> } | null;
 };
