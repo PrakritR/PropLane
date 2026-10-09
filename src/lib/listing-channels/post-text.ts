@@ -91,6 +91,11 @@ export function taggedListingLink(url: string, channel: ListingChannelId): strin
   return `${url}${url.includes("?") ? "&" : "?"}${params.toString()}`;
 }
 
+/** The tagged public link inside a built post ("Details and photos: <link>"), or "" when the text has none. */
+export function taggedLinkFromPostText(text: string): string {
+  return /Details and photos:\s*(\S+)/.exec(text)?.[1] ?? "";
+}
+
 export type ListingPostText =
   | { ok: true; text: string }
   | { ok: false; reason: "no_work_number" };

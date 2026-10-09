@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useWorkspaces } from "@/components/portal/workspace-provider";
+import type { ListingSiteLead } from "@/lib/listing-channels/leads";
+import type { ListingPickerSource } from "@/lib/listing-channels/listing-picker";
 import type { ListingHoldReason } from "@/lib/listing-channels/post-text";
 import type {
   ListingChannelAvailability,
@@ -26,6 +28,8 @@ export type ListingChannelsStatus = {
   leadCounts?: Record<string, number>;
   posts: ListingChannelPostRow[];
   property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string> } | null;
+  /** Only with `useListingChannels(undefined, { listings: true })`: every workspace listing, for the picker. */
+  listings?: ListingPickerSource[];
 };
 
 const ROUTE = "/api/manager/listing-channels";
@@ -41,20 +45,21 @@ function isStatus(data: unknown): data is ListingChannelsStatus {
   return Boolean(d && Array.isArray(d.channels) && Array.isArray(d.posts) && d.meta);
 }
 
-function urlFor(workspaceId: string | undefined, propertyId: string | undefined): string {
+function urlFor(workspaceId: string | undefined, propertyId: string | undefined, listings: boolean): string {
   const q = new URLSearchParams();
   if (workspaceId) q.set("workspaceId", workspaceId);
   if (propertyId) q.set("propertyId", propertyId);
+  if (listings) q.set("listings", "1");
   const qs = q.toString();
   return qs ? `${ROUTE}?${qs}` : ROUTE;
 }
 
 /** One shared read per URL (`sharedGet`); a write calls `refresh` to re-read. */
-export function useListingChannels(propertyId?: string) {
+export function useListingChannels(propertyId?: string, options: { listings?: boolean } = {}) {
   const workspaceId = useWorkspaces()?.active?.id;
   const [status, setStatus] = useState<ListingChannelsStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const url = urlFor(workspaceId, propertyId);
+  const url = urlFor(workspaceId, propertyId, options.listings === true);
 
   const read = useCallback(
     async (force: boolean) => {
@@ -114,4 +119,44 @@ export async function postListingChannelWrite(
   } catch {
     return { ok: false, error: "Could not save." };
   }
+}
+
+/** A listing's post text for one site, read on demand (a Copy post from a row that is not the picked listing). */
+export async function fetchListingPostText(
+  args: { workspaceId: string | undefined; propertyId: string; channel: ListingChannelId },
+): Promise<{ text: string; holdReasons: ListingHoldReason[] } | null> {
+  try {
+    const res = await fetch(urlFor(args.workspaceId, args.propertyId, false), { credentials: "include" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as unknown;
+    if (!isStatus(data) || !data.property) return null;
+    return { text: data.property.postTexts[args.channel] ?? "", holdReasons: data.property.holdReasons };
+  } catch {
+    return null;
+  }
+}
+
+/** The tours and applications that arrived through one site's tagged link, for the active workspace. */
+export function useListingSiteLeads(channel: ListingChannelId) {
+  const workspaceId = useWorkspaces()?.active?.id;
+  const [state, setState] = useState<{ key: string; leads: ListingSiteLead[] | null; error: boolean }>({ key: "", leads: null, error: false });
+  const q = new URLSearchParams({ channel });
+  if (workspaceId) q.set("workspaceId", workspaceId);
+  const url = `${ROUTE}/leads?${q.toString()}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    void sharedGet(url).then((res) => {
+      if (cancelled) return;
+      const leads = (res.data as { leads?: unknown } | null)?.leads;
+      if (res.ok && Array.isArray(leads)) setState({ key: url, leads: leads as ListingSiteLead[], error: false });
+      else setState({ key: url, leads: null, error: true });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  const current = state.key === url ? state : { leads: null, error: false };
+  return { leads: current.leads, loading: current.leads === null && !current.error, error: current.error };
 }

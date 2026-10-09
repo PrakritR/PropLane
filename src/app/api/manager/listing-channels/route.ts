@@ -9,6 +9,7 @@ import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/
 import { loadSyncListing, resolveListingPostContact } from "@/lib/listing-channels/sync.server";
 import { leadCountsByChannel } from "@/lib/listing-channels/lead-counts.server";
 import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
+import { loadListingPickerSources } from "@/lib/listing-channels/listing-picker.server";
 
 export const runtime = "nodejs";
 
@@ -27,12 +28,16 @@ const POST_COLUMNS_BEFORE_POSTED_URL = "property_id, channel, enabled, state, ex
  * channels are live, the Meta connection (never its token), the workspace work contact, and the
  * per-listing posting rows. With `?propertyId=` it also returns that listing's hold reasons and the
  * ready-to-copy post text for every channel that is posted by hand, built from `publicListingProjection` only.
+ * With `?listings=1` it also returns the workspace's listings for the picker (name, rooms, status, hold
+ * reasons), read from the workspace's own property ids, never from the request.
  */
 export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const { db, workspace } = ctx;
-  const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() || "";
+  const searchParams = new URL(request.url).searchParams;
+  const propertyId = searchParams.get("propertyId")?.trim() || "";
+  const withListings = searchParams.get("listings") === "1";
 
   try {
     const [meta, contact, attributionState, leadCounts, postsRes] = await Promise.all([
@@ -79,6 +84,14 @@ export async function GET(request: Request) {
       }
     }
 
+    const listings = withListings
+      ? await loadListingPickerSources(db, {
+          workspaceId: workspace.id,
+          propertyIds: workspace.propertyIds,
+          workNumberSet: Boolean(contact.phone?.trim()),
+        }).catch(() => [])
+      : undefined;
+
     return NextResponse.json(
       {
         workspaceId: workspace.id,
@@ -97,6 +110,7 @@ export async function GET(request: Request) {
         leadCounts,
         posts: postsRes.rows.map(toPostRow),
         property,
+        ...(listings ? { listings } : {}),
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );
