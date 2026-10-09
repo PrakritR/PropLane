@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { managerCanWriteCalendarForProperty, managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import { managerCanWriteCalendarForProperties, managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
 import {
   buildExportCalendarUrl,
   listingSubmissionFromProperty,
@@ -78,17 +78,17 @@ export async function listManagerChannelCalendarBookings(
   if (uniqueIds.length === 0) return [];
 
   const allowed: string[] = [];
+  for (const propertyId of uniqueIds) {
+    if (await managerHasCalendarAccessForProperty(db, userId, propertyId)) allowed.push(propertyId);
+  }
+  if (allowed.length === 0) return [];
+
   // The Airbnb / channel import URL is a bearer secret (anyone holding it reads the
   // reservations outside PropLane), so it only reaches managers who can edit the
   // calendar — the same bar as linking it. View-only teammates see `hasImportUrl`.
-  const canSeeImportUrl = new Set<string>();
-  for (const propertyId of uniqueIds) {
-    if (await managerHasCalendarAccessForProperty(db, userId, propertyId)) {
-      allowed.push(propertyId);
-      if (await managerCanWriteCalendarForProperty(db, userId, propertyId)) canSeeImportUrl.add(propertyId);
-    }
-  }
-  if (allowed.length === 0) return [];
+  // One decision for every house, in two round trips rather than two per house:
+  // this list backs the calendar page's own snapshot read.
+  const canSeeImportUrl = await managerCanWriteCalendarForProperties(db, userId, allowed);
 
   const { data, error } = await db
     .from("external_calendar_connections")

@@ -222,6 +222,11 @@ export async function upsertChannelCalendarConnection(
     provider,
     label: input.label?.trim() || null,
     ...(importUrlProvided ? { import_url: importUrl } : {}),
+    // Unlinking leaves nothing to re-sync, so the stays this feed imported go with the link —
+    // otherwise they keep drawing on the calendar and blocking beds with no source to refresh them.
+    ...(importUrlProvided && importUrl === null
+      ? { imported_ranges: [], last_synced_at: null, last_error: null }
+      : {}),
     export_token: exportToken,
     updated_at: now,
   };

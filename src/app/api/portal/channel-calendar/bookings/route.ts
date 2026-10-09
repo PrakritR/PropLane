@@ -43,7 +43,9 @@ export async function GET(req: Request) {
       propertyIds,
       resolveRequestOrigin(req),
     );
-    return NextResponse.json({ properties });
+    // The payload carries each channel's import URL, which is a bearer secret: it must not sit in
+    // any intermediary or browser cache.
+    return NextResponse.json({ properties }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed." }, { status: 500 });
   }

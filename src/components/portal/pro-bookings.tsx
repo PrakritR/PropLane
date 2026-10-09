@@ -528,9 +528,6 @@ function useBookingsWorkspace({
         onClose={() => setCalendarsOpen(false)}
         propertyIds={propertyIds}
         propertyOptions={propertyOptions}
-        initialPropertyId={
-          propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined
-        }
         showToast={showToast}
         onChanged={() => onRefreshSignal?.()}
       />
