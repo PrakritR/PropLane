@@ -13,7 +13,6 @@ import { growthApi } from "@/lib/growth/client";
 import {
   ENGAGE_PLATFORMS,
   tallyEngage,
-  type EngageCounts,
   type EngageItem,
   type EngagePlatform,
   type GrowthKeyword,
@@ -233,7 +232,6 @@ export function GrowthEngageTab() {
   const today = useMemo(() => pacificDate(), []);
   const [date, setDate] = useState(today);
   const [items, setItems] = useState<EngageItem[] | null>(null);
-  const [servedCounts, setServedCounts] = useState<EngageCounts | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [watch, setWatch] = useState<WatchlistEntry[]>([]);
@@ -244,11 +242,9 @@ export function GrowthEngageTab() {
     const res = await growthApi.listEngage(d);
     if (res.ok) {
       setItems(res.data.items);
-      setServedCounts(res.data.counts);
       setError(null);
     } else {
       setItems(null);
-      setServedCounts(null);
       setError(res.error);
     }
   }, []);
@@ -266,7 +262,7 @@ export function GrowthEngageTab() {
     void loadLists();
   }, [loadLists]);
 
-  // A failed build is its own channel: it must never replace a list that loaded fine.
+  // A build reports through the toast, never through the list's own error state.
   const buildNow = async () => {
     setBuilding(true);
     const res = await growthApi.buildEngageNow();
@@ -275,6 +271,10 @@ export function GrowthEngageTab() {
       showToast(res.error);
       return;
     }
+    const { inserted, skipped, stoppedEarly } = res.data;
+    const said = [`Added ${inserted}`, `skipped ${skipped}`];
+    if (stoppedEarly) said.push("stopped early, run again");
+    showToast(said.join(" · "));
     setDate(today);
     await loadItems(today);
   };
@@ -284,8 +284,8 @@ export function GrowthEngageTab() {
     return [...list.filter((i) => i.status === "open"), ...list.filter((i) => i.status !== "open")];
   }, [items]);
 
-  // The server's tally until the list is on screen, then the same helper over the rows actually shown.
-  const counts = useMemo(() => (items === null ? servedCounts : tallyEngage(items)), [items, servedCounts]);
+  // One tally, over the rows actually on screen, because this is the side that edits them.
+  const counts = useMemo(() => tallyEngage(items ?? []), [items]);
 
   const engage = watch.filter((w) => w.kind === "engage");
   const follow = watch.filter((w) => w.kind === "follow");
@@ -331,7 +331,7 @@ export function GrowthEngageTab() {
       <section className="space-y-3" data-attr="growth-engage-today">
         <div className="flex items-center gap-1">
           <h3 className="min-w-0 flex-1 text-sm font-semibold text-foreground">
-            Today&apos;s list · {counts?.open ?? 0} open · {counts?.done ?? 0} done · {dateLabel(date)}
+            Today&apos;s list · {counts.open} open · {counts.done} done · {dateLabel(date)}
           </h3>
           <PortalIconAction icon={ChevronLeft} label="Previous day" data-attr="growth-engage-date-prev" onClick={() => setDate((d) => shiftDate(d, -1))} />
           <PortalIconAction icon={ChevronRight} label="Next day" data-attr="growth-engage-date-next" onClick={() => setDate((d) => shiftDate(d, 1))} />

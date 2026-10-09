@@ -46,16 +46,7 @@ const item = (o: Record<string, unknown> = {}) => ({
   ...o,
 });
 
-const view = (items: ReturnType<typeof item>[], date = "2026-10-09") => ({
-  date,
-  items,
-  counts: {
-    total: items.length,
-    open: items.filter((i) => i.status === "open").length,
-    done: items.filter((i) => i.status === "done").length,
-    skipped: items.filter((i) => i.status === "skipped").length,
-  },
-});
+const view = (items: ReturnType<typeof item>[], date = "2026-10-09") => ({ date, items });
 
 beforeEach(() => {
   listEngage.mockReset();
@@ -96,7 +87,7 @@ describe("Engage list tab", () => {
     await waitFor(() => expect(patchEngage).toHaveBeenCalledWith(expect.any(String), { draft: "New" }));
   });
 
-  it("heads the list with the served counts, and re-tallies after a row flips", async () => {
+  it("heads the list with its open and done tallies, and re-tallies after a row flips", async () => {
     listEngage.mockResolvedValue({ ok: true, data: view([item(), item({ id: "22222222-2222-4222-8222-222222222222", status: "done" })]) });
     patchEngage.mockResolvedValue({ ok: true, data: item({ status: "done" }) });
     render(<GrowthEngageTab />);
@@ -132,6 +123,25 @@ describe("Engage list tab", () => {
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Reddit said no."));
     expect(document.querySelector('[data-attr="growth-engage-error"]')).toBeNull();
     expect(document.querySelector('[data-attr="growth-engage-row"]')).not.toBeNull();
+  });
+
+  it("a finished Build now reports what it added and skipped", async () => {
+    listEngage.mockResolvedValue({ ok: true, data: view([item()]) });
+    buildEngageNow.mockResolvedValue({ ok: true, data: { inserted: 7, considered: 9, skipped: 2, stoppedEarly: false } });
+    render(<GrowthEngageTab />);
+    await waitFor(() => expect(document.querySelector('[data-attr="growth-engage-row"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-attr="growth-engage-build-now"]')!);
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Added 7 · skipped 2"));
+  });
+
+  // A build that ran out of time must not look like a complete one.
+  it("a Build now that ran out of time says so", async () => {
+    listEngage.mockResolvedValue({ ok: true, data: view([item()]) });
+    buildEngageNow.mockResolvedValue({ ok: true, data: { inserted: 5, considered: 12, skipped: 7, stoppedEarly: true } });
+    render(<GrowthEngageTab />);
+    await waitFor(() => expect(document.querySelector('[data-attr="growth-engage-row"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-attr="growth-engage-build-now"]')!);
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Added 5 · skipped 7 · stopped early, run again"));
   });
 
   it("lists, adds and removes the engage watchlist the build reads", async () => {

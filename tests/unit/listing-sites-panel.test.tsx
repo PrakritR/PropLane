@@ -149,7 +149,7 @@ describe("overall Promotion › Listing sites", () => {
     render(<WorkspaceListingSitesPanel />);
     await waitFor(() =>
       expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
-        "Posts for you once Zillow approves · 1 of 2 listings by hand",
+        "Posts for you once Zillow approves · Not posted yet",
       ),
     );
     expect(rowByName("Facebook Page").textContent).toContain("Coming soon · post by hand for now");
@@ -164,6 +164,19 @@ describe("overall Promotion › Listing sites", () => {
     await waitFor(() =>
       expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
         "Posts for you · 1 of 2 listings",
+      ),
+    );
+  });
+
+  // Pre-approval the row counts what was actually posted by hand, never what the feed has queued.
+  it("the pre-approval Zillow row carries the by-hand fact, not the feed-queued count", async () => {
+    status.value = baseStatus({
+      posts: [{ propertyId: "p2", channel: "zillow", enabled: true, state: "posted_by_me", externalId: null, lastError: null, postedAt: "2026-10-08T20:00:00Z", updatedAt: null }],
+    });
+    render(<WorkspaceListingSitesPanel />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
+        "Posts for you once Zillow approves · Posted by you · Oct 8",
       ),
     );
   });

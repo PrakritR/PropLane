@@ -101,11 +101,12 @@ export function WorkspaceListingSitesPanel() {
 
   const factFor = (def: ListingChannelDef): string => {
     if (def.posting === "feed") {
-      const feedListings = listingsText(zillowPostingCounts(propertyIds).posting);
-      // The row and the guide it opens must make the same claim: nothing posts until Zillow approves the feed.
+      // The row and the guide it opens must make the same claim: nothing posts until Zillow approves
+      // the feed, so until then the row carries the same by-hand fact as every manual channel. The
+      // feed-queued count is only honest once the feed is what actually posts.
       return status?.zillowFeedApproved === true
-        ? `Posts for you · ${feedListings}`
-        : `Posts for you once Zillow approves · ${feedListings} by hand`;
+        ? `Posts for you · ${listingsText(zillowPostingCounts(propertyIds).posting)}`
+        : `Posts for you once Zillow approves · ${manualFact(inWorkspace.filter((p) => p.channel === def.id))}`;
     }
     if (def.posting === "partner_only") return "Partner feed only";
     if (def.posting === "api") {
