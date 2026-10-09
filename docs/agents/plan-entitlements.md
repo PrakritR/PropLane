@@ -45,7 +45,9 @@ on an account with five listings and no paywall anywhere).
   (`resolveCheckoutSessionPromoCode` -> `recordPaidManagerCheckoutSession`), which
   is display / reporting only and never grants anything. Writing a checkout code
   into `promo_code` would keep a cancelled FREEFIRST customer on paid access for
-  free. The admin Subscribers Promo bucket, the account record's Promo fact and
+  free. The code is read ONLY from the discounts Stripe applied to the session
+  (`discounts` / `total_details.breakdown.discounts`); `metadata.promo` is customer
+  free text and is never recorded as a redemption. The admin Subscribers Promo bucket, the account record's Promo fact and
   the admin assistant's `subscriber_counts` read `stripe_promotion_code`; a waiver
   account stays where it was counted before. Coverage:
   `tests/unit/manager-purchase-from-session.test.ts`,

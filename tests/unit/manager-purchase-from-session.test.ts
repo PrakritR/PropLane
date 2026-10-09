@@ -93,7 +93,8 @@ describe("manager-purchase-from-session", () => {
         id: "cs_test_freefirst",
         customer_email: "manager@example.com",
         metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-TEST", promo: "freefirst" },
-      }),
+        discounts: [{ promotion_code: { id: "promo_ff", code: "FREEFIRST" } }],
+      } as never),
     );
 
     const patch = (update.mock.calls[0] as unknown as [Record<string, unknown>])[0];
@@ -101,6 +102,34 @@ describe("manager-purchase-from-session", () => {
     // promo_code is the payment-waiver column: a discount code there keeps paid access after cancelling.
     expect(patch).not.toHaveProperty("promo_code");
     expect(isWaiverGrantedManagerPurchase(patch.promo_code as string | undefined)).toBe(false);
+  });
+
+  it("does not file free text from the pricing form as a redeemed promo when no discount applied", async () => {
+    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const query = {
+      eq: vi.fn(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+        error: null,
+      }),
+    };
+    query.eq.mockReturnValue(query);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+      from: vi.fn(() => ({ select: vi.fn(() => query), update })),
+    } as never);
+
+    await recordPaidManagerCheckoutSession(
+      mockCheckoutSession({
+        id: "cs_test_asdf",
+        customer_email: "manager@example.com",
+        metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-TEST", promo: "ASDF" },
+        discounts: [],
+      } as never),
+    );
+
+    const patch = (update.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(patch.stripe_promotion_code).toBeNull();
+    expect(patch).not.toHaveProperty("promo_code");
   });
 
   it("does not let signed metadata replace a reservation's auth owner", async () => {
