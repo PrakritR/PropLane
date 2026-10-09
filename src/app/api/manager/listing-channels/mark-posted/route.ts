@@ -38,8 +38,8 @@ export async function POST(request: Request) {
       state: body.posted ? "posted_by_me" : "off",
       pending_action: null,
       posted_at: body.posted ? now : null,
-      // The column arrives with the posted-url migration; write it only when the manager gave a link.
-      ...(postedUrl ? { posted_url: postedUrl } : {}),
+      // Undo clears the link; a mark without a link also clears any stale one.
+      posted_url: postedUrl,
       updated_at: now,
     },
     { onConflict: "property_id,channel" },
