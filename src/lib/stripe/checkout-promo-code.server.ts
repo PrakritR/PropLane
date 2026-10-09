@@ -4,6 +4,8 @@ import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { normalizePromoCodeInput } from "@/lib/stripe-promos";
 
+type AppliedDiscount = { promotion_code?: string | { code?: string | null } | null };
+
 /**
  * The promotion code a completed Checkout session redeemed, as the text the customer typed
  * (uppercase), or null when it redeemed none.
@@ -19,14 +21,15 @@ export async function resolveCheckoutSessionPromoCode(
   stripe: Pick<Stripe, "checkout" | "promotionCodes"> = getStripe(),
 ): Promise<string | null> {
   try {
-    let discounts: Array<{ promotion_code?: string | { code?: string | null } | null }> | undefined =
-      session.discounts as typeof discounts;
+    let discounts: AppliedDiscount[] | null | undefined = session.discounts as AppliedDiscount[] | null | undefined;
     if (discounts === undefined) {
       const full = await stripe.checkout.sessions.retrieve(session.id, { expand: ["discounts.promotion_code"] });
-      discounts = full.discounts as typeof discounts;
+      discounts = full.discounts as AppliedDiscount[] | null | undefined;
     }
-    const breakdown = (session.total_details?.breakdown?.discounts ?? []).map((entry) => entry.discount);
-    for (const discount of [...(discounts ?? []), ...breakdown] as NonNullable<typeof discounts>) {
+    const breakdown = (session.total_details?.breakdown?.discounts ?? []).map(
+      (entry) => entry.discount as AppliedDiscount,
+    );
+    for (const discount of [...(discounts ?? []), ...breakdown]) {
       const promotion = discount?.promotion_code;
       if (!promotion) continue;
       const code =
