@@ -150,6 +150,20 @@ export function parseComplimentaryOverride(raw: unknown): OverrideParse<boolean>
   return { ok: false, error: "complimentary must be true or false." };
 }
 
+/** Stripe promotion code codes: letters, digits, `_` and `-`. */
+const PROMO_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The promo code's SHAPE, so a malformed one is refused before any other field in the same request
+ * is applied. Whether the code exists and is active is Stripe's answer, which only
+ * `applyAccountPromoCode` can get.
+ */
+export function parsePromoCodeOverride(raw: unknown): OverrideParse<string> {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!PROMO_CODE_PATTERN.test(value)) return { ok: false, error: "Enter a promo code." };
+  return { ok: true, value };
+}
+
 /**
  * The cap this account is actually held to, and where it came from.
  *

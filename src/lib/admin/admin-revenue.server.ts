@@ -415,7 +415,9 @@ async function loadAppleRows(db: SupabaseClient, startMs: number, endMs: number)
       const tier = String(p.tier ?? "").toLowerCase();
       if ((tier !== "pro" && tier !== "business") || !p.paid_at) continue;
       if (String(p.apple_environment ?? "").toLowerCase() === "sandbox") continue;
-      const gross = RATE_CARD[tier].floorMonthlyCents;
+      const card = RATE_CARD[tier];
+      // An annual App Store subscriber pays the annual floor, not one month of it.
+      const gross = String(p.billing ?? "").toLowerCase() === "annual" ? card.floorAnnualCents : card.floorMonthlyCents;
       rows.push({
         id: `apple:${p.id}`,
         source: "app_store",
@@ -559,6 +561,9 @@ async function buildMonth(db: SupabaseClient, month: string, deps: RevenueDeps):
   const missing = [...new Set(refunds.map((r) => r.chargeId).filter((id): id is string => Boolean(id)))].filter(
     (id) => !chargeCategory.has(id),
   );
+  // Past the cap the remaining refunds stay unresolved, fall to `other`, and drop out of the refund
+  // total — earned and net would read high with nothing on the page saying so.
+  if (missing.length > MAX_REFUND_LOOKUPS) truncated = true;
   for (const chargeId of missing.slice(0, MAX_REFUND_LOOKUPS)) {
     try {
       const charge = normalizeCharge(await stripe.charges.retrieve(chargeId));

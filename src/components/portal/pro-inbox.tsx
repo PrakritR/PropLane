@@ -219,10 +219,11 @@ function replyHouseIdFor(thread: InboxThread): string {
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
   if (isPropLaneAssistantInboxThread(thread)) return false;
   if (thread.folder !== "inbox") return false;
-  // A text to the work number is answered by the server agent (one responder per
-  // inbound message): it replies on the same channel and records the reply on
-  // the thread. A browser draft here would be a second responder.
-  if (isServerAgentAnsweredSmsThread(thread)) return false;
+  // A text to the work number is answered by the server agent (one responder per inbound message):
+  // it replies on the same channel and records the reply on the thread. A browser draft would be a
+  // second responder — unless the agent did not answer at all (no credit, an escalation), which
+  // leaves the thread still waiting and the manager with nothing queued.
+  if (isServerAgentAnsweredSmsThread(thread)) return inboxThreadManagerReplyPending(thread);
   if (inboxThreadManagerReplyPending(thread)) return true;
   const email = String(thread.email ?? "").trim().toLowerCase();
   return email.includes("@");

@@ -131,7 +131,10 @@ function monthIndex(month: string): number {
  * in February); yearly ones repeat in the first charge's month. Nothing is charged before the first
  * date or after `endsOn`.
  */
-export function expenseDateInMonth(expense: PlatformExpense, month: string): string | null {
+export function expenseDateInMonth(
+  expense: Pick<PlatformExpense, "spentOn" | "recurrence" | "endsOn">,
+  month: string,
+): string | null {
   const first = DATE_RE.exec(expense.spentOn);
   const target = MONTH_RE.exec(month);
   if (!first || !target) return null;

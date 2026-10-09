@@ -50,7 +50,7 @@ import {
   finishEmailAutoReplyCredit,
   reserveEmailAutoReplyCredit,
 } from "@/lib/manager-assistant-email/email-auto-reply-credit.server";
-import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
+import { partyFacingAnswerHold } from "@/lib/automation-send-mode.server";
 import { resolveWorkspaceOwnerForWorkEmail } from "@/lib/sms/manager-workspace-role.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 
@@ -224,11 +224,14 @@ export async function processManagerAssistantInboundEmail(
       });
     }
     /* Fail closed: a lookup error must not auto-send when the manager may have
-       required approval, so an unreadable switch holds the reply as a draft. */
+       required approval, so an unreadable switch holds the reply as a draft.
+       The read is the strict one — the forgiving resolver answers "auto" for
+       every failure, which would make this branch unreachable. Quiet hours ride
+       on the same row: an answer written at 3am is held for the manager rather
+       than emailed to the sender in the middle of the night. */
     if (credit.allowed) {
       try {
-        const sendMode = await resolveAutomationSendModeForEvent(db, { managerUserId });
-        holdReplyForReview = sendMode?.partyFacing === "draft";
+        holdReplyForReview = (await partyFacingAnswerHold(db, managerUserId)).hold;
       } catch (cause) {
         console.error("work-email auto-reply send mode lookup failed; holding for review", cause);
         holdReplyForReview = true;

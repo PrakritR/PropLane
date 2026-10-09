@@ -140,7 +140,16 @@ export function indexInvoiceCharges(invoices: readonly InvoiceLike[]): Map<strin
   return kinds;
 }
 
-let cache: { key: string; at: number; value: Map<string, PlatformRevenueMonth> } | null = null;
+export type PlatformRevenueSeries = {
+  months: Map<string, PlatformRevenueMonth>;
+  /**
+   * True when a Stripe read hit its hard cap. Stripe answers newest first, so the OLDEST months of
+   * the window are the ones missing rows — the numbers are a floor, not the total.
+   */
+  truncated: boolean;
+};
+
+let cache: { key: string; at: number; value: PlatformRevenueSeries } | null = null;
 
 /** Clears the five-minute revenue cache (tests). */
 export function clearPlatformRevenueCache(): void {
@@ -156,10 +165,10 @@ function windowStartSeconds(firstMonth: string): number {
 export async function loadPlatformRevenueSeries(
   months: readonly string[],
   deps: { stripe?: Stripe } = {},
-): Promise<Map<string, PlatformRevenueMonth>> {
+): Promise<PlatformRevenueSeries> {
   const key = months.join(",");
   if (!deps.stripe && cache && cache.key === key && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
-  if (months.length === 0) return new Map();
+  if (months.length === 0) return { months: new Map(), truncated: false };
 
   const stripe = deps.stripe ?? getStripe();
   const gte = windowStartSeconds(months[0]!);
@@ -171,11 +180,14 @@ export async function loadPlatformRevenueSeries(
     .list({ created: { gte }, limit: 100, expand: ["data.source"] })
     .autoPagingToArray({ limit: MAX_BALANCE_TRANSACTIONS });
 
-  const value = groupBalanceTransactions(
-    transactions as unknown as BalanceTransactionLike[],
-    indexInvoiceCharges(invoices as unknown as InvoiceLike[]),
-    months,
-  );
+  const value: PlatformRevenueSeries = {
+    months: groupBalanceTransactions(
+      transactions as unknown as BalanceTransactionLike[],
+      indexInvoiceCharges(invoices as unknown as InvoiceLike[]),
+      months,
+    ),
+    truncated: transactions.length >= MAX_BALANCE_TRANSACTIONS || invoices.length >= MAX_INVOICES,
+  };
   if (!deps.stripe) cache = { key, at: Date.now(), value };
   return value;
 }
@@ -186,7 +198,7 @@ export async function loadMonthlyPlatformRevenue(
   deps: { stripe?: Stripe } = {},
 ): Promise<PlatformRevenueMonth> {
   const series = await loadPlatformRevenueSeries([month], deps);
-  return series.get(month) ?? emptyMonth(month);
+  return series.months.get(month) ?? emptyMonth(month);
 }
 
 export type PlatformPnl = {
@@ -196,6 +208,8 @@ export type PlatformPnl = {
   months: MonthlyPnl[];
   /** False when Stripe could not be read: revenue, fees and profit are then unknown, not zero. */
   revenueAvailable: boolean;
+  /** True when a Stripe read hit its cap: the oldest months of the window are a floor, not the total. */
+  revenueTruncated: boolean;
   testMode: boolean;
 };
 
@@ -208,7 +222,7 @@ export async function loadPlatformPnl(
   const expenses = await (deps.expenses ?? listPlatformExpenses)({ from: months[0]!, to: currentMonth });
   const expenseTotals = expenseTotalsByMonth(expenses, months);
 
-  let revenue: Map<string, PlatformRevenueMonth> | null = null;
+  let revenue: PlatformRevenueSeries | null = null;
   try {
     revenue = await loadPlatformRevenueSeries(months, deps.stripe ? { stripe: deps.stripe } : {});
   } catch (error) {
@@ -219,7 +233,7 @@ export async function loadPlatformPnl(
   return {
     currentMonth,
     months: months.map((month) => {
-      const r = revenue?.get(month);
+      const r = revenue?.months.get(month);
       return computeMonthlyPnl({
         month,
         streams: r?.streams ?? emptyStreams(),
@@ -230,6 +244,7 @@ export async function loadPlatformPnl(
       });
     }),
     revenueAvailable: revenue !== null,
+    revenueTruncated: revenue?.truncated ?? false,
     testMode: process.env.STRIPE_SECRET_KEY?.trim().startsWith("sk_test_") ?? false,
   };
 }

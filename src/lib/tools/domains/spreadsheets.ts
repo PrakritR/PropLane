@@ -14,6 +14,40 @@ import { getGoogleSheetsAccessToken } from "@/lib/sheet-sync/google-sheets-auth"
 
 const NOT_FOUND = "No spreadsheet with that id. Call list_spreadsheets for the ids.";
 
+/** One tool result is a model turn's context: a wide sheet of long cells is clipped, never sent whole. */
+const MAX_CELL_CHARS = 500;
+const MAX_COLUMNS = 40;
+const MAX_RESULT_CHARS = 60_000;
+
+type ClippedTable = { headers: string[]; rows: string[][]; clipped: boolean };
+
+/** Clip a table to the column, cell and total-character budget, reporting whether anything was cut. */
+export function clipTable(headers: readonly string[], rows: readonly string[][]): ClippedTable {
+  let clipped = false;
+  const cell = (value: unknown): string => {
+    const text = typeof value === "string" ? value : String(value ?? "");
+    if (text.length <= MAX_CELL_CHARS) return text;
+    clipped = true;
+    return `${text.slice(0, MAX_CELL_CHARS)}…`;
+  };
+  const width = Math.min(Math.max(headers.length, ...rows.map((r) => r.length), 0), MAX_COLUMNS);
+  if (headers.length > width || rows.some((r) => r.length > width)) clipped = true;
+  const outHeaders = headers.slice(0, width).map(cell);
+  const outRows: string[][] = [];
+  let budget = MAX_RESULT_CHARS - outHeaders.join("").length;
+  for (const row of rows) {
+    const next = row.slice(0, width).map(cell);
+    const size = next.join("").length;
+    if (budget - size < 0) {
+      clipped = true;
+      break;
+    }
+    budget -= size;
+    outRows.push(next);
+  }
+  return { headers: outHeaders, rows: outRows, clipped };
+}
+
 /** A binding is visible when it has no workspace or sits in the active one. */
 function visibleInWorkspace(ctx: AgentContext, link: ManagerSheetBinding): boolean {
   if (!ctx.workspace || !ctx.workspace.narrowing) return true;
@@ -54,7 +88,7 @@ export const listSpreadsheetsTool = defineTool({
 export const readSpreadsheetTool = defineTool({
   name: "read_spreadsheet",
   description:
-    "Read rows from a linked spreadsheet. Serves the cached copy for Raw table sheets; fetches live when fresh is true or nothing is cached. Reads only: nothing is applied to PropLane records. Page with limit/offset; tab is a tab title or gid (default first tab).",
+    "Read rows from a linked spreadsheet. Serves the cached copy for Raw table sheets; fetches live when fresh is true or nothing is cached. Reads only: nothing is applied to PropLane records. Page with limit/offset; tab is a tab title or gid (default first tab). Long cells, very wide sheets and oversized pages are clipped to fit one answer: when `truncated` is true, page with offset instead of asking for more at once.",
   inputSchema: z
     .object({
       id: z.string().min(1).describe("Spreadsheet id from list_spreadsheets."),
@@ -90,13 +124,14 @@ export const readSpreadsheetTool = defineTool({
       fetchedAt = new Date().toISOString();
     }
 
-    const rows = body.slice(offset, offset + limit);
+    const page = body.slice(offset, offset + limit);
+    const clipped = clipTable(headers, page);
     return {
-      headers,
-      rows,
+      headers: clipped.headers,
+      rows: clipped.rows,
       total: body.length,
       fetchedAt,
-      truncated: truncated || offset + rows.length < body.length,
+      truncated: truncated || clipped.clipped || offset + clipped.rows.length < body.length,
     };
   },
 });

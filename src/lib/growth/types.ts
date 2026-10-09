@@ -42,6 +42,12 @@ export const GROWTH_PUBLISHER_IDS = ["log", "late", "upload_post", "meta"] as co
 export type GrowthPublisherId = (typeof GROWTH_PUBLISHER_IDS)[number];
 
 export type GrowthScene = {
+  /**
+   * Stable id for this scene, minted by `sceneListSchema` / `newSceneId` and kept across edits.
+   * Assets are keyed on it (`meta.sceneId`), so removing a scene never re-points another's media.
+   * Optional only for rows saved before ids existed; those fall back to `index`.
+   */
+  id?: string;
   index: number;
   /** generated = AI video; template = Remotion-only; shot = Playwright product recording; still = image card */
   kind: "generated" | "template" | "shot" | "still";

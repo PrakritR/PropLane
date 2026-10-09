@@ -377,6 +377,7 @@ export function AdminFinancesPanel() {
         revenueKnown={revenueKnown}
         revenueLoading={!revenue && !revenueError}
         revenueError={revenueError || (revenue !== null && !revenue.revenueAvailable)}
+        revenueTruncated={Boolean(revenue?.revenueTruncated)}
         testMode={Boolean(revenue?.testMode)}
         onMonth={(next) => { setMonth(next); setSelectedKey(null); }}
         onRetry={reloadAll}
@@ -513,6 +514,7 @@ function PnlCard({
   revenueKnown,
   revenueLoading,
   revenueError,
+  revenueTruncated,
   testMode,
   onMonth,
   onRetry,
@@ -524,6 +526,7 @@ function PnlCard({
   revenueKnown: boolean;
   revenueLoading: boolean;
   revenueError: boolean;
+  revenueTruncated: boolean;
   testMode: boolean;
   onMonth: (month: string) => void;
   onRetry: () => void;
@@ -549,6 +552,12 @@ function PnlCard({
       {testMode ? (
         <p className="border-b border-border px-[var(--portal-card-padding,14px)] py-2 text-[13px] font-semibold text-[#a34a06]" role="status">
           Stripe is in test mode
+        </p>
+      ) : null}
+
+      {revenueTruncated && !revenueError ? (
+        <p className="border-b border-border px-[var(--portal-card-padding,14px)] py-2 text-[13px] font-semibold text-[#a34a06]" role="status" data-attr="admin-finances-truncated">
+          Stripe returned more rows than one read holds — the oldest months are at least this much
         </p>
       ) : null}
 

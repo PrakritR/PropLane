@@ -63,12 +63,12 @@ export function planFromPost(post: GrowthPost, assets: GrowthAsset[]): RenderPla
   const needs: SceneNeed[] = post.scenes.map((scene) => {
     if (scene.kind === "generated" || scene.kind === "shot") {
       const kind = scene.kind === "generated" ? "clip" : "shot";
-      const asset = findAsset(assets, { postId: post.id, kind, sceneIndex: scene.index });
+      const asset = findAsset(assets, { postId: post.id, kind, sceneIndex: scene.index, sceneId: scene.id });
       if (asset) return { scene, action: "reuse", asset };
       return { scene, action: scene.kind === "generated" ? "generate" : "shoot" };
     }
     if (scene.kind === "still") {
-      const asset = findAsset(assets, { postId: post.id, kind: "image", sceneIndex: scene.index });
+      const asset = findAsset(assets, { postId: post.id, kind: "image", sceneIndex: scene.index, sceneId: scene.id });
       return asset ? { scene, action: "reuse", asset } : { scene, action: "template" };
     }
     return { scene, action: "template" };
@@ -118,9 +118,17 @@ export type MaterializedPlan = {
 };
 
 const REPO = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
+/** No external step in the pipeline may hang the serial nightly run: every one is bounded. */
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+const SHOOT_TIMEOUT_MS = 5 * 60_000;
+
+/** A stable file name per scene, so a renumbered timeline never overwrites another scene's media. */
+export function sceneFileStem(scene: Pick<GrowthScene, "id" | "index">): string {
+  return `scene-${scene.id?.trim() || scene.index}`;
+}
 
 export function defaultShoot({ postId, scene, baseUrl }: ShootInput): Promise<Buffer> {
-  const out = resolve(REPO, "output/growth", postId, `scene-${scene.index}.mp4`);
+  const out = resolve(REPO, "output/growth", postId, `${sceneFileStem(scene)}.mp4`);
   return new Promise((ok, fail) => {
     const child = spawn(
       process.execPath,
@@ -136,8 +144,16 @@ export function defaultShoot({ postId, scene, baseUrl }: ShootInput): Promise<Bu
     );
     let err = "";
     child.stderr.on("data", (d) => (err += d));
-    child.on("error", fail);
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      fail(new Error(`growth-shots timed out after ${SHOOT_TIMEOUT_MS / 1000}s`));
+    }, SHOOT_TIMEOUT_MS);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      fail(e);
+    });
     child.on("close", (code) => {
+      clearTimeout(timer);
       if (code !== 0) return fail(new Error(`growth-shots exited ${code}: ${err.trim().slice(-400)}`));
       readFile(out).then(ok, fail);
     });
@@ -145,7 +161,7 @@ export function defaultShoot({ postId, scene, baseUrl }: ShootInput): Promise<Bu
 }
 
 async function defaultFetchBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`download ${url}: ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
@@ -166,7 +182,10 @@ export async function materializeScene(
   });
 
   if (need.action === "reuse" && need.asset) {
-    return { scene: { ...scene, assetUrl: need.asset.publicUrl }, assetId: need.asset.id };
+    return {
+      scene: { ...scene, assetUrl: need.asset.publicUrl, assetDurationMs: need.asset.durationMs ?? undefined },
+      assetId: need.asset.id,
+    };
   }
   if (need.action === "template") {
     return { scene: scene.kind === "still" ? fallbackTo("no image asset").scene : { ...scene }, assetId: null };
@@ -183,22 +202,28 @@ export async function materializeScene(
       const buffer = clip.buffer ?? (clip.url ? await fetchBuffer(clip.url) : null);
       if (!buffer) throw new Error("driver returned neither url nor buffer");
       const saved = await deps.store.save({
-        postId, kind: "clip", sceneIndex: scene.index, buffer,
-        fileName: `scene-${scene.index}.mp4`, contentType: "video/mp4",
+        postId, kind: "clip", sceneIndex: scene.index, sceneId: scene.id, buffer,
+        fileName: `${sceneFileStem(scene)}.mp4`, contentType: "video/mp4",
         width: 1080, height: 1920, durationMs: clip.durationMs,
         meta: { ...clip.meta, driver: clip.driver },
       });
-      return { scene: { ...scene, assetUrl: saved.publicUrl }, assetId: saved.id };
+      return {
+        scene: { ...scene, assetUrl: saved.publicUrl, assetDurationMs: clip.durationMs ?? undefined },
+        assetId: saved.id,
+      };
     }
     // shoot
     const buffer = await (deps.shoot ?? defaultShoot)({ postId, scene, baseUrl: deps.baseUrl ?? "http://localhost:3007" });
     const saved = await deps.store.save({
-      postId, kind: "shot", sceneIndex: scene.index, buffer,
-      fileName: `scene-${scene.index}.mp4`, contentType: "video/mp4",
+      postId, kind: "shot", sceneIndex: scene.index, sceneId: scene.id, buffer,
+      fileName: `${sceneFileStem(scene)}.mp4`, contentType: "video/mp4",
       width: 1080, height: 1920, durationMs: scene.endMs - scene.startMs,
       meta: { direction: scene.direction },
     });
-    return { scene: { ...scene, assetUrl: saved.publicUrl }, assetId: saved.id };
+    return {
+      scene: { ...scene, assetUrl: saved.publicUrl, assetDurationMs: saved.durationMs ?? undefined },
+      assetId: saved.id,
+    };
   } catch (e) {
     const reason = e instanceof MissingKeyError ? `missing key ${e.envVar}` : msg(e);
     deps.log?.(`scene ${scene.index} (${scene.kind}) -> template: ${reason}`);

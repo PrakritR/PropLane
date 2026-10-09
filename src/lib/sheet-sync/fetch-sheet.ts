@@ -1,5 +1,5 @@
 import { parseCsv } from "@/lib/sheet-sync/csv";
-import { resolvesToPublicAddressesOnly } from "@/lib/sheet-sync/public-host.server";
+import { fetchPinnedPublicHttps, resolvesToPublicAddressesOnly } from "@/lib/sheet-sync/public-host.server";
 import { inferHouseKey } from "@/lib/sheet-sync/house-key";
 import {
   isSafePublicHttpsUrl,
@@ -211,19 +211,28 @@ const CSV_MAX_REDIRECTS = 3;
 
 const CSV_GENERIC_ERROR = "Could not read the CSV.";
 
+/** One hop of a published-CSV fetch. The default connects only to a pre-vetted address. */
+export type PinnedHopFetcher = (
+  url: string,
+  init: { headers?: Record<string, string>; timeoutMs?: number },
+) => Promise<Response>;
+
 /**
  * Fetch a published CSV server-side: https only, public hosts only (every
- * redirect hop is re-checked by name AND by resolved address, so a public
- * name pointing at a private, loopback, link-local or metadata address is
- * refused), 5 MB cap, 15 s timeout, text/csv or
+ * redirect hop is re-checked by name AND by resolved address, and the
+ * connection is pinned to the address that was checked, so a public name
+ * pointing at — or re-resolving to — a private, loopback, link-local or
+ * metadata address is refused), 5 MB cap, 15 s timeout, text/csv or
  * text/plain. Returns the same `string[][]` table the Google path returns.
  */
 export async function fetchPublishedCsv(
   url: string,
+  deps: { fetchHop?: PinnedHopFetcher } = {},
 ): Promise<{ rows: string[][] | null; error: string | null }> {
   if (!isValidPublishedCsvUrl(url)) {
     return { rows: null, error: "That is not a valid published CSV link (https URL ending in .csv, or a Google pub?output=csv link)." };
   }
+  const fetchHop = deps.fetchHop ?? fetchPinnedPublicHttps;
   try {
     let target = url.trim();
     let res: Response | null = null;
@@ -232,11 +241,9 @@ export async function fetchPublishedCsv(
         console.warn("published CSV fetch refused: host resolves to a non-public address", { hop });
         return { rows: null, error: CSV_GENERIC_ERROR };
       }
-      res = await fetch(target, {
-        cache: "no-store",
-        redirect: "manual",
+      res = await fetchHop(target, {
         headers: { Accept: "text/csv,text/plain" },
-        signal: AbortSignal.timeout(CSV_FETCH_MS),
+        timeoutMs: CSV_FETCH_MS,
       });
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get("location");

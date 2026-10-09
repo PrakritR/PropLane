@@ -2,7 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readAllPages } from "@/lib/auth/admin-portal-manager-ids.server";
-import { isRevenueMonth, shiftMonth } from "@/lib/admin/admin-revenue-model";
+import { isRevenueMonth } from "@/lib/admin/admin-revenue-model";
+import { EXPENSE_RECURRENCES, expenseDateInMonth, type ExpenseRecurrence } from "@/lib/admin/platform-expense-rules";
 
 /**
  * What PropLane spent in one month, for the Dashboard's Profit card.
@@ -19,19 +20,31 @@ export type ExpenseRow = {
   ends_on: string | null;
 };
 
-/** Does this expense occur in `month` (`YYYY-MM`)? One-time in its month; recurring from `spent_on` until `ends_on`. */
+function recurrenceOf(raw: unknown): ExpenseRecurrence {
+  const value = String(raw ?? "none").toLowerCase();
+  return (EXPENSE_RECURRENCES as readonly string[]).includes(value) ? (value as ExpenseRecurrence) : "none";
+}
+
+/**
+ * Does this expense occur in `month` (`YYYY-MM`)?
+ *
+ * The rule is `expenseDateInMonth` in `platform-expense-rules` — the one the Finances page expands
+ * its months with — so the Dashboard's Profit card and Finances can never disagree. Deciding it a
+ * second time here is how a monthly expense charged on the 20th with `ends_on` the 10th became a
+ * phantom charge on one surface and not the other.
+ */
 export function expenseOccursInMonth(row: ExpenseRow, month: string): boolean {
   if (!isRevenueMonth(month) || !row.spent_on) return false;
-  const start = `${month}-01`;
-  const next = `${shiftMonth(month, 1)}-01`;
-  const spent = row.spent_on.slice(0, 10);
-  const recurrence = String(row.recurrence ?? "none").toLowerCase();
-  if (recurrence === "none") return spent >= start && spent < next;
-  if (spent >= next) return false;
-  if (row.ends_on && row.ends_on.slice(0, 10) < start) return false;
-  if (recurrence === "monthly") return true;
-  if (recurrence === "yearly") return spent.slice(5, 7) === month.slice(5, 7);
-  return false;
+  return (
+    expenseDateInMonth(
+      {
+        spentOn: row.spent_on.slice(0, 10),
+        recurrence: recurrenceOf(row.recurrence),
+        endsOn: row.ends_on ? row.ends_on.slice(0, 10) : null,
+      },
+      month,
+    ) !== null
+  );
 }
 
 /** Sum of the expenses that occur in `month`, in cents. */

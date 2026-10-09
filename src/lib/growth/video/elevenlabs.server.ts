@@ -8,6 +8,14 @@ const BASE = "https://api.elevenlabs.io/v1";
 /** Rachel, the voice id used in ElevenLabs' own docs examples. */
 export const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 export const MAX_VOICE_CHARS = 1500;
+const REQUEST_TIMEOUT_MS = 120_000;
+/** Rough speaking rate used only when the response carries no alignment, so a long voice is never reported as 0 ms. */
+const CHARS_PER_SECOND = 14;
+
+/** Estimated spoken length of `text`, in ms. */
+export function estimateVoiceDurationMs(text: string): number {
+  return Math.max(1000, Math.round((text.trim().length / CHARS_PER_SECOND) * 1000));
+}
 
 type Alignment = { characters: string[]; character_start_times_seconds: number[]; character_end_times_seconds: number[] };
 
@@ -41,12 +49,14 @@ export async function synthesizeVoice(text: string, deps: { fetch?: typeof fetch
     method: "POST",
     headers: { "xi-api-key": key, "Content-Type": "application/json" },
     body: JSON.stringify({ text, model_id: "eleven_multilingual_v2" }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`ElevenLabs failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}`);
   const body = (await res.json()) as { audio_base64?: string; alignment?: Alignment | null };
   if (!body.audio_base64) throw new Error("ElevenLabs returned no audio");
   const words = body.alignment ? charsToWords(body.alignment) : [];
   const ends = body.alignment?.character_end_times_seconds ?? [];
-  const durationMs = Math.round((ends.length ? ends[ends.length - 1]! : 0) * 1000);
+  // A missing alignment used to report 0 ms, which let the render end while the audio was still playing.
+  const durationMs = ends.length ? Math.round(ends[ends.length - 1]! * 1000) : estimateVoiceDurationMs(text);
   return { buffer: Buffer.from(body.audio_base64, "base64"), durationMs, words };
 }

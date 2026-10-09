@@ -4,6 +4,7 @@ import {
   Audio,
   Img,
   interpolate,
+  Loop,
   OffthreadVideo,
   Sequence,
   spring,
@@ -14,7 +15,7 @@ import {
 
 import { activeWordIndex, chunkAt, groupCaptionWords, type CaptionWord } from "../../src/lib/growth/video/captions.server";
 import { FONT_FAMILY, loadBrandFont } from "./fonts";
-import { scenesEndMs, type ReelProps, type ReelScene } from "./types";
+import { endCardStartMs, type ReelProps, type ReelScene } from "./types";
 
 loadBrandFont();
 
@@ -54,12 +55,26 @@ const TemplateScene: React.FC<{ scene: ReelScene; blue: string }> = ({ scene, bl
   );
 };
 
-const MediaScene: React.FC<{ scene: ReelScene }> = ({ scene }) => {
+const MediaScene: React.FC<{ scene: ReelScene; sceneDurationMs: number }> = ({ scene, sceneDurationMs }) => {
+  const { fps } = useVideoConfig();
   const url = scene.assetUrl as string;
   const common: React.CSSProperties = { width: "100%", height: "100%", objectFit: "cover" };
+  // A generated clip is 5-10 s. A scene held longer than its media replays the clip rather than
+  // running past its end, where there is nothing left to show.
+  const clipMs = scene.assetDurationMs ?? 0;
+  const clipFrames = clipMs > 0 ? Math.max(1, msToFrames(clipMs, fps)) : 0;
+  const video = <OffthreadVideo src={url} muted style={common} />;
   return (
     <AbsoluteFill style={{ background: "#08090b" }}>
-      {scene.kind === "still" ? <Img src={url} style={common} /> : <OffthreadVideo src={url} muted style={common} />}
+      {scene.kind === "still" ? (
+        <Img src={url} style={common} />
+      ) : clipFrames > 0 && sceneDurationMs > clipMs + 100 ? (
+        <Loop durationInFrames={clipFrames} layout="none">
+          {video}
+        </Loop>
+      ) : (
+        video
+      )}
     </AbsoluteFill>
   );
 };
@@ -129,20 +144,31 @@ const EndCard: React.FC<{ mark: string }> = ({ mark }) => {
   );
 };
 
-export const Reel: React.FC<ReelProps> = ({ scenes, voiceUrl, words, musicUrl, brand }) => {
+export const Reel: React.FC<ReelProps> = ({ scenes, voiceUrl, words, musicUrl, brand, endCardMs, totalMs }) => {
   const { fps, durationInFrames } = useVideoConfig();
-  const endStart = msToFrames(scenesEndMs(scenes), fps);
+  // The end card is clamped to endCardMs at the very end; the last scene is held over whatever a
+  // longer voice track adds, instead of the card covering the narration.
+  const endStart = Math.min(durationInFrames - 1, msToFrames(endCardStartMs({ scenes, endCardMs, totalMs }), fps));
   const hasWords = Boolean(words && words.length);
+  const lastIndex = scenes.length - 1;
   return (
     <AbsoluteFill style={{ background: "#08090b" }}>
-      {scenes.map((scene) => {
-        const from = msToFrames(scene.startMs, fps);
-        const dur = Math.max(1, msToFrames(scene.endMs, fps) - from);
+      {scenes.map((scene, i) => {
+        const from = Math.min(msToFrames(scene.startMs, fps), Math.max(0, endStart - 1));
+        const plannedEnd = msToFrames(scene.endMs, fps);
+        const end = i === lastIndex ? Math.max(plannedEnd, endStart) : Math.min(plannedEnd, endStart);
+        const dur = Math.max(1, end - from);
         const media = scene.assetUrl && scene.kind !== "template" && !scene.fallback;
         return (
-          <Sequence key={scene.index} from={from} durationInFrames={dur} layout="none">
+          <Sequence key={scene.id ?? scene.index} from={from} durationInFrames={dur} layout="none">
             <AbsoluteFill>
-              <Sequence layout="none">{media ? <MediaScene scene={scene} /> : <TemplateScene scene={scene} blue={brand.blue} />}</Sequence>
+              <Sequence layout="none">
+                {media ? (
+                  <MediaScene scene={scene} sceneDurationMs={Math.round((dur / fps) * 1000)} />
+                ) : (
+                  <TemplateScene scene={scene} blue={brand.blue} />
+                )}
+              </Sequence>
               {!hasWords && media && scene.text.trim() ? <SceneCaption text={scene.text.trim()} /> : null}
             </AbsoluteFill>
           </Sequence>

@@ -119,7 +119,9 @@ export function AdminAddExpenseWizard({
     setError(null);
     setReceiptError(null);
     setBusy(false);
-    if (editing) setDraft(draftFromExpense(editing));
+    // Add and Edit share the workspace, so opening Add after an edit must start from a blank draft
+    // rather than the row that was just open — otherwise Save files a duplicate expense.
+    setDraft(editing ? draftFromExpense(editing) : freshDraft());
   }, [open, editing]);
 
   const workspaceDraft = useWorkspaceDraft<Draft>({

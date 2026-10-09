@@ -9,6 +9,11 @@ export const KLING_MODEL = process.env.GROWTH_KLING_MODEL?.trim() || "fal-ai/kli
 const QUEUE = "https://queue.fal.run";
 const POLL_MS = 5_000;
 const CAP_MS = 6 * 60_000;
+/** Every request is bounded: the cap below is only checked between polls, so a stalled socket would hang the run. */
+const REQUEST_TIMEOUT_MS = 60_000;
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+/** fal.ai terminal states that are not COMPLETED. Some carry no `error` field, so status alone must end the poll. */
+const FAILED_STATUSES = new Set(["FAILED", "ERROR", "CANCELED", "CANCELLED", "EXPIRED", "TIMED_OUT"]);
 
 export function estimateClipCostUsd(durationS: number): number {
   return Math.round(0.07 * durationS * 100) / 100;
@@ -34,6 +39,7 @@ export async function generateClip(
     method: "POST",
     headers,
     body: JSON.stringify({ prompt, duration, aspect_ratio: opts.aspect }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!sub.ok) throw new Error(`Kling submit failed (${sub.status}): ${(await sub.text().catch(() => "")).slice(0, 300)}`);
   const job = (await sub.json()) as { request_id?: string; status_url?: string; response_url?: string };
@@ -43,21 +49,23 @@ export async function generateClip(
 
   let waited = 0;
   for (;;) {
-    const res = await f(statusUrl, { headers: { Authorization: `Key ${key}` } });
+    const res = await f(statusUrl, { headers: { Authorization: `Key ${key}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`Kling status failed (${res.status})`);
     const st = (await res.json()) as { status?: string; error?: string };
     if (st.error) throw new Error(`Kling failed: ${st.error}`);
     if (st.status === "COMPLETED") break;
+    const status = st.status?.trim().toUpperCase() ?? "";
+    if (FAILED_STATUSES.has(status)) throw new Error(`Kling failed: ${status.toLowerCase()}`);
     if (waited >= capMs) throw new Error("Kling timed out after 6 minutes");
     await sleep(pollMs);
     waited += pollMs;
   }
-  const out = await f(resultUrl, { headers: { Authorization: `Key ${key}` } });
+  const out = await f(resultUrl, { headers: { Authorization: `Key ${key}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!out.ok) throw new Error(`Kling result failed (${out.status})`);
   const result = (await out.json()) as { video?: { url?: string } };
   const url = result.video?.url;
   if (!url) throw new Error("Kling returned no video url");
-  const dl = await f(url);
+  const dl = await f(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   if (!dl.ok) throw new Error(`Kling download failed (${dl.status})`);
   return { buffer: Buffer.from(await dl.arrayBuffer()), durationMs: Number(duration) * 1000, meta: { model: KLING_MODEL, requestId: job.request_id } };
 }

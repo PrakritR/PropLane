@@ -13,6 +13,7 @@ import {
 import {
   loadManagerBillingOverrides,
   parseComplimentaryOverride,
+  parsePromoCodeOverride,
   parsePropertyCapOverride,
   parseTrialEndOverride,
   saveManagerBillingOverrides,
@@ -96,9 +97,11 @@ export async function PATCH(req: Request) {
       );
     }
 
-    // Everything is validated BEFORE anything is applied: a bad second field must not leave the
-    // first one changed. The three live actions below also refuse a missing reason on their own;
-    // checking here keeps that refusal ahead of the cap write.
+    // Everything that can be checked locally is checked BEFORE anything is applied: a bad second
+    // field must not leave the first one changed. The three live actions below also refuse a missing
+    // reason and a malformed code on their own; checking here keeps those refusals ahead of any write.
+    // The live Stripe actions then run BEFORE the local cap write, so the one write we can always
+    // make is the last thing to happen rather than the thing a later 4xx leaves behind.
     let capValue: number | null | undefined;
     if (wantsCap) {
       const parsed = parsePropertyCapOverride(body.propertyCap);
@@ -118,6 +121,10 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "Pick the date the trial should end." }, { status: 400 });
       }
     }
+    if (wantsPromo) {
+      const parsed = parsePromoCodeOverride(body.promoCode);
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
     if ((wantsTrial || wantsComp || wantsPromo) && !normalizeAdminAuditReason(body.reason)) {
       return NextResponse.json({ error: "A reason is required." }, { status: 400 });
     }
@@ -126,6 +133,16 @@ export async function PATCH(req: Request) {
     let overrides: ManagerBillingOverrides | null = null;
     let auditRecorded = true;
     const reason = typeof body.reason === "string" ? body.reason : null;
+
+    const ctx = { db, actorUserId: actor.actorId, managerUserId, reason };
+    const results = [];
+    if (wantsTrial) results.push(await extendAccountTrial(ctx, body.trialEndsAt));
+    if (wantsComp) results.push(await setAccountComplimentary(ctx, compValue));
+    if (wantsPromo) results.push(await applyAccountPromoCode(ctx, body.promoCode));
+    for (const result of results) {
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      auditRecorded = auditRecorded && result.auditRecorded;
+    }
 
     if (wantsCap) {
       const current = await loadManagerBillingOverrides(db, managerUserId);
@@ -145,16 +162,6 @@ export async function PATCH(req: Request) {
         const audit = await writeAdminBillingAudit({ db, actorUserId: actor.actorId, managerUserId, entries, reason });
         auditRecorded = auditRecorded && audit.ok;
       }
-    }
-
-    const ctx = { db, actorUserId: actor.actorId, managerUserId, reason };
-    const results = [];
-    if (wantsTrial) results.push(await extendAccountTrial(ctx, body.trialEndsAt));
-    if (wantsComp) results.push(await setAccountComplimentary(ctx, compValue));
-    if (wantsPromo) results.push(await applyAccountPromoCode(ctx, body.promoCode));
-    for (const result of results) {
-      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-      auditRecorded = auditRecorded && result.auditRecorded;
     }
 
     if (results.length > 0 || !overrides) {

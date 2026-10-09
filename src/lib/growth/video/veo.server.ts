@@ -10,6 +10,9 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta";
 export const VEO_MODEL = process.env.GROWTH_VEO_MODEL?.trim() || "veo-3.1-fast-generate-preview";
 const POLL_MS = 10_000;
 const CAP_MS = 6 * 60_000;
+/** The cap is only checked between polls, so each request carries its own timeout. */
+const REQUEST_TIMEOUT_MS = 60_000;
+const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 export type VeoQuality = "720p" | "1080p" | "4k";
 
@@ -43,6 +46,7 @@ export async function generateClip(
     method: "POST",
     headers,
     body: JSON.stringify({ instances: [{ prompt }], parameters: { aspectRatio, resolution, durationSeconds: String(durationSeconds) } }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!start.ok) throw new Error(`Veo start failed (${start.status}): ${(await start.text().catch(() => "")).slice(0, 300)}`);
   const op = (await start.json()) as { name?: string };
@@ -50,7 +54,7 @@ export async function generateClip(
 
   let waited = 0;
   for (;;) {
-    const res = await f(`${BASE}/${op.name}`, { headers: { "x-goog-api-key": key } });
+    const res = await f(`${BASE}/${op.name}`, { headers: { "x-goog-api-key": key }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`Veo poll failed (${res.status})`);
     const body = (await res.json()) as {
       done?: boolean;
@@ -61,7 +65,7 @@ export async function generateClip(
     if (body.done) {
       const uri = body.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
       if (!uri) throw new Error(`Veo returned no video${body.response?.generateVideoResponse?.raiMediaFilteredReasons?.[0] ? `: ${body.response.generateVideoResponse.raiMediaFilteredReasons[0]}` : ""}`);
-      const dl = await f(uri, { headers: { "x-goog-api-key": key }, redirect: "follow" });
+      const dl = await f(uri, { headers: { "x-goog-api-key": key }, redirect: "follow", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
       if (!dl.ok) throw new Error(`Veo download failed (${dl.status})`);
       const buffer = Buffer.from(await dl.arrayBuffer());
       return { buffer, durationMs: durationSeconds * 1000, meta: { model: VEO_MODEL, operation: op.name, resolution } };
