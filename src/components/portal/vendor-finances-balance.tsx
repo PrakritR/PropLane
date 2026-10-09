@@ -201,11 +201,16 @@ export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: V
     <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
       {state.status === "loading" ? (
         <PortalRecordListSurface loading dataAttr="vendor-balance-loading" />
-      ) : state.status === "error" ? (
-        <PortalRecordListSurface loadError={state.message} onRetry={reload} dataAttr="vendor-balance-error" />
-      ) : state.status === "unavailable" ? (
+      ) : state.status === "error" || state.status === "unavailable" ? (
         <>
-          <VendorBalanceLedgerFallback onRetry={reload} />
+          {/* The balance snapshot failed, but Overview and Refunds read their own APIs: the tabs and their bodies stay reachable. */}
+          {state.status === "error" ? (
+            <div className="mb-3" data-attr="vendor-balance-error-inline">
+              <PortalRecordListSurface loadError={state.message} onRetry={reload} dataAttr="vendor-balance-error" />
+            </div>
+          ) : (
+            <VendorBalanceLedgerFallback onRetry={reload} />
+          )}
           {tabBand(null)}
           {tab === "overview" ? <VendorFinancesOverviewBody /> : null}
           {tab === "payouts" ? (

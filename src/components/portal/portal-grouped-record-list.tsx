@@ -19,9 +19,11 @@ import {
  * - Groups sort A to Z with the catch-all ("No house", "Other") last.
  * - A group draws its first `pageSize` rows; a row-level "Show all N" draws the
  *   rest, so a thousand residents never mount at once.
- * - Every group starts expanded; a header click collapses or reopens just that
- *   group. There is no expand-all / collapse-all control. Groups a search
- *   empties are not drawn at all.
+ * - Up to `GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS` groups start expanded (each still
+ *   draws only its first page of rows); above that, every group but the first
+ *   starts collapsed. A header click collapses or reopens just that group, and a
+ *   search opens every matching group. There is no expand-all / collapse-all
+ *   control. Groups a search empties are not drawn at all.
  *
  * Pass `key` (tab, filters, sort) to reset the open/closed state when the list
  * is rebuilt around a different question.
@@ -75,13 +77,13 @@ export function PortalGroupedRecordList<T>({
     wasSearching.current = searchActive;
   }, [searchActive]);
 
-  const collapsedOf = (group: GroupedListGroup<T>) =>
-    resolveGroupCollapsed({ override: override[group.key], searchActive });
+  const collapsedOf = (group: GroupedListGroup<T>, index: number) =>
+    resolveGroupCollapsed({ override: override[group.key], searchActive, groupCount: groups.length, groupIndex: index });
 
   return (
     <div data-attr={dataAttr ?? `${listKey}-grouped-list`} data-group-count={groups.length}>
-      {groups.map((group) => {
-        const collapsed = collapsedOf(group);
+      {groups.map((group, index) => {
+        const collapsed = collapsedOf(group, index);
         const expandedAll = showAll[group.key] === true;
         const { items: shown, hidden } = visibleGroupItems(group, expandedAll, pageSize);
         return (

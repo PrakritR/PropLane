@@ -885,7 +885,8 @@ async function runHouseholdChargesSync({
       memoryCharges = mergedCharges;
       memoryRentProfiles = mergedProfiles;
       persistHouseholdStateToSession();
-      if (res.ok && typeof body.syncedAt === "string" && Number.isFinite(Date.parse(body.syncedAt))) {
+      // A non-ok response threw or returned above, so `res` is ok here.
+      if (typeof body.syncedAt === "string" && Number.isFinite(Date.parse(body.syncedAt))) {
         writeHouseholdSyncMark(
           incrementalResponse && priorMark
             ? { ...priorMark, syncedAt: body.syncedAt, viewerRole: householdViewerRole ?? priorMark.viewerRole }
@@ -897,7 +898,7 @@ async function runHouseholdChargesSync({
                 workspaceId: requestWorkspaceId,
               },
         );
-      } else if (res.ok) {
+      } else {
         // An older server that sends no watermark: stay on full reads.
         writeHouseholdSyncMark(null);
       }
@@ -938,11 +939,15 @@ export function readHouseholdCharges(): HouseholdCharge[] {
   return readAll();
 }
 
-/** Apply server-confirmed charge rows without exposing the store's private writers. */
+/**
+ * Apply charge rows from the server without exposing the store's private writers. This replaces
+ * rows by id but never adds to the confirmed set: confirmation comes only from a server read in
+ * `runHouseholdChargesSync` (see the invariant above), so a row applied here is still
+ * uploaded if the next read omits it.
+ */
 export function applyHouseholdChargeServerUpdates(updates: HouseholdCharge[]): void {
   if (!isBrowser() || updates.length === 0) return;
   hydrateHouseholdStateFromSession();
-  for (const charge of updates) confirmedChargeIds.add(charge.id);
   const byId = new Map(updates.map((charge) => [charge.id, charge]));
   writeAll(readAll().map((charge) => byId.get(charge.id) ?? charge));
 }

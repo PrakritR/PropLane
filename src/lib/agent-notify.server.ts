@@ -202,10 +202,10 @@ export async function notifyManagerFromAgent(
     });
     // The text already went out; never throw here (a retry would risk a resend).
     if (!mirrored.ok) console.error("manager notice SMS sent but Assistant thread copy failed", mirrored.error);
-    inboxDelivered = inboxDelivered || mirrored.ok;
   }
 
   const suppressed = !channels.inbox && !smsRequested;
+  // smsDelivered is true here when requested (a refused SMS threw above); the thread copy never decides delivery.
   return { delivered: inboxDelivered || smsDelivered, suppressed };
 }
 

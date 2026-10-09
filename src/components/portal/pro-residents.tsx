@@ -445,6 +445,25 @@ type ResidentDeleteCounts = {
   paidCents: number;
 };
 
+/** Residents whose server delete (or delete preview) is in flight at once in a bulk selection. */
+const RESIDENT_DELETE_CONCURRENCY = 3;
+
+type ResidentServerDelete = { serverDeleteError: string | null; removed: ResidentDeleteCounts; accountFailed: boolean };
+
+/** `fn` over `items` with at most `limit` running at once; results keep the input order. */
+async function runBounded<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** What happens to each selected resident's PropLane login, as the server's preview says. */
 type ResidentAccountTally = { deleted: number; kept: number; none: number };
 type ResidentAccountFate = keyof ResidentAccountTally;
@@ -2523,10 +2542,12 @@ export function ManagerResidents({
       return;
     }
     setBulkDeletePreview({ loading: true, counts: null, accounts: null, error: null });
+    // Each preview is read-only and independent, so a few run at once; one that cannot be
+    // read still holds the whole delete.
+    const previews = await runBounded(residents, RESIDENT_DELETE_CONCURRENCY, previewResidentDelete);
     let total = emptyResidentDeleteCounts();
     const accounts: ResidentAccountTally = { deleted: 0, kept: 0, none: 0 };
-    for (const resident of residents) {
-      const previewed = await previewResidentDelete(resident);
+    for (const previewed of previews) {
       if (!previewed) {
         setBulkDeletePreview({
           loading: false,
@@ -2551,15 +2572,7 @@ export function ManagerResidents({
    * lease, so every booking bar survived a "Deleted … and all related portal
    * data" toast.
    */
-  async function executeResidentDelete(
-    selectedResident: ActiveResident,
-  ): Promise<{ ok: true; removed: ResidentDeleteCounts; accountFailed: boolean } | { ok: false }> {
-    const allRows = readManagerApplicationRows();
-    if (!allRows.some((row) => row.id === selectedResident.id)) {
-      showToast("Resident not found.");
-      return { ok: false };
-    }
-
+  async function requestResidentDeleteFromServer(selectedResident: ActiveResident): Promise<ResidentServerDelete> {
     let serverDeleteError: string | null = null;
     let removed = emptyResidentDeleteCounts();
     let accountFailed = false;
@@ -2584,6 +2597,22 @@ export function ManagerResidents({
     } catch {
       serverDeleteError = "Could not delete resident.";
     }
+    return { serverDeleteError, removed, accountFailed };
+  }
+
+  /** `serverResult` is the already-sent server delete (the bulk path sends several at once, then finishes serially). */
+  async function executeResidentDelete(
+    selectedResident: ActiveResident,
+    serverResult?: ResidentServerDelete,
+  ): Promise<{ ok: true; removed: ResidentDeleteCounts; accountFailed: boolean } | { ok: false }> {
+    const allRows = readManagerApplicationRows();
+    if (!allRows.some((row) => row.id === selectedResident.id)) {
+      showToast("Resident not found.");
+      return { ok: false };
+    }
+
+    const { serverDeleteError, removed, accountFailed } =
+      serverResult ?? (await requestResidentDeleteFromServer(selectedResident));
 
     if (serverDeleteError) {
       /*
@@ -2677,11 +2706,16 @@ export function ManagerResidents({
     const deletedNames: string[] = [];
     const failed: string[] = [];
     try {
-      // Serial on purpose: each delete rewrites the same local application,
-      // lease and inbox stores, so overlapping runs would race each other's
-      // read-modify-write and leave rows behind.
-      for (const resident of listSelectedResidents) {
-        const result = await executeResidentDelete(resident);
+      // The server deletes go out a few at a time (they are independent transactions, and
+      // the confirm already showed what each will do, so nothing is re-previewed here).
+      // The browser-side cleanup stays serial: each pass rewrites the same local application,
+      // lease and inbox stores, so overlapping runs would race each other's read-modify-write.
+      const existing = new Set(readManagerApplicationRows().map((row) => row.id));
+      const serverResults = await runBounded(listSelectedResidents, RESIDENT_DELETE_CONCURRENCY, (resident) =>
+        existing.has(resident.id) ? requestResidentDeleteFromServer(resident) : Promise.resolve(undefined),
+      );
+      for (const [index, resident] of listSelectedResidents.entries()) {
+        const result = await executeResidentDelete(resident, serverResults[index]);
         if (result.ok) {
           deleted += 1;
           removed = addResidentDeleteCounts(removed, result.removed);

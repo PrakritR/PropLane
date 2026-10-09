@@ -80,15 +80,34 @@ export function visibleGroupItems<T>(
 }
 
 /**
- * Whether a group is collapsed. A click (`override`) always wins; otherwise
- * every group starts expanded (there is no Expand all control, so nothing may
- * start shut). Each group still draws only its first page of rows, so a long
- * list stays cheap. `searchActive` is kept for callers: a search never hides a
- * group that still has a match.
+ * Most groups a list may start fully expanded. There is no Expand all / Collapse
+ * all control, so a portfolio with more groups than this opens collapsed except
+ * its first group; a header click or a search opens the rest.
  */
-export function resolveGroupCollapsed(args: { override: boolean | undefined; searchActive: boolean }): boolean {
+export const GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS = 20;
+
+/**
+ * Whether a group is collapsed. A click (`override`) always wins. Otherwise a
+ * search opens every group that still has a match, and with no search the
+ * groups start expanded when there are at most
+ * `GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS` of them; above that every group starts
+ * collapsed except the first (`groupIndex` 0).
+ *
+ * Cost: an expanded group mounts its first page of rows (`GROUPED_LIST_PAGE_SIZE`),
+ * so the worst start is 20 groups x 25 rows = 500 mounted rows, and the
+ * threshold is what keeps a 100-house portfolio from mounting 2,500. "Show all"
+ * can still add every row of one group, so a single huge group is not capped.
+ */
+export function resolveGroupCollapsed(args: {
+  override: boolean | undefined;
+  searchActive: boolean;
+  groupCount: number;
+  groupIndex: number;
+}): boolean {
   if (args.override !== undefined) return args.override;
-  return false;
+  if (args.searchActive) return false;
+  if (args.groupCount <= GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS) return false;
+  return args.groupIndex !== 0;
 }
 
 /** The sort the Residents and Applications Filter popovers offer (House is the default). */

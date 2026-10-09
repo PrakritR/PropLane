@@ -94,7 +94,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Resident logins belong to the resident. You can remove an application from your portfolio while keeping their login and financial history." }, { status: 403 });
       }
       if (!applicationId) {
-        return NextResponse.json({ error: "Choose the application to remove. A manager cannot delete a resident's login." }, { status: 400 });
+        return NextResponse.json({ error: "Choose the application to remove." }, { status: 400 });
       }
       const result = await removeResidentApplication(svc, { userId: user.id, isAdmin: false }, { applicationId, email });
       return NextResponse.json(result, { status: result.ok ? 200 : result.status });

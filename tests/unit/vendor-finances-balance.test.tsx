@@ -122,6 +122,21 @@ describe("vendor Balance & payouts", () => {
     expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
   });
 
+  it("a failed balance read still renders the tab band and each tab's own body (Overview and Refunds have their own APIs)", async () => {
+    // The stub answers the other APIs with {}, so each body mounts and reports its OWN state.
+    const bodies = { overview: "vendor-overview-error", refunds: "vendor-refunds-panel", payouts: "vendor-payouts-unavailable" } as const;
+    for (const tab of ["overview", "refunds", "payouts"] as const) {
+      cleanup();
+      resetSharedGets();
+      stub({ error: "boom" }, { balanceStatus: 500 });
+      render(<AppUiProvider><VendorFinancesPage basePath="/vendor" tab={tab} /></AppUiProvider>);
+      await waitFor(() => expect(screen.getByText("Could not load your balance.")).toBeTruthy());
+      for (const id of ["overview", "payouts", "refunds"]) expect(q(`vendor-finances-band-tab-${id}`)).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: /try again/i }).length).toBeGreaterThan(0);
+      await waitFor(() => expect(q(bodies[tab])).toBeTruthy());
+    }
+  });
+
   it("lists payout history and a row opens its detail page", async () => {
     stub(READY);
     renderBalance();
