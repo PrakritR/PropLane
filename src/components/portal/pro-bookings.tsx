@@ -10,6 +10,7 @@ import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
+import { BookingsLoadFailedBand } from "@/components/portal/bookings-load-failed-band";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 import { BookingsDayPage } from "@/components/portal/bookings-day-page";
 import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
@@ -140,13 +141,12 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, occupancyDays, loading, residentOptions } = useManagerBookingEntries({
+  const { entries: rawEntries, occupancyDays, loading, failedSources, retry, residentOptions } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
     propertyTick,
     refreshSignal,
-    showToast,
   });
 
   const entries = useMemo(
@@ -417,9 +417,12 @@ function useBookingsWorkspace({
     />
   );
 
+  const failedBand = <BookingsLoadFailedBand failedSources={failedSources} onRetry={retry} />;
+
   const content =
     bucket === "calendar" ? (
       <>
+      {failedBand}
       <ManagerPortfolioBookingsCalendar
         propertyIds={scopedPropertyIds}
         showToast={showToast}
@@ -441,6 +444,8 @@ function useBookingsWorkspace({
       <BookingsCalendarLegend />
       </>
     ) : (
+      <>
+      {failedBand}
       <ManagerBookingsListView
         entries={listEntries}
         loading={!authReady || loading}
@@ -500,6 +505,7 @@ function useBookingsWorkspace({
               }
         }
       />
+      </>
     );
 
   const modals = (

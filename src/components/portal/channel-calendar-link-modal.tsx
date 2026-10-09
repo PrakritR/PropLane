@@ -306,7 +306,7 @@ function ConnectedChannelCalendarFields(props: Props) {
   const idsKey = props.propertyIds.join("\n");
   const ids = useMemo(() => idsKey ? idsKey.split("\n") : [], [idsKey]);
   const [refreshSignal, setRefreshSignal] = useState(0);
-  const { entries } = useManagerBookingEntries({ userId, propertyIds: ids, propertyOptions: props.propertyOptions, propertyTick: 0, refreshSignal, showToast: props.showToast });
+  const { entries } = useManagerBookingEntries({ userId, propertyIds: ids, propertyOptions: props.propertyOptions, propertyTick: 0, refreshSignal });
   return <ChannelCalendarLinkFields {...props} entries={entries} onChanged={() => { setRefreshSignal((value) => value + 1); props.onChanged?.(); }} />;
 }
 

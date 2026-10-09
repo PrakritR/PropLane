@@ -31,9 +31,10 @@ describe("public occupancy reader scope", () => {
           select() { return this; },
           in() { return this; },
           eq() { return this; },
+          or() { return this; },
           order() { return this; },
           range(start: number) {
-            if (table === "portal_lease_pipeline_records") return Promise.resolve({ data: [], error: null });
+            if (table === "portal_lease_pipeline_records" || table === "portal_schedule_records") return Promise.resolve({ data: [], error: null });
             if (table === "manager_application_records") return Promise.resolve({ data: applications.slice(start), error: null });
             throw new Error(`Unexpected paged table: ${table}`);
           },

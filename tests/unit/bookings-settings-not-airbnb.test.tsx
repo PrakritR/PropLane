@@ -24,6 +24,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
+  leasePipelineReadSucceeded: () => true,
   readLeasePipeline: () => [],
   syncLeasePipelineFromServer: () => Promise.resolve([]),
 }));

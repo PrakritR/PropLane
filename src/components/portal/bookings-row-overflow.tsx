@@ -18,6 +18,7 @@ export function BookingsRowOverflow({
   onEditDates,
   editDatesLabel = "Edit",
   onMoveRoom,
+  onOpenResident,
   onMessage,
   onCopyLink,
   onCancel,
@@ -32,6 +33,8 @@ export function BookingsRowOverflow({
   /** "Open lease" / "Open listing" when `onEditDates` is repurposed for a non-block booking, or "Edit booking" in the day pop-up. */
   editDatesLabel?: string;
   onMoveRoom?: () => void;
+  /** Present only for a resident-backed booking (a hold or lease with an application behind it). */
+  onOpenResident?: () => void;
   onMessage?: () => void;
   onCopyLink?: () => void;
   /** Present only for a block-sourced booking (deletes the hold) — a lease or channel import cannot be cancelled here. */
@@ -57,6 +60,11 @@ export function BookingsRowOverflow({
             {onMoveRoom ? (
               <Button type="button" variant="outline" data-attr="bookings-row-move-room" data-record-action-id="move-room" onClick={onMoveRoom}>
                 Move room
+              </Button>
+            ) : null}
+            {onOpenResident ? (
+              <Button type="button" variant="outline" data-attr="bookings-row-open-resident" data-record-action-id="open-resident" onClick={onOpenResident}>
+                Open resident
               </Button>
             ) : null}
             {onMessage ? (
