@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const create = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { create }; } }));
@@ -18,7 +18,10 @@ type Row = Record<string, unknown>;
  * can be exercised separately — `windowBlind` answers the paged read with nothing,
  * which is exactly how PostgREST's row cap drops rows.
  */
-function fakeDb(existing: { url: string; for_date: string }[], opts: { windowBlind?: boolean } = {}) {
+function fakeDb(
+  existing: { url: string; for_date: string }[],
+  opts: { windowBlind?: boolean; watchlist?: Row[] } = {},
+) {
   const upserted: Row[] = [];
   const rows: Row[] = existing.map((r, i) => ({ id: `e${i}`, ...r }));
 
@@ -51,6 +54,7 @@ function fakeDb(existing: { url: string; for_date: string }[], opts: { windowBli
 
   const db = {
     from(table: string) {
+      if (table === "growth_watchlist") return query(opts.watchlist ?? []);
       if (table !== "growth_engage_items") return query([]);
       const q = query(rows) as Record<string, unknown>;
       q.upsert = (insert: Row[]) => {
@@ -71,10 +75,24 @@ const reply = (items: unknown[], stop: string = "end_turn") => ({
   content: [{ type: "text", text: JSON.stringify({ items }) }],
 });
 
+const watchRow = (o: Row = {}) => ({
+  id: "w1",
+  platform: "reddit",
+  handle: "@someone",
+  url: "https://www.reddit.com/user/someone/",
+  topic: null,
+  kind: "engage",
+  notes: null,
+  active: true,
+  created_at: "",
+  ...o,
+});
+
 beforeEach(() => {
   create.mockReset();
   process.env.ANTHROPIC_API_KEY = "test";
 });
+afterEach(() => vi.useRealTimers());
 
 describe("buildEngageList", () => {
   it("skips urls already listed and inserts drafted items", async () => {
@@ -128,6 +146,57 @@ describe("buildEngageList", () => {
     const { db } = fakeDb([]);
     await buildEngageList({ forDate: "2026-10-09", fetchImpl: fetchWith(["a"]) }, db);
     expect(create.mock.calls[0][0]).toMatchObject({ max_tokens: 8000 });
+  });
+
+  it("keeps a watchlist account that is only on a later day's list", async () => {
+    create.mockResolvedValue(reply([{ key: "watch:w1", why: "ok", draft: "d" }]));
+    const { db, upserted } = fakeDb(
+      // What the cron leaves behind: tomorrow's list already holds the whole watchlist.
+      [{ url: "https://www.reddit.com/user/someone/", for_date: "2026-10-10" }],
+      { watchlist: [watchRow()] },
+    );
+    const res = await buildEngageList({ forDate: "2026-10-09", fetchImpl: fetchWith([]) }, db);
+    expect(res.inserted).toBe(1);
+    expect(upserted[0]).toMatchObject({ for_date: "2026-10-09", source: "watchlist", url: "https://www.reddit.com/user/someone/" });
+  });
+
+  it("drops a watchlist account already on this exact day's list", async () => {
+    create.mockResolvedValue(reply([{ key: "watch:w1", why: "ok", draft: "d" }]));
+    const { db, upserted } = fakeDb(
+      [{ url: "https://www.reddit.com/user/someone/", for_date: "2026-10-09" }],
+      { watchlist: [watchRow()] },
+    );
+    const res = await buildEngageList({ forDate: "2026-10-09", fetchImpl: fetchWith([]) }, db);
+    expect(res).toMatchObject({ considered: 0, inserted: 0 });
+    expect(upserted).toHaveLength(0);
+  });
+
+  it("spends at most one drafting retry per build, not per batch", async () => {
+    create.mockRejectedValue(new Error("boom"));
+    const { db } = fakeDb([]);
+    const res = await buildEngageList({ forDate: "2026-10-09", fetchImpl: fetchWith(["a", "b", "c", "d", "e", "f"]) }, db);
+    // Six candidates are two batches: attempt + the build's one retry, then attempt only.
+    expect(create).toHaveBeenCalledTimes(3);
+    expect(res).toMatchObject({ considered: 6, inserted: 0, stoppedEarly: false });
+  });
+
+  it("stops drafting once the time budget is spent and reports what it inserted", async () => {
+    vi.useFakeTimers();
+    create.mockImplementation(async () => {
+      vi.advanceTimersByTime(210_000);
+      return reply([
+        { key: "reddit:a", why: "ok", draft: "d" },
+        { key: "reddit:b", why: "ok", draft: "d" },
+        { key: "reddit:c", why: "ok", draft: "d" },
+        { key: "reddit:d", why: "ok", draft: "d" },
+        { key: "reddit:e", why: "ok", draft: "d" },
+      ]);
+    });
+    const { db, upserted } = fakeDb([]);
+    const res = await buildEngageList({ forDate: "2026-10-09", fetchImpl: fetchWith(["a", "b", "c", "d", "e", "f"]) }, db);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ considered: 6, inserted: 5, stoppedEarly: true });
+    expect(upserted).toHaveLength(5);
   });
 
   it("omits items Claude did not return", async () => {

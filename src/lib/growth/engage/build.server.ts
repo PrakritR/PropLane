@@ -14,6 +14,8 @@ export const ENGAGE_WATCHLIST_MAX = 8;
 export const ENGAGE_DEDUPE_DAYS = 60;
 const BATCH = 5;
 const DRAFT_MAX_TOKENS = 8000;
+/** Drafting stops here so a long build reports what it did insert instead of being killed mid-chunk. */
+export const ENGAGE_DRAFT_BUDGET_MS = 200_000;
 /** PostgREST caps a response at its own max-rows, so the dedupe window is paged rather than read in one shot. */
 const PAGE = 500;
 
@@ -79,12 +81,23 @@ type Drafted = { why: string; draft: string };
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : "error");
 
+/** One build's shared drafting allowance: one retry and one deadline for the whole run, not per batch. */
+export type DraftBudget = { retries: number; startedAtMs: number };
+
+export function draftBudget(startedAtMs: number = Date.now()): DraftBudget {
+  return { retries: 1, startedAtMs };
+}
+
+export function draftBudgetSpent(budget: DraftBudget, nowMs: number = Date.now()): boolean {
+  return nowMs - budget.startedAtMs > ENGAGE_DRAFT_BUDGET_MS;
+}
+
 /**
- * One Claude call for up to BATCH candidates, retried once with a shorter
- * instruction when the reply is truncated or unparseable. Never throws: an
- * undraftable batch is simply left out of the day's list.
+ * One Claude call for up to BATCH candidates. A truncated or unparseable reply
+ * is retried with a shorter instruction while the build's single retry is
+ * unspent. Never throws: an undraftable batch is left out of the day's list.
  */
-export async function draftBatch(cands: EngageCandidate[]): Promise<Map<string, Drafted>> {
+export async function draftBatch(cands: EngageCandidate[], budget: DraftBudget = draftBudget()): Promise<Map<string, Drafted>> {
   if (cands.length === 0 || !process.env.ANTHROPIC_API_KEY?.trim()) return new Map();
   const client = new Anthropic();
   const content = cands.map((c, i) => `Candidate ${i + 1} (key: ${c.key})\n${c.context}`).join("\n\n---\n\n");
@@ -116,6 +129,11 @@ export async function draftBatch(cands: EngageCandidate[]): Promise<Map<string, 
   try {
     return await attempt(null);
   } catch (first) {
+    if (budget.retries <= 0) {
+      console.warn(`growth-engage: draft batch failed (${errText(first)}); this build's retry is already spent`);
+      return new Map();
+    }
+    budget.retries -= 1;
     console.warn(`growth-engage: draft batch failed (${errText(first)}); retrying once with a shorter instruction`);
   }
   try {
@@ -126,35 +144,39 @@ export async function draftBatch(cands: EngageCandidate[]): Promise<Map<string, 
   }
 }
 
-/** Every url listed since `since`, paged so PostgREST's row cap can never silently truncate the set. */
-async function listedUrlsSince(since: string, db: GrowthDb): Promise<Set<string>> {
-  const urls = new Set<string>();
+type ListedRow = { url: string; for_date: string };
+
+/** The dedupe window in one paged pass, so PostgREST's row cap can never silently truncate the set. */
+async function listedWindow(since: string, db: GrowthDb): Promise<ListedRow[]> {
+  const rows: ListedRow[] = [];
   for (let from = 0; ; from += PAGE) {
     const page = must(
       await db
         .from("growth_engage_items")
-        .select("url")
+        .select("url,for_date")
         .gte("for_date", since)
         .order("for_date", { ascending: false })
         .order("url", { ascending: true })
         .range(from, from + PAGE - 1),
       "existing engage urls",
-    ) as { url: string }[];
-    for (const r of page) urls.add(r.url);
-    if (page.length < PAGE) return urls;
+    ) as ListedRow[];
+    rows.push(...page);
+    if (page.length < PAGE) return rows;
   }
 }
 
+/** When a url counts as already listed: a window for Reddit threads, one exact day for watchlist accounts. */
+type ListedWhen = { since: string } | { on: string };
+
 /** The authoritative per-url check: the paged window is a filter, this is the decision. */
-async function alreadyListed(url: string, since: string, db: GrowthDb): Promise<boolean> {
-  const rows = must(
-    await db.from("growth_engage_items").select("id").eq("url", url).gte("for_date", since).limit(1),
-    "engage url already listed",
-  ) as { id: string }[];
+async function alreadyListed(url: string, when: ListedWhen, db: GrowthDb): Promise<boolean> {
+  const base = db.from("growth_engage_items").select("id").eq("url", url);
+  const scoped = "on" in when ? base.eq("for_date", when.on) : base.gte("for_date", when.since);
+  const rows = must(await scoped.limit(1), "engage url already listed") as { id: string }[];
   return rows.length > 0;
 }
 
-export type EngageBuildResult = { forDate: string; considered: number; inserted: number; skipped: number };
+export type EngageBuildResult = { forDate: string; considered: number; inserted: number; skipped: number; stoppedEarly: boolean };
 
 export async function buildEngageList(
   opts: { forDate: string; limit?: number; fetchImpl?: typeof fetch; now?: Date },
@@ -162,11 +184,12 @@ export async function buildEngageList(
 ): Promise<EngageBuildResult> {
   const { forDate, limit = 20 } = opts;
   // A Reddit thread is listed once ever (inside the window); a watchlist account rotates, so it only
-  // has to be absent from today's list.
+  // has to be absent from this exact day — a list already built for a later day must not hide it.
   const windowStart = shiftDate(forDate, -ENGAGE_DEDUPE_DAYS);
-  const seenEver = await listedUrlsSince(windowStart, db);
-  const seenToday = await listedUrlsSince(forDate, db);
-  const since = (c: EngageCandidate) => (c.source === "reddit" ? windowStart : forDate);
+  const listed = await listedWindow(windowStart, db);
+  const seenEver = new Set(listed.map((r) => r.url));
+  const seenOnDate = new Set(listed.filter((r) => r.for_date === forDate).map((r) => r.url));
+  const when = (c: EngageCandidate): ListedWhen => (c.source === "reddit" ? { since: windowStart } : { on: forDate });
 
   const threads = await fetchRedditThreads(opts.fetchImpl, (opts.now ?? new Date()).getTime());
   const reddit = threads.filter((t) => !seenEver.has(t.url)).slice(0, ENGAGE_REDDIT_MAX).map(redditCandidate);
@@ -174,22 +197,29 @@ export async function buildEngageList(
   const watch = await listWatchlist(["engage"], db);
   const rot = watch.length ? Number(forDate.replace(/-/g, "")) % watch.length : 0;
   const rotated = [...watch.slice(rot), ...watch.slice(0, rot)];
-  const watchCands = rotated.map(watchCandidate).filter((c) => c.url && !seenToday.has(c.url)).slice(0, ENGAGE_WATCHLIST_MAX);
+  const watchCands = rotated.map(watchCandidate).filter((c) => c.url && !seenOnDate.has(c.url)).slice(0, ENGAGE_WATCHLIST_MAX);
 
   const picked: EngageCandidate[] = [];
   const byUrl = new Set<string>();
   for (const c of [...reddit, ...watchCands]) {
     if (picked.length >= limit) break;
     if (byUrl.has(c.url)) continue;
-    if (await alreadyListed(c.url, since(c), db)) continue;
+    if (await alreadyListed(c.url, when(c), db)) continue;
     byUrl.add(c.url);
     picked.push(c);
   }
 
+  const budget = draftBudget();
   let inserted = 0;
+  let stoppedEarly = false;
   for (let i = 0; i < picked.length; i += BATCH) {
+    if (draftBudgetSpent(budget)) {
+      stoppedEarly = true;
+      console.warn(`growth-engage: drafting budget spent after ${i} of ${picked.length} candidates`);
+      break;
+    }
     const chunk = picked.slice(i, i + BATCH);
-    const drafted = await draftBatch(chunk);
+    const drafted = await draftBatch(chunk, budget);
     const rows = chunk
       .filter((c) => drafted.has(c.key))
       .map((c) => ({
@@ -210,5 +240,5 @@ export async function buildEngageList(
     ) as unknown[];
     inserted += res.length;
   }
-  return { forDate, considered: picked.length, inserted, skipped: picked.length - inserted };
+  return { forDate, considered: picked.length, inserted, skipped: picked.length - inserted, stoppedEarly };
 }

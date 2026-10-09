@@ -233,7 +233,7 @@ export function GrowthEngageTab() {
   const today = useMemo(() => pacificDate(), []);
   const [date, setDate] = useState(today);
   const [items, setItems] = useState<EngageItem[] | null>(null);
-  const [counts, setCounts] = useState<EngageCounts | null>(null);
+  const [servedCounts, setServedCounts] = useState<EngageCounts | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [watch, setWatch] = useState<WatchlistEntry[]>([]);
@@ -244,11 +244,11 @@ export function GrowthEngageTab() {
     const res = await growthApi.listEngage(d);
     if (res.ok) {
       setItems(res.data.items);
-      setCounts(res.data.counts);
+      setServedCounts(res.data.counts);
       setError(null);
     } else {
       setItems(null);
-      setCounts(null);
+      setServedCounts(null);
       setError(res.error);
     }
   }, []);
@@ -284,16 +284,16 @@ export function GrowthEngageTab() {
     return [...list.filter((i) => i.status === "open"), ...list.filter((i) => i.status !== "open")];
   }, [items]);
 
+  // The server's tally until the list is on screen, then the same helper over the rows actually shown.
+  const counts = useMemo(() => (items === null ? servedCounts : tallyEngage(items)), [items, servedCounts]);
+
   const engage = watch.filter((w) => w.kind === "engage");
   const follow = watch.filter((w) => w.kind === "follow");
   const collab = watch.filter((w) => w.kind === "collab");
 
-  // The header shows the server's tally; a row the admin just flipped is re-tallied from the same helper.
-  const applyItem = (next: EngageItem) => {
-    const list = (items ?? []).map((i) => (i.id === next.id ? next : i));
-    setItems(list);
-    setCounts(tallyEngage(list));
-  };
+  const applyItem = useCallback((next: EngageItem) => {
+    setItems((cur) => (cur ?? []).map((i) => (i.id === next.id ? next : i)));
+  }, []);
 
   const removeWatch = async (id: string) => {
     const res = await growthApi.deleteWatch(id);

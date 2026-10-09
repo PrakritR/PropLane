@@ -100,7 +100,13 @@ export function WorkspaceListingSitesPanel() {
   const options: GuideListingOption[] = propertyIds.map((id) => ({ id, label: labels?.[id]?.trim() || id }));
 
   const factFor = (def: ListingChannelDef): string => {
-    if (def.posting === "feed") return `Posts for you · ${listingsText(zillowPostingCounts(propertyIds).posting)}`;
+    if (def.posting === "feed") {
+      const feedListings = listingsText(zillowPostingCounts(propertyIds).posting);
+      // The row and the guide it opens must make the same claim: nothing posts until Zillow approves the feed.
+      return status?.zillowFeedApproved === true
+        ? `Posts for you · ${feedListings}`
+        : `Posts for you once Zillow approves · ${feedListings} by hand`;
+    }
     if (def.posting === "partner_only") return "Partner feed only";
     if (def.posting === "api") {
       const live = status?.channels.find((c) => c.id === def.id)?.availability === "live";

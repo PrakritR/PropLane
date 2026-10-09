@@ -147,10 +147,25 @@ describe("overall Promotion › Listing sites", () => {
 
   it("states each mode's plain fact", async () => {
     render(<WorkspaceListingSitesPanel />);
-    await waitFor(() => expect(screen.getByText("Posts for you · 1 of 2 listings")).toBeTruthy());
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
+        "Posts for you once Zillow approves · 1 of 2 listings by hand",
+      ),
+    );
     expect(rowByName("Facebook Page").textContent).toContain("Coming soon · post by hand for now");
     expect(rowByName("Craigslist").textContent).toContain("Not posted yet");
     expect(rowByName("Apartment List").textContent).toContain("Partner feed only");
+  });
+
+  // The row and the guide it opens have to agree: before approval neither may claim the feed posts.
+  it("the Zillow row waits for the approval its guide waits for", async () => {
+    status.value = baseStatus({ zillowFeedApproved: true });
+    render(<WorkspaceListingSitesPanel />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
+        "Posts for you · 1 of 2 listings",
+      ),
+    );
   });
 
   it("counts posted listings for a connected, live Facebook Page", async () => {

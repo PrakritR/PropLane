@@ -105,6 +105,24 @@ describe("Engage list tab", () => {
     await waitFor(() => expect(screen.getByText(/0 open · 2 done/)).toBeTruthy());
   });
 
+  // Both PATCHes resolve against the same render, so a snapshot-based write would lose the first flip.
+  it("keeps both flips when two rows resolve from one render", async () => {
+    const second = item({ id: "22222222-2222-4222-8222-222222222222", target: "r/Landlord: Deposit", status: "open" });
+    listEngage.mockResolvedValue({ ok: true, data: view([item(), second]) });
+    patchEngage.mockImplementation(async (id: string) => ({
+      ok: true,
+      data: id === second.id ? { ...second, status: "skipped" } : item({ status: "done" }),
+    }));
+    render(<GrowthEngageTab />);
+    await waitFor(() => expect(screen.getByText(/2 open · 0 done/)).toBeTruthy());
+    fireEvent.click(document.querySelector('[data-attr="growth-engage-done-11111111-1111-4111-8111-111111111111"]')!);
+    fireEvent.click(document.querySelector('[data-attr="growth-engage-skip-22222222-2222-4222-8222-222222222222"]')!);
+    await waitFor(() => expect(patchEngage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/0 open · 1 done/)).toBeTruthy());
+    const states = [...document.querySelectorAll('[data-attr="growth-engage-row"]')].map((r) => r.getAttribute("data-status"));
+    expect(states.sort()).toEqual(["done", "skipped"]);
+  });
+
   it("a failed Build now toasts and keeps the loaded list on screen", async () => {
     listEngage.mockResolvedValue({ ok: true, data: view([item()]) });
     buildEngageNow.mockResolvedValue({ ok: false, error: "Reddit said no." });
