@@ -609,6 +609,40 @@ controls and source markers are phone-keyed) but carries the SAME key in
 `row_data`, and the SMS projection stamps it on the summary. A turn carries its
 `houseId` / `houseLabel`; the conversation row no longer claims one house.
 
+**Automated bursts create one thread, not one each.** Several payment events for
+one resident in the same second used to each find "no thread yet" and each mint a
+`msg_*` row titled "<charge> · Payment update". `deliverPortalInboxMessage` now
+passes `serializeCreate` and an id from `stablePersonThreadId` (sender, recipient,
+house): the create is insert-only, the loser of the race re-reads and appends, and
+the append is a compare-and-set on `updated_at` (`upsertKeyedThreadRow`'s
+`expectUpdatedAt`) so concurrent appends cannot drop each other's turns. Existing
+duplicates fold with `scripts/merge-assistant-team-threads.mjs` (dry run by
+default; `--project-ref` required; backs up every touched row first).
+
+## One PropLane Assistant per person per workspace
+
+- The chat is `agent_notice_<uid>` for the user's REAL default workspace and
+  `agent_notice_<uid>__<workspaceId>` for any other (`managerAgentNoticeThreadId`).
+- **Every writer asks one resolver**, `resolveManagerAssistantWorkspace`
+  (`src/lib/communication/manager-assistant-workspace.server.ts`): explicit
+  `workspaceId`, else the house's workspace, else the work line's, else the
+  user's default. It compares against the real default workspace id, so the
+  default always yields the unsuffixed id, and a lookup miss falls through
+  instead of producing a suffix. Server paths (`notifyManagerFromAgent`, the SMS
+  mirror, the assistant-email mirror, the action-event self-send which now passes
+  `propertyId`) NEVER read the browser cookie; only the list GET passes the
+  selected workspace in explicitly.
+- **Classification is by type, never by name.** A row is the Assistant only when
+  `threadType === "agent_notice"` / `resident_agent` or its id has the
+  `agent_notice_` / `resident-agent-` prefix (`isPropLaneAssistantInboxThread`,
+  `isPropLaneAssistantInboxThreadRow`, `isResidentAssistantRow`). A text thread
+  whose last turn was authored "PropLane Assistant" is still that person's
+  thread: the server auto-reply on an SMS notice is recorded as an OUTBOUND turn
+  authored `SMS_AUTO_REPLY_AUTHOR` ("You · Assistant"), so the list previews it
+  "You: ..." and the row keeps the counterparty's name.
+- A Team thread (`team-thread:*`) is named `teamThreadDisplayName()` ("Team"),
+  never its first poster; the poster's name rides on each message.
+
 **Reply check.** `send-inbox-message` refuses (409) a reply whose thread is not
 the recipient's conversation (`replyRecipientsMatchThread`): keyed person thread
 → the recipient must resolve to that key in that workspace; `ws:` thread → the
