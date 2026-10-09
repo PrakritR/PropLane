@@ -16,7 +16,46 @@ export const REDDIT_KEYWORDS = [
 ] as const;
 export const REDDIT_MAX_AGE_DAYS = 7;
 export const REDDIT_MIN_UPS = 3;
-const USER_AGENT = "PropLane growth/1.0";
+const USER_AGENT = "PropLane growth/1.0 (by /u/proplane)";
+const TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+
+let cachedToken: { value: string; expiresAtMs: number } | null = null;
+
+/** Test hook: forget the cached app-only token. */
+export function resetRedditTokenCache(): void {
+  cachedToken = null;
+}
+
+async function getRedditToken(fetchImpl: typeof fetch, nowMs: number, forceRefresh: boolean): Promise<string | null> {
+  const id = process.env.REDDIT_CLIENT_ID;
+  const secret = process.env.REDDIT_CLIENT_SECRET;
+  if (!id || !secret) return null;
+  if (forceRefresh) cachedToken = null;
+  if (cachedToken && nowMs < cachedToken.expiresAtMs) return cachedToken.value;
+  try {
+    const res = await fetchImpl(TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`,
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    if (!res.ok) {
+      console.warn(`growth-engage: reddit token request responded ${res.status}`);
+      return null;
+    }
+    const j = (await res.json()) as { access_token?: unknown; expires_in?: unknown };
+    if (typeof j.access_token !== "string" || !j.access_token) return null;
+    const ttl = Number(j.expires_in);
+    cachedToken = { value: j.access_token, expiresAtMs: nowMs + Math.max(0, (Number.isFinite(ttl) ? ttl : 3600) - 60) * 1000 };
+    return cachedToken.value;
+  } catch (e) {
+    console.warn(`growth-engage: reddit token request failed: ${e instanceof Error ? e.message : "error"}`);
+    return null;
+  }
+}
 
 type RawChild = { data?: Record<string, unknown> };
 
@@ -50,7 +89,7 @@ export function parseRedditListing(json: unknown, nowMs: number = Date.now()): R
 }
 
 /**
- * Read-only public search, no auth, no posting. One search per subreddit (all keywords OR'd into a single
+ * Read-only search, no posting. App-only OAuth when REDDIT_CLIENT_ID/SECRET are set, else anonymous. One search per subreddit (all keywords OR'd into a single
  * query) so a run makes 3 requests total; results are deduped by thread id and sorted by engagement.
  */
 export async function fetchRedditThreads(
@@ -62,9 +101,17 @@ export async function fetchRedditThreads(
   const q = keywords.map((k) => `"${k}"`).join(" OR ");
   const seen = new Map<string, RedditThread>();
   for (const sub of subreddits) {
-    const url = `https://www.reddit.com/r/${sub}/search.json?q=${encodeURIComponent(q)}&restrict_sr=1&sort=new&t=week&limit=50`;
+    const qs = `q=${encodeURIComponent(q)}&restrict_sr=1&sort=new&t=week&limit=50`;
     try {
-      const res = await fetchImpl(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
+      const call = async (forceRefresh: boolean) => {
+        const token = await getRedditToken(fetchImpl, nowMs, forceRefresh);
+        const host = token ? "https://oauth.reddit.com" : "https://www.reddit.com";
+        const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: "application/json" };
+        if (token) headers.Authorization = `Bearer ${token}`;
+        return { res: await fetchImpl(`${host}/r/${sub}/search.json?${qs}`, { headers }), authed: Boolean(token) };
+      };
+      const first = await call(false);
+      const res = first.res.status === 401 && first.authed ? (await call(true)).res : first.res;
       if (!res.ok) {
         console.warn(`growth-engage: reddit r/${sub} responded ${res.status}`);
         continue;

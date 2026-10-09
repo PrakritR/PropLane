@@ -143,6 +143,8 @@ The engine **never follows, likes, DMs or posts on the admin's behalf** (auto-fo
 Instagram, TikTok and LinkedIn terms and get brand accounts restricted). It builds a ~10-minute daily list
 with a drafted comment per target; the admin edits it, taps Open, and posts by hand. The UI only opens links.
 
+Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-only OAuth (`client_credentials`, token cached in module scope, one refresh on 401) when `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` are set (a "script" app at reddit.com/prefs/apps); with them unset it falls back to the anonymous `www.reddit.com` call.
+
 - **Tables** (migration `20261009090000_growth_engage.sql`, same RLS/grant model as the rest; not applied
   automatically): `growth_watchlist` (platform, handle, kind `engage|follow|collab`, unique per platform+handle),
   `growth_engage_items` (`for_date`, source, target, url, why, draft, status `open|done|skipped`, evidence;

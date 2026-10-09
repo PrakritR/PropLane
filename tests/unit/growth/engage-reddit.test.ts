@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { fetchRedditThreads, parseRedditListing } from "@/lib/growth/engage/reddit.server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchRedditThreads, parseRedditListing, resetRedditTokenCache } from "@/lib/growth/engage/reddit.server";
 
 const NOW = Date.UTC(2026, 9, 8, 12, 0, 0);
 const sec = (daysAgo: number) => (NOW - daysAgo * 86_400_000) / 1000;
@@ -35,7 +35,66 @@ describe("fetchRedditThreads", () => {
     });
     const out = await fetchRedditThreads(fetchImpl as unknown as typeof fetch, NOW);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect((fetchImpl.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "User-Agent": "PropLane growth/1.0" });
+    expect((fetchImpl.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "User-Agent": "PropLane growth/1.0 (by /u/proplane)" });
     expect(out).toHaveLength(1);
+  });
+});
+
+describe("fetchRedditThreads app-only OAuth", () => {
+  const listing = () => new Response(JSON.stringify({ data: { children: [child({})] } }), { status: 200 });
+  const tokenRes = (t = "tok", expires = 3600) => new Response(JSON.stringify({ access_token: t, expires_in: expires }), { status: 200 });
+  const hdr = (c: unknown[]) => ((c[1] as RequestInit).headers ?? {}) as Record<string, string>;
+
+  beforeEach(() => {
+    resetRedditTokenCache();
+    vi.stubEnv("REDDIT_CLIENT_ID", "cid");
+    vi.stubEnv("REDDIT_CLIENT_SECRET", "sec");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("requests a token then calls the oauth host with a bearer", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => (String(url).includes("/api/v1/access_token") ? tokenRes() : listing()));
+    await fetchRedditThreads(fetchImpl as unknown as typeof fetch, NOW, ["Landlord"]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [tUrl, tInit] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(tUrl).toBe("https://www.reddit.com/api/v1/access_token");
+    expect(tInit.method).toBe("POST");
+    expect(tInit.body).toBe("grant_type=client_credentials");
+    expect(hdr(fetchImpl.mock.calls[0]).Authorization).toBe(`Basic ${Buffer.from("cid:sec").toString("base64")}`);
+    expect(String(fetchImpl.mock.calls[1][0])).toMatch(/^https:\/\/oauth\.reddit\.com\/r\/Landlord\/search\.json\?/);
+    expect(hdr(fetchImpl.mock.calls[1])).toMatchObject({ Authorization: "Bearer tok", "User-Agent": "PropLane growth/1.0 (by /u/proplane)" });
+  });
+
+  it("caches the token across calls", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => (String(url).includes("/api/v1/access_token") ? tokenRes() : listing()));
+    await fetchRedditThreads(fetchImpl as unknown as typeof fetch, NOW, ["Landlord"]);
+    await fetchRedditThreads(fetchImpl as unknown as typeof fetch, NOW + 1000, ["Landlord"]);
+    const tokenCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).includes("/api/v1/access_token"));
+    expect(tokenCalls).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes once on 401 and retries", async () => {
+    let tokens = 0;
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("/api/v1/access_token")) return tokenRes(`tok${++tokens}`);
+      if ((init?.headers as Record<string, string>).Authorization === "Bearer tok1") return new Response("no", { status: 401 });
+      return listing();
+    });
+    const out = await fetchRedditThreads(fetchImpl as unknown as typeof fetch, NOW, ["Landlord"]);
+    expect(tokens).toBe(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(out).toHaveLength(1);
+  });
+
+  it("stays anonymous on the www host with no Authorization when creds are unset", async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("REDDIT_CLIENT_ID", "");
+    vi.stubEnv("REDDIT_CLIENT_SECRET", "");
+    const fetchImpl = vi.fn(async () => listing());
+    await fetchRedditThreads(fetchImpl as unknown as typeof fetch, NOW, ["Landlord"]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String((fetchImpl.mock.calls[0] as unknown[])[0])).toMatch(/^https:\/\/www\.reddit\.com\/r\/Landlord\/search\.json\?/);
+    expect(hdr(fetchImpl.mock.calls[0] as unknown[])).not.toHaveProperty("Authorization");
   });
 });
