@@ -15,6 +15,8 @@ export type ListingChannelsStatus = {
   workspaceId: string;
   canManage: boolean;
   schemaReady: boolean;
+  /** Deployment-wide: Zillow has approved PropLane's Rentals Feed (`ZILLOW_FEED_APPROVED`). */
+  zillowFeedApproved?: boolean;
   channels: { id: ListingChannelId; availability: ListingChannelAvailability }[];
   meta: { configured: boolean; connected: boolean; pageName: string | null; igUsername: string | null; revoked: boolean };
   workContact: { phone: string | null; email: string | null };

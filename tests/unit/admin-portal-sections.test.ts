@@ -131,7 +131,7 @@ describe("admin Growth section resolves", () => {
   });
 
   it("every Growth route resolves to a real app route", () => {
-    for (const path of ["/admin/growth", "/admin/growth/calendar", "/admin/growth/post/abc", "/admin/growth/accounts", "/admin/growth/analytics"]) {
+    for (const path of ["/admin/growth", "/admin/growth/calendar", "/admin/growth/engage", "/admin/growth/post/abc", "/admin/growth/accounts", "/admin/growth/analytics"]) {
       expect(routeResolves(path)).toBe(true);
       expect(isInAppPath(path)).toBe(true);
     }
