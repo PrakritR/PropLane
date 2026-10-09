@@ -54,4 +54,24 @@ describe("draft", () => {
     const noPlatforms = { ...good, platforms: undefined };
     expect(parseDraftOutput(JSON.stringify(noPlatforms), "reel").platforms).toEqual(["instagram", "tiktok", "youtube"]);
   });
+
+  it("parses a response wrapped in Markdown code fences", async () => {
+    const { parseDraftOutput } = await import("@/lib/growth/draft-parse");
+    const fenced = "Here you go:\n```json\n" + JSON.stringify(good, null, 2) + "\n```\nThanks";
+    expect(parseDraftOutput(fenced, "reel").title).toBe("The relay");
+  });
+
+  it("repairs a raw newline inside a string literal", async () => {
+    const { parseDraftOutput } = await import("@/lib/growth/draft-parse");
+    // A literal line break inside the "script" string, as a model might emit it.
+    const withRaw = JSON.stringify(good).replace('"Script body"', '"Line one\nLine two"');
+    expect(withRaw).toContain('"Line one\nLine two"');
+    expect(() => JSON.parse(withRaw)).toThrow();
+    expect(parseDraftOutput(withRaw, "reel").script).toBe("Line one\nLine two");
+  });
+
+  it("still rejects JSON that is broken beyond newline repair", async () => {
+    const { parseDraftOutput } = await import("@/lib/growth/draft-parse");
+    expect(() => parseDraftOutput('{"title": "x" "hook": "y"}', "text")).toThrow();
+  });
 });

@@ -66,6 +66,7 @@ import {
   loadPersistedInbox,
   parseInboxStampMs,
   syncPersistedInboxFromServer,
+  type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
@@ -85,7 +86,17 @@ import {
 } from "@/lib/inbox-attachments";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { isSelfThread, resolveCounterpartyName } from "@/lib/record-communication-counterparty";
-import { serviceThreadsForParty } from "@/lib/service-communication-scope";
+import {
+  SERVICE_PARTY_LABEL,
+  messageAboutService,
+  serviceReplyParty,
+  serviceThreadsForEveryone,
+  serviceThreadsForParty,
+  serviceTimeline,
+  type ServiceCommunicationPartyTab,
+  type ServiceTimelineEntry,
+} from "@/lib/service-communication-scope";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { sharedGet } from "@/lib/shared-get-cache";
 
 export type RecordCommunicationSectionRole = "manager" | "resident" | "vendor";
@@ -117,6 +128,17 @@ export type RecordCommunicationSectionProps = {
    * counterparty email or phone (`service-communication-scope.ts`).
    */
   serviceScope?: { recordIds: string[]; party: { email?: string; phone?: string } | null };
+  /**
+   * A service's "Everyone" view (plan admin-money-1008, D9): ONE time-ordered timeline of the resident's and
+   * every vendor's turns about this service, each labeled with its author and party, and a "To" picker so a
+   * reply still goes to exactly one party's thread. `refs` is the recordRef a send to each party is stamped with
+   * (a vendor is written to about the job that went to them).
+   */
+  serviceEveryone?: {
+    recordIds: string[];
+    parties: readonly ServiceCommunicationPartyTab[];
+    refs: Record<string, RecordRef>;
+  };
   /** The footer link to the main Communication page ("Open the full conversation in Communication"). */
   fullConversationHref?: string;
 };
@@ -146,11 +168,16 @@ const KIND_LABEL: Record<RecordRef["kind"], string> = {
 /** Same shape as the main inbox's thread → bubble builder (`inboxThreadBubbles` in
  * `pro-resident-detail-inbox.tsx`), scoped to one thread's own messages —
  * `mergedThreadBubbles` below interleaves several of these into one timeline. */
-function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
+function threadBubbles(
+  thread: PersistedInboxThread,
+  keep?: (message: InboxThreadMessage) => boolean,
+): InboxBubbleMessage[] {
   const folder = thread.folder === "sent" ? "sent" : "inbox";
   let lastShownSubject = "";
   const bubbles: InboxBubbleMessage[] = [];
   for (const [i, message] of inboxThreadMessages(thread).entries()) {
+    // Direction and the shown subject still read the turn's place in the whole thread; only the display is narrowed.
+    if (keep && !keep(message)) continue;
     const channel = message.channel ?? thread.rootChannel;
     const fields = inboxEmailBubbleFields(
       { body: message.body, subject: message.subject ?? (i === 0 ? thread.subject : undefined), channel },
@@ -182,9 +209,42 @@ function threadBubbles(thread: PersistedInboxThread): InboxBubbleMessage[] {
  * `buildInboxMessageTimeline` — merging here is the only change needed for
  * them to span threads correctly.
  */
-function mergedThreadBubbles(threads: PersistedInboxThread[]): InboxBubbleMessage[] {
+function mergedThreadBubbles(
+  threads: PersistedInboxThread[],
+  keep?: (thread: PersistedInboxThread, message: InboxThreadMessage) => boolean,
+): InboxBubbleMessage[] {
   return threads
-    .flatMap((thread) => threadBubbles(thread).map((bubble) => ({ bubble, sortMs: parseInboxStampMs(bubble.at) ?? 0 })))
+    .flatMap((thread) =>
+      threadBubbles(thread, keep ? (message) => keep(thread, message) : undefined).map((bubble) => ({
+        bubble,
+        sortMs: parseInboxStampMs(bubble.at) ?? 0,
+      })),
+    )
+    .sort((a, b) => a.sortMs - b.sortMs)
+    .map((entry) => entry.bubble);
+}
+
+/**
+ * The "Everyone" timeline: every turn about the service from every party, oldest first, each named. An
+ * inbound turn reads "Liam Foster · Resident" / "Pacific Plumbing · Vendor"; the manager's own reads
+ * "You · to Pacific Plumbing", so a reader can see which party each reply went to.
+ */
+function everyoneBubbles(entries: readonly ServiceTimelineEntry[]): InboxBubbleMessage[] {
+  const byBubbleId = new Map<string, ServiceTimelineEntry>(entries.map((entry) => [`${entry.thread.id}:${entry.message.id}`, entry]));
+  const threads = [...new Set(entries.map((entry) => entry.thread))];
+  return threads
+    .flatMap((thread) => threadBubbles(thread, (message) => byBubbleId.has(`${thread.id}:${message.id}`)))
+    .map((bubble) => {
+      const entry = byBubbleId.get(bubble.id)!;
+      const party = entry.party;
+      const named: InboxBubbleMessage =
+        bubble.direction === "outbound"
+          ? { ...bubble, author: "You", ...(party ? { authorNote: `to ${party.name}` } : {}) }
+          : bubble.direction === "inbound" && party
+            ? { ...bubble, author: party.name, authorNote: SERVICE_PARTY_LABEL[party.kind] }
+            : bubble;
+      return { bubble: named, sortMs: entry.sortMs };
+    })
     .sort((a, b) => a.sortMs - b.sortMs)
     .map((entry) => entry.bubble);
 }
@@ -194,17 +254,24 @@ export function RecordCommunicationSection({
   recordRef,
   propertyId,
   contactIds,
-  contactName,
-  contactPhone,
+  contactName: contactNameProp,
+  contactPhone: contactPhoneProp,
   autoOpenCompose,
   onEnsureRecord,
   fill = false,
   serviceScope,
+  serviceEveryone,
   fullConversationHref,
 }: RecordCommunicationSectionProps) {
   const appUi = useOptionalAppUi();
   const scope = SCOPE_BY_ROLE[role];
-  const primaryContact = contactIds?.[0]?.trim().toLowerCase() || undefined;
+  // Everyone: the "To" picker chooses WHO the composer addresses; the thread, number, address and the record a
+  // send is stamped with all follow that one party. Elsewhere the contact is the prop's.
+  const [toId, setToId] = useState(serviceEveryone?.parties[0]?.id ?? "");
+  const toParty = serviceEveryone ? serviceReplyParty(serviceEveryone.parties, toId) : null;
+  const contactName = toParty ? toParty.name : contactNameProp;
+  const contactPhone = toParty ? toParty.phone : contactPhoneProp;
+  const primaryContact = (toParty ? toParty.email : contactIds?.[0])?.trim().toLowerCase() || undefined;
 
   // The real signed-in name, not a hardcoded fallback — same source
   // (`GET /api/profile`) every other compose surface reads (vendor's own
@@ -288,6 +355,13 @@ export function RecordCommunicationSection({
   // labeled thread.
   const mergedThreads = useMemo(
     () => {
+      if (serviceEveryone) {
+        // Everyone: the union of every party's threads about this service.
+        return serviceThreadsForEveryone(
+          threads.filter((t) => !isSelfThread(t, senderIdentity?.email)),
+          { recordIds: serviceEveryone.recordIds, parties: serviceEveryone.parties },
+        );
+      }
       if (serviceScope) {
         // A service shows its own conversation only: stamped with the service (or its linked job) and
         // with this party. No counterparty-only matching, no phone-key history.
@@ -313,28 +387,47 @@ export function RecordCommunicationSection({
         return false;
       });
     },
-    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email, serviceScope],
+    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email, serviceScope, serviceEveryone],
   );
+
+  // The record ids this pane is scoped to, when it is a service's.
+  const scopeRecordIds = serviceEveryone?.recordIds ?? serviceScope?.recordIds;
+  // What a send is stamped with: the picked party's record in Everyone, else the pane's own.
+  const sendRef = (toParty && serviceEveryone?.refs[toParty.id]) || activeRef;
 
   // Replying still targets exactly one thread: prefer the one stamped with
   // THIS record's own recordRef, else the newest thread with the contact,
   // else none (a send then stamps a brand-new thread with this recordRef).
   const primaryThread = useMemo(() => {
-    if (mergedThreads.length === 0) return null;
-    const byRecordRef = mergedThreads.find(
+    // Everyone: a reply goes to the picked party's thread, never another party's.
+    const replyPool = serviceEveryone && toParty
+      ? serviceThreadsForParty(mergedThreads, { recordIds: serviceEveryone.recordIds, party: toParty })
+      : mergedThreads;
+    if (replyPool.length === 0) return null;
+    const byRecordRef = replyPool.find(
       (t) =>
-        t.recordRef?.kind === activeRef.kind &&
-        (t.recordRef?.id === activeRef.id || Boolean(serviceScope?.recordIds.includes(t.recordRef?.id ?? ""))),
+        t.recordRef?.kind === sendRef.kind &&
+        (t.recordRef?.id === sendRef.id || Boolean(scopeRecordIds?.includes(t.recordRef?.id ?? ""))),
     );
     if (byRecordRef) return byRecordRef;
     const candidates = primaryContact
-      ? mergedThreads.filter((t) => t.email.trim().toLowerCase() === primaryContact)
-      : mergedThreads;
-    const pool = candidates.length > 0 ? candidates : mergedThreads;
+      ? replyPool.filter((t) => t.email.trim().toLowerCase() === primaryContact)
+      : replyPool;
+    const pool = candidates.length > 0 ? candidates : replyPool;
     return [...pool].sort((a, b) => inboxThreadSortMs(b.id, b.time) - inboxThreadSortMs(a.id, a.time))[0] ?? null;
-  }, [mergedThreads, activeRef.kind, activeRef.id, primaryContact, serviceScope]);
+  }, [mergedThreads, sendRef.kind, sendRef.id, primaryContact, scopeRecordIds, serviceEveryone, toParty]);
 
-  const messages = useMemo<InboxBubbleMessage[]>(() => mergedThreadBubbles(mergedThreads), [mergedThreads]);
+  const messages = useMemo<InboxBubbleMessage[]>(() => {
+    if (serviceEveryone) {
+      return everyoneBubbles(serviceTimeline(mergedThreads, { recordIds: serviceEveryone.recordIds, parties: serviceEveryone.parties }));
+    }
+    if (serviceScope) {
+      // A thread reused by a later job carries that job's turns too: this service shows only its own.
+      const ids = new Set(serviceScope.recordIds.map((id) => id.trim()).filter(Boolean));
+      return mergedThreadBubbles(mergedThreads, (thread, message) => messageAboutService(thread, message, ids));
+    }
+    return mergedThreadBubbles(mergedThreads);
+  }, [mergedThreads, serviceEveryone, serviceScope]);
 
   const recipientEmail = (primaryThread?.email ?? primaryContact ?? "").trim();
   const emailAvailable = primaryThread ? inboxThreadHasEmail(primaryThread.email) : Boolean(recipientEmail.includes("@"));
@@ -439,7 +532,7 @@ export function RecordCommunicationSection({
     }
     const to = recipientEmail;
     if (!to) {
-      setSendError(`No contact to message about this ${KIND_LABEL[activeRef.kind]} yet.`);
+      setSendError(`No contact to message about this ${KIND_LABEL[sendRef.kind]} yet.`);
       return;
     }
     if (fill && scheduleLater) {
@@ -469,11 +562,11 @@ export function RecordCommunicationSection({
           credentials: "include",
           body: JSON.stringify({
             senderPortal: role,
-            subject: primaryThread?.subject || activeRef.label,
+            subject: primaryThread?.subject || sendRef.label,
             body: text,
             sendAt: sendAt.toISOString(),
             recipientEmail: to,
-            recipientName: primaryThread?.from || activeRef.label,
+            recipientName: primaryThread?.from || sendRef.label,
             deliverViaInbox: viaProplane,
             deliverViaEmail: viaEmail && emailAvailable,
             deliverViaSms: viaSms && smsAvailable,
@@ -499,7 +592,7 @@ export function RecordCommunicationSection({
     setSending(true);
     setSendError(null);
     try {
-      let ref = activeRef;
+      let ref = sendRef;
       if (onEnsureRecord) {
         const next = await onEnsureRecord();
         if (!next) {
@@ -545,7 +638,7 @@ export function RecordCommunicationSection({
     } finally {
       setSending(false);
     }
-  }, [activeRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms, reloadScheduled]);
+  }, [sendRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms, reloadScheduled]);
 
   const handleArchive = useCallback(async () => {
     if (!primaryThread || archiving) return;
@@ -558,15 +651,18 @@ export function RecordCommunicationSection({
     }
   }, [archiving, primaryThread, scope]);
 
-  const counterpartyName = resolveCounterpartyName({
-    contactName,
-    thread: primaryThread,
-    recordLabel: activeRef.label,
-    recipientEmail,
-  });
+  // Everyone is the whole conversation, not one person's: the picker beside the field names who a reply is for.
+  const counterpartyName = serviceEveryone
+    ? "Everyone"
+    : resolveCounterpartyName({
+        contactName,
+        thread: primaryThread,
+        recordLabel: activeRef.label,
+        recipientEmail,
+      });
 
   const kindLabel = KIND_LABEL[activeRef.kind];
-  const archiveButton = primaryThread ? (
+  const archiveButton = primaryThread && !serviceEveryone ? (
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
@@ -580,7 +676,7 @@ export function RecordCommunicationSection({
     </button>
   ) : undefined;
 
-  const callPhone = contactPhone?.trim() || "";
+  const callPhone = serviceEveryone ? "" : contactPhone?.trim() || "";
   const headerActions = fill ? (
     <>
       {callPhone ? (
@@ -602,7 +698,7 @@ export function RecordCommunicationSection({
     ? [
         kindLabel.charAt(0).toUpperCase() + kindLabel.slice(1),
         callPhone ? formatTourContactPhoneDisplay(callPhone) : null,
-        recipientEmail || null,
+        serviceEveryone ? null : recipientEmail || null,
       ]
         .filter(Boolean)
         .join(" · ")
@@ -631,7 +727,27 @@ export function RecordCommunicationSection({
       onSubmit={() => void handleSend()}
       sending={sending}
       disabled={!recipientEmail}
-      placeholder="Write a reply…"
+      placeholder={serviceEveryone && toParty ? `Write to ${toParty.name}…` : "Write a reply…"}
+      channelBar={
+        serviceEveryone ? (
+          <div className="flex items-center gap-2 px-3 pt-2 sm:px-4" data-attr="service-communication-to">
+            <span className="text-sm font-medium text-muted">To</span>
+            <FieldSingleSelect
+              label="To"
+              hideLabel
+              variant="pill"
+              value={toParty?.id ?? ""}
+              onChange={setToId}
+              options={serviceEveryone.parties.map((party) => ({
+                value: party.id,
+                label: `${party.name} · ${SERVICE_PARTY_LABEL[party.kind]}`,
+              }))}
+              disabled={sending}
+              dataAttr="service-communication-to-select"
+            />
+          </div>
+        ) : undefined
+      }
       dataAttr="record-communication-composer"
       trailingControls={
         <>
@@ -689,7 +805,7 @@ export function RecordCommunicationSection({
               underHeader={scheduledCards}
               composer={composer}
               emptyLabel={initialSyncDone ? "No messages yet." : "Loading messages…"}
-              threadKey={primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`}
+              threadKey={serviceEveryone ? `record:${activeRef.kind}:${activeRef.id}:everyone` : (primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`)}
               scrollMode="pane"
             />
           }

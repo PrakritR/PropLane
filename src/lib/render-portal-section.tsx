@@ -89,6 +89,19 @@ const FINANCIALS_TABS = ["overview", "reports", "income-statement", "profitabili
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
+/**
+ * A route segment, decoded. A malformed escape (`%E0%A4%A`) makes `decodeURIComponent` THROW, which
+ * from here is a 500 on a URL nobody can route — the raw segment falls through to the same
+ * not-found the id would have hit anyway.
+ */
+function decodeSegment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function isManagerInboxTab(tab: string): tab is (typeof MANAGER_INBOX_TABS)[number] {
   return (MANAGER_INBOX_TABS as readonly string[]).includes(tab);
 }
@@ -173,7 +186,7 @@ async function renderManagerDocumentsSection(
     // Not a known documents tab — a manager document RECORD id
     // (PLAN-0920-1058, area 1c): /documents/<id>/<tab>.
     const { parseDocumentDetailTab } = await import("@/lib/portal-detail-routes");
-    const documentId = decodeURIComponent(docTab);
+    const documentId = decodeSegment(docTab);
     const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
     const detailTab = parseDocumentDetailTab(detailTabRaw);
     if (detailTabRaw && detailTab !== detailTabRaw) {
@@ -200,7 +213,7 @@ async function renderManagerDocumentsSection(
   }
   const applicationId =
     docTab === "applications" && tabParts.length === 2
-      ? decodeURIComponent(tabParts[1]!)
+      ? decodeSegment(tabParts[1]!)
       : undefined;
   const ManagerDocumentsPanel = await panels.loadManagerDocumentsPanel();
   return subscriptionGated(
@@ -282,7 +295,8 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminPromoCodesPanel,
+    AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
@@ -338,7 +352,10 @@ export async function renderPortalSectionWith(
     redirect(`${def.basePath}/dashboard`);
   }
 
-  if (section === "finances") {
+  // `finances` is the legacy name of the other portals' Financials section. Admin has its own live
+  // Money > Finances section, so the rewrite must not fire for it (routing precedence: a rewrite that
+  // runs for every portal silently makes an admin section unreachable).
+  if (section === "finances" && kind !== "admin") {
     const defaultTab = kind === "resident" ? "summary" : "income";
     const tab = tabParts?.[0] ?? defaultTab;
     redirect(`${def.basePath}/financials/${tab}`);
@@ -431,7 +448,7 @@ export async function renderPortalSectionWith(
   if ((kind === "manager" || kind === "pro") && (section === "teams" || section === "relationships")) {
     if (section === "teams" && tabParts?.[0] === "vendors") {
       const vendorId =
-        tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
+        tabParts.length >= 2 ? `/${encodeURIComponent(decodeSegment(tabParts[1]!))}` : "";
       redirect(`${def.basePath}/vendors${vendorId}`);
     }
     redirect(`${def.basePath}/profile?tab=workspaces`);
@@ -523,7 +540,7 @@ export async function renderPortalSectionWith(
         <ResidentApplicationsPanel bucket={applicationBucket} basePath={def.basePath} />
       );
     }
-    const applicationId = decodeURIComponent(tabParts[1]!);
+    const applicationId = decodeSegment(tabParts[1]!);
     const applicationDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;
     return (
       <ResidentApplicationsPanel
@@ -659,7 +676,7 @@ export async function renderPortalSectionWith(
     // A property row's record page is `/admin/properties/<adminRefId>` (C163)
     // — one detail segment, decoded and handed to the client for lookup.
     if ((tabParts?.length ?? 0) > 1) notFound();
-    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
     return <AdminPropertiesClient detailId={detailId} />;
   }
 
@@ -667,8 +684,8 @@ export async function renderPortalSectionWith(
     // An account row's record page is `/admin/axis-users/<kind>-<id>` (C165), and
     // each rail section of that record is one more segment: `/<kind>-<id>/billing`.
     if ((tabParts?.length ?? 0) > 2) notFound();
-    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
-    const detailSection = tabParts && tabParts.length > 1 ? decodeURIComponent(tabParts[1]!) : undefined;
+    const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
+    const detailSection = tabParts && tabParts.length > 1 ? decodeSegment(tabParts[1]!) : undefined;
     return <AdminAxisUsersClient detailId={detailId} detailSection={detailSection} />;
   }
 
@@ -687,7 +704,7 @@ export async function renderPortalSectionWith(
     if ((tabParts?.length ?? 0) > 1) notFound();
     if (!isTestWorkspaceFeatureEnabled()) notFound();
     await requireTrustedTestWorkspaceOperator().catch(() => notFound());
-    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
     return <AdminTestWorkspacesClient detailId={detailId} />;
   }
 
@@ -701,40 +718,46 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "admin" && section === "communication") {
-    // The bare section IS the inbox. It used to redirect to
-    // `/communication/inbox/unopened`, which made the nav's own href a folder
-    // path for a panel that has no folders.
+    // The bare section IS the conversation list (Active). Admin Communication is the
+    // manager's page over admin's own conversations: Active | Archived tabs and an
+    // optional open conversation, `/communication/{active|archived}[/{threadId}]`.
     if (!tabParts?.length) {
       return <AdminCommunication smsUiEnabled={isSmsCommUiEnabled()} />;
     }
     const channel = tabParts[0]!;
+    // The old admin inbox had Unopened / Opened / Sent / Schedule / Trash folders. Those
+    // paths still resolve (bookmarks, notification links): trash is the Archived tab and
+    // every other folder is the one Active list.
+    const legacyFolders = ["unopened", "opened", "schedule", "sent", "trash"];
+    const legacyDestination = (folder: string) =>
+      `${def.basePath}/communication/${folder === "trash" ? "archived" : "active"}`;
     if (channel === "sms" || channel === "email") {
       const legacyTab = tabParts[1] ?? "unopened";
-      const mapped =
-        legacyTab === "all" || legacyTab === "unopened"
-          ? "unopened"
-          : legacyTab === "opened"
-            ? "opened"
-            : legacyTab === "sent"
-              ? "sent"
-              : legacyTab === "schedule"
-                ? "schedule"
-                : legacyTab === "trash"
-                  ? "trash"
-                  : null;
-      if (!mapped) notFound();
-      redirect(`${def.basePath}/communication/inbox/${mapped}`);
+      if (legacyTab !== "all" && !legacyFolders.includes(legacyTab)) notFound();
+      redirect(legacyDestination(legacyTab));
     }
     if (channel === "inbox") {
       const emailTab = tabParts[1] ?? "unopened";
-      if (!["unopened", "opened", "schedule", "sent", "trash"].includes(emailTab)) notFound();
+      if (!legacyFolders.includes(emailTab)) notFound();
       if (tabParts.length > 2) notFound();
-      return <AdminCommunication inboxTabId={emailTab as "unopened" | "opened" | "schedule" | "sent" | "trash"} smsUiEnabled={isSmsCommUiEnabled()} />;
+      redirect(legacyDestination(emailTab));
     }
-    const flatInboxTab = ["unopened", "opened", "schedule", "sent", "trash"] as const;
-    if ((flatInboxTab as readonly string[]).includes(channel)) {
+    if (legacyFolders.includes(channel)) {
       if (tabParts.length > 1) notFound();
-      redirect(`${def.basePath}/communication/inbox/${channel}`);
+      redirect(legacyDestination(channel));
+    }
+    if (channel === "unread") {
+      const threadPart = tabParts[1];
+      redirect(
+        `${def.basePath}/communication/active${threadPart ? `/${encodeURIComponent(threadPart)}` : ""}`,
+      );
+    }
+    if (channel === "active" || channel === "archived") {
+      if (tabParts.length > 2) notFound();
+      const threadId = tabParts[1] ? decodeSegment(tabParts[1]) : undefined;
+      return (
+        <AdminCommunication listSegment={channel} threadId={threadId} smsUiEnabled={isSmsCommUiEnabled()} />
+      );
     }
     notFound();
   }
@@ -744,11 +767,35 @@ export async function renderPortalSectionWith(
     return <AdminHealthClient />;
   }
 
+  if (kind === "admin" && section === "subscribers") {
+    if (tabParts?.length) notFound();
+    return <AdminSubscribersPanel />;
+  }
+
+  if (kind === "admin" && section === "payments") {
+    // A payment's record page is `/admin/payments/<row id>` (one segment, decoded here).
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
+    return <AdminPaymentsPanel detailId={detailId} />;
+  }
+
+  if (kind === "admin" && section === "promo-codes") {
+    // A promo code's record page is `/admin/promo-codes/<id>`.
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
+    return <AdminPromoCodesPanel detailId={detailId} />;
+  }
+
+  if (kind === "admin" && section === "finances") {
+    if (tabParts?.length) notFound();
+    return <AdminFinancesPanel />;
+  }
+
   if (kind === "admin" && section === "growth") {
     const [first, second] = tabParts ?? [];
     if (first === "post") {
       if (!second || (tabParts?.length ?? 0) > 2) notFound();
-      return <GrowthAdminClient postId={decodeURIComponent(second)} />;
+      return <GrowthAdminClient postId={decodeSegment(second)} />;
     }
     if ((tabParts?.length ?? 0) > 1) notFound();
     if (!first) return <GrowthAdminClient tab="queue" />;
@@ -779,12 +826,12 @@ export async function renderPortalSectionWith(
 
     // Vendors: its own section. `/vendors` is the list, `/vendors/<id>` the detail page.
     if ((kind === "manager" || kind === "pro") && section === "vendors") {
-      const vendorId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+      const vendorId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
       if ((tabParts?.length ?? 0) > 2) notFound();
       if (vendorId && (tabParts?.length ?? 0) === 1) {
         redirect(`${def.basePath}/vendors/${encodeURIComponent(vendorId)}/overview`);
       }
-      const vendorTab = tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const vendorTab = tabParts && tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const ManagerVendorsPanel = await loadManagerVendorsPanel();
       return subscriptionGated(
         <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} />,
@@ -855,7 +902,7 @@ export async function renderPortalSectionWith(
         ["potential", "current", "past"] as const
       ).find((tab) => tab === residentsTab) ?? null;
       if (!parsedResidentsTab) notFound();
-      const residentId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const residentId = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const residentDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
       if (residentDetailTabRaw === "applicant") {
         const applicantTail = tabParts[3];
@@ -891,7 +938,7 @@ export async function renderPortalSectionWith(
         if (MANAGER_TOUR_BUCKETS.includes(segmentRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
           residentTourBucket = parseManagerTourBucket(segmentRaw);
           if (tabParts.length === 5) {
-            residentTourId = decodeURIComponent(tabParts[4]!);
+            residentTourId = decodeSegment(tabParts[4]!);
           } else if (tabParts.length > 4) {
             notFound();
           }
@@ -904,7 +951,7 @@ export async function renderPortalSectionWith(
         }
       } else {
         const residentDetailItemId =
-          tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
+          tabParts.length >= 4 ? decodeSegment(tabParts[3]!) : undefined;
         residentPaymentId =
           residentDetailTab === "payments" ? residentDetailItemId : undefined;
         residentServiceItemId =
@@ -968,7 +1015,7 @@ export async function renderPortalSectionWith(
 
       let threadId: string | undefined;
       if (tabParts.length === 2) {
-        threadId = decodeURIComponent(tabParts[1]!);
+        threadId = decodeSegment(tabParts[1]!);
       } else if (tabParts.length > 2) {
         notFound();
       }
@@ -1011,7 +1058,7 @@ export async function renderPortalSectionWith(
       // vendor id through to the detail.
       if (servicesTab === "vendors") {
         const vendorId =
-          tabParts.length > 1 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
+          tabParts.length > 1 ? `/${encodeURIComponent(decodeSegment(tabParts[1]!))}` : "";
         redirect(`${def.basePath}/vendors${vendorId}`);
       }
       if (!["requests", "work-orders"].includes(servicesTab)) notFound();
@@ -1041,7 +1088,7 @@ export async function renderPortalSectionWith(
           ? (bucketRaw as typeof WO_BUCKETS[number])
           : parseServiceStage(bucketRaw);
         if (bucketRaw !== workOrderBucket) {
-          const rest = tabParts.slice(2).map((part) => `/${encodeURIComponent(decodeURIComponent(part))}`).join("");
+          const rest = tabParts.slice(2).map((part) => `/${encodeURIComponent(decodeSegment(part))}`).join("");
           redirect(`${def.basePath}/services/work-orders/${workOrderBucket}${rest}`);
         }
       }
@@ -1056,11 +1103,11 @@ export async function renderPortalSectionWith(
           : undefined;
       const serviceRequestId =
         servicesTab === "requests" && tabParts.length >= 3
-          ? decodeURIComponent(tabParts[2]!)
+          ? decodeSegment(tabParts[2]!)
           : undefined;
       const workOrderId =
         servicesTab === "work-orders" && tabParts.length >= 3
-          ? decodeURIComponent(tabParts[2]!)
+          ? decodeSegment(tabParts[2]!)
           : undefined;
       // A service record's own rail tab (docs/agents/record-page.md).
       const { parseServiceDetailTab, DEFAULT_SERVICE_DETAIL_TAB } = await import("@/lib/portal-detail-routes");
@@ -1102,9 +1149,9 @@ export async function renderPortalSectionWith(
       }
       if (tabParts && tabParts.length > 3) notFound();
       const taskId =
-        tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+        tabParts && tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const taskDetailTab =
-        tabParts && tabParts.length >= 3 ? decodeURIComponent(tabParts[2]!) : undefined;
+        tabParts && tabParts.length >= 3 ? decodeSegment(tabParts[2]!) : undefined;
       const ManagerTaskList = await loadManagerTaskList();
       return subscriptionGated(
         <ManagerTaskList
@@ -1131,7 +1178,7 @@ export async function renderPortalSectionWith(
           <ManagerOutgoingInvoicesPanel
             tabId="to-pay"
             basePath={def.basePath}
-            paymentId={decodeURIComponent(tabParts[1]!)}
+            paymentId={decodeSegment(tabParts[1]!)}
             paymentTab={paymentSection === "communication" ? "communication" : "overview"}
           />,
           kind, "outgoing", managerOwnerSubscriptionTier,
@@ -1189,9 +1236,9 @@ export async function renderPortalSectionWith(
       }
 
       const paymentId =
-        tabParts.length >= 3 ? decodeURIComponent(tabParts[2]!) : undefined;
+        tabParts.length >= 3 ? decodeSegment(tabParts[2]!) : undefined;
       const paymentTab =
-        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
+        tabParts.length >= 4 ? decodeSegment(tabParts[3]!) : undefined;
 
       return subscriptionGated(
         <ManagerPayments
@@ -1238,7 +1285,7 @@ export async function renderPortalSectionWith(
       if (tabRaw !== leaseTab) {
         redirect(`${def.basePath}/leases/${leaseTab}`);
       }
-      const leaseId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const leaseId = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const { parseLeaseDetailTab } = await import("@/lib/portal-detail-routes");
       const leaseDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
       const leaseDetailTab = leaseId ? parseLeaseDetailTab(leaseDetailTabRaw) : undefined;
@@ -1265,7 +1312,7 @@ export async function renderPortalSectionWith(
       if (tabRaw && !BG_TABS.includes(tabRaw as typeof BG_TABS[number])) notFound();
       const applicationId = tabParts && tabParts.length >= 2 ? tabParts[1] : undefined;
       if (applicationId) {
-        redirect(`${def.basePath}/applications/pending/${encodeURIComponent(decodeURIComponent(applicationId))}/screening`);
+        redirect(`${def.basePath}/applications/pending/${encodeURIComponent(decodeSegment(applicationId))}/screening`);
       }
       redirect(`${def.basePath}/applications/pending`);
     }
@@ -1277,7 +1324,7 @@ export async function renderPortalSectionWith(
       if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;
       if (tabRaw === "screenings") {
-        const legacyId = tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
+        const legacyId = tabParts.length >= 2 ? `/${encodeURIComponent(decodeSegment(tabParts[1]!))}` : "";
         redirect(`${def.basePath}/applications/approved${legacyId}`);
       }
       // Pending · Approved · Declined; an old /incomplete or /declined link lands on its real bucket.
@@ -1286,7 +1333,7 @@ export async function renderPortalSectionWith(
       if (tabRaw !== applicationTab) {
         redirect(`${def.basePath}/applications/${applicationTab}`);
       }
-      const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const applicationId = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const applicationDetailTabRaw = tabParts.length >= 3 ? tabParts[2] : undefined;
       const applicationDetailTab = applicationId ? parseApplicationDetailTab(applicationDetailTabRaw) : undefined;
       if (applicationId && applicationDetailTabRaw && applicationDetailTab !== applicationDetailTabRaw) {
@@ -1326,7 +1373,7 @@ export async function renderPortalSectionWith(
         redirect(`${def.basePath}/properties/${stage}`);
       }
       if (tabParts.length > 5) notFound();
-      const propertyKey = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const propertyKey = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const propertyDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
       if (propertyKey && propertyDetailTabRaw === "calendar") {
         redirect(
@@ -1370,7 +1417,7 @@ export async function renderPortalSectionWith(
         }
         propertyTourBucket = parseManagerTourBucket(bucketRaw);
         if (tabParts.length === 5) {
-          propertyTourId = decodeURIComponent(tabParts[4]!);
+          propertyTourId = decodeSegment(tabParts[4]!);
         } else if (tabParts.length > 4) {
           notFound();
         }
@@ -1401,7 +1448,7 @@ export async function renderPortalSectionWith(
           redirect(`${def.basePath}/promotion`);
         }
         if (tabParts.length > 1) notFound();
-        const assetId = decodeURIComponent(segment);
+        const assetId = decodeSegment(segment);
         return subscriptionGated(
           <ManagerPromotion basePath={def.basePath} assetId={assetId} />,
           kind,
@@ -1460,8 +1507,8 @@ export async function renderPortalSectionWith(
       // Anything else is a booking record id (`bookingEntryKey`, opaque and
       // URL-encoded) — the booking record page, per docs/agents/record-page.md.
       if (tabParts.length > 2) notFound();
-      const bookingId = decodeURIComponent(segmentRaw);
-      const bookingTab = tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const bookingId = decodeSegment(segmentRaw);
+      const bookingTab = tabParts.length === 2 ? decodeSegment(tabParts[1]!) : undefined;
       return subscriptionGated(
         <ManagerBookings bookingId={bookingId} bookingTab={bookingTab} basePath={def.basePath} />,
         kind,
@@ -1489,7 +1536,7 @@ export async function renderPortalSectionWith(
       }
       if (tabParts.length > 3) notFound();
       const bucket = parseManagerTourBucket(segmentRaw);
-      const tourId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const tourId = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
       const tourDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
       const tourDetailTab = tourId ? parseTourDetailTab(tourDetailTabRaw) : undefined;
       if (tourId && tourDetailTabRaw && tourDetailTab !== tourDetailTabRaw) {
@@ -1567,12 +1614,12 @@ export async function renderPortalSectionWith(
       if (tabParts.length === 1) {
         return <ResidentTourPanel bucket={tourBucket} basePath={def.basePath} />;
       }
-      const inquiryId = decodeURIComponent(tabParts[1]!);
+      const inquiryId = decodeSegment(tabParts[1]!);
       return (
         <ResidentTourPanel bucket={tourBucket} basePath={def.basePath} inquiryId={inquiryId} />
       );
     }
-    const legacyInquiryId = decodeURIComponent(tabRaw);
+    const legacyInquiryId = decodeSegment(tabRaw);
     return <ResidentTourPanel basePath={def.basePath} inquiryId={legacyInquiryId} />;
   }
 
@@ -1595,7 +1642,7 @@ export async function renderPortalSectionWith(
     if (tabRaw !== paymentBucket) {
       redirect(`${def.basePath}/payments/${paymentBucket}`);
     }
-    const chargeId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+    const chargeId = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
     const chargeDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;
     return (
       <ResidentPaymentsPanel
@@ -1631,7 +1678,7 @@ export async function renderPortalSectionWith(
     // unchanged — a document always opens under its own real kind, whichever
     // bucket/kind filter the resident found it from.
     if (legacyKind === "application" || legacyKind === "lease" || legacyKind === "receipts") {
-      const detailId = decodeURIComponent(tabParts[1]!);
+      const detailId = decodeSegment(tabParts[1]!);
       const tierGate = residentManagerTierGate("documents", residentManagerTier, meta.label);
       if (tierGate) return tierGate;
       return (
@@ -1673,13 +1720,13 @@ export async function renderPortalSectionWith(
       ? (tabRaw as (typeof LEASE_BUCKETS)[number])
       : null;
     if (!leaseBucket) {
-      const legacyDetailId = decodeURIComponent(tabRaw);
+      const legacyDetailId = decodeSegment(tabRaw);
       return <ResidentLeasePanel basePath={def.basePath} leaseDetailId={legacyDetailId} />;
     }
     if (tabParts.length === 1) {
       return <ResidentLeasePanel basePath={def.basePath} bucket={leaseBucket} />;
     }
-    const leaseDetailId = decodeURIComponent(tabParts[1]!);
+    const leaseDetailId = decodeSegment(tabParts[1]!);
     const leaseDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;
     return (
       <ResidentLeasePanel
@@ -1815,7 +1862,7 @@ export async function renderPortalSectionWith(
 
     let threadId: string | undefined;
     if (tabParts.length === 2) {
-      threadId = decodeURIComponent(tabParts[1]!);
+      threadId = decodeSegment(tabParts[1]!);
     } else if (tabParts.length > 2) {
       notFound();
     }
@@ -1851,7 +1898,7 @@ export async function renderPortalSectionWith(
           // A service RECORD id (PLAN-0920-1058, area 1c): /services/<id>/<tab>.
           if (tabParts.length > 2) notFound();
           const { parseResidentServiceDetailTab } = await import("@/lib/portal-detail-routes");
-          const serviceId = decodeURIComponent(legacy);
+          const serviceId = decodeSegment(legacy);
           const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
           const detailTab = parseResidentServiceDetailTab(detailTabRaw);
           if (detailTabRaw && detailTab !== detailTabRaw) {
@@ -1906,7 +1953,7 @@ export async function renderPortalSectionWith(
     if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) {
       // Not a known list tab — a vendor job RECORD id (PLAN-0920-1058, area 1c).
       if (tabParts.length > 2) notFound();
-      const workOrderId = decodeURIComponent(raw);
+      const workOrderId = decodeSegment(raw);
       const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
       const detailTab = parseVendorJobDetailTab(detailTabRaw);
       if (detailTabRaw && detailTab !== detailTabRaw) {
@@ -1962,7 +2009,7 @@ export async function renderPortalSectionWith(
 
     let threadId: string | undefined;
     if (tabParts.length === 2) {
-      threadId = decodeURIComponent(tabParts[1]!);
+      threadId = decodeSegment(tabParts[1]!);
     } else if (tabParts.length > 2) {
       notFound();
     }
@@ -2021,7 +2068,7 @@ export async function renderPortalSectionWith(
       const { parseVendorInvoiceDetailTab, parseVendorPayoutDetailTab } = await import(
         "@/lib/portal-detail-routes"
       );
-      const recordId = decodeURIComponent(tabParts[1]!);
+      const recordId = decodeSegment(tabParts[1]!);
       const detailTabRaw = tabParts.length === 3 ? tabParts[2]! : undefined;
       const detailTab =
         finTab === "invoices"
@@ -2042,7 +2089,7 @@ export async function renderPortalSectionWith(
 
     // A withdrawal's own page: /financials/balance/<payoutId>.
     if (finTab === "balance" && tabParts.length === 2 && tabParts[1] !== "pending") {
-      return <VendorWithdrawalDetail basePath={def.basePath} withdrawalId={decodeURIComponent(tabParts[1]!)} />;
+      return <VendorWithdrawalDetail basePath={def.basePath} withdrawalId={decodeSegment(tabParts[1]!)} />;
     }
     if (tabParts.length > 1) {
       if (tabParts.length === 2 && tabParts[1] === "pending") {

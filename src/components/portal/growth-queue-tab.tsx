@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
@@ -8,7 +8,6 @@ import { ToggleChips } from "@/components/ui/toggle-chips";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { growthApi, type GrowthPostView } from "@/lib/growth/client";
-import type { GrowthPublication } from "@/lib/growth/types";
 import { GROWTH_FORMATS, GROWTH_PLATFORMS, type GrowthFormat, type GrowthPlatform } from "@/lib/growth/types";
 import {
   FORMAT_LABEL,
@@ -17,6 +16,7 @@ import {
   GrowthFormatChip,
   GrowthSkeletonBlocks,
   PLATFORM_LABEL,
+  GrowthPublicationList,
   PLATFORM_SHORT,
   useGrowthLoad,
 } from "@/components/portal/growth-shared";
@@ -123,26 +123,28 @@ export function GrowthNewPostModal({ open, onClose }: { open: boolean; onClose: 
 function PostCard({ post, onOpen }: { post: GrowthPostView; onOpen: () => void }) {
   const summary = summaryLine(post);
   const metrics = post.status === "published" ? metricsLine(post) : null;
+  const pubs = post.status === "published" || post.status === "failed" ? (post.publications ?? []) : [];
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <div
       data-attr="admin-growth-queue-card"
       data-status={post.status}
-      className="w-full rounded-2xl border border-border bg-card p-3 text-left transition hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="w-full rounded-2xl border border-border bg-card p-3 text-left transition hover:border-primary/30 focus-within:ring-2 focus-within:ring-ring"
     >
-      <p className="text-sm font-semibold text-foreground">{post.title}</p>
-      {summary ? <p className="mt-1 line-clamp-1 text-xs text-muted">{summary}</p> : null}
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        <GrowthFormatChip format={post.format} />
-        {GROWTH_PLATFORMS.filter((p) => post.platforms.includes(p)).map((p) => (
-          <GrowthChip key={p} on>
-            {PLATFORM_SHORT[p]}
-          </GrowthChip>
-        ))}
-      </div>
-      {metrics ? <p className="mt-2 text-[11px] font-medium text-muted">{metrics}</p> : null}
-    </button>
+      <button type="button" onClick={onOpen} data-attr="admin-growth-queue-card-open" className="block w-full text-left focus-visible:outline-none">
+        <p className="text-sm font-semibold text-foreground">{post.title}</p>
+        {summary ? <p className="mt-1 line-clamp-1 text-xs text-muted">{summary}</p> : null}
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          <GrowthFormatChip format={post.format} />
+          {GROWTH_PLATFORMS.filter((p) => post.platforms.includes(p)).map((p) => (
+            <GrowthChip key={p} on>
+              {PLATFORM_SHORT[p]}
+            </GrowthChip>
+          ))}
+        </div>
+        {metrics ? <p className="mt-2 text-[11px] font-medium text-muted">{metrics}</p> : null}
+      </button>
+      <GrowthPublicationList publications={pubs} className="mt-2" />
+    </div>
   );
 }
 
@@ -155,22 +157,6 @@ export function GrowthQueueTab() {
 
   const visible = useMemo(() => (posts ?? []).filter((p) => p.status !== "archived"), [posts]);
   const failed = useMemo(() => visible.filter((p) => p.status === "failed"), [visible]);
-  // The list route carries no publications; fetch them for failed posts so the banner can name the platform.
-  const [failedPubs, setFailedPubs] = useState<Record<string, GrowthPublication[]>>({});
-  const failedKey = failed.map((p) => p.id).join(",");
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      for (const id of failedKey ? failedKey.split(",") : []) {
-        const res = await growthApi.getPost(id);
-        if (!cancelled && res.ok) setFailedPubs((prev) => ({ ...prev, [id]: res.data.publications ?? [] }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [failedKey]);
-
   const draftNow = async () => {
     setDrafting(true);
     setActionError(null);
@@ -196,7 +182,7 @@ export function GrowthQueueTab() {
       {error ? <GrowthErrorBanner message={error} onRetry={reload} dataAttr="admin-growth-queue-error" /> : null}
       {actionError ? <GrowthErrorBanner message={actionError} dataAttr="admin-growth-queue-action-error" /> : null}
       {failed.map((post) => {
-        const bad = (failedPubs[post.id] ?? post.publications ?? []).filter((p) => p.status === "failed");
+        const bad = (post.publications ?? []).filter((p) => p.status === "failed");
         const platforms = bad.length ? bad.map((p) => PLATFORM_LABEL[p.platform]).join(", ") : "A platform";
         return (
           <div

@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { GrowthResult } from "@/lib/growth/client";
+import type { GrowthPublicationLite, GrowthResult } from "@/lib/growth/client";
 import type { GrowthFormat, GrowthPlatform, GrowthPostStatus } from "@/lib/growth/types";
 
 export const PLATFORM_LABEL: Record<GrowthPlatform, string> = {
@@ -156,3 +157,63 @@ export function useGrowthLoad<T>(fetcher: () => Promise<GrowthResult<T>>) {
 
 /** Pacific wall-clock helpers for the schedule input (all admin growth times are Pacific). */
 export const PACIFIC_TZ = "America/Los_Angeles";
+
+function CopyIdButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label="Copy post id"
+      data-attr="admin-growth-publication-copy"
+      className="inline-flex size-5 items-center justify-center rounded text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(
+          () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          },
+          () => undefined,
+        );
+      }}
+    >
+      {copied ? <Check className="size-3" aria-hidden /> : <Copy className="size-3" aria-hidden />}
+    </button>
+  );
+}
+
+/** Per-platform outcome of a publish: a link when the platform URL exists, else the id with a copy button; the error when failed. */
+export function GrowthPublicationList({ publications, className }: { publications: GrowthPublicationLite[]; className?: string }) {
+  const rows = publications.filter((p) => p.status === "published" || p.status === "failed");
+  if (rows.length === 0) return null;
+  return (
+    <ul className={cn("space-y-1", className)} data-attr="admin-growth-publications">
+      {rows.map((p) => (
+        <li key={p.id} className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[11px] text-muted" data-attr="admin-growth-publication" data-status={p.status}>
+          <span className="font-semibold text-foreground">{PLATFORM_LABEL[p.platform]}</span>
+          {p.status === "failed" ? (
+            <span className="min-w-0 break-words text-[var(--status-overdue-fg)]" data-attr="admin-growth-publication-error">
+              Failed{p.error ? `: ${p.error}` : ""}
+            </span>
+          ) : p.platformUrl ? (
+            <a
+              href={p.platformUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              data-attr="admin-growth-publication-link"
+            >
+              {p.platformPostId ?? "View post"} <ExternalLink className="size-3" aria-hidden />
+            </a>
+          ) : p.platformPostId ? (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <code className="min-w-0 truncate font-mono" data-attr="admin-growth-publication-id">{p.platformPostId}</code>
+              <CopyIdButton value={p.platformPostId} />
+            </span>
+          ) : (
+            <span>Published</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}

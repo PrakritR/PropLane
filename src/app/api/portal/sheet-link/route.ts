@@ -12,7 +12,10 @@ import {
   saveManagerSheetBindings,
   type ManagerSheetBinding,
   type ManagerSheetStaysTab,
+  type SheetMode,
+  type SheetRefreshMinutes,
 } from "@/lib/manager-sheet-link";
+import { csvSpreadsheetId, isValidPublishedCsvUrl } from "@/lib/sheet-sync/url";
 import { googleSheetsPublicStatus } from "@/lib/sheet-sync/google-sheets-auth";
 import { warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
 import type { StaysTableColumnMap } from "@/lib/sheet-sync/parse-stays-table";
@@ -21,6 +24,17 @@ export const runtime = "nodejs";
 
 function asTrimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function asMode(value: unknown): SheetMode | null {
+  return value === "stays" || value === "occupancy" || value === "raw" ? value : null;
+}
+
+/** 15 | 60 | null (manual); undefined when the field was not sent. */
+function asRefresh(value: unknown): SheetRefreshMinutes | undefined {
+  if (value === null) return null;
+  if (value === 15 || value === 60) return value;
+  return undefined;
 }
 
 export async function GET() {
@@ -45,25 +59,47 @@ export async function POST(req: Request) {
     title?: unknown;
     workspaceId?: unknown;
     propertyId?: unknown;
+    source?: unknown;
+    csvUrl?: unknown;
+    mode?: unknown;
+    refreshMinutes?: unknown;
   } | null;
-  const spreadsheetId = asTrimmed(body?.spreadsheetId);
+  const source = body?.source === "csv" ? "csv" : "google";
+  const csvUrl = source === "csv" ? asTrimmed(body?.csvUrl) : "";
+  if (source === "csv" && !isValidPublishedCsvUrl(csvUrl)) {
+    return NextResponse.json(
+      { error: "Paste a published CSV link: an https URL ending in .csv, or a Google pub?output=csv link." },
+      { status: 400 },
+    );
+  }
+  const spreadsheetId = source === "csv" ? csvSpreadsheetId(csvUrl) : asTrimmed(body?.spreadsheetId);
   if (!spreadsheetId) {
     return NextResponse.json({ error: "Choose a spreadsheet." }, { status: 400 });
   }
+  const mode = asMode(body?.mode) ?? "occupancy";
+  const refresh = asRefresh(body?.refreshMinutes);
+  const refreshMinutes: SheetRefreshMinutes = refresh === undefined ? 15 : refresh;
   const propertyId = asTrimmed(body?.propertyId);
   const next: ManagerSheetBinding = {
     id: newSheetBindingId(),
     title: asTrimmed(body?.title) || "Spreadsheet",
     spreadsheetId,
-    occupancyGid: occupancyGidForSpreadsheet(spreadsheetId),
+    occupancyGid: source === "csv" ? "" : occupancyGidForSpreadsheet(spreadsheetId),
     houseTabs: [],
     staysTab: null,
     workspaceId: asTrimmed(body?.workspaceId),
     propertyId: propertyId && propertyId !== ALL_SHEET_PROPERTIES ? propertyId : null,
-    autoSync: true,
+    autoSync: refreshMinutes != null,
     lastSyncedAt: null,
     lastError: null,
     lastSummary: null,
+    source,
+    csvUrl: source === "csv" ? csvUrl : null,
+    mode,
+    refreshMinutes,
+    rawHeaders: null,
+    rawRows: null,
+    rawFetchedAt: null,
   };
   const saved = await saveManagerSheetBindings(actor.db, actor.userId, [
     ...(await loadManagerSheetBindings(actor.db, actor.userId)),
@@ -82,6 +118,8 @@ export async function PATCH(req: Request) {
     workspaceId?: unknown;
     propertyId?: unknown;
     autoSync?: unknown;
+    mode?: unknown;
+    refreshMinutes?: unknown;
     /** BUILD-WAVE2 C210: `null` clears the linked stays tab; omit to leave it as-is. */
     staysTab?: {
       gid?: unknown;
@@ -96,7 +134,7 @@ export async function PATCH(req: Request) {
   const index = bindings.findIndex((row) => row.id === id);
   if (index < 0) return NextResponse.json({ error: "Spreadsheet not found." }, { status: 404 });
   const current = bindings[index];
-  const spreadsheetId = asTrimmed(body?.spreadsheetId) || current.spreadsheetId;
+  const spreadsheetId = current.source === "csv" ? current.spreadsheetId : asTrimmed(body?.spreadsheetId) || current.spreadsheetId;
   const propertyRaw = body?.propertyId === null ? ALL_SHEET_PROPERTIES : asTrimmed(body?.propertyId);
   const staysTab: ManagerSheetStaysTab | null =
     body?.staysTab === undefined
@@ -122,8 +160,19 @@ export async function PATCH(req: Request) {
   if (staysTab && !staysTab.gid) {
     return NextResponse.json({ error: "Choose a tab to link as Stays." }, { status: 400 });
   }
+  const nextRefresh = asRefresh(body?.refreshMinutes);
+  const refreshMinutes: SheetRefreshMinutes =
+    nextRefresh !== undefined
+      ? nextRefresh
+      : typeof body?.autoSync === "boolean"
+        ? body.autoSync
+          ? (current.refreshMinutes ?? 15)
+          : null
+        : current.refreshMinutes;
   bindings[index] = {
     ...current,
+    mode: asMode(body?.mode) ?? current.mode,
+    refreshMinutes,
     spreadsheetId,
     occupancyGid: occupancyGidForSpreadsheet(spreadsheetId, current.occupancyGid),
     title: asTrimmed(body?.title) || current.title,
@@ -134,7 +183,7 @@ export async function PATCH(req: Request) {
         : propertyRaw && propertyRaw !== ALL_SHEET_PROPERTIES
           ? propertyRaw
           : null,
-    autoSync: typeof body?.autoSync === "boolean" ? body.autoSync : current.autoSync,
+    autoSync: refreshMinutes != null,
     staysTab,
   };
   const saved = await saveManagerSheetBindings(actor.db, actor.userId, bindings);

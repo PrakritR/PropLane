@@ -6,7 +6,10 @@ workspace. A signup or Stripe trial is not yet paying and cannot provision a num
 (`reconcileManagerSmsEntitlement` refuses `trialing` on the number path); a FREE100 /
 admin comp grant counts as paid. Provisioning, phone verification, carrier registration,
 consent and runtime rollout controls still apply. The phone itself has no setup or monthly
-usage deduction. Work email uses the same verified plan entitlement and remains unmetered;
+usage deduction. Work email uses the same verified plan entitlement and remains unmetered
+(sending is free, but the assistant turn that writes an auto-reply to a prospect or resident is a
+paid `ai_agent_turn`, reserved under `ai_turn:email:<inbound email id>` before the model runs and
+refused when credit is not granted - `email-auto-reply-credit.server.ts`);
 an empty communication wallet never disables its address or setup.
 
 | Plan | Subscription | Work number | Monthly retail communication credit |
@@ -353,8 +356,9 @@ who funds messaging, sized by THEIR OWN plan tier), not per workspace.
 workspaces" (every workspace they own or co-manage) by default, or pinned to
 one. `comms_plan_credit_rules` is PropLane admin's global per-tier default
 (included credit, whether it is shared across a funder's workspaces, whether
-unused credit rolls over), editable at `/admin/billing` → Plan credit
-(`docs/agents/plan-entitlements.md` § Admin Billing) and seeded once from
+unused credit rolls over), editable from Accounts behind its "Plan credit" header
+icon action — there is no `/admin/billing` page
+(`docs/agents/plan-entitlements.md` § Admin Billing) — and seeded once from
 `RATE_CARD` — an admin edit is never overwritten by a later migration re-run.
 
 **Reserve order.** A send in workspace W tries W's enabled funders in order —

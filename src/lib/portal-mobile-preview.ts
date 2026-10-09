@@ -10,7 +10,31 @@ export function portalListPreviewLimit(isNative: boolean | null | undefined): nu
 
 /** Strip trailing "· 9 rooms" from property titles — redundant when scoped to one listing. */
 export function stripPropertyRoomCountSuffix(label: string): string {
-  return label.trim().replace(/\s*·\s*\d+\s*rooms?\s*$/i, "");
+  return label.trim().replace(/\s*[·—–]\s*\d+\s*rooms?\s*$/i, "");
+}
+
+/**
+ * Join the parts of a place line ("Applicant", "Alder Row — 3 rooms", "3 rooms") so a house
+ * and its room-count suffix each appear ONCE: empty parts drop, a part that repeats an earlier
+ * one (ignoring a trailing room-count suffix) drops, and a bare "3 rooms" drops when an earlier
+ * part already ends in a room count.
+ */
+export function composePlaceLine(parts: readonly (string | null | undefined)[], separator = " · "): string {
+  const kept: string[] = [];
+  const keys: string[] = [];
+  let hasRoomCount = false;
+  for (const raw of parts) {
+    const part = String(raw ?? "").trim();
+    if (!part) continue;
+    const key = stripPropertyRoomCountSuffix(part).toLowerCase();
+    if (keys.includes(key)) continue;
+    const bareCount = /^\d+\s*rooms?$/i.test(part);
+    if (bareCount && hasRoomCount) continue;
+    if (key !== part.toLowerCase() || bareCount) hasRoomCount = true;
+    keys.push(key);
+    kept.push(part);
+  }
+  return kept.join(separator);
 }
 
 /**

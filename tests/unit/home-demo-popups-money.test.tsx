@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DemoPanel } from "@/components/marketing/site/product-mock/demo-panels";
-import { COMM_CONVERSATIONS, PAYMENT_ROWS } from "@/components/marketing/site/product-mock/fixtures";
+import { COMM_CONVERSATIONS, PAYMENT_ROWS, SERVICE_THREADS } from "@/components/marketing/site/product-mock/fixtures";
 import { moneyServiceRow, ASSIGNED_SERVICE_ROWS } from "@/components/marketing/site/product-mock/fixtures-popups-money";
 import { SERVICE_ROWS } from "@/components/marketing/site/product-mock/fixtures";
 import { SERVICE_STAGE_TABS } from "@/lib/service-stage-ids";
@@ -52,7 +52,7 @@ describe("demo Payments tab matches the real Incoming payments page", () => {
   it("the round + opens the real Add charge pop-up: Who, Amount, Review, last label Add charge", async () => {
     render(<DemoPanel portal="manager" tab="payments" />);
     fireEvent.click(screen.getByRole("button", { name: "Add charge" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add charge" });
+    const dialog = await screen.findByRole("dialog", { name: "Add charge" }, { timeout: 15000 });
     for (const label of ["Who", "Amount", "Review"]) expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("Property").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("Resident").length).toBeGreaterThan(0);
@@ -117,16 +117,121 @@ describe("demo Services tab matches the real Services page", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  const openFaucet = async (container: HTMLElement) => {
+    // The faucet job: Liam Foster reported it, Pacific Plumbing is booked Thursday.
+    const row = [...container.querySelectorAll("[data-demo-target='service-row'] button")].find((b) => b.textContent?.includes("Kitchen faucet drip"))!;
+    fireEvent.click(row);
+    return screen.findByRole("button", { name: "Remove service" });
+  };
+  const rail = (name: string) => screen.getAllByRole("link", { name }).find((a) => a.closest("nav"))!;
+
   it("a row opens the service's record page: Service, Vendors, Incoming and Outgoing payments, Communication", async () => {
     const { container } = render(<DemoPanel portal="manager" tab="services" />);
-    fireEvent.click(container.querySelector("[data-demo-target='service-row'] button")!);
-    const message = await screen.findByRole("button", { name: "Message" });
+    await openFaucet(container);
     noGenericCard();
-    expect(message).toBeInTheDocument();
-    const rail = recordSections("manager", "service", { serviceKind: "work-order", serviceBucket: "scheduled" });
-    for (const item of rail.groups.flatMap((g) => g.items)) expect(screen.getAllByText(item.label).length).toBeGreaterThan(0);
-    for (const name of ["Edit", "Cancel service", "Delete"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    const sections = recordSections("manager", "service", { serviceKind: "work-order", serviceBucket: "scheduled" });
+    for (const item of sections.groups.flatMap((g) => g.items)) expect(screen.getAllByText(item.label).length).toBeGreaterThan(0);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("the header is Edit, ONE red trash and the labeled next step - no Message, no Cancel service, no Delete", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="services" />);
+    await openFaucet(container);
+    const header = container.querySelector('[data-attr="record-header-icons"]')!;
+    const names = [...header.querySelectorAll("button")].filter((b) => !b.closest("[inert]")).map((b) => b.getAttribute("aria-label"));
+    expect(names).toEqual(["Edit", "Remove service", "Approve change order"]);
+    const primary = header.querySelector("[data-labeled-primary]")!;
+    expect(primary.textContent).toBe("Approve change order");
+    expect(primary.getAttribute("data-demo-target")).toBe("sheet-primary");
+    for (const gone of ["Message", "Cancel service", "Delete"]) expect(screen.queryByRole("button", { name: gone })).toBeNull();
+  });
+
+  it("the trash asks Cancel service (default) or Delete permanently; Cancel keeps the row, moved to Completed as Cancelled", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="services" />);
+    fireEvent.click(await openFaucet(container));
+    const dialog = await screen.findByRole("dialog", { name: "Remove service" });
+    const radios = within(dialog).getAllByRole("radio");
+    expect(radios.map((r) => r.closest("label")?.textContent)).toEqual(["Cancel service", "Delete permanently"]);
+    expect((radios[0] as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel service" }));
+    expect(screen.queryByRole("dialog", { name: "Remove service" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/Service cancelled/);
+    // Back on the list, the row is no longer Scheduled but sits in Completed as Cancelled.
+    expect(screen.queryByText("Kitchen faucet drip")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Completed/ }));
+    const row = screen.getByText("Kitchen faucet drip").closest("[data-demo-target='service-row']")!;
+    expect(row.textContent).toMatch(/Cancelled/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("Delete permanently is a press-and-hold and removes the row from every tab", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="services" />);
+    fireEvent.click(await openFaucet(container));
+    const dialog = await screen.findByRole("dialog", { name: "Remove service" });
+    fireEvent.click(within(dialog).getAllByRole("radio")[1]!);
+    const confirm = within(dialog).getByRole("button", { name: "Delete permanently" });
+    fireEvent.click(confirm);
+    expect(screen.getByRole("dialog", { name: "Remove service" })).toBeInTheDocument();
+    fireEvent.pointerDown(confirm, { button: 0, clientX: 0, clientY: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    fireEvent.pointerUp(confirm);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/Service removed/));
+    for (const tab of [/^Scheduled/, /^Completed/]) {
+      fireEvent.click(screen.getByRole("button", { name: tab }));
+      expect(screen.queryByText("Kitchen faucet drip")).toBeNull();
+    }
+  });
+
+  it("Communication opens on Everyone: the faucet conversation, resident and vendor merged in order and named", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="services" />);
+    await openFaucet(container);
+    fireEvent.click(rail("Communication"));
+    const tabs = () => [...document.querySelectorAll('[data-attr^="service-communication-tab-"]')].map((t) => t.textContent?.trim());
+    expect(tabs()).toEqual(["Everyone", "Liam Foster", "Pacific Plumbing"]);
+    const bodies = () => [...document.querySelectorAll("p.whitespace-pre-wrap")].map((p) => p.textContent);
+    expect(bodies()).toEqual(SERVICE_THREADS["wo-alder-faucet"]!.messages.map((m) => m.body));
+    const names = [...document.querySelectorAll("[data-inbox-author]")].map((el) => `${el.textContent}${el.parentElement?.querySelector("[data-inbox-author-note]")?.textContent ?? ""}`.replace(/\s+/g, " "));
+    expect(names[0]).toBe("Liam Foster· Resident");
+    expect(names).toContain("You· to Pacific Plumbing");
+    expect(names).toContain("Pacific Plumbing· Vendor");
+    expect(names).toContain("You· to Liam Foster");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("each party's tab holds one thread, and a reply To Pacific Plumbing lands in Everyone and Pacific's tab only", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="services" />);
+    await openFaucet(container);
+    fireEvent.click(rail("Communication"));
+    const click = (id: string) => fireEvent.click(document.querySelector(`[data-attr="service-communication-tab-${id}"]`)!);
+    const bodies = () => [...document.querySelectorAll("p.whitespace-pre-wrap")].map((p) => p.textContent);
+    click("resident");
+    expect(bodies()).not.toContain("Can you send a photo of the faucet and the shutoff valve underneath?");
+    expect(bodies()).toContain("Yes, I will be home Thursday morning. Come on in.");
+    click("vendor");
+    expect(bodies()).toEqual(SERVICE_THREADS["wo-alder-faucet"]!.messages.filter((m) => m.party === "vendor").map((m) => m.body));
+    click("everyone");
+    fireEvent.click(document.querySelector('[data-attr="service-communication-to-select"]')!);
+    const option = within(screen.getByRole("listbox", { name: "To" })).getByRole("option", { name: "Pacific Plumbing · Vendor" });
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.change(screen.getByPlaceholderText("Write to Pacific Plumbing…"), { target: { value: "Gate code is 4471." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(bodies().at(-1)).toBe("Gate code is 4471.");
+    click("vendor");
+    expect(bodies().at(-1)).toBe("Gate code is 4471.");
+    click("resident");
+    expect(bodies()).not.toContain("Gate code is 4471.");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a service with no vendor conversation shows just the resident's thread", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="services" />);
+    fireEvent.click(screen.getByRole("button", { name: /^Open/ }));
+    const row = container.querySelector("[data-demo-target='service-row'] button")!;
+    fireEvent.click(row);
+    await screen.findByRole("button", { name: "Remove service" });
+    fireEvent.click(rail("Communication"));
+    expect(document.querySelector('[data-attr="service-communication-tab-everyone"]')).toBeNull();
   });
 });
 

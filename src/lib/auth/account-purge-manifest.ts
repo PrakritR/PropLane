@@ -1259,6 +1259,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
   payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
+  platform_expenses: "PropLane's own business expenses entered by an admin (Finances); vendor and receipt describe a PropLane cost, never a customer, and created_by is an admin uuid set null when that account is deleted (FK on delete set null).",
   growth_ideas: "PropLane's own marketing content (growth engine); no account data.",
   growth_posts: "PropLane's own marketing posts; approved_by is an admin uuid set null when that account is deleted (FK on delete set null).",
   growth_assets: "Media for PropLane's own marketing posts; no account data.",

@@ -42,6 +42,14 @@ export type ManagerSheetLink = {
   lastSummary: string | null;
 };
 
+export type SheetSource = "google" | "csv";
+export type SheetMode = "stays" | "occupancy" | "raw";
+export type SheetRefreshMinutes = 15 | 60 | null;
+
+/** Raw-mode cache limits: first tab only, truncated beyond these. */
+export const RAW_CACHE_MAX_ROWS = 2000;
+export const RAW_CACHE_MAX_COLS = 50;
+
 export type ManagerSheetBinding = {
   id: string;
   title: string;
@@ -56,6 +64,17 @@ export type ManagerSheetBinding = {
   lastSyncedAt: string | null;
   lastError: string | null;
   lastSummary: string | null;
+  /** Additive fields (stored inside the existing sheet-link row data). */
+  source: SheetSource;
+  /** Published CSV URL; only set when source === "csv". */
+  csvUrl: string | null;
+  mode: SheetMode;
+  /** null = manual only (autoSync false). */
+  refreshMinutes: SheetRefreshMinutes;
+  /** Raw mode cache for Claude; never sent to the browser. */
+  rawHeaders: string[] | null;
+  rawRows: string[][] | null;
+  rawFetchedAt: string | null;
 };
 
 export const DEFAULT_MANAGER_SHEET_LINK: ManagerSheetLink = {
@@ -194,6 +213,37 @@ export function occupancyGidForSpreadsheet(spreadsheetId: string, previous?: str
   return spreadsheetId === AMBIKA_SALES_SPREADSHEET_ID ? AMBIKA_OCCUPANCY_GID : "";
 }
 
+/**
+ * Absent field = the pre-existing behaviour (15 when autoSync is on). An
+ * explicit null, or autoSync false, means manual only.
+ */
+export function normalizeRefreshMinutes(raw: unknown, autoSync: boolean): SheetRefreshMinutes {
+  if (!autoSync) return null;
+  if (raw === null) return null;
+  if (raw === 60) return 60;
+  return 15;
+}
+
+/** Cron fires on a fixed cadence with jitter; accept a link one minute early. */
+const DUE_GRACE_MS = 60_000;
+
+/**
+ * Whether the sync cron should sync this link now. Manual links never; links
+ * without `refreshMinutes` keep the old 15-minute behaviour.
+ */
+export function sheetLinkDueForSync(
+  link: { autoSync: boolean; refreshMinutes?: SheetRefreshMinutes | undefined; lastSyncedAt: string | null },
+  now: Date,
+): boolean {
+  if (!link.autoSync) return false;
+  const minutes = link.refreshMinutes === undefined ? 15 : link.refreshMinutes;
+  if (minutes == null) return false;
+  if (!link.lastSyncedAt) return true;
+  const last = Date.parse(link.lastSyncedAt);
+  if (!Number.isFinite(last)) return true;
+  return now.getTime() - last >= minutes * 60_000 - DUE_GRACE_MS;
+}
+
 export function normalizeManagerSheetBinding(raw: unknown): ManagerSheetBinding | null {
   const row = asObject(raw);
   const spreadsheetId = typeof row.spreadsheetId === "string" ? row.spreadsheetId.trim() : "";
@@ -202,6 +252,16 @@ export function normalizeManagerSheetBinding(raw: unknown): ManagerSheetBinding 
   const title = typeof row.title === "string" && row.title.trim() ? row.title.trim() : "Spreadsheet";
   const workspaceId = typeof row.workspaceId === "string" ? row.workspaceId.trim() : "";
   const propertyRaw = typeof row.propertyId === "string" ? row.propertyId.trim() : "";
+  const staysTab = asStaysTab(row.staysTab);
+  const source: SheetSource = row.source === "csv" ? "csv" : "google";
+  const mode: SheetMode =
+    row.mode === "stays" || row.mode === "occupancy" || row.mode === "raw" ? row.mode : staysTab ? "stays" : "occupancy";
+  const refreshMinutes = normalizeRefreshMinutes(row.refreshMinutes, row.autoSync !== false);
+  const csvUrl = source === "csv" && typeof row.csvUrl === "string" && row.csvUrl.trim() ? row.csvUrl.trim() : null;
+  const rawRows = Array.isArray(row.rawRows)
+    ? row.rawRows.filter(Array.isArray).map((r) => (r as unknown[]).map((c) => String(c ?? "")))
+    : null;
+  const rawHeaders = Array.isArray(row.rawHeaders) ? row.rawHeaders.map((c) => String(c ?? "")) : null;
   return {
     id,
     title,
@@ -211,13 +271,20 @@ export function normalizeManagerSheetBinding(raw: unknown): ManagerSheetBinding 
       typeof row.occupancyGid === "string" ? row.occupancyGid : "",
     ),
     houseTabs: asHouseTabs(row.houseTabs),
-    staysTab: asStaysTab(row.staysTab),
+    staysTab,
     workspaceId,
     propertyId: propertyRaw && propertyRaw !== ALL_SHEET_PROPERTIES ? propertyRaw : null,
-    autoSync: row.autoSync !== false,
+    autoSync: refreshMinutes != null,
     lastSyncedAt: typeof row.lastSyncedAt === "string" && row.lastSyncedAt.trim() ? row.lastSyncedAt : null,
     lastError: typeof row.lastError === "string" && row.lastError.trim() ? row.lastError : null,
     lastSummary: typeof row.lastSummary === "string" && row.lastSummary.trim() ? row.lastSummary : null,
+    source,
+    csvUrl,
+    mode,
+    refreshMinutes,
+    rawHeaders,
+    rawRows,
+    rawFetchedAt: typeof row.rawFetchedAt === "string" && row.rawFetchedAt.trim() ? row.rawFetchedAt : null,
   };
 }
 
@@ -236,6 +303,13 @@ export function bindingFromLegacyLink(link: ManagerSheetLink): ManagerSheetBindi
     lastSyncedAt: link.lastSyncedAt,
     lastError: link.lastError,
     lastSummary: link.lastSummary,
+    source: "google",
+    csvUrl: null,
+    mode: "occupancy",
+    refreshMinutes: link.autoSync ? 15 : null,
+    rawHeaders: null,
+    rawRows: null,
+    rawFetchedAt: null,
   };
 }
 
@@ -262,6 +336,12 @@ export function publicManagerSheetBinding(link: ManagerSheetBinding) {
     lastSummary: link.lastSummary,
     linked: Boolean(link.spreadsheetId),
     staysTab: link.staysTab ? { gid: link.staysTab.gid, title: link.staysTab.title } : null,
+    source: link.source,
+    csvUrl: link.csvUrl,
+    mode: link.mode,
+    refreshMinutes: link.refreshMinutes,
+    houseTabCount: link.houseTabs.length,
+    rawRowCount: link.rawRows?.length ?? null,
   };
 }
 
@@ -364,7 +444,7 @@ export async function saveManagerSheetBindings(
     .filter((row): row is ManagerSheetBinding => row != null);
   const rowData = await loadAutomationRowData(db, managerUserId);
   rowData[SHEET_LINKS_ROW_DATA_KEY] = normalized;
-  const first = normalized[0];
+  const first = normalized.find((row) => row.source === "google");
   rowData[SHEET_LINK_ROW_DATA_KEY] = first
     ? {
         ...DEFAULT_MANAGER_SHEET_LINK,
@@ -433,4 +513,34 @@ export async function listManagersWithSheetLinks(
     out.push({ managerUserId: String(row.manager_user_id), bindings });
   }
   return out;
+}
+
+export type SheetLinkStatus = "live" | "attention" | "manual";
+
+/**
+ * The per-sheet status pill: "attention" when lastError is set, "manual" when
+ * auto-sync is off, "live" when it last synced within 2x its refresh interval,
+ * otherwise "attention" (a stale auto-synced sheet needs a look too).
+ */
+export function sheetLinkStatus(
+  link: { autoSync: boolean; refreshMinutes: SheetRefreshMinutes; lastSyncedAt: string | null; lastError: string | null },
+  now: Date,
+): SheetLinkStatus {
+  if (link.lastError) return "attention";
+  if (!link.autoSync || link.refreshMinutes == null) return "manual";
+  const last = link.lastSyncedAt ? Date.parse(link.lastSyncedAt) : NaN;
+  if (!Number.isFinite(last)) return "attention";
+  return now.getTime() - last <= link.refreshMinutes * 2 * 60_000 ? "live" : "attention";
+}
+
+/** What a sheet reads, e.g. "Occupancy + 3 house tabs", "Stays", "Raw table". */
+export function sheetLinkReadsLabel(link: {
+  mode: SheetMode;
+  houseTabCount: number;
+  staysTab: { gid: string; title: string } | null;
+}): string {
+  if (link.mode === "raw") return "Raw table";
+  if (link.mode === "stays") return "Stays";
+  const base = link.houseTabCount > 0 ? `Occupancy + ${link.houseTabCount} house tab${link.houseTabCount === 1 ? "" : "s"}` : "Occupancy";
+  return link.staysTab ? `${base} + Stays` : base;
 }

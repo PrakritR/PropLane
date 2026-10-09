@@ -264,6 +264,7 @@ export function ManagerWorkNumberCard() {
           dataAttr="manager-work-email-card"
           value={workEmail}
           label={emailLabel}
+          wrapValue
           actions={[
             copyIdentityAction({
               key: "copy-email",
@@ -308,7 +309,9 @@ export function ManagerWorkNumberCard() {
 
   return (
     <div
-      className="grid min-w-0 shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3"
+      // On a phone the two boxes cost ~100px before the first conversation; the number and email
+      // are one tap away behind the header's Integrations icon, so they are desktop chrome.
+      className="grid min-w-0 shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3 max-lg:hidden"
       data-attr="manager-work-identity"
     >
       {numberBox}

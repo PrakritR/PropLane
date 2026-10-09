@@ -20,6 +20,12 @@ vi.mock("@/components/portal/workspace-provider", () => ({
   },
 }));
 vi.mock("@/components/portal/channel-calendar-link-modal", () => ({ ChannelCalendarLinkModal: ({ open, initialProvider }: { open: boolean; initialProvider?: string }) => open ? <div data-testid="connect-modal">{initialProvider}</div> : null }));
+vi.mock("@/lib/channel-calendar/property-units", () => ({
+  channelCalendarUnits: (propertyId: string) => [
+    { id: `${propertyId}-u1`, label: "Room 1", name: "Room 1" },
+    { id: `${propertyId}-u2`, label: "Room 2", name: "Room 2" },
+  ],
+}));
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: vi.fn(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: bookings.rooms }]),
   fetchRoomExportCalendarUrl: vi.fn(),
@@ -33,8 +39,10 @@ describe("Settings → Integrations → Bookings", () => {
   it("counts only each channel's own links and opens the popup on that channel", async () => {
     bookings.rooms = [room("airbnb", "r1"), room("booking_com", "r2"), room("airbnb", "r2", false)];
     render(<ManagerBookingChannelsPanel />);
-    await waitFor(() => expect(document.querySelector('[data-attr="settings-booking_com-status"]')?.textContent).toBe("Connected · 1 room"));
-    expect(document.querySelector('[data-attr="settings-airbnb-status"]')?.textContent).toBe("Connected · 1 room");
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-booking_com-status"]')?.textContent).toBe("Connected · 1 of 2 rooms · both ways · 1 needs a listing"));
+    expect(document.querySelector('[data-attr="settings-airbnb-status"]')?.textContent).toBe("Connected · 1 of 2 rooms · both ways · 1 needs a listing");
+    expect(document.querySelector('[data-attr="settings-airbnb-manage"]')?.textContent).toBe("Connect");
+    expect(document.querySelector('[data-attr="settings-booking_com-manage"]')?.textContent).toBe("Connect");
     fireEvent.click(document.querySelector('[data-attr="settings-booking_com-manage"]') as HTMLElement);
     expect(screen.getByTestId("connect-modal").textContent).toBe("booking_com");
   });

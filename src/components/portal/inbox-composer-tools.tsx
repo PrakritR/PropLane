@@ -25,8 +25,8 @@ import { cn } from "@/lib/utils";
  */
 
 const TOOL_BTN =
-  "inline-flex h-7 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-md border border-transparent bg-transparent px-0 text-foreground/80 outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 max-md:h-9";
-const TOOL_BTN_ICON_ONLY = "w-7 max-md:w-9";
+  "inline-flex h-7 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-md border border-transparent bg-transparent px-0 text-foreground/80 outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 max-md:h-11";
+const TOOL_BTN_ICON_ONLY = "w-7 max-md:w-11";
 const TOOL_BTN_ACTIVE = "bg-primary/10 text-primary hover:bg-primary/15";
 
 export function InboxComposerAiMenu({
@@ -49,7 +49,7 @@ export function InboxComposerAiMenu({
           aria-label="AI"
           title="Draft with PropLane · Ask PropLane"
           disabled={disabled}
-          className={cn(TOOL_BTN, "w-7 text-primary hover:bg-primary/10 hover:text-primary @[520px]:w-auto @[520px]:px-2 max-md:w-9 @[520px]:max-md:w-auto")}
+          className={cn(TOOL_BTN, "w-7 text-primary hover:bg-primary/10 hover:text-primary @[520px]:w-auto @[520px]:px-2 max-md:w-11 @[520px]:max-md:w-auto")}
           data-attr="inbox-composer-ai-menu"
         >
           <AxisAssistantSparkleIcon className="h-4 w-4" />
@@ -270,7 +270,7 @@ export function InboxComposerChannelMenu({
           aria-label={`Send via: ${label}`}
           title={identity ?? label}
           disabled={disabled}
-          className={cn(TOOL_BTN, "relative w-7 max-md:w-9 md:ml-1 md:w-auto md:border-input md:px-2 md:text-muted")}
+          className={cn(TOOL_BTN, "relative w-7 max-md:w-11 md:ml-1 md:w-auto md:border-input md:px-2 md:text-muted")}
           data-attr="inbox-reply-send-via"
         >
           <LeadIcon className="size-3.5" strokeWidth={2} aria-hidden />

@@ -156,7 +156,7 @@ export function PortalDetailHeader({
             >
               {title}
             </p>
-            {subtitle ? <p className="truncate text-[13px] text-muted">{subtitle}</p> : null}
+            {subtitle ? <p className="truncate text-[13px] text-muted max-md:line-clamp-2 max-md:whitespace-normal">{subtitle}</p> : null}
           </div>
         </div>
         {/* The host stays mounted even while empty — a publisher only claims
@@ -166,7 +166,9 @@ export function PortalDetailHeader({
             inlineActions
               ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"
               : iconTitleActions
-                ? cn("flex min-w-0 flex-1 basis-0 items-center gap-1.5", titleSingleLine && "max-md:flex-none max-md:basis-auto")
+                ? // justify-end: the title above is capped, so without it the icons float at the
+                  // start of the leftover space (mid-row) instead of the row's right edge.
+                  cn("flex min-w-0 flex-1 basis-0 items-center justify-end gap-1.5", titleSingleLine && "max-md:flex-none max-md:basis-auto")
                 : "hidden shrink-0 items-center gap-1.5 md:flex",
             !hasActions && "!hidden",
             inlineActionsClassName,
@@ -176,8 +178,9 @@ export function PortalDetailHeader({
           {iconTitleActions && !inlineActions ? (
             <PortalTitleActionsHost detail
               className={cn(
-                "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button:not([data-labeled-primary])]:!size-8 [&_button:not([data-labeled-primary])]:!min-h-0 [&_button:not([data-labeled-primary])]:!rounded-lg [&_button:not([data-labeled-primary])]:!p-0",
-                titleSingleLine && "max-md:flex-none max-md:basis-auto",
+                // Content-sized, not growing: a host that grows takes the leftover space and
+                // pushes the static `actions` before it back to the left of its own box.
+                "flex min-w-0 items-center justify-end gap-1.5 lg:[&_button:not([data-labeled-primary])]:!size-8 lg:[&_button:not([data-labeled-primary])]:!min-h-0 max-lg:[&_button:not([data-labeled-primary])]:!size-11 [&_button:not([data-labeled-primary])]:!rounded-lg [&_button:not([data-labeled-primary])]:!p-0",
               )}
             />
           ) : (

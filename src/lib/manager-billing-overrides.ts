@@ -9,11 +9,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * consequence of that plan for one account, with a staff actor and a reason recorded in
  * `audit_log`.
  *
- * Only `propertyCap` is READ by enforcement today (`assertManagerPropertyListingQuota`).
- * `trialEndsAt` and `complimentary` are RECORDED AND DISPLAYED ONLY: no billing, quota or plan
- * resolver consults them yet. That is deliberate for now — a comp flag that silently stopped
- * invoicing would be a money change made in a UI ticket — and it is stated in the admin screen
- * itself so staff are never told a switch does more than it does.
+ * `propertyCap` is READ by enforcement (`assertManagerPropertyListingQuota`). `complimentary` is the
+ * staff record of a comp grant; its LIVE effect is made by `admin-billing-actions.server.ts` (a
+ * 100%-off-forever coupon on the Stripe subscription, or an admin-assigned plan that never expires),
+ * and this flag is what the admin screen shows and undoes. `trialEndsAt` is no longer written: a trial
+ * end is made live by moving the date the plan resolver actually reads (the Stripe subscription's
+ * `trial_end`, or the signup trial's `paid_at`), so a second recorded date could only disagree.
  *
  * Storage is `manager_automation_settings.row_data.billingOverrides`, alongside `manualPayments`,
  * `tourSettings` and the rest of that per-manager settings blob. No new table and no new column:
@@ -40,10 +41,18 @@ export type ManagerBillingOverrides = {
    * is why this is `null`-for-absent rather than falsy-for-absent.
    */
   propertyCap: number | null;
-  /** `YYYY-MM-DD`, recorded for support. Not read by the plan resolver — see the file comment. */
+  /**
+   * LEGACY: a `YYYY-MM-DD` that older builds recorded without acting on. Never written now and
+   * never trusted for display; kept only so an old blob still normalizes and can be cleared.
+   */
   trialEndsAt: string | null;
-  /** "Complimentary — do not bill". Recorded and displayed only; billing does not read it yet. */
+  /** "Complimentary — do not bill". Applied live by `setAccountComplimentary`; this is its record. */
   complimentary: boolean;
+  /**
+   * What a non-Stripe account looked like before it was made complimentary, so Undo can put it
+   * back. A comp grant converts the purchase to an admin-assigned plan that never expires.
+   */
+  complimentaryPrior?: { billing: string; paidAt: string | null } | null;
 };
 
 export const EMPTY_MANAGER_BILLING_OVERRIDES: ManagerBillingOverrides = {
@@ -75,16 +84,30 @@ function normalizeTrialEnd(raw: unknown): string | null {
 
 export function normalizeManagerBillingOverrides(raw: unknown): ManagerBillingOverrides {
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const prior = row.complimentaryPrior;
+  const priorBilling =
+    prior && typeof prior === "object" && typeof (prior as Record<string, unknown>).billing === "string"
+      ? String((prior as Record<string, unknown>).billing).trim().toLowerCase().slice(0, 32)
+      : "";
+  const priorPaidAt = prior && typeof prior === "object" ? (prior as Record<string, unknown>).paidAt : null;
   return {
     propertyCap: normalizeCap(row.propertyCap),
     trialEndsAt: normalizeTrialEnd(row.trialEndsAt),
     complimentary: row.complimentary === true,
+    ...(priorBilling
+      ? { complimentaryPrior: { billing: priorBilling, paidAt: typeof priorPaidAt === "string" ? priorPaidAt : null } }
+      : {}),
   };
 }
 
 /** True when nothing is set — used to omit the key entirely rather than store an empty object. */
 export function managerBillingOverridesAreEmpty(overrides: ManagerBillingOverrides): boolean {
-  return overrides.propertyCap === null && overrides.trialEndsAt === null && !overrides.complimentary;
+  return (
+    overrides.propertyCap === null &&
+    overrides.trialEndsAt === null &&
+    !overrides.complimentary &&
+    !overrides.complimentaryPrior
+  );
 }
 
 export type OverrideParse<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -125,6 +148,20 @@ export function parseTrialEndOverride(raw: unknown): OverrideParse<string | null
 export function parseComplimentaryOverride(raw: unknown): OverrideParse<boolean> {
   if (typeof raw === "boolean") return { ok: true, value: raw };
   return { ok: false, error: "complimentary must be true or false." };
+}
+
+/** Stripe promotion code codes: letters, digits, `_` and `-`. */
+const PROMO_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The promo code's SHAPE, so a malformed one is refused before any other field in the same request
+ * is applied. Whether the code exists and is active is Stripe's answer, which only
+ * `applyAccountPromoCode` can get.
+ */
+export function parsePromoCodeOverride(raw: unknown): OverrideParse<string> {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!PROMO_CODE_PATTERN.test(value)) return { ok: false, error: "Enter a promo code." };
+  return { ok: true, value };
 }
 
 /**

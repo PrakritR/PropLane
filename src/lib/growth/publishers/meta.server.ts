@@ -1,8 +1,8 @@
 import "server-only";
 
-import { publishInstagramPhoto, publishMetaPagePhoto } from "@/lib/listing-channels/meta/graph.server";
+import { fetchInstagramMediaInsights, MetaReelError, publishInstagramPhoto, publishInstagramReel, publishMetaPagePhoto } from "@/lib/listing-channels/meta/graph.server";
 import { metaChannelsLive } from "@/lib/listing-channels/registry";
-import type { GrowthPublisher, PublishInput, PublishResult } from "../types";
+import type { GrowthMetric, GrowthPublication, GrowthPublisher, PublishInput, PublishResult } from "../types";
 
 /**
  * Direct Instagram/Facebook image posts. Phase 1 only: the token comes from env GROWTH_META_PAGE_TOKEN
@@ -18,9 +18,17 @@ export const metaPublisher: GrowthPublisher = {
     if (!token) return { ok: false, error: "GROWTH_META_PAGE_TOKEN is not set", retryable: false };
     const id = input.account.vendorAccountId;
     if (!id) return { ok: false, error: "Account has no vendorAccountId", retryable: false };
+    const video = input.media.find((m) => m.kind === "video");
     const photo = input.media.find((m) => m.kind === "image");
-    if (!photo) return { ok: false, error: "Meta publisher needs an image (video/reels are Phase 2)", retryable: false };
+    if (!photo && !(video && input.platform === "instagram")) {
+      return { ok: false, error: "Meta publisher needs an image (or a video for Instagram Reels)", retryable: false };
+    }
     try {
+      if (input.platform === "instagram" && video) {
+        const mediaId = await publishInstagramReel({ igAccountId: id, token, videoUrl: video.url, caption: input.caption });
+        return { ok: true, vendorPostId: mediaId, platformPostId: mediaId, platformUrl: null };
+      }
+      if (!photo) return { ok: false, error: "Meta publisher needs an image", retryable: false };
       if (input.platform === "instagram") {
         const postId = await publishInstagramPhoto({ igAccountId: id, token, photoUrl: photo.url, caption: input.caption });
         return { ok: true, vendorPostId: postId, platformPostId: postId, platformUrl: null };
@@ -31,7 +39,34 @@ export const metaPublisher: GrowthPublisher = {
       }
       return { ok: false, error: `Meta publisher does not handle ${input.platform}`, retryable: false };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : "Meta publish failed", retryable: true };
+      return { ok: false, error: e instanceof Error ? e.message : "Meta publish failed", retryable: !(e instanceof MetaReelError) };
     }
+  },
+  async fetchMetrics(pubs: GrowthPublication[]): Promise<Array<Omit<GrowthMetric, "id">>> {
+    const token = process.env.GROWTH_META_PAGE_TOKEN?.trim();
+    if (!token) return [];
+    const out: Array<Omit<GrowthMetric, "id">> = [];
+    for (const pub of pubs) {
+      if (pub.platform !== "instagram" || !pub.platformPostId) continue;
+      try {
+        const m = await fetchInstagramMediaInsights(pub.platformPostId, token);
+        out.push({
+          publicationId: pub.id,
+          capturedAt: new Date().toISOString(),
+          views: m.views,
+          likes: m.likes,
+          comments: m.comments,
+          shares: m.shares,
+          saves: m.saved,
+          followersSnapshot: null,
+          raw: m.raw,
+        });
+      } catch (e) {
+        // One failing media must not block the others; the insights step retries next run. The log line is
+        // the only signal that e.g. GROWTH_META_PAGE_TOKEN expired, so it must never be silent (never the token).
+        console.warn(`[growth] meta insights failed for publication ${pub.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return out;
   },
 };

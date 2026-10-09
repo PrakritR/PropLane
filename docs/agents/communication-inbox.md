@@ -32,6 +32,17 @@ composed from that record, not to whatever record a later replier happens to
 be viewing. A thread written before this existed, or whose subject kind is
 not in the mapped set, carries none and renders no chip — never a guessed one.
 
+**A turn carries its own record too (Oct 8, plan admin-money-1008 D9).** The thread keeps the first ref, so a later
+job with the same vendor or resident reuses the thread under the earlier job's ref. Every message the send path
+appends is therefore also stamped with the `recordRef` it was composed from (`InboxThreadMessage.recordRef`; the
+root turn in `body` belongs to the thread's ref). A service's Communication matches a thread through its
+`recordRef`, its `workOrderId` (stamped with the `recordRef` on a dispatch-agent thread when
+`ensureVendorAgentSession` creates it, and backfilled on the next refresh; the thread id is also
+`vendor_agent_<work order>_<vendor>`) or any of its turns, and shows just that service's turns
+(`threadAboutService` / `messageAboutService`, `src/lib/service-communication-scope.ts`; the "Everyone" tab merges
+the parties' threads - `docs/agents/services-system.md` § Communication). It is still a label, never an
+authorization grant.
+
 `CommunicationThreadFilters.recordRefs` / `.recordKinds`
 (`src/lib/communication-thread-filters.ts`) narrow a thread list to one record
 or one "About" kind; they only ever REMOVE rows the viewer's other
@@ -77,6 +88,61 @@ intermittently "had no messages" depending on network timing.
 really is nothing" — the empty label only ever reflects the completed sync's
 own answer. See `tests/unit/record-communication-section.test.tsx`.
 
+## Admin Communication is the manager's inbox over an adapter
+
+`ManagerUnifiedInbox` takes a `CommunicationInboxAdapter`
+(`src/lib/communication/inbox-adapter.ts`, default `managerInboxAdapter`). The
+adapter is everything that differs between whose conversations these are:
+
+- the thread store (`storageKey`, `loadCachedThreads`, `syncThreads`,
+  `threadsChangedEvent`), what the list is built from (`buildListThreads`: the
+  manager collapses person rows and pins the PropLane Assistant, admin does
+  neither), and optional `emailMutations` for archive / restore / delete when the
+  rows do not live in the persisted inbox cache;
+- the text stream (`loadSmsConversations`, `invalidateSmsConversations`,
+  `smsDetailPath` - absent means no per-conversation read, so the inbox never asks
+  the manager route about an admin conversation - and `smsArchivable`);
+- the contact directory (`syncDirectory`, manager only), `directChat` (the
+  manager's folded email + text pane), `identityBoxes`, and `ThreadPane` when the
+  portal draws its own thread pane (admin).
+
+`managerInboxAdapter` (`communication-adapters/manager-inbox-adapter.tsx`) only
+wraps the calls the inbox always made; the manager page is unchanged by it.
+`createAdminInboxAdapter` (`communication-adapters/admin-inbox-adapter.tsx`) serves
+admin:
+
+- **Conversations** are the `scope: "admin"` rows (support@ mail, portal users
+  writing to PropLane, messages admin composed), mapped to `PersistedInboxThread` by
+  `adminInboxMessageToThread` so the list model and merge rules are shared. Id,
+  subject, folder, unread (an inbox row with `read === false`), the side that wrote
+  each turn (`ADMIN_REPLY_AUTHOR_LABEL`) and the stamps (`formatInboxStamp`, label and
+  sort key at once) survive the mapping; a trashed message keeps `trashedFrom` as
+  `previousFolder`, so Restore returns it to the folder it came from (archive survives).
+  Reading is `GET /api/portal-inbox-threads?scope=admin`
+  (`syncInboxMessagesFromServerWithStatus`, which reports a failed read so the list
+  shows Retry rather than an empty inbox).
+- **Text conversations** come from `GET /api/admin/sms-conversations` and merge into
+  the same list; the thread opens `ManagerSmsPanel` with
+  `endpoint="/api/admin/sms-conversations"`, `allowDelete={false}` and
+  `allowArchive={false}` - archive state is the manager's
+  (`/api/manager/tour-follow-ups`), admin oversight of the shared line has none, so
+  admin text rows have no row menu. `smsUiEnabled` off = the stream is not read.
+- **Identity boxes** are the support address (`PUBLIC_SUPPORT_EMAIL`, the mailbox
+  inbound mail is routed from - `docs/agents/inbound-email-inbox.md`) and, when the
+  text stream reported one, its number (`AdminWorkIdentityCard`). No "set up" prompt:
+  admin does not provision either.
+- **Replies** go to `POST /api/admin/inbox-reply` and are appended only after the
+  server accepted them (authorize, then append). A reply to a support thread is still
+  receive-only: it never reaches the sender. "Schedule for later" is offered only for a
+  portal user (manager / resident / vendor) with an address.
+- **Mutations** (`adminEmailMutations`) go through the admin store
+  (`moveInboxMessageToTrash` / `restoreInboxMessageFromTrash` /
+  `permanentlyDeleteInboxMessage`); the bulk hook takes them as `emailMutations`
+  and otherwise uses the storage-key based ones.
+
+A new Communication surface is an adapter, not a copy of the inbox. Both adapters
+are held to one contract in `tests/unit/communication-inbox-adapter-contract.test.tsx`.
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
@@ -88,6 +154,10 @@ Namespace the delivery id per producer (`relay_`, `resident_`, `leasing_`). One
 inbound text can be mirrored by two producers that share its Twilio SID, so a
 bare SID makes the second mirror look like a retry of the first and it is
 dropped.
+
+Every notice turn is stamped `channel: "sms"` (root: `rootChannel`), and a reply the server's SMS agent
+sent is appended as an outbound turn by `recordAutoReplyOnSmsNotice` (idempotent on
+`auto_reply_<inbound sid>`, append-only, never creates a thread) — see "The composer's channel" below.
 
 Historical `claw_lease_*` / `claw_resident_*` notices are folded on reads using
 server-projected ownership plus an explicit phone label. Never infer phone
@@ -138,34 +208,49 @@ Every portal's Communication (manager, resident, vendor, admin) is a single
 conversation list + threads, NOT the old Unopened / Opened / Sent / Trash /
 Schedule tab bar. Manager, resident, and vendor use the chat two-pane
 (`ManagerUnifiedInbox` / `ResidentUnifiedInbox` / `VendorUnifiedInbox`, each
-mounting its portal's inbox panel with `suppressListPane` for the thread side);
-admin alone keeps its flat table driven by an `"all"` tabId (all non-trash
-conversations) plus the archive toggle. Invariants:
+mounting its portal's inbox panel with `suppressListPane` for the thread side).
+**Admin is the manager's page over admin's data** (captain, 2026-10-08, plan
+admin-money-1008 D5): `AdminCommunication` mounts the same
+`ManagerUnifiedInbox`, handing it the admin adapter. There is no admin-only inbox
+component and no table exception (`admin-inbox-client.tsx` is gone). See
+"Admin Communication is the manager's inbox over an adapter" below. Invariants:
 
-- **Manager, resident AND vendor Communication have Active | Archived command
-  tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
+- **Manager, resident, vendor AND admin Communication have Active | Archived
+  command tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
   chrome: label + count badge + cobalt underline (`DestinationNav
   appearance="command"`). Unread stays in Filter (All conversations, Read,
   Unread) for the current tab — Filter does not list Archived on any of the
-  three (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
-  `hideArchived`).
+  four (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
+  `hideArchived`). Filter also drops a section a surface has no answer for:
+  admin passes `hideHouse` / `hideRole` / `hideAbout` (no houses, one kind of
+  person, no record link). The manager's Filter carries one extra entry on a
+  phone only — **Scheduled N** (`showScheduled={isPhone}`,
+  `communicationScheduledOption`, counted by `useScheduledSendCount` from the
+  same two sources the Schedule panel reads). It is a list VIEW, not a thread
+  filter: it swaps the list body for the Schedule panel and the threads
+  underneath stay Active (`scheduledView` in `pro-unified-inbox.tsx`). It exists
+  because a phone has no Schedule tab and the Active | Archived tabs never grow
+  one.
   `/communication/{active|unread|archived}[/{threadId}]` deep links remain on
-  every portal. `unread` is Active + unread filter. Admin still routes
-  `/communication/inbox/{tab}` and reaches archived through its
-  `admin-inbox-archived-toggle` button. Trash/restore live in the open thread —
+  every portal. `unread` is Active + unread filter (admin folds `unread` into
+  Active, as the manager route does). Admin's old `/communication/inbox/{tab}`
+  and flat `/communication/{unopened|opened|schedule|sent|trash}` paths redirect
+  to the segment they became (trash is Archived, every other folder is Active).
+  Trash/restore live in the open thread —
   never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone
   tabbed panels survive only for the /demo path and legacy route redirects — on
-  those three portals every legacy `inbox` / `email` / `sms` path now folds into a
+  all four portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
-- **Switching the Active ⇄ Archived tab is instant on all three, with no
+- **Switching the Active ⇄ Archived tab is instant on all four, with no
   skeleton and no refetch (captain, 2026-09-26 for vendor, Oct 2026 for
   resident: both match manager's UI exactly).** `InboxListSegmentTabs`
-  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; all three lists
-  pass it and preventDefault a plain left click (no
+  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; every list
+  passes it and preventDefaults a plain left click (no
   modifier key), calling `onChange` instead of letting the `<Link>` navigate.
   `ManagerCommunication` (`pro-communication.tsx`), `ResidentCommunication`
-  (`resident-communication.tsx`) and `VendorCommunication`
-  (`vendor-communication.tsx`) each own the segment as CLIENT state
+  (`resident-communication.tsx`), `VendorCommunication`
+  (`vendor-communication.tsx`) and `AdminCommunication`
+  (`admin-communication.tsx`) each own the segment as CLIENT state
   (`useCommunicationListSegment`, mirroring `useCommunicationThreadId`) and
   push the URL with `history.pushState`
   (`selectCommunicationSegmentUrl`, `portal-communication-nav.ts`) rather than
@@ -260,12 +345,17 @@ conversations) plus the archive toggle. Invariants:
   `onSaveEdit` MUST reject on failure (see `saveScheduledEdit` in
   `manager-inbox.tsx`) — the card keeps the editor open and shows the error
   instead of closing and discarding the manager's text.
-  **Admin is the one exception to "inline".** Its Communication is a flat table
-  with no chat pane, and a scheduled send to someone admin has never messaged has
-  no conversation row to sit in, so admin keeps a reachable Scheduled view behind
-  an `admin-inbox-scheduled-toggle` button beside the archive toggle. It is a
-  view toggle, not a folder tab; do not delete it while the admin compose modal
-  can still schedule — that leaves scheduled sends uncancellable.
+  **Admin is inline too.** The old Scheduled view (and its
+  `admin-inbox-scheduled-toggle` button) is gone. A pending send renders in the bar
+  of its recipient's conversation (`useThreadScheduledCards` over
+  `/api/portal/scheduled-inbox-messages`), and a send to someone admin has never
+  messaged is drawn as a conversation of its own (`adminScheduledStubThread`,
+  `src/lib/admin-inbox-threads.ts`) so it still has a thread to sit in and a
+  reachable Cancel. Admin passes `includeAutomation: false` - it has no payment
+  reminders and must not issue the manager-only `scheduled-messages` read. Keep the
+  admin compose's "Schedule for later" and recipient picker
+  (`admin-compose-modal.tsx`) working with it: a scheduled send must never become
+  uncancellable.
 - **`scheduled-message-path-id.ts` must NEVER use the `base64url` encoding
   token.** It runs client-side (building the scheduled-message action URL), and
   Next's browser Buffer polyfill throws "Unknown encoding: base64url" — that
@@ -596,6 +686,34 @@ is answered by email (from the workspace work address, subject `Re: <subject>`),
 a text by text, a portal message in-app. A thread with no stamped inbound keeps
 the in-app default. The old in-app-only default let a manager answer a prospect
 who had only ever emailed — the reply landed on a row nobody could read.
+
+### The composer's channel: last inbound, sticky, honest (screen J, Oct 8)
+
+- **Inbound SMS notices are stamped.** `upsertManagerInboxNotice` writes
+  `rootChannel: "sms"` on the root and `channel: "sms"` on every appended turn, and
+  `append_manager_sms_inbox_notice` (migration `20261008230000_sms_notice_channel_stamp.sql`)
+  stamps the same server-side when a caller names none. Rows stored before the stamp are read as
+  text by `lastInboundChannelOf` from `threadType` (`claw_leasing_sms` / `claw_resident_sms`) or
+  `smsNoticePhone`, the way it already special-cases `assistant-email-` rows. Inbound **email** was
+  always stamped (`mirrorAssistantEmailConversation`, `channel: "email"`).
+- **The default is the last inbound channel and it is sticky per thread.** `resolveStickyReplyChannels`
+  (`manager-inbox-reply-channels.ts`): a manual channel pick is remembered for the thread against the
+  inbound channel it was made under (`ReplyChannelMemory` in `pro-inbox.tsx`); only a NEW inbound on a
+  different channel, or a remembered channel that stopped being available, returns to the default.
+- **In-app is offered only to people who can read it.** `inboxThreadPortalReachable` =
+  `resolveManagerInboxPortalRecipient` non-null (an email, or an SMS contact tied to an account), or an
+  assistant/team thread. `activeProplaneAvailable` is that, no longer `Boolean(activeThread)`. A phone-only
+  prospect gets Text; an unreachable In-app is never selected, so it can never be auto-sent.
+- **A refused send never loops.** The AI-draft auto-send latch is per draft + channel choice and is KEPT
+  when the send is refused (only a "nothing attempted" result clears it); the toast is deduped per draft +
+  channel; the retry is a user action (Approve, or picking another channel).
+- **The server answers on the inbound channel, so the browser does not.** See
+  [`inbox-ai-drafts.md`](inbox-ai-drafts.md) § Server auto-reply. A text to the work number is answered by
+  the prospect/resident SMS agent and the reply is recorded on the notice thread as a sent turn
+  (`recordAutoReplyOnSmsNotice`); `threadEligibleForAiDraft` and `/api/portal/inbox-draft-reply` skip
+  `claw_leasing_sms` / `claw_resident_sms` threads (`isServerAgentAnsweredSmsThread`).
+- Tests: `tests/unit/sms-notice-channel-stamp.test.ts`, `manager-inbox-reply-channel-default.test.ts`,
+  `manager-inbox-auto-send-refusal.test.tsx`.
 
 Every turn is **stamped with the channel it actually went on**
 (`InboxThreadMessage.channel`: `email` / `sms` / `proplane`; the root turn's stamp

@@ -29,18 +29,20 @@ export function portalIconActionSpec({ id, label, icon, onClick, disabled, tone,
  * the primary is the single place a word is drawn, because it is the action the manager most likely wants.
  * The same authorized handler folds into the overflow menu when the row is too narrow.
  */
-export function portalLabeledPrimarySpec({ id, label, onClick, disabled, dataAttr }: {
+export function portalLabeledPrimarySpec({ id, label, onClick, disabled, dataAttr, demoTarget }: {
   id: string;
   label: string;
   onClick: () => unknown;
   disabled?: boolean;
   dataAttr?: string;
+  /** `data-demo-target` for the home demo's cursor. */
+  demoTarget?: string;
 }): PortalAdaptiveAction {
   return {
     id,
     tone: "primary",
     node: (
-      <Button type="button" variant="primary" className="h-9 shrink-0 rounded-full px-5 text-[13.5px]" aria-label={label} disabled={disabled} data-attr={dataAttr} data-labeled-primary="" onClick={() => onClick()}>
+      <Button type="button" variant="primary" className="h-9 shrink-0 rounded-full px-5 text-[13.5px]" aria-label={label} disabled={disabled} data-attr={dataAttr} data-demo-target={demoTarget} data-labeled-primary="" onClick={() => onClick()}>
         {label}
       </Button>
     ),

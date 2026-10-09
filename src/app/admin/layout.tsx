@@ -1,6 +1,7 @@
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
 import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
+import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
@@ -37,7 +38,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   ]);
   const adminPortal = adminPortalForTestWorkspaceOperator(testWorkspaceOperator);
   return (
-    <AxisAssistant managerName={profile?.full_name ?? null}>
+    <AxisAssistant endpoint="/api/agent/admin-chat" managerName={profile?.full_name ?? null}>
       <div className={PORTAL_SHELL_ROOT_CLASS} data-surface="admin">
         {/*
           Manager, resident and vendor all default light — admin was the one
@@ -47,6 +48,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         */}
         <SurfaceThemeDefault theme="light" />
         <PortalClientSessionGuard />
+        <PortalSessionKeepalive />
         <PortalTopBar
           kind={adminPortal.kind}
           basePath={adminPortal.basePath}
@@ -77,6 +79,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </main>
           </div>
           <PortalAssistantRail
+            endpoint="/api/agent/admin-chat"
             managerName={profile?.full_name ?? null}
             initialCollapsed={assistantDockCollapsed}
           />

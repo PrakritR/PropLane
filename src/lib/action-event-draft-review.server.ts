@@ -40,7 +40,7 @@ import { teamThreadId } from "@/lib/team-comms.server";
 
 const DRAFT_ATTACH_ATTEMPTS = 4;
 
-function reviewDraft(input: { text: string; origin: string; generatedAt: string }): InboxAiDraft {
+export function reviewDraft(input: { text: string; origin: string; generatedAt: string }): InboxAiDraft {
   return {
     text: input.text,
     status: "pending_approval",
@@ -65,7 +65,7 @@ function draftAlreadyQueued(rowData: Record<string, unknown>, draft: InboxAiDraf
  * the head slot is taken only when it is free; otherwise the draft queues.
  * CAS on `updated_at` so two automation drafts arriving together both land.
  */
-async function attachDraftToThread(
+export async function attachDraftToThread(
   db: SupabaseClient,
   threadId: string,
   draft: InboxAiDraft,

@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { getStripe } from "@/lib/stripe";
+import { resolveCheckoutSessionPromoCodeResult } from "@/lib/stripe/checkout-promo-code.server";
 
 type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -220,13 +221,21 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
   const tierMeta = session.metadata?.tier?.trim().toLowerCase() || null;
   const billingMeta = session.metadata?.billing?.trim().toLowerCase() || null;
 
+  /* Only a discount Stripe APPLIED is recorded. When the lookup itself failed we cannot tell, so the
+     column is left out of the patch entirely: a webhook retry must not erase a code an earlier
+     delivery recorded correctly. */
+  const promo = await resolveCheckoutSessionPromoCodeResult(session);
+
   const patch = {
     stripe_checkout_session_id: session.id,
     stripe_customer_id: customerId,
     stripe_subscription_id: subscriptionId,
     tier: tierMeta,
     billing: billingMeta,
-    promo_code: session.metadata?.promo ?? null,
+    // The code Stripe applied as a discount on this session, never the free text typed on the pricing
+    // form. It goes in stripe_promotion_code, NEVER promo_code: promo_code is the payment-waiver column
+    // (isWaiverGrantedManagerPurchase), so a discount code there would keep paid access after cancelling.
+    ...(promo.resolved ? { stripe_promotion_code: promo.code } : {}),
     paid_at: new Date().toISOString(),
     full_name: session.metadata?.full_name?.trim() || null,
     ...(email ? { email } : {}),

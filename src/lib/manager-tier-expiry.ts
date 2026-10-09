@@ -64,3 +64,29 @@ export function resolveEffectiveManagerTier(
   if (isManagerPurchasePeriodExpired(input, nowMs)) return "free";
   return tier;
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The calendar day a signup trial ends, as the instant the resolver compares against:
+ * the last second of that UTC day, so a trial set to end on Oct 15 is live all of Oct 15.
+ */
+export function signupTrialEndInstantMs(endsOn: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endsOn)) return null;
+  const ms = Date.parse(`${endsOn}T23:59:59.000Z`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The `paid_at` that makes a no-card signup trial end at `endMs`.
+ *
+ * A signup trial has no stored end date — the resolver derives it as `paid_at` plus
+ * `MANAGER_SUBSCRIPTION_TRIAL_DAYS` ({@link managerPurchasePeriodEndMs}) and every plan reader
+ * (property cap, nav locks, comms allowance, the admin lists) goes through that one derivation.
+ * So extending such a trial means moving the one value they all read; a separate "trial end"
+ * field would be honoured by whichever reader remembered to consult it. This is the inverse of
+ * that derivation, kept beside it so the two cannot drift.
+ */
+export function paidAtForSignupTrialEnd(endMs: number): string {
+  return new Date(endMs - MANAGER_SUBSCRIPTION_TRIAL_DAYS * DAY_MS).toISOString();
+}

@@ -1,7 +1,7 @@
 # PropLane Assistant — architecture, tool catalog, and how to extend it
 
-The in-app AI assistant ("PropLane Assistant") runs on the **manager/admin,
-vendor and resident** portals, with one shared agent core and a portal-scoped
+The in-app AI assistant ("PropLane Assistant") runs on the **manager,
+admin, vendor and resident** portals, with one shared agent core and a portal-scoped
 tool registry per surface. Users ask in natural language; the assistant answers
 from live data and **proposes** actions that only execute after the user
 explicitly confirms.
@@ -31,7 +31,8 @@ surfaces hash the exact final string in Langfuse.
 axis-assistant.tsx (one panel, portal-aware copy/suggestions/endpoints)
         │
         ▼
-GET/POST /api/agent/chat            (manager/admin) ┐
+GET/POST /api/agent/chat            (manager)       ┐
+GET/POST /api/agent/admin-chat      (admin)         │
 GET/POST /api/agent/resident-chat   (resident)      ├─ resolve portal context → registry
 GET/POST /api/agent/vendor-chat     (vendor)        ┘
    (each portal mounts AxisAssistant on its own endpoint; never cross them)
@@ -66,6 +67,7 @@ POST back to the SAME chat endpoint  { confirmActionId } | { denyActionId }
 | manager | `resolveAgentContext` (`src/lib/tools/context.ts`) | `.eq("manager_user_id", ctx.landlordId)` |
 | resident | `resolveResidentAgentContext` (`src/lib/tools/resident-context.ts`) | `.or("resident_user_id.eq.<uid>,resident_email.eq.<email>")` or `.eq("resident_email", …)` |
 | vendor | `resolveVendorAgentContext` (`src/lib/tools/vendor-context.ts`) | `.eq("vendor_user_id", ctx.userId)` |
+| admin | `resolveAdminAgentContext` (`src/lib/tools/admin/context.ts`) | none to apply: platform reads only, no `landlordId`, no manager workspace |
 
 Identity always comes from the authenticated session — **never** from model
 input. `buildRegistry` throws at module init if a write tool's input schema
@@ -351,7 +353,11 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 `reconcile_bank_statement_line` W), search (`find_records` R), profile
 (`get_manager_profile` R, `get_dashboard_summary` R), promotions
 (`list_promotions` R, `create_promotion` W, `update_promotion` W,
-`delete_promotion` W destructive), team (`list_co_managers` R), documents
+`delete_promotion` W destructive), spreadsheets (`list_spreadsheets` R,
+`read_spreadsheet` R — clipped to a column/cell/total-character budget, never a
+whole sheet, `sync_spreadsheet` W; see
+[`docs/agents/integrations.md`](agents/integrations.md) § Spreadsheets),
+team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
 `decide_service_request` W), inspections (`list_inspections` R,
 `get_inspection` R, `open_inspection` W, `save_inspection_observations` W,
@@ -444,6 +450,33 @@ Reads: `get_vendor_links`, `list_my_jobs`, `get_job_details`, `list_my_bids`, `l
 (refuses once a bid is accepted), `mark_job_done`, `update_my_availability`,
 `send_message_to_manager`, `submit_vendor_invoice`. Stripe Connect onboarding,
 W-9/tax, and document uploads stay on the Profile page (deep-link only).
+
+### Admin (`src/lib/tools/admin/index.ts`, `adminAgentRegistry`)
+
+The PropLane operator console's assistant (captain, Oct 8). The admin layout used
+to mount the assistant with no endpoint, so it fell to the manager route and
+answered from the operator's own manager workspace. It now has its own
+resolver, registry and route (`/api/agent/admin-chat`), and **never** touches
+a manager workspace: `resolveAdminAgentContext` admits only an account that holds
+the admin role (`isAdminUser`, the same check as `requireAdminRoute`) and the
+context carries no `landlordId`. A non-admin is a 401.
+
+**Read-only by construction.** Every tool is a `defineTool` read; there is no
+`defineWriteTool`, no pending action and no confirm path for this role (asserted
+in `tests/unit/agent/admin-agent.test.ts`). Each tool calls the function the
+admin UI already uses: `find_account` (name, email or PropLane ID), `account_summary`
+(`loadAdminAccountDetail`, projected to non-secret fields), `subscriber_counts`
+and `trials_ending` (Paid / Trial / Promo / Free / Complimentary, derived with
+`deriveAdminBillingRow` so they equal the plan the product enforces),
+`earnings_summary` (Stripe balance transactions via `getStripe`, month window
+in UTC, reports `complete: false` if truncated), `promo_codes_summary` (Stripe
+promotion codes, most redeemed first), `health_summary` (`loadAdminHealth`) and
+`open_feedback`. The route mirrors the vendor chat (rate limit, session archive
+under `portal = 'admin'`, Langfuse `traceAgentTurn` with `{ role: "admin",
+isAdmin: true }`). It reserves no communication credit: nothing here sends a
+message. The panel's placeholder is "Ask about PropLane…" with admin chips
+(`ADMIN_ASSISTANT_SUGGESTIONS`). New admin tools go in this registry only; a
+write tool would need its own design review and the shared confirm gate.
 
 ### Resident personal agent (`src/lib/tools/resident-personal-agent-index.ts`)
 

@@ -48,6 +48,7 @@ import {
   upsertPersistedInboxRows,
   inboxThreadMessages,
   lastInboundChannelOf,
+  isServerAgentAnsweredSmsThread,
   inboxThreadSortMs,
   inboxMessageOutbound,
   advanceInboxAiDraft,
@@ -115,7 +116,9 @@ import {
   inboxThreadHasEmail,
   hasInboxReplyChannelSelected,
   resolveAssistantInboxReplyChannels,
-  resolveCommunicationPersonThreadReplyChannels,
+  inboxThreadPortalReachable,
+  resolveStickyReplyChannels,
+  type ReplyChannelMemory,
   resolveManagerInboxReplyChannels,
   resolveManagerInboxPortalRecipient,
   resolveManagerInboxSmsTarget,
@@ -216,6 +219,11 @@ function replyHouseIdFor(thread: InboxThread): string {
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
   if (isPropLaneAssistantInboxThread(thread)) return false;
   if (thread.folder !== "inbox") return false;
+  // A text to the work number is answered by the server agent (one responder per inbound message):
+  // it replies on the same channel and records the reply on the thread. A browser draft would be a
+  // second responder — unless the agent did not answer at all (no credit, an escalation), which
+  // leaves the thread still waiting and the manager with nothing queued.
+  if (isServerAgentAnsweredSmsThread(thread)) return inboxThreadManagerReplyPending(thread);
   if (inboxThreadManagerReplyPending(thread)) return true;
   const email = String(thread.email ?? "").trim().toLowerCase();
   return email.includes("@");
@@ -1152,6 +1160,12 @@ export const ManagerInbox = forwardRef<
   const { enabled: aiAutoSend, setEnabled: setAiAutoSend } = useInboxAiDraftAutoSend();
   const { channelsFor } = useManagerCommunicationDeliverVia();
   const autoSentDraftRef = useRef<string | null>(null);
+  /* One toast per refused auto-send of a given draft + channel choice. */
+  const autoSendRefusalToastRef = useRef<string | null>(null);
+  /* The composer's channel per thread: the last inbound channel by default,
+     then whatever the person picked, until a NEW inbound arrives on another one. */
+  const replyChannelMemoryRef = useRef<Map<string, ReplyChannelMemory>>(new Map());
+  const replyFlagsRef = useRef({ viaEmail: true, viaSms: false, viaProplane: false });
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
   const [discardedDraftIds, setDiscardedDraftIds] = useState<Set<string>>(() => new Set());
   const [draftingIds, setDraftingIds] = useState<Set<string>>(() => new Set());
@@ -1268,7 +1282,22 @@ export const ManagerInbox = forwardRef<
   const activeIsAssistantThread = Boolean(
     activeThread && isPropLaneAssistantInboxThread(activeThread),
   );
-  const activeProplaneAvailable = Boolean(activeThread);
+  const activeThreadId = activeThread?.id ?? null;
+  const activeIsTeamThread = Boolean(
+    activeThread && isTeamInboxThread({ id: activeThread.id, threadType: activeThread.threadType ?? undefined }),
+  );
+  /* In-app is only offered when this person can read it: an assistant/team
+     thread, or a counterparty that resolves to a portal recipient. A phone-only
+     prospect has no PropLane account, so In-app is hidden and never auto-sent. */
+  const activeProplaneAvailable = Boolean(
+    activeThread &&
+      inboxThreadPortalReachable({
+        thread: activeThread,
+        smsRecipients,
+        smsOutboundEnabled,
+        inAppOnlyThread: activeIsAssistantThread || activeIsTeamThread,
+      }),
+  );
   const showReplyChannelPicker = Boolean(activeThread);
   /* A primitive on purpose: the default-channel effects key on it, and a string
      only changes when the person actually reaches us on a different channel —
@@ -1277,6 +1306,30 @@ export const ManagerInbox = forwardRef<
     () => (activeThread ? lastInboundChannelOf(activeThread) : null),
     [activeThread],
   );
+  useEffect(() => {
+    replyFlagsRef.current = { viaEmail: replyViaEmail, viaSms: replyViaSms, viaProplane: replyViaProplane };
+  }, [replyViaEmail, replyViaSms, replyViaProplane]);
+  /* A manual channel pick is remembered for this thread against the inbound
+     channel it was made under, so reopening the thread (or a refresh) keeps it. */
+  const pickReplyChannel = useCallback(
+    (patch: Partial<{ viaEmail: boolean; viaSms: boolean; viaProplane: boolean }>) => {
+      const next = { ...replyFlagsRef.current, ...patch };
+      replyFlagsRef.current = next;
+      if (patch.viaEmail !== undefined) setReplyViaEmail(patch.viaEmail);
+      if (patch.viaSms !== undefined) setReplyViaSms(patch.viaSms);
+      if (patch.viaProplane !== undefined) setReplyViaProplane(patch.viaProplane);
+      if (activeThreadId) {
+        replyChannelMemoryRef.current.set(activeThreadId, {
+          inbound: activeLastInboundChannel,
+          flags: next,
+        });
+      }
+    },
+    [activeThreadId, activeLastInboundChannel],
+  );
+  const onPickViaProplane = useCallback((on: boolean) => pickReplyChannel({ viaProplane: on }), [pickReplyChannel]);
+  const onPickViaEmail = useCallback((on: boolean) => pickReplyChannel({ viaEmail: on }), [pickReplyChannel]);
+  const onPickViaSms = useCallback((on: boolean) => pickReplyChannel({ viaSms: on }), [pickReplyChannel]);
 
   /**
    * An email-only conversation has no SMS channel until someone supplies a
@@ -1360,10 +1413,12 @@ export const ManagerInbox = forwardRef<
       return;
     }
     if (embeddedInCommunication) {
-      const person = resolveCommunicationPersonThreadReplyChannels({
+      const person = resolveStickyReplyChannels({
         emailAvailable: activeEmailAvailable,
         smsAvailable: activeSmsAvailable,
+        proplaneAvailable: activeProplaneAvailable,
         lastInboundChannel: activeLastInboundChannel,
+        remembered: activeThreadId ? replyChannelMemoryRef.current.get(activeThreadId) : null,
       });
       setReplyViaProplane(person.viaProplane);
       setReplyViaEmail(person.viaEmail);
@@ -1386,7 +1441,9 @@ export const ManagerInbox = forwardRef<
     channelsFor,
     activeEmailAvailable,
     activeSmsAvailable,
+    activeProplaneAvailable,
     activeLastInboundChannel,
+    activeThreadId,
   ]);
 
   const activeIsSent = activeThread?.folder === "sent";
@@ -1873,14 +1930,20 @@ export const ManagerInbox = forwardRef<
     persistInboxRef.current = true;
   }, [activeThread, local, setReplyDraft]);
 
-  const approveActiveDraft = useCallback(async () => {
+  /**
+   * Send the pending draft the composer holds. Resolves "sent", "failed" (a send
+   * was attempted and refused) or "skipped" (nothing was attempted). The
+   * auto-send effect keeps its latch on "failed": a refusal never retries on its
+   * own, only on a user action (Approve, or a different channel pick).
+   */
+  const approveActiveDraft = useCallback(async (opts?: { auto?: boolean }): Promise<"sent" | "failed" | "skipped"> => {
     // The normal composer is the only send surface. Auto-send and Approve must
     // deliver what is on screen (replyDraft), never a hidden server aiDraft that
     // dirty-composer protection refused to insert.
     const pending = activeThread?.aiDraft?.text.trim() ?? "";
     const text = replyDraft.trim();
-    if (!activeThread || !pending || !text) return false;
-    if (text !== pending) return false;
+    if (!activeThread || !pending || !text) return "skipped";
+    if (text !== pending) return "skipped";
     // Resolve against live availability so auto-send (and a stale picker
     // state right after opening a phone-only thread) still picks SMS when
     // email is impossible — never toast "choose a channel" and stick the
@@ -1891,8 +1954,8 @@ export const ManagerInbox = forwardRef<
       viaProplane: replyViaProplane && activeProplaneAvailable,
     };
     if (!hasInboxReplyChannelSelected(channels)) {
-      showToast("Choose PropLane, Email, SMS, or a combination.");
-      return false;
+      if (!opts?.auto) showToast("Choose PropLane, Email, SMS, or a combination.");
+      return "skipped";
     }
     setApprovingDraft(true);
     try {
@@ -1908,15 +1971,20 @@ export const ManagerInbox = forwardRef<
         clearInboxReplyDraft(activeThread.id);
         showToast(inboxReplySentToastMessage(outcome));
       }
-      return true;
+      return "sent";
     } catch (error) {
-      autoSentDraftRef.current = null;
-      showToast(
+      const message =
         error instanceof InboxSendRefusal
           ? (error.reason ?? "Could not send reply.")
-          : "Could not send reply.",
-      );
-      return false;
+          : "Could not send reply.";
+      // An automatic attempt says it once per draft + channel choice; the
+      // person's own Approve click always gets its answer.
+      const toastKey = `${activeThread.id}:${text}:${channels.viaEmail}:${channels.viaSms}:${channels.viaProplane}`;
+      if (!opts?.auto || autoSendRefusalToastRef.current !== toastKey) {
+        autoSendRefusalToastRef.current = toastKey;
+        showToast(message);
+      }
+      return "failed";
     } finally {
       setApprovingDraft(false);
     }
@@ -1944,6 +2012,8 @@ export const ManagerInbox = forwardRef<
     // A draft the workspace queued FOR review is the one thing auto-send must
     // never touch — the manager turned that on to see it first.
     if (activeThread.aiDraft.requiresReview) return;
+    // A text the server agent already answers is never also sent from here.
+    if (isServerAgentAnsweredSmsThread(activeThread)) return;
     // Fail closed when the visible composer does not hold this pending draft.
     if (!activeAiDraftAdopted) return;
     if (approvingDraft || draftingIds.has(activeThread.id)) return;
@@ -1952,11 +2022,16 @@ export const ManagerInbox = forwardRef<
       viaSms: activeSmsAvailable && replyViaSms,
       viaProplane: activeProplaneAvailable && replyViaProplane,
     })) return;
-    const key = `${activeThread.id}:${activeThread.aiDraft.text}`;
+    // The latch is per draft AND channel choice: a refused send is not retried
+    // by the effect re-running (approving flips state), only when the person
+    // picks a different channel or presses Approve.
+    const key = `${activeThread.id}:${activeThread.aiDraft.text}:${replyViaEmail}:${replyViaSms}:${replyViaProplane}`;
     if (autoSentDraftRef.current === key) return;
     autoSentDraftRef.current = key;
-    void approveActiveDraft().then((sent) => {
-      if (!sent) autoSentDraftRef.current = null;
+    void approveActiveDraft({ auto: true }).then((result) => {
+      // Nothing was attempted (composer not ready yet): allow a later pass.
+      // A refused send keeps the latch.
+      if (result === "skipped" && autoSentDraftRef.current === key) autoSentDraftRef.current = null;
     });
   }, [
     aiAutoSend,
@@ -1990,9 +2065,9 @@ export const ManagerInbox = forwardRef<
       viaEmail={replyViaEmail}
       viaSms={replyViaSms}
       viaProplane={replyViaProplane}
-      onViaProplaneChange={setReplyViaProplane}
-      onViaEmailChange={setReplyViaEmail}
-      onViaSmsChange={setReplyViaSms}
+      onViaProplaneChange={onPickViaProplane}
+      onViaEmailChange={onPickViaEmail}
+      onViaSmsChange={onPickViaSms}
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
@@ -2008,9 +2083,9 @@ export const ManagerInbox = forwardRef<
       viaEmail={replyViaEmail}
       viaSms={replyViaSms}
       viaProplane={replyViaProplane}
-      onViaProplaneChange={setReplyViaProplane}
-      onViaEmailChange={setReplyViaEmail}
-      onViaSmsChange={setReplyViaSms}
+      onViaProplaneChange={onPickViaProplane}
+      onViaEmailChange={onPickViaEmail}
+      onViaSmsChange={onPickViaSms}
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}

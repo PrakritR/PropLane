@@ -62,7 +62,12 @@ Tokens live in `:root` / `[data-theme="light"]` and `[data-theme="dark"]`, surfa
 | `--auth-input-bg` | `rgba(255,255,255,0.55)` | `rgba(255,255,255,0.10)` |
 | `--portal-surface-dark` | — | `#0b1120` |
 | `--portal-surface-light` | `linear-gradient(180deg, #f5f8fd → #e9eef7)` | — |
-| Admin override (`[data-surface="admin"]`) | — | `#0a0e18` (deeper, cooler) |
+
+`[data-surface="admin"]` is a markup hook only — it rebinds no token. Its old navy
+`--background` painted every `bg-background` surface (the assistant rail included) dark
+while the text tokens stayed dark ink; admin is a light portal like the others, and text
+and fill now come from one token pair everywhere
+(`tests/unit/admin-assistant-panel.test.tsx`).
 
 ### Status palette
 
@@ -272,7 +277,7 @@ Persisted to `localStorage` key `axis:theme`. Root inline script prevents flash;
 | Marketing / Auth / Root | Dark | `ThemeProvider defaultTheme="dark"` |
 | Property portal | Light | `SurfaceThemeDefault theme="light"` |
 | Resident portal | Light | `SurfaceThemeDefault theme="light"` |
-| Admin portal | Dark | `SurfaceThemeDefault theme="dark"` + `[data-surface="admin"]` |
+| Admin portal | Light | `SurfaceThemeDefault theme="light"` |
 
 User preference in localStorage wins over surface defaults.
 

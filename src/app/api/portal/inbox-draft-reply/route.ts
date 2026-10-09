@@ -28,6 +28,7 @@ import {
 } from "@/lib/portal-inbox-thread-scope";
 import {
   inboxThreadManagerReplyPending,
+  isServerAgentAnsweredSmsThread,
   inboxThreadMessages,
   inboxMessageOutbound,
   type InboxThreadMessage,
@@ -254,6 +255,15 @@ export async function POST(req: Request) {
 
     const pendingReply = inboxThreadManagerReplyPending(toPersistedThread(rowData, "inbox"));
     const firstOutreach = isFirstOutreachDraft(rowData);
+
+    // A text to the work number is answered by the server SMS agent on the same channel and recorded
+    // on the thread. One responder per inbound message — but only when the agent ACTUALLY answered:
+    // an inbound it refused (no credit), escalated, or never reached still needs something queued for
+    // the manager, so the skip is gated on the thread no longer waiting on a reply.
+    if (!pendingReply && isServerAgentAnsweredSmsThread({ threadType: String(rowData.threadType ?? "") })) {
+      return NextResponse.json({ ok: true, skip: true, reason: "server-agent-sms" });
+    }
+
     if (!pendingReply && !firstOutreach) {
       return NextResponse.json({ ok: true, skip: true, reason: "already-replied" });
     }

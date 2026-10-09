@@ -93,3 +93,44 @@ message box: the thread's normal `InboxComposer`. Two invariants keep it working
   endpoint, and the assistant strip continues to open the assistant rather than
   pretending to draft. Coverage:
   `tests/unit/manager-inbox-ai-draft.test.tsx`.
+
+## Server auto-reply on the inbound channel (screen J, D10, Oct 8)
+
+Approval-first drafting above is the path for threads **no server agent answers**. For the channels
+where the workspace's own assistant already replies, the SERVER sends on the channel the person used
+(SMS -> SMS from the work number, email -> email from the work email) and the thread shows the sent
+reply, not a draft. One responder per inbound message:
+
+| Inbound | Responder | Credit | Recorded on the thread as |
+| --- | --- | --- | --- |
+| Text to the work number (prospect) | `runLeasingSmsAgentTurn` -> `deliverLeasingSmsReply` | `ai_agent_turn`, `ai_turn:sms:...` | outbound `sms` turn (`recordAutoReplyOnSmsNotice`) |
+| Email to the work email (prospect / resident) | `runLeasingEmailAgentTurn` / `autoRespondToResidentInboxMessage` via `processManagerAssistantInboundEmail` | `ai_agent_turn`, `ai_turn:email:<inbound email id>` (`email-auto-reply-credit.server.ts`) | outbound `email` turn (`mirrorAssistantEmailConversation`) |
+| In-app / portal message, or an email thread no agent answered | the draft below, sent from the browser | none (draft only) | the composer's normal send |
+
+- **Email now reserves credit.** The work-email reply is free to send but the assistant turn is a paid
+  `ai_agent_turn`; it used to run with no reservation. `reserveEmailAutoReplyCredit` runs before any model
+  work and fails closed: denied, `workspace_unknown` under the pool, a duplicate (a redelivery of a turn
+  already run) and an unreadable ledger all mean no model run and no email (the inbound is still
+  mirrored). The hold is kept when a reply was produced and released when none was or the turn threw.
+  The manager's own mail to their assistant is not an auto-reply and does not reserve.
+- **Approval-first still wins, and the hold fails closed.** The email answer is NOT sent — it is stored as
+  a pending `requiresReview` draft on the thread (`replyAsReviewDraft`), which the inbox auto-send latch
+  never touches — whenever `partyFacingAnswerHold` says to hold: the approval switch
+  ("Resident & vendor messages need my approval first", `automationSendMode.partyFacing === "draft"`),
+  quiet hours, **or a read that failed** (that resolver throws rather than answering "auto"; the caller
+  logs it and holds). Semantics and why there are two resolvers:
+  [automated-communication.md](automated-communication.md) § One spine → Send mode. (The SMS agents do not
+  consult that switch today.)
+- **`inboxAiDraftAutoSend`** (Settings -> Communication, default **false**, unchanged) governs ONLY the
+  browser draft above: whether a generated draft is sent without the Send click. It does not gate the
+  server agents, which were already auto-replying before this setting existed and are bounded by comms
+  credit, consent / opt-out, quiet hours, `requiresReview` and the idempotency keys. Gating them behind a
+  default-off flag would have silenced every prospect reply, so the default is not flipped.
+- **No second responder.** `threadEligibleForAiDraft` and `/api/portal/inbox-draft-reply` skip
+  `claw_leasing_sms` / `claw_resident_sms` threads; for email a server reply is an outbound turn, so
+  `inboxThreadManagerReplyPending` is false and the route answers `already-replied`.
+- **A refused browser auto-send never loops** and In-app is never selected for someone who cannot read it:
+  see [communication-inbox.md](communication-inbox.md) § The composer's channel.
+- Coverage: `tests/unit/manager-assistant-email-inbound.test.ts` (credit denied -> no model, no send;
+  duplicate; ledger down; release on no reply / throw; approval-first draft),
+  `tests/unit/manager-inbox-auto-send-refusal.test.tsx`, `tests/unit/sms-notice-channel-stamp.test.ts`.

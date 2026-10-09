@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { supabaseAuthCookieOptions } from "@/lib/supabase/cookie-options";
 import { assertNonProdDatabase } from "@/lib/server-env";
 import { VIEW_AS_COOKIE } from "@/lib/auth/view-as-token";
 import { resolveViewAsIdentity, type ActiveViewAs } from "@/lib/auth/view-as.server";
@@ -47,6 +48,7 @@ export async function createRealIdentitySupabaseServerClient(): Promise<Supabase
   const cookieStore = await cookies();
 
   return createServerClient(url, anon, {
+    cookieOptions: supabaseAuthCookieOptions({ secure: process.env.NODE_ENV === "production" }),
     cookies: {
       getAll() {
         return cookieStore.getAll();

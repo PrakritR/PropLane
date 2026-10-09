@@ -12,6 +12,12 @@ import { growthApi } from "@/lib/growth/client";
 import { GROWTH_PLATFORMS, GROWTH_PUBLISHER_IDS, type GrowthAccount, type GrowthPlatform, type GrowthPublisherId } from "@/lib/growth/types";
 import { GrowthErrorBanner, PLATFORM_LABEL, useGrowthLoad } from "@/components/portal/growth-shared";
 
+const PUBLISHER_KEY_ENV: Partial<Record<GrowthPublisherId, string>> = {
+  late: "GROWTH_LATE_API_KEY",
+  upload_post: "GROWTH_UPLOAD_POST_API_KEY",
+  meta: "GROWTH_META_PAGE_TOKEN",
+};
+
 const STATUS_TONE: Record<GrowthAccount["status"], "success" | "warning" | "danger" | "neutral"> = {
   connected: "success",
   expiring: "warning",
@@ -20,7 +26,15 @@ const STATUS_TONE: Record<GrowthAccount["status"], "success" | "warning" | "dang
 };
 
 export function GrowthAccountsTab() {
-  const { data: accounts, error, loading, reload } = useGrowthLoad(() => growthApi.listAccounts());
+  const { data, error, loading, reload } = useGrowthLoad(() => growthApi.listAccounts());
+  const accounts = data?.accounts;
+  const status = data?.publisher ?? null;
+  // An account's own non-log publisher wins; otherwise the environment default. "log" needs no key.
+  const missingKey = (a: GrowthAccount): string | null => {
+    if (!status) return null;
+    const id = a.publisher !== "log" ? a.publisher : status.publisher;
+    return id && id !== "log" && status.keys?.[id] === false ? PUBLISHER_KEY_ENV[id] ?? null : null;
+  };
   const [platform, setPlatform] = useState<GrowthPlatform>("instagram");
   const [handle, setHandle] = useState("");
   const [publisher, setPublisher] = useState<GrowthPublisherId>("log");
@@ -57,6 +71,15 @@ export function GrowthAccountsTab() {
       <p className="text-xs text-muted" data-attr="admin-growth-accounts-note">
         Tokens live in the vendor or in env, never here. This list only holds the handle and which publisher posts for it.
       </p>
+      {status && !status.configured ? (
+        <p
+          role="status"
+          className="rounded-2xl border border-[var(--status-pending-fg)]/30 bg-[var(--status-pending-bg)] px-4 py-2 text-xs font-medium text-[var(--status-pending-fg)]"
+          data-attr="admin-growth-accounts-publisher-banner"
+        >
+          {status.message ?? "No publisher configured"} in this environment. Posts will not publish until GROWTH_PUBLISHER and its key are set.
+        </p>
+      ) : null}
       <PortalRecordListSurface
         loading={loading}
         loadError={error ?? undefined}
@@ -66,7 +89,8 @@ export function GrowthAccountsTab() {
         dataAttr="admin-growth-accounts-list"
       >
         {(accounts ?? []).map((a) => (
-          <div key={a.id} className="flex items-center gap-2" data-attr="admin-growth-account-row" data-status={a.status}>
+          <div key={a.id} data-attr="admin-growth-account-row" data-status={a.status}>
+          <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               <PortalEntryRow
                 tile={{ kind: "glyph", icon: Share2, label: PLATFORM_LABEL[a.platform] }}
@@ -91,6 +115,12 @@ export function GrowthAccountsTab() {
             >
               {a.status === "paused" ? "Resume" : "Pause"}
             </Button>
+          </div>
+          {missingKey(a) ? (
+            <p className="px-4 pb-2 text-xs font-semibold text-[var(--status-pending-fg)]" data-attr="admin-growth-account-key-missing">
+              Key missing: {missingKey(a)}
+            </p>
+          ) : null}
           </div>
         ))}
       </PortalRecordListSurface>

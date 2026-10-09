@@ -174,12 +174,12 @@ export function KpiCard({
     >
       <span className={cn("flex items-center gap-1.5 text-[13px] font-[550] text-muted", hasSeries && "sm:pr-14")}>
         {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
-        <span className="truncate">{label}</span>
+        <span className="truncate max-md:line-clamp-2 max-md:whitespace-normal">{label}</span>
       </span>
       <span className="my-1 block whitespace-nowrap text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground">
         {value}
       </span>
-      {subLine ? <span className="truncate text-[12.5px] text-muted">{subLine}</span> : null}
+      {subLine ? <span className="truncate text-[12.5px] text-muted max-md:line-clamp-2 max-md:whitespace-normal">{subLine}</span> : null}
       {delta ? (
         <span
           className={cn(
@@ -192,7 +192,7 @@ export function KpiCard({
           )}
         >
           <Arrow className="size-3 shrink-0" aria-hidden />
-          <span className="truncate">{delta.label}</span>
+          <span className="truncate max-md:line-clamp-2 max-md:whitespace-normal">{delta.label}</span>
         </span>
       ) : null}
       {hasSeries ? <Sparkline values={series!} labels={seriesLabels ?? []} format={format ?? String} /> : null}
@@ -369,7 +369,7 @@ export function UpcomingPanel({
     <PanelShell
       title="Upcoming"
       aside={aside !== undefined ? aside : (
-        <Link href={calendarHref} className="inline-flex items-center gap-0.5 text-[13px] font-[550] text-primary hover:underline">
+        <Link href={calendarHref} className="inline-flex items-center gap-0.5 text-[13px] font-[550] text-primary hover:underline max-md:-my-3 max-md:min-h-11">
           Calendar
           <ChevronRight className="size-3.5" aria-hidden />
         </Link>

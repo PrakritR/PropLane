@@ -1,9 +1,11 @@
 import "server-only";
 
 import { growthDb, mapIdea, must, type GrowthDb } from "./db.server";
-import { pickWeighted } from "./pick";
+import { pickFresh } from "./pick";
 import { SEED_IDEAS } from "./seed-ideas";
 import type { GrowthAngle, GrowthFormat, GrowthIdea } from "./types";
+
+const RECENT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 export async function listIdeas(db: GrowthDb = growthDb()): Promise<GrowthIdea[]> {
   const rows = must(await db.from("growth_ideas").select("*").order("created_at", { ascending: false }), "list ideas");
@@ -61,8 +63,24 @@ export async function ensureSeedIdeas(db: GrowthDb = growthDb()): Promise<number
   return SEED_IDEAS.length;
 }
 
-/** Weighted-random pick of `n` distinct ideas, penalising ideas already used. */
+/** Ideas with a non-archived growth_posts row created in the last 14 days. */
+export async function recentlyUsedIdeaIds(db: GrowthDb = growthDb(), now: Date = new Date()): Promise<Set<string>> {
+  const since = new Date(now.getTime() - RECENT_WINDOW_MS).toISOString();
+  const rows = must(
+    await db
+      .from("growth_posts")
+      .select("idea_id")
+      .not("idea_id", "is", null)
+      .neq("status", "archived")
+      .gte("created_at", since),
+    "list recent post ideas",
+  ) as { idea_id: string }[];
+  return new Set(rows.map((r) => r.idea_id));
+}
+
+/** Weighted-random pick of `n` distinct ideas, skipping ideas used in the last 14 days (penalised fallback). */
 export async function pickIdeas(n: number, db: GrowthDb = growthDb(), rand: () => number = Math.random): Promise<GrowthIdea[]> {
   await ensureSeedIdeas(db);
-  return pickWeighted(await listIdeas(db), n, rand);
+  const [ideas, recent] = await Promise.all([listIdeas(db), recentlyUsedIdeaIds(db)]);
+  return pickFresh(ideas, n, recent, rand);
 }

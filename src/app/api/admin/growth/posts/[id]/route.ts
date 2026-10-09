@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { adminRoute, json } from "@/lib/growth/admin-api.server";
+import { growthDb } from "@/lib/growth/db.server";
 import { getPost, listPublications, patchPost } from "@/lib/growth/posts.server";
-import { isoSchema, platformSchema, sceneSchema, uuidSchema } from "../../schemas";
+import { sceneListSchema } from "@/lib/growth/scenes";
+import { supabaseAssetStore } from "@/lib/growth/video/assets.server";
+import { isoSchema, platformSchema, uuidSchema } from "../../schemas";
 
 export const runtime = "nodejs";
 type Ctx = { params: Promise<{ id: string }> };
@@ -12,7 +15,8 @@ export async function GET(_req: Request, { params }: Ctx) {
     if (!uuidSchema.safeParse(id).success) return json({ error: "Invalid id." }, 400);
     const post = await getPost(id);
     if (!post) return json({ error: "Post not found" }, 404);
-    return json({ post, publications: await listPublications(id) });
+    const assets = await supabaseAssetStore(growthDb()).list(id);
+    return json({ post: { ...post, assets }, publications: await listPublications(id) });
   });
 }
 
@@ -21,7 +25,7 @@ const patchBody = z
     title: z.string().trim().min(1).max(200),
     hook: z.string().nullable(),
     script: z.string().nullable(),
-    scenes: z.array(sceneSchema).max(12),
+    scenes: sceneListSchema,
     captions: z.record(platformSchema, z.string()),
     platforms: z.array(platformSchema).min(1),
     scheduledFor: isoSchema.nullable(),

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { adminAccountCategory, adminAccountKey, ADMIN_ACCOUNT_ROLE_LABEL } from "@/lib/admin/admin-account-keys";
+import { formatAdminUsd } from "@/lib/admin/admin-revenue-model";
 import type { AdminOverview } from "@/lib/admin/admin-overview.server";
 
 const FETCH_TIMEOUT_MS = 20_000;
@@ -131,6 +132,56 @@ export function AdminDashboard({ displayName }: { displayName: string }) {
           <>
             {/* Hairline KPI cards. A card whose figure could not be sourced is left out, never zeroed. */}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+              {/* Money row. Each card links to the page that owns its number; a source that
+                  could not be read leaves its card out - never a $0 for "unknown". */}
+              {overview.money?.mrrCents != null ? (
+                <KpiCard
+                  label="MRR"
+                  value={formatAdminUsd(overview.money.mrrCents, { whole: true })}
+                  href="/admin/subscribers?tab=paid"
+                  dataAttr="admin-dashboard-kpi-mrr"
+                />
+              ) : null}
+              {overview.money?.earnedCents != null ? (
+                <KpiCard
+                  label="Earned this month"
+                  value={formatAdminUsd(overview.money.earnedCents, { whole: true })}
+                  href="/admin/payments"
+                  dataAttr="admin-dashboard-kpi-earned"
+                />
+              ) : null}
+              {overview.money?.profitCents != null ? (
+                <KpiCard
+                  label="Profit this month"
+                  value={formatAdminUsd(overview.money.profitCents, { whole: true })}
+                  href="/admin/finances"
+                  dataAttr="admin-dashboard-kpi-profit"
+                />
+              ) : null}
+              {overview.money?.paidSubscribers != null ? (
+                <KpiCard
+                  label="Paid subscribers"
+                  value={String(overview.money.paidSubscribers)}
+                  href="/admin/subscribers?tab=paid"
+                  dataAttr="admin-dashboard-kpi-paid"
+                />
+              ) : null}
+              {overview.money?.onTrial != null ? (
+                <KpiCard
+                  label="On trial"
+                  value={String(overview.money.onTrial)}
+                  href="/admin/subscribers?tab=trial"
+                  dataAttr="admin-dashboard-kpi-trial"
+                />
+              ) : null}
+              {overview.money?.promoUsers != null ? (
+                <KpiCard
+                  label="Promo users"
+                  value={String(overview.money.promoUsers)}
+                  href="/admin/subscribers?tab=promo"
+                  dataAttr="admin-dashboard-kpi-promo"
+                />
+              ) : null}
               <KpiCard
                 label="Managers"
                 value={String(overview.activeManagers)}

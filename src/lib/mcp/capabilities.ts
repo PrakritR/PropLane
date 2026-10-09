@@ -75,9 +75,9 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
   {
     id: "operations",
     label: "Workspace insights",
-    description: "Portfolio search, dashboard data, profile, and promotions.",
-    readTools: ["find_records", "get_manager_profile", "get_dashboard_summary", "list_promotions"],
-    writeTools: ["create_promotion", "generate_promotion_flyer", "update_promotion", "delete_promotion"],
+    description: "Portfolio search, dashboard data, profile, promotions, and linked spreadsheets.",
+    readTools: ["find_records", "get_manager_profile", "get_dashboard_summary", "list_promotions", "list_spreadsheets", "read_spreadsheet"],
+    writeTools: ["create_promotion", "generate_promotion_flyer", "update_promotion", "delete_promotion", "sync_spreadsheet"],
   },
 ];
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CalendarDays, Clock, Landmark, Plus, Wallet } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalStatStrip } from "@/components/portal/portal-stat-strip";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -392,7 +393,7 @@ export function ManagerOutgoingInvoicesPanel({
     ? { title: portalEmptyNoMatchTitle("payments", search), section: "payments", tone: "muted" as const, clear: { label: "Clear search", onClick: () => setSearch("") } }
     : { title: nothingToThisVendor ? `No payments to ${vendorName?.trim() || "this vendor"} yet` : EMPTY_TITLE[currentTab], section: "payments" };
   const filterCount = portalFilterActiveCount([vendorFilter, propertyFilter]);
-  return <div data-attr="manager-outgoing-invoices">
+  const listBody = <div data-attr="manager-outgoing-invoices">
     <PortalListControlStack className="mb-2 max-lg:mb-1.5 sm:mt-2" variant="command" stickyDestinations={false}
       {...(scoped
         ? {
@@ -463,4 +464,7 @@ export function ManagerOutgoingInvoicesPanel({
     </PortalRecordListSurface>
     {dialogs}
   </div>;
+  // The vendor record embeds this list under its own header; the page route gets the standard list title.
+  if (scoped) return listBody;
+  return <ManagerPortalPageShell title="Outgoing payments" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>{listBody}</ManagerPortalPageShell>;
 }

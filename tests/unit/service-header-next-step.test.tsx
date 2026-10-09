@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 //
-// One header for both kinds of service (plan D8, option A): Message · Edit · ⋯ · the next step as the ONE
-// labeled primary. The label follows the status: Approve, then Mark done, nothing once it is finished.
+// One header for both kinds of service (plans mobile-step-tabs-1004 D8 and admin-money-1008 D8): Edit · the ONE
+// red trash · the next step as the ONE labeled primary - no Message icon. The label follows the status: Approve,
+// then Mark done, nothing once it is finished. Cancel service and Delete are the trash's one popup.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ADD_ON_NEXT_STEP_LABEL, addOnHeaderNextStep, serviceHeaderMenuItems } from "@/lib/service-header-next-step";
+import {
+  ADD_ON_NEXT_STEP_LABEL,
+  addOnHeaderNextStep,
+  serviceHeaderIconIds,
+  serviceHeaderMenuItems,
+} from "@/lib/service-header-next-step";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
@@ -28,13 +34,21 @@ describe("the header's next step", () => {
     expect(ADD_ON_NEXT_STEP_LABEL).toEqual({ approve: "Approve", "mark-done": "Mark done" });
   });
 
-  it("the ⋯ holds Decline request (add-on, pending) or Cancel service (maintenance) with Delete - all red", () => {
-    expect(serviceHeaderMenuItems("add-on", { canDecline: true }).map((i) => i.label)).toEqual(["Decline request", "Delete"]);
-    expect(serviceHeaderMenuItems("add-on", { canDecline: false }).map((i) => i.label)).toEqual(["Delete"]);
-    expect(serviceHeaderMenuItems("maintenance", { canCancel: true }).map((i) => i.label)).toEqual(["Cancel service", "Delete"]);
-    expect(serviceHeaderMenuItems("maintenance", { canCancel: false, canDelete: true }).map((i) => i.label)).toEqual(["Delete"]);
-    expect(serviceHeaderMenuItems("add-on", { canDecline: true, canDelete: false }).map((i) => i.label)).toEqual(["Decline request"]);
+  it("the ⋯ holds only a pending add-on's Decline request (red); Cancel service and Delete left it for the trash", () => {
+    expect(serviceHeaderMenuItems("add-on", { canDecline: true }).map((i) => i.label)).toEqual(["Decline request"]);
+    expect(serviceHeaderMenuItems("add-on", { canDecline: false })).toEqual([]);
+    expect(serviceHeaderMenuItems("maintenance", { canDecline: true })).toEqual([]);
     for (const item of serviceHeaderMenuItems("add-on", { canDecline: true })) expect(item.danger).toBe(true);
+  });
+});
+
+describe("the header's icons", () => {
+  it("are Edit, then Send to phone and Publish to vendors where they apply, then the red trash - never Message, Cancel or Delete", () => {
+    expect(serviceHeaderIconIds({})).toEqual(["edit", "trash"]);
+    expect(serviceHeaderIconIds({ canShare: true })).toEqual(["edit", "send-to-phone", "publish", "trash"]);
+    expect(serviceHeaderIconIds({ canEdit: false })).toEqual(["trash"]);
+    expect(serviceHeaderIconIds({ canRemove: false })).toEqual(["edit"]);
+    for (const gone of ["message", "cancel", "delete"]) expect(serviceHeaderIconIds({ canShare: true })).not.toContain(gone);
   });
 });
 
@@ -44,7 +58,7 @@ describe("an add-on's header, rendered", () => {
     const { ManagerServiceRequestDetail } = await import("@/components/portal/pro-service-request-detail");
     return render(
       <AppUiProvider>
-        <ManagerServiceRequestDetail req={req(status)} onUpdated={vi.fn()} onMessage={vi.fn()} actionsOnly />
+        <ManagerServiceRequestDetail req={req(status)} onUpdated={vi.fn()} actionsOnly />
       </AppUiProvider>,
     );
   };
@@ -53,17 +67,23 @@ describe("an add-on's header, rendered", () => {
       .filter((b) => !b.closest("[inert]"))
       .map((b) => b.getAttribute("aria-label"));
 
-  it("pending: Message, Edit, ⋯, then Approve as the one button with a word on it; the inline price pencil is gone", async () => {
+  it("pending: Edit, ⋯ (Decline request), the red trash, then Approve as the one button with a word on it; no Message; the inline price pencil is gone", async () => {
     await renderHeader("pending");
-    expect(headerControls()).toEqual(["Message", "Edit", "More", "Approve"]);
+    expect(headerControls()).toEqual(["Edit", "More", "Remove service", "Approve"]);
     const primary = document.querySelector('[data-attr="service-request-approve"]')!;
     expect(primary.textContent).toBe("Approve");
     expect(document.querySelector('[data-attr="service-request-edit-charges"]')).toBeNull();
     expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
     fireEvent.keyDown(document.querySelector('[data-attr="record-header-action-more"]')!, { key: "ArrowDown" });
     const menu = await screen.findByRole("menu");
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(["Decline request", "Delete"]);
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(["Decline request"]);
     for (const item of menu.querySelectorAll('[role="menuitem"]')) expect(item.className).toMatch(/text-red-600/);
+  });
+
+  it("the trash asks before it deletes", async () => {
+    await renderHeader("pending");
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-trash"]')!);
+    expect(await screen.findByRole("heading", { name: "Delete request" })).toBeInTheDocument();
   });
 
   it("Decline request in the menu opens the existing reason dialog", async () => {
@@ -74,12 +94,10 @@ describe("an add-on's header, rendered", () => {
     expect(document.querySelector('[data-attr="service-request-deny-reason"]')).not.toBeNull();
   });
 
-  it("approved: the primary is Mark done and the menu drops Decline", async () => {
+  it("approved: the primary is Mark done and the ⋯ is gone with Decline", async () => {
     await renderHeader("approved");
-    expect(headerControls()).toEqual(["Message", "Edit", "More", "Mark done"]);
-    fireEvent.keyDown(document.querySelector('[data-attr="record-header-action-more"]')!, { key: "ArrowDown" });
-    const menu = await screen.findByRole("menu");
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(["Delete"]);
+    expect(headerControls()).toEqual(["Edit", "Remove service", "Mark done"]);
+    expect(document.querySelector('[data-attr="record-header-action-more"]')).toBeNull();
   });
 
   it.each(["returned", "denied"] as const)("%s: no primary at all", async (status) => {

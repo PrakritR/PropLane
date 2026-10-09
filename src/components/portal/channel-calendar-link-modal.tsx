@@ -9,6 +9,8 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SegmentedTwo } from "@/components/ui/segmented-control";
 import {
@@ -17,11 +19,14 @@ import {
   fetchRoomExportCalendarUrl,
   fetchWritableChannelCalendarPropertyIds,
   saveChannelCalendarConnection,
+  syncAllChannelCalendarConnections,
   syncChannelCalendarConnection,
 } from "@/lib/channel-calendar/client";
 import type { ChannelCalendarProvider, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
 import { channelCalendarProviderLabel, isValidChannelImportUrl } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
+import { relativeSyncTime } from "@/lib/channel-calendar/channel-row-fact";
+import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
 import { channelCalendarUnits, type ChannelCalendarUnit } from "@/lib/channel-calendar/property-units";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { parseIcsCalendar } from "@/lib/ical/parse";
@@ -74,6 +79,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   const [selectedIds, setSelectedIds] = useState<string[]>(initialPropertyId ? [initialPropertyId] : []);
   const [connections, setConnections] = useState<Map<string, ManagerChannelBookingRoom>>(new Map());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [copiedKeys, setCopiedKeys] = useState<Record<string, boolean>>({});
   const [exports, setExports] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -158,7 +164,18 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     if (!body.includes("BEGIN:VCALENDAR")) throw new Error("The export did not return a calendar feed.");
     setPreview({ room: row.unit.label, events: parseIcsCalendar(body) });
   };
-  const copy = async (row: LinkRow) => { await navigator.clipboard.writeText(await exportFor(row)); showToast("PropLane calendar link copied."); };
+  const copy = async (row: LinkRow) => { await navigator.clipboard.writeText(await exportFor(row)); setCopiedKeys((old) => ({ ...old, [`${row.key}:${channel}`]: true })); showToast("PropLane calendar link copied."); };
+  const copyListingPack = async (row: LinkRow) => {
+    const pack = buildAirbnbListingPack({ propertyId: row.propertyId, roomId: row.unit.id });
+    await navigator.clipboard.writeText(pack.text);
+    showToast(`Listing pack copied · ${pack.photoUrls.length} ${pack.photoUrls.length === 1 ? "photo" : "photos"} listed`);
+  };
+  const syncAll = () => run(async () => {
+    try {
+      const { synced, failed } = await syncAllChannelCalendarConnections(scopeKey ? scopeKey.split("\n") : []);
+      showToast(failed ? `Synced ${synced} · ${failed} failed` : `Synced ${synced} ${synced === 1 ? "calendar" : "calendars"}.`);
+    } finally { await refresh(); }
+  });
 
   const draftOf = (row: LinkRow) => drafts[row.key]?.trim() ?? "";
   const isBad = (row: LinkRow) => Boolean(draftOf(row)) && !isValidChannelImportUrl(channel, draftOf(row));
@@ -219,10 +236,16 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
               <Input readOnly aria-label={`${row.unit.label} PropLane export link`} value={url} placeholder="Created when you copy it" data-attr="channel-calendar-export-url" />
               <CopyIconAction label="Copy PropLane calendar link" disabled={busy} onCopy={() => run(() => copy(row))} />
             </div>
+            <div data-attr="channel-calendar-room-status" className="flex flex-wrap items-center gap-1.5 text-xs text-muted md:col-start-2 md:col-span-2">
+              {connection?.lastError ? <Badge tone="danger">Feed failed · {connection.lastError}</Badge> : connection?.hasImportUrl ? <Badge tone="success">Linked</Badge> : <Badge>Paste {name} calendar link</Badge>}
+              {copiedKeys[`${row.key}:${channel}`] || connection?.exportUrl ? <Badge tone="success">Copied</Badge> : <Badge>Not yet pasted into {name}</Badge>}
+              <span>Last sync {connection?.lastSyncedAt ? relativeSyncTime(connection.lastSyncedAt) : "—"}</span>
+            </div>
             <div className="flex md:justify-end">
               <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${row.unit.label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">
                 <DropdownMenuItem disabled={busy || !connection?.hasImportUrl} onSelect={() => { void run(async () => { try { await syncChannelCalendarConnection(connection!.connectionId); } finally { await refresh(); } }); }}>Sync now</DropdownMenuItem>
                 <DropdownMenuItem disabled={busy} onSelect={() => { void run(() => openPreview(row)); }}>Feed preview</DropdownMenuItem>
+                {channel === "airbnb" ? <DropdownMenuItem disabled={busy} onSelect={() => { void run(() => copyListingPack(row)); }}>Copy Airbnb listing pack</DropdownMenuItem> : null}
                 <DropdownMenuItem className="text-danger" disabled={!connection || busy} onSelect={() => setDisconnect({ id: connection!.connectionId, label: row.unit.label })}>Disconnect</DropdownMenuItem>
               </DropdownMenuContent></DropdownMenu>
             </div>
@@ -258,6 +281,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
       lastLabel="Save"
       lastDisabled={loading || !provider || invalid || pending.length === 0}
       busy={busy}
+      dangerAction={<Button variant="ghost" disabled={busy || loading || rows.length === 0} data-attr="channel-calendar-sync-all" onClick={() => void syncAll()}>Sync all now</Button>}
       hideFooterStepCount
       reviewEditLinks={false}
       saveState={busy ? "Saving…" : undefined}

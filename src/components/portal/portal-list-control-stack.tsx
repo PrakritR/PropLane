@@ -11,6 +11,7 @@ import {
   Coins,
   Copy,
   Download,
+  ExternalLink,
   Phone,
   Plug,
   RefreshCw,
@@ -59,6 +60,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
+  ExternalLink, // Open in Stripe (admin Payments)
   Plug, // Integrations (Calendar, Bookings, Promotion, Communication)
   Coins, // Plan credit (admin Accounts, S27)
   Upload, // Upload / Import (documents, leases, properties)

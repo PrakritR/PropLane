@@ -11,6 +11,15 @@ function normalise(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+/**
+ * A title STORED before `composePropertyTitle` deduped ("Alder Row — 3 rooms · 3 rooms") keeps its
+ * doubled tail forever, and flows into every message built from the stored string. This collapses
+ * a repeated trailing room count to one; any other title is returned untouched.
+ */
+export function collapseDuplicateRoomCount(label: string): string {
+  return label.replace(/\b(\d+\s+rooms?)\s*[\u00b7\u2014\u2013-]\s*\1\s*$/i, "$1").trim();
+}
+
 export function composePropertyTitle(buildingName: string | null | undefined, unitLabel: string | null | undefined): string {
   const building = String(buildingName ?? "").trim();
   const unit = String(unitLabel ?? "").trim();
@@ -30,6 +39,6 @@ export function composePropertyTitle(buildingName: string | null | undefined, un
  */
 export function displayPropertyTitle(property: { title?: string | null; buildingName?: string | null; unitLabel?: string | null }): string {
   const building = String(property.buildingName ?? "").trim();
-  if (!building) return String(property.title ?? "").trim();
+  if (!building) return collapseDuplicateRoomCount(String(property.title ?? "").trim());
   return composePropertyTitle(building, property.unitLabel);
 }

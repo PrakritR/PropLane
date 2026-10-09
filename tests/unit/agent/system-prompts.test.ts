@@ -14,6 +14,7 @@ describe("assembled agent system prompts", () => {
       "managerPortal",
       "residentPortal",
       "vendorPortal",
+      "adminPortal",
       "generalWebsite",
       "leasingSms",
       "residentSms",

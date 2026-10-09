@@ -12,6 +12,7 @@ import { PASSWORD_RESET_NEXT_PATH } from "@/lib/auth/password-reset-url";
 import { maybeLinkGoogleCalendarFromOAuthSession } from "@/lib/google-calendar/link-from-auth.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import { warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
+import { isSecureAuthContext, supabaseAuthCookieOptions } from "@/lib/supabase/cookie-options";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
@@ -98,6 +99,9 @@ export async function handleOAuthCallback(
   }
 
   const supabase = createServerClient(url, anon, {
+    cookieOptions: supabaseAuthCookieOptions({
+      secure: isSecureAuthContext(redirectTarget.protocol, redirectTarget.hostname),
+    }),
     cookies: {
       getAll() {
         return request.cookies.getAll();

@@ -6,6 +6,7 @@
  * policy to every surface, so a style or conversational rule cannot drift
  * between portal and SMS agents.
  */
+import { ADMIN_SYSTEM_PROMPT as ADMIN_SURFACE_PROMPT } from "@/lib/agent/admin-system-prompt";
 import { GENERAL_SYSTEM_PROMPT as GENERAL_SURFACE_PROMPT } from "@/lib/agent/general-system-prompt";
 import { LEASING_SMS_SYSTEM_PROMPT as LEASING_SMS_SURFACE_PROMPT } from "@/lib/agent/leasing-sms-system-prompt";
 import { RESIDENT_SYSTEM_PROMPT as RESIDENT_SURFACE_PROMPT } from "@/lib/agent/resident-system-prompt";
@@ -50,6 +51,7 @@ export function composeAgentSystemPrompt(surfacePrompt: string, channel: AgentPr
 export const MANAGER_SYSTEM_PROMPT = composeAgentSystemPrompt(MANAGER_SURFACE_PROMPT, "portal");
 export const RESIDENT_SYSTEM_PROMPT = composeAgentSystemPrompt(RESIDENT_SURFACE_PROMPT, "portal");
 export const VENDOR_PORTAL_SYSTEM_PROMPT = composeAgentSystemPrompt(VENDOR_SURFACE_PROMPT, "portal");
+export const ADMIN_PORTAL_SYSTEM_PROMPT = composeAgentSystemPrompt(ADMIN_SURFACE_PROMPT, "portal");
 export const GENERAL_ASSISTANT_SYSTEM_PROMPT = composeAgentSystemPrompt(GENERAL_SURFACE_PROMPT, "portal");
 export const LEASING_SMS_AGENT_SYSTEM_PROMPT = composeAgentSystemPrompt(LEASING_SMS_SURFACE_PROMPT, "sms");
 export const VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT = composeAgentSystemPrompt(VENDOR_SMS_SURFACE_PROMPT, "sms");
@@ -99,6 +101,7 @@ export const AGENT_SYSTEM_PROMPTS = {
   managerPortal: MANAGER_SYSTEM_PROMPT,
   residentPortal: RESIDENT_SYSTEM_PROMPT,
   vendorPortal: VENDOR_PORTAL_SYSTEM_PROMPT,
+  adminPortal: ADMIN_PORTAL_SYSTEM_PROMPT,
   generalWebsite: GENERAL_ASSISTANT_SYSTEM_PROMPT,
   leasingSms: LEASING_SMS_AGENT_SYSTEM_PROMPT,
   residentSms: RESIDENT_SMS_AGENT_SYSTEM_PROMPT,

@@ -110,6 +110,13 @@ export default function McpDocsPage() {
             </p>
             <p>Claude Code can add the remote server with:</p>
             <CodeBlock label="terminal">{CLAUDE_CODE_SNIPPET}</CodeBlock>
+            <p>Claude.ai can connect with a custom connector:</p>
+            <ol className="list-decimal space-y-1 pl-5 text-[14.5px] leading-relaxed text-muted">
+              <li>Open claude.ai, then Settings, Connectors, Add custom connector.</li>
+              <li>Name it PropLane, paste the Server URL above, leave client ID and secret blank, and save.</li>
+              <li>Press Connect next to PropLane. You land on PropLane&apos;s &quot;Allow connection&quot; page signed in as your account; press Allow.</li>
+              <li>Back on claude.ai the connector shows Connected. It sees the workspace active in PropLane.</li>
+            </ol>
             <p>
               Any Streamable HTTP client can use the same URL. MCP uses browser authorization, not
               a long-lived API key in your client configuration.

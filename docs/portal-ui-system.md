@@ -155,7 +155,7 @@ import { PortalTableDetailActions, PORTAL_DETAIL_BTN } from "@/components/portal
 
 ## Page shell & filters
 
-Admin/manager tab tables use `ManagerPortalPageShell` with `filterRow` above the divider — see `admin-inbox-client.tsx` and `AGENTS.md` → Admin portal table tabs.
+Admin/manager tab tables use `ManagerPortalPageShell` with `filterRow` above the divider — see `AGENTS.md` → Admin borrows; it does not invent. (Admin Communication is not a table: it is the manager's unified inbox, see `docs/agents/communication-inbox.md`.)
 
 ## Command-strip primary CTAs (`Add property`, `Add resident`)
 

@@ -54,7 +54,24 @@ export function resolvePublisher(account: Pick<GrowthAccount, "publisher"> | nul
 /** Surfaced by the accounts/analytics APIs so the admin UI can show a "no publisher configured" banner. */
 export function publisherStatus() {
   const resolved = resolvePublisher(null);
-  return { configured: resolved !== null, publisher: resolved?.id ?? null, logDriverAllowed: logDriverAllowed(), message: resolved ? null : NO_PUBLISHER };
+  return {
+    configured: resolved !== null,
+    publisher: resolved?.id ?? null,
+    logDriverAllowed: logDriverAllowed(),
+    message: resolved ? null : NO_PUBLISHER,
+    keys: publisherKeys(),
+  };
+}
+
+/** Which vendor keys are present in this environment. Booleans only, never the values. */
+export function publisherKeys(): Record<GrowthPublisherId, boolean> {
+  const has = (name: string) => Boolean(process.env[name]?.trim());
+  return {
+    late: has("GROWTH_LATE_API_KEY"),
+    upload_post: has("GROWTH_UPLOAD_POST_API_KEY"),
+    meta: has("GROWTH_META_PAGE_TOKEN"),
+    log: true,
+  };
 }
 
 export const NO_PUBLISHER = "no publisher configured";
