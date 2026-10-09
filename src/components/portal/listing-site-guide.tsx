@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Download, ExternalLink, Undo2 } from "lucide-react";
 
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -129,6 +130,9 @@ export function ListingSiteGuide({
       open={open}
       onClose={onClose}
       presentation={presentation}
+      preview={null}
+      contextPanel={null}
+      assistantStrip={false}
       dataAttr={`listing-site-guide-${def.id}`}
       title={
         <span className="flex items-center gap-2">
@@ -240,6 +244,16 @@ export function ListingSiteGuide({
             >
               {postText ? (
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-accent/40 p-3 text-xs text-foreground" data-attr="listing-site-guide-post">{postText}</pre>
+              ) : holdReasons.length > 0 ? (
+                <p className="mt-1 text-sm text-foreground" data-attr="listing-site-guide-held">
+                  {listingHoldFact(holdReasons)}
+                  {holdReasons.includes("no_work_number") ? (
+                    <>
+                      {" · "}
+                      <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">Set up work number</Link>
+                    </>
+                  ) : null}
+                </p>
               ) : null}
             </Step>
             <Step

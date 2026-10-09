@@ -29,6 +29,12 @@ export type ListingChannelsStatus = {
 };
 
 const ROUTE = "/api/manager/listing-channels";
+const CHANGED_EVENT = "listing-channels:changed";
+
+function broadcastChanged(source: unknown) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(CHANGED_EVENT, { detail: { source } }));
+}
 
 function isStatus(data: unknown): data is ListingChannelsStatus {
   const d = data as Partial<ListingChannelsStatus> | null;
@@ -74,6 +80,18 @@ export function useListingChannels(propertyId?: string) {
   const refresh = useCallback(async () => {
     invalidateSharedGets(ROUTE);
     await read(true);
+    broadcastChanged(read);
+  }, [read]);
+
+  // Other mounted instances (different URL) re-read when any instance writes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChanged = (e: Event) => {
+      if ((e as CustomEvent<{ source?: unknown }>).detail?.source === read) return;
+      void read(true);
+    };
+    window.addEventListener(CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(CHANGED_EVENT, onChanged);
   }, [read]);
 
   return { status, loading, refresh, workspaceId };
