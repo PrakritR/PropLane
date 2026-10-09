@@ -209,7 +209,9 @@ export async function notifyManagerFromAgent(
     }
   }
 
-  if (channels.inbox && args.notify?.push !== false && !inboxAlreadySent) {
+  // Only a notice a row actually holds may be pushed: the push opens Communication, and
+  // a tap that lands on a thread without the message is worse than no push at all.
+  if (channels.inbox && inboxDelivered && args.notify?.push !== false && !inboxAlreadySent) {
     try {
       await sendPushToUser(args.landlordId, {
         title: args.subject,

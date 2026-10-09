@@ -6,8 +6,9 @@
  * so this body adds only what those cards do not: Owed to you, Paid this year, this month's
  * earnings and spend, then "By manager" rows. Every figure comes from
  * `GET /api/vendor/finances/overview` (integer cents computed on the server); this component
- * only formats. When Stripe cannot answer the strip shows the PropLane ledger's numbers with a
- * quiet "Stripe unavailable" fact, never an error page.
+ * only formats. When Stripe cannot answer, the figures are the PropLane ledger's and a quiet
+ * "Stripe unavailable" fact says so above them, never an error page — unless the page's own
+ * balance strip already fell back to the ledger and is saying it (`hideStripeNotice`).
  */
 import { useCallback, useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
@@ -30,7 +31,7 @@ function monthName(monthKey: string): string {
   return Number.isNaN(d.getTime()) ? "This month" : d.toLocaleString("en-US", { month: "long" });
 }
 
-export function VendorFinancesOverviewBody() {
+export function VendorFinancesOverviewBody({ hideStripeNotice = false }: { hideStripeNotice?: boolean } = {}) {
   const [data, setData] = useState<VendorFinancesOverview | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
@@ -81,6 +82,11 @@ export function VendorFinancesOverviewBody() {
 
   return (
     <div className="space-y-4 pb-6" data-attr="vendor-finances-overview">
+      {data.stripeUnavailable && !hideStripeNotice ? (
+        <p role="status" className="px-1 text-sm text-muted" data-attr="vendor-overview-stripe-unavailable">
+          Stripe unavailable
+        </p>
+      ) : null}
       <PortalStatStrip
         size="lg"
         dataAttr="vendor-overview-month-strip"
