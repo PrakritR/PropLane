@@ -261,6 +261,14 @@ plus `posted_url` (`20261008180000_listing_lead_source.sql`, the ad link the
 manager pasted when marking a by-hand post as posted).
 The row is both the record and the queue.
 
+* **`enabled` is the auto-post toggle's column, and only its.** Marking a post
+  by hand writes `state`/`posted_at`/`posted_url`, never `enabled` — otherwise
+  Undo would read as "never auto-post this listing" once Meta goes live. A
+  `posted_by_me` row is left alone by `syncListingChannelsForProperty` (the ad
+  is already up by hand); the manager's Undo is what hands the listing back to
+  the queue, and the guide keeps showing the by-hand steps while the marker is
+  on, even after Meta is live.
+
 * **RLS:** client roles may only `SELECT` their own rows
   (`manager_user_id = auth.uid()`). Every write is a server route on the
   service role, owner-of-workspace only, with the property re-derived from the

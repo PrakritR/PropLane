@@ -217,6 +217,76 @@ async function occupancyPropertyMeta(
   };
 }
 
+const APPROVED_HOLD_ROW_PAGE = 500;
+const APPROVED_HOLD_ROW_MAX_PAGES = 40;
+const APPROVED_HOLD_ID_CHUNK = 50;
+
+type ApprovedHoldRow = { id: unknown; property_id: unknown; assigned_property_id: unknown; row_data: unknown };
+
+/**
+ * Where an approved row can name one of these properties. Scope is by PROPERTY, never by
+ * `manager_user_id`: the workspace is shared, so a resident another co-manager added still holds a
+ * room in these houses (same reach as the calendar export feed). Each source is its own filter
+ * rather than one `or(...)` expression, so a property id is never interpolated into filter grammar
+ * and no id is ever too exotic to narrow on.
+ */
+type ApprovedHoldScope =
+  | { kind: "column"; column: "property_id" | "assigned_property_id"; ids: string[] }
+  | { kind: "roomChoice"; propertyId: string };
+
+function approvedHoldScopes(propertyIds: string[]): ApprovedHoldScope[] {
+  const scopes: ApprovedHoldScope[] = [];
+  for (let at = 0; at < propertyIds.length; at += APPROVED_HOLD_ID_CHUNK) {
+    const ids = propertyIds.slice(at, at + APPROVED_HOLD_ID_CHUNK);
+    scopes.push({ kind: "column", column: "property_id", ids });
+    scopes.push({ kind: "column", column: "assigned_property_id", ids });
+  }
+  for (const propertyId of propertyIds) scopes.push({ kind: "roomChoice", propertyId });
+  return scopes;
+}
+
+async function readApprovedHoldRows(db: SupabaseClient, propertyIds: string[]): Promise<ApprovedHoldRow[]> {
+  const rows: ApprovedHoldRow[] = [];
+  const seen = new Set<string>();
+  for (const scope of approvedHoldScopes(propertyIds)) {
+    let exhausted = false;
+    for (let page = 0; page < APPROVED_HOLD_ROW_MAX_PAGES; page += 1) {
+      const base = db
+        .from("manager_application_records")
+        .select("id, property_id, assigned_property_id, row_data")
+        .eq("row_data->>bucket", "approved");
+      const scoped =
+        scope.kind === "column"
+          ? base.in(scope.column, scope.ids)
+          : base.like("row_data->>assignedRoomChoice", `${scope.propertyId}::%`);
+      // One row past the page, so "is there more?" is answered by the same read: a scope whose row
+      // count lands exactly on a page boundary must not be mistaken for a truncated one.
+      const { data, error } = await scoped
+        .order("id", { ascending: true })
+        .range(page * APPROVED_HOLD_ROW_PAGE, page * APPROVED_HOLD_ROW_PAGE + APPROVED_HOLD_ROW_PAGE);
+      if (error) throw new Error(error.message);
+      const batch = (data ?? []) as unknown as ApprovedHoldRow[];
+      const hasMore = batch.length > APPROVED_HOLD_ROW_PAGE;
+      for (const row of hasMore ? batch.slice(0, APPROVED_HOLD_ROW_PAGE) : batch) {
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        rows.push(row);
+      }
+      if (!hasMore) {
+        exhausted = true;
+        break;
+      }
+    }
+    // Rows beyond the bound are occupancy this snapshot never read. Drawing the calendar anyway
+    // would show an occupied room as free, so refuse the snapshot rather than truncate it.
+    if (!exhausted) throw new Error("Approved-application read for this occupancy snapshot exceeded its page bound.");
+  }
+  return rows;
+}
+
 export async function occupancyHoldEntries(
   db: SupabaseClient,
   propertyIds: string[],
@@ -224,17 +294,7 @@ export async function occupancyHoldEntries(
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
   if (propertyIds.length === 0) return [];
-  // Scope by property, not owner: the workspace is shared, so a resident another co-manager added
-  // still holds a room in these houses (same reach as the calendar export feed).
-  const quoted = propertyIds.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
-  const choiceFilters = propertyIds.map((id) => `row_data->>assignedRoomChoice.like.${id.replace(/[,()"]/g, "")}::%`);
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id, property_id, assigned_property_id, row_data")
-    .eq("row_data->>bucket", "approved")
-    .or([`property_id.in.(${quoted})`, `assigned_property_id.in.(${quoted})`, ...choiceFilters].join(","))
-    .limit(2000);
-  if (error) throw new Error(error.message);
+  const data = await readApprovedHoldRows(db, propertyIds);
   const scoped = new Set(propertyIds);
   const leasedIds = new Set<string>();
   const leasedPeople = new Set<string>();
@@ -245,7 +305,7 @@ export async function occupancyHoldEntries(
     const email = row.residentEmail?.trim().toLowerCase();
     if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
   }
-  const holds = (data ?? [])
+  const holds = data
     .map(holdRowFromApplication)
     .filter((row) => scoped.has((row.assignedPropertyId || row.propertyId || "").trim()));
   return applicationHoldEntries(holds, {
