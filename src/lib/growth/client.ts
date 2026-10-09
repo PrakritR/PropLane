@@ -4,7 +4,7 @@
  * throws, so a 404/500 renders an error state instead of crashing the tab.
  */
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
-import type { EngageItem, EngagePlatform, EngageStatus, GrowthKeyword, WatchKind, WatchlistEntry } from "@/lib/growth/engage/types";
+import { tallyEngage, type EngageCounts, type EngageItem, type EngagePlatform, type EngageStatus, type GrowthKeyword, type WatchKind, type WatchlistEntry } from "@/lib/growth/engage/types";
 import type {
   GrowthAccount,
   GrowthAsset,
@@ -51,7 +51,7 @@ export type GrowthVideoStatus = {
 
 export type GrowthRenderResult = { renderRequested: boolean; command: string };
 
-export type GrowthEngageView = { date: string; items: EngageItem[] };
+export type GrowthEngageView = { date: string; items: EngageItem[]; counts: EngageCounts };
 
 export type GrowthAccountsView = { accounts: GrowthAccount[]; publisher: GrowthPublisherStatus | null };
 
@@ -182,10 +182,16 @@ export const growthApi = {
       };
     }),
   listEngage: (date?: string) =>
-    call(`/engage${date ? `?date=${encodeURIComponent(date)}` : ""}`, {}, (j): GrowthEngageView => ({
-      date: typeof j.date === "string" ? j.date : date ?? "",
-      items: arr<EngageItem>(j, "items"),
-    })),
+    call(`/engage${date ? `?date=${encodeURIComponent(date)}` : ""}`, {}, (j): GrowthEngageView => {
+      const items = arr<EngageItem>(j, "items");
+      const c = j.counts as Record<string, unknown> | undefined;
+      const served = (["total", "open", "done", "skipped"] as const).every((k) => typeof c?.[k] === "number");
+      return {
+        date: typeof j.date === "string" ? j.date : date ?? "",
+        items,
+        counts: served ? (c as unknown as EngageCounts) : tallyEngage(items),
+      };
+    }),
   patchEngage: (id: string, patch: { status?: EngageStatus; draft?: string }) =>
     call(`/engage/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }, (j) => one<EngageItem>(j, "item")),
   buildEngageNow: () =>

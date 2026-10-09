@@ -1,6 +1,7 @@
 import { adminRoute, json } from "@/lib/growth/admin-api.server";
 import { pacificDate } from "@/lib/growth/engage/dates";
 import { listEngageItems } from "@/lib/growth/engage/items.server";
+import { tallyEngage } from "@/lib/growth/engage/types";
 import { dateSchema } from "../schemas";
 
 export const runtime = "nodejs";
@@ -11,12 +12,6 @@ export async function GET(req: Request) {
     if (raw && !dateSchema.safeParse(raw).success) return json({ error: "Invalid date." }, 400);
     const date = raw ?? pacificDate();
     const items = await listEngageItems(date);
-    const counts = {
-      total: items.length,
-      open: items.filter((i) => i.status === "open").length,
-      done: items.filter((i) => i.status === "done").length,
-      skipped: items.filter((i) => i.status === "skipped").length,
-    };
-    return json({ date, items, counts });
+    return json({ date, items, counts: tallyEngage(items) });
   });
 }

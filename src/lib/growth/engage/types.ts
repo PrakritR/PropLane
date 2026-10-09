@@ -43,3 +43,15 @@ export type RedditThread = {
   createdUtc: number;
   selftext: string;
 };
+
+export type EngageCounts = { total: number; open: number; done: number; skipped: number };
+
+/** The one tally of a day's list, so the route's payload and the header can never disagree. */
+export function tallyEngage(items: readonly Pick<EngageItem, "status">[]): EngageCounts {
+  return {
+    total: items.length,
+    open: items.filter((i) => i.status === "open").length,
+    done: items.filter((i) => i.status === "done").length,
+    skipped: items.filter((i) => i.status === "skipped").length,
+  };
+}
