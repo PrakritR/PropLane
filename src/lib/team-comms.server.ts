@@ -1,3 +1,4 @@
+import { teamThreadDisplayName } from "@/lib/team-thread-display";
 import "server-only";
 
 /**
@@ -223,7 +224,9 @@ export async function postTeamThreadMessage(
         row_data: {
           id: threadId,
           folder: "inbox",
-          from: actorName,
+          // The thread is the team's, not the first poster's: its name is fixed.
+          // The poster's name rides on the message itself (`messages[].from`).
+          from: teamThreadDisplayName(),
           email: "",
           subject: propertyTitle ? `Team · ${propertyTitle}` : "Team",
           preview,
@@ -275,11 +278,13 @@ export async function postTeamThreadMessage(
         row_data: {
           ...rowData,
           ...consumed,
+          // Heal a row an older writer named after its first poster.
+          from: teamThreadDisplayName(),
           ...(propertyId ? { propertyId } : {}),
           ...(propertyTitle && !rowData.propertyTitle ? { propertyTitle } : {}),
           ...(rootless
             ? {
-                from: actorName,
+                from: teamThreadDisplayName(),
                 body: input.text,
                 rootAt: when,
                 rootOutbound: true,

@@ -201,10 +201,15 @@ export async function GET(request: Request) {
       try {
         const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
         const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
-        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id, {
-          id: active.id,
-          isDefault: active.isDefault,
+        // A UI read: the viewer's selected workspace is passed in explicitly,
+        // and the one resolver normalizes the default workspace to the legacy id.
+        const { resolveManagerAssistantThreadWorkspace } = await import(
+          "@/lib/communication/manager-assistant-workspace.server"
+        );
+        const workspace = await resolveManagerAssistantThreadWorkspace(ctx.db, ctx.user.id, {
+          workspaceId: active.id,
         });
+        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id, workspace);
       } catch (e) {
         console.error("ensureManagerAgentNoticeThread failed", e);
       }

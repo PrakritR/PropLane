@@ -943,13 +943,11 @@ export function advanceInboxAiDraft<
 function isPropLaneAssistantInboxThreadRow(thread: PersistedInboxThread): boolean {
   const extended = thread as PersistedInboxThread & { threadType?: string };
   const id = typeof thread.id === "string" ? thread.id : "";
-  const from = typeof thread.from === "string" ? thread.from : "";
   return (
     extended.threadType === "resident_agent" ||
     extended.threadType === "agent_notice" ||
     id.startsWith("resident-agent-") ||
-    id.startsWith("agent_notice_") ||
-    from.trim() === RESIDENT_AGENT_FROM_NAME
+    id.startsWith("agent_notice_")
   );
 }
 

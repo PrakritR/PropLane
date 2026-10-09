@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
+import { resolveManagerAssistantThreadWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
 import { MANAGER_AGENT_NOTICE_FROM_NAME } from "@/lib/communication-assistant-inbox-list";
 import { commitInboxThreadReply } from "@/lib/portal-inbox-delivery";
 
@@ -11,7 +12,10 @@ async function loadAssistantThreadTarget(
   db: SupabaseClient,
   managerUserId: string,
 ) {
-  const threadId = await ensureManagerAgentNoticeThread(db, managerUserId);
+  // Assistant email arrives at the manager's own assistant address, not at a
+  // house: it belongs to the default workspace's chat (the one resolver, no cookie).
+  const workspace = await resolveManagerAssistantThreadWorkspace(db, managerUserId);
+  const threadId = await ensureManagerAgentNoticeThread(db, managerUserId, workspace);
   const { data: freshRow } = await db
     .from("portal_inbox_thread_records")
     .select("id, scope, owner_user_id, participant_email, thread_type, row_data")

@@ -15,10 +15,8 @@
  * nothing here ever sends a text.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  managerAgentNoticeThreadId,
-  type ManagerAssistantWorkspace,
-} from "@/lib/communication-manager-assistant-thread";
+import { managerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
+import { resolveManagerAssistantThreadWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 const ASSISTANT_NAME = "PropLane Assistant";
@@ -29,18 +27,6 @@ const MAX_APPEND_ATTEMPTS = 4;
 /** Purposes whose in-app copy is written by `notifyManagerFromAgent` itself. */
 export function outboxPurposeMirroredByNotice(purpose: string | null | undefined): boolean {
   return String(purpose ?? "").startsWith("manager_agent_notification_");
-}
-
-async function workspaceForId(
-  db: SupabaseClient,
-  workspaceId: string | null | undefined,
-): Promise<ManagerAssistantWorkspace | null> {
-  const id = workspaceId?.trim();
-  if (!id) return null;
-  const { data } = await db.from("portal_workspaces").select("id, is_default").eq("id", id).maybeSingle();
-  return data?.id
-    ? { id: String(data.id), isDefault: Boolean(data.is_default) }
-    : { id, isDefault: false };
 }
 
 /** The workspace a work number belongs to, from the number the text went out on. */
@@ -63,7 +49,7 @@ export async function workspaceIdForWorkNumber(
 export type AssistantSmsMirrorInput = {
   /** The manager whose Assistant thread this is (auth/session derived, never request input). */
   ownerUserId: string;
-  /** The work number's workspace; absent resolves the manager's active workspace. */
+  /** The work number's workspace; absent resolves the manager's default workspace. */
   workspaceId?: string | null;
   /** Stable message id so a retry appends nothing. */
   messageId: string;
@@ -91,10 +77,12 @@ export async function appendSmsTurnToManagerAssistantThread(
   const body = input.body.trim();
   if (!ownerUserId || !body || !input.messageId) return { ok: false, error: "invalid_mirror_input" };
   try {
-    const workspace = input.workspaceId?.trim() ? await workspaceForId(db, input.workspaceId) : undefined;
+    // One resolver for every Assistant writer: the work number's workspace when
+    // known, else the user's default. Never the browser cookie.
+    const workspace = await resolveManagerAssistantThreadWorkspace(db, ownerUserId, { workspaceId: input.workspaceId });
     // Dynamic: agent-notify imports this module to stamp its own SMS sends.
     const { ensureManagerAgentNoticeThread } = await import("@/lib/agent-notify.server");
-    const threadId = await ensureManagerAgentNoticeThread(db, ownerUserId, workspace ?? undefined);
+    const threadId = await ensureManagerAgentNoticeThread(db, ownerUserId, workspace);
 
     for (let attempt = 0; attempt < MAX_APPEND_ATTEMPTS; attempt += 1) {
       const { data: row, error: readError } = await db
@@ -208,6 +196,6 @@ export async function managerAssistantThreadIdFor(
   ownerUserId: string,
   workspaceId?: string | null,
 ): Promise<string> {
-  const workspace = await workspaceForId(db, workspaceId);
+  const workspace = await resolveManagerAssistantThreadWorkspace(db, ownerUserId.trim(), { workspaceId });
   return managerAgentNoticeThreadId(ownerUserId.trim(), workspace);
 }

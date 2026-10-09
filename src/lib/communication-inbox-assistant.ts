@@ -1,5 +1,4 @@
 import {
-  RESIDENT_AGENT_FROM_NAME,
   RESIDENT_AGENT_THREAD_TYPE,
   canonicalResidentAgentThreadId,
   parseResidentAgentThreadId,
@@ -10,13 +9,20 @@ import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-i
 
 export { canonicalResidentAgentThreadId, parseResidentAgentThreadId };
 
+/**
+ * The PropLane Assistant chat is decided by what the row IS (its stored type
+ * or its reserved id prefix), never by the name on its last message. A text
+ * conversation whose most recent turn is the assistant's auto-reply carries
+ * that name in `from`; classifying by name folded a prospect's SMS thread into
+ * the Assistant row.
+ */
 export function isPropLaneAssistantInboxThread(thread: PersistedInboxThread): boolean {
   const extended = thread as PersistedInboxThread & { threadType?: string };
   if (extended.threadType === RESIDENT_AGENT_THREAD_TYPE) return true;
   if (extended.threadType === "agent_notice") return true;
+  if (typeof thread.id !== "string") return false;
   if (thread.id.startsWith("resident-agent-")) return true;
   if (thread.id.startsWith("agent_notice_")) return true;
-  if (thread.from.trim() === RESIDENT_AGENT_FROM_NAME) return true;
   return false;
 }
 
@@ -26,7 +32,7 @@ export function isPropLaneAssistantInboxThread(thread: PersistedInboxThread): bo
  * post into the thread, which the send route turns into a team post plus its
  * SMS mirror.
  */
-export function isTeamInboxThread(thread: Pick<PersistedInboxThread, "id"> & { threadType?: string }): boolean {
+export function isTeamInboxThread(thread: Pick<PersistedInboxThread, "id"> & { threadType?: string | null }): boolean {
   return thread.threadType === "team" || thread.id.startsWith("team-thread:");
 }
 
@@ -53,10 +59,6 @@ export function assistantInboxCollapseKey(thread: PersistedInboxThread): string 
   }
   if (extended.threadType === "agent_notice" || thread.id.startsWith("agent_notice_")) {
     return managerAgentNoticeCollapseKey(thread.id);
-  }
-  if (thread.from.trim() === RESIDENT_AGENT_FROM_NAME) {
-    const parsed = parseResidentAgentThreadId(thread.id);
-    if (parsed) return `resident_agent:${parsed.residentUserId}`;
   }
   return null;
 }

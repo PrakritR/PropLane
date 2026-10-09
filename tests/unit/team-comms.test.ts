@@ -168,7 +168,8 @@ describe("team-comms: postTeamThreadMessage", () => {
     const rowData = row.row_data as Record<string, unknown>;
     expect(rowData.propertyId).toBe("prop-1");
     expect(rowData.body).toBe("A tour with Alex is confirmed for 4pm.");
-    expect(rowData.from).toBe("Jamie");
+    // The thread is the team's: named "Team", never its first poster (the poster rides on the message).
+    expect(rowData.from).toBe("Team");
     expect(rowData.messages).toEqual([]);
   });
 

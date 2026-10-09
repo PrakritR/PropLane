@@ -18,7 +18,7 @@ import {
   managerAgentNoticeThreadId,
   type ManagerAssistantWorkspace,
 } from "@/lib/communication-manager-assistant-thread";
-import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
+import { resolveManagerAssistantThreadWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
 import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
@@ -37,39 +37,6 @@ function noticeAppendBackoff(attempt: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, base + Math.floor(Math.random() * base)));
 }
 
-async function managerNoticeWorkspace(
-  db: SupabaseClient,
-  landlordId: string,
-  propertyId?: string | null,
-): Promise<ManagerAssistantWorkspace | null> {
-  const houseId = propertyId?.trim();
-  if (houseId) {
-    const { data } = await db
-      .from("manager_property_records")
-      .select("workspace_id")
-      .eq("id", houseId)
-      .maybeSingle();
-    const workspaceId = typeof data?.workspace_id === "string" ? data.workspace_id.trim() : "";
-    if (workspaceId) {
-      const { data: workspace } = await db
-        .from("portal_workspaces")
-        .select("id, is_default")
-        .eq("id", workspaceId)
-        .maybeSingle();
-      if (workspace?.id) {
-        return { id: String(workspace.id), isDefault: Boolean(workspace.is_default) };
-      }
-      return { id: workspaceId, isDefault: false };
-    }
-  }
-  try {
-    const active = await resolveActiveWorkspaceFromRequest(db, landlordId);
-    return { id: active.id, isDefault: active.isDefault };
-  } catch {
-    return null;
-  }
-}
-
 export async function notifyManagerFromAgent(
   db: SupabaseClient,
   args: {
@@ -86,6 +53,10 @@ export async function notifyManagerFromAgent(
     externalText?: string;
     /** When set, the notice lands in that house's workspace assistant chat. */
     propertyId?: string | null;
+    /** A work line (`manager_sms_numbers.id`) the notice is about; names the workspace when no house does. */
+    workLineId?: string | null;
+    /** An already-known workspace (a work number's); outranks the house. Never the browser cookie. */
+    workspaceId?: string | null;
   },
 ): Promise<{ delivered: boolean; suppressed: boolean }> {
   if (captureSmsTestDelivery({
@@ -110,7 +81,11 @@ export async function notifyManagerFromAgent(
    * ONE PropLane Assistant thread per manager per workspace. Legacy
    * `agent_notice_{userId}` stays the default workspace's chat.
    */
-  const workspace = await managerNoticeWorkspace(db, args.landlordId, args.propertyId);
+  const workspace = await resolveManagerAssistantThreadWorkspace(db, args.landlordId, {
+    workspaceId: args.workspaceId,
+    propertyId: args.propertyId,
+    workLineId: args.workLineId,
+  });
   const threadId = managerAgentNoticeThreadId(args.landlordId, workspace);
   const messageId = args.idempotencyKey
     ? `agent_notice_msg_${createHash("sha256").update(`${args.landlordId}:${args.idempotencyKey}`).digest("hex").slice(0, 24)}`
@@ -243,7 +218,7 @@ export async function notifyManagerFromAgent(
     // itself). Same message id as the inbox write, so a retry appends nothing.
     const mirrored = await appendSmsTurnToManagerAssistantThread(db, {
       ownerUserId: args.landlordId,
-      workspaceId: workspace?.id ?? null,
+      workspaceId: workspace.id || null,
       messageId,
       author: "assistant",
       body: args.text,
@@ -269,7 +244,7 @@ export async function ensureManagerAgentNoticeThread(
   landlordId: string,
   workspace?: ManagerAssistantWorkspace | null,
 ): Promise<string> {
-  const resolved = workspace ?? (await managerNoticeWorkspace(db, landlordId));
+  const resolved = workspace ?? (await resolveManagerAssistantThreadWorkspace(db, landlordId.trim()));
   const threadId = managerAgentNoticeThreadId(landlordId.trim(), resolved);
   const { data: existing } = await db
     .from("portal_inbox_thread_records")

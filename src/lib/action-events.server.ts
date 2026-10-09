@@ -347,6 +347,8 @@ async function deliverProjection(
         threadType: "action_event",
         category: managerNotificationCategoryForEvent(input.category),
         idempotencyKey: `action-event:${input.eventKey}:manager:${input.recipient.userId}`,
+        // The house the event is about picks the workspace's Assistant chat.
+        propertyId: input.propertyId ?? null,
       });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
