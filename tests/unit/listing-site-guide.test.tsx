@@ -22,7 +22,7 @@ vi.mock("@/lib/rental-application/data", async (importOriginal) => ({
   getPropertyById: (id: string) => ({ id, listingSubmission: { syndication: { zillow: { enabled: id === "p1" } } } }),
 }));
 
-import { ListingSiteGuide } from "@/components/portal/listing-site-guide";
+import { ListingSiteGuide, listingGuideModeLine } from "@/components/portal/listing-site-guide";
 import { buildListingPostText } from "@/lib/listing-channels/post-text";
 import { LISTING_CHANNEL_DEFS, listingChannelsOrdered } from "@/lib/listing-channels/registry";
 import { resetSharedGets } from "@/lib/shared-get-cache";
@@ -195,6 +195,34 @@ describe("ListingSiteGuide", () => {
     guide("zillow");
     await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).not.toBeNull());
     expect(document.querySelector('[data-attr="listing-site-guide-status-table"]')).not.toBeNull();
+  });
+
+  // The mode line and the steps under it are one statement: before approval it must not
+  // claim the feed posts for you while the four by-hand steps are on screen.
+  it("Zillow's mode line waits for the approval the steps are waiting for", async () => {
+    status.value = baseStatus({ zillowFeedApproved: false });
+    guide("zillow");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="listing-site-guide-mode"]')!.textContent).toBe(
+      "Posts for you once Zillow approves · by hand until then",
+    );
+  });
+
+  it("Zillow's mode line reads flat once the feed is approved", async () => {
+    status.value = baseStatus({ zillowFeedApproved: true });
+    guide("zillow");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-status-table"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="listing-site-guide-mode"]')!.textContent).toBe("Posts for you");
+    expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).toBeNull();
+  });
+
+  it("every posting mode gets its own one-line mode text", () => {
+    expect(listingGuideModeLine("feed", false, false)).toBe("Posts for you once Zillow approves · by hand until then");
+    expect(listingGuideModeLine("feed", false, true)).toBe("Posts for you");
+    expect(listingGuideModeLine("api", false, false)).toBe("Posts for you once Meta approves · by hand until then");
+    expect(listingGuideModeLine("api", true, false)).toBe("Posts for you");
+    expect(listingGuideModeLine("partner_only", false, false)).toBe("Partner feed only");
+    expect(listingGuideModeLine("manual", false, false)).toBe("Copy and post");
   });
 });
 

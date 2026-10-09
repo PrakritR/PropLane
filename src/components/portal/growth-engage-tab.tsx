@@ -7,8 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { growthApi } from "@/lib/growth/client";
-import { ENGAGE_PLATFORMS, type EngageItem, type EngagePlatform, type GrowthKeyword, type WatchKind, type WatchlistEntry } from "@/lib/growth/engage/types";
+import {
+  ENGAGE_PLATFORMS,
+  tallyEngage,
+  type EngageItem,
+  type EngagePlatform,
+  type GrowthKeyword,
+  type WatchKind,
+  type WatchlistEntry,
+} from "@/lib/growth/engage/types";
 import { pacificDate, shiftDate } from "@/lib/growth/engage/dates";
 import { cn } from "@/lib/utils";
 import { GrowthErrorBanner, GrowthSkeletonBlocks } from "@/components/portal/growth-shared";
@@ -97,7 +107,14 @@ function EngageRow({ item, onChange }: { item: EngageItem; onChange: (next: Enga
   );
 }
 
-type AddKind = "follow" | "collab" | "keyword";
+type AddKind = WatchKind | "keyword";
+
+const ADD_TITLE: Record<AddKind, string> = {
+  engage: "Add account to engage",
+  follow: "Add account to follow",
+  collab: "Add collab creator",
+  keyword: "Add keyword",
+};
 
 function AddModal({ kind, onClose, onAdded }: { kind: AddKind | null; onClose: () => void; onAdded: () => void }) {
   const [platform, setPlatform] = useState<EngagePlatform>("instagram");
@@ -130,7 +147,7 @@ function AddModal({ kind, onClose, onAdded }: { kind: AddKind | null; onClose: (
   return (
     <Modal
       open={kind !== null}
-      title={isKeyword ? "Add keyword" : kind === "collab" ? "Add collab creator" : "Add account to follow"}
+      title={kind ? ADD_TITLE[kind] : ADD_TITLE.keyword}
       onClose={onClose}
       preview={null}
       contextPanel={null}
@@ -144,26 +161,13 @@ function AddModal({ kind, onClose, onAdded }: { kind: AddKind | null; onClose: (
     >
       <div className="space-y-3" data-attr="growth-engage-add-modal">
         {!isKeyword ? (
-          <label className="block">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Platform</span>
-            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Platform">
-              {ENGAGE_PLATFORMS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  role="radio"
-                  aria-checked={platform === p}
-                  onClick={() => setPlatform(p)}
-                  className={cn(
-                    "rounded-lg border px-2.5 py-1 text-xs font-medium",
-                    platform === p ? "border-primary bg-primary/10 text-primary" : "border-border text-muted",
-                  )}
-                >
-                  {PLATFORM_NAME[p]}
-                </button>
-              ))}
-            </div>
-          </label>
+          <FieldSingleSelect
+            label="Platform"
+            options={ENGAGE_PLATFORMS.map((p) => ({ value: p, label: PLATFORM_NAME[p] }))}
+            value={platform}
+            onChange={(next) => setPlatform(next as EngagePlatform)}
+            dataAttr="growth-engage-add-platform"
+          />
         ) : null}
         <label className="block">
           <span className={MODAL_FIELD_LABEL_CLASS}>{isKeyword ? "Keyword" : "Handle"}</span>
@@ -224,6 +228,7 @@ function Group({
 }
 
 export function GrowthEngageTab() {
+  const { showToast } = useAppUi();
   const today = useMemo(() => pacificDate(), []);
   const [date, setDate] = useState(today);
   const [items, setItems] = useState<EngageItem[] | null>(null);
@@ -257,15 +262,21 @@ export function GrowthEngageTab() {
     void loadLists();
   }, [loadLists]);
 
+  // A build reports through the toast, never through the list's own error state.
   const buildNow = async () => {
     setBuilding(true);
     const res = await growthApi.buildEngageNow();
     setBuilding(false);
-    if (!res.ok) setError(res.error);
-    else {
-      setDate(today);
-      await loadItems(today);
+    if (!res.ok) {
+      showToast(res.error);
+      return;
     }
+    const { inserted, skipped, stoppedEarly } = res.data;
+    const said = [`Added ${inserted}`, `skipped ${skipped}`];
+    if (stoppedEarly) said.push("stopped early, run again");
+    showToast(said.join(" · "));
+    setDate(today);
+    await loadItems(today);
   };
 
   const ordered = useMemo(() => {
@@ -273,8 +284,16 @@ export function GrowthEngageTab() {
     return [...list.filter((i) => i.status === "open"), ...list.filter((i) => i.status !== "open")];
   }, [items]);
 
+  // One tally, over the rows actually on screen, because this is the side that edits them.
+  const counts = useMemo(() => tallyEngage(items ?? []), [items]);
+
+  const engage = watch.filter((w) => w.kind === "engage");
   const follow = watch.filter((w) => w.kind === "follow");
   const collab = watch.filter((w) => w.kind === "collab");
+
+  const applyItem = useCallback((next: EngageItem) => {
+    setItems((cur) => (cur ?? []).map((i) => (i.id === next.id ? next : i)));
+  }, []);
 
   const removeWatch = async (id: string) => {
     const res = await growthApi.deleteWatch(id);
@@ -312,7 +331,7 @@ export function GrowthEngageTab() {
       <section className="space-y-3" data-attr="growth-engage-today">
         <div className="flex items-center gap-1">
           <h3 className="min-w-0 flex-1 text-sm font-semibold text-foreground">
-            Today&apos;s list · {items?.length ?? 0} · {dateLabel(date)}
+            Today&apos;s list · {counts.open} open · {counts.done} done · {dateLabel(date)}
           </h3>
           <PortalIconAction icon={ChevronLeft} label="Previous day" data-attr="growth-engage-date-prev" onClick={() => setDate((d) => shiftDate(d, -1))} />
           <PortalIconAction icon={ChevronRight} label="Next day" data-attr="growth-engage-date-next" onClick={() => setDate((d) => shiftDate(d, 1))} />
@@ -330,7 +349,7 @@ export function GrowthEngageTab() {
               <EngageRow
                 key={item.id}
                 item={item}
-                onChange={(next) => setItems((cur) => (cur ?? []).map((i) => (i.id === next.id ? next : i)))}
+                onChange={applyItem}
               />
             ))}
           </ul>
@@ -338,6 +357,15 @@ export function GrowthEngageTab() {
       </section>
 
       <div className="space-y-3">
+        <Group
+          title="Engage by hand"
+          count={engage.length}
+          onAdd={() => setAdding("engage")}
+          addLabel="Add account to engage"
+          dataAttr="growth-group-engage"
+        >
+          {watchRows(engage, "No accounts to engage yet.")}
+        </Group>
         <Group title="Follow by hand" count={follow.length} onAdd={() => setAdding("follow")} addLabel="Add account to follow" dataAttr="growth-group-follow">
           {watchRows(follow, "No accounts to follow yet.")}
         </Group>

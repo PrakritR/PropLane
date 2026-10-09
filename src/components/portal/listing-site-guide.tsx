@@ -23,9 +23,12 @@ export type GuideZillowToggle = { enabled: boolean; fact: string; saving: boolea
 
 const ICON_LINK = "grid size-9 place-items-center rounded-full text-foreground/80 hover:bg-foreground/5";
 
-/** The one-line mode text under the site name. */
-function modeLine(posting: string, metaLive: boolean): string {
-  if (posting === "feed") return "Posts for you";
+/**
+ * The one-line mode text under the site name. A pending approval has to say so:
+ * the steps below it are the by-hand ones until the feed or the app is live.
+ */
+export function listingGuideModeLine(posting: string, metaLive: boolean, feedApproved: boolean): string {
+  if (posting === "feed") return feedApproved ? "Posts for you" : "Posts for you once Zillow approves · by hand until then";
   if (posting === "api") return metaLive ? "Posts for you" : "Posts for you once Meta approves · by hand until then";
   if (posting === "partner_only") return "Partner feed only";
   return "Copy and post";
@@ -163,7 +166,7 @@ export function ListingSiteGuide({
       }
     >
       <div className="space-y-3 pb-2" data-attr="listing-site-guide">
-        <p className="text-sm text-muted" data-attr="listing-site-guide-mode">{modeLine(def.posting, metaLive)}</p>
+        <p className="text-sm text-muted" data-attr="listing-site-guide-mode">{listingGuideModeLine(def.posting, metaLive, feedApproved)}</p>
         <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{feedApproved && guide.howApproved ? guide.howApproved : guide.how}</p>
         {feed && holdReasons.length > 0 ? <HeldLine reasons={holdReasons} /> : null}
 

@@ -53,6 +53,8 @@ export type GrowthRenderResult = { renderRequested: boolean; command: string };
 
 export type GrowthEngageView = { date: string; items: EngageItem[] };
 
+export type GrowthEngageBuildResult = { inserted: number; considered: number; skipped: number; stoppedEarly: boolean };
+
 export type GrowthAccountsView = { accounts: GrowthAccount[]; publisher: GrowthPublisherStatus | null };
 
 export type GrowthAnalyticsPostRow = {
@@ -189,7 +191,12 @@ export const growthApi = {
   patchEngage: (id: string, patch: { status?: EngageStatus; draft?: string }) =>
     call(`/engage/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }, (j) => one<EngageItem>(j, "item")),
   buildEngageNow: () =>
-    call("/engage/build-now", { method: "POST", body: {} }, (j) => ({ inserted: Number(j.inserted ?? 0), considered: Number(j.considered ?? 0) })),
+    call("/engage/build-now", { method: "POST", body: {} }, (j): GrowthEngageBuildResult => ({
+      inserted: Number(j.inserted ?? 0),
+      considered: Number(j.considered ?? 0),
+      skipped: Number(j.skipped ?? 0),
+      stoppedEarly: j.stoppedEarly === true,
+    })),
   listWatchlist: () => call("/watchlist", {}, (j) => arr<WatchlistEntry>(j, "watchlist")),
   addWatch: (input: { platform: EngagePlatform; handle: string; kind: WatchKind; url?: string | null; topic?: string | null }) =>
     call("/watchlist", { method: "POST", body: input }, (j) => one<WatchlistEntry>(j, "entry")),

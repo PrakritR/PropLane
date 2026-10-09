@@ -147,10 +147,38 @@ describe("overall Promotion › Listing sites", () => {
 
   it("states each mode's plain fact", async () => {
     render(<WorkspaceListingSitesPanel />);
-    await waitFor(() => expect(screen.getByText("Posts for you · 1 of 2 listings")).toBeTruthy());
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
+        "Posts for you once Zillow approves · Not posted yet",
+      ),
+    );
     expect(rowByName("Facebook Page").textContent).toContain("Coming soon · post by hand for now");
     expect(rowByName("Craigslist").textContent).toContain("Not posted yet");
     expect(rowByName("Apartment List").textContent).toContain("Partner feed only");
+  });
+
+  // The row and the guide it opens have to agree: before approval neither may claim the feed posts.
+  it("the Zillow row waits for the approval its guide waits for", async () => {
+    status.value = baseStatus({ zillowFeedApproved: true });
+    render(<WorkspaceListingSitesPanel />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
+        "Posts for you · 1 of 2 listings",
+      ),
+    );
+  });
+
+  // Pre-approval the row counts what was actually posted by hand, never what the feed has queued.
+  it("the pre-approval Zillow row carries the by-hand fact, not the feed-queued count", async () => {
+    status.value = baseStatus({
+      posts: [{ propertyId: "p2", channel: "zillow", enabled: true, state: "posted_by_me", externalId: null, lastError: null, postedAt: "2026-10-08T20:00:00Z", updatedAt: null }],
+    });
+    render(<WorkspaceListingSitesPanel />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-attr="promotion-listing-site-fact-zillow"]')?.textContent).toBe(
+        "Posts for you once Zillow approves · Posted by you · Oct 8",
+      ),
+    );
   });
 
   it("counts posted listings for a connected, live Facebook Page", async () => {
