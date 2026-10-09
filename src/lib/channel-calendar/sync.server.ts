@@ -21,6 +21,7 @@ import type {
   ChannelCalendarImportedRange,
   ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -30,13 +31,14 @@ import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombst
 
 const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 
-function icalEventsToImportedRanges(
+export function icalEventsToImportedRanges(
   events: ReturnType<typeof parseIcsCalendar>,
 ): ChannelCalendarImportedRange[] {
   return events.map((ev) => ({
     id: ev.uid,
     sourceUid: ev.uid,
     summary: ev.summary,
+    ...(isHostBlockSummary(ev.summary) ? { hostBlock: true } : {}),
     start: ev.startDate,
     end: ev.endDate,
   }));
@@ -220,6 +222,11 @@ export async function upsertChannelCalendarConnection(
     provider,
     label: input.label?.trim() || null,
     ...(importUrlProvided ? { import_url: importUrl } : {}),
+    // Unlinking leaves nothing to re-sync, so the stays this feed imported go with the link —
+    // otherwise they keep drawing on the calendar and blocking beds with no source to refresh them.
+    ...(importUrlProvided && importUrl === null
+      ? { imported_ranges: [], last_synced_at: null, last_error: null }
+      : {}),
     export_token: exportToken,
     updated_at: now,
   };

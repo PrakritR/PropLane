@@ -5,6 +5,7 @@ import { deleteAdminPortalAccount } from "@/lib/auth/delete-portal-account";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { setAdminAccountActive } from "@/lib/admin/admin-account-active.server";
 
 export const runtime = "nodejs";
 
@@ -63,17 +64,29 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    if (!(await requireAdminActor()).ok) {
+    const auth = await requireAdminActor();
+    if (!auth.ok) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
-    const { id, active } = (await req.json()) as { id: string; active: boolean };
+    const body = (await req.json().catch(() => ({}))) as { id?: string; active?: unknown; reason?: unknown };
+    const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    if (typeof body.active !== "boolean") {
+      return NextResponse.json({ error: "active must be true or false." }, { status: 400 });
+    }
 
-    const supabase = createSupabaseServiceRoleClient();
-    const { error } = await supabase.from("profiles").update({ application_approved: active }).eq("id", id);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true });
+    // Disabling or re-enabling somebody's access is audited with the staff member's reason, the
+    // same as a manager's — the one popup that collects it posts to all three routes.
+    const outcome = await setAdminAccountActive({
+      db: createSupabaseServiceRoleClient(),
+      actorUserId: auth.actorId,
+      accountUserId: id,
+      kind: "resident",
+      active: body.active,
+      reason: body.reason,
+    });
+    if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    return NextResponse.json({ ok: true, auditRecorded: outcome.auditRecorded });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });

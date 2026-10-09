@@ -27,6 +27,13 @@ const APPROVED_ROW_PAGE = 500;
 const APPROVED_ROW_MAX_PAGES = 40;
 
 /**
+ * Occupancy is read by PROPERTY, never by `manager_user_id`. A row's manager stamp is whoever
+ * authored it (the acting teammate of a co-managed workspace, a property's previous owner, or
+ * nobody on an older row), while the feed's connection carries the property's current owner —
+ * filtering on the pair silently dropped every resident the owner did not personally add and
+ * published their nights as free. The feed token already pins one property, and a row naming that
+ * property is that property's occupancy whoever wrote it.
+ *
  * Where an approved row can name this property. These are exactly the four sources the JavaScript
  * match below consults, so narrowing on them in the DATABASE drops nothing: the property columns,
  * and the two `propertyId::roomId` room-choice values (an imported channel stay carries only the
@@ -52,7 +59,6 @@ type ApprovedRow = {
 
 async function readApprovedRowPage(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  managerUserId: string,
   propertyId: string,
   source: ApprovedRowSource,
   page: number,
@@ -60,7 +66,6 @@ async function readApprovedRowPage(
   const base = db
     .from("manager_application_records")
     .select(APPROVED_ROW_SELECT)
-    .eq("manager_user_id", managerUserId)
     .eq("row_data->>bucket", "approved");
   const choicePrefix = `${propertyId}::%`;
   const scoped =
@@ -82,7 +87,6 @@ async function readApprovedRowPage(
 
 async function readApprovedRowsForProperty(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  managerUserId: string,
   propertyId: string,
 ): Promise<ApprovedRow[]> {
   const rows: ApprovedRow[] = [];
@@ -90,7 +94,7 @@ async function readApprovedRowsForProperty(
   for (const source of APPROVED_ROW_SOURCES) {
     let exhausted = false;
     for (let page = 0; page < APPROVED_ROW_MAX_PAGES; page += 1) {
-      const batch = await readApprovedRowPage(db, managerUserId, propertyId, source, page);
+      const batch = await readApprovedRowPage(db, propertyId, source, page);
       const hasMore = batch.length > APPROVED_ROW_PAGE;
       for (const row of hasMore ? batch.slice(0, APPROVED_ROW_PAGE) : batch) {
         const id = typeof row.id === "string" ? row.id.trim() : "";
@@ -114,11 +118,10 @@ async function readApprovedRowsForProperty(
 
 async function occupancyRangesForRoom(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  managerUserId: string,
   propertyId: string,
   roomId: string,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[]; importPlacements: FeedPlacement[] }> {
-  const data = await readApprovedRowsForProperty(db, managerUserId, propertyId);
+  const data = await readApprovedRowsForProperty(db, propertyId);
   const leases: { start: string; end: string }[] = [];
   const holds: { start: string; end: string }[] = [];
   const roomToken = `::${roomId}`;
@@ -145,7 +148,6 @@ async function occupancyRangesForRoom(
   const { data: blocks, error: blockError } = await db
     .from("portal_schedule_records")
     .select("row_data")
-    .eq("manager_user_id", managerUserId)
     .eq("property_id", propertyId)
     .eq("record_type", "room_date_block");
   if (blockError) throw new Error(blockError.message);
@@ -184,7 +186,6 @@ export async function GET(
     const typedBlocks = roomUnavailableRangesForExport(submission, connection.room_id);
     const occupancy = await occupancyRangesForRoom(
       db,
-      connection.manager_user_id,
       connection.property_id,
       connection.room_id,
     );

@@ -24,6 +24,7 @@ import {
 } from "@/lib/supabase/cookie-options";
 import {
   getBrowserSessionWithRetry,
+  isRevokedSessionError,
   isStaleRefreshTokenError,
   safeBrowserGetSession,
 } from "@/lib/supabase/safe-browser-session";
@@ -36,6 +37,19 @@ function fakeClient(getSession: () => Promise<unknown>) {
   const client = { auth: { getSession: vi.fn(getSession), signOut: vi.fn().mockResolvedValue({ error: null }) } };
   return client as unknown as Parameters<typeof safeBrowserGetSession>[0] & typeof client;
 }
+
+describe("revoked session matcher", () => {
+  it("matches only a 401/403 session_not_found", () => {
+    expect(isRevokedSessionError(authError("gone", { code: "session_not_found", status: 403 }))).toBe(true);
+    expect(isRevokedSessionError(authError("gone", { code: "session_not_found", status: 401 }))).toBe(true);
+    expect(isRevokedSessionError({ code: "session_not_found" })).toBe(false);
+    expect(isRevokedSessionError({ code: "session_not_found", status: 503 })).toBe(false);
+    expect(isRevokedSessionError({ code: "refresh_token_already_used", status: 400 })).toBe(false);
+    expect(isRevokedSessionError({ status: 429, message: "rate limited" })).toBe(false);
+    expect(isRevokedSessionError(new TypeError("Failed to fetch"))).toBe(false);
+    expect(isRevokedSessionError(null)).toBe(false);
+  });
+});
 
 describe("stale refresh token matcher", () => {
   it("matches only definitively dead refresh tokens", () => {
@@ -149,7 +163,7 @@ describe("middleware session handling", () => {
   it("does not sign out on a rotation race, a 429, or a 5xx; the cookies stay", async () => {
     for (const error of [
       authError("Invalid Refresh Token: Already Used", { code: "refresh_token_already_used", status: 400 }),
-      authError("session missing", { code: "session_not_found", status: 403 }),
+      authError("session missing", { code: "session_not_found" }),
       authError("rate limited", { status: 429 }),
       authError("upstream", { status: 503 }),
     ]) {
@@ -157,6 +171,21 @@ describe("middleware session handling", () => {
       await middleware(portalRequest());
     }
     expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("signs out locally when getUser() itself reports a revoked session (403 or 401 session_not_found)", async () => {
+    for (const status of [403, 401]) {
+      signOut.mockClear();
+      signOut.mockResolvedValue({ error: null });
+      getUser.mockResolvedValueOnce({
+        data: { user: null },
+        error: authError("session gone", { code: "session_not_found", status }),
+      });
+      const res = await middleware(portalRequest());
+      expect(signOut).toHaveBeenCalledTimes(1);
+      expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+      expect(res.status).toBe(307);
+    }
   });
 
   it("pins the 400-day auth cookie on the server client", async () => {

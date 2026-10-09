@@ -17,10 +17,12 @@ vi.mock("next/headers", () => ({
 const mocks = vi.hoisted(() => ({
   loadWorkspaces: vi.fn(),
   managerHasCalendarAccessForProperty: vi.fn(async () => true),
+  managerCanWriteCalendarForProperties: vi.fn(async (_db: unknown, _userId: string, ids: readonly string[]) => new Set(ids)),
 }));
 vi.mock("@/lib/workspaces/server", () => ({ loadWorkspaces: mocks.loadWorkspaces }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCalendarAccessForProperty: mocks.managerHasCalendarAccessForProperty,
+  managerCanWriteCalendarForProperties: mocks.managerCanWriteCalendarForProperties,
 }));
 
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
@@ -37,6 +39,9 @@ beforeEach(() => {
   state.cookieValue = undefined;
   mocks.loadWorkspaces.mockReset();
   mocks.managerHasCalendarAccessForProperty.mockReset().mockResolvedValue(true);
+  mocks.managerCanWriteCalendarForProperties
+    .mockReset()
+    .mockImplementation(async (_db: unknown, _userId: string, ids: readonly string[]) => new Set(ids));
 });
 
 describe("listManagerChannelCalendarBookings — active-workspace guard", () => {
@@ -74,5 +79,39 @@ describe("listManagerChannelCalendarBookings — active-workspace guard", () => 
     const db = setup();
     await listManagerChannelCalendarBookings(db as never, MANAGER, ["p1"]);
     expect(mocks.managerHasCalendarAccessForProperty).toHaveBeenCalledWith(expect.anything(), MANAGER, "p1");
+  });
+});
+
+describe("listManagerChannelCalendarBookings — import URL is a bearer secret", () => {
+  const connection: Row = {
+    id: "conn-1",
+    property_id: "p1",
+    room_id: "r1",
+    provider: "airbnb",
+    label: "Airbnb",
+    import_url: "https://www.airbnb.com/calendar/ical/123.ics?s=secret",
+    export_token: "tok-1",
+    imported_ranges: [],
+    last_synced_at: null,
+    last_error: null,
+    created_at: "2026-10-01T00:00:00Z",
+  };
+
+  function importUrls(result: Awaited<ReturnType<typeof listManagerChannelCalendarBookings>>) {
+    return result.flatMap((p) => p.rooms.map((r) => r.importUrl));
+  }
+
+  it("reaches a manager who can edit the calendar", async () => {
+    mocks.loadWorkspaces.mockResolvedValue([WS_A]);
+    const result = await listManagerChannelCalendarBookings(setup({ external_calendar_connections: [connection] }) as never, MANAGER, ["p1"]);
+    expect(importUrls(result)).toEqual([connection.import_url]);
+  });
+
+  it("is withheld from a view-only teammate (hasImportUrl still tells them one is linked)", async () => {
+    mocks.loadWorkspaces.mockResolvedValue([WS_A]);
+    mocks.managerCanWriteCalendarForProperties.mockResolvedValue(new Set<string>());
+    const result = await listManagerChannelCalendarBookings(setup({ external_calendar_connections: [connection] }) as never, MANAGER, ["p1"]);
+    expect(importUrls(result)).toEqual([null]);
+    expect(result.flatMap((p) => p.rooms.map((r) => r.hasImportUrl))).toEqual([true]);
   });
 });

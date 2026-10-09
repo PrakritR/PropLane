@@ -84,8 +84,8 @@ describe("list-page gears link to Settings; their pop-ups are gone", () => {
     const promotion = read("src/components/portal/pro-property-promotion-panel.tsx");
     expect(promotion).not.toContain("property-promotion-settings-open");
     expect(promotion).not.toContain("PortalPropertySectionSettingsModal");
-    // The Zillow switch stays on the Listing sites row.
-    expect(read("src/components/portal/listing-sites-panel.tsx")).toContain("property-promotion-zillow-toggle");
+    // The Zillow switch lives inside the Zillow guide opened from the Listing sites row.
+    expect(read("src/components/portal/listing-site-guide.tsx")).toContain("property-promotion-zillow-toggle");
   });
 
   it("property Forms and Move-in gears -> Move-in forms section", () => {

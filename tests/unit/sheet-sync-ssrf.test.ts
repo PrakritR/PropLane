@@ -92,3 +92,28 @@ describe("fetchPublishedCsv SSRF guard", () => {
     expect(result).toEqual({ rows: null, error: "Could not read the CSV." });
   });
 });
+
+describe("fetchPublishedCsv spends one budget across every redirect hop", () => {
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.lookup.mockResolvedValue(PUBLIC);
+  });
+
+  it("hands each hop what is left of the 15 s, never a fresh deadline", async () => {
+    const budgets: number[] = [];
+    fetchMock.mockImplementation(async (_url: string, init: { totalTimeoutMs?: number }) => {
+      budgets.push(init.totalTimeoutMs ?? -1);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const hop = budgets.length;
+      return hop <= 3
+        ? new Response(null, { status: 302, headers: { location: `https://ok.example.com/${hop}.csv` } })
+        : csvResponse();
+    });
+    const result = await fetchPublishedCsv("https://ok.example.com/0.csv", { fetchHop: fetchMock });
+    expect(result.rows).toEqual([["a", "b"], ["1", "2"]]);
+    expect(budgets).toHaveLength(4);
+    expect(budgets[0]).toBeLessThanOrEqual(15_000);
+    for (let i = 1; i < budgets.length; i += 1) expect(budgets[i]!).toBeLessThan(budgets[i - 1]!);
+  });
+});

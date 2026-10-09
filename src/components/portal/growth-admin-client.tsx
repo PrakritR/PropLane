@@ -9,23 +9,25 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { GrowthQueueTab, GrowthNewPostModal } from "@/components/portal/growth-queue-tab";
 import { GrowthCalendarTab } from "@/components/portal/growth-calendar-tab";
 import { GrowthPostDetail } from "@/components/portal/growth-post-detail";
+import { GrowthEngageTab } from "@/components/portal/growth-engage-tab";
 import { GrowthAccountsTab } from "@/components/portal/growth-accounts-tab";
 import { GrowthAnalyticsTab } from "@/components/portal/growth-analytics-tab";
 
-export const GROWTH_TABS = ["queue", "calendar", "accounts", "analytics"] as const;
+export const GROWTH_TABS = ["queue", "calendar", "engage", "accounts", "analytics"] as const;
 export type GrowthTabId = (typeof GROWTH_TABS)[number];
 
 const TAB_LABEL: Record<GrowthTabId, string> = {
   queue: "Queue",
   calendar: "Calendar",
+  engage: "Engage list",
   accounts: "Accounts",
   analytics: "Analytics",
 };
 
 /**
  * Growth: PropLane's own social content pipeline. `postId` set means the Post tab
- * (`/admin/growth/post/<id>`); otherwise `tab` picks one of the four list tabs.
- * Reel studio and Engage list are Phase 2/3 and have no tab yet.
+ * (`/admin/growth/post/<id>`); otherwise `tab` picks one of the list tabs.
+ * Reel studio lives on the post detail; Engage list is its own list tab.
  */
 export function GrowthAdminClient({ tab = "queue", postId }: { tab?: GrowthTabId; postId?: string }) {
   const navigate = usePortalNavigate();
@@ -68,6 +70,8 @@ export function GrowthAdminClient({ tab = "queue", postId }: { tab?: GrowthTabId
         </>
       ) : tab === "calendar" ? (
         <GrowthCalendarTab />
+      ) : tab === "engage" ? (
+        <GrowthEngageTab />
       ) : tab === "accounts" ? (
         <GrowthAccountsTab />
       ) : (

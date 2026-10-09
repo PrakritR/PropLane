@@ -165,3 +165,46 @@ describe("room_date_block record scope", () => {
     expect(managerScheduleRecordIdOwnedByUser(roomDateBlockRecordId("user-10", "abc"), "user-1", ROOM_DATE_BLOCK_RECORD_TYPE)).toBe(false);
   });
 });
+
+describe("applicationHoldEntries - manually added residents", () => {
+  const opts = {
+    properties: [PROPERTY],
+    roomLabelForId: roomLabel,
+    isLeased: () => false,
+    openEndedHorizonKey: "2028-01-01",
+  };
+
+  it("manual resident with only manualResidentDetails (no application.leaseStart) holds the assigned room", () => {
+    const [entry] = applicationHoldEntries(
+      [
+        {
+          id: "AXIS-M1",
+          bucket: "approved",
+          name: "Manual Mo",
+          assignedPropertyId: PROPERTY.id,
+          assignedRoomChoice: `${PROPERTY.id}::room-a`,
+          manualResidentDetails: { moveInDate: "2026-10-05", moveOutDate: "2027-01-31" },
+        },
+      ],
+      opts,
+    );
+    expect(entry).toMatchObject({ source: "hold", roomId: "room-a", start: "2026-10-05", end: "2027-01-31", summary: "Manual Mo" });
+  });
+
+  it("manual dates win over the application's lease dates", () => {
+    const [entry] = applicationHoldEntries(
+      [
+        {
+          id: "AXIS-M2",
+          bucket: "approved",
+          assignedPropertyId: PROPERTY.id,
+          assignedRoomChoice: `${PROPERTY.id}::room-a`,
+          application: { leaseStart: "2026-09-01", leaseEnd: "2026-12-31" },
+          manualResidentDetails: { moveInDate: "2026-10-05", moveOutDate: "2027-01-31" },
+        },
+      ],
+      opts,
+    );
+    expect(entry).toMatchObject({ start: "2026-10-05", end: "2027-01-31" });
+  });
+});

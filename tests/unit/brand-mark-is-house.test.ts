@@ -43,7 +43,7 @@ describe("PropLane brand uses the house mark, never a plane", () => {
   }
 
   it("the Listed with PropLane row is the house mark", () => {
-    const source = read("src/components/portal/listing-sites-panel.tsx");
+    const source = read("src/components/portal/integrations-posting-panel.tsx");
     expect(source).toMatch(/name="Show Listed with PropLane"/);
     const row = source.slice(source.lastIndexOf("<IntegrationRow", source.indexOf('name="Show Listed with PropLane"')));
     expect(row.slice(0, row.indexOf("name="))).toContain("icon={ProPlaneMarkIcon}");

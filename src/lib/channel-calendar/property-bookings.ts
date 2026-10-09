@@ -228,6 +228,8 @@ export type ApplicationHoldRow = {
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
   application?: { leaseStart?: string; leaseEnd?: string; roomChoice1?: string } | null;
+  /** Resident-wizard dates; win over the application's lease dates (same precedence as /portal/residents). */
+  manualResidentDetails?: { moveInDate?: string | null; moveOutDate?: string | null } | null;
 };
 
 export function applicationHoldEntries(
@@ -245,12 +247,16 @@ export function applicationHoldEntries(
   for (const row of rows) {
     if (row.bucket !== "approved") continue;
     if (opts.isLeased(row)) continue;
-    const propertyId = (row.assignedPropertyId ?? row.propertyId ?? "").trim();
+    const propertyId = (row.assignedPropertyId || row.propertyId || "").trim();
     const property = properties.get(propertyId);
     if (!property) continue;
-    const start = normalizeBookingDateKey(row.application?.leaseStart);
+    const start =
+      normalizeBookingDateKey(row.manualResidentDetails?.moveInDate) ||
+      normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
-    const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
+    const parsedEnd =
+      normalizeBookingDateKey(row.manualResidentDetails?.moveOutDate) ||
+      normalizeBookingDateKey(row.application?.leaseEnd);
     const end = parsedEnd || opts.openEndedHorizonKey;
     const roomId = parseRoomChoiceValue(row.assignedRoomChoice ?? row.application?.roomChoice1 ?? "").listingRoomId ?? "";
     // Same rule as a lease: without a room, only a whole-home listing is held.

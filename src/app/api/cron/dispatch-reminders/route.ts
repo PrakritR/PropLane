@@ -10,6 +10,7 @@
  * `for update skip locked`, so two overlapping invocations take disjoint work.
  */
 import { NextResponse } from "next/server";
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { randomUUID } from "node:crypto";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch.server";
 import { sweepTaskReminders } from "@/lib/reminders/subjects/tasks.server";
@@ -43,7 +44,6 @@ import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
 import { sweepMoveInFormReminders, sweepMoveOutForms } from "@/lib/reminders/subjects/move-in-forms.server";
-import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -60,18 +60,8 @@ function describeError(error: unknown): string {
   return "dispatch failed";
 }
 
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) {
-    // Preview deployments are public and hold real service-role credentials.
-    // Secretless access is only a localhost/test convenience.
-    return !process.env.VERCEL_ENV && !isProductionRuntime();
-  }
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
-
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

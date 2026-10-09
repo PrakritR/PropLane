@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { reflowScenes, withSceneIds } from "./scenes";
+import { SCENE_ID_PATTERN, reflowScenes, withSceneIds } from "./scenes";
 import {
   GROWTH_PLATFORMS,
   type DraftOutput,
@@ -11,7 +11,7 @@ const platformEnum = z.enum(GROWTH_PLATFORMS);
 
 const sceneSchema = z.object({
   index: z.number().int().optional(),
-  id: z.string().min(1).max(64).optional(),
+  id: z.string().regex(SCENE_ID_PATTERN).optional(),
   kind: z.enum(["generated", "template", "shot", "still"]),
   startMs: z.number().int().min(0),
   endMs: z.number().int().min(1),

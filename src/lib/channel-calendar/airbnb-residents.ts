@@ -1,4 +1,5 @@
 import { isIcalAvailabilityBlock } from "@/lib/occupancy/snapshot";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
 
 export type IcalGuestStay = {
@@ -14,7 +15,7 @@ export function icalGuestStaysForResidents(
   ranges: readonly ChannelCalendarImportedRange[],
 ): IcalGuestStay[] {
   return ranges
-    .filter((range) => !isIcalAvailabilityBlock(range.summary))
+    .filter((range) => !isIcalAvailabilityBlock(range.summary) && !isHostBlockRange(range))
     .map((range) => ({
       connectionId,
       sourceUid: (range.sourceUid || range.id).trim(),

@@ -11,8 +11,8 @@ import {
 /**
  * What the captain's 2026-09-13 screenshots actually showed: a Mac, a mouse, a
  * browser window under 1024px — and a phone bottom sheet with a grabber handle.
- * The current standard keeps the anchored popover for both narrow desktop
- * windows and touch devices. Neither path becomes a bottom sheet.
+ * The current standard (captain, Oct 9): a narrow desktop window keeps the
+ * anchored popover; a touch phone opens the filter as a bottom sheet.
  */
 function stubMedia(matchers: Record<string, boolean>) {
   vi.stubGlobal(
@@ -66,10 +66,10 @@ describe("a mouse in a narrow window keeps the popover", () => {
     expect(panel?.getAttribute("data-surface")).toBe("popover");
   });
 
-  it("keeps the same anchored popover on a touch device", () => {
+  it("opens a bottom sheet on a touch phone, not the anchored popover", () => {
     openFilter(A_PHONE);
-    expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).toBeNull();
-    expect(document.querySelector('[data-slot="portal-filter-dropdown-panel"]')?.getAttribute("data-surface")).toBe("popover");
+    expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="portal-filter-dropdown-panel"]')).toBeNull();
   });
 });
 

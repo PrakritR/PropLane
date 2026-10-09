@@ -58,7 +58,7 @@ Default slots: reels 09:00 PT, X 12:30 PT, LinkedIn 08:00 PT, carousels 17:00 PT
 
 ## Admin UI
 
-`/admin/growth` with tabs `queue` (default), `calendar`, `post/[id]`, `accounts`, `analytics`.
+`/admin/growth` with tabs `queue` (default), `calendar`, `engage`, `accounts`, `analytics`, plus `post/[id]`.
 Lists use `PortalRecordListSurface` (admin borrows, never invents); the queue is a status board of
 cards, not a table. Empty, loading and error states as drawn in the plan.
 
@@ -145,3 +145,47 @@ permanently (platform terms).
 - Needs migration `20261008120000_growth_posts_meta.sql` (applied to dev/test with `supabase db query --linked -f`).
 - Launchd: `ops/launchd/com.proplane.growth-render.plist` (02:00 daily; edit WORKTREE_PATH; not loaded by default).
 - Remotion is free for companies of 3 or fewer; revisit its license when the team grows.
+
+## Phase 3 contract: engage list
+
+The engine **never follows, likes, DMs or posts on the admin's behalf** (auto-follow/like bots violate
+Instagram, TikTok and LinkedIn terms and get brand accounts restricted). It builds a ~10-minute daily list
+with a drafted comment per target; the admin edits it, taps Open, and posts by hand. The UI only opens links.
+
+Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-only OAuth (`client_credentials`, token cached in module scope, one refresh on 401) when `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` are set (a "script" app at reddit.com/prefs/apps); with them unset it falls back to the anonymous `www.reddit.com` call.
+
+- **Tables** (migration `20261009090000_growth_engage.sql`, same RLS/grant model as the rest; not applied
+  automatically): `growth_watchlist` (platform, handle, kind `engage|follow|collab`, unique per platform+handle),
+  `growth_engage_items` (`for_date`, source, target, url, why, draft, status `open|done|skipped`, evidence;
+  unique per `(for_date, url)`), `growth_keywords` (comment-to-DM keyword, reply, link).
+- **Sources** (`src/lib/growth/engage/`): `reddit.server.ts` reads Reddit search JSON (r/Landlord,
+  r/realestateinvesting, r/propertymanagement) — read-only, never posting, app-only OAuth when the two env
+  vars above are set and anonymous otherwise; drops threads older than 7 days, NSFW, or under 3 upvotes.
+  Etiquette: User-Agent `PropLane growth/1.0`, one search per subreddit per run (all keywords OR'd into one
+  query, so 3 requests total), nothing cached across runs beyond the stored items. `watchlist.server.ts`
+  supplies active `engage` rows.
+- **Build** (`build.server.ts` `buildEngageList({forDate, limit=20})`): up to 12 Reddit threads plus up to 8
+  watchlist targets (rotated daily); one Claude call per batch of **5** (`max_tokens` 8000) drafts `why` (at most
+  90 chars) and `draft` in the voice guide (product named at most once, only when the thread asks for tools).
+- **Dedupe is two different rules, and both matter.** A Reddit thread is listed once ever inside the
+  `ENGAGE_DEDUPE_DAYS` (60) window; a watchlist account rotates, so it only has to be absent from **that exact
+  `for_date`** — a `gte` here would let the cron's tomorrow list hide the whole watchlist from a same-day
+  Build now. The window is read in one **paged** pass (`select("url,for_date")`, explicit order, `.range()`)
+  because PostgREST caps a response at its own max-rows and would otherwise truncate the set silently; the
+  paged window is only a filter, and a per-candidate existence check is the decision. Idempotent per
+  `(for_date, url)`.
+- **Drafting has a budget, and a partial build says so.** One retry total per build, not per batch
+  (`DraftBudget`): a truncated (`stop_reason === "max_tokens"`) or unparseable reply is retried once with a
+  shorter instruction, after which an undraftable batch is skipped and the run continues. Drafting stops
+  altogether once `ENGAGE_DRAFT_BUDGET_MS` (200 s) has elapsed, inside the routes' `maxDuration = 300`, and the
+  result carries `stoppedEarly` so a build that ran out of time never looks like a complete one — Build now
+  toasts `Added N · skipped M`, plus `stopped early, run again`.
+- **Cron** `growth-engage` (`0 12 * * *`, 04:00 PT) builds tomorrow's list (Pacific date). Its CRON_SECRET
+  bearer check is the shared `requireCronSecret` (`src/lib/cron-auth.server.ts`), not a local copy.
+- **Routes** (admin session): `GET /api/admin/growth/engage?date=`, `PATCH /engage/[id]` (`status`, `draft`),
+  `POST /engage/build-now`, `GET/POST /watchlist`, `PATCH/DELETE /watchlist/[id]`, `GET/POST/DELETE /keywords`
+  (`DELETE ?id=`).
+- **UI**: `Engage list` tab (`/admin/growth/engage`): today's list with date stepper and Build now (header
+  reads `N open · M done`), plus **Engage by hand** (`kind: engage` — the rows `watchlist.server.ts` feeds
+  into the build, so this group is what makes that source reachable), Follow by hand, Comment-to-DM keywords
+  and Collab shortlist groups. Each group adds, lists and removes its own kind.

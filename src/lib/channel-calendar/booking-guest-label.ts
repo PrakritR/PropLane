@@ -1,3 +1,5 @@
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
+
 /** User-facing label for an imported channel event summary. */
 export function bookingGuestLabel(
   summary: string | null | undefined,
@@ -8,9 +10,8 @@ export function bookingGuestLabel(
   const fallback = `Booked (${channel})`;
   if (!raw) return fallback;
   const lower = raw.toLowerCase();
-  if (lower === "reserved" || lower === "not available" || lower === "blocked") {
-    return fallback;
-  }
+  if (isHostBlockSummary(raw)) return `${channel} block`;
+  if (lower === "reserved") return fallback;
   return raw;
 }
 

@@ -107,7 +107,7 @@ function leaseBookingRowFromScope(record: {
   } as LeaseBookingRow & { residentEmail?: string };
 }
 
-function holdRowFromApplication(row: {
+export function holdRowFromApplication(row: {
   id: unknown;
   property_id?: unknown;
   assigned_property_id?: unknown;
@@ -115,6 +115,7 @@ function holdRowFromApplication(row: {
 }): ApplicationHoldRow {
   const data = asRecord(row.row_data);
   const application = asRecord(data.application);
+  const manual = asRecord(data.manualResidentDetails);
   return {
     id: String(row.id ?? ""),
     bucket: str(data.bucket) || "approved",
@@ -127,6 +128,10 @@ function holdRowFromApplication(row: {
       leaseStart: str(application.leaseStart) || undefined,
       leaseEnd: str(application.leaseEnd) || undefined,
       roomChoice1: str(application.roomChoice1) || undefined,
+    },
+    manualResidentDetails: {
+      moveInDate: str(manual.moveInDate) || undefined,
+      moveOutDate: str(manual.moveOutDate) || undefined,
     },
   };
 }
@@ -212,19 +217,23 @@ async function occupancyPropertyMeta(
   };
 }
 
-async function occupancyHoldEntries(
+export async function occupancyHoldEntries(
   db: SupabaseClient,
-  userId: string,
   propertyIds: string[],
   leaseRows: Array<LeaseBookingRow & { residentEmail?: string }>,
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
+  if (propertyIds.length === 0) return [];
+  // Scope by property, not owner: the workspace is shared, so a resident another co-manager added
+  // still holds a room in these houses (same reach as the calendar export feed).
+  const quoted = propertyIds.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
+  const choiceFilters = propertyIds.map((id) => `row_data->>assignedRoomChoice.like.${id.replace(/[,()"]/g, "")}::%`);
   const { data, error } = await db
     .from("manager_application_records")
     .select("id, property_id, assigned_property_id, row_data")
-    .eq("manager_user_id", userId)
     .eq("row_data->>bucket", "approved")
-    .limit(500);
+    .or([`property_id.in.(${quoted})`, `assigned_property_id.in.(${quoted})`, ...choiceFilters].join(","))
+    .limit(2000);
   if (error) throw new Error(error.message);
   const scoped = new Set(propertyIds);
   const leasedIds = new Set<string>();
@@ -254,7 +263,6 @@ async function occupancyHoldEntries(
 
 async function occupancyBlockEntries(
   db: SupabaseClient,
-  userId: string,
   propertyIds: string[],
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
@@ -262,7 +270,6 @@ async function occupancyBlockEntries(
   const { data, error } = await db
     .from("portal_schedule_records")
     .select("id, property_id, row_data")
-    .eq("manager_user_id", userId)
     .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
     .in("property_id", propertyIds)
     .limit(1000);
@@ -304,8 +311,8 @@ export async function occupancySnapshotForManager(
     openEndedHorizonKey: openEndedBookingHorizonKey(),
   });
   const [holdEntries, blockEntries] = await Promise.all([
-    occupancyHoldEntries(db, userId, propertyIds, leaseRows, meta),
-    occupancyBlockEntries(db, userId, propertyIds, meta),
+    occupancyHoldEntries(db, propertyIds, leaseRows, meta),
+    occupancyBlockEntries(db, propertyIds, meta),
   ]);
   const entries = combineOccupancyEntries(
     airbnbBookingEntries(bookings),

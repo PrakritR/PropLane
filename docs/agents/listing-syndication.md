@@ -119,6 +119,8 @@ id when a co-manager is acting in a shared workspace. Regenerating the key is
 out of scope — a manager who already handed this exact URL to Zillow would
 break that registration.
 
+`ZILLOW_FEED_APPROVED=1` (deployment-wide, read only in the listing-channels GET route) marks Zillow's feed approved. Until it is set, every surface has to say the same thing: the guide's mode line reads "Posts for you once Zillow approves · by hand until then" above its by-hand steps, and the Listing sites row carries the same by-hand fact as a manual channel (`Posted by you · <date>` / `Not posted yet`), never the feed-queued count. Once it is set the guide drops the by-hand steps and shows only the status table, and the row reads `Posts for you · N of M listings`.
+
 ## Registering the feed with Zillow
 
 1. Open Settings → Integrations → Posting in the manager portal and copy the
@@ -128,6 +130,12 @@ break that registration.
 3. Per listing, turn on "Also list on Zillow, Trulia and HotPads" from that
    listing's Review step. Zillow's crawl picks up the change on its own cycle
    (the row says "usually live within 24 hours").
+
+The draft answers for Zillow's Rentals Feed application form — the field map it
+asks for, which questions we deliberately leave as "confirm on application",
+and what to do after approval — are kept in
+[`docs/ops/zillow-feed-application.md`](../ops/zillow-feed-application.md).
+That file is the application worksheet; the code facts it cites stay owned here.
 
 ## Agent tool
 
@@ -141,18 +149,86 @@ syndication is a listing edit.
 ## Listing sites: the channel registry
 
 `src/lib/listing-channels/` is the one registry of where a listing can be
-advertised. A channel is one of three kinds, and the UI shows exactly those
-three groups (property **Promotion › Listing sites** and the overall
-**Promotion › Listing sites** view; there is no rail tab):
+advertised. Every channel has one **posting mode** (`posting` in
+`registry.ts`), and the UI is one flat list of 16 rows in reach order (`order`,
+`listingChannelsOrdered()`), no groups and no sub-tabs, in property
+**Promotion › Listing sites** and the overall **Promotion › Listing sites** view
+(there is no rail tab). A row (glyph, name, plain-text fact, chevron) opens that
+site's guide (`listing-site-guide.tsx`) in the drawer/dialog.
 
-| Group | Channels | How it works |
+| Posting mode | Channels | How it works |
 | --- | --- | --- |
-| Automatic | Zillow Rental Network (feed), Facebook Page, Instagram (Meta Graph API) | PropLane posts for the manager. Per-listing switch, default ON for a connected live channel. |
-| One-click | Facebook Marketplace, Facebook Groups, Roomster, Roomies, Furnished Finder, Craigslist | The site forbids automation. "Copy & open" copies the built post and opens the site's own create page; the manager can mark it "Posted by me". |
-| Request access | Zumper and PadMapper, Apartments.com, Apartment List, SpareRoom, Nextdoor, Google Business Profile, LinkedIn | Coming soon. The button opens a mail draft to support. Nothing posts. |
+| `feed` | Zillow Rental Network | Nothing is pushed; Zillow's crawler reads the workspace feed. The guide shows every listing's own state ("Posting" / "Off" / its hold reason) and the per-listing switch. |
+| `manual` | Facebook Marketplace, Facebook Groups, Craigslist, SpareRoom, Roomies, Roomster, Zumper and PadMapper, Apartments.com, Redfin (via Rent.), Furnished Finder, Nextdoor, Reddit | The site forbids automation. The guide: create an account, copy the post (and download photos), post it, mark it posted (optional ad link). Row fact: "Posted by you · Oct 8" or "Not posted yet". |
+| `api` | Facebook Page, Instagram (Meta Graph API) | PropLane posts for the manager once Meta approves the app (per-listing switch in the guide). Until then the row says "Coming soon · post by hand for now" and the guide has the by-hand steps. |
+| `partner_only` | Apartment List | Takes partner feeds only. The row says "Partner feed only"; the guide shows one "Nothing to post" block. |
+
+Rows are ordered Zillow, Facebook Marketplace, Facebook Groups, Craigslist,
+SpareRoom, Roomies, Roomster, Zumper and PadMapper, Apartments.com, Redfin,
+Apartment List, Furnished Finder, Nextdoor, Reddit, Facebook Page, Instagram.
+**Redfin (`redfin_rent`) and Reddit (`reddit`) were added; Google Business
+Profile and LinkedIn were removed** (they cannot advertise a rental). Their
+partner contacts live on in `RETIRED_PARTNER_CONTACTS` in the registry, for an
+admin to read there; the Listing sites API ships no partner contacts. Availability: `feed` and `manual` are `live`, `api` is
+`live` only when Meta is live, `partner_only` is `partner_only`; there is never a
+"Coming soon"-only dead row.
+
+### The guide schema
+
+Each `ListingChannelDef` carries `guide: { how, signupUrl?, signupNote,
+createUrl?, createNote, cost, rules[] }`, rendered verbatim by
+`ListingSiteGuide` (the copy comes from the approved studio plan
+`listing-sites-guides-1008`). Steps: 1 Create an account (new tab,
+`rel="noopener noreferrer"`), 2 Copy your post (post preview, Copy and
+Download photos icon actions; photos come from
+`/api/manager/listing-channels/photos?propertyId=`, any workspace member who
+can see the listing, host-allowlisted, one photo in memory at a time under a
+40 s deadline inside the route's `maxDuration`; entries are numbered by the
+listing's own photo order, and a zip short of the listing's photos says so with
+`X-Photos-Partial: <fetched>/<total>` and a `-photos-partial.zip` name rather
+than passing for a complete short listing), 3 Post it, 4 Mark as posted
+(`POST /api/manager/listing-channels/mark-posted`, owner only, optional
+`postedUrl` stored in `listing_channel_posts.posted_url` and surfaced back as
+the step's "Open ad" link). It ends with "Keep the account
+safe" (`rules`). Workspace mode has a listing picker (newest listing by
+default); the property panel binds the guide to its listing. The guide shows
+"<n> leads from this site" from `leadCounts[channelId]` on
+`GET /api/manager/listing-channels` (`leadCountsByChannel`).
+
+### The `?src=` tag
+
+Every post's listing link is tagged `?src=<channelId>`
+(`taggedListingLink` in `post-text.ts`), so a lead that arrives through a posted
+ad can be traced to the site. The link line is never trimmed. `GET
+/api/manager/listing-channels?propertyId=` returns a built `postTexts` entry
+for every channel that is posted by hand. The Zillow feed's own `listingUrl`
+carries no tag yet, so Zillow leads are not counted — a deliberate follow-up,
+tracked in the ops worksheet linked above.
+
+The allowlist `normalizeLeadSource` checks is **derived** from
+`LISTING_CHANNEL_DEFS` (`LEAD_SOURCE_CHANNEL_IDS`), never hand-listed, so a new
+site is tagged and counted the moment it is in the registry. `pl_src` is a
+first-party cookie written by the public listing page itself
+(`ListingSourceCapture`), 30 days, `SameSite=Lax`, `Secure` on https (omitted on
+http so a localhost lane still records a tag). Only the applicant-facing write
+stamps `source_channel`: a manager-initiated create or draft save is never credited to
+whatever tagged link that manager happened to open. `source_channel` and
+`posted_url` are the only thing their migration adds, so each write retries once
+without the column (`isMissingColumnError`) rather than failing the applicant's
+submission (draft save included), the tour request or the manager's "Mark as
+posted"; the Listing sites GET reports `schemaReady: false` instead. A write
+path that wraps the failure in its own `Error` must pass the original along as
+`cause`, or its prefix hides what the database actually said.
+
+### "Listed with PropLane"
+
+The line itself is unchanged — `buildListingPostText` appends it when the
+workspace setting says to, and it is never trimmed. The **switch** is no longer
+a row in the Listing sites view: it moved to Settings › Integrations › Posting,
+owned by [`integrations.md`](integrations.md) § Posting.
 
 **Never scraping, never headless or browser-driven posting, anywhere.** A site
-with no official API or feed is one-click or request-access, full stop.
+with no official API or feed is `manual` or `partner_only`, full stop.
 
 ### One post builder
 
@@ -180,7 +256,9 @@ Instagram cannot publish without a photo, so the same rule covers it.
 One row per (property, channel) (`20261006120000_listing_channel_posts.sql`):
 `enabled`, `state` (`pending | posting | posted | held | failed | off |
 posted_by_me`), `pending_action` (`publish | update | unpublish`),
-`external_id`, `last_error`, `content_hash`, `attempts`, `next_attempt_at`.
+`external_id`, `last_error`, `content_hash`, `attempts`, `next_attempt_at`,
+plus `posted_url` (`20261008180000_listing_lead_source.sql`, the ad link the
+manager pasted when marking a by-hand post as posted).
 The row is both the record and the queue.
 
 * **RLS:** client roles may only `SELECT` their own rows
