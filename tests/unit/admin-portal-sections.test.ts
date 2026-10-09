@@ -21,10 +21,11 @@ describe("admin nav groups", () => {
   const groups = PORTAL_NAV_GROUPS.admin;
   const grouped = groups.flatMap((g) => g.sections);
 
-  it("heads the sidebar: unheaded Dashboard + Communication, then Accounts, Portfolio, Support", () => {
+  it("heads the sidebar: unheaded Dashboard + Communication, then Accounts, Money, Portfolio, Support", () => {
     expect(groups.map((g) => [g.label, g.sections] as const)).toEqual([
       [null, ["dashboard", "communication"]],
-      ["Accounts", ["axis-users", "test-accounts"]],
+      ["Accounts", ["axis-users", "subscribers", "test-accounts"]],
+      ["Money", ["payments", "promo-codes", "finances"]],
       ["Portfolio", ["properties"]],
       ["Support", ["bugs-feedback", "events", "health"]],
       ["Marketing", ["growth"]],
@@ -42,9 +43,55 @@ describe("admin nav groups", () => {
     expect(registry).toEqual(grouped);
   });
 
-  it("groups real nav items into the same five buckets", () => {
+  it("groups real nav items into the same six buckets", () => {
     const items = adminPortal.sections.map((s) => ({ section: s.section }));
-    expect(groupNavItems("admin", items).map((g) => g.id)).toEqual(["home", "accounts", "portfolio", "support", "marketing"]);
+    expect(groupNavItems("admin", items).map((g) => g.id)).toEqual([
+      "home",
+      "accounts",
+      "money",
+      "portfolio",
+      "support",
+      "marketing",
+    ]);
+  });
+});
+
+describe("admin Money and Subscribers sections resolve", () => {
+  const sections = [
+    { section: "subscribers", label: "Subscribers", handler: "AdminSubscribersPanel" },
+    { section: "payments", label: "Payments", handler: "AdminPaymentsPanel" },
+    { section: "promo-codes", label: "Promo codes", handler: "AdminPromoCodesPanel" },
+    { section: "finances", label: "Finances", handler: "AdminFinancesPanel" },
+  ] as const;
+
+  it.each(sections)("$section is registered, linked, a smoke path and a real route", ({ section, label }) => {
+    const path = `/admin/${section}`;
+    expect(findSection(adminPortal, section)).toMatchObject({ section, label });
+    expect(hrefForSection(adminPortal, section)).toBe(path);
+    expect(routeResolves(path)).toBe(true);
+    expect(isInAppPath(path)).toBe(true);
+    expect(ADMIN_PORTAL_SMOKE_PATHS.some((p) => p.path === path)).toBe(true);
+  });
+
+  it.each(sections)("$section is rendered by its own handler, before any legacy rewrite", ({ section, handler }) => {
+    const render = read("src/lib/render-portal-section.tsx");
+    expect(render).toContain(`kind === "admin" && section === "${section}"`);
+    expect(render).toContain(`<${handler}`);
+    expect(read("src/lib/render-portal-section/admin.tsx")).toContain(handler);
+  });
+
+  it("no next.config redirect shadows /admin/payments, and the legacy finances rewrite skips admin", () => {
+    expect(read("next.config.ts")).not.toMatch(/source:\s*"\/admin\/(payments|subscribers|promo-codes|finances)/);
+    expect(read("src/lib/render-portal-section.tsx")).toContain('section === "finances" && kind !== "admin"');
+  });
+
+  it("a payment record is one decoded segment under /admin/payments", () => {
+    expect(routeResolves("/admin/payments/txn_123")).toBe(true);
+    expect(routeResolves("/admin/promo-codes/abc")).toBe(true);
+  });
+
+  it("keeps /admin/billing without a route", () => {
+    expect(findSection(adminPortal, "billing")).toBeUndefined();
   });
 });
 

@@ -8,6 +8,7 @@ import { emitActionEvent, teamRecipientKey, type ActionEventAudience, type Actio
 import { applyAutomatedMessageSetting, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { collapseDuplicateRoomCount } from "@/lib/property-title";
 import { leaseDetailHref, residentDocumentsLeaseDetailHref } from "@/lib/portal-detail-routes";
 
 export const ACTION_EVENT_CATALOG = {
@@ -250,7 +251,7 @@ export async function emitApplicationTransition(
     .catch(() => 0);
   const facts: ApplicationFacts = {
     applicantName: input.application.name?.trim() || input.application.email?.trim() || "An applicant",
-    propertyLabel: input.application.property?.trim() || undefined,
+    propertyLabel: collapseDuplicateRoomCount(input.application.property?.trim() ?? "") || undefined,
     responsePromise: promiseDays > 0 ? `within ${promiseDays} ${promiseDays === 1 ? "day" : "days"}` : undefined,
   };
   // Auto-send vs draft-for-review is decided on the bus itself
@@ -432,7 +433,7 @@ export async function emitHouseholdChargeTransition(
   const facts: PaymentFacts = {
     title: input.charge.title || "Charge",
     amountLabel: input.charge.amountLabel || input.charge.balanceLabel || "",
-    propertyLabel: input.charge.propertyLabel || undefined,
+    propertyLabel: collapseDuplicateRoomCount(input.charge.propertyLabel ?? "") || undefined,
     balanceLabel: input.charge.balanceLabel || undefined,
     dueDateLabel: input.charge.dueDateLabel || undefined,
   };

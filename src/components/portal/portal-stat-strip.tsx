@@ -42,7 +42,7 @@ export function PortalStatStrip({
   if (items.length === 0) return null;
   return (
     <div
-      className={cn("grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))]", className)}
+      className={cn("grid gap-3 max-md:grid-cols-2 max-md:gap-2 md:[grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))]", className)}
       data-slot="portal-stat-strip"
       data-attr={dataAttr}
     >

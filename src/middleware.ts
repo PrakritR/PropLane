@@ -11,6 +11,7 @@ import {
   NOINDEX_ROBOTS_TAG,
   requestHostFromHeaders,
 } from "@/lib/seo/public-crawl-host";
+import { isSecureAuthContext, supabaseAuthCookieOptions } from "@/lib/supabase/cookie-options";
 import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
 import {
   readViewAsSecret,
@@ -157,6 +158,9 @@ export async function middleware(request: NextRequest) {
   }
 
   const supabase = createServerClient(url, anon, {
+    cookieOptions: supabaseAuthCookieOptions({
+      secure: isSecureAuthContext(request.nextUrl.protocol, request.nextUrl.hostname),
+    }),
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -176,8 +180,12 @@ export async function middleware(request: NextRequest) {
     error: userError,
   } = await supabase.auth.getUser();
 
+  // Only a definitively dead refresh token clears this browser's cookies, and
+  // only locally: a global signOut() would revoke the user's other devices and
+  // a concurrent refresh-token rotation (middleware + client auto-refresh)
+  // must never read as a logout. Network blips, 429s and 5xx keep the cookies.
   if (userError && isStaleRefreshTokenError(userError)) {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
   }
 
   if (needsAuth && !user) {

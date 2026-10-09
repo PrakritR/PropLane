@@ -12,6 +12,12 @@ export type ManagerSubscriptionCheckoutBaseInput = {
   customerEmail?: string;
   clientReferenceId?: string;
   discounts?: ManagerSubscriptionCheckoutDiscount[];
+  /**
+   * Checkout shows the "Add promotion code" field on EVERY plan (Money > Promo codes mints codes
+   * that redeem here). Defaults to true; pass false to hide it. Stripe refuses a session that carries
+   * both `discounts` and `allow_promotion_codes`, so a session with an applied discount (the FREEFIRST
+   * link) never shows the field.
+   */
   allowPromotionCodes?: boolean;
   /** When set, Checkout collects a payment method and defers billing until trial ends. */
   trialPeriodDays?: number;
@@ -68,7 +74,7 @@ export function buildManagerSubscriptionCheckoutBase(
     ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
     ...(input.clientReferenceId ? { client_reference_id: input.clientReferenceId } : {}),
     ...(input.discounts?.length ? { discounts: input.discounts } : {}),
-    ...(input.allowPromotionCodes ? { allow_promotion_codes: true } : {}),
+    ...(input.allowPromotionCodes !== false && !input.discounts?.length ? { allow_promotion_codes: true } : {}),
     ...(trialDays
       ? {
           subscription_data: {

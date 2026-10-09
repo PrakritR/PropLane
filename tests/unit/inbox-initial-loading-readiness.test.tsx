@@ -848,8 +848,12 @@ describe("PRP-470 initial Communication readiness", () => {
     await waitFor(() => expect(screen.getByText("Ready SMS")).toBeTruthy());
     await act(async () => screen.getByText("Ready SMS").closest("button")?.click());
     await waitFor(() => expect(screen.getByText("Ready SMS").closest(".portal-inbox-row")?.className).toContain("portal-inbox-row--selected"));
+    // Refocus reads through the 20s TTL: step past it so this exercises a real revalidation that fails.
+    const realNow = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(realNow + 25_000);
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(smsCalls).toBe(2));
+    nowSpy.mockRestore();
     expect(screen.getByText("Ready SMS")).toBeTruthy();
     expect(screen.getByText("Ready SMS").closest(".portal-inbox-row")?.className).toContain("portal-inbox-row--selected");
   });

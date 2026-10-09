@@ -60,6 +60,14 @@ function useCommandTabIndicator(activeKey: string, itemCount: number, enabled: b
   return { wrapRef, registerItem, rect };
 }
 
+/** Edge-fade mask for a scrolling tab row: right edge while more is hidden, left edge once scrolled; none when it fits. */
+export function tabOverflowMask(scrolledFromStart: boolean, moreToEnd: boolean): string | undefined {
+  if (scrolledFromStart && moreToEnd) return "linear-gradient(to right, transparent, black 28px, black calc(100% - 28px), transparent)";
+  if (moreToEnd) return "linear-gradient(to right, black calc(100% - 28px), transparent)";
+  if (scrolledFromStart) return "linear-gradient(to left, black calc(100% - 28px), transparent)";
+  return undefined;
+}
+
 /** Keep overflow visible without fading the final tab after the user reaches it. */
 export function useTabOverflowFade(ref: { current: HTMLElement | null }, itemCount: number) {
   const [mask, setMask] = useState<string>();
@@ -69,10 +77,7 @@ export function useTabOverflowFade(ref: { current: HTMLElement | null }, itemCou
     const sync = () => {
       const left = row.scrollLeft > 2;
       const right = row.scrollWidth - row.clientWidth - row.scrollLeft > 2;
-      setMask(left && right
-        ? "linear-gradient(to right, transparent, black 28px, black calc(100% - 28px), transparent)"
-        : right ? "linear-gradient(to right, black calc(100% - 28px), transparent)"
-        : left ? "linear-gradient(to left, black calc(100% - 28px), transparent)" : undefined);
+      setMask(tabOverflowMask(left, right));
     };
     sync();
     row.addEventListener("scroll", sync, { passive: true });

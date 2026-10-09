@@ -112,7 +112,7 @@ table and the `admin` inbox scope.
 ## Receive-only — SUPPORT replies do not reach the sender
 
 The support inbox is **inbound display only**. Replying to a support thread in
-the admin inbox calls `appendThreadReply`, which appends to `row.thread` and
+the admin Communication thread (`POST /api/admin/inbox-reply`, or `appendThreadReply` in the demo), which appends to `row.thread` and
 persists it — it does **NOT** email the sender back. There is no outbound path
 wired for these threads; answering a customer still means sending mail from the
 support mailbox. Building an outbound round trip for SUPPORT threads is

@@ -56,6 +56,7 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { composePlaceLine } from "@/lib/portal-mobile-preview";
 
 function applicationStatusLabel(bucket: ManagerApplicationBucket): string {
   if (bucket === "approved") return "Approved";
@@ -177,9 +178,11 @@ function ApplicationDocumentRows({
 }) {
   const renderRow = (row: DemoApplicantRow, includeProperty: boolean) => {
     const email = applicantSecondaryEmail(row);
-    const place = [applicationStatusLabel(row.bucket), includeProperty ? row.property || null : null, applicationRoomLabel(row) || null]
-      .filter(Boolean)
-      .join(" · ");
+    const place = composePlaceLine([
+      applicationStatusLabel(row.bucket),
+      includeProperty ? row.property || null : null,
+      applicationRoomLabel(row) || null,
+    ]);
     return (
       <PortalApplicantRecordRow
         name={applicantDisplayName(row, "—")}

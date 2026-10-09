@@ -24,6 +24,7 @@ import {
   deliverPortalMessageThreadSide,
   scopeForRole,
 } from "@/lib/portal-inbox-delivery";
+import { attachDraftToThread, reviewDraft } from "@/lib/action-event-draft-review.server";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 
 function previewOf(text: string): string {
@@ -50,6 +51,13 @@ export async function mirrorAssistantEmailConversation(
      * only a sent answer wears the EMAIL tag.
      */
     replySent?: boolean;
+    /**
+     * "Resident & vendor messages need my approval first" is on: the answer was
+     * NOT emailed. It is stored as a pending `requiresReview` draft on the
+     * thread (the composer opens on the email channel the person used) rather
+     * than as a sent turn, and the inbox auto-send latch never touches it.
+     */
+    replyAsReviewDraft?: boolean;
     /**
      * The workspace the work address belongs to, and the address itself (S7).
      * The conversation is filed under THIS workspace and remembers the line it
@@ -138,6 +146,20 @@ export async function mirrorAssistantEmailConversation(
 
   const replyText = args.replyText?.trim() ?? "";
   if (!replyText) return;
+
+  if (args.replyAsReviewDraft) {
+    const attached = await attachDraftToThread(
+      db,
+      inbound.threadId,
+      reviewDraft({
+        text: replyText,
+        origin: "automation:email_auto_reply",
+        generatedAt: new Date().toISOString(),
+      }),
+    );
+    if (!attached.ok) console.error("assistant-email review draft not queued", attached.error);
+    return;
+  }
 
   /* Re-read rather than reuse the shape above: the append just moved the thread
      on, and `commitInboxThreadReply` merges onto a fresh `row_data` for the same

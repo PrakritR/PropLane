@@ -19,7 +19,16 @@ export const adminPortal: PortalDefinition = {
     // "Inbox" here only).
     { section: "communication", label: "Communication", tabs: [] },
     { section: "axis-users", label: "Accounts", tabs: [] },
+    // Who pays, who is on a trial, who came in on a promo code - decided by the resolvers
+    // enforcement uses (`admin-subscribers-model.ts`).
+    { section: "subscribers", label: "Subscribers", tabs: [] },
     { section: "test-accounts", label: "Test accounts", tabs: [] },
+    // Money: a live read of PropLane's platform Stripe account, the promo codes that discount it and
+    // the P&L (plan admin-money-1008). `/admin/payments` used to be a dead redirect to the
+    // Dashboard in next.config.ts; that rule is gone because it shadows this route.
+    { section: "payments", label: "Payments", tabs: [] },
+    { section: "promo-codes", label: "Promo codes", tabs: [] },
+    { section: "finances", label: "Finances", tabs: [] },
     { section: "properties", label: "Properties", tabs: [] },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },
     { section: "events", label: "Meetings", tabs: [] },
@@ -29,7 +38,8 @@ export const adminPortal: PortalDefinition = {
     { section: "growth", label: "Growth", tabs: [] },
     // Billing merged into Accounts (captain: "combine Billing and Accounts") -
     // plan, caps, complimentary status and comms credit all live on the
-    // account record page now. No separate nav row, and no `/admin/billing`
+    // account record page now (what PropLane EARNS is Money > Payments, a different
+    // thing from one account's billing). No separate nav row, and no `/admin/billing`
     // route either: `"billing"` was never a registered section here, so that
     // URL 404s (`findSection` in render-portal-section.tsx). The one thing
     // that used to live behind it - the global per-plan "Plan credit" table
@@ -53,6 +63,10 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Communication", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
+  { label: "Subscribers", path: "/admin/subscribers" },
+  { label: "Payments", path: "/admin/payments" },
+  { label: "Promo codes", path: "/admin/promo-codes" },
+  { label: "Finances", path: "/admin/finances" },
   { label: "Properties", path: "/admin/properties" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Meetings", path: "/admin/events" },

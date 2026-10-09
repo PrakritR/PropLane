@@ -1,5 +1,6 @@
 import { assertBrowserDatabaseTarget } from "@/lib/supabase/browser-target";
 import { createBrowserClient } from "@supabase/ssr";
+import { isSecureAuthContext, supabaseAuthCookieOptions } from "@/lib/supabase/cookie-options";
 import { registerBrowserAuthRecovery } from "@/lib/supabase/safe-browser-session";
 
 let supabaseBrowserClient: ReturnType<typeof createBrowserClient> | null = null;
@@ -12,6 +13,10 @@ export function createSupabaseBrowserClient() {
   }
   if (typeof window !== "undefined") assertBrowserDatabaseTarget(url, window.location.hostname);
   supabaseBrowserClient ??= createBrowserClient(url, anon, {
+    cookieOptions: supabaseAuthCookieOptions({
+      secure:
+        typeof window === "undefined" ? true : isSecureAuthContext(window.location.protocol, window.location.hostname),
+    }),
     auth: {
       persistSession: true,
       autoRefreshToken: true,

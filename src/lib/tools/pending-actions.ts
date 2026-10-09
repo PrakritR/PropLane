@@ -161,7 +161,11 @@ async function insertPendingActionRow(
 }
 
 /** Which portal's registry + context resolver owns the action. */
-export type AgentPortal = "manager" | "resident" | "vendor" | "resident_agent";
+/**
+ * `admin` is the PropLane operator console. It owns chat sessions only: its
+ * registry is read-only, so no pending action is ever created under it.
+ */
+export type AgentPortal = "manager" | "resident" | "vendor" | "resident_agent" | "admin";
 
 /**
  * Minimal actor surface for the claim. Every portal context satisfies it, as

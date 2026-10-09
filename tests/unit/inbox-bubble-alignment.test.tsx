@@ -368,6 +368,7 @@ describe("manager SMS bubble alignment", () => {
       expect(text.parentElement?.className).toMatch(/min-w-0/);
     }
     expect(document.querySelectorAll("[data-inbox-author]").length).toBeGreaterThanOrEqual(4);
-    expect(document.querySelector('[data-inbox-via="sms"]')?.textContent).toContain("Text");
+    // The thread is texts, so no turn repeats the "Text" channel word.
+    expect(document.querySelector('[data-inbox-via="sms"]')).toBeNull();
   });
 });

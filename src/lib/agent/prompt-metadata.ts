@@ -19,6 +19,7 @@ export const PROMPT_IDS = {
   managerAssistant: "manager-assistant",
   residentAssistant: "resident-assistant",
   vendorAssistant: "vendor-assistant",
+  adminAssistant: "admin-assistant",
   vendorSmsAgent: "vendor-sms-agent",
   vendorNumberAi: "vendor-number-ai",
   residentPersonalAgent: "resident-personal-agent",

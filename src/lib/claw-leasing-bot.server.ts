@@ -45,6 +45,7 @@ import {
 } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
+import { recordAutoReplyOnSmsNoticeFresh } from "@/lib/sms-inbox-notice.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
@@ -248,7 +249,7 @@ async function replySms(args: {
   };
 }): Promise<PropLaneSmsResult> {
   if (args.managerUserId) {
-    return sendFromManagerWorkNumber({
+    const result = await sendFromManagerWorkNumber({
       managerUserId: args.managerUserId,
       to: args.to,
       text: args.text,
@@ -260,6 +261,17 @@ async function replySms(args: {
       dedupeKey: args.dedupeKey,
       prospectBurst: args.prospectBurst,
     });
+    // An automatic answer to a prospect/resident text is a sent turn on their
+    // Communication thread, so the inbox does not also draft for it.
+    if ((result.ok || result.durablyAccepted) && args.counterpartyRole) {
+      await recordAutoReplyOnSmsNoticeFresh({
+        managerUserId: args.managerUserId,
+        counterpartyPhone: args.to,
+        text: args.text,
+        inboundMessageId: args.dedupeKey?.replace(/^inbound_reply_/, "") ?? null,
+      });
+    }
+    return result;
   }
   return sendPropLaneSms({ to: args.to, text: args.text, fromNumber: args.workNumber });
 }

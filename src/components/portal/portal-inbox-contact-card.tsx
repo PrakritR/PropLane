@@ -36,10 +36,10 @@ export const PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS =
   "grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/[0.12] text-primary";
 
 const ACTION_CLASS =
-  "grid h-8 w-8 shrink-0 place-items-center rounded-[10px] border border-primary/30 bg-card text-primary transition-colors hover:bg-primary/[0.08]";
+  "relative grid h-8 w-8 shrink-0 place-items-center max-md:before:absolute max-md:before:-inset-2 max-md:before:content-['']  rounded-[10px] border border-primary/30 bg-card text-primary transition-colors hover:bg-primary/[0.08]";
 
 const BOX_ACTION_CLASS =
-  "grid size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground [&_svg]:size-3.5";
+  "relative grid size-6 shrink-0 place-items-center max-md:before:absolute max-md:before:-inset-2.5 max-md:before:content-['']  rounded-md text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground [&_svg]:size-3.5";
 
 function ContactIdentityRow({
   leading,
@@ -118,6 +118,7 @@ export function PortalInboxContactCard({
   tone = "identity",
   disabled = false,
   frame = "card",
+  wrapValue = false,
 }: {
   /**
    * 36px slot, rendered exactly as given. The caller owns it because a phone
@@ -160,6 +161,8 @@ export function PortalInboxContactCard({
    * sits beside its sibling in a two-column grid. A `secondary` identity becomes the second box.
    */
   frame?: "card" | "inline" | "box";
+  /** `box` frame: let a long value (a work email) wrap so the whole address shows instead of an ellipsis. */
+  wrapValue?: boolean;
 }) {
   if (frame === "box") {
     const boxes = [
@@ -185,7 +188,7 @@ export function PortalInboxContactCard({
                 {box.leading ? (
                   <span className="flex shrink-0 items-center [&_svg]:size-3.5 [&_svg]:text-muted">{box.leading}</span>
                 ) : null}
-                <span className="truncate tabular-nums">{box.value}</span>
+                <span className={cn("tabular-nums", wrapValue ? "min-w-0 [overflow-wrap:anywhere]" : "truncate")}>{box.value}</span>
                 {box.note && box.noteTone === "warn" ? (
                   <span className="min-w-0 truncate text-[11px] text-[var(--status-pending-fg)]">{box.note}</span>
                 ) : box.note && box.noteTone === "fact" ? (

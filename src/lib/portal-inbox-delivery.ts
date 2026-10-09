@@ -306,6 +306,8 @@ export async function commitInboxThreadReply(
     ...(opts.delivery ? { delivery: opts.delivery } : {}),
     ...(opts.houseId?.trim() ? { houseId: opts.houseId.trim() } : {}),
     ...(opts.houseLabel?.trim() ? { houseLabel: opts.houseLabel.trim() } : {}),
+    // The turn's own record: the thread keeps its first recordRef, a turn keeps the one it was composed from.
+    ...(normalizeRecordRef(opts.recordRef) ? { recordRef: normalizeRecordRef(opts.recordRef)! } : {}),
   });
   const existingRecordRef = normalizeRecordRef((rowData as { recordRef?: unknown }).recordRef);
   const recordRef = existingRecordRef ?? normalizeRecordRef(opts.recordRef);
@@ -686,6 +688,8 @@ export async function deliverPortalMessageThreadSide(
       ...(args.sentByAi ? { sentByAi: true } : {}),
       ...(houseId ? { houseId } : {}),
       ...(houseLabel ? { houseLabel } : {}),
+      // The turn's own record (the thread keeps its first recordRef; see `InboxThreadMessage.recordRef`).
+      ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
     });
     // Turns that follow the main one (a resident's message, then the acknowledgement).
     for (const turn of args.followUps ?? []) {

@@ -22,6 +22,7 @@ import {
   recordPaidManagerCheckoutSession,
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
+import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { mockCheckoutSession } from "../mocks/stripe/events";
@@ -71,6 +72,35 @@ describe("manager-purchase-from-session", () => {
     expect(update).toHaveBeenCalledWith(expect.not.objectContaining({ user_id: expect.anything() }));
     // This signed, previously reserved purchase keeps its captured terms if
     // its Price has since been retired from the current checkout catalog.
+  });
+
+  it("records a redeemed FREEFIRST in stripe_promotion_code and never in the waiver column", async () => {
+    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const query = {
+      eq: vi.fn(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+        error: null,
+      }),
+    };
+    query.eq.mockReturnValue(query);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+      from: vi.fn(() => ({ select: vi.fn(() => query), update })),
+    } as never);
+
+    await recordPaidManagerCheckoutSession(
+      mockCheckoutSession({
+        id: "cs_test_freefirst",
+        customer_email: "manager@example.com",
+        metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-TEST", promo: "freefirst" },
+      }),
+    );
+
+    const patch = (update.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(patch.stripe_promotion_code).toBe("FREEFIRST");
+    // promo_code is the payment-waiver column: a discount code there keeps paid access after cancelling.
+    expect(patch).not.toHaveProperty("promo_code");
+    expect(isWaiverGrantedManagerPurchase(patch.promo_code as string | undefined)).toBe(false);
   });
 
   it("does not let signed metadata replace a reservation's auth owner", async () => {

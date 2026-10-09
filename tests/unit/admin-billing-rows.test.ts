@@ -23,6 +23,7 @@ import {
 } from "@/lib/admin-billing-rows";
 import { BUSINESS_MAX_PROPERTIES, FREE_MAX_PROPERTIES, PRO_MAX_PROPERTIES } from "@/lib/manager-access";
 import { EMPTY_MANAGER_BILLING_OVERRIDES } from "@/lib/manager-billing-overrides";
+import { paidAtForSignupTrialEnd, signupTrialEndInstantMs } from "@/lib/manager-tier-expiry";
 
 const NOW = Date.parse("2026-09-07T00:00:00.000Z");
 
@@ -185,23 +186,37 @@ describe("the staff property-cap override", () => {
     expect(row.atPropertyLimit).toBe(true);
   });
 
-  it("shows an overridden trial end in place of the derived one, and says which it is", () => {
+  it("an extended trial shows the date the resolver reads — and the plan stays live until then", () => {
+    // Extending a no-card trial moves `paid_at` (paidAtForSignupTrialEnd), the one value every plan
+    // reader derives the end from, so the list needs no second "override" date to stay honest.
+    const endMs = signupTrialEndInstantMs("2026-12-24")!;
+    const extended = purchase({ tier: "pro", billing: "trial", paidAt: paidAtForSignupTrialEnd(endMs) });
+    const live = deriveAdminBillingRow(input({ purchase: extended, nowMs: Date.parse("2026-12-20T00:00:00.000Z") }));
+    expect(live.trialEndsAt).toBe("2026-12-24");
+    expect(live.onTrial).toBe(true);
+    expect(live.tier).toBe("pro");
+    const after = deriveAdminBillingRow(input({ purchase: extended, nowMs: Date.parse("2026-12-25T00:00:00.000Z") }));
+    expect(after.trialLapsed).toBe(true);
+    expect(after.tier).toBe("free");
+  });
+
+  it("ignores a trial date older builds merely recorded — it never moved the plan", () => {
     const row = deriveAdminBillingRow(
       input({
         purchase: purchase({ tier: "pro", billing: "trial", paidAt: "2026-09-01T00:00:00.000Z" }),
         overrides: { propertyCap: null, trialEndsAt: "2026-12-24", complimentary: false },
       }),
     );
-    expect(row.trialEndsAt).toBe("2026-12-24");
-    expect(row.trialEndIsOverride).toBe(true);
+    expect(row.trialEndsAt).toBe("2026-09-15");
   });
 
-  it("carries complimentary through untouched — nothing else reads it yet", () => {
+  it("carries the complimentary record through; a comp flag alone changes no plan, cap or fee", () => {
     const row = deriveAdminBillingRow(
       input({ overrides: { propertyCap: null, trialEndsAt: null, complimentary: true } }),
     );
     expect(row.complimentary).toBe(true);
-    // It changes no plan, no cap and no fee: recorded and shown only.
+    // The live effect is made on the purchase or the Stripe subscription (admin-billing-actions);
+    // this row reads the resolved plan, so with no paid plan behind it nothing else moves.
     expect(row.tier).toBe("free");
     expect(row.propertyLimit).toBe(FREE_MAX_PROPERTIES);
   });

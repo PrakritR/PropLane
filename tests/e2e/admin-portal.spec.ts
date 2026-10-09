@@ -57,25 +57,25 @@ test.describe("Admin portal", () => {
   test("legacy admin communication SMS route redirects into the unified inbox", async ({ page }) => {
     // Communication is now ONE unified conversation inbox with no channel/folder
     // tabs (see AGENTS.md "Communication is one unified, conversation-based
-    // inbox"). The legacy `sms/<bucket>` segment redirects to the canonical
-    // `inbox` segment (render-portal-section.tsx). SMS, when enabled, is an
-    // embedded panel gated by SMS_COMM_UI_ENABLED — there is no standalone SMS
+    // inbox"). The legacy `sms/<bucket>` segment redirects to the Active list
+    // (render-portal-section.tsx). Text conversations, when enabled, are rows of
+    // that same list gated by SMS_COMM_UI_ENABLED — there is no standalone SMS
     // tab, so the old `[data-attr="admin-communication-tab-sms"]` no longer exists.
     await page.goto("/admin/communication/sms/all");
-    await expect(page).toHaveURL(/\/admin\/communication\/inbox\/unopened/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/admin\/communication\/active/, { timeout: 15_000 });
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("unified inbox archives a message and Delete all trash empties it", async ({ page }) => {
+  test("unified inbox archives a message and Delete all archived empties it", async ({ page }) => {
     // Keep the compose flow from delivering to real recipient inboxes/push devices.
     await page.route("**/api/portal/send-inbox-message", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }),
     );
     const evidenceDir = process.env.E2E_EVIDENCE_DIR;
 
-    // Communication is one unified conversation inbox: no Sent/Trash folder tabs.
-    // Trash is reached via the "Archived" toggle; "Delete all trash" lives beside
-    // it (see admin-communication.tsx / admin-inbox-client.tsx).
+    // Communication is the manager's unified inbox over admin's data: Active | Archived
+    // tabs, no Sent/Trash folders. Archive lives in the open thread; "Delete all archived"
+    // is a list tool on the Archived tab (see admin-communication.tsx).
     await page.setViewportSize({ width: 1280, height: 720 });
     let releaseRecipients = () => {};
     const recipientGate = new Promise<void>((resolve) => { releaseRecipients = () => resolve(); });
@@ -89,12 +89,13 @@ test.describe("Admin portal", () => {
     const recipientsLoaded = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/admin/portal-users" && response.ok(),
     );
-    await page.goto("/admin/communication/inbox/unopened");
-    await recipientRequest;
-    await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible({
+    await page.goto("/admin/communication/active");
+    await expect(page.getByRole("heading", { name: "Communication", exact: true, level: 1 })).toBeVisible({
       timeout: 15_000,
     });
     await page.getByRole("button", { name: "New message" }).click();
+    // The people admin can write to are read when the compose opens.
+    await recipientRequest;
 
     const subject = `E2E trash check ${Date.now()}`;
     // The recipient control is a custom listbox widget (FieldSingleSelect), not a
@@ -122,35 +123,31 @@ test.describe("Admin portal", () => {
     await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("");
     await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
 
-    // Sent messages appear under Sent, not the default Unopened inbox. Expand and
-    // archive. The list dual-mounts (a lg:hidden mobile card list + a hidden
-    // lg:block desktop table), so target the desktop table ROW — getByText(...)
-    // .first() would resolve to the off-screen mobile copy at this viewport.
-    await page.getByRole("button", { name: "Sent", exact: true }).click();
-    const row = page.locator("table tbody").getByRole("row").filter({ hasText: subject });
+    // A message admin sent is a conversation in the one list, titled by its audience.
+    // Open it and archive it from the thread header.
+    const row = page.locator("[data-communication-inbox-list]").getByText("All managers").first();
     await expect(row).toBeVisible({ timeout: 15_000 });
     await row.click();
-    await page.getByRole("button", { name: "Move to trash", exact: true }).click();
+    await page.getByRole("button", { name: "Archive conversation", exact: true }).click();
 
-    // Switch to the archived (trash) view; "Delete all trash" appears when trash
-    // is non-empty.
-    await page.locator('[data-attr="admin-inbox-archived-toggle"]').click();
-    const deleteAll = page.getByRole("button", { name: "Delete all trash" });
+    // Switch to the Archived tab; "Delete all archived" appears when it holds a conversation.
+    await page.getByRole("link", { name: /^Archived/ }).click();
+    const deleteAll = page.getByRole("button", { name: "Delete all archived" });
     await expect(deleteAll.first()).toBeVisible({ timeout: 15_000 });
     if (evidenceDir) await page.screenshot({ path: `${evidenceDir}/admin-trash-delete-button.png`, fullPage: true });
 
-    // emptyTrash() confirms via window.confirm before clearing.
-    page.once("dialog", (dialog) => void dialog.accept());
+    // Deleting forever confirms in the app dialog before clearing.
     await deleteAll.first().click();
+    await page.getByRole("dialog").getByRole("button", { name: /^Delete/ }).click();
     await expect(deleteAll).toHaveCount(0, { timeout: 15_000 });
     if (evidenceDir) await page.screenshot({ path: `${evidenceDir}/admin-trash-emptied.png`, fullPage: true });
   });
 
   test("legacy inbox URL redirects to unified communication inbox", async ({ page }) => {
-    // /admin/inbox/* → /admin/communication/inbox/* (the legacy `email`/`sms`
-    // channel segments then redirect to the canonical `inbox` segment too).
+    // /admin/inbox/* → /admin/communication/inbox/* → the Active list (the legacy
+    // `email`/`sms` channel segments redirect to the same place).
     await page.goto("/admin/inbox/unopened");
-    await expect(page).toHaveURL(/\/admin\/communication\/inbox\/unopened/);
+    await expect(page).toHaveURL(/\/admin\/communication\/active/);
   });
 
   test("settings page loads without embedded feedback panel", async ({ page }) => {

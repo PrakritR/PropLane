@@ -6,7 +6,10 @@ workspace. A signup or Stripe trial is not yet paying and cannot provision a num
 (`reconcileManagerSmsEntitlement` refuses `trialing` on the number path); a FREE100 /
 admin comp grant counts as paid. Provisioning, phone verification, carrier registration,
 consent and runtime rollout controls still apply. The phone itself has no setup or monthly
-usage deduction. Work email uses the same verified plan entitlement and remains unmetered;
+usage deduction. Work email uses the same verified plan entitlement and remains unmetered
+(sending is free, but the assistant turn that writes an auto-reply to a prospect or resident is a
+paid `ai_agent_turn`, reserved under `ai_turn:email:<inbound email id>` before the model runs and
+refused when credit is not granted - `email-auto-reply-credit.server.ts`);
 an empty communication wallet never disables its address or setup.
 
 | Plan | Subscription | Work number | Monthly retail communication credit |

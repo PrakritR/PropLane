@@ -41,6 +41,7 @@ import {
 } from "@/lib/manager-sms-messages";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
 import { useCommunicationListSegment } from "@/hooks/use-communication-list-segment";
+import { useIsPhoneViewport } from "@/hooks/use-is-phone-viewport";
 import { selectCommunicationSegmentUrl, selectCommunicationThreadUrl } from "@/lib/portal-communication-nav";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
@@ -110,6 +111,7 @@ export function ManagerCommunication({
     commBase,
     listSegmentProp,
   );
+  const isPhone = useIsPhoneViewport();
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
   const [filters, setFilters] = useState<CommunicationThreadFilters>({
@@ -130,6 +132,8 @@ export function ManagerCommunication({
   const handleSegmentNavigate = useCallback(
     (next: "active" | "archived") => {
       setListSegment(next);
+      // The Scheduled list is a view of its own: picking a folder tab leaves it.
+      setFilters((current) => (current.status === "scheduled" ? { ...current, status: "active" } : current));
       // A thread open in one folder never exists in the other — close it so
       // the URL (now segment-only) and the open-thread state agree.
       setActiveThreadId(undefined);
@@ -278,7 +282,7 @@ export function ManagerCommunication({
     if (filters.status && filters.status !== "active" && filters.status !== "archived") {
       chips.push({
         id: "status",
-        label: filters.status === "read" ? "Read" : "Unread",
+        label: filters.status === "read" ? "Read" : filters.status === "scheduled" ? "Scheduled" : "Unread",
         onRemove: () => setFilters((f) => ({ ...f, status: "active" })),
       });
     }
@@ -327,6 +331,7 @@ export function ManagerCommunication({
       listSort={listSort}
       onListSortChange={setListSort}
       hideArchived
+      showScheduled={isPhone}
     />
   );
 
@@ -407,7 +412,7 @@ export function ManagerCommunication({
         listSegment={listSegment}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
-        threadFilters={filters}
+        threadFilters={isPhone || filters.status !== "scheduled" ? filters : { ...filters, status: "active" }}
         filterContacts={filterContacts}
         listSort={listSort}
         smsUiEnabled={smsUiEnabled}

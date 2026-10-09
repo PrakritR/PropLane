@@ -25,7 +25,14 @@ const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 /** Tables whose contents are read as a trust signal by the auth layer. */
 const TRUST_TABLES = ["profiles", "profile_roles", "vendor_invites"] as const;
 /** Credential rows must be service-role-only: no browser policy, including SELECT. */
-const CREDENTIAL_TABLES = ["manager_api_keys", "mcp_oauth_clients", "mcp_oauth_authorization_codes", "mcp_oauth_tokens"] as const;
+const CREDENTIAL_TABLES = [
+  "manager_api_keys",
+  "mcp_oauth_clients",
+  "mcp_oauth_authorization_codes",
+  "mcp_oauth_tokens",
+  // PropLane's own books (admin Finances): service-role routes only, no browser policy, not even SELECT.
+  "platform_expenses",
+] as const;
 
 const CLIENT_ROLES = ["anon", "authenticated"] as const;
 

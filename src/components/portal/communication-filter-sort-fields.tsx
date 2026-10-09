@@ -33,6 +33,10 @@ export function CommunicationFilterSortFields({
   listSort,
   onListSortChange,
   hideArchived = false,
+  hideHouse = false,
+  hideRole = false,
+  hideAbout = false,
+  showScheduled = false,
 }: {
   propertyOptions: { value: string; label: string }[];
   roleOptions: { value: CommunicationFilterRole; label: string }[];
@@ -41,6 +45,14 @@ export function CommunicationFilterSortFields({
   listSort: CommunicationListSort;
   onListSortChange: (next: CommunicationListSort) => void;
   hideArchived?: boolean;
+  /** A surface with no houses (admin) drops the House filter. */
+  hideHouse?: boolean;
+  /** A surface whose conversations are all one kind of person drops the Role filter. */
+  hideRole?: boolean;
+  /** A surface whose conversations carry no record link drops the About filter. */
+  hideAbout?: boolean;
+  /** Phone-only Scheduled list view in the Status filter. */
+  showScheduled?: boolean;
 }) {
   const [draftFilters, setDraftFilters] = usePortalFilterDraft(
     filters,
@@ -58,8 +70,9 @@ export function CommunicationFilterSortFields({
         value={draftFilters.status ?? "active"}
         onChange={(status) => setDraftFilters({ ...draftFilters, status })}
         hideArchived={hideArchived}
+        showScheduled={showScheduled}
       />
-      <FilterCollapsibleSection
+      {hideHouse ? null : <FilterCollapsibleSection
         sectionId="house"
         label="House"
         summary={filterMultiSelectSummary(draftFilters.propertyIds, propertyListOptions, "All houses")}
@@ -74,9 +87,9 @@ export function CommunicationFilterSortFields({
           emptyMenuText="No houses"
           dataAttr="communication-filter-house"
         />
-      </FilterCollapsibleSection>
+      </FilterCollapsibleSection>}
 
-      <FilterCollapsibleSection
+      {hideRole ? null : <FilterCollapsibleSection
         sectionId="role"
         label="Role"
         summary={filterMultiSelectSummary(draftFilters.roles, roleListOptions, "All roles")}
@@ -97,9 +110,9 @@ export function CommunicationFilterSortFields({
           emptyMenuText="No roles"
           dataAttr="communication-filter-role"
         />
-      </FilterCollapsibleSection>
+      </FilterCollapsibleSection>}
 
-      <FieldSingleSelect
+      {hideAbout ? null : <FieldSingleSelect
         label="About"
         value={draftFilters.recordKinds?.[0] ?? ""}
         onChange={(next) =>
@@ -108,7 +121,7 @@ export function CommunicationFilterSortFields({
         options={[{ value: "", label: "All records" }, ...RECORD_KIND_FILTER_OPTIONS]}
         placeholder="All records"
         dataAttr="communication-filter-about"
-      />
+      />}
 
       <FilterCollapsibleSection
         sectionId="sort"

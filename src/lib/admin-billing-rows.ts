@@ -103,9 +103,11 @@ export type AdminBillingRow = {
   onTrial: boolean;
   /** Was on a signup trial and it has run out — the row still stores pro/business forever. */
   trialLapsed: boolean;
-  /** ISO date of the trial end, staff override first, otherwise the derived signup-trial end. */
+  /**
+   * ISO date of the signup trial's end, derived the way the plan resolver derives it. A staff
+   * extension is live (it moves `paid_at`), so this is the one date — never a recorded second one.
+   */
   trialEndsAt: string | null;
-  trialEndIsOverride: boolean;
   /** Listing cap actually enforced. `null` = uncapped. */
   propertyLimit: number | null;
   propertyLimitIsOverride: boolean;
@@ -183,9 +185,7 @@ export function deriveAdminBillingRow(input: AdminBillingRowInput): AdminBilling
       )
     : null;
   const trialLapsed = isTrialRow && derivedTrialEndMs !== null && nowMs >= derivedTrialEndMs;
-  const trialEndsAt =
-    overrides.trialEndsAt ??
-    (derivedTrialEndMs !== null ? new Date(derivedTrialEndMs).toISOString().slice(0, 10) : null);
+  const trialEndsAt = derivedTrialEndMs !== null ? new Date(derivedTrialEndMs).toISOString().slice(0, 10) : null;
 
   const planLimit = planUnknown ? null : maxPropertiesForManagerTier(tier);
   const cap = resolveManagerPropertyCap({ planLimit, capOverride: overrides.propertyCap });
@@ -221,7 +221,6 @@ export function deriveAdminBillingRow(input: AdminBillingRowInput): AdminBilling
     onTrial: isTrialRow && !trialLapsed,
     trialLapsed,
     trialEndsAt,
-    trialEndIsOverride: overrides.trialEndsAt !== null,
     propertyLimit,
     propertyLimitIsOverride: cap.source === "override",
     listedCount: input.listedCount,

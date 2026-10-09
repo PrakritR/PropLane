@@ -68,6 +68,7 @@ vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: (props: {
 } }));
 
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
+import { resetManagerSmsConversationsClientCacheForTests } from "@/lib/manager-sms-conversations-client";
 
 const SMS_URL = "/api/manager/sms-conversations";
 
@@ -81,6 +82,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   setVisibility("visible");
+  // The mount read now revalidates a remount on the 20s TTL path; drop that cache so each test starts cold.
+  resetManagerSmsConversationsClientCacheForTests();
   scope.viewer = "manager-test";
   scope.workspace = "workspace-a";
   scope.begin = null;

@@ -22,7 +22,11 @@ describe("Communication status and action parity", () => {
     const unified = read("src/components/portal/pro-unified-inbox.tsx");
     const ui = read("src/components/portal/portal-inbox-ui.tsx");
     expect(unified).toContain('data-attr="communication-list-header-card"');
-    expect(unified).toContain("<ManagerWorkNumberCard />");
+    // The work boxes come from the adapter the page mounts; the manager's is the work number + email card.
+    expect(unified).toContain("{adapter.identityBoxes}");
+    expect(read("src/components/portal/communication-adapters/manager-inbox-adapter.tsx")).toContain(
+      "<ManagerWorkNumberCard />",
+    );
     expect(unified).toContain("<InboxListHeader");
     expect(unified).toContain('layout="inline"');
     // No outer card around the list header: the three panes sit flat on the page.

@@ -160,7 +160,9 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   const autoFirstMonthFree =
     isProMonthly && promoUpper === PRO_MONTHLY_FIRST_FREE_PROMO_CODE && Boolean(promoCodeId);
 
-  const allowPromotionCodes = isProMonthly && !autoFirstMonthFree;
+  // Every plan's Checkout accepts promotion codes. FREEFIRST rides in as an applied discount, and
+  // Stripe refuses a session that has both, so that one link skips the field.
+  const allowPromotionCodes = !autoFirstMonthFree;
 
   const sessionBase = buildManagerSubscriptionCheckoutBase({
     priceId: price,
