@@ -12,7 +12,13 @@ import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.se
 
 export const runtime = "nodejs";
 
-const POST_COLUMNS = "property_id, channel, enabled, state, external_id, last_error, posted_at, posted_url, updated_at";
+/** Zillow approves PropLane's feed once for the whole deployment, so this is an env flag. */
+function zillowFeedApproved(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env.ZILLOW_FEED_APPROVED?.trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+const POST_COLUMNS ="property_id, channel, enabled, state, external_id, last_error, posted_at, posted_url, updated_at";
 /** Same read for a database that has not had `20261008180000_listing_lead_source.sql` applied yet. */
 const POST_COLUMNS_BEFORE_POSTED_URL = "property_id, channel, enabled, state, external_id, last_error, posted_at, updated_at";
 
@@ -80,6 +86,8 @@ export async function GET(request: Request) {
         // A table or column that is not migrated yet reads as "no posts" / "no ad link", never as a
         // failure of the page.
         schemaReady: !postsRes.error && postsRes.migrated,
+        // Read here (server only): registry.ts is imported by client components.
+        zillowFeedApproved: zillowFeedApproved(),
         channels,
         meta: { configured: metaAppConfigured(), ...meta },
         workContact: contact,

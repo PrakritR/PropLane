@@ -179,6 +179,23 @@ describe("ListingSiteGuide", () => {
     expect(table.textContent).toContain("Alder House");
     expect(table.textContent).toContain("Posting");
   });
+
+  it("Zillow with the feed approved hides the by-hand steps and keeps the status table", async () => {
+    status.value = baseStatus({ zillowFeedApproved: true });
+    guide("zillow");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-status-table"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="listing-site-guide-steps"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).toBeNull();
+    const zillowDef = LISTING_CHANNEL_DEFS.find((d) => d.id === "zillow")!;
+    expect(screen.getByText(zillowDef.guide.howApproved!)).toBeTruthy();
+  });
+
+  it("Zillow with the feed not approved still shows the by-hand steps", async () => {
+    status.value = baseStatus({ zillowFeedApproved: false });
+    guide("zillow");
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="listing-site-guide-status-table"]')).not.toBeNull();
+  });
 });
 
 describe("the ?src tag", () => {
