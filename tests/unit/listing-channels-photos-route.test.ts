@@ -21,6 +21,12 @@ import { isAllowedPhotoUrl } from "@/lib/listing-channels/photo-hosts";
 
 const req = (q = "?propertyId=p1") => new Request(`https://proplane.ai/api/manager/listing-channels/photos${q}`);
 
+/** The STORE zip keeps entry names verbatim, so they read straight back out of the bytes. */
+async function zipNames(res: Response): Promise<string[]> {
+  const text = new TextDecoder().decode(new Uint8Array(await res.arrayBuffer()));
+  return [...new Set(text.match(/photo-\d\d\.[a-z]+/g) ?? [])];
+}
+
 describe("photos route", () => {
   beforeEach(() => {
     h.ctx = null;
@@ -122,6 +128,33 @@ describe("photos route", () => {
     const res = await GET(req());
     expect(res.status).toBe(200);
     expect(spy).toHaveBeenCalledTimes(2);
+    expect(res.headers.get("x-photos-partial")).toBe("2/5");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="maple-house-photos-partial.zip"');
+  });
+
+  it("a complete zip carries no partial marker", async () => {
+    h.ctx = { db: {}, userId: "u", workspace: { id: "w", ownerUserId: "u", propertyIds: ["p1"] } };
+    h.owned = { id: "p1", live: true };
+    h.photos = ["https://proj.supabase.co/storage/v1/object/public/x/a.jpg", "https://proj.supabase.co/storage/v1/object/public/x/b.jpg"];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(new Uint8Array([1, 2, 3])));
+    const res = await GET(req());
+    expect(res.headers.get("x-photos-partial")).toBeNull();
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="maple-house-photos.zip"');
+    expect(await zipNames(res)).toEqual(["photo-01.jpg", "photo-02.jpg"]);
+  });
+
+  it("keeps each photo's own number so a skipped one leaves a visible gap", async () => {
+    h.ctx = { db: {}, userId: "u", workspace: { id: "w", ownerUserId: "u", propertyIds: ["p1"] } };
+    h.owned = { id: "p1", live: true };
+    h.photos = ["a", "b", "c"].map((n) => `https://proj.supabase.co/storage/v1/object/public/x/${n}.jpg`);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).endsWith("b.jpg") ? new Response("gone", { status: 404 }) : new Response(new Uint8Array([1, 2, 3])),
+    );
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(await zipNames(res)).toEqual(["photo-01.jpg", "photo-03.jpg"]);
+    expect(res.headers.get("x-photos-partial")).toBe("2/3");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="maple-house-photos-partial.zip"');
   });
 
   it("host allowlist helper", () => {
