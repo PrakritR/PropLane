@@ -4,7 +4,8 @@
  * A staff plan change is a commercial decision about one account, so it now REQUIRES a reason and
  * writes one audit row (actor, field, before -> after, reason). The reason is refused before any
  * write - including the `active` toggle that may ride along in the same request. A plain
- * enable/disable needs a reason too and writes its own `active` audit row.
+ * enable/disable needs a reason too and writes its own `admin_account_active` audit row, through
+ * the one helper all three account routes share.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,8 +105,8 @@ describe("Save plan requires a reason", () => {
     expect(audit()[0]).toMatchObject({
       actor_user_id: "admin-1",
       landlord_id: MGR,
-      action: "admin_billing_override",
-      input_summary: { field: "active", before: true, after: false, managerUserId: MGR, reason: "Chargeback dispute" },
+      action: "admin_account_active",
+      input_summary: { field: "active", before: true, after: false, accountKind: "manager", accountUserId: MGR, reason: "Chargeback dispute" },
     });
   });
 

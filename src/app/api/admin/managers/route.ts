@@ -9,6 +9,7 @@ import {
   loadProfilesByIdChunks,
 } from "@/lib/auth/admin-portal-manager-ids.server";
 import { normalizeAdminAuditReason, writeAdminBillingAudit } from "@/lib/admin-billing-audit.server";
+import { setAdminAccountActive } from "@/lib/admin/admin-account-active.server";
 import { normalizeManagerSkuTier, pickBestManagerPurchaseRow, type ManagerSkuTier } from "@/lib/manager-access";
 import { setManagerPurchaseTier } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -213,30 +214,16 @@ export async function PATCH(req: Request) {
 
     let auditRecorded = true;
     if (typeof active === "boolean") {
-      // The before-value for the trail; an account with no explicit refusal reads as active.
-      const { data: beforeProfile, error: profileReadError } = await supabase
-        .from("profiles")
-        .select("application_approved")
-        .eq("id", id);
-      if (profileReadError) {
-        console.error("PATCH /api/admin/managers: profile read failed", profileReadError);
-        return NextResponse.json({ error: "Could not read this account." }, { status: 500 });
-      }
-      const beforeActive =
-        (beforeProfile as Array<{ application_approved: boolean | null }> | null)?.[0]?.application_approved !== false;
-      const { error } = await supabase.from("profiles").update({ application_approved: active }).eq("id", id);
-      if (error) {
-        console.error("PATCH /api/admin/managers: profile update failed", error);
-        return NextResponse.json({ error: "Could not update account." }, { status: 500 });
-      }
-      const activeAudit = await writeAdminBillingAudit({
+      const outcome = await setAdminAccountActive({
         db: supabase,
         actorUserId: auth.actorId,
-        managerUserId: id,
-        entries: [{ field: "active", before: beforeActive, after: active }],
+        accountUserId: id,
+        kind: "manager",
+        active,
         reason,
       });
-      auditRecorded = activeAudit.ok;
+      if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+      auditRecorded = outcome.auditRecorded;
     }
 
     if (normalizedTier) {

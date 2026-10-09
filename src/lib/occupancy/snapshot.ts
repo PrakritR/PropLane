@@ -11,6 +11,7 @@
  */
 
 import { addDaysToDateKey } from "@/lib/channel-calendar/bookings-ui";
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
 export type OccupancyDayCell = {
@@ -38,11 +39,18 @@ export type OccupancyStayInput = {
   summary?: string;
 };
 
-/** Airbnb / Booking.com availability holds — occupy a bed, never a person. */
+/**
+ * Airbnb / Booking.com availability holds — occupy a bed, never a person.
+ *
+ * Every host block (`isHostBlockSummary`) is one of these, so the two predicates can never
+ * disagree about a summary; this one is deliberately WIDER — "Reserved" and a privacy-stripped
+ * "CLOSED - Not available" are real bookings that take a bed but name nobody.
+ */
 export function isIcalAvailabilityBlock(summary: string | null | undefined): boolean {
   const raw = String(summary ?? "").trim().toLowerCase();
   if (!raw) return false;
-  if (raw === "not available" || raw === "blocked" || raw === "reserved") return true;
+  if (isHostBlockSummary(raw)) return true;
+  if (raw === "reserved") return true;
   return raw.includes("not available") || /\bblocked\b/.test(raw);
 }
 

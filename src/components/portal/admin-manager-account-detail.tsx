@@ -599,11 +599,10 @@ export function ManagerDangerZoneCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: row.id, active: !row.active, reason }),
       });
-      if (!res.ok) {
-        const { error } = (await res.json().catch(() => ({}))) as { error?: string };
-        return error || "Could not update account.";
-      }
-      showToast(row.active ? "Manager account disabled." : "Manager account enabled.");
+      const data = (await res.json().catch(() => ({}))) as { error?: string; auditRecorded?: boolean };
+      if (!res.ok) return data.error || "Could not update account.";
+      const landed = row.active ? "Manager account disabled." : "Manager account enabled.";
+      showToast(data.auditRecorded === false ? `${landed} The audit entry could not be written.` : landed);
       onRefresh();
       return null;
     } finally {
