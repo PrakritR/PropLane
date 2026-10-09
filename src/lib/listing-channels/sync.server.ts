@@ -175,6 +175,9 @@ export async function syncListingChannelsForProperty(
   for (const channel of channels) {
     if (!connectionServesChannel(connection, channel)) continue;
     const row = rows.find((r) => r.channel === channel);
+    // The manager published this ad by hand (while the channel was still coming soon). That marker
+    // is theirs to clear with Undo; posting over it would put a second copy of the same ad up.
+    if (row?.state === "posted_by_me") continue;
     const enabled = row ? row.enabled : true;
     const posted = row?.state === "posted" && Boolean(row.external_id);
 

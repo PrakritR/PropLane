@@ -22,6 +22,11 @@ export function automaticChannelFact(args: {
   listingLive: boolean;
 }): string {
   const { row, holdReasons, listingLive } = args;
+  // A hand-post marker outranks every automatic fact: the queue leaves such a row alone.
+  if (row?.state === "posted_by_me") {
+    const when = shortDate(row.postedAt ?? row.updatedAt);
+    return when ? `Posted by you · ${when}` : "Posted by you";
+  }
   const enabled = row ? row.enabled : true;
   if (!enabled) return "Off";
   if (holdReasons.length > 0 && row?.state !== "posted") return listingHoldFact(holdReasons);

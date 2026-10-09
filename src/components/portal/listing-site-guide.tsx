@@ -125,6 +125,9 @@ export function ListingSiteGuide({
   const partner = def.posting === "partner_only";
   const feed = def.posting === "feed";
   const apiLive = def.posting === "api" && metaLive;
+  // A listing the manager already posted by hand keeps the by-hand steps (and their Undo) even
+  // once Meta is live: the queue leaves that row alone until the marker is cleared.
+  const apiAuto = apiLive && !posted;
   const adUrl = posted && row?.postedUrl?.startsWith("https://") ? row.postedUrl : null;
 
   const write = async (path: "toggle" | "mark-posted", body: Record<string, unknown>) => {
@@ -199,7 +202,7 @@ export function ListingSiteGuide({
           <div data-attr="listing-site-guide-steps">
             <Step n={1} title="Nothing to post" />
           </div>
-        ) : apiLive && status?.meta.connected ? (
+        ) : apiAuto && status?.meta.connected ? (
           <div className="flex items-center justify-between" data-attr="listing-site-guide-api-switch">
             <span className="text-sm text-foreground">Post to {def.label}</span>
             <PortalSettingsToggle
@@ -210,7 +213,7 @@ export function ListingSiteGuide({
               dataAttr={`listing-site-toggle-${def.id}`}
             />
           </div>
-        ) : apiLive ? (
+        ) : apiAuto ? (
           <Button variant="ghost" data-attr={`listing-site-connect-${def.id}`} onClick={() => (window.location.href = "/portal/profile?tab=spreadsheets")}>
             Set up
           </Button>

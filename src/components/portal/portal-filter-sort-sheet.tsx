@@ -48,27 +48,6 @@ import { usePortalSurface } from "@/components/ui/portal-surface";
 import { cn } from "@/lib/utils";
 
 
-/** Captain, Oct 9: phone Filter opens as a bottom sheet; desktop keeps the anchored popover.
- * Legacy sizing constants remain exported for compatibility with callers.
- */
-export const PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX = 260;
-export const PORTAL_FILTER_POPOVER_MAX_FIELDS = 4;
-
-export function resolveMobileFilterPopover(args: {
-  trigger: HTMLElement | null;
-  desktopPresentation: "inline" | "panel" | "dropdown";
-  compactPanel: boolean;
-  filterFieldCount: number;
-  hasExtraModalContent: boolean;
-  insets: { bottom: number; bottomNav: number };
-}): boolean {
-  // No phone filter is an anchored popover any more: the sheet's body scrolls
-  // between a pinned header and footer, so no field clips under the footer.
-  // (Desktop never reads this; it keeps its anchored popover / modal.)
-  void args;
-  return false;
-}
-
 function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; label?: string }) {
   return (
     <button

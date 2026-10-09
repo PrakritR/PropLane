@@ -150,6 +150,29 @@ describe("listing channel sync", () => {
     ]);
   });
 
+  it("leaves a listing the manager posted by hand alone, so Meta going live never doubles the ad", async () => {
+    const db = fakeDb({
+      properties: [listingRecord()],
+      posts: [
+        {
+          id: "row-hand",
+          manager_user_id: "mgr-1",
+          workspace_id: "ws-1",
+          property_id: "prop-1",
+          channel: "facebook_page",
+          enabled: true,
+          state: "posted_by_me",
+          pending_action: null,
+          posted_at: "2026-10-08T20:00:00Z",
+        },
+      ],
+    });
+    await syncListingChannelsForProperty(db as never, "prop-1");
+    expect(posts(db).find((r) => r.channel === "facebook_page")).toMatchObject({ state: "posted_by_me", pending_action: null });
+    await processListingChannelQueue(db as never);
+    expect(graph.publishMetaPagePhoto).not.toHaveBeenCalled();
+  });
+
   it("holds a listing with no photo, with the reason, and posts nothing", async () => {
     const db = fakeDb({ properties: [listingRecord({ photo: false })] });
     await syncListingChannelsForProperty(db as never, "prop-1");

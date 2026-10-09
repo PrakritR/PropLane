@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isMissingColumnError } from "@/lib/db-missing-column";
 
@@ -37,6 +37,15 @@ describe("mark-posted route", () => {
     h.owned = { id: "p1", live: true };
     h.upserts = [];
     h.errors = [];
+    delete process.env.META_APP_ID;
+    delete process.env.META_APP_SECRET;
+    delete process.env.META_APP_LIVE;
+  });
+
+  afterEach(() => {
+    delete process.env.META_APP_ID;
+    delete process.env.META_APP_SECRET;
+    delete process.env.META_APP_LIVE;
   });
 
   it("refuses a workspace member who is not the owner", async () => {
@@ -55,6 +64,25 @@ describe("mark-posted route", () => {
     expect(h.upserts[0]!.values).not.toHaveProperty("posted_url");
     await post({ propertyId: "p1", channel: "craigslist", posted: false });
     expect(h.upserts[1]!.values).toMatchObject({ state: "off", posted_url: null });
+  });
+
+  it("never writes the auto-post toggle's own column", async () => {
+    await post({ propertyId: "p1", channel: "craigslist", posted: true });
+    await post({ propertyId: "p1", channel: "craigslist", posted: false });
+    expect(h.upserts.every((u) => !("enabled" in u.values))).toBe(true);
+  });
+
+  it("marks a Meta channel by hand while it is coming soon, and keeps that marker undoable once Meta is live", async () => {
+    delete process.env.META_APP_LIVE;
+    expect((await post({ propertyId: "p1", channel: "facebook_page", posted: true })).status).toBe(200);
+    expect(h.upserts[0]!.values).toMatchObject({ state: "posted_by_me" });
+
+    process.env.META_APP_ID = "app";
+    process.env.META_APP_SECRET = "secret";
+    process.env.META_APP_LIVE = "1";
+    expect((await post({ propertyId: "p1", channel: "facebook_page", posted: true })).status).toBe(400);
+    expect((await post({ propertyId: "p1", channel: "facebook_page", posted: false })).status).toBe(200);
+    expect(h.upserts[1]!.values).toMatchObject({ state: "off" });
   });
 
   it("refuses an ad link that is not a full https address", async () => {
