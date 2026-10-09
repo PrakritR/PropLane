@@ -6,26 +6,16 @@
  * Pure on purpose (no `next/headers`) so the client and the tests can use it. The raw value is
  * never trusted: anything that is not exactly an allowlisted channel id is dropped.
  */
-export const LEAD_SOURCE_CHANNEL_IDS = [
-  "zillow",
-  "facebook_marketplace",
-  "facebook_groups",
-  "craigslist",
-  "spareroom",
-  "roomies",
-  "roomster",
-  "zumper_padmapper",
-  "apartments_com",
-  "redfin_rent",
-  "apartment_list",
-  "furnished_finder",
-  "nextdoor",
-  "reddit",
-  "facebook_page",
-  "instagram",
-] as const;
+import { LISTING_CHANNEL_DEFS, type ListingChannelId } from "@/lib/listing-channels/registry";
 
-export type LeadSourceChannelId = (typeof LEAD_SOURCE_CHANNEL_IDS)[number];
+/**
+ * Derived from the registry, never hand-listed: a site added to `LISTING_CHANNEL_DEFS` gets a
+ * `?src=<id>` tag the moment it exists, and a second list to keep in step would silently drop that
+ * site's leads forever. `registry.ts` is pure and client-safe, so importing it keeps this pure too.
+ */
+export const LEAD_SOURCE_CHANNEL_IDS: readonly ListingChannelId[] = LISTING_CHANNEL_DEFS.map((def) => def.id);
+
+export type LeadSourceChannelId = ListingChannelId;
 
 export const LEAD_SOURCE_COOKIE = "pl_src";
 export const LEAD_SOURCE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -61,5 +51,7 @@ export function leadSourceFromCookieHeader(header: string | null | undefined): L
 export function leadSourceCookieAssignment(raw: unknown): string | null {
   const source = normalizeLeadSource(raw);
   if (!source) return null;
-  return `${LEAD_SOURCE_COOKIE}=${source}; Max-Age=${LEAD_SOURCE_COOKIE_MAX_AGE_SECONDS}; Path=/; SameSite=Lax`;
+  // `Secure` on https (the public listing page); omitted on http so localhost still records a tag.
+  const secure = typeof location !== "undefined" && location.protocol === "https:" ? "; Secure" : "";
+  return `${LEAD_SOURCE_COOKIE}=${source}; Max-Age=${LEAD_SOURCE_COOKIE_MAX_AGE_SECONDS}; Path=/; SameSite=Lax${secure}`;
 }

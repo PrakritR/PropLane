@@ -52,6 +52,7 @@ export function toPostRow(raw: Record<string, unknown>): ListingChannelPostRow {
     externalId: (raw.external_id as string | null) ?? null,
     lastError: (raw.last_error as string | null) ?? null,
     postedAt: (raw.posted_at as string | null) ?? null,
+    postedUrl: (raw.posted_url as string | null) ?? null,
     updatedAt: (raw.updated_at as string | null) ?? null,
   };
 }

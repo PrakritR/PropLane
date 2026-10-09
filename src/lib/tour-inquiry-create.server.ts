@@ -18,6 +18,7 @@
  * signed-in resident to the inquiry afterwards.
  */
 import "server-only";
+import { isMissingColumnError } from "@/lib/db-missing-column";
 import { normalizeLeadSource } from "@/lib/listing-channels/lead-source";
 import { normalizeTourFormat } from "@/lib/tour-format";
 
@@ -449,7 +450,20 @@ export async function createTourInquiry(
     });
   });
 
-  const { error: writeError } = await db.from("portal_schedule_records").upsert(records, { onConflict: "id" });
+  const upsertRecords = (rows: Record<string, unknown>[]) =>
+    db.from("portal_schedule_records").upsert(rows, { onConflict: "id" });
+  let { error: writeError } = await upsertRecords(records);
+  // The lead-source column only tags the request; a database still waiting on
+  // `20261008180000_listing_lead_source.sql` must never lose the tour request itself.
+  if (writeError && leadSource && isMissingColumnError(writeError, "source_channel")) {
+    ({ error: writeError } = await upsertRecords(
+      records.map((record) => {
+        const untagged = { ...record };
+        delete untagged.source_channel;
+        return untagged;
+      }),
+    ));
+  }
 
   if (writeError) {
     if ("code" in writeError && writeError.code === "23505") {

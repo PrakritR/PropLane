@@ -18,13 +18,43 @@ function slugify(value: string): string {
   return slug || "listing";
 }
 
-async function fetchPhoto(url: string): Promise<Uint8Array | null> {
+/**
+ * One photo, read through a size-capped stream: the cap is enforced chunk by chunk, so a response
+ * that declares no `Content-Length` can never buffer more than `cap` bytes. `cap` is also what is
+ * left of the whole-zip budget, which keeps peak memory at `MAX_TOTAL_BYTES`, not
+ * `MAX_PHOTOS * MAX_PHOTO_BYTES`.
+ */
+async function fetchPhoto(url: string, cap: number): Promise<Uint8Array | null> {
+  if (cap <= 0) return null;
   try {
     const res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    if (!res.ok) return null;
-    if (Number(res.headers.get("content-length") ?? "0") > MAX_PHOTO_BYTES) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    return buf.length > MAX_PHOTO_BYTES ? null : buf;
+    if (!res.ok || !res.body) return null;
+    const declared = Number(res.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declared) && declared > cap) {
+      await res.body.cancel().catch(() => {});
+      return null;
+    }
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      size += value.byteLength;
+      if (size > cap) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+    const out = new Uint8Array(size);
+    let at = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, at);
+      at += chunk.byteLength;
+    }
+    return out;
   } catch {
     return null;
   }
@@ -32,8 +62,9 @@ async function fetchPhoto(url: string): Promise<Uint8Array | null> {
 
 /**
  * GET ?propertyId=: the listing's public photos as one zip, for sites with no photo-URL import.
- * Same auth as the other listing-channels routes; a listing outside the signed-in manager's
- * workspace is a 404, never a 403.
+ * Same auth as the other listing-channels read routes - any member of the workspace the listing
+ * belongs to, who already sees these photos in the portal. A listing outside the signed-in
+ * manager's workspace is a 404, never a 403. Only the write routes are owner-gated.
  */
 export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
@@ -50,16 +81,20 @@ export async function GET(request: Request) {
   const urls = listingPostPhotoUrls(listing.projected).filter((u) => isAllowedPhotoUrl(u, hosts)).slice(0, MAX_PHOTOS);
   if (urls.length === 0) return NextResponse.json({ error: "This listing has no photos to download." }, { status: 404 });
 
-  const fetched = await Promise.all(urls.map(fetchPhoto));
+  // Sequential on purpose: one photo is in memory at a time and the loop stops at the total cap,
+  // so this never buffers every photo at once.
   const entries: ZipEntry[] = [];
   let total = 0;
-  fetched.forEach((data, index) => {
-    if (!data || total + data.length > MAX_TOTAL_BYTES) return;
+  for (const url of urls) {
+    const remaining = MAX_TOTAL_BYTES - total;
+    if (remaining <= 0) break;
+    const data = await fetchPhoto(url, Math.min(MAX_PHOTO_BYTES, remaining));
+    if (!data) continue;
     total += data.length;
-    const match = /\.(jpe?g|png|webp|gif|heic)$/i.exec(new URL(urls[index]!).pathname);
+    const match = /\.(jpe?g|png|webp|gif|heic)$/i.exec(new URL(url).pathname);
     const ext = match ? match[1]!.toLowerCase().replace("jpeg", "jpg") : "jpg";
     entries.push({ name: `photo-${String(entries.length + 1).padStart(2, "0")}.${ext}`, data });
-  });
+  }
   if (entries.length === 0) return NextResponse.json({ error: "Could not fetch this listing's photos." }, { status: 502 });
 
   const zip = buildStoreZip(entries);

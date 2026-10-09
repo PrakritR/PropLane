@@ -12,7 +12,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, useModalPresentation } from "@/components/ui/modal";
 import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing-channels";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
-import { listingHoldFact } from "@/lib/listing-channels/post-text";
+import { LISTING_HOLD_WORK_NUMBER_PHRASE, listingHoldFact, listingHoldFactParts } from "@/lib/listing-channels/post-text";
 import { shortDate } from "@/lib/listing-channels/row-fact";
 import { listingChannelDef, type ListingChannelId } from "@/lib/listing-channels/registry";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
@@ -107,6 +107,8 @@ export function ListingSiteGuide({
   const partner = def.posting === "partner_only";
   const feed = def.posting === "feed";
   const apiLive = def.posting === "api" && metaLive;
+  const held = listingHoldFactParts(holdReasons);
+  const adUrl = posted && row?.postedUrl?.startsWith("https://") ? row.postedUrl : null;
 
   const write = async (path: "toggle" | "mark-posted", body: Record<string, unknown>) => {
     setBusy(true);
@@ -244,14 +246,13 @@ export function ListingSiteGuide({
             >
               {postText ? (
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-accent/40 p-3 text-xs text-foreground" data-attr="listing-site-guide-post">{postText}</pre>
-              ) : holdReasons.length > 0 ? (
+              ) : !feed && holdReasons.length > 0 ? (
                 <p className="mt-1 text-sm text-foreground" data-attr="listing-site-guide-held">
-                  {listingHoldFact(holdReasons)}
-                  {holdReasons.includes("no_work_number") ? (
-                    <>
-                      {" · "}
-                      <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">Set up work number</Link>
-                    </>
+                  {held.lead}
+                  {held.workNumberLink ? (
+                    <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">
+                      {LISTING_HOLD_WORK_NUMBER_PHRASE}
+                    </Link>
                   ) : null}
                 </p>
               ) : null}
@@ -275,7 +276,22 @@ export function ListingSiteGuide({
               note={posted ? `Posted by you · ${shortDate(row?.postedAt)}` : undefined}
               action={
                 posted ? (
-                  <PortalIconAction icon={Undo2} label="Undo" data-attr={`listing-site-unmark-${def.id}`} disabled={busy || !canManage} onClick={() => write("mark-posted", { posted: false })} />
+                  <>
+                    {adUrl ? (
+                      <a
+                        href={adUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={ICON_LINK}
+                        data-attr={`listing-site-open-ad-${def.id}`}
+                        aria-label="Open ad"
+                        title="Open ad"
+                      >
+                        <ExternalLink className="size-4" aria-hidden />
+                      </a>
+                    ) : null}
+                    <PortalIconAction icon={Undo2} label="Undo" data-attr={`listing-site-unmark-${def.id}`} disabled={busy || !canManage} onClick={() => write("mark-posted", { posted: false })} />
+                  </>
                 ) : (
                   <Button variant="ghost" data-attr={`listing-site-mark-${def.id}`} disabled={busy || !canManage || !selectedId} onClick={() => write("mark-posted", { posted: true, ...(postedUrl.trim() ? { postedUrl: postedUrl.trim() } : {}) })}>
                     Mark

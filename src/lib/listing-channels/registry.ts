@@ -446,5 +446,7 @@ export type ListingChannelPostRow = {
   externalId: string | null;
   lastError: string | null;
   postedAt: string | null;
+  /** The ad link the manager pasted on "Mark as posted"; https only, cleared by Undo. */
+  postedUrl: string | null;
   updatedAt: string | null;
 };

@@ -28,12 +28,24 @@ const HOLD_REASON_COPY: Record<ListingHoldReason, string> = {
   no_work_number: "set up work number",
 };
 
+export const LISTING_HOLD_WORK_NUMBER_PHRASE = "Set up work number";
+
 /** The plain fact a row shows for a held listing, e.g. "Held: no photo". */
 export function listingHoldFact(reasons: readonly ListingHoldReason[]): string {
-  if (reasons.includes("no_work_number") && reasons.length === 1) return "Set up work number";
+  if (reasons.includes("no_work_number") && reasons.length === 1) return LISTING_HOLD_WORK_NUMBER_PHRASE;
   const parts = reasons.filter((r) => r !== "no_work_number").map((r) => HOLD_REASON_COPY[r]);
   const held = `Held: ${parts.join(" and ")}`;
-  return reasons.includes("no_work_number") ? `${held} · Set up work number` : held;
+  return reasons.includes("no_work_number") ? `${held} · ${LISTING_HOLD_WORK_NUMBER_PHRASE}` : held;
+}
+
+/**
+ * The same fact, split so a surface can render the trailing "Set up work number" phrase as its
+ * link. `lead` already excludes that phrase, so a caller never prints it twice.
+ */
+export function listingHoldFactParts(reasons: readonly ListingHoldReason[]): { lead: string; workNumberLink: boolean } {
+  const fact = listingHoldFact(reasons);
+  if (!reasons.includes("no_work_number")) return { lead: fact, workNumberLink: false };
+  return { lead: fact.slice(0, fact.length - LISTING_HOLD_WORK_NUMBER_PHRASE.length), workNumberLink: true };
 }
 
 /**
