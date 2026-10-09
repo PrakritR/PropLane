@@ -44,7 +44,6 @@ type Props = {
   active: boolean;
   propertyIds: string[];
   propertyOptions: ManagerPropertyFilterOption[];
-  initialPropertyId?: string;
   /** The channel the opener already knows (the Integrations rows). Without it the page starts with a Channel dropdown. */
   initialProvider?: ChannelCalendarProvider;
   showToast: (message: string) => void;
@@ -170,30 +169,35 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     } finally { await refresh(); }
   });
 
-  // The input shows the saved link until edited; only a value that differs from the saved one counts as a change.
+  // The input shows the saved link until edited; only a value that differs from the saved one counts
+  // as a change. Emptying a box that HAD a link is such a change — it unlinks the channel (the
+  // PropLane export feed and its token stay, which is what ⋯ Disconnect would throw away).
   const savedOf = (row: LinkRow) => connections.get(row.key)?.importUrl?.trim() ?? "";
   const shownOf = (row: LinkRow) => drafts[row.key] ?? connections.get(row.key)?.importUrl ?? "";
-  const draftOf = (row: LinkRow) => { const value = drafts[row.key]?.trim() ?? ""; return value === savedOf(row) ? "" : value; };
+  const changedOf = (row: LinkRow) => { const draft = drafts[row.key]; return draft !== undefined && draft.trim() !== savedOf(row); };
+  const draftOf = (row: LinkRow) => changedOf(row) ? drafts[row.key]!.trim() : "";
+  const clearedOf = (row: LinkRow) => changedOf(row) && !draftOf(row);
   const isBad = (row: LinkRow) => Boolean(draftOf(row)) && !isValidChannelImportUrl(channel, draftOf(row));
   const invalid = rows.some(isBad);
-  const pending = rows.filter((row) => draftOf(row));
+  const pending = rows.filter(changedOf);
 
-  // Save upserts every row with a pasted link (blanks are skipped), then syncs just those.
+  // Save upserts every row whose link changed, then syncs the ones that now have one. A row the
+  // manager emptied is sent as `importUrl: null`, which clears the stored link and its imported stays.
   const save = () => run(async () => {
     const failures: string[] = [];
     for (const row of pending) {
       try {
-        const connection = await saveChannelCalendarConnection({ propertyId: row.propertyId, roomId: row.unit.id, provider: channel, label: row.unit.label, importUrl: draftOf(row) });
+        const connection = await saveChannelCalendarConnection({ propertyId: row.propertyId, roomId: row.unit.id, provider: channel, label: row.unit.label, importUrl: draftOf(row) || null });
         if (connection.hasImportUrl) await syncChannelCalendarConnection(connection.id);
       } catch (e) { failures.push(`${row.unit.label}: ${e instanceof Error ? e.message : "Save failed"}`); }
     }
     await refresh();
     setDrafts({});
     if (failures.length) setError(failures.join(" · "));
-    else { showToast("Calendars saved and synced."); }
+    else { showToast(pending.length > 0 && pending.every(clearedOf) ? "Calendar link removed." : "Calendars saved and synced."); }
   });
 
-  const statusOf = (row: LinkRow) => draftOf(row) ? (isBad(row) ? "Link not valid" : "Ready to connect") : connections.get(row.key)?.hasImportUrl ? "Connected" : "Not connected";
+  const statusOf = (row: LinkRow) => clearedOf(row) ? "Link will be removed" : draftOf(row) ? (isBad(row) ? "Link not valid" : "Ready to connect") : connections.get(row.key)?.hasImportUrl ? "Connected" : "Not connected";
   const stepsDef: AddWorkspaceStep[] = [
     { id: "link", label: "Link", summary: loading ? undefined : `${rows.length} ${rows.length === 1 ? "calendar" : "calendars"}`, incomplete: invalid || !provider },
   ];

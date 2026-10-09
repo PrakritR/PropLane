@@ -45,11 +45,12 @@ export function useAdminAccountActions(onChanged: () => void) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, active, reason }),
         });
-        if (!res.ok) {
-          const { error } = (await res.json().catch(() => ({}))) as { error?: string };
-          return error || "Could not update account.";
-        }
-        showToast(`${ADMIN_ACCOUNT_ROLE_LABEL[kind]} account ${active ? "enabled" : "disabled"}.`);
+        const data = (await res.json().catch(() => ({}))) as { error?: string; auditRecorded?: boolean };
+        if (!res.ok) return data.error || "Could not update account.";
+        // The audit row is the whole point of asking for a reason, so a change that landed
+        // without one says so rather than reading as a clean success.
+        const landed = `${ADMIN_ACCOUNT_ROLE_LABEL[kind]} account ${active ? "enabled" : "disabled"}.`;
+        showToast(data.auditRecorded === false ? `${landed} The audit entry could not be written.` : landed);
         onChanged();
         return null;
       } finally {

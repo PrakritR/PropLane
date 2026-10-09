@@ -93,3 +93,9 @@ it is assigned to a product area in the capabilities file. Metered Brave
 property-location research is explicitly excluded from direct MCP and REST
 credentials, including legacy broad keys: those calls have no assistant-turn
 search budget.
+
+`read_spreadsheet` is a deliberate result-shape change for external clients
+(Oct 2026): the sheet's cells now come back as one `untrustedContent` envelope
+rather than top-level `headers` / `rows`, and `limit` caps at 200 rows. Spreadsheet
+text is third-party input, so it is quoted as data a model must not obey; a client
+that parsed the old shape reads the envelope instead.

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { isHostBlockRange, isHostBlockSummary, withoutHostBlocks } from "@/lib/channel-calendar/host-block";
+import { isIcalAvailabilityBlock } from "@/lib/occupancy/snapshot";
 import { icalEventsToImportedRanges } from "@/lib/channel-calendar/sync.server";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { importedRangesForFeed } from "@/lib/channel-calendar/export-feed";
@@ -16,6 +17,21 @@ describe("host block classification", () => {
   it("matches Not available / Blocked / Unavailable, never Reserved or a guest", () => {
     for (const s of ["Airbnb (Not available)", "Not available", "blocked", "Unavailable"]) expect(isHostBlockSummary(s)).toBe(true);
     for (const s of ["Reserved", "Alex M.", "", null, undefined]) expect(isHostBlockSummary(s)).toBe(false);
+  });
+
+  it("never reads a privacy-stripped Booking.com / VRBO reservation as a host block", () => {
+    // Those channels export real stays as "CLOSED - Not available": a substring match would
+    // publish an occupied room as free. The whole summary must be the block label.
+    for (const s of ["CLOSED - Not available", "Not available for guests", "Airbnb (Reserved)", "Blocked out by guest"]) {
+      expect(isHostBlockSummary(s), s).toBe(false);
+    }
+    expect(isIcalAvailabilityBlock("CLOSED - Not available")).toBe(true);
+  });
+
+  it("agrees with the occupancy predicate: every host block also holds a bed", () => {
+    for (const s of ["Airbnb (Not available)", "Not available", "blocked", "Unavailable"]) {
+      expect(isIcalAvailabilityBlock(s), s).toBe(true);
+    }
   });
 
   it("marks host blocks on import and leaves Reserved alone", () => {

@@ -210,11 +210,12 @@ const CSV_FETCH_MS = 15_000;
 const CSV_MAX_REDIRECTS = 3;
 
 const CSV_GENERIC_ERROR = "Could not read the CSV.";
+const CSV_TIMEOUT_ERROR = "The CSV link took too long to answer.";
 
 /** One hop of a published-CSV fetch. The default connects only to a pre-vetted address. */
 export type PinnedHopFetcher = (
   url: string,
-  init: { headers?: Record<string, string>; timeoutMs?: number },
+  init: { headers?: Record<string, string>; timeoutMs?: number; totalTimeoutMs?: number },
 ) => Promise<Response>;
 
 /**
@@ -224,6 +225,10 @@ export type PinnedHopFetcher = (
  * pointing at — or re-resolving to — a private, loopback, link-local or
  * metadata address is refused), 5 MB cap, 15 s timeout, text/csv or
  * text/plain. Returns the same `string[][]` table the Google path returns.
+ *
+ * The 15 s is one wall-clock budget for the WHOLE fetch, not per hop: each hop is handed what is
+ * left of it, so a host that redirects three times and then trickles bytes cannot hold the route
+ * open for four deadlines in a row.
  */
 export async function fetchPublishedCsv(
   url: string,
@@ -233,17 +238,23 @@ export async function fetchPublishedCsv(
     return { rows: null, error: "That is not a valid published CSV link (https URL ending in .csv, or a Google pub?output=csv link)." };
   }
   const fetchHop = deps.fetchHop ?? fetchPinnedPublicHttps;
+  const deadlineAt = Date.now() + CSV_FETCH_MS;
+  const remainingMs = () => deadlineAt - Date.now();
   try {
     let target = url.trim();
     let res: Response | null = null;
     for (let hop = 0; hop <= CSV_MAX_REDIRECTS; hop++) {
+      if (remainingMs() <= 0) return { rows: null, error: CSV_TIMEOUT_ERROR };
       if (!(await resolvesToPublicAddressesOnly(new URL(target).hostname))) {
         console.warn("published CSV fetch refused: host resolves to a non-public address", { hop });
         return { rows: null, error: CSV_GENERIC_ERROR };
       }
+      const left = remainingMs();
+      if (left <= 0) return { rows: null, error: CSV_TIMEOUT_ERROR };
       res = await fetchHop(target, {
         headers: { Accept: "text/csv,text/plain" },
-        timeoutMs: CSV_FETCH_MS,
+        timeoutMs: left,
+        totalTimeoutMs: left,
       });
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get("location");
@@ -272,6 +283,10 @@ export async function fetchPublishedCsv(
     const chunks: Uint8Array[] = [];
     let total = 0;
     for (;;) {
+      if (remainingMs() <= 0) {
+        await reader.cancel().catch(() => undefined);
+        return { rows: null, error: CSV_TIMEOUT_ERROR };
+      }
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;

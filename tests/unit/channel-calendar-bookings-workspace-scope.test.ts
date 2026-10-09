@@ -17,12 +17,12 @@ vi.mock("next/headers", () => ({
 const mocks = vi.hoisted(() => ({
   loadWorkspaces: vi.fn(),
   managerHasCalendarAccessForProperty: vi.fn(async () => true),
-  managerCanWriteCalendarForProperty: vi.fn(async () => true),
+  managerCanWriteCalendarForProperties: vi.fn(async (_db: unknown, _userId: string, ids: readonly string[]) => new Set(ids)),
 }));
 vi.mock("@/lib/workspaces/server", () => ({ loadWorkspaces: mocks.loadWorkspaces }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCalendarAccessForProperty: mocks.managerHasCalendarAccessForProperty,
-  managerCanWriteCalendarForProperty: mocks.managerCanWriteCalendarForProperty,
+  managerCanWriteCalendarForProperties: mocks.managerCanWriteCalendarForProperties,
 }));
 
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
@@ -39,7 +39,9 @@ beforeEach(() => {
   state.cookieValue = undefined;
   mocks.loadWorkspaces.mockReset();
   mocks.managerHasCalendarAccessForProperty.mockReset().mockResolvedValue(true);
-  mocks.managerCanWriteCalendarForProperty.mockReset().mockResolvedValue(true);
+  mocks.managerCanWriteCalendarForProperties
+    .mockReset()
+    .mockImplementation(async (_db: unknown, _userId: string, ids: readonly string[]) => new Set(ids));
 });
 
 describe("listManagerChannelCalendarBookings — active-workspace guard", () => {
@@ -107,7 +109,7 @@ describe("listManagerChannelCalendarBookings — import URL is a bearer secret",
 
   it("is withheld from a view-only teammate (hasImportUrl still tells them one is linked)", async () => {
     mocks.loadWorkspaces.mockResolvedValue([WS_A]);
-    mocks.managerCanWriteCalendarForProperty.mockResolvedValue(false);
+    mocks.managerCanWriteCalendarForProperties.mockResolvedValue(new Set<string>());
     const result = await listManagerChannelCalendarBookings(setup({ external_calendar_connections: [connection] }) as never, MANAGER, ["p1"]);
     expect(importUrls(result)).toEqual([null]);
     expect(result.flatMap((p) => p.rooms.map((r) => r.hasImportUrl))).toEqual([true]);
