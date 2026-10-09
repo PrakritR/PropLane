@@ -195,7 +195,25 @@ export function residentRelationshipSources(): RelationshipSource[] {
     if (idColumns.length === 0 && emailColumns.length === 0) continue;
     out.set(rule.table, { table: rule.table, managerColumns, idColumns, emailColumns });
   }
-  for (const extra of EXTRA_RELATIONSHIP_SOURCES) if (!out.has(extra.table)) out.set(extra.table, extra);
+  for (const extra of EXTRA_RELATIONSHIP_SOURCES) {
+    const derived = out.get(extra.table);
+    // The manifest already derives most of these tables; the entry here exists
+    // for its `strict` flag, so merge it onto the derived columns instead of
+    // dropping it (which left the fail-closed guard off).
+    if (!derived) {
+      out.set(extra.table, extra);
+      continue;
+    }
+    const managerColumns = [...new Set([...derived.managerColumns, ...extra.managerColumns])];
+    out.set(extra.table, {
+      ...derived,
+      managerColumns,
+      // Same rule as the manifest loop: a column that is both stamps the resident, not a manager.
+      idColumns: [...new Set([...derived.idColumns, ...extra.idColumns])].filter((c) => !managerColumns.includes(c)),
+      emailColumns: [...new Set([...derived.emailColumns, ...extra.emailColumns])],
+      ...(extra.strict === true ? { strict: true } : {}),
+    });
+  }
   return [...out.values()];
 }
 

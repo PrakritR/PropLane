@@ -14,8 +14,17 @@ vi.mock("@/lib/manager-notification-routing.server", () => ({
   sendManagerNotificationSms: vi.fn(async () => undefined),
 }));
 
-type Row = { id: string; row_data: { messages?: { id: string; body: string }[] } };
+type Row = {
+  id: string;
+  updated_at?: string;
+  row_data: { messages?: { id: string; body: string }[] };
+};
 
+/**
+ * The thread row is shared with the SMS mirror, so the notice write is a guarded
+ * read-modify-write: read `row_data` + `updated_at`, then insert (new thread) or
+ * update with that `updated_at` as the compare-and-set.
+ */
 function makeDb(rows: Map<string, Row>) {
   return {
     from: () => ({
@@ -23,13 +32,25 @@ function makeDb(rows: Map<string, Row>) {
         eq: () => ({
           maybeSingle: async () => {
             const first = [...rows.values()][0];
-            return { data: first ? { row_data: first.row_data } : null };
+            return { data: first ? { row_data: first.row_data, updated_at: first.updated_at ?? null } : null };
           },
         }),
       }),
-      upsert: async (payload: Row) => {
+      insert: async (payload: Row) => {
         rows.set(payload.id, payload);
         return { error: null };
+      },
+      update: (payload: Partial<Row>) => {
+        const chain = {
+          eq: () => chain,
+          select: async () => {
+            const first = [...rows.values()][0];
+            if (!first) return { data: [], error: null };
+            rows.set(first.id, { ...first, ...payload } as Row);
+            return { data: [{ id: first.id }], error: null };
+          },
+        };
+        return chain;
       },
     }),
   } as never;

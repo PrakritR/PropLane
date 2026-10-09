@@ -904,14 +904,14 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // that throw never masquerades as a network failure, then retry the GET
       // once immediately (C200): a transient empty response must not fall
       // straight back to a possibly-stale cache with no further attempt.
-      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(res);
+      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(res);
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         const retryRes = await fetchWithTimeout(url, { credentials: "include" }, MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS).catch(() => null);
         if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
         if (retryRes) {
           notePortalResponse(retryRes.status);
-          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(retryRes);
+          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(retryRes);
         }
       }
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
@@ -924,9 +924,13 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // upsert POST hasn't landed yet must survive this force refetch (see
       // `mergeApplicationRows`'s doc comment).
       // A complete manager-scope list is authoritative about deletions: drop a row the server
-      // confirmed earlier and now omits. The self slice and a list at the read cap are partial.
+      // confirmed earlier and now omits. The self slice is partial, and so is any read the
+      // server marks `truncated` — it builds the list from several capped queries and then
+      // de-duplicates and workspace-filters them, so a partial answer can be well under the
+      // cap. The length check stays as the floor for a server that predates the flag.
       const serverIds = new Set(body.rows.map((row) => normalizeApplicationRow(row).id));
-      const absenceIsDeletion = !opts?.selfScope && body.rows.length < MANAGER_APPLICATIONS_READ_CAP;
+      const absenceIsDeletion =
+        !opts?.selfScope && body.truncated !== true && body.rows.length < MANAGER_APPLICATIONS_READ_CAP;
       const retained = absenceIsDeletion
         ? memoryRows.filter((row) => serverIds.has(row.id) || !confirmedApplicationIds.has(row.id))
         : memoryRows;

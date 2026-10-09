@@ -684,6 +684,15 @@ async function resolveApplicationWriteOwner(
   return { ok: true, owner: linkedOwner };
 }
 
+/**
+ * The row cap every application read shares. A read that comes back AT the cap
+ * is partial, and the client is told so (`truncated`) rather than inferring
+ * completeness from the length it received — this list is de-duplicated and
+ * workspace-filtered after the queries, so a truncated read can answer with
+ * fewer than the cap and still be missing rows.
+ */
+const APPLICATIONS_READ_LIMIT = 500;
+
 async function fetchApplicationsForManagerUser(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
@@ -743,8 +752,9 @@ async function fetchApplicationsForManagerUser(
     .select(select)
     .eq("manager_user_id", userId)
     .order("updated_at", { ascending: false })
-    .limit(500);
+    .limit(APPLICATIONS_READ_LIMIT);
   if (ownedError) throw ownedError;
+  let truncated = (ownedRows ?? []).length >= APPLICATIONS_READ_LIMIT;
 
   const byId = new Map<string, (typeof ownedRows)[number]>();
   for (const row of ownedRows ?? []) {
@@ -770,27 +780,31 @@ async function fetchApplicationsForManagerUser(
         .select(select)
         .in("property_id", propertyIds)
         .order("updated_at", { ascending: false })
-        .limit(500),
+        .limit(APPLICATIONS_READ_LIMIT),
       db
         .from("manager_application_records")
         .select(select)
         .in("assigned_property_id", propertyIds)
         .order("updated_at", { ascending: false })
-        .limit(500),
+        .limit(APPLICATIONS_READ_LIMIT),
     ]);
     if (propertyError) throw propertyError;
     if (assignedError) throw assignedError;
+    if ((byProperty ?? []).length >= APPLICATIONS_READ_LIMIT || (byAssigned ?? []).length >= APPLICATIONS_READ_LIMIT) {
+      truncated = true;
+    }
     for (const row of [...(byProperty ?? []), ...(byAssigned ?? [])]) {
       if (!row.id || byId.has(row.id)) continue;
       byId.set(row.id, row);
     }
   }
 
-  return [...byId.values()].sort((a, b) => {
+  const rows = [...byId.values()].sort((a, b) => {
     const aTs = Date.parse(String(a.updated_at ?? ""));
     const bTs = Date.parse(String(b.updated_at ?? ""));
     return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
   });
+  return { rows, truncated };
 }
 
 type ApplicationRecordForDelete = {
@@ -940,6 +954,10 @@ export async function GET(req: Request) {
 
     let data: { id: string; row_data: unknown }[] | null = null;
     let error: { message: string } | null = null;
+    // A read that hit its cap is partial. The client uses this to decide whether a
+    // row the response omits was deleted or simply did not fit; it never infers
+    // that from the row count, which de-duplication and workspace scoping shrink.
+    let truncated = false;
 
     if (selfScope || (!admin && role === "resident")) {
       const result = await db
@@ -947,12 +965,15 @@ export async function GET(req: Request) {
         .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
         .eq("resident_email", email)
         .order("updated_at", { ascending: false })
-        .limit(500);
+        .limit(APPLICATIONS_READ_LIMIT);
       data = result.data;
       error = result.error;
+      truncated = (result.data ?? []).length >= APPLICATIONS_READ_LIMIT;
     } else if (!admin && (role === "manager" || role === "owner" || role === "pro")) {
       try {
-        data = await fetchApplicationsForManagerUser(db, user.id);
+        const loaded = await fetchApplicationsForManagerUser(db, user.id);
+        data = loaded.rows;
+        truncated = loaded.truncated;
         error = null;
       } catch (e) {
         error = { message: e instanceof Error ? e.message : "Failed to load applications." };
@@ -962,9 +983,10 @@ export async function GET(req: Request) {
         .from("manager_application_records")
         .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
         .order("updated_at", { ascending: false })
-        .limit(500);
+        .limit(APPLICATIONS_READ_LIMIT);
       data = result.data;
       error = result.error;
+      truncated = (result.data ?? []).length >= APPLICATIONS_READ_LIMIT;
     } else {
       return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
     }
@@ -1024,7 +1046,7 @@ export async function GET(req: Request) {
     // A view-as session is read-only: it must not provision accounts either.
     if (!(await isViewAsSessionOpen())) scheduleApprovedResidentBackfill(db, scopedRows);
 
-    return NextResponse.json({ rows: scopedRows }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ rows: scopedRows, truncated }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load applications.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -1516,13 +1538,6 @@ export async function POST(req: Request) {
         );
       }
       row = linked.row;
-      // The one writer of the proof that lets a manager's "Delete resident" also delete this
-      // login: the id is the authenticated session's (`user.id`), the manager is the listing's.
-      await recordResidentWorkspaceBinding(db, {
-        residentUserId: user.id,
-        managerUserId: row.managerUserId ?? null,
-        applicationId: row.id,
-      });
       // The answers were validated above; whatever identity the template no longer asks for now comes
       // from the applicant's own account, so the stored row (resident_email, name, answers) is complete.
       if (!isDraftShapedApplicationRow(row)) {
@@ -1619,6 +1634,17 @@ export async function POST(req: Request) {
       }
     }
     row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
+    // The one writer of the proof that lets a manager's "Delete resident" also delete this
+    // login: the id is the authenticated session's (`user.id`), the manager is the listing's.
+    // Only a real submit binds — an abandoned draft is not the resident choosing this
+    // workspace — and only after the row is stored, so the proof never outlives a failed save.
+    if (residentSelfWrite && !isDraftShapedApplicationRow(row)) {
+      await recordResidentWorkspaceBinding(db, {
+        residentUserId: user.id,
+        managerUserId: row.managerUserId ?? null,
+        applicationId: row.id,
+      });
+    }
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
     // `row.id` is the id the row was stored under (a rename may have changed it from the record's old id).
     const linkedForms =

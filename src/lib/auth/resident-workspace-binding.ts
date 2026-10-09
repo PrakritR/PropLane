@@ -4,9 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /**
  * Proof that a resident, signed in as themselves, bound their account to a
  * manager (`resident_workspace_bindings`). The ONLY writer is
- * `recordResidentWorkspaceBinding`, called from exactly one place: the resident
- * self-write branch of `POST /api/manager-applications`, with `residentUserId`
- * taken from the authenticated session. A manager-writable route never calls it
+ * `recordResidentWorkspaceBinding`, called from exactly one place: a resident's
+ * own non-draft submit on `POST /api/manager-applications` (after the row is
+ * stored), with `residentUserId` taken from the authenticated session. Starting
+ * a draft binds nothing. A manager-writable route never calls it
  * (`tests/unit/resident-workspace-binding-writers.test.ts` enforces that), so a
  * manager cannot manufacture the proof by typing someone's email into an
  * application.

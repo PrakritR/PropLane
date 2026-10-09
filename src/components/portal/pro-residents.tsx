@@ -533,11 +533,16 @@ function describeResidentDeleteCounts(counts: ResidentDeleteCounts): string {
   return parts.join(", ");
 }
 
-/** The last line of the count table: terse, and the server's word on whether the login goes. */
+/**
+ * The last line of the count table: terse, and the server's word on whether the
+ * login goes. `null` is a confirm that did not ask (several residents at once):
+ * the delete decides each one, so the line says that rather than a wrong tally.
+ */
 function residentAccountPreviewValue(accounts: ResidentAccountTally | null): string {
-  if (!accounts) return "Kept (other roles or managers)";
+  if (!accounts) return "Decided per resident";
   const total = accounts.deleted + accounts.kept + accounts.none;
-  if (total > 0 && accounts.none === total) return "None";
+  if (total === 0) return "Decided per resident";
+  if (accounts.none === total) return "None";
   if (accounts.kept === 0) return "Deleted";
   if (accounts.deleted === 0) return "Kept (other roles or managers)";
   return `${accounts.deleted} deleted · ${accounts.kept} kept (other roles or managers)`;
@@ -2518,19 +2523,28 @@ export function ManagerResidents({
    */
   async function previewResidentDelete(
     resident: ActiveResident,
-  ): Promise<{ counts: ResidentDeleteCounts; account: ResidentAccountFate } | null> {
+    opts?: { accountFate?: boolean },
+  ): Promise<{ counts: ResidentDeleteCounts; account: ResidentAccountFate | null } | null> {
+    const accountFate = opts?.accountFate !== false;
     try {
       const res = await fetch("/api/portal/delete-resident-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ mode: "preview", email: resident.email, applicationId: resident.id }),
+        body: JSON.stringify({
+          mode: "preview",
+          email: resident.email,
+          applicationId: resident.id,
+          ...(accountFate ? {} : { accountFate: false }),
+        }),
       });
       if (!res.ok) return null;
       const body = (await res.json().catch(() => null)) as { counts?: unknown; account?: unknown } | null;
-      return body?.counts
-        ? { counts: readResidentDeleteCounts(body.counts), account: readResidentAccountFate(body.account) }
-        : null;
+      if (!body?.counts) return null;
+      return {
+        counts: readResidentDeleteCounts(body.counts),
+        account: accountFate ? readResidentAccountFate(body.account) : null,
+      };
     } catch {
       return null;
     }
@@ -2542,9 +2556,15 @@ export function ManagerResidents({
       return;
     }
     setBulkDeletePreview({ loading: true, counts: null, accounts: null, error: null });
+    // Deciding a login's fate walks every table that could still hold the account, so one
+    // resident is previewed in full and a multi-resident confirm asks for counts only — the
+    // delete decides each login for itself, and the toast reports what it did.
+    const accountFate = residents.length === 1;
     // Each preview is read-only and independent, so a few run at once; one that cannot be
     // read still holds the whole delete.
-    const previews = await runBounded(residents, RESIDENT_DELETE_CONCURRENCY, previewResidentDelete);
+    const previews = await runBounded(residents, RESIDENT_DELETE_CONCURRENCY, (resident) =>
+      previewResidentDelete(resident, { accountFate }),
+    );
     let total = emptyResidentDeleteCounts();
     const accounts: ResidentAccountTally = { deleted: 0, kept: 0, none: 0 };
     for (const previewed of previews) {
@@ -2558,9 +2578,9 @@ export function ManagerResidents({
         return;
       }
       total = addResidentDeleteCounts(total, previewed.counts);
-      accounts[previewed.account] += 1;
+      if (previewed.account) accounts[previewed.account] += 1;
     }
-    setBulkDeletePreview({ loading: false, counts: total, accounts, error: null });
+    setBulkDeletePreview({ loading: false, counts: total, accounts: accountFate ? accounts : null, error: null });
   }
 
   /**
@@ -2680,7 +2700,7 @@ export function ManagerResidents({
    */
   async function residentAccountConfirmNote(resident: ActiveResident): Promise<string | null> {
     const previewed = await previewResidentDelete(resident);
-    if (!previewed) return null;
+    if (!previewed?.account) return null;
     const tally: ResidentAccountTally = { deleted: 0, kept: 0, none: 0 };
     tally[previewed.account] += 1;
     return `PropLane account · ${residentAccountPreviewValue(tally)}.`;

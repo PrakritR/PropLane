@@ -28,7 +28,7 @@ describe("resident_workspace_bindings writers", () => {
     expect(touching).toEqual(["scripts/lib/account-deletion.mjs", "src/lib/auth/account-purge-manifest.ts", "src/lib/auth/resident-account-deletion.ts", "src/lib/auth/resident-workspace-binding.ts"]);
   });
 
-  it("recordResidentWorkspaceBinding has one caller: the resident self-write branch of /api/manager-applications", () => {
+  it("recordResidentWorkspaceBinding has one caller: a resident's own non-draft submit on /api/manager-applications", () => {
     const callers = sources
       .filter((file) => !rel(file).endsWith("resident-workspace-binding.ts"))
       .filter((file) => fs.readFileSync(file, "utf8").includes("recordResidentWorkspaceBinding("))
@@ -38,16 +38,23 @@ describe("resident_workspace_bindings writers", () => {
     const route = fs.readFileSync(path.join(ROOT, "src/app/api/manager-applications/route.ts"), "utf8");
     expect(route.match(/recordResidentWorkspaceBinding\(/g)).toHaveLength(1);
     const call = route.indexOf("recordResidentWorkspaceBinding(db");
-    const branchStart = route.indexOf("if (role === \"resident\" || selfApplicationWrite) {");
-    // The manager branch begins after the resident branch closes; the call must sit inside the first.
-    const managerBranch = route.indexOf("resolveApplicationWriteOwner(db, user.id, row", call);
-    expect(branchStart).toBeGreaterThan(-1);
-    expect(call).toBeGreaterThan(branchStart);
-    expect(call).toBeLessThan(managerBranch);
+    expect(call).toBeGreaterThan(-1);
+    // Gated on the resident's own write AND on a real submit: starting a draft binds nothing.
+    const gate = route.lastIndexOf("if (residentSelfWrite && !isDraftShapedApplicationRow(row)) {", call);
+    expect(gate).toBeGreaterThan(-1);
+    // Written only after the row itself is stored, so the proof never outlives a failed save.
+    const save = route.lastIndexOf("row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);", call);
+    expect(save).toBeGreaterThan(-1);
+    expect(save).toBeLessThan(gate);
     // The id is the session's, never the body's.
     expect(route.slice(call, call + 200)).toContain("residentUserId: user.id");
-    // That branch only runs for the signed-in user's own email.
-    const branch = route.slice(branchStart, call);
+    // `residentSelfWrite` is set in exactly one place: the branch that runs only for the
+    // signed-in user's own email.
+    expect(route.match(/residentSelfWrite = true;/g)).toHaveLength(1);
+    const branchStart = route.indexOf("if (role === \"resident\" || selfApplicationWrite) {");
+    expect(branchStart).toBeGreaterThan(-1);
+    const branch = route.slice(branchStart, route.indexOf("const priorLoad = await loadStoredApplicationRecord", branchStart));
+    expect(branch).toContain("residentSelfWrite = true;");
     expect(branch).toContain("rowEmail !== email");
     expect(branch).toContain("You can only update your own application.");
   });

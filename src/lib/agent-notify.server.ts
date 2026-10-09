@@ -24,6 +24,8 @@ import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const MANAGER_AGENT_FROM_NAME = "PropLane Assistant";
+/** Compare-and-retry attempts on the shared Assistant thread row. */
+const NOTICE_APPEND_ATTEMPTS = 4;
 
 async function managerNoticeWorkspace(
   db: SupabaseClient,
@@ -106,26 +108,51 @@ export async function notifyManagerFromAgent(
   let inboxDelivered = false;
   let inboxAlreadySent = false;
   if (channels.inbox) {
-    const { data: existingRow } = await db
-      .from("portal_inbox_thread_records")
-      .select("row_data")
-      .eq("id", threadId)
-      .maybeSingle();
+    const preview = args.text.slice(0, 100).replace(/\n/g, " ");
+    // Read-modify-write on a row the SMS mirror also appends to: guard the write
+    // on the `updated_at` we read and retry, or a turn mirrored in between is
+    // silently overwritten.
+    for (let attempt = 0; attempt < NOTICE_APPEND_ATTEMPTS && !inboxDelivered; attempt += 1) {
+      const { data: existingRow, error: readError } = await db
+        .from("portal_inbox_thread_records")
+        .select("row_data, updated_at")
+        .eq("id", threadId)
+        .maybeSingle();
+      if (readError) throw readError;
 
-    const existing = (existingRow?.row_data ?? null) as
-      | { messages?: { id?: string }[]; folder?: string }
-      | null;
-    const priorMessages = Array.isArray(existing?.messages) ? existing.messages : [];
-    const alreadySent = priorMessages.some((m) => m?.id === messageId);
-    inboxAlreadySent = alreadySent;
+      const existing = (existingRow?.row_data ?? null) as
+        | { messages?: { id?: string }[]; folder?: string }
+        | null;
+      const priorMessages = Array.isArray(existing?.messages) ? existing.messages : [];
+      if (priorMessages.some((m) => m?.id === messageId)) {
+        // A retry of a notice already in the thread. Delivered, nothing appended.
+        inboxAlreadySent = true;
+        inboxDelivered = true;
+        break;
+      }
 
-    if (alreadySent) {
-      // A retry of a notice already in the thread. Delivered, nothing appended.
-      inboxDelivered = true;
-    } else {
-      const preview = args.text.slice(0, 100).replace(/\n/g, " ");
-      const { error } = await db.from("portal_inbox_thread_records").upsert(
-        {
+      const rowData = {
+        id: threadId,
+        // A new notice pulls the thread back out of trash — the manager is
+        // being told something now, not being shown an old conversation.
+        folder: "inbox",
+        from: "PropLane Assistant",
+        email: "",
+        subject: args.subject,
+        preview,
+        body: args.text,
+        unread: true,
+        scope: MANAGER_INBOX_SCOPE,
+        threadType: "agent_notice",
+        messages: [
+          ...priorMessages,
+          { id: messageId, from: "PropLane Assistant", body: args.text, at: nowIso, outbound: false,
+            ...(args.threadType ? { noticeType: args.threadType } : {}) },
+        ],
+      };
+
+      if (!existingRow) {
+        const { error } = await db.from("portal_inbox_thread_records").insert({
           id: threadId,
           scope: MANAGER_INBOX_SCOPE,
           owner_user_id: args.landlordId,
@@ -134,32 +161,33 @@ export async function notifyManagerFromAgent(
           // notice is an escalation. Changing the routing type made its next
           // reply fall through to human-recipient validation with no recipient.
           thread_type: "agent_notice",
-          row_data: {
-            id: threadId,
-            // A new notice pulls the thread back out of trash — the manager is
-            // being told something now, not being shown an old conversation.
-            folder: "inbox",
-            from: "PropLane Assistant",
-            email: "",
-            subject: args.subject,
-            preview,
-            body: args.text,
-            unread: true,
-            scope: MANAGER_INBOX_SCOPE,
-            threadType: "agent_notice",
-            messages: [
-              ...priorMessages,
-              { id: messageId, from: "PropLane Assistant", body: args.text, at: nowIso, outbound: false,
-                ...(args.threadType ? { noticeType: args.threadType } : {}) },
-            ],
-          },
+          row_data: rowData,
           updated_at: nowIso,
-        },
-        { onConflict: "id" },
-      );
+        });
+        // Someone else created the thread first: re-read and append to theirs.
+        if (error && error.code !== "23505") throw error;
+        if (!error) inboxDelivered = true;
+        continue;
+      }
+
+      let update = db
+        .from("portal_inbox_thread_records")
+        .update({
+          scope: MANAGER_INBOX_SCOPE,
+          owner_user_id: args.landlordId,
+          thread_type: "agent_notice",
+          row_data: rowData,
+          updated_at: nowIso,
+        })
+        .eq("id", threadId);
+      // Optimistic guard: a concurrent append moves updated_at and we re-read.
+      update = existingRow.updated_at ? update.eq("updated_at", existingRow.updated_at) : update;
+      const { data: written, error } = await update.select("id");
       if (error) throw error;
-      inboxDelivered = true;
+      if ((Array.isArray(written) ? written.length : written ? 1 : 0) > 0) inboxDelivered = true;
     }
+    // Never report a notice as delivered that no row holds.
+    if (!inboxDelivered) throw new Error("The PropLane Assistant thread is busy; the notice was not saved.");
   }
 
   if (channels.inbox && args.notify?.push !== false && !inboxAlreadySent) {
