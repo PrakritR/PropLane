@@ -1,3 +1,4 @@
+import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
 import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from "@/lib/security/application-record-normalization.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -343,6 +344,11 @@ function owesLinkedFormCheck(row: DemoApplicantRow): boolean {
   return isSubmittedPendingApplicationRow(row) && Boolean(row.managerUserId?.trim());
 }
 
+async function sourceChannelColumn(): Promise<{ source_channel?: string }> {
+  const source = await readListingSource();
+  return source ? { source_channel: source } : {};
+}
+
 async function persistNormalizedRow(
   db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow,
   authorizedExisting: (Omit<Partial<ApplicationRecordSnapshot>, "id"> & { id?: string | null }) | null,
@@ -365,6 +371,9 @@ async function persistNormalizedRow(
     assigned_property_id: row.assignedPropertyId || null,
     row_data: sealApplicantRow(row, row.id, existing?.manager_user_id || row.managerUserId),
     updated_at: new Date().toISOString(),
+    // First touch only: a brand-new row records the listing site the applicant came from (the
+    // allowlisted `pl_src` cookie, else nothing). An existing row keeps whatever it already has.
+    ...(existing ? {} : await sourceChannelColumn()),
   };
   const incomingDraft = { ...row, withdrawnAt: undefined };
   if (renaming) {

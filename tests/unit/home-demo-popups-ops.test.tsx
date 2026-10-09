@@ -17,7 +17,7 @@ import {
 import { OPS_REPORTS, OPS_TASK_DETAILS } from "@/components/marketing/site/product-mock/fixtures-popups-ops";
 import { MANAGER_BOOKING_BUCKET_LABELS, MANAGER_TASK_LIST_TAB_LABELS, MANAGER_TASK_LIST_TABS } from "@/lib/portal-detail-routes";
 import { recordSections } from "@/lib/portals/record-sections";
-import { listingChannelsByGroup } from "@/lib/listing-channels/registry";
+import { listingChannelsOrdered } from "@/lib/listing-channels/registry";
 import { MANAGER_TASK_FORM_KIND_LABELS } from "@/lib/manager-task-form-support";
 import { MANAGER_TASK_PRIORITY_LABELS, MANAGER_TASK_URGENCY_LABELS } from "@/lib/manager-tasks";
 
@@ -209,7 +209,7 @@ describe("Promotion", () => {
       PROMOTION_ROWS.length,
       PROMOTION_ROWS.filter((r) => r.bucket === "text").length,
       PROMOTION_ROWS.filter((r) => r.bucket === "image").length,
-      (["automatic", "one_click", "request_access"] as const).reduce((sum, g) => sum + listingChannelsByGroup(g).length, 0),
+      listingChannelsOrdered().length,
     ]);
     expect(screen.queryByRole("button", { name: "Integrations" })).toBeNull();
     fire(screen.getByRole("button", { name: /^Listing sites/ }));

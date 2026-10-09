@@ -141,18 +141,62 @@ syndication is a listing edit.
 ## Listing sites: the channel registry
 
 `src/lib/listing-channels/` is the one registry of where a listing can be
-advertised. A channel is one of three kinds, and the UI shows exactly those
-three groups (property **Promotion › Listing sites** and the overall
-**Promotion › Listing sites** view; there is no rail tab):
+advertised. Every channel has one **posting mode** (`posting` in
+`registry.ts`), and the UI is one flat list of 16 rows in reach order (`order`,
+`listingChannelsOrdered()`), no groups and no sub-tabs, in property
+**Promotion › Listing sites** and the overall **Promotion › Listing sites** view
+(there is no rail tab). A row (glyph, name, plain-text fact, chevron) opens that
+site's guide (`listing-site-guide.tsx`) in the drawer/dialog.
 
-| Group | Channels | How it works |
+| Posting mode | Channels | How it works |
 | --- | --- | --- |
-| Automatic | Zillow Rental Network (feed), Facebook Page, Instagram (Meta Graph API) | PropLane posts for the manager. Per-listing switch, default ON for a connected live channel. |
-| One-click | Facebook Marketplace, Facebook Groups, Roomster, Roomies, Furnished Finder, Craigslist | The site forbids automation. "Copy & open" copies the built post and opens the site's own create page; the manager can mark it "Posted by me". |
-| Request access | Zumper and PadMapper, Apartments.com, Apartment List, SpareRoom, Nextdoor, Google Business Profile, LinkedIn | Coming soon. The button opens a mail draft to support. Nothing posts. |
+| `feed` | Zillow Rental Network | Nothing is pushed; Zillow's crawler reads the workspace feed. Per-listing switch in the property guide. |
+| `manual` | Facebook Marketplace, Facebook Groups, Craigslist, SpareRoom, Roomies, Roomster, Zumper and PadMapper, Apartments.com, Redfin (via Rent.), Furnished Finder, Nextdoor, Reddit | The site forbids automation. The guide: create an account, copy the post (and download photos), post it, mark it posted (optional ad link). Row fact: "Posted by you · Oct 8" or "Not posted yet". |
+| `api` | Facebook Page, Instagram (Meta Graph API) | PropLane posts for the manager once Meta approves the app (per-listing switch in the guide). Until then the row says "Coming soon · post by hand for now" and the guide has the by-hand steps. |
+| `partner_only` | Apartment List | Takes partner feeds only. The row says "Partner feed only"; the guide shows one "Nothing to post" block. |
+
+Rows are ordered Zillow, Facebook Marketplace, Facebook Groups, Craigslist,
+SpareRoom, Roomies, Roomster, Zumper and PadMapper, Apartments.com, Redfin,
+Apartment List, Furnished Finder, Nextdoor, Reddit, Facebook Page, Instagram.
+**Redfin (`redfin_rent`) and Reddit (`reddit`) were added; Google Business
+Profile and LinkedIn were removed** (they cannot advertise a rental). Their
+partner contacts live on in `RETIRED_PARTNER_CONTACTS` so the admin partner kit
+can still show them. Availability: `feed` and `manual` are `live`, `api` is
+`live` only when Meta is live, `partner_only` is `partner_only`; there is never a
+"Coming soon"-only dead row.
+
+### The guide schema
+
+Each `ListingChannelDef` carries `guide: { how, signupUrl?, signupNote,
+createUrl?, createNote, cost, rules[] }`, rendered verbatim by
+`ListingSiteGuide` (the copy comes from the approved studio plan
+`listing-sites-guides-1008`). Steps: 1 Create an account (new tab,
+`rel="noopener noreferrer"`), 2 Copy your post (post preview, Copy and
+Download photos icon actions; photos come from
+`/api/manager/listing-channels/photos?propertyId=`), 3 Post it, 4 Mark as
+posted (`POST /api/manager/listing-channels/mark-posted`, optional `postedUrl`
+stored in `listing_channel_posts.posted_url`). It ends with "Keep the account
+safe" (`rules`). Workspace mode has a listing picker (newest listing by
+default); the property panel binds the guide to its listing. The guide shows
+"<n> leads from this site" from `leadCounts[channelId]` on
+`GET /api/manager/listing-channels` (`leadCountsByChannel`).
+
+### The `?src=` tag
+
+Every post's listing link is tagged `?src=<channelId>`
+(`taggedListingLink` in `post-text.ts`), so a lead that arrives through a posted
+ad can be traced to the site. The link line is never trimmed. `GET
+/api/manager/listing-channels?propertyId=` returns a built `postTexts` entry
+for every channel that is posted by hand.
+
+### "Listed with PropLane"
+
+The Listing sites view no longer carries a "Show Listed with PropLane" row. The
+setting is unchanged and still lives in Settings › Integrations › Posting
+(`POST /api/manager/listing-channels/attribution`).
 
 **Never scraping, never headless or browser-driven posting, anywhere.** A site
-with no official API or feed is one-click or request-access, full stop.
+with no official API or feed is `manual` or `partner_only`, full stop.
 
 ### One post builder
 
