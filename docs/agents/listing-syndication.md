@@ -160,8 +160,8 @@ SpareRoom, Roomies, Roomster, Zumper and PadMapper, Apartments.com, Redfin,
 Apartment List, Furnished Finder, Nextdoor, Reddit, Facebook Page, Instagram.
 **Redfin (`redfin_rent`) and Reddit (`reddit`) were added; Google Business
 Profile and LinkedIn were removed** (they cannot advertise a rental). Their
-partner contacts live on in `RETIRED_PARTNER_CONTACTS` so the admin partner kit
-can still show them. Availability: `feed` and `manual` are `live`, `api` is
+partner contacts live on in `RETIRED_PARTNER_CONTACTS` in the registry, for an
+admin to read there; the Listing sites API ships no partner contacts. Availability: `feed` and `manual` are `live`, `api` is
 `live` only when Meta is live, `partner_only` is `partner_only`; there is never a
 "Coming soon"-only dead row.
 
@@ -173,9 +173,11 @@ createUrl?, createNote, cost, rules[] }`, rendered verbatim by
 `listing-sites-guides-1008`). Steps: 1 Create an account (new tab,
 `rel="noopener noreferrer"`), 2 Copy your post (post preview, Copy and
 Download photos icon actions; photos come from
-`/api/manager/listing-channels/photos?propertyId=`), 3 Post it, 4 Mark as
-posted (`POST /api/manager/listing-channels/mark-posted`, optional `postedUrl`
-stored in `listing_channel_posts.posted_url`). It ends with "Keep the account
+`/api/manager/listing-channels/photos?propertyId=`, any workspace member who
+can see the listing, host-allowlisted), 3 Post it, 4 Mark as posted
+(`POST /api/manager/listing-channels/mark-posted`, owner only, optional
+`postedUrl` stored in `listing_channel_posts.posted_url` and surfaced back as
+the step's "Open ad" link). It ends with "Keep the account
 safe" (`rules`). Workspace mode has a listing picker (newest listing by
 default); the property panel binds the guide to its listing. The guide shows
 "<n> leads from this site" from `leadCounts[channelId]` on
@@ -188,6 +190,17 @@ Every post's listing link is tagged `?src=<channelId>`
 ad can be traced to the site. The link line is never trimmed. `GET
 /api/manager/listing-channels?propertyId=` returns a built `postTexts` entry
 for every channel that is posted by hand.
+
+The allowlist `normalizeLeadSource` checks is **derived** from
+`LISTING_CHANNEL_DEFS` (`LEAD_SOURCE_CHANNEL_IDS`), never hand-listed, so a new
+site is tagged and counted the moment it is in the registry. `pl_src` is set
+`SameSite=Lax` and `Secure` on https. Only the applicant-facing write stamps
+`source_channel`: a manager-initiated create or draft save is never credited to
+whatever tagged link that manager happened to open. `source_channel` and
+`posted_url` are the only thing their migration adds, so each write retries once
+without the column (`isMissingColumnError`) rather than failing the applicant's
+submission, the tour request or the manager's "Mark as posted"; the Listing
+sites GET reports `schemaReady: false` instead.
 
 ### "Listed with PropLane"
 

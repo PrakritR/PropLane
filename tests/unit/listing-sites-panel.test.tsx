@@ -69,6 +69,10 @@ describe("property Promotion › Listing sites", () => {
     expect(document.querySelector('[data-attr^="property-listing-sites-tab-"]')).toBeNull();
     expect(screen.queryByText("Show Listed with PropLane")).toBeNull();
     expect(rows()[0]!.textContent).toContain("Zillow Rental Network");
+    // Every row also carries its own name, so a funnel can tell WHICH site was opened.
+    const named = rows().map((r) => r.getAttribute("data-item-attr"));
+    expect(named).toContain("listing-site-row-zillow");
+    expect(new Set(named).size).toBe(16);
   });
 
   it("a row opens that site's guide bound to the listing, with no picker; Zillow keeps its per-listing switch", async () => {

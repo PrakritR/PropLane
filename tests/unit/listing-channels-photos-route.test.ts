@@ -62,6 +62,48 @@ describe("photos route", () => {
     expect(res.headers.get("content-type")).toBe("application/zip");
   });
 
+  it("fetches sequentially and stops at the total cap", async () => {
+    h.ctx = { db: {}, userId: "u", workspace: { id: "w", ownerUserId: "u", propertyIds: ["p1"] } };
+    h.owned = { id: "p1", live: true };
+    h.photos = Array.from({ length: 4 }, (_, i) => `https://proj.supabase.co/storage/v1/object/public/x/${i}.jpg`);
+    const order: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      order.push(String(input));
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return new Response(new Uint8Array(8));
+    });
+    expect((await GET(req())).status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(4);
+    expect(maxInFlight).toBe(1);
+    expect(order).toEqual(h.photos);
+  });
+
+  it("drops a body that runs past the per-photo cap even with no Content-Length", async () => {
+    h.ctx = { db: {}, userId: "u", workspace: { id: "w", ownerUserId: "u", propertyIds: ["p1"] } };
+    h.owned = { id: "p1", live: true };
+    h.photos = ["https://proj.supabase.co/storage/v1/object/public/x/big.jpg"];
+    let pushed = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pushed += 1;
+          // 32 x 1 MiB would be 32 MiB: the read must abort past the 15 MiB cap.
+          if (pushed > 32) return controller.close();
+          controller.enqueue(new Uint8Array(1024 * 1024));
+        },
+      });
+      return new Response(body);
+    });
+    const res = await GET(req());
+    expect(res.status).toBe(502);
+    expect(pushed).toBeLessThan(32);
+  });
+
   it("host allowlist helper", () => {
     const hosts = new Set(["proj.supabase.co"]);
     expect(isAllowedPhotoUrl("https://proj.supabase.co/a.jpg", hosts)).toBe(true);
