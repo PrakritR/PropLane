@@ -22,6 +22,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { AdminAccountRecordPage } from "@/components/portal/admin-account-record-page";
+import { AdminAccountActiveDialog } from "@/components/portal/admin-account-active-dialog";
 import { useAdminAccountActions } from "@/components/portal/use-admin-account-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -220,7 +221,14 @@ function AdminAccountsList() {
     [category],
   );
 
-  const { busy: actionBusy, setActive, remove } = useAdminAccountActions(reload);
+  const {
+    busy: actionBusy,
+    setActive,
+    askActive,
+    activeRequest,
+    clearActiveRequest,
+    remove,
+  } = useAdminAccountActions(reload);
 
   // The match runs on the server (name, email, phone or PropLane ID) so the
   // three tab counts always describe the same query.
@@ -367,7 +375,7 @@ function AdminAccountsList() {
           className={PORTAL_BULK_BAR_BTN}
           data-attr="admin-account-toggle-active"
           disabled={actionBusy}
-          onClick={() => void setActive(selectedRows[0]!.kind, selectedRows[0]!.id, !selectedRows[0]!.active)}
+          onClick={() => askActive(selectedRows[0]!.kind, selectedRows[0]!.id, !selectedRows[0]!.active)}
         >
           {selectedRows[0]!.active ? "Disable" : "Enable"}
         </Button>
@@ -525,6 +533,11 @@ function AdminAccountsList() {
         locates the header dock by slicing up to the literal
         "return (\n    <ManagerPortalPageShell" string).
       */}
+      <AdminAccountActiveDialog
+        request={activeRequest}
+        onClose={clearActiveRequest}
+        onSubmit={(req, reason) => setActive(req.kind, req.id, req.active, reason)}
+      />
       <Modal
         open={planCreditOpen}
         title="Plan credit"

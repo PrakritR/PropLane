@@ -9,6 +9,7 @@ import {
   type ChannelCalendarImportedRange,
   type ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 export function mintChannelCalendarExportToken(): string {
@@ -28,6 +29,7 @@ export function importedRangesToUnavailable(
     id: channelImportRangeId(connectionId, r.sourceUid || r.id),
     start: r.start,
     end: r.end,
+    ...(isHostBlockRange(r) ? { hostBlock: true } : {}),
   }));
 }
 
@@ -136,6 +138,7 @@ export function parseConnectionRow(raw: Record<string, unknown>): ChannelCalenda
             end,
             sourceUid: String(o.sourceUid ?? o.source_uid ?? "").trim(),
             summary: String(o.summary ?? "").trim(),
+            ...(isHostBlockRange({ hostBlock: typeof o.hostBlock === "boolean" ? o.hostBlock : undefined, summary: String(o.summary ?? "") }) ? { hostBlock: true } : {}),
           };
         })
         .filter((x): x is ChannelCalendarImportedRange => Boolean(x))

@@ -165,6 +165,8 @@ export type ManagerRoomUnavailableRange = {
   start: string;
   /** Inclusive YYYY-MM-DD, or null when the span has no end date yet. */
   end: string | null;
+  /** Imported from a channel as the host's own block: closes the dates, takes no bed. */
+  hostBlock?: boolean;
 };
 
 /** One kind of bed in a room, and how many of it. */
@@ -2575,7 +2577,7 @@ function normalizeManagerListingSubmissionV1Base(
           if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
           // An empty or malformed end means "no end date yet" — the room stays closed.
           const end = /^\d{4}-\d{2}-\d{2}$/.test(rawEnd) ? rawEnd : null;
-          out.push({ id, start, end });
+          out.push(o.hostBlock === true ? { id, start, end, hostBlock: true } : { id, start, end });
         }
         return out;
       })(),

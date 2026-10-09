@@ -125,22 +125,18 @@ function openMobileFilterDropdownHarness({ optionCount = 8 }: { optionCount?: nu
   fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
 }
 
+/* Captain, Oct 9: a phone Filter is a bottom sheet (desktop keeps the anchored popover). */
 function expectOpenMobileFilterShell() {
-  expect(
-    document.querySelector('[data-slot="portal-filter-dropdown-panel"][data-surface="popover"]'),
-  ).toBeTruthy();
+  expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).toBeTruthy();
+  expect(document.querySelector('[data-slot="portal-filter-dropdown-panel"]')).toBeNull();
 }
 
 function expectMobileFilterShellClosed() {
-  expect(
-    document.querySelector('[data-slot="portal-filter-dropdown-panel"][data-surface="popover"]'),
-  ).toBeNull();
+  expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).toBeNull();
 }
 
 function closeMobileFilterShell() {
-  const closeButton =
-    document.querySelector('[data-attr="portal-filter-close"]') ??
-    document.querySelector('[data-slot="vaul-bottom-sheet"] button[aria-label="Close"]');
+  const closeButton = document.querySelector('[data-slot="vaul-bottom-sheet"] button[aria-label="Close"]');
   expect(closeButton).toBeTruthy();
   fireEvent.click(closeButton!);
 }
@@ -550,7 +546,7 @@ describe("PortalFilterSortSheet — deferred apply on close", () => {
   });
 });
 
-describe("PortalFilterSortSheet — anchored phone popover stays open while filtering", () => {
+describe("PortalFilterSortSheet — phone bottom sheet stays open while filtering", () => {
   it("stays open after toggling a multi-select option", async () => {
     const options = makeOptions(8);
     installMobilePortalViewport();
@@ -689,7 +685,7 @@ describe("PortalFilterSortSheet — anchored phone popover stays open while filt
     });
   });
 
-  it("portals the property menu into the anchored phone filter panel", async () => {
+  it("portals the property menu into the phone filter sheet", async () => {
     const options = makeOptions(12);
     installMobilePortalViewport();
     render(
@@ -715,15 +711,15 @@ describe("PortalFilterSortSheet — anchored phone popover stays open while filt
     fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
     fireEvent.click(screen.getByRole("button", { name: /Property/ }));
     const listbox = screen.getByRole("listbox");
-    const panel = document.querySelector('[data-slot="portal-filter-dropdown-panel"]');
-    expect(panel).toBeTruthy();
-    expect(document.querySelector('[data-slot="vaul-bottom-sheet"]')).toBeNull();
-    expect(listbox.closest('[data-slot="portal-filter-dropdown-panel"]')).toBe(panel);
+    const sheet = document.querySelector('[data-slot="vaul-bottom-sheet"]');
+    expect(sheet).toBeTruthy();
+    expect(document.querySelector('[data-slot="portal-filter-dropdown-panel"]')).toBeNull();
+    expect(listbox.closest('[data-slot="vaul-bottom-sheet"]')).toBe(sheet);
     expect(listbox.closest("body")?.querySelector('[data-field-select-menu]')).toBeTruthy();
     expect(listbox.parentElement?.closest("body > [data-field-select-menu]")).toBeNull();
   });
 
-  it("Escape closes the field menu first, then the anchored panel", async () => {
+  it("Escape closes the field menu first, then the sheet", async () => {
     installMobilePortalViewport();
     render(
       <PortalFilterSortSheet activeCount={0} onReset={() => {}}>
@@ -784,7 +780,7 @@ describe("PortalFilterSortSheet — anchored phone popover stays open while filt
     });
   });
 
-  it("closes when the outside click-catcher is tapped", async () => {
+  it("closes when the sheet backdrop is tapped", async () => {
     installMobilePortalViewport();
     render(
       <PortalFilterSortSheet activeCount={0} onReset={() => {}}>
@@ -803,8 +799,12 @@ describe("PortalFilterSortSheet — anchored phone popover stays open while filt
     );
     fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
     expectOpenMobileFilterShell();
-    const scrim = document.querySelector('[data-attr="portal-filter-dropdown-backdrop"]');
+    const scrim = document.querySelector('[data-vaul-overlay]');
     expect(scrim).toBeTruthy();
+    // Radix arms its outside-pointer listener on the next tick.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    fireEvent.pointerDown(scrim!);
+    fireEvent.pointerUp(scrim!);
     fireEvent.click(scrim!);
     await waitFor(() => {
       expectMobileFilterShellClosed();
@@ -1051,8 +1051,9 @@ describe("portal filter dropdown positioning", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       writable: true,
+      // A desktop: a mouse (fine pointer), wide window. A phone gets the bottom sheet.
       value: vi.fn((query: string) => ({
-        matches: false,
+        matches: query === "(pointer: fine)",
         media: query,
         addEventListener: () => {},
         removeEventListener: () => {},

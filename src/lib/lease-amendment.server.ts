@@ -18,6 +18,7 @@ import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1, ManagerRoomUnavailableRange } from "@/lib/manager-listing-submission";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { withoutHostBlocks } from "@/lib/channel-calendar/host-block";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
 function asObject(v: unknown): Record<string, unknown> | null {
@@ -282,7 +283,7 @@ export async function checkMoveOutAvailabilityForLease(
           roomName = room.name.trim().toLowerCase();
           // A manager-set block closes the room outright, whatever its capacity,
           // and is the manager's OWN data — safe to describe to either audience.
-          const blocked = (room.manualUnavailableRanges ?? []).find((range: ManagerRoomUnavailableRange) =>
+          const blocked = withoutHostBlocks(room.manualUnavailableRanges ?? []).find((range: ManagerRoomUnavailableRange) =>
             rangesOverlap(extensionStart, newLeaseEnd, range.start, range.end ?? "9999-12-31"),
           );
           if (blocked) {

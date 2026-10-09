@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { viewAsOfUser } from "@/lib/auth/view-as-user";
 import type { ActiveViewAs } from "@/lib/auth/view-as.server";
-import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
+import { isRevokedSessionError, isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
 import { describeAuthRejection } from "@/lib/auth/session-rejection";
 
 export type ServerProfile = {
@@ -60,7 +60,7 @@ export const getServerSessionProfile = cache(
         error: userError,
       } = await supabase.auth.getUser();
       if (userError) {
-        if (isStaleRefreshTokenError(userError)) {
+        if (isStaleRefreshTokenError(userError) || isRevokedSessionError(userError)) {
           await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
         }
         // Every server-rendered portal page and the routes built on this

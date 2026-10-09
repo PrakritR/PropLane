@@ -3,8 +3,8 @@
  *
  * A staff plan change is a commercial decision about one account, so it now REQUIRES a reason and
  * writes one audit row (actor, field, before -> after, reason). The reason is refused before any
- * write - including the `active` toggle that may ride along in the same request - and a plain
- * enable/disable still needs none.
+ * write - including the `active` toggle that may ride along in the same request. A plain
+ * enable/disable needs a reason too and writes its own `active` audit row.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -85,16 +85,46 @@ describe("Save plan requires a reason", () => {
     expect(setManagerPurchaseTier).not.toHaveBeenCalled();
   });
 
-  it("still lets staff enable or disable an account with no reason", async () => {
-    const res = await patch({ id: MGR, active: false });
-    expect(res.status).toBe(200);
-    expect(tables.profiles![0]!.application_approved).toBe(false);
+  it.each([undefined, "", "   "])("refuses an enable or disable with reason %j, changing nothing", async (reason) => {
+    for (const active of [false, true]) {
+      const res = await patch({ id: MGR, active, reason });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: "A reason is required." });
+    }
+    expect(tables.profiles![0]!.application_approved).toBe(true);
     expect(audit()).toHaveLength(0);
+  });
+
+  it("disables an account with a reason and audits actor, before -> after and reason", async () => {
+    const res = await patch({ id: MGR, active: false, reason: "  Chargeback   dispute " });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, auditRecorded: true });
+    expect(tables.profiles![0]!.application_approved).toBe(false);
+    expect(audit()).toHaveLength(1);
+    expect(audit()[0]).toMatchObject({
+      actor_user_id: "admin-1",
+      landlord_id: MGR,
+      action: "admin_billing_override",
+      input_summary: { field: "active", before: true, after: false, managerUserId: MGR, reason: "Chargeback dispute" },
+    });
+  });
+
+  it("re-enabling audits before false -> after true", async () => {
+    tables.profiles = [{ id: MGR, application_approved: false }];
+    const res = await patch({ id: MGR, active: true, reason: "Dispute resolved" });
+    expect(res.status).toBe(200);
+    expect(tables.profiles[0]!.application_approved).toBe(true);
+    expect(audit()[0]).toMatchObject({ input_summary: { field: "active", before: false, after: true, reason: "Dispute resolved" } });
+  });
+
+  it("a bundled plan and active change writes both audit rows", async () => {
+    await patch({ id: MGR, tier: "business", active: false, reason: "Offboarding" });
+    expect(audit().map((r) => (r.input_summary as { field: string }).field).sort()).toEqual(["active", "plan"]);
   });
 
   it("rejects an id that is not a UUID before touching anything", async () => {
     for (const id of ["abc", "1 or 1=1", 42, { $ne: 1 }]) {
-      expect((await patch({ id, active: false })).status).toBe(400);
+      expect((await patch({ id, active: false, reason: "x" })).status).toBe(400);
     }
     expect(setManagerPurchaseTier).not.toHaveBeenCalled();
   });

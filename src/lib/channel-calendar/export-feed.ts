@@ -1,3 +1,4 @@
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import type { ChannelCalendarImportedRange, ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 
 type Range = { start: string; end: string };
@@ -40,6 +41,8 @@ export function importedRangesForFeed(input: {
   const out: Range[] = [];
   for (const connection of relevant) {
     for (const range of connection.importedRanges) {
+      // A host block would echo straight back to the channel it came from.
+      if (isHostBlockRange(range)) continue;
       const start = String(range.start ?? "").trim();
       if (!start) continue;
       out.push({ start, end: String(range.end ?? start).trim() || start });

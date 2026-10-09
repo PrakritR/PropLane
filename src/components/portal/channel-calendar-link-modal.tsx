@@ -7,12 +7,11 @@ import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-wor
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SegmentedTwo } from "@/components/ui/segmented-control";
 import {
   deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
@@ -58,8 +57,6 @@ export function channelCalendarLinkTitle(provider: ChannelCalendarProvider | "")
   return provider ? `Connect ${channelCalendarProviderLabel(provider)}` : "Connect a channel";
 }
 
-type LinkScope = "workspace" | "properties";
-
 type LinkRow = {
   key: string;
   propertyId: string;
@@ -73,10 +70,8 @@ type LinkGroup = { propertyId: string; label: string; rows: LinkRow[] };
 const CHANNEL_OPTIONS = (["airbnb", "booking_com", "vrbo"] as const).map((value) => ({ value, label: channelCalendarProviderLabel(value) }));
 const rowKey = (propertyId: string, roomId: string) => `${propertyId}::${roomId}`;
 
-export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialPropertyId, initialProvider, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
+export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
   const [provider, setProvider] = useState<ChannelCalendarProvider | "">(initialProvider ?? "");
-  const [scope, setScope] = useState<LinkScope>(initialPropertyId ? "properties" : "workspace");
-  const [selectedIds, setSelectedIds] = useState<string[]>(initialPropertyId ? [initialPropertyId] : []);
   const [connections, setConnections] = useState<Map<string, ManagerChannelBookingRoom>>(new Map());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [copiedKeys, setCopiedKeys] = useState<Record<string, boolean>>({});
@@ -107,10 +102,8 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     [writableIds, allOptionIdsKey],
   );
 
-  const scopeIds = useMemo(
-    () => (scope === "workspace" ? writableOptions.map((p) => p.id) : writableOptions.map((p) => p.id).filter((id) => selectedIds.includes(id))),
-    [scope, writableOptions, selectedIds],
-  );
+  // Connecting a channel always links the whole workspace (every property the caller may write).
+  const scopeIds = useMemo(() => writableOptions.map((p) => p.id), [writableOptions]);
   const scopeKey = scopeIds.join("\n");
   // An entire-home listing has no rooms to list: the house itself is its one row (see channelCalendarUnits).
   const groups = useMemo<LinkGroup[]>(
@@ -177,7 +170,10 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     } finally { await refresh(); }
   });
 
-  const draftOf = (row: LinkRow) => drafts[row.key]?.trim() ?? "";
+  // The input shows the saved link until edited; only a value that differs from the saved one counts as a change.
+  const savedOf = (row: LinkRow) => connections.get(row.key)?.importUrl?.trim() ?? "";
+  const shownOf = (row: LinkRow) => drafts[row.key] ?? connections.get(row.key)?.importUrl ?? "";
+  const draftOf = (row: LinkRow) => { const value = drafts[row.key]?.trim() ?? ""; return value === savedOf(row) ? "" : value; };
   const isBad = (row: LinkRow) => Boolean(draftOf(row)) && !isValidChannelImportUrl(channel, draftOf(row));
   const invalid = rows.some(isBad);
   const pending = rows.filter((row) => draftOf(row));
@@ -209,12 +205,8 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     {errorAlert}
     <div className="mb-5 space-y-4">
       {!initialProvider ? <FieldSingleSelect label="Channel" dataAttr="channel-calendar-link-provider" value={provider} placeholder="Pick a channel…" disabled={busy} options={CHANNEL_OPTIONS} onChange={(next) => { if (next !== provider) setDrafts({}); setProvider(next as ChannelCalendarProvider); }} /> : null}
-      <div data-attr="channel-calendar-link-scope">
-        <SegmentedTwo<LinkScope> value={scope} onChange={setScope} left={{ id: "workspace", label: "Entire workspace" }} right={{ id: "properties", label: "Specific properties" }} />
-      </div>
-      {scope === "properties" ? <CheckboxMultiSelect label="Properties" dataAttr="channel-calendar-link-property" selected={selectedIds} options={writableOptions.map((p) => ({ value: p.id, label: p.label }))} emptyLabel="Pick properties…" disabled={busy} onChange={setSelectedIds} /> : null}
     </div>
-    {loading ? <p role="status">Loading linked rooms…</p> : rows.length === 0 ? <p>{scope === "properties" ? "Pick a property to list its rooms." : "This workspace has no rooms listed."}</p> : <div className="space-y-5" data-attr="channel-calendar-link-table">
+    {loading ? <p role="status">Loading linked rooms…</p> : rows.length === 0 ? <p>This workspace has no rooms listed.</p> : <div className="space-y-5" data-attr="channel-calendar-link-table">
       <div className={`hidden text-xs font-medium text-muted ${gridClass}`}><span>Room</span><span>{name} calendar link</span><span>PropLane link</span><span className="w-9" /></div>
       {groups.filter((g) => g.rows.length).map((group) => <section key={group.propertyId} aria-label={group.label} className="overflow-hidden rounded-2xl border border-border bg-card">
         <h3 className="border-b border-border px-4 py-2.5 text-sm font-semibold">{group.label}</h3>
@@ -228,7 +220,10 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
               {conflicts.length ? <Link className="mt-1 flex items-center gap-1.5 text-xs font-normal text-danger underline" href={bookingRecordHref("/portal", bookingEntryKey(conflicts[0]!))} onClick={onOpenBooking}><AlertCircle className="size-3.5" />{conflicts.length} {conflicts.length === 1 ? "conflict" : "conflicts"}</Link> : null}
             </div>
             <div className="space-y-1">
-              <Input id={`channel-import-${row.key}`} type="url" aria-label={`${row.unit.label} ${name} calendar link`} aria-invalid={bad} value={drafts[row.key] ?? ""} disabled={busy} placeholder={connection?.hasImportUrl ? "Connected · paste to replace" : `Paste ${name} calendar link`} onChange={(e) => setDrafts({ ...drafts, [row.key]: e.target.value })} data-attr="channel-calendar-link-import-url" />
+              <div className="flex items-center gap-2">
+                <Input id={`channel-import-${row.key}`} type="url" aria-label={`${row.unit.label} ${name} calendar link`} aria-invalid={bad} value={shownOf(row)} disabled={busy} placeholder={`Paste ${name} calendar link`} onChange={(e) => setDrafts({ ...drafts, [row.key]: e.target.value })} data-attr="channel-calendar-link-import-url" />
+                {shownOf(row).trim() ? <CopyIconAction label={`Copy ${name} calendar link`} disabled={busy} onCopy={async () => { await navigator.clipboard.writeText(shownOf(row).trim()); showToast(`${name} calendar link copied.`); }} /> : null}
+              </div>
               {bad ? <p role="alert" className="text-sm text-danger">Enter a valid {name} calendar link.</p> : null}
               {connection?.lastError ? <p role="alert" className="text-sm text-danger">{connection.lastError}</p> : null}
             </div>
@@ -259,7 +254,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     <h3 className="text-[15px] font-bold text-foreground">What will be linked</h3>
     <dl className="space-y-2 text-sm">
       <div className="flex justify-between gap-3"><dt className="text-muted">Channel</dt><dd className="text-right font-semibold">{provider ? name : "Not picked"}</dd></div>
-      <div className="flex justify-between gap-3"><dt className="text-muted">Link</dt><dd className="text-right font-semibold">{scope === "workspace" ? "Entire workspace" : `${scopeIds.length} ${scopeIds.length === 1 ? "property" : "properties"}`}</dd></div>
+      <div className="flex justify-between gap-3"><dt className="text-muted">Link</dt><dd className="text-right font-semibold">Entire workspace</dd></div>
     </dl>
     {provider ? <ul className="space-y-2">{rows.map((r) => <li key={r.key} className="rounded-xl border border-border bg-card p-3 text-sm"><p className="font-semibold">{groups.length > 1 ? `${writableOptions.find((p) => p.id === r.propertyId)?.label ?? ""} · ` : ""}{r.title}</p><p>{name} ⇄ PropLane calendar</p><p className="font-semibold">{statusOf(r)}</p></li>)}</ul> : null}
   </aside>;
