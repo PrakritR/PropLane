@@ -81,7 +81,8 @@ export async function GET(request: Request) {
   if (!listing) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
   const hosts = allowedPhotoHosts();
-  const urls = listingPostPhotoUrls(listing.projected).filter((u) => isAllowedPhotoUrl(u, hosts)).slice(0, MAX_PHOTOS);
+  const allowed = listingPostPhotoUrls(listing.projected).filter((u) => isAllowedPhotoUrl(u, hosts));
+  const urls = allowed.slice(0, MAX_PHOTOS);
   if (urls.length === 0) return NextResponse.json({ error: "This listing has no photos to download." }, { status: 404 });
 
   // Sequential on purpose: one photo is in memory at a time and the loop stops at the total cap,
@@ -90,7 +91,7 @@ export async function GET(request: Request) {
   const entries: ZipEntry[] = [];
   const deadline = Date.now() + FETCH_DEADLINE_MS;
   let total = 0;
-  for (const url of urls) {
+  for (const [index, url] of urls.entries()) {
     const remaining = MAX_TOTAL_BYTES - total;
     if (remaining <= 0) break;
     const timeLeft = deadline - Date.now();
@@ -100,18 +101,23 @@ export async function GET(request: Request) {
     total += data.length;
     const match = /\.(jpe?g|png|webp|gif|heic)$/i.exec(new URL(url).pathname);
     const ext = match ? match[1]!.toLowerCase().replace("jpeg", "jpg") : "jpg";
-    entries.push({ name: `photo-${String(entries.length + 1).padStart(2, "0")}.${ext}`, data });
+    // Numbered by the listing's own photo order, so a photo that was skipped leaves a visible gap.
+    entries.push({ name: `photo-${String(index + 1).padStart(2, "0")}.${ext}`, data });
   }
   if (entries.length === 0) return NextResponse.json({ error: "Could not fetch this listing's photos." }, { status: 502 });
 
+  // A zip short of the listing's photos says so in its name and a header: 2 of 12 photos must
+  // never look like a complete 2-photo listing, or the manager posts an under-photographed ad.
+  const partial = entries.length < allowed.length;
   const zip = buildStoreZip(entries);
   return new NextResponse(zip as unknown as BodyInit, {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
       "Content-Length": String(zip.length),
-      "Content-Disposition": `attachment; filename="${slugify(listing.projected.title || propertyId)}-photos.zip"`,
+      "Content-Disposition": `attachment; filename="${slugify(listing.projected.title || propertyId)}-photos${partial ? "-partial" : ""}.zip"`,
       "Cache-Control": "private, no-store",
+      ...(partial ? { "X-Photos-Partial": `${entries.length}/${allowed.length}` } : {}),
     },
   });
 }

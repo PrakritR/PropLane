@@ -175,7 +175,10 @@ createUrl?, createNote, cost, rules[] }`, rendered verbatim by
 Download photos icon actions; photos come from
 `/api/manager/listing-channels/photos?propertyId=`, any workspace member who
 can see the listing, host-allowlisted, one photo in memory at a time under a
-40 s deadline inside the route's `maxDuration`), 3 Post it, 4 Mark as posted
+40 s deadline inside the route's `maxDuration`; entries are numbered by the
+listing's own photo order, and a zip short of the listing's photos says so with
+`X-Photos-Partial: <fetched>/<total>` and a `-photos-partial.zip` name rather
+than passing for a complete short listing), 3 Post it, 4 Mark as posted
 (`POST /api/manager/listing-channels/mark-posted`, owner only, optional
 `postedUrl` stored in `listing_channel_posts.posted_url` and surfaced back as
 the step's "Open ad" link). It ends with "Keep the account
