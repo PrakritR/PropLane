@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CalendarClock, Clock3, FileText, MessageCircle, Receipt, Wrench } from "lucide-react";
+import { CalendarClock, CircleDollarSign, Clock3, FileText, MessageCircle, MessageSquareWarning, Receipt, Tag, Wrench } from "lucide-react";
 
 import type { PendingAction } from "@/lib/axis-assistant/use-assistant-conversation";
 
@@ -209,6 +209,38 @@ export const VENDOR_ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
     onSelect: () => {
       window.location.assign("/vendor/calendar?openAvailability=1");
     },
+  },
+];
+
+/**
+ * Admin (operator console) empty-state chips. Each prompt maps to a tool in
+ * `adminAgentRegistry`: `earnings_summary`, `trials_ending`,
+ * `promo_codes_summary`, `health_summary`. Never the manager-shaped list.
+ */
+export const ADMIN_ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
+  {
+    label: "Earnings",
+    prompt: "How much did we earn this month?",
+    toneClass: "text-[var(--status-approved-fg)]",
+    icon: <CircleDollarSign className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Trials ending",
+    prompt: "Who is on a trial ending this week?",
+    toneClass: "text-[var(--status-pending-fg)]",
+    icon: <CalendarClock className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Promo codes",
+    prompt: "Which promo codes are used most?",
+    toneClass: "text-primary",
+    icon: <Tag className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Failed texts",
+    prompt: "Show failed texts today",
+    toneClass: "text-[var(--status-overdue-fg)]",
+    icon: <MessageSquareWarning className="h-full w-full" strokeWidth={2} />,
   },
 ];
 

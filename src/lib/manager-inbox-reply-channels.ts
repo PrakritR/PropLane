@@ -181,18 +181,88 @@ export function resolveCommunicationPersonThreadReplyChannels(args: {
   emailAvailable: boolean;
   smsAvailable: boolean;
   lastInboundChannel?: "email" | "sms" | "proplane" | null;
+  /**
+   * Whether an in-app message can reach this person (they have a PropLane
+   * account). Omitted means yes. False makes In-app unselectable, so a
+   * phone-only prospect lands on Text and an email-only one on Email instead
+   * of on a channel that cannot deliver.
+   */
+  proplaneAvailable?: boolean;
 }): InboxReplyChannelFlags {
+  const proplaneAvailable = args.proplaneAvailable !== false;
   if (args.lastInboundChannel === "email" && args.emailAvailable) {
     return { viaProplane: false, viaEmail: true, viaSms: false };
   }
   if (args.lastInboundChannel === "sms" && args.smsAvailable) {
     return { viaProplane: false, viaEmail: false, viaSms: true };
   }
+  if (proplaneAvailable) {
+    return { viaProplane: true, viaEmail: false, viaSms: false };
+  }
+  // In-app cannot reach them and the last inbound channel is unknown or
+  // unavailable: take whichever external channel exists, text first (a
+  // phone-only texter is the common case), never an unreachable In-app.
   return {
-    viaProplane: true,
-    viaEmail: false,
-    viaSms: false,
+    viaProplane: false,
+    viaEmail: !args.smsAvailable && args.emailAvailable,
+    viaSms: args.smsAvailable,
   };
+}
+
+export type ReplyChannelMemory = {
+  /** The last inbound channel when the person last chose, so a NEW inbound on a different channel resets it. */
+  inbound: "email" | "sms" | "proplane" | null;
+  flags: InboxReplyChannelFlags;
+};
+
+/**
+ * The composer's channel for a thread: the channel of the last inbound message,
+ * sticky per thread. A manual pick is remembered while the last inbound channel
+ * is unchanged; only a new inbound on a different channel (or a remembered
+ * channel that stopped being available) goes back to the inbound-channel
+ * default. In-app is only ever selected when the person is reachable there.
+ */
+export function resolveStickyReplyChannels(args: {
+  emailAvailable: boolean;
+  smsAvailable: boolean;
+  proplaneAvailable: boolean;
+  lastInboundChannel: "email" | "sms" | "proplane" | null;
+  remembered?: ReplyChannelMemory | null;
+}): InboxReplyChannelFlags {
+  const remembered = args.remembered;
+  if (remembered && remembered.inbound === args.lastInboundChannel) {
+    const flags: InboxReplyChannelFlags = {
+      viaEmail: remembered.flags.viaEmail && args.emailAvailable,
+      viaSms: remembered.flags.viaSms && args.smsAvailable,
+      viaProplane: remembered.flags.viaProplane && args.proplaneAvailable,
+    };
+    if (hasInboxReplyChannelSelected(flags)) return flags;
+  }
+  return resolveCommunicationPersonThreadReplyChannels({
+    emailAvailable: args.emailAvailable,
+    smsAvailable: args.smsAvailable,
+    lastInboundChannel: args.lastInboundChannel,
+    proplaneAvailable: args.proplaneAvailable,
+  });
+}
+
+/**
+ * Whether an in-app (PropLane) message can reach this thread's person: an
+ * assistant/team thread always can; a person thread only when the sender can
+ * resolve a portal recipient (an email address, or an SMS contact tied to an
+ * account). A phone-only prospect has no PropLane account to read it.
+ */
+export function inboxThreadPortalReachable(args: {
+  thread: { from?: string | null; email?: string | null };
+  smsRecipients: ManagerInboxSmsRecipientLike[];
+  smsOutboundEnabled: boolean;
+  /** Assistant and team threads reply in-app with no person counterparty. */
+  inAppOnlyThread?: boolean;
+}): boolean {
+  if (args.inAppOnlyThread) return true;
+  return (
+    resolveManagerInboxPortalRecipient(args.thread, args.smsRecipients, args.smsOutboundEnabled) !== null
+  );
 }
 
 export function hasInboxReplyChannelSelected(channels: InboxReplyChannelFlags): boolean {

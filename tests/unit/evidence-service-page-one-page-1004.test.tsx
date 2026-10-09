@@ -95,12 +95,12 @@ describe("service record is one page with one labeled next step", () => {
       expect(screen.queryByRole("tab", { name: gone })).toBeNull();
       expect(within(rail).queryByText(gone)).toBeNull();
     }
-    expect(headerIcons()).toEqual(["Message", "Edit", "More", "Request bids"]);
+    expect(headerIcons()).toEqual(["Edit", "Remove service", "Request bids"]);
     const primary = document.querySelector('[data-attr="manager-service-primary"]')!;
     expect(primary.textContent).toBe("Request bids");
     capture(
       "service-one-page-open",
-      'Manager · a service record — ONE page (rail: Service · Vendors · Incoming payments · Outgoing payments · Communication, no Details/Photos/Activity sub-tabs). Header is Message · Edit · ⋯ and the single labeled next step, here "Request bids".',
+      'Manager · a service record — ONE page (rail: Service · Vendors · Incoming payments · Outgoing payments · Communication, no Details/Photos/Activity sub-tabs). Header is Edit · red trash and the single labeled next step, here "Request bids".',
     );
   });
 
@@ -117,7 +117,7 @@ describe("service record is one page with one labeled next step", () => {
     );
     const primary = document.querySelector('[data-attr="manager-service-primary"]')!;
     expect(primary.getAttribute("aria-label")).toBe("Complete");
-    expect(headerIcons()).toEqual(["Message", "Edit", "More", "Complete"]);
+    expect(headerIcons()).toEqual(["Edit", "More", "Remove service", "Complete"]);
     capture(
       "service-one-page-scheduled",
       'Manager · the same service once it is scheduled with a vendor — still one page, and the one labeled header action becomes "Complete".',

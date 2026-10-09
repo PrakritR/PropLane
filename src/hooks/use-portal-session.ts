@@ -5,7 +5,7 @@ import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import posthog from "posthog-js";
 import { setPortalSessionViewer } from "@/lib/auth/portal-session-gate";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
+import { getBrowserSessionWithRetry } from "@/lib/supabase/safe-browser-session";
 import {
   demoSessionForRole,
   getDemoRole,
@@ -25,6 +25,10 @@ let snapshot: PortalSessionSnapshot = {
   ready: false,
 };
 let initialized = false;
+let storeGeneration = 0;
+let stopSessionRetry: (() => void) | null = null;
+/** Quiet retry cadence once the initial backoff has been exhausted. */
+const SESSION_DEFERRED_RETRY_MS = 30_000;
 let authSubscription: { unsubscribe: () => void } | null = null;
 const listeners = new Set<() => void>();
 
@@ -76,18 +80,56 @@ function ensurePortalSessionStore() {
     return;
   }
 
-  void (async () => {
+  // A transient failure (offline on resume, 429, 5xx) says nothing about
+  // whether the visitor is signed in. Never publish "no user" for it: keep
+  // `ready: false`, retry with backoff, and retry again when the app comes
+  // back online or into the foreground. Only a settled answer is published.
+  const generation = ++storeGeneration;
+  const cancelled = () => generation !== storeGeneration;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let resolved = false;
+  const resolveSession = async (): Promise<void> => {
+    if (cancelled() || resolved) return;
     try {
-      const { session } = await safeBrowserGetSession(supabase);
-      applySession(session);
+      const { session, settled } = await getBrowserSessionWithRetry(supabase, { isCancelled: cancelled });
+      if (cancelled()) return;
+      if (settled) {
+        resolved = true;
+        applySession(session);
+        return;
+      }
     } catch {
-      updateSnapshot({ userId: null, email: null, ready: true });
+      /* fall through to the deferred retry */
     }
-  })();
+    if (cancelled() || resolved) return;
+    retryTimer = setTimeout(() => void resolveSession(), SESSION_DEFERRED_RETRY_MS);
+  };
+  void resolveSession();
+  const retryNow = () => {
+    if (cancelled() || resolved) return;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    void resolveSession();
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") retryNow();
+  };
+  window.addEventListener("online", retryNow);
+  document.addEventListener("visibilitychange", onVisible);
+  stopSessionRetry = () => {
+    if (retryTimer) clearTimeout(retryTimer);
+    window.removeEventListener("online", retryNow);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 
   const {
     data: { subscription },
-  } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+  } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+    // INITIAL_SESSION with no session is auth-js reporting "I could not load
+    // one right now" as often as "there is none"; resolveSession above owns
+    // that answer. An explicit SIGNED_OUT is always honoured.
+    if (event === "INITIAL_SESSION" && !session) return;
+    if (session || event === "SIGNED_OUT") resolved = true;
     applySession(session);
   });
   authSubscription = subscription;
@@ -135,6 +177,9 @@ export function usePortalSession(initial?: {
       if (listeners.size === 0 && authSubscription) {
         authSubscription.unsubscribe();
         authSubscription = null;
+        storeGeneration += 1;
+        stopSessionRetry?.();
+        stopSessionRetry = null;
         initialized = false;
       }
     };

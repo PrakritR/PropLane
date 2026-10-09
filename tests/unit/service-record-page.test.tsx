@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { seedDemoWorkOrderBids } from "@/lib/work-order-bids-storage";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
+import { deleteManagerWorkOrderRow, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 
 const navigate = vi.fn();
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
@@ -81,14 +82,14 @@ describe("service record page (work order)", () => {
     return [...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent);
   };
 
-  it("an unassigned open service shows Message, Edit, then ⋯ and the one labeled primary: Request bids (C247: no Schedule yet)", async () => {
+  it("an unassigned open service shows Edit, the one red trash and the one labeled primary: Request bids (C247: no Schedule yet, no Message, no empty ⋯)", async () => {
     render(
       <AppUiProvider>
         <ManagerWorkOrdersPanel allRows={[row({ bucket: "open" })]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
       </AppUiProvider>,
     );
     const icons = [...document.querySelectorAll('[data-attr="service-record-header-icons"] button')].filter((b) => !b.closest("[inert]")).map((b) => b.getAttribute("aria-label"));
-    expect(icons).toEqual(["Message", "Edit", "More", "Request bids"]);
+    expect(icons).toEqual(["Edit", "Remove service", "Request bids"]);
     // The next step is the ONE button with a word on it; every other header control is an icon.
     const primary = document.querySelector('[data-attr="manager-service-primary"]')!;
     expect(primary.getAttribute("aria-label")).toBe("Request bids");
@@ -96,10 +97,79 @@ describe("service record page (work order)", () => {
     expect(document.querySelector('[data-attr="record-header-action-assign-vendor"]')).toBeNull();
     // Nothing to schedule a visit for yet — offering it on an unassigned service is a dead click.
     expect(document.querySelector('[data-attr="record-header-action-schedule"]')).toBeNull();
-    // Cancel service and Delete are the only red items, and they live inside the menu.
+    // Cancel service and Delete are one trash now: neither is a header control, and nothing is left to put in a ⋯.
     expect(document.querySelector('[data-attr="record-header-action-delete"]')).toBeNull();
-    expect(await openMore()).toEqual(["Cancel service", "Delete"]);
-    for (const item of screen.getAllByRole("menuitem")) expect(item.className).toMatch(/text-red-600/);
+    expect(document.querySelector('[data-attr="record-header-action-cancel"]')).toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-message"]')).toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-more"]')).toBeNull();
+    expect(document.querySelector('[data-attr="record-header-action-trash"]')!.className).toMatch(/red|danger/);
+  });
+
+  it("the trash opens one popup with two radio choices: Cancel service (the default) and Delete permanently", async () => {
+    render(
+      <AppUiProvider>
+        <ManagerWorkOrdersPanel allRows={[row({ bucket: "open" })]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
+      </AppUiProvider>,
+    );
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-trash"]')!);
+    const dialog = await screen.findByRole("dialog", { name: "Remove service" });
+    const radios = within(dialog).getAllByRole("radio");
+    expect(radios.map((r) => r.closest("label")?.textContent)).toEqual(["Cancel service", "Delete permanently"]);
+    expect((radios[0] as HTMLInputElement).checked).toBe(true);
+    expect(within(dialog).getByRole("button", { name: "Cancel service" })).toBeInTheDocument();
+    fireEvent.click(radios[1]!);
+    expect(within(dialog).getByRole("button", { name: "Delete permanently" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Cancel service" })).toBeNull();
+  });
+
+  it("Cancel service keeps the history: the row moves to Completed as Cancelled and nothing is deleted", async () => {
+    vi.mocked(updateManagerWorkOrder).mockClear();
+    vi.mocked(deleteManagerWorkOrderRow).mockClear();
+    render(
+      <AppUiProvider>
+        <ManagerWorkOrdersPanel allRows={[row({ bucket: "open" })]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
+      </AppUiProvider>,
+    );
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-trash"]')!);
+    const dialog = await screen.findByRole("dialog", { name: "Remove service" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel service" }));
+    await waitFor(() => expect(updateManagerWorkOrder).toHaveBeenCalledTimes(1));
+    const [id, patch] = vi.mocked(updateManagerWorkOrder).mock.calls[0]!;
+    expect(id).toBe("wo-1");
+    expect(patch(row())).toMatchObject({ status: "Cancelled", bucket: "completed", biddingOpen: false });
+    expect(deleteManagerWorkOrderRow).not.toHaveBeenCalled();
+  });
+
+  it("Delete permanently is a press-and-hold: a plain tap removes nothing, a hold deletes the row", async () => {
+    vi.mocked(updateManagerWorkOrder).mockClear();
+    vi.mocked(deleteManagerWorkOrderRow).mockClear();
+    render(
+      <AppUiProvider>
+        <ManagerWorkOrdersPanel allRows={[row({ bucket: "open" })]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
+      </AppUiProvider>,
+    );
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-trash"]')!);
+    const dialog = await screen.findByRole("dialog", { name: "Remove service" });
+    fireEvent.click(within(dialog).getAllByRole("radio")[1]!);
+    const confirm = within(dialog).getByRole("button", { name: "Delete permanently" });
+    fireEvent.click(confirm);
+    expect(deleteManagerWorkOrderRow).not.toHaveBeenCalled();
+    fireEvent.pointerDown(confirm, { button: 0, clientX: 0, clientY: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    fireEvent.pointerUp(confirm);
+    await waitFor(() => expect(deleteManagerWorkOrderRow).toHaveBeenCalledWith("wo-1"));
+    expect(updateManagerWorkOrder).not.toHaveBeenCalled();
+  });
+
+  it("a finished service offers only Delete permanently", async () => {
+    render(
+      <AppUiProvider>
+        <ManagerWorkOrdersPanel allRows={[row({ bucket: "completed", status: "Completed" })]} bucket="completed" workOrderId="wo-1" listBasePath="/portal" />
+      </AppUiProvider>,
+    );
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-trash"]')!);
+    const dialog = await screen.findByRole("dialog", { name: "Remove service" });
+    expect(within(dialog).getAllByRole("radio").map((r) => r.closest("label")?.textContent)).toEqual(["Delete permanently"]);
   });
 
   it("an open service with a vendor assigned shows Schedule as the one primary header action (C247)", () => {
@@ -130,11 +200,11 @@ describe("service record page (work order)", () => {
     );
     expect(document.querySelector('[data-attr="manager-service-primary"]')!.getAttribute("aria-label")).toBe("Complete");
     expect(document.querySelector('[data-attr="record-header-action-close"]')).toBeNull();
-    // Reschedule is no longer a header icon; it sits in ⋯ with the red items, and beside the vendor in Who's doing it.
+    // Reschedule is no longer a header icon; it sits in ⋯, and beside the vendor in Who's doing it.
     const headerIcons = document.querySelector('[data-attr="service-record-header-icons"]')!;
     expect([...headerIcons.querySelectorAll("button")].some((b) => b.getAttribute("aria-label") === "Reschedule")).toBe(false);
     expect(document.querySelector('[data-attr="record-overview-card-who"] [data-attr="service-who-reschedule"]')).not.toBeNull();
-    expect(await openMore()).toEqual(["Reschedule", "Auto-schedule", "Cancel service", "Delete"]);
+    expect(await openMore()).toEqual(["Reschedule", "Auto-schedule"]);
   });
 
   it("a service with a submitted bid waiting makes Compare bids the primary", () => {

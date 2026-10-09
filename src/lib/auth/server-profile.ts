@@ -61,7 +61,7 @@ export const getServerSessionProfile = cache(
       } = await supabase.auth.getUser();
       if (userError) {
         if (isStaleRefreshTokenError(userError)) {
-          await supabase.auth.signOut().catch(() => undefined);
+          await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
         }
         // Every server-rendered portal page and the routes built on this
         // context resolve to "signed out" here. Without a reason, an expired

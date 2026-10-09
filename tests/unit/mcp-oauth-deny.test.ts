@@ -32,7 +32,7 @@ describe("MCP OAuth denial", () => {
       }),
     );
 
-    expect(response.status).toBe(307);
+    expect(response.status).toBe(303);
     const destination = new URL(response.headers.get("location")!);
     expect(destination.searchParams.get("error")).toBe("access_denied");
     expect(destination.searchParams.get("state")).toBe("client-state");

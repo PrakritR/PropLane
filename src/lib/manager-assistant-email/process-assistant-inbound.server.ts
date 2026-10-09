@@ -46,6 +46,11 @@ import {
   recordResidentEmailInbound,
   recordResidentEmailReply,
 } from "@/lib/agent/resident-email-session.server";
+import {
+  finishEmailAutoReplyCredit,
+  reserveEmailAutoReplyCredit,
+} from "@/lib/manager-assistant-email/email-auto-reply-credit.server";
+import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
 import { resolveWorkspaceOwnerForWorkEmail } from "@/lib/sms/manager-workspace-role.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 
@@ -148,6 +153,12 @@ export async function processManagerAssistantInboundEmail(
 
   let replyText = "";
   /**
+   * "Resident & vendor messages need my approval first" (the one account-wide
+   * switch): the answer is held as a review draft on the thread instead of
+   * being emailed. Only meaningful for the auto-reply branches below.
+   */
+  let holdReplyForReview = false;
+  /**
    * The mirror runs AFTER the send so it can stamp the assistant's answer with
    * the channel it actually left on: an answer that never went out (no mailbox,
    * a failed send) is still shown to the manager, but without the EMAIL tag
@@ -196,40 +207,80 @@ export async function processManagerAssistantInboundEmail(
       }
     };
   } else {
-    if (sender.role === "resident") {
-      /* Same memory the prospect branch has: the last turns of this resident's
-         email thread, persisted per turn, so "and the month after?" is answered
-         by a model that saw the first question. */
-      const session = await findOrCreateResidentEmailSession(db, {
-        landlordId: managerUserId,
-        residentEmail: senderEmail,
+    /* The auto-reply to an outside sender is a paid AI turn: reserve the
+       credit BEFORE any model work (like the text agents), and answer nothing
+       when it is not granted. The inbound is mirrored either way. */
+    const autoReplyRole = sender.role === "resident" ? "resident" : "prospect";
+    const credit = await reserveEmailAutoReplyCredit(db, {
+      managerUserId,
+      workspaceId,
+      inboundEmailId: parsed.emailId,
+      role: autoReplyRole,
+    });
+    if (!credit.allowed) {
+      console.warn("work-email auto-reply skipped: comms credit not reserved", {
+        managerUserId,
+        reason: credit.reason,
       });
-      const history = session ? await loadResidentEmailHistory(db, session.id) : [];
-      if (session) {
-        await recordResidentEmailInbound(db, session, {
-          text: inboundText,
+    }
+    /* Fail closed: a lookup error must not auto-send when the manager may have
+       required approval, so an unreadable switch holds the reply as a draft. */
+    if (credit.allowed) {
+      try {
+        const sendMode = await resolveAutomationSendModeForEvent(db, { managerUserId });
+        holdReplyForReview = sendMode?.partyFacing === "draft";
+      } catch (cause) {
+        console.error("work-email auto-reply send mode lookup failed; holding for review", cause);
+        holdReplyForReview = true;
+      }
+    }
+    try {
+      if (sender.role === "resident") {
+        /* Same memory the prospect branch has: the last turns of this resident's
+           email thread, persisted per turn, so "and the month after?" is answered
+           by a model that saw the first question. */
+        const session = await findOrCreateResidentEmailSession(db, {
+          landlordId: managerUserId,
+          residentEmail: senderEmail,
+        });
+        const history = session ? await loadResidentEmailHistory(db, session.id) : [];
+        if (session) {
+          await recordResidentEmailInbound(db, session, {
+            text: inboundText,
+            inboundEmailId: parsed.emailId,
+          });
+        }
+        const answer: Awaited<ReturnType<typeof autoRespondToResidentInboxMessage>> = credit.allowed
+          ? await autoRespondToResidentInboxMessage(db, {
+              managerUserId,
+              residentEmail: senderEmail,
+              incomingText: inboundText,
+              history,
+              sessionId: session?.id,
+            })
+          : { ok: false, reason: "credit_not_reserved" };
+        replyText = answer.ok ? answer.reply.trim() : "";
+        if (session && answer.ok && replyText) {
+          await recordResidentEmailReply(db, session, { text: replyText, traceId: answer.traceId });
+        }
+      } else if (credit.allowed) {
+        const turn = await runLeasingEmailAgentTurn(db, {
+          landlordId: managerUserId,
+          prospectEmail: senderEmail,
+          inboundText,
           inboundEmailId: parsed.emailId,
         });
+        replyText = turn?.reply?.trim() ?? "";
       }
-      const answer = await autoRespondToResidentInboxMessage(db, {
-        managerUserId,
-        residentEmail: senderEmail,
-        incomingText: inboundText,
-        history,
-        sessionId: session?.id,
-      });
-      replyText = answer.ok ? answer.reply.trim() : "";
-      if (session && answer.ok && replyText) {
-        await recordResidentEmailReply(db, session, { text: replyText, traceId: answer.traceId });
+    } catch (cause) {
+      // A turn that threw produced nothing: hand the reservation back.
+      if (credit.allowed) {
+        await finishEmailAutoReplyCredit(db, { managerUserId, key: credit.key, replyProduced: false });
       }
-    } else {
-      const turn = await runLeasingEmailAgentTurn(db, {
-        landlordId: managerUserId,
-        prospectEmail: senderEmail,
-        inboundText,
-        inboundEmailId: parsed.emailId,
-      });
-      replyText = turn?.reply?.trim() ?? "";
+      throw cause;
+    }
+    if (credit.allowed) {
+      await finishEmailAutoReplyCredit(db, { managerUserId, key: credit.key, replyProduced: Boolean(replyText) });
     }
     /* Mirrored whether or not the agent produced a reply: the manager must see
        that this person wrote in either way. */
@@ -261,6 +312,7 @@ export async function processManagerAssistantInboundEmail(
           replyText: replyText || null,
           inboundEmailId: parsed.emailId,
           replySent,
+          replyAsReviewDraft: holdReplyForReview,
           workspaceId,
           workLine: parsed.toEmails.find((address) => isAssistantEmailAddress([address])) ?? null,
           residentUserId,
@@ -272,7 +324,7 @@ export async function processManagerAssistantInboundEmail(
   }
 
   let replied = false;
-  if (replyText && mailbox) {
+  if (replyText && mailbox && !holdReplyForReview) {
     const send = await deliverManagerEmailReply({
       managerUserId,
       toEmail: senderEmail,

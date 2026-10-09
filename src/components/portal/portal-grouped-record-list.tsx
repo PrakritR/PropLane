@@ -95,9 +95,15 @@ export function PortalGroupedRecordList<T>({
   const ToggleIcon = anyOpen ? ChevronsDownUp : ChevronsUpDown;
 
   return (
-    <div data-attr={dataAttr ?? `${listKey}-grouped-list`} data-group-count={groups.length}>
+    <div
+      data-attr={dataAttr ?? `${listKey}-grouped-list`}
+      data-group-count={groups.length}
+      // Phone: the expand/collapse-all control floats over the first group header's right end
+      // (which reserves room for it) instead of taking a row of its own.
+      className={groups.length > 1 ? "max-lg:relative max-lg:[&>:nth-child(2)>button]:!pr-12" : undefined}
+    >
       {groups.length > 1 ? (
-        <div className="flex justify-end px-2.5 pb-1 max-lg:px-3">
+        <div className="flex justify-end px-2.5 pb-1 max-lg:absolute max-lg:right-0 max-lg:top-0 max-lg:z-[3] max-lg:p-0">
           <button
             type="button"
             onClick={toggleAll}

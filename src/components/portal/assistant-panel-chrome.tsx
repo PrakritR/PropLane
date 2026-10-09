@@ -27,6 +27,9 @@ export const MANAGER_ASSISTANT_ENDPOINT = "/api/agent/chat";
 /** The vendor endpoint — its empty state gets its own job-shaped chip set (VD23). */
 export const VENDOR_ASSISTANT_ENDPOINT = "/api/agent/vendor-chat";
 
+/** The admin (operator console) endpoint: read-only platform tools, never a manager workspace. */
+export const ADMIN_ASSISTANT_ENDPOINT = "/api/agent/admin-chat";
+
 /** The resident endpoint — its empty state and composer copy are resident-shaped. */
 export const RESIDENT_ASSISTANT_ENDPOINT = "/api/agent/resident-chat";
 

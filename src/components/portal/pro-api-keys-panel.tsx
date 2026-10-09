@@ -309,6 +309,7 @@ export function ManagerApiKeysPanel() {
   const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [claudeStepsOpen, setClaudeStepsOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -340,6 +341,7 @@ export function ManagerApiKeysPanel() {
     const origin = typeof window === "undefined" ? "https://prop-lane.space" : window.location.origin;
     return JSON.stringify({ baseUrl: `${origin}/api/v1/tools`, headers: { Authorization: `Bearer ${freshToken ?? "YOUR_KEY"}` } }, null, 2);
   }, [freshToken]);
+  const claudeConnection = connections.find((c) => (c.clientName ?? "").toLowerCase().includes("claude"));
   const mcpUrl = useMemo(() => (typeof window === "undefined" ? "https://prop-lane.space" : window.location.origin) + "/api/mcp", []);
 
   const selectedAreaScopes = useMemo(() => productAreaSelectionsForTools(allowedTools), [allowedTools]);
@@ -417,7 +419,25 @@ export function ManagerApiKeysPanel() {
 
       <PortalSettingsSection title="MCP server"><PortalSettingsGroup>
         <PortalSettingsRow label="Server URL"><div className="flex min-w-0 items-center gap-2"><code className="max-w-[40vw] truncate text-xs">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div></PortalSettingsRow>
-      </PortalSettingsGroup></PortalSettingsSection>
+        <PortalSettingsRow label="Claude">
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-xs text-muted" data-attr="settings-mcp-claude-status">{claudeConnection ? `Connected · ${formatWhen(claudeConnection.createdAt)}` : "Not connected yet"}</span>
+            <Button variant="ghost" className="h-9 min-h-0 px-3 text-[13px]" data-attr="settings-mcp-claude-connect" aria-expanded={claudeStepsOpen} onClick={() => setClaudeStepsOpen((open) => !open)}>Connect</Button>
+          </div>
+        </PortalSettingsRow>
+      </PortalSettingsGroup>
+      {claudeStepsOpen ? (
+        <div className="mt-3 space-y-2 px-1" data-attr="settings-mcp-claude-steps">
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
+            <li>Open claude.ai → Settings → Connectors → Add custom connector.</li>
+            <li>Name it PropLane, paste the Server URL above, leave client ID and secret blank, save.</li>
+            <li>Press Connect next to PropLane. You land on PropLane&apos;s &quot;Allow connection&quot; page signed in as this account; press Allow.</li>
+            <li>Back on claude.ai the connector shows Connected. It sees the workspace active here.</li>
+          </ol>
+          <p className="text-xs text-muted">Claude Code: <code>claude mcp add --transport http proplane {mcpUrl}</code></p>
+        </div>
+      ) : null}
+      </PortalSettingsSection>
       {freshToken ? (
         <PortalSettingsGroup className="border-primary/40">
           <div className="space-y-3 p-4">

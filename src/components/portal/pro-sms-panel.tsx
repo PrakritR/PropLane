@@ -25,7 +25,10 @@ import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
 } from "@/components/portal/inbox-thread-assistant-strip";
-import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
+import { InboxComposerAiMenu, InboxComposerChannelMenu, InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
+import { useThreadScheduledCards } from "@/components/portal/use-thread-scheduled-cards";
+import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
+import { buildSmsThreadScheduleBody, smsThreadCanSchedule } from "@/lib/sms-thread-schedule";
 import {
   INBOX_LIST_SCROLL,
   INBOX_THREAD_ICON_BTN,
@@ -194,6 +197,12 @@ export const ManagerSmsPanel = forwardRef<
     pageScroll?: boolean;
     /** SMS-specific compose/channel controls remain behind the server flag. */
     smsUiEnabled?: boolean;
+    /**
+     * Whether the open thread offers Archive / Restore. Archive state is the manager's own
+     * (`/api/manager/tour-follow-ups`); admin oversight of the shared line has none, so the
+     * admin Communication thread passes false.
+     */
+    allowArchive?: boolean;
   }
 >(function ManagerSmsPanel(
   {
@@ -216,6 +225,7 @@ export const ManagerSmsPanel = forwardRef<
     onArchived,
     pageScroll = false,
     smsUiEnabled = true,
+    allowArchive = true,
   },
   ref,
 ) {
@@ -280,6 +290,8 @@ export const ManagerSmsPanel = forwardRef<
   const [draft, setDraft] = useState("");
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(true);
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
   // The ✦ menu in the reply row opens the thread assistant rail; the strip's own pill is off.
   const [askAssistantSignal, setAskAssistantSignal] = useState(0);
   const [replyIssue, setReplyIssue] = useState<string | null>(null);
@@ -934,6 +946,7 @@ export const ManagerSmsPanel = forwardRef<
     setReplyViaEmail(!smsUiEnabled && Boolean(selectedResident?.residentEmail?.trim()));
     setReplyViaSms(smsUiEnabled && selectedResident?.sendDisabled !== true);
     setReplyIssue(null);
+    setScheduleLater(false);
     replyAttemptRef.current = null;
   }, [activeId, selectedResident?.residentEmail, selectedResident?.sendDisabled, smsUiEnabled]);
 
@@ -1000,7 +1013,51 @@ export const ManagerSmsPanel = forwardRef<
     }
   }, [active, load, setActiveId, showToast]);
 
+  /** Same press, scheduled instead of sent: the existing scheduled-send route, no second path. */
+  async function scheduleReply() {
+    const built = buildSmsThreadScheduleBody({
+      residentEmail: active?.resident.residentEmail,
+      residentName: active ? smsConversationDisplayName(active.resident) : null,
+      phone: active?.resident.phone,
+      text: draft,
+      viaEmail: replyViaEmail,
+      viaSms: replyViaSms,
+      sendAtLocal: scheduleSendAt,
+    });
+    if (!built.ok) {
+      showToast(built.error);
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch("/api/portal/scheduled-inbox-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(built.body),
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+        showToast(payload?.error ?? "Could not schedule message.");
+        return;
+      }
+      // Clear only on success so a refused schedule never loses what was typed.
+      setDraft("");
+      setScheduleLater(false);
+      showToast("Message scheduled.");
+      reloadThreadScheduled();
+    } catch {
+      showToast("Could not schedule message.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function sendReply() {
+    if (scheduleLater) {
+      await scheduleReply();
+      return;
+    }
     if (replyIssue) return;
     if (!smsUiEnabled && replyViaSms) return;
     if (active?.resident.sendDisabled && replyViaSms) return;
@@ -1173,6 +1230,13 @@ export const ManagerSmsPanel = forwardRef<
   }
 
   const activeEmailAvailable = Boolean(active?.resident.residentEmail?.trim());
+  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail);
+  // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
+  const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
+    recipientEmail: active?.resident.residentEmail?.trim() ?? "",
+    smsAvailable: smsUiEnabled && !active?.resident.sendDisabled,
+    enabled: activeCanSchedule,
+  });
 
   const showThread = Boolean(activeId && active);
 
@@ -1283,7 +1347,7 @@ export const ManagerSmsPanel = forwardRef<
       >
         <button
           type="button"
-          className="flex min-h-10 touch-manipulation items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary active:opacity-60 lg:hidden"
+          className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary active:opacity-60 lg:hidden"
           data-attr="sms-messages-back"
           onClick={() => setActiveId(null)}
           aria-label="Back to conversations"
@@ -1312,7 +1376,7 @@ export const ManagerSmsPanel = forwardRef<
             <Pencil className="h-4 w-4" aria-hidden />
           </button>
         ) : null}
-        {active.archived ? (
+        {!allowArchive ? null : active.archived ? (
           <button
             type="button"
             className={INBOX_THREAD_ICON_BTN}
@@ -1462,6 +1526,7 @@ export const ManagerSmsPanel = forwardRef<
       ) : null}
 
       {(smsUiEnabled && !active.resident.sendDisabled) || activeEmailAvailable ? <div className="shrink-0">
+      {threadScheduledCards}
       <InboxComposer
         value={draft}
         onChange={setDraft}
@@ -1474,6 +1539,14 @@ export const ManagerSmsPanel = forwardRef<
         trailingControls={
           <>
             <InboxComposerAiMenu onAsk={() => setAskAssistantSignal((n) => n + 1)} />
+            {activeCanSchedule ? (
+              <InboxComposerScheduleMenu
+                scheduleLater={scheduleLater}
+                onScheduleLaterChange={setScheduleLater}
+                sendAt={scheduleSendAt}
+                onSendAtChange={setScheduleSendAt}
+              />
+            ) : null}
             <InboxComposerChannelMenu
               viaEmail={replyViaEmail}
               viaSms={replyViaSms}
@@ -1547,6 +1620,19 @@ function smsDayLabel(iso: string, nowMs: number = Date.now()): string {
   return formatPacificDate(ms, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/**
+ * The channel word under a turn. A conversation says its channel once (in its header and
+ * composer), so a turn repeats it only when it left on a different channel than the thread —
+ * "Text" under every message of a text thread is noise.
+ */
+export function smsTurnChannelTag(
+  turnChannel: "sms" | "email" | "inbox",
+  threadChannel: "sms" | "email" | "inbox",
+): string | null {
+  if (turnChannel === threadChannel) return null;
+  return turnChannel === "sms" ? "Text" : turnChannel === "email" ? "Email" : "In-app";
+}
+
 function Bubble({
   message,
   pending = false,
@@ -1563,6 +1649,8 @@ function Bubble({
   const startsRun = cluster === "single" || cluster === "first";
   const author = outbound ? message.sentBy?.name?.trim() || "You" : authorName;
   const clock = inboxMessageClock(message.createdAt);
+  // Every turn here is a text, so the channel is only named when it is not the thread's.
+  const channelTag = smsTurnChannelTag("sms", "sms");
   // Slack-style: every turn on the left, the name says who. `data-sms-bubble-align`
   // keeps the viewer's own turns identifiable ("end").
   return (
@@ -1591,15 +1679,23 @@ function Bubble({
         {pending ? (
           <span className="block text-[11.5px] italic text-muted/80">Sending…</span>
         ) : (
-          <span className="flex items-center gap-1 text-[11.5px] leading-snug text-muted/80" data-inbox-via="sms">
-            <Phone className="size-3 shrink-0" strokeWidth={2} aria-hidden />
-            <span>Text</span>
-            {outbound && message.sentBy ? (
-              // One workspace number is shared by the whole team; this is the only
-              // place the owner can tell a co-manager's reply from their own.
-              <span data-attr="sms-sent-by">· Sent by {message.sentBy.name}</span>
-            ) : null}
-          </span>
+          (channelTag || (outbound && message.sentBy)) ? (
+            <span className="flex items-center gap-1 text-[11.5px] leading-snug text-muted/80" data-inbox-via={channelTag ? "sms" : undefined}>
+              {channelTag ? (
+                <>
+                  <Phone className="size-3 shrink-0" strokeWidth={2} aria-hidden />
+                  <span>{channelTag}</span>
+                </>
+              ) : null}
+              {outbound && message.sentBy ? (
+                // One workspace number is shared by the whole team; this is the only
+                // place the owner can tell a co-manager's reply from their own.
+                <span data-attr="sms-sent-by">
+                  {channelTag ? "· " : ""}Sent by {message.sentBy.name}
+                </span>
+              ) : null}
+            </span>
+          ) : null
         )}
       </div>
     </div>

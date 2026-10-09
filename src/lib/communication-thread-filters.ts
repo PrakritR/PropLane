@@ -7,7 +7,8 @@ import { RECORD_KINDS, type RecordKind } from "@/lib/portals/record-kinds";
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
 
 export type CommunicationThreadFilters = {
-  status?: "active" | "all" | "read" | "unread" | "archived";
+  /** `scheduled` is a phone-only list view of upcoming sends (the Schedule panel), not a thread filter. */
+  status?: "active" | "all" | "read" | "unread" | "archived" | "scheduled";
   propertyIds: string[];
   roles: CommunicationFilterRole[];
   contactIds: string[];

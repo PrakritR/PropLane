@@ -66,7 +66,7 @@ function formatBoldSegments(text: string) {
 const primaryCtaClass = listingPrimaryCtaClass;
 const secondaryCtaClass = listingSecondaryCtaClass;
 const iconButtonClass =
-  "listing-detail-control inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
+  "listing-detail-control inline-flex min-h-[40px] max-md:min-h-[44px] items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
 
 const QUICK_FACTS_COVERED_BY_TILES = new Set(["rooms listed", "rooms", "bathrooms", "pets", "building", "neighborhood", "overview"]);
 
@@ -302,7 +302,7 @@ function StickyBar({
   });
   const doors = listingContactRows(property);
   const doorClass =
-    "inline-flex min-h-[38px] min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
+    "inline-flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
   // With both doors the number is the label worth reading; Email folds to its
   // icon so the price keeps room. Alone, Email says so in words.
   const emailIconOnly = Boolean(doors.phone && doors.email);
@@ -311,7 +311,7 @@ function StickyBar({
     // One button per stay the listing offers, each opening its own application: with both stays the
     // bar reads Long term, Short term, Tour, and the price takes its own row; with one stay the
     // single door says Apply. Two buttons to the same application is never the answer.
-    const slimCta = bothStays ? "!min-h-[40px] !w-auto min-w-0 flex-auto whitespace-nowrap !px-2 !text-[13px]" : "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
+    const slimCta = bothStays ? "!min-h-[44px] !w-auto min-w-0 flex-auto whitespace-nowrap !px-2 !text-[13px]" : "!min-h-[44px] !w-auto flex-none !px-4 !py-2";
     const applyButtons = (
       <>
         {termCtas.map((cta) => (

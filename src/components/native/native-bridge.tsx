@@ -102,6 +102,9 @@ export function NativeBridge() {
           const resume = await App.addListener("resume", () => {
             recordAppLaunch();
             void resendCachedToken().catch(() => {});
+            void import("@/components/portal/portal-session-keepalive")
+              .then(({ refreshPortalSession }) => refreshPortalSession())
+              .catch(() => {});
             void redirectNativeFromMarketingPage().catch(() => {});
             void recoverFromMarketingDuringOAuth().catch(() => {});
           });

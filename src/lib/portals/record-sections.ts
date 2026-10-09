@@ -502,15 +502,15 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "outgoing-payments", label: "Outgoing payments" },
       ] },
     ],
-    // One header for both kinds (add-on and maintenance): Message · Edit · ⋯ · the ONE labeled primary,
-    // the next step from the lifecycle (Approve then Mark done on an add-on, `service-header-next-step.ts`;
+    // One header for both kinds (add-on and maintenance): Edit · ONE red trash · the ONE labeled primary, the
+    // next step from the lifecycle (Approve then Mark done on an add-on, `service-header-next-step.ts`;
     // Request bids / Approve bid / Schedule / Complete / Pay on maintenance, pro-work-orders-panel.tsx).
-    // The ⋯ holds Cancel service (Decline request on an add-on) and Delete - the only red items.
+    // No Message icon (Communication is a rail section). Cancel service and Delete are the trash's one popup
+    // (`ServiceRemoveDialog`, plan admin-money-1008 D8); Send to phone and Publish to vendors follow Edit
+    // where they apply (`serviceHeaderIconIds`).
     headerActions: [
-      { id: "message", label: "Message", icon: Mail },
       { id: "edit", label: "Edit", icon: Pencil },
-      { id: "cancel", label: "Cancel service", icon: Trash2, tone: "danger" },
-      { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
+      { id: "trash", label: "Remove service", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
       vendors: [

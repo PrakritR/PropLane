@@ -14,13 +14,21 @@ import {
   loadManagerSheetBindings,
   saveManagerSheetBindings,
   sheetBindingAppliesToProperty,
+  RAW_CACHE_MAX_COLS,
+  RAW_CACHE_MAX_ROWS,
   type ManagerSheetBinding,
 } from "@/lib/manager-sheet-link";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { accessNotes, parseHouseTab, type HouseRoomFact, type ParsedHouseTab } from "@/lib/sheet-sync/parse-house-tab";
 import { parseOccupancyGrid, type OccupancyStay } from "@/lib/sheet-sync/parse-occupancy";
 import { parseStaysTable, type StaysTableStay } from "@/lib/sheet-sync/parse-stays-table";
-import { fetchStaysTabRows, loadWorkbookTabs } from "@/lib/sheet-sync/fetch-sheet";
+import {
+  fetchBindingTable,
+  fetchPublishedCsv,
+  fetchStaysTabRows,
+  loadWorkbookTabs,
+  type FetchedSheetTab,
+} from "@/lib/sheet-sync/fetch-sheet";
 import { getGoogleSheetsAccessToken } from "@/lib/sheet-sync/google-sheets-auth";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 
@@ -505,6 +513,22 @@ async function allowedPropertyIdsForBinding(
   return new Set(workspace?.propertyIds ?? []);
 }
 
+/** First tab only, capped at RAW_CACHE_MAX_ROWS x RAW_CACHE_MAX_COLS. */
+export function buildRawCache(table: string[][]): { headers: string[]; rows: string[][]; summary: string } {
+  const clip = (row: string[]) => row.slice(0, RAW_CACHE_MAX_COLS);
+  const headers = clip(table[0] ?? []);
+  const body = table.slice(1);
+  const rows = body.slice(0, RAW_CACHE_MAX_ROWS).map(clip);
+  const widest = table.reduce((max, row) => Math.max(max, row.length), 0);
+  const truncated = body.length > RAW_CACHE_MAX_ROWS || widest > RAW_CACHE_MAX_COLS;
+  const summary =
+    `Cached ${rows.length} rows x ${headers.length} columns` +
+    (truncated
+      ? ` (truncated from ${body.length} rows x ${widest} columns; limit ${RAW_CACHE_MAX_ROWS} x ${RAW_CACHE_MAX_COLS})`
+      : "");
+  return { headers, rows, summary };
+}
+
 async function syncOneBinding(
   db: SupabaseClient,
   managerUserId: string,
@@ -512,14 +536,60 @@ async function syncOneBinding(
   opts?: { managerEmail?: string | null },
 ): Promise<{ ok: boolean; summary: SheetSyncSummary; error: string | null; link: ManagerSheetBinding }> {
   const summary = emptySummary();
-  const occupancyGid = occupancyGidForSpreadsheet(link.spreadsheetId, link.occupancyGid);
-  const accessToken = await getGoogleSheetsAccessToken(db, managerUserId);
-  const workbook = await loadWorkbookTabs({
-    spreadsheetId: link.spreadsheetId,
-    occupancyGid,
-    houseTabs: link.houseTabs,
-    accessToken,
-  });
+  const isCsv = link.source === "csv";
+  const occupancyGid = isCsv ? "" : occupancyGidForSpreadsheet(link.spreadsheetId, link.occupancyGid);
+  const accessToken = isCsv ? null : await getGoogleSheetsAccessToken(db, managerUserId);
+
+  // Raw table: nothing is applied to PropLane records; the first tab is
+  // cached so Claude can read it.
+  if (link.mode === "raw") {
+    const fetched = await fetchBindingTable(link, { accessToken });
+    if (!fetched.rows) {
+      const error = fetched.error ?? "Could not read the spreadsheet.";
+      return { ok: false, summary, error, link: { ...link, lastError: error } };
+    }
+    const cached = buildRawCache(fetched.rows);
+    return {
+      ok: true,
+      summary,
+      error: null,
+      link: {
+        ...link,
+        rawHeaders: cached.headers,
+        rawRows: cached.rows,
+        rawFetchedAt: new Date().toISOString(),
+        lastSyncedAt: new Date().toISOString(),
+        lastError: null,
+        lastSummary: cached.summary,
+      },
+    };
+  }
+
+  let csvRows: string[][] | null = null;
+  let workbook: { occupancy: FetchedSheetTab | null; houses: FetchedSheetTab[]; error: string | null };
+  if (isCsv) {
+    const fetched = await fetchPublishedCsv(link.csvUrl ?? "");
+    if (!fetched.rows) {
+      const error = fetched.error ?? "Could not read the CSV.";
+      return { ok: false, summary, error, link: { ...link, lastError: error, lastSummary: null } };
+    }
+    csvRows = fetched.rows;
+    workbook = {
+      occupancy:
+        link.mode === "occupancy"
+          ? { title: "Residents", gid: "0", houseKey: null, occupancy: true, rows: fetched.rows }
+          : null,
+      houses: [],
+      error: null,
+    };
+  } else {
+    workbook = await loadWorkbookTabs({
+      spreadsheetId: link.spreadsheetId,
+      occupancyGid,
+      houseTabs: link.houseTabs,
+      accessToken,
+    });
+  }
   if (workbook.error && !workbook.occupancy && workbook.houses.length === 0) {
     return { ok: false, summary, error: workbook.error, link: { ...link, lastError: workbook.error, lastSummary: null } };
   }
@@ -532,10 +602,15 @@ async function syncOneBinding(
   // A manager-picked stays tab (BUILD-WAVE2 C210) — a one-row-per-stay
   // reader, entirely separate from the day-by-day occupancy grid above.
   let staysTableStays: import("@/lib/sheet-sync/parse-stays-table").StaysTableStay[] = [];
-  if (link.staysTab) {
-    const staysRows = await fetchStaysTabRows(link.spreadsheetId, link.staysTab, accessToken);
+  const staysEnabled = isCsv ? link.mode === "stays" : Boolean(link.staysTab);
+  const staysColumnMap = link.staysTab?.columnMap ?? undefined;
+  const staysNameMap = link.staysTab?.nameMap ?? {};
+  if (staysEnabled) {
+    const staysRows = isCsv
+      ? csvRows
+      : await fetchStaysTabRows(link.spreadsheetId, link.staysTab!, accessToken);
     if (staysRows) {
-      staysTableStays = parseStaysTable(staysRows, asOf, link.staysTab.columnMap ?? undefined).stays;
+      staysTableStays = parseStaysTable(staysRows, asOf, staysColumnMap).stays;
     } else {
       summary.warnings.push("Could not read the linked Stays tab — pick the sheet again.");
     }
@@ -570,14 +645,14 @@ async function syncOneBinding(
   await applyBookings(db, managerUserId, stays, propertyByHouse, summary);
   await applyHouseDetails(db, managerUserId, houseTabs, propertyByHouse, summary);
   await applyPayments(db, managerUserId, roomFacts, propertyByHouse, summary);
-  if (link.staysTab) {
+  if (staysEnabled) {
     await applyStaysTableBookings(
       db,
       managerUserId,
       staysTableStays,
       propertyByHouse,
       properties,
-      link.staysTab.nameMap,
+      staysNameMap,
       summary,
     );
   }

@@ -73,7 +73,8 @@ const PRO_GROUPS: NavGroupConfig[] = [
 
 const ADMIN_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "communication"] },
-  { id: "accounts", label: "Accounts", sections: ["axis-users", "test-accounts"] },
+  { id: "accounts", label: "Accounts", sections: ["axis-users", "subscribers", "test-accounts"] },
+  { id: "money", label: "Money", sections: ["payments", "promo-codes", "finances"] },
   { id: "portfolio", label: "Portfolio", sections: ["properties"] },
   { id: "support", label: "Support", sections: ["bugs-feedback", "events", "health"] },
   { id: "marketing", label: "Marketing", sections: ["growth"] },

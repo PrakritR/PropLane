@@ -36,9 +36,29 @@ on an account with five listings and no paywall anywhere).
   A validated promo waiver (FREE100 / `promo_code` on the purchase row) **is
   paid**, same as Stripe or Apple. Managers enter promo codes on checkout (and
   signup), never on the Billing & plan page.
+  **Promo codes are Stripe-native, and two columns must never be confused.**
+  `manager_purchases.promo_code` is the payment-WAIVER column (FREE100 /
+  WAIVEPROCESS1 / onboarding grants): any non-empty value is paid access with no
+  Stripe subscription behind it (`isWaiverGrantedManagerPurchase`). A code a
+  customer redeems at Stripe Checkout (FREEFIRST, a staff-made code) is recorded
+  in `manager_purchases.stripe_promotion_code`
+  (`resolveCheckoutSessionPromoCode` -> `recordPaidManagerCheckoutSession`), which
+  is display / reporting only and never grants anything. Writing a checkout code
+  into `promo_code` would keep a cancelled FREEFIRST customer on paid access for
+  free. The code is read ONLY from the discounts Stripe applied to the session
+  (`discounts` / `total_details.breakdown.discounts`); `metadata.promo` is customer
+  free text and is never recorded as a redemption. The admin Subscribers Promo bucket, the account record's Promo fact and
+  the admin assistant's `subscriber_counts` read `stripe_promotion_code`; a waiver
+  account stays where it was counted before. Coverage:
+  `tests/unit/manager-purchase-from-session.test.ts`,
+  `admin-subscribers.test.ts`.
   Omitting `billing`
   and `paidAt` keeps the older behaviour for a caller with no billing row to
-  read. Coverage: `tests/unit/manager-trial-expiry-quota.test.ts`.
+  read. **Staff can extend that trial, and it is live**: with no Stripe
+  subscription the end is moved by rewriting `paid_at` (the one value this
+  resolver derives it from), so no reader needs to learn a second date - see
+  "Per-account overrides" below. Coverage:
+  `tests/unit/manager-trial-expiry-quota.test.ts`.
   **That rule has to reach BOTH halves or it is worse than not
   having it**, because the client caches what the route says: a plan the server
   could not read is reported as `planUnknown: true` with `effectiveTier`,
@@ -207,8 +227,16 @@ for the extra-workspace, extra-work-number and extra-seat add-ons and how
 
 ## Admin Billing (staff view + per-account overrides)
 
-`/admin/billing` is a LENS on the accounts already in `/admin/axis-users`, not a
-second place to administer one. It is the same `PortalRecordListSurface` +
+There is no `/admin/billing` page (it 404s on purpose; see the end of this
+section). What used to be that lens is now two things: **Accounts > Subscribers**
+(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code, free
+or complimentary, and the account record's Billing section for one account's
+plan and overrides. What PropLane itself EARNS is a third, separate thing:
+**Money > Payments** (below). The row derivation described next
+(`deriveAdminBillingRow`) is shared by all of them.
+
+The original Billing list was a LENS on the accounts already in `/admin/axis-users`,
+not a second place to administer one. It was the same `PortalRecordListSurface` +
 `PortalPersonRecordRow` every other list tab uses, and opening a row opens the
 SAME editor Accounts opens — `ManagerAccountDetail`
 (`src/components/portal/admin-manager-account-detail.tsx`), which both clients
@@ -243,41 +271,106 @@ has made no choice of its own counts (the paid-plan default in
 `PATCH /api/admin/manager-billing-overrides` is the staff-only writer:
 service-role write after an admin check on every request, exactly like
 `/api/admin/manager-service-fee`. `saveManagerBillingOverrides` does no
-authorization of its own — matching every other service-role writer here — so
+authorization of its own - matching every other service-role writer here - so
 that route is the boundary; a manager who could set their own property cap would
-have no cap. Three fields, stored at
-`manager_automation_settings.row_data.billingOverrides`
+have no cap. Storage is `manager_automation_settings.row_data.billingOverrides`
 (`src/lib/manager-billing-overrides.ts`). **No migration was needed**: `row_data`
 exists in every deployment of that table, and every other writer of it
 read-modify-writes its own key.
 
-- **`propertyCap`** — the only one enforcement READS. It replaces the plan cap in
+- **`propertyCap`** - read by enforcement. It replaces the plan cap in
   both directions inside `assertManagerPropertyListingQuota`, and `0` is a real
   value ("may not publish"), which is why it is `null`-for-absent rather than
   falsy-for-absent. A pinned cap gets its own refusal copy
-  (`managerPropertyCapOverrideMessage`) with no upgrade CTA — upgrading would not
+  (`managerPropertyCapOverrideMessage`) with no upgrade CTA - upgrading would not
   move a number a staff member typed. **A cap that cannot be READ is a 500**,
   exactly like a plan that cannot be read: falling back to the plan default would
   refuse a manager staff had explicitly comped a bigger cap, on a transient
   database error. It still only ever gates the TRANSITION INTO a slot, so
   lowering a cap below what an account already holds refuses the next listing and
-  touches nothing that exists — block creation, never delete or hide.
-- **`trialEndsAt`** — RECORDED AND DISPLAYED ONLY. The plan resolver still expires
-  a signup trial by `paid_at + MANAGER_SUBSCRIPTION_TRIAL_DAYS`; nothing reads
-  this. The admin control says so under the field.
-- **`complimentary`** — RECORDED AND DISPLAYED ONLY. Billing does not read it yet.
-  A comp switch that silently stopped invoicing would be a money change made in a
-  UI ticket; the control says so under the field.
+  touches nothing that exists - block creation, never delete or hide. The reason
+  is optional here (the account record's popup asks for one anyway).
+- **Trial end, complimentary and promo code are LIVE** (they were "recorded only"
+  until 2026-10-08; a control that does nothing is worse than none). They act
+  through `src/lib/admin/admin-billing-actions.server.ts`, never by writing a
+  second value for a reader to forget:
+  - **Extend trial** (`trialEndsAt`, a future `YYYY-MM-DD`, at most two years out).
+    With a Stripe subscription it sets the subscription's `trial_end`
+    (`proration_behavior: none`; Stripe moves the billing anchor). A no-card
+    signup trial has **no stored end** - `resolveEffectiveManagerSkuTier` derives
+    it as `paid_at + MANAGER_SUBSCRIPTION_TRIAL_DAYS` and every plan reader (the
+    property cap, nav locks, comms allowance, the admin lists) goes through that
+    one derivation - so extending it writes the `paid_at` that produces the asked
+    end (`paidAtForSignupTrialEnd`, the inverse kept beside the derivation in
+    `manager-tier-expiry.ts`). The resolver itself is unchanged and every reader
+    honours the new date at once. The trial is live through the whole of the
+    chosen UTC day. A row that is neither a Stripe subscription nor a signup trial
+    has no trial to extend (409). A date older builds merely recorded is cleared.
+  - **Complimentary** (`complimentary`, true/false). With a Stripe subscription it
+    attaches the one 100%-off-forever coupon `proplane_complimentary` (created on
+    first use) beside any discounts already there, so the next invoice is $0; off
+    detaches only that discount. Without a subscription nothing bills, but access
+    can still lapse (a trial expires by date), so the purchase becomes an
+    admin-assigned plan (`billing: admin`) that never expires, and the prior
+    `billing`/`paid_at` are kept in `billingOverrides.complimentaryPrior` so Undo
+    restores them (a trial that has since lapsed is Free again, which is the
+    point of undoing). A Free account or an App Store subscription is refused:
+    there is nothing PropLane can waive.
+  - **Apply promo code** (`promoCode`). Attaches an EXISTING Stripe promotion code
+    to the subscription (never creates one - that is the Promo codes page), keeping
+    the discounts already there; an unknown/inactive code is a 404, a code already
+    applied a 409, and an account without a Stripe subscription a 409. It does not
+    write `manager_purchases.promo_code`, because a non-empty value there is the
+    waiver signal `isWaiverGrantedManagerPurchase` reads as paid access.
+  - **Every one requires a reason**, refused (400) before the cap in the same
+    request, Stripe or any write is touched, and writes exactly one `audit_log` row
+    (below). Stripe failures are logged and reported as one generic sentence; a
+    dedicated test workspace never reaches Stripe.
+- **Save plan** (`PATCH /api/admin/managers`, `tier`) now requires a reason too
+  and writes one audit row (`field: plan`, before -> after, from the purchase row
+  the resolver reads, Free when there is none). It is still an admin assignment
+  (`billing: admin`, which clears `stripe_subscription_id`): it does not edit the
+  Stripe subscription, so use it for accounts not billed through Stripe.
 
 Every accepted change writes one `audit_log` row PER FIELD THAT ACTUALLY MOVED
 (`writeAdminBillingAudit`, `src/lib/admin-billing-audit.server.ts`):
 `actor_user_id` is the staff member, `landlord_id` the manager, and
-`input_summary` carries `field`, `before`, `after` and the optional `reason`. The
+`input_summary` carries `field`, `before`, `after` and the `reason`. The
 value alone never says who granted the exception or why. `reason` is the one
-deliberate departure from the agent audit convention's ids-and-enums rule — it is
-staff-authored text about a commercial decision, not lifted from a resident — and
+deliberate departure from the agent audit convention's ids-and-enums rule - it is
+staff-authored text about a commercial decision, not lifted from a resident - and
 it is trimmed to 280 characters. `dedupe_key` is left unset on purpose: setting
-the same cap twice is two real decisions.
+the same cap twice is two real decisions. A no-op (already complimentary, the cap
+unchanged) writes nothing.
+
+### The account record's Billing & plan section
+
+`/admin/axis-users/<id>?section=billing` (`AccountBillingSection`,
+`admin-account-record-sections.tsx`) is three fact cards plus a list, fed by one
+read - `GET /api/admin/accounts/[id]/billing`
+(`src/lib/admin/admin-account-billing.server.ts`):
+
+- **Subscription**: Plan (`Pro monthly`), Source (Stripe / App Store / Admin /
+  Promo code / Trial / None), Status, Since, Renews (or Ends, when set to cancel),
+  Paid to date, Promo. Icon actions top right: Open in Stripe, Change plan.
+- **Trial & discounts**: Trial ends, Complimentary, Promo. Icon actions: Extend
+  trial, Apply promo code, Make/Remove complimentary.
+- **Limits**: Property cap (stepper; its check icon saves it) and Processing fees
+  (dropdown, save on change, with the net "Fees paid by").
+- **Payments from this account**: the customer's paid Stripe invoices, newest
+  first, each opening its hosted invoice.
+
+The plan, and the property cap, come from the SAME resolvers enforcement uses. The
+subscription facts, promo code and complimentary state are read from Stripe when
+there is a subscription (the subscription is the truth), otherwise from the
+purchase row and the staff record. "Paid to date" and the payments list are paid,
+non-zero invoices for this account's own `stripe_customer_id`, read server-side;
+refunds are not netted. **If Stripe cannot be reached the database facts still
+render, `stripe.available` is `false`, and the Stripe-derived numbers are `null`
+("-"), never `0`.** There is no grey block over the values and no sentence under a
+field (the no-subtext rule); Change plan / Extend trial / Apply promo code / Make
+complimentary / the cap each open a small standard popup with a required one-line
+Reason and one primary that names the outcome (`AdminBillingActionDialog`).
 
 **One global default now exists (S27):** the Plan credit table
 (`PlanCreditRulesSection`, `src/components/portal/admin-billing-client.tsx`)
@@ -298,6 +391,66 @@ Accounts (`/admin/axis-users`) behind the header "Plan credit" icon action
 
 Coverage: `tests/unit/admin-billing-rows.test.ts`,
 `admin-manager-billing-overrides-route.test.ts`,
-`manager-property-cap-override.test.ts`, plus
+`admin-billing-actions.test.ts` (Stripe mocked: trial extension, complimentary on
+and off, promo attach, audit rows, reason required),
+`admin-account-billing-route.test.ts`, `admin-managers-plan-change-route.test.ts`,
+`manager-trial-expiry-quota.test.ts` (an extended trial through the real
+resolver), `manager-property-cap-override.test.ts`, plus
 `admin-list-surface-adoption.test.ts` and `platform-parity.test.ts` for the
 section wiring.
+
+## Admin Subscribers (Accounts > Subscribers)
+
+`/admin/subscribers` lists every real (non-sandbox) manager in exactly one of
+**Paid · Trial · Promo · Free · Complimentary**, with counts on the tabs.
+`classifySubscriber` (`src/lib/admin/admin-subscribers-model.ts`) runs
+`deriveAdminBillingRow`, so the bucket is the plan the product ENFORCES, not a
+second opinion: a lapsed signup trial is **Free**, a live Stripe or Apple grant
+is **Paid**, and an account whose purchase could not be read is counted
+nowhere (never filed as Free). Order, first match wins: Complimentary (the
+staff `complimentary` override, or a `billing: admin|portal` / `admin_` grant
+with no payment behind it) → Trial (`billing: trial`, unexpired) → Promo (paid
+plan + `stripe_promotion_code`, or a `promo_code` waiver) → Paid → Free. A Stripe subscription still inside its
+Checkout trial days is **Paid** here because that is what enforcement says; the
+Trial tab is the no-card signup trial. MRR is the sum of the Paid bucket at
+list price (`RATE_CARD` base plan, annual / 12; per-door overage is not
+included).
+
+`GET /api/admin/subscribers` reads through paged selects
+(`readAllPages`, stable order, a failed page throws) and id-chunked profile
+reads, never an unbounded select, then pages the answer. Stripe's period end
+("Renews Nov 12") is looked up for the visible page only and a miss leaves the
+fact out. The trial end shown honours the staff `trialEndsAt` override; a trial
+inside its last three days draws amber text, never a pill. The row ⋯ opens the
+account, and deep-links to the account record's billing section with
+`?action=promo` / `?action=extend-trial` (the popups live on that record).
+
+## Admin Money > Payments
+
+`/admin/payments` is a live read of PropLane's platform Stripe account
+(`src/lib/admin/admin-revenue.server.ts`, `GET /api/admin/revenue`), cached five
+minutes per month. Balance transactions are classified by
+`classifyBalanceTransaction` (`admin-revenue-model.ts`): checkout `purpose`
+metadata (`COMMS_CREDIT_PURPOSE`, the number purposes) → Credits / Numbers; a
+charge on a subscription invoice (price ids via `stripe-price-ids.ts`) or from a
+customer holding a PropLane subscription → Subscriptions; the vendor 3% fee
+comes from `platform_revenue_entries` (it is held back from a vendor payment,
+so it is never its own Stripe transaction) → Service fees; payouts; refunds of
+PropLane revenue. **The platform account also carries pass-through money (rent,
+vendor payments): anything not attributable to a PropLane product is `other`,
+listed under All and never added to gross, fees or refunds.** Rows link to the
+account through `manager_purchases.stripe_customer_id`, the comms billing
+account, or `manager_user_id` metadata. App Store rows are
+`manager_purchases` Apple grants (production environment only), shown "via App
+Store"; Apple's commission is not in our data, so they carry no fee.
+
+Stat strip: Gross (earning categories) · Stripe fees · Net (gross − refunds −
+fees) · Refunds · Next payout. The Dashboard's **Earned this month** is gross −
+refunds; **Profit** is earned − Stripe fees − that month's `platform_expenses`.
+A Stripe failure, a missing `platform_expenses` table or an unreadable
+population is `null` and the Dashboard card is **omitted, never $0**
+(`buildAdminMoneyOverview`). A test-mode key (`sk_test_`) shows the banner. A
+month past 1,500 balance transactions is flagged `truncated` on the page.
+
+Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
+`admin-portal-sections.test.ts`.

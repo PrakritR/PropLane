@@ -4,7 +4,7 @@
  * Labeled destination into archived conversations.
  *
  * Filter still owns status (All / Read / Unread / Archived) and there is no
- * folder-tab rail. This is the same job as admin's `admin-inbox-archived-toggle`:
+ * folder-tab rail. This is the same job the old admin archived toggle did:
  * a visible button that takes the manager to `/communication/archived` and,
  * when that view is already open, back to the live inbox.
  */

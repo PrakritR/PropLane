@@ -5,6 +5,7 @@ import { PendingServiceLinkRedeemer } from "@/components/vendor/pending-service-
 import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
+import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
@@ -44,6 +45,7 @@ export default async function VendorLayout({ children }: { children: React.React
       <SurfaceThemeDefault theme="light" />
       <PortalDataPrefetch kind="vendor" />
       <PortalClientSessionGuard />
+      <PortalSessionKeepalive />
       <PendingServiceLinkRedeemer />
       <RateAppPrompt reporterRole="vendor" />
       <PortalTopBar

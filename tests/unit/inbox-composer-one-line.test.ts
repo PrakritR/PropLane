@@ -11,11 +11,11 @@ describe("reply composer is a one-line auto-growing field", () => {
     expect(composerAutoHeight(500, false)).toBeNull();
     expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).not.toMatch(/\bflex-1\b|\bh-full\b|\bmin-h-full\b/);
   });
-  it("is a 44px field above a tools row whose send button is 30px (36px on a phone)", () => {
+  it("is a 44px field above a tools row whose send button is 30px (44px on a phone)", () => {
     expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).toContain("min-h-11");
     expect(PORTAL_INBOX_COMPOSER_INPUT_CLASS).toContain("border-0");
     expect(PORTAL_INBOX_COMPOSER_SEND_CLASS).toContain("size-[30px]");
-    expect(PORTAL_INBOX_COMPOSER_SEND_CLASS).toContain("max-md:size-9");
+    expect(PORTAL_INBOX_COMPOSER_SEND_CLASS).toContain("max-md:size-11");
   });
   it("grows with content and caps at six lines, then scrolls", () => {
     expect(composerAutoHeight(64, true)).toBe(66);

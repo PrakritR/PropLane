@@ -21,6 +21,7 @@ import { toAnthropicTools } from "@/lib/tools/registry";
 import { isProspectGptShadowEnabled, type ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { projectProspectShadowPrimaryEvidence, prospectRepetitionEvidence } from "@/lib/agent/prospect-shadow-comparison";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
+import { recordAutoReplyOnSmsNoticeFresh } from "@/lib/sms-inbox-notice.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/twilio";
 import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
@@ -854,7 +855,7 @@ export async function deliverLeasingSmsReply(args: {
   prospectBurst?: { burstId: string; revision: number; workerId: string; candidateContext?: unknown; candidateShadowSnapshot?: unknown };
   prospectTourBookingConfirmationId?: string | null;
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
-  return sendFromManagerWorkNumber({
+  const result = await sendFromManagerWorkNumber({
     managerUserId: args.landlordId,
     to: args.toPhone,
     text: args.text,
@@ -873,4 +874,15 @@ export async function deliverLeasingSmsReply(args: {
     prospectBurst: args.prospectBurst,
     prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
   });
+  // The thread shows the reply that was sent, so the inbox never also drafts
+  // for a text this agent already answered (one responder per inbound).
+  if (result.ok || result.durablyAccepted) {
+    await recordAutoReplyOnSmsNoticeFresh({
+      managerUserId: args.landlordId,
+      counterpartyPhone: args.toPhone,
+      text: args.text,
+      inboundMessageId: args.inboundMessageSid,
+    });
+  }
+  return result;
 }

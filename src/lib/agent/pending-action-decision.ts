@@ -39,7 +39,7 @@ export async function agentChatRateLimitResponse(
     typeof body.denyActionId === "string" && body.denyActionId.trim().length > 0;
   const allowed = pureDenial
     ? await rateLimit(`${prefix}:deny:${userId}`, 60, 60_000)
-    : await rateLimit(`${prefix}:${userId}`, 20, portal === "manager" ? 60_000 : 300_000);
+    : await rateLimit(`${prefix}:${userId}`, 20, portal === "manager" || portal === "admin" ? 60_000 : 300_000);
   return allowed.ok ? null : NextResponse.json(
     { error: "You're sending messages a little fast — please wait a moment and try again." },
     { status: 429 },

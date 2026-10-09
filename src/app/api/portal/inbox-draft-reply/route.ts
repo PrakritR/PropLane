@@ -28,6 +28,7 @@ import {
 } from "@/lib/portal-inbox-thread-scope";
 import {
   inboxThreadManagerReplyPending,
+  isServerAgentAnsweredSmsThread,
   inboxThreadMessages,
   inboxMessageOutbound,
   type InboxThreadMessage,
@@ -250,6 +251,13 @@ export async function POST(req: Request) {
     // Only inbound (inbox-folder) messages get a draft.
     if (String(rowData.folder ?? "") !== "inbox") {
       return NextResponse.json({ ok: true, skip: true, reason: "not-inbound" });
+    }
+
+    // A text to the work number is answered by the server SMS agent on the same
+    // channel and recorded on the thread. One responder per inbound message: a
+    // second, browser-side draft here would be a duplicate reply.
+    if (isServerAgentAnsweredSmsThread({ threadType: String(rowData.threadType ?? "") })) {
+      return NextResponse.json({ ok: true, skip: true, reason: "server-agent-sms" });
     }
 
     const pendingReply = inboxThreadManagerReplyPending(toPersistedThread(rowData, "inbox"));

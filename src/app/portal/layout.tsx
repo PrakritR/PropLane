@@ -157,7 +157,8 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
                     name={profile?.full_name ?? null}
                     email={profile?.email ?? null}
                   />
-                  <div className="lg:hidden">
+                  {/* `empty:hidden`: a dismissed banner renders nothing, so its wrapper takes no flow slot. */}
+                  <div className="lg:hidden empty:hidden">
                     <ManagerMessagingSetupBanner />
                   </div>
                   {children}

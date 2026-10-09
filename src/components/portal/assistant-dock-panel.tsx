@@ -6,6 +6,7 @@ import { AssistantChatComposer } from "@/components/portal/assistant-chat-compos
 import { AssistantSmsTestControl } from "@/components/portal/assistant-sms-test-control";
 import { AssistantChatHistoryPanel } from "@/components/portal/assistant-chat-history-panel";
 import {
+  ADMIN_ASSISTANT_ENDPOINT,
   AssistantEmptyState,
   AssistantMessageList,
   AssistantPanelHeader,
@@ -14,6 +15,7 @@ import {
   VENDOR_ASSISTANT_ENDPOINT,
 } from "@/components/portal/assistant-panel-chrome";
 import {
+  ADMIN_ASSISTANT_SUGGESTIONS,
   AssistantPendingActionCard,
   AssistantResolvedActionFlash,
   RESIDENT_ASSISTANT_SUGGESTIONS,
@@ -112,6 +114,7 @@ export function AssistantDockPanel({
   const hint = contextHint?.trim() || null;
   const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
   const isResidentAssistant = endpoint === RESIDENT_ASSISTANT_ENDPOINT;
+  const isAdminAssistant = endpoint === ADMIN_ASSISTANT_ENDPOINT;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -193,7 +196,15 @@ export function AssistantDockPanel({
             showQueue={endpoint === MANAGER_ASSISTANT_ENDPOINT && !hint && !composerHint?.trim()}
             onPick={(prompt) => void sendWithContext(prompt)}
             disabled={loading}
-            suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : isResidentAssistant ? RESIDENT_ASSISTANT_SUGGESTIONS : undefined}
+            suggestions={
+              isAdminAssistant
+                ? ADMIN_ASSISTANT_SUGGESTIONS
+                : isVendorAssistant
+                  ? VENDOR_ASSISTANT_SUGGESTIONS
+                  : isResidentAssistant
+                    ? RESIDENT_ASSISTANT_SUGGESTIONS
+                    : undefined
+            }
           />
         ) : (
           <AssistantMessageList messages={visibleMessages} ratings={ratings} onRate={submitFeedback} loading={loading} />
@@ -234,8 +245,8 @@ export function AssistantDockPanel({
           loading={loading}
           inputRef={inputRef}
           inputId={inputId}
-          inputAriaLabel="Ask the PropLane Assistant about your portfolio"
-          placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : isResidentAssistant ? "Ask about your home…" : "Ask about your portfolio…"}
+          inputAriaLabel={isAdminAssistant ? "Ask the PropLane Assistant about PropLane" : "Ask the PropLane Assistant about your portfolio"}
+          placeholder={smsTestActive ? "Type an SMS message…" : isAdminAssistant ? "Ask about PropLane…" : isVendorAssistant ? "Ask about your jobs…" : isResidentAssistant ? "Ask about your home…" : "Ask about your portfolio…"}
           allowAttachments={!smsTestActive}
 
           onSend={() => void sendWithContext()}

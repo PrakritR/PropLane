@@ -56,9 +56,12 @@ import { MANAGER_PAYMENT_PRESETS } from "@/lib/payment-policy";
 import { MAINTENANCE_SERVICE_OFFER_ID } from "@/lib/service-intake";
 import { recordSections } from "@/lib/portals/record-sections";
 import { DemoWorkspacePopup } from "@/components/marketing/site/product-mock/demo-popup";
-import { DemoRecordPage, DemoRecordThread, recordActionsFromSections, type DemoRecordAction } from "@/components/marketing/site/product-mock/demo-record";
+import { DemoRecordPage, DemoRecordThread, DemoServiceThread, recordActionsFromSections, type DemoRecordAction } from "@/components/marketing/site/product-mock/demo-record";
+import { ServiceRemoveDialog } from "@/components/portal/service-remove-dialog";
+import { serviceHeaderIconIds } from "@/lib/service-header-next-step";
 import {
   COMM_CONVERSATIONS,
+  SERVICE_THREADS,
   VENDOR_ROWS,
   type PaymentFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
@@ -513,29 +516,33 @@ const NEXT_STEP_ICON: Record<string, typeof CheckCircle2> = {
   "approve-change-order": CheckCircle2,
 };
 
-/** Message · Edit · Cancel service (Decline request on an add-on) · Delete, and the one filled next step first. */
-function serviceActions(row: MoneyServiceRow, onAction: (id: string) => void): DemoRecordAction[] {
+/**
+ * Edit · ONE red trash · (Decline request in the ⋯ on a pending add-on) · the labeled next step - the real
+ * header (`serviceHeaderIconIds`). No Message icon: Communication is a rail section. The trash opens the one
+ * Cancel service / Delete permanently popup.
+ */
+function serviceActions(row: MoneyServiceRow, onAction: (id: string) => void, onRemove: () => void): DemoRecordAction[] {
   const act = (id: string) => () => onAction(id);
   const next = serviceNextStep(row);
   const actions: DemoRecordAction[] = [];
+  for (const id of serviceHeaderIconIds({ canEdit: !(row.kind === "add-on" && row.stage === "completed") })) {
+    if (id === "edit") actions.push({ id: "edit", label: "Edit", icon: Pencil, onClick: act("edit") });
+    else if (id === "trash") actions.push({ id: "trash", label: "Remove service", icon: Trash2, tone: "danger", onClick: onRemove });
+  }
+  if (row.kind === "add-on" && row.stage === "open") {
+    actions.push({ id: "decline", label: "Decline request", icon: XCircle, tone: "danger", onClick: act("decline"), inMenu: true });
+  }
   if (next) {
     actions.push({
       id: next.id,
       label: next.label,
       icon: NEXT_STEP_ICON[next.id] ?? CheckCircle2,
       tone: "primary",
+      labeled: true,
       onClick: act(next.id),
       demoTarget: "sheet-primary",
     });
   }
-  actions.push(
-    { id: "message", label: "Message", icon: Mail, onClick: act("message") },
-    { id: "edit", label: "Edit", icon: Pencil, onClick: act("edit") },
-  );
-  if (row.stage !== "completed") {
-    actions.push({ id: "cancel", label: row.kind === "add-on" ? "Decline request" : "Cancel service", icon: XCircle, tone: "danger", onClick: act("cancel") });
-  }
-  actions.push({ id: "delete", label: "Delete", icon: Trash2, tone: "danger", onClick: act("delete") });
   return actions;
 }
 
@@ -551,11 +558,14 @@ export function DemoServiceRecordView({
   onAction: (id: string) => void;
 }) {
   const [active, setActive] = useState("service");
+  const [removing, setRemoving] = useState(false);
   const ctx = row.kind === "add-on" ? ({ serviceKind: "request", serviceBucket: "pending" } as const) : ({ serviceKind: "work-order", serviceBucket: row.stage === "completed" ? "completed" : row.stage } as const);
   const sections = recordSections("manager", "service", ctx, active);
-  const actions = active === "service" ? serviceActions(row, onAction) : recordActionsFromSections(sections, onAction);
+  const actions =
+    active === "service" ? serviceActions(row, onAction, () => setRemoving(true)) : recordActionsFromSections(sections, (id) => (id === "trash" ? setRemoving(true) : onAction(id)));
   const vendor = VENDOR_ROWS.find((v) => v.name === row.vendor);
   return (
+    <>
     <DemoRecordPage
       title={row.title}
       subtitle={row.resident}
@@ -611,7 +621,11 @@ export function DemoServiceRecordView({
           </RecordFactCard>
         </div>
       ) : active === "communication" ? (
-        <DemoRecordThread name={row.resident} subtitle={row.property} messages={threadFor(row.resident)} selfName="You" />
+        SERVICE_THREADS[row.id] ? (
+          <DemoServiceThread parties={SERVICE_THREADS[row.id]!.parties} messages={SERVICE_THREADS[row.id]!.messages} subtitle={row.property} />
+        ) : (
+          <DemoRecordThread name={row.resident} subtitle={row.property} messages={threadFor(row.resident)} selfName="You" />
+        )
       ) : (
         <div className="space-y-3 px-3 py-2 sm:px-4" data-attr="service-overview-panel">
           <RecordStatTiles>
@@ -634,6 +648,18 @@ export function DemoServiceRecordView({
         </div>
       )}
     </DemoRecordPage>
+    <ServiceRemoveDialog
+      open={removing}
+      title={row.title}
+      lines={[row.resident, row.property]}
+      canCancel={row.kind === "add-on" ? false : row.stage !== "completed"}
+      onClose={() => setRemoving(false)}
+      onConfirm={(choice) => {
+        setRemoving(false);
+        onAction(choice === "cancel" ? "cancel" : "delete");
+      }}
+    />
+    </>
   );
 }
 

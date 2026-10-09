@@ -282,7 +282,8 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminPromoCodesPanel,
+    AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
@@ -338,7 +339,10 @@ export async function renderPortalSectionWith(
     redirect(`${def.basePath}/dashboard`);
   }
 
-  if (section === "finances") {
+  // `finances` is the legacy name of the other portals' Financials section. Admin has its own live
+  // Money > Finances section, so the rewrite must not fire for it (routing precedence: a rewrite that
+  // runs for every portal silently makes an admin section unreachable).
+  if (section === "finances" && kind !== "admin") {
     const defaultTab = kind === "resident" ? "summary" : "income";
     const tab = tabParts?.[0] ?? defaultTab;
     redirect(`${def.basePath}/financials/${tab}`);
@@ -701,40 +705,46 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "admin" && section === "communication") {
-    // The bare section IS the inbox. It used to redirect to
-    // `/communication/inbox/unopened`, which made the nav's own href a folder
-    // path for a panel that has no folders.
+    // The bare section IS the conversation list (Active). Admin Communication is the
+    // manager's page over admin's own conversations: Active | Archived tabs and an
+    // optional open conversation, `/communication/{active|archived}[/{threadId}]`.
     if (!tabParts?.length) {
       return <AdminCommunication smsUiEnabled={isSmsCommUiEnabled()} />;
     }
     const channel = tabParts[0]!;
+    // The old admin inbox had Unopened / Opened / Sent / Schedule / Trash folders. Those
+    // paths still resolve (bookmarks, notification links): trash is the Archived tab and
+    // every other folder is the one Active list.
+    const legacyFolders = ["unopened", "opened", "schedule", "sent", "trash"];
+    const legacyDestination = (folder: string) =>
+      `${def.basePath}/communication/${folder === "trash" ? "archived" : "active"}`;
     if (channel === "sms" || channel === "email") {
       const legacyTab = tabParts[1] ?? "unopened";
-      const mapped =
-        legacyTab === "all" || legacyTab === "unopened"
-          ? "unopened"
-          : legacyTab === "opened"
-            ? "opened"
-            : legacyTab === "sent"
-              ? "sent"
-              : legacyTab === "schedule"
-                ? "schedule"
-                : legacyTab === "trash"
-                  ? "trash"
-                  : null;
-      if (!mapped) notFound();
-      redirect(`${def.basePath}/communication/inbox/${mapped}`);
+      if (legacyTab !== "all" && !legacyFolders.includes(legacyTab)) notFound();
+      redirect(legacyDestination(legacyTab));
     }
     if (channel === "inbox") {
       const emailTab = tabParts[1] ?? "unopened";
-      if (!["unopened", "opened", "schedule", "sent", "trash"].includes(emailTab)) notFound();
+      if (!legacyFolders.includes(emailTab)) notFound();
       if (tabParts.length > 2) notFound();
-      return <AdminCommunication inboxTabId={emailTab as "unopened" | "opened" | "schedule" | "sent" | "trash"} smsUiEnabled={isSmsCommUiEnabled()} />;
+      redirect(legacyDestination(emailTab));
     }
-    const flatInboxTab = ["unopened", "opened", "schedule", "sent", "trash"] as const;
-    if ((flatInboxTab as readonly string[]).includes(channel)) {
+    if (legacyFolders.includes(channel)) {
       if (tabParts.length > 1) notFound();
-      redirect(`${def.basePath}/communication/inbox/${channel}`);
+      redirect(legacyDestination(channel));
+    }
+    if (channel === "unread") {
+      const threadPart = tabParts[1];
+      redirect(
+        `${def.basePath}/communication/active${threadPart ? `/${encodeURIComponent(threadPart)}` : ""}`,
+      );
+    }
+    if (channel === "active" || channel === "archived") {
+      if (tabParts.length > 2) notFound();
+      const threadId = tabParts[1] ? decodeURIComponent(tabParts[1]) : undefined;
+      return (
+        <AdminCommunication listSegment={channel} threadId={threadId} smsUiEnabled={isSmsCommUiEnabled()} />
+      );
     }
     notFound();
   }
@@ -742,6 +752,30 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "health") {
     if (tabParts?.length) notFound();
     return <AdminHealthClient />;
+  }
+
+  if (kind === "admin" && section === "subscribers") {
+    if (tabParts?.length) notFound();
+    return <AdminSubscribersPanel />;
+  }
+
+  if (kind === "admin" && section === "payments") {
+    // A payment's record page is `/admin/payments/<row id>` (one segment, decoded here).
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminPaymentsPanel detailId={detailId} />;
+  }
+
+  if (kind === "admin" && section === "promo-codes") {
+    // A promo code's record page is `/admin/promo-codes/<id>`.
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminPromoCodesPanel detailId={detailId} />;
+  }
+
+  if (kind === "admin" && section === "finances") {
+    if (tabParts?.length) notFound();
+    return <AdminFinancesPanel />;
   }
 
   if (kind === "admin" && section === "growth") {

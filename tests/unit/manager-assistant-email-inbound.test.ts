@@ -19,6 +19,23 @@ const mocks = vi.hoisted(() => ({
   loadResidentEmailHistory: vi.fn(),
   recordResidentEmailInbound: vi.fn(),
   recordResidentEmailReply: vi.fn(),
+  reserveCommsCredit: vi.fn(),
+  finishCommsCredit: vi.fn(),
+  commsTurnKey: vi.fn(),
+  resolveAutomationSendModeForEvent: vi.fn(),
+}));
+
+// The auto-reply to a prospect/resident is a paid AI turn: credit is reserved
+// before the model runs (screen J). Defaults below grant it.
+vi.mock("@/lib/comms-billing/wallet.server", () => ({
+  reserveCommsCredit: mocks.reserveCommsCredit,
+  finishCommsCredit: mocks.finishCommsCredit,
+}));
+vi.mock("@/lib/comms-billing/turn-result.server", () => ({
+  commsTurnKey: mocks.commsTurnKey,
+}));
+vi.mock("@/lib/automation-send-mode.server", () => ({
+  resolveAutomationSendModeForEvent: mocks.resolveAutomationSendModeForEvent,
 }));
 
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
@@ -151,6 +168,10 @@ describe("processManagerAssistantInboundEmail", () => {
     mocks.loadResidentEmailHistory.mockResolvedValue([]);
     mocks.recordResidentEmailInbound.mockResolvedValue(undefined);
     mocks.recordResidentEmailReply.mockResolvedValue(undefined);
+    mocks.commsTurnKey.mockImplementation(async (_db: unknown, _owner: string, base: string) => base);
+    mocks.reserveCommsCredit.mockResolvedValue({ allowed: true, duplicate: false, state: "reserved" });
+    mocks.finishCommsCredit.mockResolvedValue(undefined);
+    mocks.resolveAutomationSendModeForEvent.mockResolvedValue({ team: "auto", partyFacing: "auto" });
 
     const insert = vi.fn().mockResolvedValue({ error: null });
     (db.from as ReturnType<typeof vi.fn>).mockReturnValue({ insert });
@@ -502,6 +523,116 @@ describe("processManagerAssistantInboundEmail", () => {
         expect.objectContaining({ history: [], sessionId: undefined }),
       );
       expect(mocks.recordResidentEmailReply).not.toHaveBeenCalled();
+    });
+  });
+  describe("auto-reply credit and approval-first (screen J, D10)", () => {
+    const fromProspect = { ...parsed, fromEmail: "renter@example.com", fromName: "Renter" };
+
+    beforeEach(() => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+    });
+
+    it("reserves an ai_agent_turn before the model runs and keeps it when a reply is sent", async () => {
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+
+      expect(result).toMatchObject({ handled: true, replied: true, role: "prospect" });
+      expect(mocks.reserveCommsCredit).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({
+          managerUserId: "mgr-1",
+          meter: "ai_agent_turn",
+          idempotencyKey: "ai_turn:email:email_123",
+        }),
+      );
+      expect(mocks.reserveCommsCredit.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.runLeasingEmailAgentTurn.mock.invocationCallOrder[0]!,
+      );
+      expect(mocks.finishCommsCredit).toHaveBeenCalledWith(db, "mgr-1", "ai_turn:email:email_123", false);
+    });
+
+    it("credit denied -> no model run, no email, inbound still mirrored", async () => {
+      mocks.reserveCommsCredit.mockResolvedValue({ allowed: false, reason: "out_of_credit" });
+
+      for (const sender of [fromProspect, { ...fromProspect, emailId: "email_res" }]) {
+        mocks.resolveResidentInboxAgentContext.mockResolvedValue(
+          sender.emailId === "email_res"
+            ? { ok: true, ctx: { kind: "resident", userId: "res-1", email: "renter@example.com" } }
+            : { ok: false, reason: "not_a_resident" },
+        );
+        const result = await processManagerAssistantInboundEmail(db, sender);
+        expect(result).toMatchObject({ handled: true, replied: false });
+      }
+
+      expect(mocks.runLeasingEmailAgentTurn).not.toHaveBeenCalled();
+      expect(mocks.autoRespondToResidentInboxMessage).not.toHaveBeenCalled();
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+      expect(mocks.finishCommsCredit).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledTimes(2);
+    });
+
+    it("a redelivered turn (duplicate reservation) never runs the model twice", async () => {
+      mocks.reserveCommsCredit.mockResolvedValue({ allowed: true, duplicate: true, state: "settled" });
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+      expect(result).toMatchObject({ handled: true, replied: false });
+      expect(mocks.runLeasingEmailAgentTurn).not.toHaveBeenCalled();
+    });
+
+    it("an unreadable ledger fails closed", async () => {
+      mocks.reserveCommsCredit.mockRejectedValue(new Error("ledger down"));
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+      expect(result).toMatchObject({ handled: true, replied: false });
+      expect(mocks.runLeasingEmailAgentTurn).not.toHaveBeenCalled();
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+    });
+
+    it("releases the hold when the model produced no reply", async () => {
+      mocks.runLeasingEmailAgentTurn.mockResolvedValue(null);
+      await processManagerAssistantInboundEmail(db, fromProspect);
+      expect(mocks.finishCommsCredit).toHaveBeenCalledWith(db, "mgr-1", "ai_turn:email:email_123", true);
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+    });
+
+    it("releases the hold when the turn throws", async () => {
+      mocks.runLeasingEmailAgentTurn.mockRejectedValue(new Error("model down"));
+      await expect(processManagerAssistantInboundEmail(db, fromProspect)).rejects.toThrow("model down");
+      expect(mocks.finishCommsCredit).toHaveBeenCalledWith(db, "mgr-1", "ai_turn:email:email_123", true);
+    });
+
+    it("approval-first: the answer is held as a review draft and never emailed", async () => {
+      mocks.resolveAutomationSendModeForEvent.mockResolvedValue({ team: "auto", partyFacing: "draft" });
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+
+      expect(result).toMatchObject({ handled: true, replied: false });
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenLastCalledWith(
+        db,
+        expect.objectContaining({ replyAsReviewDraft: true, replySent: false }),
+      );
+    });
+
+    it("fails closed: an unreadable approval switch holds the answer as a review draft", async () => {
+      mocks.resolveAutomationSendModeForEvent.mockRejectedValue(new Error("settings down"));
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+      errors.mockRestore();
+
+      expect(result).toMatchObject({ handled: true, replied: false });
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenLastCalledWith(
+        db,
+        expect.objectContaining({ replyAsReviewDraft: true, replySent: false }),
+      );
+    });
+
+    it("the manager's own mail does not reserve credit (it is their assistant, not an auto-reply)", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue({
+        workNumberOwnerId: "mgr-1",
+        actorUserId: "mgr-1",
+        actorEmail: "mgr@example.com",
+        access: { mode: "owner", workNumberOwnerId: "mgr-1", actorUserId: "mgr-1", dataOwnerIds: ["mgr-1"], assignedPropertyIds: [] },
+      });
+      await processManagerAssistantInboundEmail(db, parsed);
+      expect(mocks.reserveCommsCredit).not.toHaveBeenCalled();
     });
   });
 });

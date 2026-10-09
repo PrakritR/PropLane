@@ -19,6 +19,7 @@ import {
   restoreManagerSmsConversation,
 } from "@/lib/manager-sms-archive.client";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import type { InboxEmailMutations } from "@/lib/communication/inbox-adapter";
 import { useInboxRowSelection } from "@/components/portal/portal-inbox-selection";
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 import type { InboxListSegment } from "@/components/portal/portal-inbox-ui";
@@ -41,6 +42,7 @@ export function useUnifiedCommunicationBulk({
   mergedRows,
   listSegment,
   storageKey,
+  emailMutations,
   emailThreads,
   onEmailThreadsChange,
   onSelectionCleared,
@@ -54,6 +56,11 @@ export function useUnifiedCommunicationBulk({
   mergedRows: UnifiedInboxListItem[];
   listSegment: InboxListSegment;
   storageKey: string;
+  /**
+   * Archive / restore / delete for a surface whose thread rows do not live in
+   * the persisted inbox cache (admin). Absent = the storage-key based ones.
+   */
+  emailMutations?: InboxEmailMutations;
   emailThreads: PersistedInboxThread[];
   onEmailThreadsChange: (rows: PersistedInboxThread[]) => void;
   onSelectionCleared?: () => void;
@@ -151,7 +158,9 @@ export function useUnifiedCommunicationBulk({
       }
 
       if (emailIds.length > 0) {
-        const { ok, next } = await archivePersistedInboxThreads(storageKey, emailIds);
+        const { ok, next } = await (emailMutations
+          ? emailMutations.archive(emailIds)
+          : archivePersistedInboxThreads(storageKey, emailIds));
         if (!ok) {
           onEmailThreadsChange(previousEmailThreads);
           showToast("Could not archive conversations.");
@@ -198,7 +207,7 @@ export function useUnifiedCommunicationBulk({
       if (clearSelectionAfter) clearAfterBulk();
       return true;
     },
-    [clearAfterBulk, emailThreads, onEmailThreadsChange, onSmsArchiveChange, onSmsMutationStart, showToast, smsTargets, storageKey],
+    [clearAfterBulk, emailMutations, emailThreads, onEmailThreadsChange, onSmsArchiveChange, onSmsMutationStart, showToast, smsTargets, storageKey],
   );
 
   const handleArchive = useCallback(async () => {
@@ -229,7 +238,9 @@ export function useUnifiedCommunicationBulk({
     }
 
     if (emailIds.length > 0) {
-      const { ok, next } = await restorePersistedInboxThreads(storageKey, emailIds);
+      const { ok, next } = await (emailMutations
+        ? emailMutations.restore(emailIds)
+        : restorePersistedInboxThreads(storageKey, emailIds));
       if (!ok) {
         onEmailThreadsChange(previousEmailThreads);
         showToast("Could not restore conversations.");
@@ -276,6 +287,7 @@ export function useUnifiedCommunicationBulk({
     clearAfterBulk();
   }, [
     clearAfterBulk,
+    emailMutations,
     emailThreads,
     onEmailThreadsChange,
     onSmsArchiveChange,
@@ -337,7 +349,9 @@ export function useUnifiedCommunicationBulk({
 
     let emailDeleted = 0;
     if (emailIds.length > 0) {
-      const { ok, next } = await deletePersistedInboxThreadsForever(storageKey, emailIds);
+      const { ok, next } = await (emailMutations
+        ? emailMutations.deleteForever(emailIds)
+        : deletePersistedInboxThreadsForever(storageKey, emailIds));
       if (!ok) {
         showToast(failToast);
         return false;
@@ -396,6 +410,7 @@ export function useUnifiedCommunicationBulk({
   }, [
     clearAfterBulk,
     confirm,
+    emailMutations,
     mergedRows,
     onEmailThreadsChange,
     onSmsDeleted,
