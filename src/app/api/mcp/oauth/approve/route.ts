@@ -9,7 +9,7 @@ function failure(): NextResponse { return NextResponse.json({ error: "invalid_re
 
 export async function POST(req: Request) {
   const actor = await resolveAgentContext();
-  if (!actor) return NextResponse.redirect(new URL("/auth/sign-in", req.url));
+  if (!actor) return NextResponse.redirect(new URL("/auth/sign-in", req.url), 303);
   const form = await req.formData();
   const approval = verifyMcpApproval(String(form.get("approval") ?? ""));
   if (!approval || approval.userId !== actor.userId) return failure();
@@ -37,5 +37,6 @@ export async function POST(req: Request) {
   const destination = new URL(redirectUri);
   destination.searchParams.set("code", code);
   if (state) destination.searchParams.set("state", state);
-  return NextResponse.redirect(destination);
+  // 303: the browser follows a form POST with a GET (307 would re-POST to the client's callback).
+  return NextResponse.redirect(destination, 303);
 }
