@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Download, ExternalLink, Undo2 } from "lucide-react";
 
@@ -88,12 +88,16 @@ export function ListingSiteGuide({
   const def = listingChannelDef(channelId);
   const { showToast } = useAppUi();
   const [picked, setPicked] = useState<string | null>(null);
-  const [postedUrl, setPostedUrl] = useState("");
+  const [typedUrl, setTypedUrl] = useState<{ key: string; value: string }>({ key: "", value: "" });
   const [busy, setBusy] = useState(false);
   const selectedId = propertyId ?? picked ?? listings[listings.length - 1]?.id ?? "";
   const { status, refresh } = useListingChannels(selectedId || undefined);
 
-  useEffect(() => setPostedUrl(""), [selectedId, channelId]);
+  // The ad link belongs to one listing on one site: keying it by that pair empties the box
+  // when either changes, with no effect that writes state back after a render.
+  const urlKey = `${selectedId}:${channelId}`;
+  const postedUrl = typedUrl.key === urlKey ? typedUrl.value : "";
+  const setPostedUrl = (value: string) => setTypedUrl({ key: urlKey, value });
 
   const row = status?.posts.find((p) => p.propertyId === selectedId && p.channel === channelId) ?? null;
   const posted = row?.state === "posted_by_me";
