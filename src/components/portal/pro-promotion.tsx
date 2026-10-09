@@ -3,7 +3,7 @@ import { ManagerIntegrationsAction } from "@/components/portal/manager-integrati
 import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
-import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
+import { listingChannelsOrdered } from "@/lib/listing-channels/registry";
 import { WorkspaceListingSitesPanel } from "@/components/portal/listing-sites-panel";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
@@ -955,7 +955,7 @@ export function ManagerPromotion({
             id: "sites",
             label: "Listing sites",
             href: `${basePath}/promotion?kind=sites`,
-            count: LISTING_CHANNEL_DEFS.length,
+            count: listingChannelsOrdered().length,
             dataAttr: "promotion-kind-sites",
           },
         ]}

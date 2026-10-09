@@ -1,3 +1,4 @@
+import { withoutHostBlocks } from "@/lib/channel-calendar/host-block";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
@@ -265,7 +266,8 @@ function manualBlockPlacements(roomChoiceValue: string): RoomOccupancyPlacement[
   if (prop?.listingSubmission?.v !== 1) return [];
   const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
   const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
-  return manualRangesToSpans(room?.manualUnavailableRanges).flatMap((span, index) => {
+  // A host's Airbnb block closes the dates for guests but holds no bed, so it never fills capacity.
+  return manualRangesToSpans(withoutHostBlocks(room?.manualUnavailableRanges ?? [])).flatMap((span, index) => {
     const start = parseFlexibleLocalDate(span.start);
     if (!start) return [];
     const end = span.end ? parseFlexibleLocalDate(span.end) : start;

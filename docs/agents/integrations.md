@@ -33,7 +33,10 @@ The fact is a plain fact too, not a status chip:
 (`channelRowFact`, `src/lib/channel-calendar/channel-row-fact.ts` — it counts the
 channel's linked rooms against every unit in scope, so a partly-linked channel says
 so and its button still reads **Connect**), "(206) 555-0001", "Not set up",
-"2 of 7 listings posting".
+"2 of 7 listings posting". A row that opens something instead of acting in place
+passes `onOpen`: the whole row becomes a button (Enter / Space too) with a
+trailing chevron — how the Listing sites rows open their per-site guide
+([`listing-syndication.md`](listing-syndication.md)).
 
 ## Messages reads; it never edits
 
@@ -106,6 +109,12 @@ Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
 
 ## Posting
 
+- **Show Listed with PropLane** — the one home of the workspace attribution
+  switch (it is not on Promotion › Listing sites). `POST /api/manager/listing-channels/attribution`,
+  owner only; the toggle is disabled whenever the plan forces the line on (the
+  Free plan), because the write is refused rather than stored and ignored. What
+  the line is and where it renders belongs to
+  [`listing-syndication.md`](listing-syndication.md).
 - **Zillow Rental Network** — one feed link per workspace, created on first read
   of `GET /api/manager/syndication-feed`, copied with the row's Copy icon
   action. The row's fact is "N of M listings posting", counted from each

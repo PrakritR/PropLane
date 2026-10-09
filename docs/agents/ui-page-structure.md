@@ -122,6 +122,8 @@ They show fewer sections, never a different layout.
 - **Filters always live in the top-right Filter popover**, never as inline dropdown rows:
   an anchored card titled "Filter" with ✕, UPPERCASE field labels, pill selects, then Reset
   (blue text) and Save (blue pill). Active filters show as a dot or count on the icon.
+  Captain, Oct 9: phone Filter opens as a bottom sheet (drag handle, scrolling body, Reset and
+  Save pinned in the footer); the anchored popover is desktop only.
 - **Rows** (`PortalRecordListSurface`): tile · title · place line · glyph facts · figure · ⋯.
   No pills or status chips on rows (the tab is the status). The whole row opens the record.
 - **⋯ menu:** a floating card whose heading is the record's name in grey, followed by the

@@ -13,7 +13,24 @@ import { createManagerCharge, readChargesForManagerResident } from "@/lib/househ
 import { buildServiceIncomingRows, type ServiceIncomingRow } from "@/lib/service-incoming-payments";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+// A desktop: mouse + wide window. (A phone opens the Filter as a bottom sheet, Oct 9.)
+beforeEach(() => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: fine)",
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    onchange: null,
+    dispatchEvent: () => false,
+  }));
+});
 
 const incoming = (id: string, title: string, recurring?: string): ServiceIncomingRow => ({
   row: {

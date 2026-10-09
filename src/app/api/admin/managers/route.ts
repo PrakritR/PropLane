@@ -9,6 +9,7 @@ import {
   loadProfilesByIdChunks,
 } from "@/lib/auth/admin-portal-manager-ids.server";
 import { normalizeAdminAuditReason, writeAdminBillingAudit } from "@/lib/admin-billing-audit.server";
+import { setAdminAccountActive } from "@/lib/admin/admin-account-active.server";
 import { normalizeManagerSkuTier, pickBestManagerPurchaseRow, type ManagerSkuTier } from "@/lib/manager-access";
 import { setManagerPurchaseTier } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -193,8 +194,9 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Provide active and/or tier to update." }, { status: 400 });
     }
 
-    // A plan change is a commercial decision about one account. The reason is what a future reader
-    // needs, so it is required and refused BEFORE anything changes — including a bundled `active`.
+    // A plan change is a commercial decision about one account, and disabling or re-enabling one is a
+    // decision about a person's access. The reason is what a future reader needs, so it is required and
+    // refused BEFORE anything changes — including a bundled `active`.
     let normalizedTier: ManagerSkuTier | null = null;
     let reason: string | null = null;
     if (tier !== undefined) {
@@ -202,21 +204,28 @@ export async function PATCH(req: Request) {
       if (!normalizedTier) {
         return NextResponse.json({ error: "tier must be free, pro, or business." }, { status: 400 });
       }
+    }
+    if (tier !== undefined || typeof active === "boolean") {
       reason = normalizeAdminAuditReason(body.reason);
       if (!reason) return NextResponse.json({ error: "A reason is required." }, { status: 400 });
     }
 
     const supabase = createSupabaseServiceRoleClient();
 
+    let auditRecorded = true;
     if (typeof active === "boolean") {
-      const { error } = await supabase.from("profiles").update({ application_approved: active }).eq("id", id);
-      if (error) {
-        console.error("PATCH /api/admin/managers: profile update failed", error);
-        return NextResponse.json({ error: "Could not update account." }, { status: 500 });
-      }
+      const outcome = await setAdminAccountActive({
+        db: supabase,
+        actorUserId: auth.actorId,
+        accountUserId: id,
+        kind: "manager",
+        active,
+        reason,
+      });
+      if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+      auditRecorded = outcome.auditRecorded;
     }
 
-    let auditRecorded = true;
     if (normalizedTier) {
       // The before-value for the trail: the plan row the resolver reads, or Free when there is none.
       const { data: beforeRows, error: beforeError } = await supabase
@@ -245,7 +254,7 @@ export async function PATCH(req: Request) {
         entries: [{ field: "plan", before: beforeTier, after: normalizedTier }],
         reason,
       });
-      auditRecorded = audit.ok;
+      auditRecorded = auditRecorded && audit.ok;
     }
 
     return NextResponse.json({ ok: true, auditRecorded });

@@ -120,6 +120,7 @@ export function VaulBottomSheet({
   dismissible = true,
   assistantStrip,
   assistantContext,
+  onEscapeKeyDown,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -139,6 +140,8 @@ export function VaulBottomSheet({
   /** Pass `false` to hide the in-sheet assistant (e.g. payment flows). */
   assistantStrip?: boolean;
   assistantContext?: string;
+  /** Call `event.preventDefault()` to keep the sheet open (e.g. a field menu owns this Escape). */
+  onEscapeKeyDown?: (event: KeyboardEvent) => void;
 }) {
   const portalAssistant = usePortalAssistantConfig();
   const showAssistantStrip = assistantStrip !== false && portalAssistant != null;
@@ -229,6 +232,7 @@ export function VaulBottomSheet({
           data-slot="vaul-bottom-sheet"
           data-elevated={elevated ? "true" : "false"}
           data-full-screen={fullScreen ? "true" : "false"}
+          onEscapeKeyDown={onEscapeKeyDown}
           onPointerDownOutside={allowPortaledFieldSelectInteraction}
           onInteractOutside={allowPortaledFieldSelectInteraction}
           onFocusOutside={allowPortaledFieldSelectInteraction}

@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building, Camera, Copy, Home, Share2, Unlink } from "lucide-react";
 
+import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
+import { PortalSettingsGroup, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
-import { useListingChannels } from "@/hooks/use-listing-channels";
+import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing-channels";
 import { listingHoldFact } from "@/lib/listing-channels/post-text";
 import { listingChannelDef } from "@/lib/listing-channels/registry";
 
@@ -215,6 +216,37 @@ function MetaPostingRows() {
   );
 }
 
+/** "Listed with PropLane" on the public listing page and in every post. On by default; paid plans may turn it off. */
+function ListedWithPropLaneRow() {
+  const { showToast } = useAppUi();
+  const { status, refresh } = useListingChannels();
+  const [saving, setSaving] = useState(false);
+  const setAttribution = async (show: boolean) => {
+    setSaving(true);
+    const res = await postListingChannelWrite("attribution", { show, workspaceId: status?.workspaceId });
+    if (!res.ok) showToast(res.error ?? "Could not save.");
+    await refresh();
+    setSaving(false);
+  };
+  return (
+    <IntegrationRow
+      icon={ProPlaneMarkIcon}
+      tone="text-primary"
+      name="Show Listed with PropLane"
+      dataAttr="settings-listed-with-proplane-row"
+      action={
+        <PortalSettingsToggle
+          checked={status?.attribution?.enabled ?? true}
+          onChange={(next) => void setAttribution(next)}
+          label="Show Listed with PropLane"
+          disabled={!status || status.attribution?.forced !== false || !status.canManage || saving}
+          dataAttr="settings-listed-with-proplane-toggle"
+        />
+      }
+    />
+  );
+}
+
 /** Settings → Integrations → Posting: where a listing is advertised beyond PropLane itself. */
 export function ManagerPostingPanel() {
   const workspaceCtx = useWorkspaces();
@@ -227,6 +259,7 @@ export function ManagerPostingPanel() {
 
   return (
     <PortalSettingsGroup>
+      <ListedWithPropLaneRow />
       <ZillowFeedRow propertyIds={propertyIds} />
       <MetaPostingRows />
       <FacebookMarketplaceRow options={options} />

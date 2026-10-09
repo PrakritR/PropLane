@@ -588,20 +588,23 @@ export function ManagerDangerZoneCard({
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const toggle = async () => {
+  const [toggleOpen, setToggleOpen] = useState(false);
+
+  /** Disable / enable needs a reason, which the audit trail keeps. Returns an error sentence, or null once it landed. */
+  const submitToggle = async (reason: string): Promise<string | null> => {
     setBusy(true);
     try {
       const res = await fetch("/api/admin/managers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, active: !row.active }),
+        body: JSON.stringify({ id: row.id, active: !row.active, reason }),
       });
-      if (!res.ok) {
-        showToast("Could not update account.");
-        return;
-      }
-      showToast(row.active ? "Manager account disabled." : "Manager account enabled.");
+      const data = (await res.json().catch(() => ({}))) as { error?: string; auditRecorded?: boolean };
+      if (!res.ok) return data.error || "Could not update account.";
+      const landed = row.active ? "Manager account disabled." : "Manager account enabled.";
+      showToast(data.auditRecorded === false ? `${landed} The audit entry could not be written.` : landed);
       onRefresh();
+      return null;
     } finally {
       setBusy(false);
     }
@@ -634,11 +637,19 @@ export function ManagerDangerZoneCard({
         type="button"
         variant="outline"
         className={`rounded-full ${row.active ? "border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]" : ""}`}
-        onClick={() => toggle()}
+        onClick={() => setToggleOpen(true)}
         disabled={busy}
       >
         {busy && !confirmDelete ? "Updating…" : row.active ? "Disable account" : "Enable account"}
       </Button>
+      <AdminBillingActionDialog
+        open={toggleOpen}
+        title={row.active ? "Disable account" : "Enable account"}
+        submitLabel={row.active ? "Disable account" : "Enable account"}
+        dataAttr="admin-manager-active-dialog"
+        onClose={() => setToggleOpen(false)}
+        onSubmit={submitToggle}
+      />
       {confirmDelete ? (
         <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 portal-banner-danger">
           <span className="text-xs font-semibold text-rose-800">

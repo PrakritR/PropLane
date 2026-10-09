@@ -7,6 +7,7 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { AdminViewAsAction } from "@/components/portal/admin-view-as-action";
+import { AdminAccountActiveDialog } from "@/components/portal/admin-account-active-dialog";
 import { useAdminAccountActions } from "@/components/portal/use-admin-account-actions";
 import {
   AccountAuditSection,
@@ -103,7 +104,7 @@ export function AdminAccountRecordPage({
     };
   }, [kind, id, reloadTick]);
 
-  const { busy, setActive, remove } = useAdminAccountActions(reload);
+  const { busy, setActive, askActive, activeRequest, clearActiveRequest, remove } = useAdminAccountActions(reload);
 
   const section = adminAccountSectionFromParam(sectionParam, kind);
   const rail = useMemo(() => adminAccountRail(kind), [kind]);
@@ -177,7 +178,7 @@ export function AdminAccountRecordPage({
             label={active ? "Disable account" : "Enable account"}
             disabled={busy}
             data-attr="admin-account-toggle-active"
-            onClick={() => void setActive(kind, detail.id, !active)}
+            onClick={() => askActive(kind, detail.id, !active)}
           />
           <PortalIconAction
             ring
@@ -210,6 +211,11 @@ export function AdminAccountRecordPage({
           {body}
         </div>
       </PortalRecordSectionChrome>
+      <AdminAccountActiveDialog
+        request={activeRequest}
+        onClose={clearActiveRequest}
+        onSubmit={(req, reason) => setActive(req.kind, req.id, req.active, reason)}
+      />
     </PortalRecordDetailPage>
   );
 }
