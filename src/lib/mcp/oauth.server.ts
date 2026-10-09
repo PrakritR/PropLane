@@ -49,6 +49,39 @@ export function verifyMcpApproval(token: string): ApprovalPayload | null {
   } catch { return null; }
 }
 
+type ConnectedPayload = { destination: string; clientName: string; workspaceName: string; userId: string; expiresAt: number };
+
+const CONNECTED_TTL_MS = 2 * 60_000;
+
+/** Domain-separated from the approval signature so neither token can stand in for the other. */
+function connectedSignature(secret: string, encoded: string): string {
+  return createHmac("sha256", secret).update(`mcp-connected:${encoded}`).digest("base64url");
+}
+
+/**
+ * A 2-minute, user-bound token for the "PropLane is connected" screen. It carries the
+ * already-validated client callback (redirect_uri + code + state) so that screen never
+ * redirects to anything the approve route did not itself build.
+ */
+export function signMcpConnected(payload: Omit<ConnectedPayload, "expiresAt">): string | null {
+  const secret = approvalSecret();
+  if (!secret || !isSafeOAuthRedirectUri(payload.destination)) return null;
+  const encoded = Buffer.from(JSON.stringify({ ...payload, expiresAt: Date.now() + CONNECTED_TTL_MS })).toString("base64url");
+  return `${encoded}.${connectedSignature(secret, encoded)}`;
+}
+
+export function verifyMcpConnected(token: string): ConnectedPayload | null {
+  const secret = approvalSecret();
+  const [encoded, signature, extra] = token.split(".");
+  if (!secret || !encoded || !signature || extra) return null;
+  const expected = connectedSignature(secret, encoded);
+  if (expected.length !== signature.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(signature))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as ConnectedPayload;
+    return typeof payload.destination === "string" && typeof payload.clientName === "string" && typeof payload.workspaceName === "string" && typeof payload.userId === "string" && Number.isFinite(payload.expiresAt) && payload.expiresAt > Date.now() && isSafeOAuthRedirectUri(payload.destination) ? payload : null;
+  } catch { return null; }
+}
+
 export function isSafeOAuthRedirectUri(value: string): boolean {
   try {
     const url = new URL(value);

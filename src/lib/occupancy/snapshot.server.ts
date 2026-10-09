@@ -107,6 +107,11 @@ function leaseBookingRowFromScope(record: {
   } as LeaseBookingRow & { residentEmail?: string };
 }
 
+function positiveNumber(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export function holdRowFromApplication(row: {
   id: unknown;
   property_id?: unknown;
@@ -129,9 +134,14 @@ export function holdRowFromApplication(row: {
       leaseEnd: str(application.leaseEnd) || undefined,
       roomChoice1: str(application.roomChoice1) || undefined,
     },
+    signedMonthlyRent: positiveNumber(data.signedMonthlyRent),
     manualResidentDetails: {
       moveInDate: str(manual.moveInDate) || undefined,
       moveOutDate: str(manual.moveOutDate) || undefined,
+      phone: str(manual.phone) || undefined,
+      monthlyRent: positiveNumber(manual.monthlyRent),
+      securityDeposit: typeof manual.securityDeposit === "number" && Number.isFinite(manual.securityDeposit) ? manual.securityDeposit : undefined,
+      leaseTerm: str(manual.leaseTerm) || undefined,
     },
   };
 }

@@ -54,9 +54,9 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
   {
     id: "calendar",
     label: "Calendar & tours",
-    description: "Availability, events, and prospective tenant tours.",
-    readTools: ["list_calendar_events", "list_tour_inquiries", "list_open_tour_slots"],
-    writeTools: ["update_manager_availability", "create_calendar_event", "cancel_calendar_event", "accept_tour_inquiry", "confirm_tour_inquiry", "book_tour", "reschedule_tour", "cancel_tour"],
+    description: "Availability, events, bookings, room blocks, and prospective tenant tours.",
+    readTools: ["list_calendar_events", "list_tour_inquiries", "list_open_tour_slots", "list_bookings", "list_room_blocks"],
+    writeTools: ["update_manager_availability", "create_calendar_event", "cancel_calendar_event", "accept_tour_inquiry", "confirm_tour_inquiry", "book_tour", "reschedule_tour", "cancel_tour", "block_room_dates", "remove_room_block"],
   },
   {
     id: "maintenance",

@@ -89,22 +89,62 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       throw new Error("Listing owner could not be verified.");
     }
     const owners = [...new Set(ownerByListing.values())];
-    const fetchApplicationPage = (ownerSlice: string[], offset: number) =>
-      db
+    // Scope by PROPERTY, never by `manager_user_id`: a row's manager stamp is whoever authored it
+    // (a co-manager of the workspace, a previous owner), so filtering on the owner dropped every
+    // resident the owner did not personally add and showed their room as free. Same reach as the
+    // calendar export feed. The four places a row can name its property are the two property columns
+    // and the two `propertyId::roomId` choice values (an imported stay carries only the latter).
+    const fetchApplicationPage = (idSlice: string[], offset: number) => {
+      const safe = idSlice.map((id) => id.replace(/[,()"%*\\]/g, ""));
+      const quoted = safe.map((id) => `"${id}"`).join(",");
+      return db
         .from("manager_application_records")
         .select(
           "id,occupancy_start,manager_user_id,property_id,assigned_property_id,assigned:row_data->>assignedPropertyId,property:row_data->>propertyId,application_property:row_data->application->>propertyId,withdrawn:row_data->>withdrawnAt,manually_added:row_data->>manuallyAdded,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,manual_room:row_data->manualResidentDetails->>roomNumber,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd",
         )
         .eq("row_data->>bucket", "approved")
-        .in("manager_user_id", ownerSlice)
+        .or(
+          [
+            `property_id.in.(${quoted})`,
+            `assigned_property_id.in.(${quoted})`,
+            ...safe.map((id) => `row_data->>assignedRoomChoice.like.${id}::%`),
+            ...safe.map((id) => `row_data->application->>roomChoice1.like.${id}::%`),
+          ].join(","),
+        )
         .order("id")
         .range(offset, offset + 499);
+    };
     type ApplicationRow = NonNullable<Awaited<ReturnType<typeof fetchApplicationPage>>["data"]>[number];
     const fetchApplicationRows = async (): Promise<ApplicationRow[]> => {
       const all: ApplicationRow[] = [];
-      for (let chunk = 0; chunk < owners.length; chunk += 100) {
+      const seen = new Set<string>();
+      for (let chunk = 0; chunk < listingIds.length; chunk += 20) {
         for (let offset = 0; ; offset += 500) {
-          const { data, error } = await fetchApplicationPage(owners.slice(chunk, chunk + 100), offset);
+          const { data, error } = await fetchApplicationPage(listingIds.slice(chunk, chunk + 20), offset);
+          if (error) throw error;
+          for (const row of data ?? []) {
+            const id = String(row.id ?? "");
+            if (id && seen.has(id)) continue;
+            seen.add(id);
+            all.push(row);
+          }
+          if ((data ?? []).length < 500) break;
+        }
+      }
+      return all;
+    };
+    // A manager's explicit closed dates (`room_date_block`), room-specific or whole-property.
+    const fetchBlockRows = async () => {
+      const all: { id: unknown; property_id: unknown; row_data: unknown }[] = [];
+      for (let chunk = 0; chunk < listingIds.length; chunk += 100) {
+        for (let offset = 0; ; offset += 500) {
+          const { data, error } = await db
+            .from("portal_schedule_records")
+            .select("id,property_id,row_data")
+            .in("property_id", listingIds.slice(chunk, chunk + 100))
+            .eq("record_type", "room_date_block")
+            .order("id")
+            .range(offset, offset + 499);
           if (error) throw error;
           all.push(...(data ?? []));
           if ((data ?? []).length < 500) break;
@@ -127,26 +167,30 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
     // The three reads are independent of one another (all key off the owner and
     // listing ids resolved above), so they run together. Results are applied in
     // the original order below, so the output is unchanged.
-    const [executedByOwner, applicationRows, calendarRows] = await Promise.all([
+    const [executedByOwner, applicationRows, calendarRows, blockRows] = await Promise.all([
       executedApplicationIdsByOwner(db, owners),
       fetchApplicationRows(),
       fetchCalendarRows(),
+      fetchBlockRows(),
     ]);
+    // Application ids are globally unique, so a lease any teammate executed counts for the application.
+    const executedIds = new Set<string>();
+    for (const ids of executedByOwner.values()) for (const id of ids) executedIds.add(id);
     const listingById = new Map(listings.map((p) => [p.id, p] as const));
 
     for (const row of applicationRows) {
       if (row.withdrawn) continue;
-      const ownerId = String(row.manager_user_id ?? "").trim();
-      const executedIds = executedByOwner.get(ownerId) ?? new Set<string>();
       const appRow = {
         id: normalizeApplicationAxisId(String(row.id)),
         manuallyAdded: String(row.manually_added ?? "") === "true",
       };
       if (!applicationHoldsRoomPublicly(appRow, executedIds)) continue;
 
-      const property = listingById.get(String(row.assigned || row.property || row.application_property));
-      if (!property || ownerByListing.get(property.id) !== row.manager_user_id) continue;
       const choice = String(row.choice || row.preferred || "").trim();
+      const property =
+        listingById.get(String(row.assigned || row.assigned_property_id || row.property || row.property_id || row.application_property)) ??
+        listingById.get(choice.split("::")[0] ?? "");
+      if (!property) continue;
       const canonicalChoice = canonicalRoomChoiceValue(choice);
       const candidates = property.listingSubmission?.rooms ?? [];
       const matched = candidates.filter(
@@ -184,6 +228,27 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
         const end = day((range as { end?: unknown }).end) || start;
         const id = String((range as { sourceUid?: unknown; id?: unknown }).sourceUid || (range as { id?: unknown }).id || `${start}:${end}`);
         bucket.set(id, { start, end, count: 1 });
+      }
+    }
+    for (const block of blockRows) {
+      const data = block.row_data && typeof block.row_data === "object" ? (block.row_data as Record<string, unknown>) : null;
+      const property = listingById.get(String(block.property_id ?? ""));
+      if (!data || !property || data.bookingStatus === "cancelled") continue;
+      const start = day(data.checkIn);
+      const checkout = day(data.checkOut);
+      if (!start || !checkout || checkout <= start) continue;
+      const openEnded = data.openEnded === true || checkout === "9999-12-31";
+      const end = openEnded ? null : new Date(Date.parse(`${checkout}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+      const roomId = String(data.roomId ?? "").trim();
+      const blocked = roomId
+        ? (property.listingSubmission?.rooms ?? []).filter((room) => room.id === roomId)
+        : (property.listingSubmission?.rooms ?? []);
+      for (const room of blocked) {
+        placements.get(`${property.id}::${room.id}`)?.set(`block:${String(block.id)}`, {
+          start,
+          end,
+          count: roomId ? 1 : (room.occupancyCapacity ?? 1),
+        });
       }
     }
     const rooms: PublicRoomOccupancy[] = [...placements].map(([roomChoice, rows]) => ({

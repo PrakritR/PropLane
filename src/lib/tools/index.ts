@@ -110,6 +110,7 @@ import {
   cancelCalendarEventTool,
   acceptTourInquiryTool,
 } from "./domains/calendar";
+import { managerBookingsTools } from "./domains/bookings";
 import { listServiceRequestsTool } from "./domains/services";
 import { findRecordsTool } from "./domains/search";
 import { getManagerProfileTool, getDashboardSummaryTool } from "./domains/profile";
@@ -276,6 +277,8 @@ export const agentRegistry = buildRegistry([
   deletePromotionTool,
   syncSpreadsheetTool,
   ...managerServicesWriteTools,
+  // Bookings reads + room-block writes (calendar area). remove_room_block is destructive.
+  ...managerBookingsTools,
   // The accounting writes (bills, budgets, deposit dispositions, owner
   // distributions, bank reconciliation). Each carries a preview, which is what
   // makes it safe to expose — the model can propose, only the landlord can

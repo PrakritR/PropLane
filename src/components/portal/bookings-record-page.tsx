@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { UserRound } from "lucide-react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -16,11 +17,11 @@ import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-m
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { bookingDatesLabel, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingResidentHref, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
-import { bookingNights, bookingRateSummary, guestPastStays } from "@/lib/channel-calendar/booking-record";
+import { bookingCharges, bookingMoney, bookingNights, bookingOverdueTotal, bookingRateSummary, guestPastStays } from "@/lib/channel-calendar/booking-record";
 import { readHouseholdCharges } from "@/lib/household-charges";
 import { dateKey } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -52,14 +53,20 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const guestEmail = entry.residentEmail || resident?.email || "";
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
   const backHref = managerBookingListHref(basePath, "upcoming");
-  const range = formatBookingStayRange(entry.start, entry.end, entry.openEnded);
+  const range = bookingDatesLabel(entry);
   const nights = bookingNights(entry);
   const conflicts = channel ? bookingConflictsFor(entries.filter((candidate) => candidate !== entry), entry) : [];
   const today = dateKey(new Date());
   const base = recordSections("manager", "booking", { basePath });
-  const sections = { ...base, headerActions: base.headerActions.filter((action) => action.id !== "edit" || !channel) };
+  const residentHref = bookingResidentHref(entry, basePath, today);
+  const headerActions = base.headerActions.filter((action) => action.id !== "edit" || !channel);
+  const sections = {
+    ...base,
+    headerActions: residentHref ? [...headerActions, { id: "open-resident", label: "Open resident", icon: UserRound }] : headerActions,
+  };
   const onAction = (action: string) => {
     if (action === "edit") setEditing(true);
+    if (action === "open-resident" && residentHref) navigate(residentHref);
     if (action === "message") navigate(bookingRecordHref(basePath, bookingId, "communication"));
   };
   const place = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
@@ -83,8 +90,10 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     );
   } else if (tab === "payments") {
     const summary = bookingRateSummary(entry);
-    const charges = entry.applicationId ? readHouseholdCharges().filter((charge) => charge.applicationId === entry.applicationId) : [];
+    const charges = bookingCharges(entry, readHouseholdCharges());
+    const overdue = bookingOverdueTotal(charges);
     const rows: RecordRowItem[] = [
+      ...(charges.length > 0 ? [{ id: "overdue", title: "Overdue", sub: overdue > 0 ? "Past due" : "Nothing past due", figure: bookingMoney(overdue) }] : []),
       ...(summary ? [{ id: "stay", title: summary.total ? "Stay total" : "Rate", sub: summary.calc, figure: summary.total ?? bookingRateLabel(entry) }] : [{ id: "rate", title: "Rate", sub: `${nights} ${nights === 1 ? "night" : "nights"}`, figure: bookingRateLabel(entry) }]),
       ...charges.map((charge) => ({
         id: charge.id,
@@ -101,10 +110,12 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         <RecordFactRow label="Dates" value={`${range}${entry.openEnded ? " · open-ended" : ` · ${nights} ${nights === 1 ? "night" : "nights"}`}`} />
         <RecordFactRow label="Where" value={place} />
         {channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
-        {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? "Application" : bookingSourceLabel(entry.source)}</Link>} /> : null}
+        {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? (entry.applicationId ? "Resident" : "Application") : bookingSourceLabel(entry.source)}</Link>} /> : null}
         {checkTimes ? <RecordFactRow label="Check-in / out" value={checkTimes} /> : null}
         <RecordFactRow label="Status" value={status} />
-        <RecordFactRow label="Rate" value={bookingRateLabel(entry)} />
+        {entry.monthlyRent != null ? <RecordFactRow label="Rent" value={bookingRateLabel(entry)} /> : <RecordFactRow label="Rate" value={bookingRateLabel(entry)} />}
+        {entry.securityDeposit != null ? <RecordFactRow label="Deposit" value={bookingMoney(entry.securityDeposit)} /> : null}
+        {entry.leaseTerm ? <RecordFactRow label="Lease term" value={entry.leaseTerm} /> : null}
         {entry.lastSyncedAt ? <RecordFactRow label="Last synced" value={new Date(entry.lastSyncedAt).toLocaleString()} /> : null}
         {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
         {stayDetailRows.filter(([key]) => key !== "earlyCheckIn" && key !== "lateCheckOut").map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
