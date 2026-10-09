@@ -186,6 +186,9 @@ export async function PATCH(req: Request) {
     const body = (await req.json().catch(() => ({}))) as { id?: string; active?: boolean; tier?: string; reason?: unknown };
     const { id, active, tier } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return NextResponse.json({ error: "id must be a user id." }, { status: 400 });
+    }
     if (typeof active !== "boolean" && tier === undefined) {
       return NextResponse.json({ error: "Provide active and/or tier to update." }, { status: 400 });
     }

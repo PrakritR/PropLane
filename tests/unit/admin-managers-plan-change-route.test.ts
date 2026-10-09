@@ -92,6 +92,13 @@ describe("Save plan requires a reason", () => {
     expect(audit()).toHaveLength(0);
   });
 
+  it("rejects an id that is not a UUID before touching anything", async () => {
+    for (const id of ["abc", "1 or 1=1", 42, { $ne: 1 }]) {
+      expect((await patch({ id, active: false })).status).toBe(400);
+    }
+    expect(setManagerPurchaseTier).not.toHaveBeenCalled();
+  });
+
   it("is staff-only", async () => {
     isAdminUser.mockResolvedValue(false);
     expect((await patch({ id: MGR, tier: "business", reason: "x" })).status).toBe(401);
