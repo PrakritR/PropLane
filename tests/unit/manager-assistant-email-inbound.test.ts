@@ -610,6 +610,20 @@ describe("processManagerAssistantInboundEmail", () => {
       );
     });
 
+    it("fails closed: an unreadable approval switch holds the answer as a review draft", async () => {
+      mocks.resolveAutomationSendModeForEvent.mockRejectedValue(new Error("settings down"));
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+      errors.mockRestore();
+
+      expect(result).toMatchObject({ handled: true, replied: false });
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenLastCalledWith(
+        db,
+        expect.objectContaining({ replyAsReviewDraft: true, replySent: false }),
+      );
+    });
+
     it("the manager's own mail does not reserve credit (it is their assistant, not an auto-reply)", async () => {
       mocks.resolveManagerEmailInboundIdentity.mockResolvedValue({
         workNumberOwnerId: "mgr-1",

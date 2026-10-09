@@ -223,10 +223,17 @@ export async function processManagerAssistantInboundEmail(
         reason: credit.reason,
       });
     }
-    const sendMode = credit.allowed
-      ? await resolveAutomationSendModeForEvent(db, { managerUserId }).catch(() => null)
-      : null;
-    holdReplyForReview = sendMode?.partyFacing === "draft";
+    /* Fail closed: a lookup error must not auto-send when the manager may have
+       required approval, so an unreadable switch holds the reply as a draft. */
+    if (credit.allowed) {
+      try {
+        const sendMode = await resolveAutomationSendModeForEvent(db, { managerUserId });
+        holdReplyForReview = sendMode?.partyFacing === "draft";
+      } catch (cause) {
+        console.error("work-email auto-reply send mode lookup failed; holding for review", cause);
+        holdReplyForReview = true;
+      }
+    }
     try {
       if (sender.role === "resident") {
         /* Same memory the prospect branch has: the last turns of this resident's
