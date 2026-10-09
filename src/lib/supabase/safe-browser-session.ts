@@ -28,6 +28,19 @@ export function isStaleRefreshTokenError(error: unknown): boolean {
   return isDefinitelyStaleMessage(String(record.message ?? "").toLowerCase());
 }
 
+/**
+ * True when the SERVER's own `getUser()` answered 401/403 `session_not_found`: the session row behind the
+ * JWT was revoked (sign out everywhere, password change, admin removal), so the cookie can never work
+ * again. Only the server-side `getUser()` paths (middleware, server-profile) act on this by clearing
+ * their local cookies; {@link isStaleRefreshTokenError} deliberately stays false for it, so a browser
+ * `getSession()` or a refresh-rotation race still reads as transient. Network failures, 429 and 5xx never match.
+ */
+export function isRevokedSessionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: string; status?: number };
+  return String(record.code ?? "").toLowerCase() === "session_not_found" && (record.status === 401 || record.status === 403);
+}
+
 function isDefinitelyStaleMessage(message: string): boolean {
   if (message.includes("already used")) return false;
   return message.includes("invalid refresh token") || message.includes("refresh token not found");

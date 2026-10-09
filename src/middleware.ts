@@ -12,7 +12,7 @@ import {
   requestHostFromHeaders,
 } from "@/lib/seo/public-crawl-host";
 import { isSecureAuthContext, supabaseAuthCookieOptions } from "@/lib/supabase/cookie-options";
-import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
+import { isRevokedSessionError, isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
 import {
   readViewAsSecret,
   VIEW_AS_COOKIE,
@@ -184,7 +184,8 @@ export async function middleware(request: NextRequest) {
   // only locally: a global signOut() would revoke the user's other devices and
   // a concurrent refresh-token rotation (middleware + client auto-refresh)
   // must never read as a logout. Network blips, 429s and 5xx keep the cookies.
-  if (userError && isStaleRefreshTokenError(userError)) {
+  // A 401/403 session_not_found from getUser() itself means the session was revoked server-side.
+  if (userError && (isStaleRefreshTokenError(userError) || isRevokedSessionError(userError))) {
     await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
   }
 
