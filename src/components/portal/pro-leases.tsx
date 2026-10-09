@@ -76,6 +76,9 @@ export function ManagerLeases({
   const [listSearch, setListSearch] = useState("");
   const [clientReady, setClientReady] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
+  // `Date.now()` cannot be called during render (react-hooks/purity) — a lazy
+  // `useState` initializer is the established pattern here (pro-task-list.tsx).
+  const [nowMs] = useState(() => Date.now());
 
   useEffect(() => {
     queueMicrotask(() => setClientReady(true));
@@ -144,14 +147,13 @@ export function ManagerLeases({
   const rows = useMemo(() => {
     if (!clientReady) return [];
     void tick;
-    const now = Date.now();
     return readLeasePipeline(userId).filter(
       (row) =>
         (propertyFilters.length === 0 || propertyFilters.includes(row.application?.propertyId?.trim() ?? "")) &&
         (stageFilters.length === 0 || stageFilters.includes(row.stageLabel?.trim() ?? "")) &&
-        leaseUpdatedWithinWindow(row.updatedAtIso, updatedWindow, now),
+        leaseUpdatedWithinWindow(row.updatedAtIso, updatedWindow, nowMs),
     );
-  }, [clientReady, tick, propertyFilters, stageFilters, updatedWindow, userId]);
+  }, [clientReady, tick, propertyFilters, stageFilters, updatedWindow, userId, nowMs]);
 
   const hasActiveFilters = propertyFilters.length > 0 || stageFilters.length > 0 || updatedWindow !== "any";
   const clearAllFilters = () => {

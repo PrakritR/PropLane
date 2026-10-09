@@ -20,6 +20,10 @@ import {
 
 const surface = new URLSearchParams(location.search).get("surface") ?? "shell";
 
+// Module scope on purpose: reading the clock during render is impure
+// (`react-hooks/purity`). The banner only needs a session that is nearly up.
+const VIEW_AS_EXPIRES_AT_MS = Date.now() + 29 * 60_000 + 40_000;
+
 /**
  * The real portal chrome, assembled exactly as the authenticated layout does it:
  * dark top strip (Ask PropLane + ⌘K), the workspace rail, and the page column with
@@ -64,7 +68,7 @@ function Surface() {
         <ViewAsBanner
           name="Mia Manager"
           portal="manager"
-          expiresAtMs={Date.now() + 29 * 60_000 + 40_000}
+          expiresAtMs={VIEW_AS_EXPIRES_AT_MS}
           endHref="/admin/axis-users/manager-abc"
         />
         <Shell />

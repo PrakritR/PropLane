@@ -362,25 +362,29 @@ function useAutosavedTextField<F extends keyof VendorBusinessProfileView>(
   state: ReturnType<typeof useBusinessProfileAutosave<F>>,
 ) {
   const { draft, setDraft, fieldState, fieldError, commit } = state;
-  return (field: F, label: string, id: string, type: "text" | "date" = "text") => (
-    <PortalSettingsAutosaveField
-      label={label}
-      htmlFor={id}
-      state={fieldState[field]}
-      error={fieldError[field]}
-      onRetry={() => void commit(field)}
-    >
-      <Input
-        id={id}
-        type={type}
-        value={typeof draft[field] === "string" ? (draft[field] as string) : ""}
-        maxLength={type === "date" ? undefined : 120}
-        onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
-        onBlur={() => void commit(field)}
-        data-attr={id}
-      />
-    </PortalSettingsAutosaveField>
-  );
+  // A named function declaration, not an anonymous arrow: this builds one row of
+  // the settings form, so it needs a name for react/display-name to read.
+  return function autosavedTextField(field: F, label: string, id: string, type: "text" | "date" = "text") {
+    return (
+      <PortalSettingsAutosaveField
+        label={label}
+        htmlFor={id}
+        state={fieldState[field]}
+        error={fieldError[field]}
+        onRetry={() => void commit(field)}
+      >
+        <Input
+          id={id}
+          type={type}
+          value={typeof draft[field] === "string" ? (draft[field] as string) : ""}
+          maxLength={type === "date" ? undefined : 120}
+          onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+          onBlur={() => void commit(field)}
+          data-attr={id}
+        />
+      </PortalSettingsAutosaveField>
+    );
+  };
 }
 
 /** Documents > Business license: the vendor's own license number (the license and bond files upload beside it). */

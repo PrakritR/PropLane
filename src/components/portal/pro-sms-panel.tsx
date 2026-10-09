@@ -99,6 +99,14 @@ function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean 
 /** Destructive red for swipe / delete affordances. */
 const DELETE_RED = "var(--status-overdue-fg)";
 
+/**
+ * Module scope on purpose: reading the clock is not allowed inside a component
+ * body (`react-hooks/purity`), and this id only has to be unique per send.
+ */
+function pendingOutboundId(): string {
+  return `pending-${Date.now()}`;
+}
+
 function conversationId(resident: ManagerSmsResidentConversation): string {
   // The explicit conversation key separates two people on one shared line and
   // the same person across roles — prefer it over the phone so those threads
@@ -1069,7 +1077,7 @@ export const ManagerSmsPanel = forwardRef<
       return;
     }
     setSending(true);
-    const pendingId = `pending-${Date.now()}`;
+    const pendingId = pendingOutboundId();
     const pendingRow: ManagerSmsMessageRow = {
       id: pendingId,
       direction: "outbound",
