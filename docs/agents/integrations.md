@@ -13,22 +13,27 @@ a new channel is a row on it — never a new settings pane.
 is the page. Its settings group id is still `spreadsheets` (the legacy id, kept
 so saved links and deep links keep resolving) with the label **Integrations**,
 so the deep link is `?tab=spreadsheets&integration=<messages|bookings|posting|google>`
-(`INTEGRATIONS_TAB_PARAM`). Four sub-tabs, left rail on desktop and a scrolling
-strip on a phone:
+(`INTEGRATIONS_TAB_PARAM`; `integration=spreadsheets` is accepted as a friendly
+alias for the sub-tab whose id stays `google`). Four sub-tabs, left rail on
+desktop and a scrolling strip on a phone:
 
 | Tab | Panel | Owns |
 | --- | --- | --- |
 | **Messages** | `integrations-messages-panel.tsx` | Read-only rows for the workspace's work number and work email |
 | **Bookings** | `integrations-bookings-panel.tsx` | The channels whose calendars PropLane syncs |
 | **Posting** | `integrations-posting-panel.tsx` | Where a listing is advertised beyond PropLane |
-| **Google** | `manager-sheet-link-panel.tsx` | The Sheets/Drive link |
+| **Spreadsheets** | `manager-sheet-link-panel.tsx` | The workspace's linked spreadsheets (Google Sheet or published CSV) |
 
 **Every row is an `IntegrationRow`** (`src/components/portal/integration-row.tsx`):
 logo tile · name · one plain fact · action. A channel that is not built yet says
 **"Coming soon"** in plain text where the action would be — never a badge and
 never a pill, because portal rows carry none (AGENTS.md § Portal UI system).
-The fact is a plain fact too, not a status chip: "Connected · 3 rooms",
-"(206) 555-0001", "Not set up", "2 of 7 listings posting".
+The fact is a plain fact too, not a status chip:
+"Connected · 2 of 3 rooms · both ways · synced 5 min ago · 1 needs a listing"
+(`channelRowFact`, `src/lib/channel-calendar/channel-row-fact.ts` — it counts the
+channel's linked rooms against every unit in scope, so a partly-linked channel says
+so and its button still reads **Connect**), "(206) 555-0001", "Not set up",
+"2 of 7 listings posting".
 
 ## Messages reads; it never edits
 
@@ -54,6 +59,20 @@ per room (`channelCalendarUnits`). An import URL must be that channel's own
 export link (`isValidChannelImportUrl` per host + path; the error message names
 the exact clicks on that channel's site), so the fetcher can never be pointed at
 an arbitrary target.
+
+**Each room row says where it stands**, because a two-way link is only live once
+BOTH halves are done: the paste state (Linked / "Paste <channel> calendar link" /
+"Feed failed · <error>"), whether PropLane's own export link has been taken yet
+(Copied, or "Not yet pasted into <channel>"), and "Last sync <relative>"
+(`relativeSyncTime`). Its ⋯ holds Sync now · Feed preview · Disconnect, plus
+**Copy Airbnb listing pack** on Airbnb only — `buildAirbnbListingPack`
+(`src/lib/channel-calendar/listing-pack.ts`) composes the room's own listing facts
+(32-character title, address, overview, amenities, house rules, a nightly price
+derived from the room's monthly rent, and the photo list) into text the manager
+pastes into Airbnb's own composer. It never posts anywhere and never invents a
+photo: a data-URL photo is listed as "embedded photo (open the room in PropLane to
+save it)" rather than a URL. **Sync all now** (footer) syncs every row in scope and
+reports how many failed.
 
 ### A channel calendar is a WRITE on the house
 
@@ -109,11 +128,39 @@ Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
   @<name>" from the Page's linked account. Where each listing posts is switched
   on the listing's Promotion › Listing sites tab, not here.
 
-## Google
+## Spreadsheets
 
-The Sheets/Drive link, unchanged by this page beyond moving under a tab. Scopes,
-the one OAuth client and the Console steps are owned by
-[`google-integrations.md`](google-integrations.md).
+The tab (still section id `google`) is the Google account rows — Calendar
+(`GoogleCalendarConnectPanel presentation="row"`) and Sheets — and then one row per
+linked spreadsheet, each with a status pill, one fact line and a ⋯ (Update now ·
+Settings · Remove); the "Add a spreadsheet" row's + opens the add popup
+(`GET/POST/PATCH/DELETE /api/portal/sheet-link`, `src/lib/manager-sheet-link.ts`). A
+workspace links as many as it likes. Scopes, the one OAuth client and the Console
+steps are owned by [`google-integrations.md`](google-integrations.md). Per link:
+
+- **Source** — a Google Sheet picked with the Drive picker (`drive.file`, so PropLane
+  sees that one file), or a **published CSV** URL for a sheet the manager publishes
+  instead of connecting Google. A published-CSV fetch is server-side and resolves
+  every redirect hop itself, refusing any hop whose resolved IP is private,
+  link-local or otherwise unroutable (`sheet-sync/public-host.server.ts`) — a pasted
+  URL can never be pointed at an internal address.
+- **Reads as** — `stays`, `occupancy` (the grid, plus house tabs and an optional
+  Stays tab) or `raw`. Only `raw` caches the rows, first tab only and truncated at
+  `RAW_CACHE_MAX_ROWS` × `RAW_CACHE_MAX_COLS`; that cache is for the assistant and is
+  never sent to the browser (`publicManagerSheetBinding` publishes a count, not rows).
+- **Refresh** — Every 15 minutes, Hourly, or Manual only. The cron
+  (`/api/cron/sync-manager-sheets`, Vercel `*/15 * * * *`) syncs only the links that
+  are actually due (`sheetLinkDueForSync`, one minute of grace); a link with no
+  stored interval keeps the old 15-minute behaviour and a manual one is never synced
+  by the cron. The pill is Live / Needs attention / Manual, where an auto-synced link
+  that has not synced within twice its interval is **Needs attention** too
+  (`sheetLinkStatus`) — a quietly stale sheet is not "live".
+
+The assistant and external credentials reach the same links through
+`list_spreadsheets` / `read_spreadsheet` (reads, clipped to a context budget) and
+`sync_spreadsheet` (a previewed write, confirmed like every other) — catalogued in
+[`../ai-assistant.md`](../ai-assistant.md) and exposed to REST keys under the
+Workspace insights product area (`src/lib/mcp/capabilities.ts`).
 
 Coverage for the page itself: `tests/unit/manager-integrations-panel.test.tsx`,
 `integrations-channel-rows.test.tsx`, `integrations-messages-panel.test.tsx`,

@@ -26,6 +26,9 @@ They cover the parts of the lane the jsdom tests can only assert as values:
   Message action.
 - **Phone inbox tiles** — a contact known only by number gets the phone glyph,
   never initials made out of "+(".
+- **New message on a phone** — the one composer at 390 px: every tool in its
+  action row (attach, draft, **schedule for later**, In-app, Email, Text) measures
+  44 x 44, and the chrome stays icon-only.
 - **Admin Money** — Payments live from the platform Stripe account (tabs, stat
   strip, icon-only chrome, flat rows, no pills), Subscribers with a live trial
   and a complimentary account, and Finances drawing the P&L from

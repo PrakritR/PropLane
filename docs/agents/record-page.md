@@ -7,14 +7,20 @@ its own shell.
 
 1. Header: back chevron · initials tile · title · subtitle. Actions are icons
    only (`PortalIconAction`): one filled primary — the section's next step —
-   plus at most three outline icons. The word is the tooltip and aria-label.
+   plus at most three outline icons (the one exception is an open, unassigned
+   maintenance service, which shows four: Edit · Send to phone · Publish to vendors ·
+   trash, see `services-system.md`). The word is the tooltip and aria-label.
    The set is per (role, kind, SECTION): the icons change as you move between
    a record's sections, because the action you want changes with them.
    **Decisions (redesign 1007).** A tab waiting on a yes/no draws it as the one labelled pair at the right of
    the header behind a hairline: red-outline "Decline" then solid green "Approve" (`PortalRecordDecisionPair`,
    ids approve/confirm/decline/reject, used by `PortalRecordHeaderIconActions` and the resident tab toolbar).
-   Everything else stays a 32px icon. A header carries no Message icon unless messaging is the record's core
-   (vendor, booking guest, service); resident and property never do (`tests/unit/record-header-decision-pair.test.tsx`).
+   Everything else stays an icon — 32px from `lg` up, 44px below it so a phone has a real tap target
+   (`PortalDetailHeader`). The icons sit at the RIGHT edge of the header row: the title above is width-capped,
+   so the actions host is content-sized and `justify-end`, never grown (`tests/unit/portal-detail-header-right-aligned.test.tsx`).
+   A header carries no Message icon unless messaging is the record's core
+   (vendor, booking guest); resident, property and service never do — a service's conversation is its
+   Communication rail section (`tests/unit/record-header-decision-pair.test.tsx`).
    A row's ⋯ menu gives every item a 16px leading glyph (`record-action-icons.ts`) and groups decisions last,
    after the divider: green positives (Approve, Confirm, Mark paid, Mark done, Pay, Complete) directly above the
    red Decline / Reject / Cancel request, then Delete / Remove (`classifyRecordActionTone`).
@@ -191,8 +197,9 @@ background-check screening actions (`application-screening-panel.tsx`) and lease
 actions (`LeasePrimaryHeaderActions`). Those still publish into the
 header via `PortalRecordActions` exactly as they did as a `footer`, so no
 behavior changed; making them icon-only is per-kind panel work, not shared
-shell. A service record (add-on and maintenance alike) is converted: Message · Edit · ⋯ · ONE labeled
-primary (`portalLabeledPrimarySpec`), see `services-system.md`.
+shell. A service record (add-on and maintenance alike) is converted: Edit · [Send to phone · Publish to
+vendors] · one red trash · ONE labeled primary (`portalLabeledPrimarySpec`) — owned by
+`services-system.md` § Everyone, the To picker, and later jobs.
 
 ## The day page pattern
 

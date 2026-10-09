@@ -452,5 +452,34 @@ population is `null` and the Dashboard card is **omitted, never $0**
 (`buildAdminMoneyOverview`). A test-mode key (`sk_test_`) shows the banner. A
 month past 1,500 balance transactions is flagged `truncated` on the page.
 
+## Admin Money > Promo codes
+
+`/admin/promo-codes` is **Stripe-native: nothing is stored in our database**. A code
+is a Stripe coupon (the discount) plus a Stripe promotion code (the text a customer
+types, its redemption cap, expiry and first-time-only restriction), and the list
+reads both back (`src/lib/admin/admin-promo-codes.server.ts`,
+`GET/POST/PATCH /api/admin/promo-codes`, each behind `requireAdminRoute()`; a Stripe
+error names request ids and parameters, so it is logged and answered as one generic
+sentence). Checkout accepts the code on every plan through `allow_promotion_codes`;
+restricting one to some plans is the coupon's `applies_to` products
+(`resolvePromoProductIds`).
+
+- The wizard takes percent off, amount off or N free months (100% off for that many
+  months), a duration, optional plans, first-time-only, a redemption cap and an
+  expiry (end of the Pacific day). The code is uppercase `A-Z0-9_-`, 3-32 characters.
+- **A code may never reuse an internal waiver code's text** (`FREE100`,
+  `WAIVEPROCESS1` — `isInternalWaiverPromoCode` rejects it), because a recorded
+  `manager_purchases.promo_code` of that text reads as granted paid access.
+  A customer redemption lands in `stripe_promotion_code` instead; see the two-column
+  rule at the top of this file.
+- Status is derived, never typed: expired once its expiry passed, its cap is spent or
+  Stripe says the coupon is invalid; otherwise active or inactive. A code is
+  deactivated and reactivated (`setPromoCodeActive`), never deleted.
+- "Given" is the sum of the discounts **Stripe actually applied** on invoices that
+  used the code (best-effort: a failed invoice read shows 0, never a guess).
+- Applying an existing code to one account is the account record's popup, not this
+  page (§ Admin Billing above).
+
 Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
+`admin-promo-codes.test.ts`, `admin-promo-codes-route.test.ts`,
 `admin-portal-sections.test.ts`.

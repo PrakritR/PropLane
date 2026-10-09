@@ -113,10 +113,14 @@ reply, not a draft. One responder per inbound message:
   already run) and an unreadable ledger all mean no model run and no email (the inbound is still
   mirrored). The hold is kept when a reply was produced and released when none was or the turn threw.
   The manager's own mail to their assistant is not an auto-reply and does not reserve.
-- **Approval-first still wins.** When "Resident & vendor messages need my approval first"
-  (`automationSendMode.partyFacing === "draft"`) is on, the email answer is NOT sent: it is stored as a
-  pending `requiresReview` draft on the thread (`replyAsReviewDraft`), which the inbox auto-send latch never
-  touches. (The SMS agents do not consult that switch today.)
+- **Approval-first still wins, and the hold fails closed.** The email answer is NOT sent — it is stored as
+  a pending `requiresReview` draft on the thread (`replyAsReviewDraft`), which the inbox auto-send latch
+  never touches — whenever `partyFacingAnswerHold` says to hold: the approval switch
+  ("Resident & vendor messages need my approval first", `automationSendMode.partyFacing === "draft"`),
+  quiet hours, **or a read that failed** (that resolver throws rather than answering "auto"; the caller
+  logs it and holds). Semantics and why there are two resolvers:
+  [automated-communication.md](automated-communication.md) § One spine → Send mode. (The SMS agents do not
+  consult that switch today.)
 - **`inboxAiDraftAutoSend`** (Settings -> Communication, default **false**, unchanged) governs ONLY the
   browser draft above: whether a generated draft is sent without the Send click. It does not gate the
   server agents, which were already auto-replying before this setting existed and are bounded by comms

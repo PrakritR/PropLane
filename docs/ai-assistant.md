@@ -353,7 +353,11 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 `reconcile_bank_statement_line` W), search (`find_records` R), profile
 (`get_manager_profile` R, `get_dashboard_summary` R), promotions
 (`list_promotions` R, `create_promotion` W, `update_promotion` W,
-`delete_promotion` W destructive), team (`list_co_managers` R), documents
+`delete_promotion` W destructive), spreadsheets (`list_spreadsheets` R,
+`read_spreadsheet` R — clipped to a column/cell/total-character budget, never a
+whole sheet, `sync_spreadsheet` W; see
+[`docs/agents/integrations.md`](agents/integrations.md) § Spreadsheets),
+team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
 `decide_service_request` W), inspections (`list_inspections` R,
 `get_inspection` R, `open_inspection` W, `save_inspection_observations` W,

@@ -387,3 +387,24 @@ test("Integrations - the Spreadsheets section lists each link with its live stat
   expect(body).toContain("Birch Court occupancy (published CSV)");
   expect(errors).toEqual([]);
 });
+
+test("phone: New message is one composer - schedule from it, and 44px tool targets", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await open(page, "compose-phone");
+  await page.waitForSelector('[data-attr="communication-compose-tools"]');
+  await page.screenshot({ path: path.join(SHOTS, "phone-new-message-composer.png"), fullPage: true });
+
+  // Every tool in the composer's action row is at least a 44px target on a phone.
+  const sizes = await page.$$eval('[data-attr="communication-compose-tools"] button, [data-attr="communication-compose-tools"] label', (nodes) =>
+    nodes.map((n) => {
+      const r = n.getBoundingClientRect();
+      return { label: n.getAttribute("aria-label") ?? n.getAttribute("title") ?? "", w: Math.round(r.width), h: Math.round(r.height) };
+    }),
+  );
+  console.log("composer tool targets:", JSON.stringify(sizes));
+  for (const target of sizes) {
+    expect(target.h, `${target.label} height`).toBeGreaterThanOrEqual(44);
+    expect(target.w, `${target.label} width`).toBeGreaterThanOrEqual(44);
+  }
+  expect(errors).toEqual([]);
+});

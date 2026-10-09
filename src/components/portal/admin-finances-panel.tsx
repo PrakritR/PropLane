@@ -107,7 +107,9 @@ async function readJson<T>(res: Response): Promise<T & { error?: string }> {
 export function AdminFinancesPanel() {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
-  const currentMonth = useMemo(() => pacificCalendarMonthKey(Date.now()), []);
+  // Lazy state initializer, not useMemo: reading the clock during render is impure
+  // (react-hooks/purity), and the month this panel opened on must not move under it.
+  const [currentMonth] = useState(() => pacificCalendarMonthKey(Date.now()));
   const months = useMemo(() => monthsEndingAt(currentMonth, 12), [currentMonth]);
 
   const [revenue, setRevenue] = useState<PlatformPnl | null>(null);

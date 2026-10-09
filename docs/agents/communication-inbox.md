@@ -221,7 +221,16 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   appearance="command"`). Unread stays in Filter (All conversations, Read,
   Unread) for the current tab — Filter does not list Archived on any of the
   four (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
-  `hideArchived`).
+  `hideArchived`). Filter also drops a section a surface has no answer for:
+  admin passes `hideHouse` / `hideRole` / `hideAbout` (no houses, one kind of
+  person, no record link). The manager's Filter carries one extra entry on a
+  phone only — **Scheduled N** (`showScheduled={isPhone}`,
+  `communicationScheduledOption`, counted by `useScheduledSendCount` from the
+  same two sources the Schedule panel reads). It is a list VIEW, not a thread
+  filter: it swaps the list body for the Schedule panel and the threads
+  underneath stay Active (`scheduledView` in `pro-unified-inbox.tsx`). It exists
+  because a phone has no Schedule tab and the Active | Archived tabs never grow
+  one.
   `/communication/{active|unread|archived}[/{threadId}]` deep links remain on
   every portal. `unread` is Active + unread filter (admin folds `unread` into
   Active, as the manager route does). Admin's old `/communication/inbox/{tab}`
@@ -230,17 +239,18 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   Trash/restore live in the open thread —
   never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone
   tabbed panels survive only for the /demo path and legacy route redirects — on
-  those three portals every legacy `inbox` / `email` / `sms` path now folds into a
+  all four portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
-- **Switching the Active ⇄ Archived tab is instant on all three, with no
+- **Switching the Active ⇄ Archived tab is instant on all four, with no
   skeleton and no refetch (captain, 2026-09-26 for vendor, Oct 2026 for
   resident: both match manager's UI exactly).** `InboxListSegmentTabs`
-  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; all three lists
-  pass it and preventDefault a plain left click (no
+  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; every list
+  passes it and preventDefaults a plain left click (no
   modifier key), calling `onChange` instead of letting the `<Link>` navigate.
   `ManagerCommunication` (`pro-communication.tsx`), `ResidentCommunication`
-  (`resident-communication.tsx`) and `VendorCommunication`
-  (`vendor-communication.tsx`) each own the segment as CLIENT state
+  (`resident-communication.tsx`), `VendorCommunication`
+  (`vendor-communication.tsx`) and `AdminCommunication`
+  (`admin-communication.tsx`) each own the segment as CLIENT state
   (`useCommunicationListSegment`, mirroring `useCommunicationThreadId`) and
   push the URL with `history.pushState`
   (`selectCommunicationSegmentUrl`, `portal-communication-nav.ts`) rather than

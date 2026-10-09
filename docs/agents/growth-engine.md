@@ -95,6 +95,15 @@ permanently (platform terms).
   `growth_assets` row of kind `clip` (generated), `shot` (Playwright recording), or none (template,
   rendered inside Remotion). The voice track is one asset of kind `voice`; the final reel is kind
   `video` with `meta.captions` (word timings) and `meta.sceneAssetIds`.
+  **A scene owns a stable id and the timeline has no holes** (captain, Oct 8): `newSceneId` mints
+  `sc_<12>` and an asset is matched on `meta.sceneId`, falling back to `meta.sceneIndex` only for posts
+  saved before ids existed (`assets.server.ts`) — index-only keying re-pointed a surviving scene at the
+  removed scene's media. Every save and remove goes through `sceneListSchema`, which re-ids,
+  re-numbers and **re-flows `startMs`/`endMs` contiguously from 0** (`reflowScenes`, at most
+  `MAX_SCENES` × `MAX_SCENE_MS`), so no gap or overlap reaches the render.
+- **The end card is always exactly `endCardMs` at the very end** (`DEFAULT_END_CARD_MS` 2500,
+  `endCardStartMs` in `remotion/growth/types.ts`). A voice track longer than the scenes holds the LAST
+  SCENE over the extra time; it never stretches the card across it.
 - **Drivers** (`src/lib/growth/video/`): `veo.server.ts` (Gemini API, `GEMINI_API_KEY`),
   `kling.server.ts` (fal.ai, `FAL_KEY`), `elevenlabs.server.ts` (`ELEVENLABS_API_KEY`,
   `GROWTH_VOICE_ID`). Each exports a pure function taking a prompt/text and returning

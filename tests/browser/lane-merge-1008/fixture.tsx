@@ -7,6 +7,7 @@ import { AdminFinancesPanel } from "../../../src/components/portal/admin-finance
 import { AdminPaymentsPanel } from "../../../src/components/portal/admin-payments-panel";
 import { AdminSubscribersPanel } from "../../../src/components/portal/admin-subscribers-panel";
 import { ReelStudio } from "../../../src/components/portal/growth-reel-studio";
+import { ManagerCommunicationComposeModal } from "../../../src/components/portal/pro-communication-compose-modal";
 import { ManagerSheetLinkPanel } from "../../../src/components/portal/manager-sheet-link-panel";
 import { ManagerWorkOrdersPanel } from "../../../src/components/portal/pro-work-orders-panel";
 import { InboxAvatar } from "../../../src/components/portal/portal-inbox-ui";
@@ -180,6 +181,12 @@ function Surface() {
       </div>
     );
   if (surface === "inbox-avatars") return <InboxAvatars />;
+  if (surface === "compose-phone")
+    return (
+      <div className="bg-background">
+        <ManagerCommunicationComposeModal open onClose={() => {}} smsUiEnabled senderName="Mia Manager" senderEmail="mia@example.com" />
+      </div>
+    );
   if (surface === "integrations-spreadsheets")
     return (
       <div className="bg-background p-6">
