@@ -154,7 +154,10 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   if (fullName) metadata.full_name = fullName;
   if (phone) metadata.phone = phone;
   if (userId) metadata.userId = userId;
-  if (promoRaw) metadata.promo = promoRaw;
+  // Display-only breadcrumb: the redeemed code is read from Stripe's applied discounts, never from
+  // this free text. Keep it to a code-shaped string or drop it.
+  const promoMeta = promoRaw.toUpperCase();
+  if (promoMeta.length <= 32 && /^[A-Z0-9_-]+$/.test(promoMeta)) metadata.promo = promoMeta;
 
   const promoCodeId = process.env.STRIPE_PROMOTION_CODE_ID_FIRST_MONTH_FREE?.trim();
   const autoFirstMonthFree =

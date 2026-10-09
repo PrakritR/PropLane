@@ -118,6 +118,49 @@ describe("promotion codes at manager checkout", () => {
   });
 });
 
+describe("promo metadata at checkout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearManagerPriceCache();
+    mocks.classification.mockResolvedValue({ kind: "normal" });
+    mocks.serviceDb.mockReturnValue(checkoutDb());
+    mocks.checkoutCreate.mockResolvedValue({ id: "cs_1", client_secret: "secret" });
+    for (const p of PLANS) delete process.env[p.env];
+    process.env.STRIPE_PRICE_PRO_MONTHLY = "price_pro_monthly";
+    mocks.priceRetrieve.mockResolvedValue({
+      id: "price_pro_monthly", active: true, currency: "usd", type: "recurring",
+      unit_amount: RATE_CARD.pro.floorMonthlyCents, recurring: { interval: "month", interval_count: 1 }, product: "prod_x",
+    });
+    mocks.productRetrieve.mockResolvedValue({ id: "prod_x", metadata: { axis_plan: "axis_pro" } });
+  });
+
+  async function metadataFor(promo: string) {
+    const result = await createManagerCheckoutSession({
+      tier: "pro", billing: "monthly", email: "manager@example.com", userId: "owner-1", promo,
+      req: new Request("http://localhost/partner/pricing"),
+    });
+    expect(result.ok).toBe(true);
+    return mocks.checkoutCreate.mock.calls[0]![0].metadata as Record<string, string>;
+  }
+
+  it("normalises a code-shaped value", async () => {
+    expect((await metadataFor("  save_10 ")).promo).toBe("SAVE_10");
+  });
+
+  it("drops over-long and bad-charset input", async () => {
+    expect(await metadataFor("A".repeat(33))).not.toHaveProperty("promo");
+    vi.clearAllMocks();
+    mocks.checkoutCreate.mockResolvedValue({ id: "cs_1", client_secret: "secret" });
+    mocks.serviceDb.mockReturnValue(checkoutDb());
+    mocks.priceRetrieve.mockResolvedValue({
+      id: "price_pro_monthly", active: true, currency: "usd", type: "recurring",
+      unit_amount: RATE_CARD.pro.floorMonthlyCents, recurring: { interval: "month", interval_count: 1 }, product: "prod_x",
+    });
+    mocks.productRetrieve.mockResolvedValue({ id: "prod_x", metadata: { axis_plan: "axis_pro" } });
+    expect(await metadataFor("hi <script>")).not.toHaveProperty("promo");
+  });
+});
+
 describe("subscription checkout base", () => {
   const base = { priceId: "price_x", metadata: { tier: "pro" } };
 
@@ -138,9 +181,35 @@ describe("recording the redeemed code", () => {
 
   beforeEach(() => vi.clearAllMocks());
 
-  it("prefers the code typed on the pricing form", async () => {
-    expect(await resolveCheckoutSessionPromoCode(session({ metadata: { promo: "freefirst" } }))).toBe("FREEFIRST");
-    expect(mocks.sessionRetrieve).not.toHaveBeenCalled();
+  it("never records the pricing-form free text when Stripe applied no discount", async () => {
+    expect(await resolveCheckoutSessionPromoCode(session({ metadata: { promo: "ASDF" }, discounts: [] }))).toBeNull();
+    mocks.sessionRetrieve.mockResolvedValue({ discounts: [] });
+    expect(await resolveCheckoutSessionPromoCode(session({ metadata: { promo: "ASDF" } }))).toBeNull();
+  });
+
+  it("records an applied promotion code from the session discounts, not the typed text", async () => {
+    const code = await resolveCheckoutSessionPromoCode(
+      session({ metadata: { promo: "ASDF" }, discounts: [{ coupon: null, promotion_code: { id: "promo_1", code: "SAVE5" } }] }),
+    );
+    expect(code).toBe("SAVE5");
+  });
+
+  it("records FREEFIRST when it rode in as an applied discount", async () => {
+    mocks.promoRetrieve.mockResolvedValue({ id: "promo_firstmonthfree", code: "freefirst" });
+    const code = await resolveCheckoutSessionPromoCode(
+      session({ metadata: { promo: "FREEFIRST" }, discounts: [{ promotion_code: "promo_firstmonthfree" }] }),
+    );
+    expect(code).toBe("FREEFIRST");
+  });
+
+  it("falls back to total_details.breakdown.discounts", async () => {
+    const code = await resolveCheckoutSessionPromoCode(
+      session({
+        discounts: [],
+        total_details: { breakdown: { discounts: [{ discount: { promotion_code: { id: "promo_2", code: "bd10" } } }] } },
+      }),
+    );
+    expect(code).toBe("BD10");
   });
 
   it("reads a code typed into Checkout's own field from the session discounts", async () => {

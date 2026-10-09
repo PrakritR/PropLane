@@ -18,20 +18,19 @@ export async function resolveCheckoutSessionPromoCode(
   session: Stripe.Checkout.Session,
   stripe: Pick<Stripe, "checkout" | "promotionCodes"> = getStripe(),
 ): Promise<string | null> {
-  const fromMetadata = normalizePromoCodeInput(session.metadata?.promo);
-  if (fromMetadata) return fromMetadata;
-
   try {
-    let discounts = session.discounts;
+    let discounts: Array<{ promotion_code?: string | { code?: string | null } | null }> | undefined =
+      session.discounts as typeof discounts;
     if (discounts === undefined) {
       const full = await stripe.checkout.sessions.retrieve(session.id, { expand: ["discounts.promotion_code"] });
-      discounts = full.discounts;
+      discounts = full.discounts as typeof discounts;
     }
-    for (const discount of discounts ?? []) {
-      const promotion = discount.promotion_code;
+    const breakdown = (session.total_details?.breakdown?.discounts ?? []).map((entry) => entry.discount);
+    for (const discount of [...(discounts ?? []), ...breakdown] as NonNullable<typeof discounts>) {
+      const promotion = discount?.promotion_code;
       if (!promotion) continue;
       const code =
-        typeof promotion === "string" ? (await stripe.promotionCodes.retrieve(promotion)).code : promotion.code;
+        typeof promotion === "string" ? (await stripe.promotionCodes.retrieve(promotion)).code : promotion.code ?? "";
       const normalized = normalizePromoCodeInput(code);
       if (normalized) return normalized;
     }
