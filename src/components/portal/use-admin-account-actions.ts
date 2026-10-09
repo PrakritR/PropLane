@@ -14,6 +14,8 @@ const DELETE_QUESTION: Record<AdminAccountRowKind, string> = {
   vendor: "Delete this vendor, their bids, invoices, and payouts?",
 };
 
+export type AdminActiveRequest = { kind: AdminAccountRowKind; id: string; active: boolean };
+
 /**
  * Disable / enable and delete for one admin account, through the existing
  * per-kind admin routes (`/api/admin/managers|residents|vendors`). The row ⋯
@@ -25,22 +27,31 @@ export function useAdminAccountActions(onChanged: () => void) {
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
 
+  /** The enable / disable the reason popup is open for, or null. */
+  const [activeRequest, setActiveRequest] = useState<AdminActiveRequest | null>(null);
+  const askActive = useCallback(
+    (kind: AdminAccountRowKind, id: string, active: boolean) => setActiveRequest({ kind, id, active }),
+    [],
+  );
+  const clearActiveRequest = useCallback(() => setActiveRequest(null), []);
+
+  /** Enable / disable with the staff member's reason (audited). Returns an error sentence, or null once it landed. */
   const setActive = useCallback(
-    async (kind: AdminAccountRowKind, id: string, active: boolean) => {
+    async (kind: AdminAccountRowKind, id: string, active: boolean, reason: string): Promise<string | null> => {
       setBusy(true);
       try {
         const res = await fetch(ADMIN_ACCOUNT_API_PATH[kind], {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, active }),
+          body: JSON.stringify({ id, active, reason }),
         });
         if (!res.ok) {
-          showToast("Could not update account.");
-          return false;
+          const { error } = (await res.json().catch(() => ({}))) as { error?: string };
+          return error || "Could not update account.";
         }
         showToast(`${ADMIN_ACCOUNT_ROLE_LABEL[kind]} account ${active ? "enabled" : "disabled"}.`);
         onChanged();
-        return true;
+        return null;
       } finally {
         setBusy(false);
       }
@@ -78,5 +89,5 @@ export function useAdminAccountActions(onChanged: () => void) {
     [confirm, onChanged, showToast],
   );
 
-  return { busy, setActive, remove };
+  return { busy, setActive, askActive, activeRequest, clearActiveRequest, remove };
 }

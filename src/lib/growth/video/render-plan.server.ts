@@ -2,12 +2,13 @@ import "server-only";
 
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createHash } from "node:crypto";
 
 import { growthDb, mapPost, must, type GrowthDb } from "../db.server";
+import { SCENE_ID_PATTERN } from "../scenes";
 import { RENDER_FORMATS, RENDER_STATUSES } from "../types";
 import type { GrowthAsset, GrowthPost, GrowthScene } from "../types";
 import { DEFAULT_END_CARD_MS, type ReelProps, type ReelScene, type ReelWord } from "../../../../remotion/growth/types";
@@ -124,11 +125,24 @@ const SHOOT_TIMEOUT_MS = 5 * 60_000;
 
 /** A stable file name per scene, so a renumbered timeline never overwrites another scene's media. */
 export function sceneFileStem(scene: Pick<GrowthScene, "id" | "index">): string {
-  return `scene-${scene.id?.trim() || scene.index}`;
+  const id = scene.id?.trim();
+  // The id lands in a file path: anything but a plain token falls back to the index.
+  return `scene-${id && SCENE_ID_PATTERN.test(id) ? id : scene.index}`;
+}
+
+const POST_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** output/growth/<postId>/<stem>.mp4, refusing any id that would leave the post directory. */
+export function sceneOutputPath(postId: string, scene: Pick<GrowthScene, "id" | "index">): string {
+  if (!POST_ID_PATTERN.test(postId)) throw new Error("invalid growth post id");
+  const postDir = resolve(REPO, "output/growth", postId);
+  const out = resolve(postDir, `${sceneFileStem(scene)}.mp4`);
+  if (!out.startsWith(postDir + sep)) throw new Error("scene output path escapes the post directory");
+  return out;
 }
 
 export function defaultShoot({ postId, scene, baseUrl }: ShootInput): Promise<Buffer> {
-  const out = resolve(REPO, "output/growth", postId, `${sceneFileStem(scene)}.mp4`);
+  const out = sceneOutputPath(postId, scene);
   return new Promise((ok, fail) => {
     const child = spawn(
       process.execPath,

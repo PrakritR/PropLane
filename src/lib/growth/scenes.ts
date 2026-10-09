@@ -13,8 +13,11 @@ export function newSceneId(): string {
   return `sc_${uuid ? uuid.slice(0, 12) : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`}`;
 }
 
+/** A scene id is used in a file name, so it is a plain token: never a separator, dot or traversal. */
+export const SCENE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 export const growthSceneSchema = z.object({
-  id: z.string().min(1).max(64).optional(),
+  id: z.string().regex(SCENE_ID_PATTERN).optional(),
   index: z.number().int().min(0),
   kind: z.enum(["generated", "template", "shot", "still"]),
   startMs: z.number().int().min(0).max(MAX_REEL_MS),

@@ -103,11 +103,14 @@ function pinnedLookup(hostname: string, addresses: readonly string[]): LookupFun
  * for the check and 169.254.169.254 for the connection. The address is therefore pinned through the
  * agent's own `lookup`, while SNI and the Host header keep the original name so TLS still verifies.
  *
+ * `timeoutMs` is the idle timeout; `totalTimeoutMs` (default 15 s) is a hard deadline over connect, headers
+ * AND the whole body, so a host that trickles bytes can never hold the request open.
+ *
  * Redirects are never followed here — the caller re-vets every hop.
  */
 export async function fetchPinnedPublicHttps(
   target: string,
-  init: { headers?: Record<string, string>; timeoutMs?: number } = {},
+  init: { headers?: Record<string, string>; timeoutMs?: number; totalTimeoutMs?: number } = {},
 ): Promise<Response> {
   const url = new URL(target);
   if (url.protocol !== "https:") throw new NonPublicHostError("only https is fetched");
@@ -141,6 +144,11 @@ export async function fetchPinnedPublicHttps(
       },
     );
     req.setTimeout(init.timeoutMs ?? 15_000, () => req.destroy(new Error("the request timed out")));
+    const deadline = setTimeout(
+      () => req.destroy(new Error("the request exceeded its total time limit")),
+      init.totalTimeoutMs ?? 15_000,
+    );
+    req.once("close", () => clearTimeout(deadline));
     req.on("error", reject);
     req.end();
   });
