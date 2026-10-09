@@ -16,7 +16,7 @@ vi.mock("@/lib/listing-channels/sync.server", () => ({
 }));
 vi.mock("@/lib/listing-channels/post-text", () => ({ listingPostPhotoUrls: () => h.photos }));
 
-import { GET } from "@/app/api/manager/listing-channels/photos/route";
+import { GET, maxDuration } from "@/app/api/manager/listing-channels/photos/route";
 import { isAllowedPhotoUrl } from "@/lib/listing-channels/photo-hosts";
 
 const req = (q = "?propertyId=p1") => new Request(`https://proplane.ai/api/manager/listing-channels/photos${q}`);
@@ -102,6 +102,26 @@ describe("photos route", () => {
     const res = await GET(req());
     expect(res.status).toBe(502);
     expect(pushed).toBeLessThan(32);
+  });
+
+  it("declares a function budget the sequential loop fits inside", () => {
+    expect(maxDuration).toBe(60);
+  });
+
+  it("ships the photos it already has once the deadline passes", async () => {
+    h.ctx = { db: {}, userId: "u", workspace: { id: "w", ownerUserId: "u", propertyIds: ["p1"] } };
+    h.owned = { id: "p1", live: true };
+    h.photos = Array.from({ length: 5 }, (_, i) => `https://proj.supabase.co/storage/v1/object/public/x/${i}.jpg`);
+    let clock = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    // Each photo "takes" 21 s, so the third one is past the 40 s deadline.
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      clock += 21_000;
+      return new Response(new Uint8Array([1, 2, 3]));
+    });
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it("host allowlist helper", () => {

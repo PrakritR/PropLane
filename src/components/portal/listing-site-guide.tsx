@@ -12,7 +12,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, useModalPresentation } from "@/components/ui/modal";
 import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing-channels";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
-import { LISTING_HOLD_WORK_NUMBER_PHRASE, listingHoldFact, listingHoldFactParts } from "@/lib/listing-channels/post-text";
+import { LISTING_HOLD_WORK_NUMBER_PHRASE, listingHoldFact, listingHoldFactParts, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import { shortDate } from "@/lib/listing-channels/row-fact";
 import { listingChannelDef, type ListingChannelId } from "@/lib/listing-channels/registry";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
@@ -29,6 +29,21 @@ function modeLine(posting: string, metaLive: boolean): string {
   if (posting === "api") return metaLive ? "Posts for you" : "Posts for you once Meta approves · by hand until then";
   if (posting === "partner_only") return "Partner feed only";
   return "Copy and post";
+}
+
+/** The one held line, identical wherever a guide shows it: the work-number phrase is always its link. */
+function HeldLine({ reasons, className }: { reasons: readonly ListingHoldReason[]; className?: string }) {
+  const { lead, workNumberLink } = listingHoldFactParts(reasons);
+  return (
+    <p className={className ?? "text-sm text-foreground"} data-attr="listing-site-guide-held">
+      {lead}
+      {workNumberLink ? (
+        <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">
+          {LISTING_HOLD_WORK_NUMBER_PHRASE}
+        </Link>
+      ) : null}
+    </p>
+  );
 }
 
 function Step({ n, done, title, note, children, action }: { n: number; done?: boolean; title: string; note?: string; children?: ReactNode; action?: ReactNode }) {
@@ -107,7 +122,6 @@ export function ListingSiteGuide({
   const partner = def.posting === "partner_only";
   const feed = def.posting === "feed";
   const apiLive = def.posting === "api" && metaLive;
-  const held = listingHoldFactParts(holdReasons);
   const adUrl = posted && row?.postedUrl?.startsWith("https://") ? row.postedUrl : null;
 
   const write = async (path: "toggle" | "mark-posted", body: Record<string, unknown>) => {
@@ -146,9 +160,7 @@ export function ListingSiteGuide({
       <div className="space-y-3 pb-2" data-attr="listing-site-guide">
         <p className="text-sm text-muted" data-attr="listing-site-guide-mode">{modeLine(def.posting, metaLive)}</p>
         <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{guide.how}</p>
-        {feed && holdReasons.length > 0 ? (
-          <p className="text-sm text-foreground" data-attr="listing-site-guide-held">{listingHoldFact(holdReasons)}</p>
-        ) : null}
+        {feed && holdReasons.length > 0 ? <HeldLine reasons={holdReasons} /> : null}
 
         {!partner && !propertyId && listings.length > 0 ? (
           <FieldSingleSelect
@@ -247,14 +259,7 @@ export function ListingSiteGuide({
               {postText ? (
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-accent/40 p-3 text-xs text-foreground" data-attr="listing-site-guide-post">{postText}</pre>
               ) : !feed && holdReasons.length > 0 ? (
-                <p className="mt-1 text-sm text-foreground" data-attr="listing-site-guide-held">
-                  {held.lead}
-                  {held.workNumberLink ? (
-                    <Link href="/portal/profile?tab=spreadsheets" className="underline" data-attr="listing-site-guide-set-up-number">
-                      {LISTING_HOLD_WORK_NUMBER_PHRASE}
-                    </Link>
-                  ) : null}
-                </p>
+                <HeldLine reasons={holdReasons} className="mt-1 text-sm text-foreground" />
               ) : null}
             </Step>
             <Step

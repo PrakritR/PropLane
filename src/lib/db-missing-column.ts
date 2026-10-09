@@ -6,14 +6,25 @@
  * thing a new column adds retries once without it rather than failing the user's request; the
  * surface that reads the column reports the schema as not ready instead.
  */
-export function isMissingColumnError(error: unknown, column: string): boolean {
+function namesMissingColumn(error: unknown, column: string): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
-  // Postgres `undefined_column`.
-  if (String(candidate.code ?? "") === "42703") return true;
-  // PostgREST's schema-cache miss names the column it could not find, and so does the Postgres
-  // message a caller may already have wrapped in an `Error` without carrying the code along.
-  const text = `${candidate.message ?? ""} ${candidate.details ?? ""}`.toLowerCase();
-  if (!text.includes(column.toLowerCase())) return false;
-  return String(candidate.code ?? "") === "PGRST204" || (text.includes("column") && text.includes("does not exist"));
+  const code = String(candidate.code ?? "");
+  const text = `${candidate.message ?? ""} ${candidate.details ?? ""}`.trim().toLowerCase();
+  // Postgres `undefined_column` and PostgREST's schema-cache miss both name the column, so a
+  // 42703 about an unrelated column is not this one's problem.
+  const named = text.includes(column.toLowerCase());
+  if (code === "42703") return named || text === "";
+  if (code === "PGRST204") return named;
+  return named && text.includes("column") && (text.includes("does not exist") || text.includes("schema cache"));
+}
+
+/**
+ * A caller that wraps the failure in its own `Error` must pass the original along as `cause`,
+ * since its own prefix hides whether the database said anything useful.
+ */
+export function isMissingColumnError(error: unknown, column: string): boolean {
+  if (namesMissingColumn(error, column)) return true;
+  const cause = (error as { cause?: unknown } | null | undefined)?.cause;
+  return cause !== error && namesMissingColumn(cause, column);
 }

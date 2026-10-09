@@ -325,7 +325,12 @@ async function persistDraftRow(
       .eq("row_data->>bucket", "pending")
       .is("row_data->>withdrawnAt", null)
       .select("id");
-    if (updateError) throw new Error(`Could not persist the application draft: ${updateError.message}`);
+    if (updateError) {
+      throw Object.assign(new Error(`Could not persist the application draft: ${updateError.message}`), {
+        code: updateError.code,
+        cause: updateError,
+      });
+    }
     return (data?.length ?? 0) > 0;
   };
 
@@ -338,7 +343,12 @@ async function persistDraftRow(
     await updateIfStillDraft();
     return;
   }
-  if (error) throw new Error(`Could not persist the application draft: ${error.message}`);
+  if (error) {
+    throw Object.assign(new Error(`Could not persist the application draft: ${error.message}`), {
+      code: error.code,
+      cause: error,
+    });
+  }
 }
 
 /** A submitted, pending application the applicant is writing again: re-check the forms its answers owe (idempotent). */
@@ -397,7 +407,7 @@ async function persistNormalizedRow(
       const { error: upsertError } = await db
         .from("manager_application_records")
         .upsert(values, { onConflict: "id" });
-      if (upsertError) throw Object.assign(new Error(`Could not persist the application: ${upsertError.message}`), { code: upsertError.code });
+      if (upsertError) throw Object.assign(new Error(`Could not persist the application: ${upsertError.message}`), { code: upsertError.code, cause: upsertError });
     }
   };
   try {

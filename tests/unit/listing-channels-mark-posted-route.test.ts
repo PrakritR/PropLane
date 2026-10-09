@@ -81,11 +81,30 @@ describe("mark-posted route", () => {
 
 describe("isMissingColumnError", () => {
   it("recognizes the column-not-there shapes and nothing else", () => {
-    expect(isMissingColumnError({ code: "42703", message: "whatever" }, "posted_url")).toBe(true);
+    expect(isMissingColumnError({ code: "42703", message: 'column "posted_url" does not exist' }, "posted_url")).toBe(true);
+    expect(isMissingColumnError({ code: "42703", message: "" }, "posted_url")).toBe(true);
     expect(isMissingColumnError({ code: "PGRST204", message: "Could not find the 'source_channel' column" }, "source_channel")).toBe(true);
     expect(isMissingColumnError(new Error('Could not persist: column "source_channel" does not exist'), "source_channel")).toBe(true);
+    expect(
+      isMissingColumnError(
+        new Error("Could not persist the application draft: Could not find the 'source_channel' column of 'manager_application_records' in the schema cache"),
+        "source_channel",
+      ),
+    ).toBe(true);
     expect(isMissingColumnError({ code: "PGRST204", message: "Could not find the 'other' column" }, "source_channel")).toBe(false);
+    // A 42703 about some other column is not this column's problem.
+    expect(isMissingColumnError({ code: "42703", message: 'column "assigned_property_id" does not exist' }, "posted_url")).toBe(false);
     expect(isMissingColumnError({ code: "23505", message: "duplicate key" }, "posted_url")).toBe(false);
     expect(isMissingColumnError(null, "posted_url")).toBe(false);
+  });
+
+  it("unwraps a caller's own Error whose prefix hides what the database said", () => {
+    const bare = { code: "42703", message: "", details: null };
+    expect(isMissingColumnError(Object.assign(new Error("Could not persist the draft: "), { cause: bare }), "source_channel")).toBe(true);
+    const other = { code: "42703", message: 'column "assigned_property_id" does not exist' };
+    expect(isMissingColumnError(Object.assign(new Error("Could not persist the draft"), { cause: other }), "source_channel")).toBe(false);
+    const self = new Error("Could not persist the draft");
+    self.cause = self;
+    expect(isMissingColumnError(self, "source_channel")).toBe(false);
   });
 });
