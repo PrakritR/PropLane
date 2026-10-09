@@ -151,12 +151,27 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
               predicates.push((row) => (value === null ? cell(row, column) == null : cell(row, column) === value));
               return builder;
             },
+            /** `update(..).eq(..).select("id")`: applies, then answers with the rows it changed (a compare-and-set reads this). */
+            select() {
+              const hit = table(name).filter((row) => predicates.every((p) => p(row)));
+              for (const row of hit) Object.assign(row, patch);
+              return Promise.resolve({ data: hit.map((row) => ({ ...row })), error: null });
+            },
             then<T>(resolve: (value: { error: null }) => T) {
               for (const row of table(name)) if (predicates.every((p) => p(row))) Object.assign(row, patch);
               return Promise.resolve({ error: null }).then(resolve);
             },
           };
           return builder;
+        },
+        /** Insert-only: a row already on the id is a unique violation, like the primary key. */
+        insert(payload: Row) {
+          const rows = table(name);
+          if (rows.some((row) => row.id === payload.id)) {
+            return Promise.resolve({ error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+          }
+          rows.push({ ...payload });
+          return Promise.resolve({ error: null });
         },
         upsert(payload: Row) {
           if (failUpsertColumns.value && ("conversation_key" in payload || "workspace_id" in payload)) {
