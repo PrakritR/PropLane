@@ -83,11 +83,11 @@ afterEach(() => {
 describe("Settings → Integrations", () => {
   it("renders Messages, Bookings, Posting and Google as four stacked sections on one page, with no tab list", () => {
     render(<ManagerIntegrationsPanel />);
-    expect(INTEGRATIONS_TABS.map((t) => t.label)).toEqual(["Messages", "Bookings", "Posting", "Google"]);
+    expect(INTEGRATIONS_TABS.map((t) => t.label)).toEqual(["Messages", "Bookings", "Posting", "Spreadsheets"]);
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings.slice(0, 4)).toEqual(["Messages", "Bookings", "Posting", "Google"]);
+    expect(headings.slice(0, 4)).toEqual(["Messages", "Bookings", "Posting", "Spreadsheets"]);
     for (const pane of ["pane-messaging", "pane-bookings", "pane-google"]) expect(screen.getByTestId(pane)).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-zillow-row"]')).not.toBeNull();
     for (const id of ["messages", "bookings", "posting", "google"]) {

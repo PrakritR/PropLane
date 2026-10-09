@@ -121,6 +121,7 @@ import {
   deletePromotionTool,
 } from "./domains/promotions";
 import { listCoManagersTool } from "./domains/team";
+import { listSpreadsheetsTool, readSpreadsheetTool, syncSpreadsheetTool } from "./domains/spreadsheets";
 import { listDocumentsTool } from "./domains/documents";
 import { managerFinancialsWriteTools } from "./domains/financials-write";
 import { managerServicesWriteTools } from "./domains/services-write";
@@ -193,6 +194,8 @@ export const agentRegistry = buildRegistry([
   getDashboardSummaryTool,
   getAutomationSettingsTool,
   listPromotionsTool,
+  listSpreadsheetsTool,
+  readSpreadsheetTool,
   listCoManagersTool,
   // Link-first replies: listing / tour / apply / message URLs for a live
   // listing, to paste into a text, inbox reply, or message to a prospect.
@@ -271,6 +274,7 @@ export const agentRegistry = buildRegistry([
   generatePromotionFlyerTool,
   updatePromotionTool,
   deletePromotionTool,
+  syncSpreadsheetTool,
   ...managerServicesWriteTools,
   // The accounting writes (bills, budgets, deposit dispositions, owner
   // distributions, bank reconciliation). Each carries a preview, which is what

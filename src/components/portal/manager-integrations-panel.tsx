@@ -12,7 +12,7 @@ export const INTEGRATIONS_TABS = [
   { id: "messages", label: "Messages" },
   { id: "bookings", label: "Bookings" },
   { id: "posting", label: "Posting" },
-  { id: "google", label: "Google" },
+  { id: "google", label: "Spreadsheets" },
 ] as const;
 
 export type IntegrationsTabId = (typeof INTEGRATIONS_TABS)[number]["id"];
@@ -21,12 +21,14 @@ export type IntegrationsTabId = (typeof INTEGRATIONS_TABS)[number]["id"];
 export const INTEGRATIONS_TAB_PARAM = "integration";
 
 export function parseIntegrationsTab(raw: string | null | undefined): IntegrationsTabId | null {
-  return INTEGRATIONS_TABS.find((tab) => tab.id === raw)?.id ?? null;
+  // "spreadsheets" is the friendly alias for the section whose id stays "google".
+  const id = raw === "spreadsheets" ? "google" : raw;
+  return INTEGRATIONS_TABS.find((tab) => tab.id === id)?.id ?? null;
 }
 
 /**
  * Settings → Integrations: one page, four stacked sections (Messages, Bookings,
- * Posting, Google). Messages is the work number + work email connection rows;
+ * Posting, Spreadsheets). Messages is the work number + work email connection rows;
  * they are edited only in Communication settings, which Manage opens. An old
  * `&integration=<id>` link (or `initialTab`) scrolls to that section.
  */
@@ -82,7 +84,7 @@ export function ManagerIntegrationsPanel({
         </PortalSettingsSection>
       </div>
       <div data-attr="settings-integrations-section-google" className="scroll-mt-4">
-        <PortalSettingsSection title="Google">
+        <PortalSettingsSection title="Spreadsheets">
           <ManagerSheetLinkPanel />
         </PortalSettingsSection>
       </div>

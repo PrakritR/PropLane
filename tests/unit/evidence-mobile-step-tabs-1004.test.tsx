@@ -262,7 +262,7 @@ describe("5. Settings › Integrations is one page of stacked sections", () => {
     desktopViewport();
     window.history.replaceState(null, "", "/portal/profile?tab=spreadsheets");
     render(<ManagerIntegrationsPanel initialTab="posting" />);
-    for (const label of ["Messages", "Bookings", "Posting", "Google"]) {
+    for (const label of ["Messages", "Bookings", "Posting", "Spreadsheets"]) {
       expect(screen.getByRole("heading", { name: label })).toBeTruthy();
     }
     await waitFor(() => expect(screen.getByText(/Facebook Marketplace/i)).toBeTruthy());

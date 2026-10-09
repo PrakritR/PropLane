@@ -95,7 +95,7 @@
     },
     {
       "path": "/api/cron/sync-manager-sheets",
-      "schedule": "0 * * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/bookings-today-digest",

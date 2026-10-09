@@ -1,6 +1,13 @@
 import { parseCsv } from "@/lib/sheet-sync/csv";
 import { inferHouseKey } from "@/lib/sheet-sync/house-key";
-import { spreadsheetExportCsvUrl, spreadsheetHtmlViewUrl } from "@/lib/sheet-sync/url";
+import {
+  isSafePublicHttpsUrl,
+  isValidPublishedCsvUrl,
+  spreadsheetExportCsvUrl,
+  spreadsheetHtmlViewUrl,
+} from "@/lib/sheet-sync/url";
+
+export { isValidPublishedCsvUrl };
 
 export type SheetTabMeta = {
   title: string;
@@ -195,4 +202,126 @@ export async function loadWorkbookTabs(input: {
     };
   }
   return { occupancy, houses, error: null };
+}
+
+const CSV_MAX_BYTES = 5 * 1024 * 1024;
+const CSV_FETCH_MS = 15_000;
+const CSV_MAX_REDIRECTS = 3;
+
+/**
+ * Fetch a published CSV server-side: https only, public hosts only (every
+ * redirect hop is re-checked), 5 MB cap, 15 s timeout, text/csv or
+ * text/plain. Returns the same `string[][]` table the Google path returns.
+ */
+export async function fetchPublishedCsv(
+  url: string,
+): Promise<{ rows: string[][] | null; error: string | null }> {
+  if (!isValidPublishedCsvUrl(url)) {
+    return { rows: null, error: "That is not a valid published CSV link (https URL ending in .csv, or a Google pub?output=csv link)." };
+  }
+  try {
+    let target = url.trim();
+    let res: Response | null = null;
+    for (let hop = 0; hop <= CSV_MAX_REDIRECTS; hop++) {
+      res = await fetch(target, {
+        cache: "no-store",
+        redirect: "manual",
+        headers: { Accept: "text/csv,text/plain" },
+        signal: AbortSignal.timeout(CSV_FETCH_MS),
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) return { rows: null, error: "The CSV link redirected without a destination." };
+        const next = new URL(location, target).toString();
+        if (!isSafePublicHttpsUrl(next)) return { rows: null, error: "The CSV link redirected somewhere that is not allowed." };
+        target = next;
+        res = null;
+        continue;
+      }
+      break;
+    }
+    if (!res) return { rows: null, error: "The CSV link redirected too many times." };
+    if (!res.ok) return { rows: null, error: `The CSV link answered ${res.status}.` };
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!type.includes("text/csv") && !type.includes("text/plain")) {
+      return { rows: null, error: "The link did not return a CSV (expected text/csv or text/plain)." };
+    }
+    const declared = Number(res.headers.get("content-length") ?? "0");
+    if (declared > CSV_MAX_BYTES) return { rows: null, error: "The CSV is larger than 5 MB." };
+    const reader = res.body?.getReader();
+    if (!reader) return { rows: null, error: "The CSV link returned no data." };
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > CSV_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return { rows: null, error: "The CSV is larger than 5 MB." };
+      }
+      chunks.push(value);
+    }
+    const text = new TextDecoder().decode(Buffer.concat(chunks));
+    if (!text.trim()) return { rows: null, error: "The CSV is empty." };
+    return { rows: parseCsv(text), error: null };
+  } catch (e) {
+    return { rows: null, error: e instanceof Error ? `Could not read the CSV: ${e.message}` : "Could not read the CSV." };
+  }
+}
+
+export type SheetTableSource = {
+  source: "google" | "csv";
+  csvUrl: string | null;
+  spreadsheetId: string;
+  occupancyGid: string;
+  houseTabs: Array<{ label: string; gid: string; houseKey: string }>;
+  staysTab: { gid: string; title: string } | null;
+};
+
+/** The tabs this binding is known to have, without any network call. */
+export function knownSheetTabs(link: SheetTableSource): Array<{ gid: string; title: string }> {
+  if (link.source === "csv") return [{ gid: "0", title: "CSV" }];
+  const tabs: Array<{ gid: string; title: string }> = [];
+  if (link.occupancyGid) tabs.push({ gid: link.occupancyGid, title: "Residents" });
+  for (const tab of link.houseTabs) tabs.push({ gid: tab.gid, title: tab.label });
+  if (link.staysTab && !tabs.some((t) => t.gid === link.staysTab!.gid)) {
+    tabs.push({ gid: link.staysTab.gid, title: link.staysTab.title || "Stays" });
+  }
+  return tabs;
+}
+
+/**
+ * One table from a binding, for raw caching and `read_spreadsheet`. CSV
+ * sources fetch the URL; Google sources prefer the Sheets API (private,
+ * Picker-granted files) and fall back to the public CSV export. `tab` picks
+ * a tab by gid or title; omitted = the first tab. Applies nothing.
+ */
+export async function fetchBindingTable(
+  link: SheetTableSource,
+  opts?: { tab?: string | null; accessToken?: string | null },
+): Promise<{ rows: string[][] | null; error: string | null }> {
+  if (link.source === "csv") {
+    return fetchPublishedCsv(link.csvUrl ?? "");
+  }
+  const wanted = opts?.tab?.trim() ?? "";
+  if (opts?.accessToken) {
+    const tabs = await listSheetsApiTabs(link.spreadsheetId, opts.accessToken);
+    const pick =
+      (wanted && tabs.find((t) => t.gid === wanted || t.title.toLowerCase() === wanted.toLowerCase())) ||
+      (wanted ? null : tabs[0]);
+    if (pick) {
+      const rows = await fetchSheetApiValues(link.spreadsheetId, pick.title, opts.accessToken);
+      if (rows) return { rows, error: null };
+    }
+  }
+  const known = knownSheetTabs(link);
+  const gid = wanted
+    ? (known.find((t) => t.gid === wanted || t.title.toLowerCase() === wanted.toLowerCase())?.gid ?? (/^\d+$/.test(wanted) ? wanted : null))
+    : null;
+  if (wanted && !gid) return { rows: null, error: `No tab named "${wanted}".` };
+  const rows = await fetchSheetCsv(link.spreadsheetId, gid);
+  return rows
+    ? { rows, error: null }
+    : { rows: null, error: "Could not read the spreadsheet. Share it with anyone who has the link, or connect Google on the account." };
 }
