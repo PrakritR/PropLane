@@ -4,6 +4,7 @@
  * throws, so a 404/500 renders an error state instead of crashing the tab.
  */
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import type { EngageItem, EngagePlatform, EngageStatus, GrowthKeyword, WatchKind, WatchlistEntry } from "@/lib/growth/engage/types";
 import type {
   GrowthAccount,
   GrowthAsset,
@@ -49,6 +50,8 @@ export type GrowthVideoStatus = {
 };
 
 export type GrowthRenderResult = { renderRequested: boolean; command: string };
+
+export type GrowthEngageView = { date: string; items: EngageItem[] };
 
 export type GrowthAccountsView = { accounts: GrowthAccount[]; publisher: GrowthPublisherStatus | null };
 
@@ -178,5 +181,22 @@ export const growthApi = {
         learned: arr<GrowthLearned>(j, "learned"),
       };
     }),
+  listEngage: (date?: string) =>
+    call(`/engage${date ? `?date=${encodeURIComponent(date)}` : ""}`, {}, (j): GrowthEngageView => ({
+      date: typeof j.date === "string" ? j.date : date ?? "",
+      items: arr<EngageItem>(j, "items"),
+    })),
+  patchEngage: (id: string, patch: { status?: EngageStatus; draft?: string }) =>
+    call(`/engage/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }, (j) => one<EngageItem>(j, "item")),
+  buildEngageNow: () =>
+    call("/engage/build-now", { method: "POST", body: {} }, (j) => ({ inserted: Number(j.inserted ?? 0), considered: Number(j.considered ?? 0) })),
+  listWatchlist: () => call("/watchlist", {}, (j) => arr<WatchlistEntry>(j, "watchlist")),
+  addWatch: (input: { platform: EngagePlatform; handle: string; kind: WatchKind; url?: string | null; topic?: string | null }) =>
+    call("/watchlist", { method: "POST", body: input }, (j) => one<WatchlistEntry>(j, "entry")),
+  deleteWatch: (id: string) => call(`/watchlist/${encodeURIComponent(id)}`, { method: "DELETE" }, () => true as const),
+  listKeywords: () => call("/keywords", {}, (j) => arr<GrowthKeyword>(j, "keywords")),
+  addKeyword: (input: { keyword: string; reply?: string | null; link?: string | null }) =>
+    call("/keywords", { method: "POST", body: input }, (j) => one<GrowthKeyword>(j, "keyword")),
+  deleteKeyword: (id: string) => call(`/keywords?id=${encodeURIComponent(id)}`, { method: "DELETE" }, () => true as const),
   draftNow: () => call("/draft-now", { method: "POST", body: {} }, () => true as const),
 };

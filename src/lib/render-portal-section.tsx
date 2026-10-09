@@ -786,7 +786,7 @@ export async function renderPortalSectionWith(
     }
     if ((tabParts?.length ?? 0) > 1) notFound();
     if (!first) return <GrowthAdminClient tab="queue" />;
-    if (first === "queue" || first === "calendar" || first === "accounts" || first === "analytics") {
+    if (first === "queue" || first === "calendar" || first === "engage" || first === "accounts" || first === "analytics") {
       return <GrowthAdminClient tab={first} />;
     }
     notFound();
