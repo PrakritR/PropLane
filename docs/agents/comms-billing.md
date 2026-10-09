@@ -356,8 +356,9 @@ who funds messaging, sized by THEIR OWN plan tier), not per workspace.
 workspaces" (every workspace they own or co-manage) by default, or pinned to
 one. `comms_plan_credit_rules` is PropLane admin's global per-tier default
 (included credit, whether it is shared across a funder's workspaces, whether
-unused credit rolls over), editable at `/admin/billing` → Plan credit
-(`docs/agents/plan-entitlements.md` § Admin Billing) and seeded once from
+unused credit rolls over), editable from Accounts behind its "Plan credit" header
+icon action — there is no `/admin/billing` page
+(`docs/agents/plan-entitlements.md` § Admin Billing) — and seeded once from
 `RATE_CARD` — an admin edit is never overwritten by a later migration re-run.
 
 **Reserve order.** A send in workspace W tries W's enabled funders in order —

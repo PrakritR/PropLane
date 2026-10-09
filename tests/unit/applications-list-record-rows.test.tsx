@@ -74,7 +74,10 @@ describe("an application is a Properties-style card", () => {
     mount([single(row({}))]);
     const el = card();
     expect(el.textContent).toContain("Ethan Wright");
-    expect(el.textContent).toContain("Alder Row — 3 rooms");
+    // The place line names the house. A stored "— 3 rooms" suffix is redundant on a row
+    // scoped to one application, so `stripPropertyRoomCountSuffix` drops it (Oct 8 label pass).
+    expect(el.textContent).toContain("Alder Row");
+    expect(el.textContent).not.toContain("3 rooms");
     expect(el.querySelector('[data-attr="record-row-facts"]')!.textContent).toContain("Submitted Sep 11");
     // The tab says Pending; the row does not repeat it, and a pending
     // screening is silent.

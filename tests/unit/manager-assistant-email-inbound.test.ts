@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   reserveCommsCredit: vi.fn(),
   finishCommsCredit: vi.fn(),
   commsTurnKey: vi.fn(),
-  resolveAutomationSendModeForEvent: vi.fn(),
+  partyFacingAnswerHold: vi.fn(),
 }));
 
 // The auto-reply to a prospect/resident is a paid AI turn: credit is reserved
@@ -35,7 +35,7 @@ vi.mock("@/lib/comms-billing/turn-result.server", () => ({
   commsTurnKey: mocks.commsTurnKey,
 }));
 vi.mock("@/lib/automation-send-mode.server", () => ({
-  resolveAutomationSendModeForEvent: mocks.resolveAutomationSendModeForEvent,
+  partyFacingAnswerHold: mocks.partyFacingAnswerHold,
 }));
 
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
@@ -171,7 +171,7 @@ describe("processManagerAssistantInboundEmail", () => {
     mocks.commsTurnKey.mockImplementation(async (_db: unknown, _owner: string, base: string) => base);
     mocks.reserveCommsCredit.mockResolvedValue({ allowed: true, duplicate: false, state: "reserved" });
     mocks.finishCommsCredit.mockResolvedValue(undefined);
-    mocks.resolveAutomationSendModeForEvent.mockResolvedValue({ team: "auto", partyFacing: "auto" });
+    mocks.partyFacingAnswerHold.mockResolvedValue({ hold: false, reason: null });
 
     const insert = vi.fn().mockResolvedValue({ error: null });
     (db.from as ReturnType<typeof vi.fn>).mockReturnValue({ insert });
@@ -599,7 +599,19 @@ describe("processManagerAssistantInboundEmail", () => {
     });
 
     it("approval-first: the answer is held as a review draft and never emailed", async () => {
-      mocks.resolveAutomationSendModeForEvent.mockResolvedValue({ team: "auto", partyFacing: "draft" });
+      mocks.partyFacingAnswerHold.mockResolvedValue({ hold: true, reason: "approval" });
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+
+      expect(result).toMatchObject({ handled: true, replied: false });
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenLastCalledWith(
+        db,
+        expect.objectContaining({ replyAsReviewDraft: true, replySent: false }),
+      );
+    });
+
+    it("holds the answer inside the workspace's quiet hours instead of emailing it", async () => {
+      mocks.partyFacingAnswerHold.mockResolvedValue({ hold: true, reason: "quiet_hours" });
       const result = await processManagerAssistantInboundEmail(db, fromProspect);
 
       expect(result).toMatchObject({ handled: true, replied: false });
@@ -611,7 +623,7 @@ describe("processManagerAssistantInboundEmail", () => {
     });
 
     it("fails closed: an unreadable approval switch holds the answer as a review draft", async () => {
-      mocks.resolveAutomationSendModeForEvent.mockRejectedValue(new Error("settings down"));
+      mocks.partyFacingAnswerHold.mockRejectedValue(new Error("settings down"));
       const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
       const result = await processManagerAssistantInboundEmail(db, fromProspect);
       errors.mockRestore();

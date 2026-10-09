@@ -383,10 +383,11 @@ branches on `"resident"` without consulting `profile_roles`.
 Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communication-inbox.md).
 
 - **One conversation list.** Standalone inbox page shell is `/demo` only.
-  Manager, resident and vendor Communication all have Active | Archived tabs
-  under the work identity boxes, switching instantly with no remount; Unread
+  Manager, resident, vendor and admin Communication all have Active | Archived
+  tabs under the work identity boxes, switching instantly with no remount; Unread
   stays in Filter, which never lists Archived.
-- Scheduled sends render **inline** in the recipient thread (admin table is the exception).
+- Scheduled sends render **inline** in the recipient thread on every portal, admin
+  included. The one list of them is the manager Filter's phone-only "Scheduled N".
 - A message enters the store **after** the send is authorized. Copy the resident panel, not the manager/vendor ones.
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.
 - SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.

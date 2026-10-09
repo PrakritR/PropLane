@@ -8,8 +8,12 @@ export const GROWTH_BUCKET = "growth";
 
 export type AssetKind = GrowthAsset["kind"];
 
-/** Idempotency key for an asset row: one row per {postId, sceneIndex, kind}. Post-level assets use sceneIndex -1. */
-export type AssetKey = { postId: string; kind: AssetKind; sceneIndex: number };
+/**
+ * Idempotency key for an asset row: one row per {postId, scene, kind}. The scene is identified by its
+ * stable `sceneId` where it has one, with `sceneIndex` as the fallback for posts saved before ids
+ * existed. Post-level assets use sceneIndex -1.
+ */
+export type AssetKey = { postId: string; kind: AssetKind; sceneIndex: number; sceneId?: string | null };
 
 export type SaveAssetInput = AssetKey & {
   buffer: Buffer;
@@ -33,8 +37,25 @@ export function assetSceneIndex(a: Pick<GrowthAsset, "meta">): number {
   return typeof v === "number" ? v : -1;
 }
 
+export function assetSceneId(a: Pick<GrowthAsset, "meta">): string | null {
+  const v = a.meta?.sceneId;
+  return typeof v === "string" && v ? v : null;
+}
+
+/**
+ * The asset filling one scene. A scene with an id matches only an asset carrying that id; the index
+ * is used only while nothing in the pool is keyed by id (a post that predates scene ids), because
+ * matching a renumbered index against an id-less asset is how a reel ends up with another scene's clip.
+ */
 export function findAsset(assets: GrowthAsset[], key: AssetKey): GrowthAsset | undefined {
-  return assets.find((a) => a.postId === key.postId && a.kind === key.kind && assetSceneIndex(a) === key.sceneIndex);
+  const pool = assets.filter((a) => a.postId === key.postId && a.kind === key.kind);
+  const wanted = key.sceneId?.trim() || null;
+  if (wanted) {
+    const byId = pool.find((a) => assetSceneId(a) === wanted);
+    if (byId) return byId;
+    if (pool.some((a) => assetSceneId(a) !== null)) return undefined;
+  }
+  return pool.find((a) => assetSceneIndex(a) === key.sceneIndex);
 }
 
 export function supabaseAssetStore(db: GrowthDb): AssetStore {
@@ -57,7 +78,11 @@ export function supabaseAssetStore(db: GrowthDb): AssetStore {
         width: input.width ?? null,
         height: input.height ?? null,
         duration_ms: input.durationMs ?? null,
-        meta: { ...(input.meta ?? {}), sceneIndex: input.sceneIndex },
+        meta: {
+          ...(input.meta ?? {}),
+          sceneIndex: input.sceneIndex,
+          ...(input.sceneId?.trim() ? { sceneId: input.sceneId.trim() } : {}),
+        },
       };
       const res = existing
         ? await db.from("growth_assets").update(row).eq("id", existing.id).select("*").single()

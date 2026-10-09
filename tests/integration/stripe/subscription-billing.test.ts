@@ -86,18 +86,24 @@ import { POST as webhook } from "@/app/api/stripe/webhook/route";
  * returns; `update` is captured so the deleted-event test can assert on it.
  */
 function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<typeof vi.fn> } = {}) {
-  const maybeSingle = vi.fn().mockResolvedValue({
-    data: {
-      id: "purchase_1",
-      user_id: opts.user_id === undefined ? "user_1" : opts.user_id,
-      manager_id: "MGR-123",
-      email: "mgr@example.com",
-    },
-    error: null,
-  });
-  const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle }) });
+  const purchase = {
+    id: "purchase_1",
+    user_id: opts.user_id === undefined ? "user_1" : opts.user_id,
+    manager_id: "MGR-123",
+    email: "mgr@example.com",
+  };
   return {
-    from: vi.fn().mockReturnValue({ select, update: opts.update ?? vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }) }),
+    // The handler first asks whether the subscription is a PropLane Number one
+    // (`number_subscriptions`); a mock that answers a row there makes it return early and
+    // never touch `manager_purchases`, which is the manager plan this test is about.
+    from: vi.fn((table: string) => {
+      const maybeSingle = vi.fn().mockResolvedValue({
+        data: table === "number_subscriptions" ? null : purchase,
+        error: null,
+      });
+      const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle }) });
+      return { select, update: opts.update ?? vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }) };
+    }),
   };
 }
 

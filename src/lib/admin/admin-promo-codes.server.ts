@@ -492,8 +492,15 @@ export async function getPromoCodeRecord(
     throw error;
   }
   const products = await loadPlanProducts(stripe);
-  const usage = summarizePromoUsage(await loadInvoicesWithDiscounts(stripe));
-  await attachAccounts(usage, deps.db ?? createSupabaseServiceRoleClient());
+  // Usage is best-effort here exactly as it is in `listPromoCodes`: one transient invoice-read
+  // failure must not make the list render zeroes while opening a single code 500s.
+  let usage = new Map<string, PromoUsage>();
+  try {
+    usage = summarizePromoUsage(await loadInvoicesWithDiscounts(stripe));
+    await attachAccounts(usage, deps.db ?? createSupabaseServiceRoleClient());
+  } catch (error) {
+    console.error("promo usage read failed", error);
+  }
   const entry = usage.get(promo.id);
   return { ...projectPromoCode(promo, entry, products), redemptions: entry?.redemptions ?? [] };
 }

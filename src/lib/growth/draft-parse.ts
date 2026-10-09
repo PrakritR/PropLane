@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reflowScenes, withSceneIds } from "./scenes";
 import {
   GROWTH_PLATFORMS,
   type DraftOutput,
@@ -10,6 +11,7 @@ const platformEnum = z.enum(GROWTH_PLATFORMS);
 
 const sceneSchema = z.object({
   index: z.number().int().optional(),
+  id: z.string().min(1).max(64).optional(),
   kind: z.enum(["generated", "template", "shot", "still"]),
   startMs: z.number().int().min(0),
   endMs: z.number().int().min(1),
@@ -97,7 +99,8 @@ export function parseDraftOutput(text: string, format: GrowthFormat): DraftOutpu
     if ((p === "instagram" || p === "tiktok") && hashtagCount(c) > 6) throw new Error(`draft: ${p} caption has more than 6 hashtags`);
     captions[p] = c;
   }
-  const scenes = parsed.scenes.map((s, i) => ({ ...s, index: i }));
-  for (const s of scenes) if (s.endMs <= s.startMs) throw new Error("draft: scene endMs must exceed startMs");
+  for (const s of parsed.scenes) if (s.endMs <= s.startMs) throw new Error("draft: scene endMs must exceed startMs");
+  // Stable ids and a contiguous timeline from the first save, the same shape `sceneListSchema` enforces.
+  const scenes = reflowScenes(withSceneIds(parsed.scenes.map((s, i) => ({ ...s, index: i }))));
   return { title: parsed.title, hook: parsed.hook, script: parsed.script, scenes, captions, platforms };
 }

@@ -11,6 +11,7 @@ import {
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import {
   loadManagerBillingOverrides,
+  parsePromoCodeOverride,
   saveManagerBillingOverrides,
   type ManagerBillingOverrides,
 } from "@/lib/manager-billing-overrides";
@@ -226,6 +227,12 @@ export async function extendAccountTrial(
       if (sub.status === "canceled" || sub.status === "incomplete_expired") {
         return fail(409, "That subscription is canceled, so there is no trial to extend.");
       }
+      /* Only a subscription that is actually ON trial has a trial to move. Setting `trial_end` on a
+         paying one makes Stripe stop billing it until that date — up to two years of free service
+         from a button whose own refusal already promises "there is no trial to extend". */
+      if (sub.status !== "trialing") {
+        return fail(409, "That subscription is already billing, so there is no trial to extend.");
+      }
       before = sub.trial_end ? isoDate(sub.trial_end * 1000) : null;
       await stripe.subscriptions.update(subscriptionId, {
         trial_end: Math.floor(endMs / 1000),
@@ -390,7 +397,7 @@ export async function setAccountComplimentary(
 /* Promo code                                                                  */
 /* -------------------------------------------------------------------------- */
 
-const PROMO_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 
 async function promoCodesOn(stripe: Stripe, discounts: SubDiscount[]): Promise<string[]> {
   const codes: string[] = [];
@@ -417,8 +424,9 @@ export async function applyAccountPromoCode(
 ): Promise<BillingActionResult<{ promoCode: string }>> {
   const reason = requireReason(ctx.reason);
   if (!reason.ok) return reason;
-  const clean = trimmed(code);
-  if (!PROMO_CODE_PATTERN.test(clean)) return fail(400, "Enter a promo code.");
+  const parsed = parsePromoCodeOverride(code);
+  if (!parsed.ok) return fail(400, parsed.error);
+  const clean = parsed.value;
 
   const loaded = await loadPurchase(ctx.db, ctx.managerUserId);
   if (!loaded.ok) return loaded;

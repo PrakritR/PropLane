@@ -101,7 +101,11 @@ describe("server client identity while viewing as", () => {
 
   it("ignores a tampered cookie", async () => {
     await open();
-    state.cookieValue = state.cookieValue!.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
+    // Tamper the signed BODY, never the signature's last base64 character: that char
+    // carries unused bits, so flipping it can decode to the same HMAC and still verify
+    // (a ~3% flake). A changed body always changes the signed message.
+    const [body, sig] = state.cookieValue!.split(".");
+    state.cookieValue = `${body!.replace(/^./, (c) => (c === "a" ? "b" : "a"))}.${sig}`;
     expect(await actingId()).toBe(UUID.admin);
   });
 

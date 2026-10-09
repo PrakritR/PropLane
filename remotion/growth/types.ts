@@ -5,6 +5,8 @@ export type ReelWord = { word: string; startMs: number; endMs: number };
 /** A scene as the renderer sees it: the plan scene plus the public URL of the asset that fills it, if any. */
 export type ReelScene = GrowthScene & {
   assetUrl?: string;
+  /** Length of the media behind `assetUrl`, when known: a clip shorter than its scene is looped, never run past its end. */
+  assetDurationMs?: number;
   /** Set when the planned kind could not be produced (no key, shot failed) and a template scene stands in. */
   fallback?: "template";
 };
@@ -45,4 +47,13 @@ export function scenesEndMs(scenes: Array<Pick<GrowthScene, "endMs">>): number {
 export function reelDurationMs(props: Pick<ReelProps, "scenes" | "endCardMs" | "totalMs">): number {
   const natural = scenesEndMs(props.scenes) + (props.endCardMs ?? DEFAULT_END_CARD_MS);
   return Math.max(natural, props.totalMs ?? 0, 1000);
+}
+
+/**
+ * Where the end card starts: always exactly `endCardMs` before the end, so a voice track longer than
+ * the scenes holds the LAST SCENE over the extra time instead of stretching the card across it.
+ */
+export function endCardStartMs(props: Pick<ReelProps, "scenes" | "endCardMs" | "totalMs">): number {
+  const endCardMs = Math.max(0, props.endCardMs ?? DEFAULT_END_CARD_MS);
+  return Math.max(0, reelDurationMs(props) - endCardMs);
 }

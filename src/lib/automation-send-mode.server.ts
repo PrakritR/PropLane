@@ -7,6 +7,7 @@ import {
   type AutomationSendModeSettings,
 } from "@/lib/automation-send-mode";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
+import { isQuietHour, losAngelesHour } from "@/lib/reminders/rules";
 import { loadReminderSettings, loadReminderSettingsForProperty } from "@/lib/reminders/settings.server";
 
 /**
@@ -47,4 +48,33 @@ export async function resolveAutomationSendModeForEvent(
       return DEFAULT_AUTOMATION_SEND_MODE_SETTINGS;
     }
   }
+}
+
+export type PartyFacingHold = { hold: boolean; reason: "approval" | "quiet_hours" | null };
+
+/**
+ * Must a party-facing automated answer be HELD for the manager rather than sent now?
+ *
+ * Two reasons, both on the workspace's own `manager_automation_settings` row: the approval switch
+ * ("resident & vendor messages need my approval first"), and quiet hours — an answer written at 3am
+ * waits for the manager instead of reaching the sender in the middle of the night.
+ *
+ * The read is STRICT: a failure THROWS instead of resolving to "send it". Unlike
+ * {@link resolveAutomationSendModeForEvent} — which must keep the shared action-event bus delivering
+ * for dozens of already-shipped automations — a caller of this function is one that has to fail
+ * closed, and it cannot do that if every failure comes back as `auto`. (Note that
+ * `loadReminderSettingsForProperty` is a stub returning defaults without reading anything, so the
+ * workspace row has to be read here directly for the value to be the manager's at all.)
+ */
+export async function partyFacingAnswerHold(
+  db: SupabaseClient,
+  managerUserId: string,
+  now: Date = new Date(),
+): Promise<PartyFacingHold> {
+  const owner = managerUserId.trim();
+  if (!owner) throw new Error("automation send mode: no workspace owner to read");
+  const settings = await loadReminderSettings(db, owner);
+  if (settings.automationSendMode.partyFacing === "draft") return { hold: true, reason: "approval" };
+  if (isQuietHour(settings.quietHours, losAngelesHour(now))) return { hold: true, reason: "quiet_hours" };
+  return { hold: false, reason: null };
 }

@@ -131,7 +131,8 @@
     "test:payments-upcoming": "playwright test --config tests/browser/payments-upcoming.config.ts",
     "test:central-payments": "playwright test --config tests/browser/central-payments.config.ts",
     "test:lane-integration": "playwright test --config tests/browser/lane-integration-1006.config.ts",
-    "test:promote-prakrit": "playwright test --config tests/browser/promote-prakrit-1008.config.ts"
+    "test:promote-prakrit": "playwright test --config tests/browser/promote-prakrit-1008.config.ts",
+    "test:lane-merge": "playwright test --config tests/browser/lane-merge-1008.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

@@ -13,11 +13,13 @@ import type { AdminAgentContext } from "./context";
 
 const ROWS_PER_GROUP = 8;
 const FEEDBACK_LISTED = 15;
+/** Newest reports read. Older ones are outside the read, so `complete` says the count is a floor. */
+const FEEDBACK_READ = 500;
 
 export const healthSummaryTool = defineTool({
   name: "health_summary",
   description:
-    "What is broken right now, by group: failed text messages, failed webhooks, open Stripe disputes and stuck applications (last 7 days). Each group has a total and its newest rows. Pass sinceHours to keep only rows from the last N hours (for example 24 for 'today').",
+    "What is broken right now, by group: failed text messages, failed webhooks, open Stripe disputes and stuck applications (last 7 days). Each group has a count, its newest rows, and `complete`. When `complete` is false the count is a FLOOR ('at least N') because only the newest rows were read — say so rather than stating it as the total. Pass sinceHours to keep only rows from the last N hours (for example 24 for 'today').",
   inputSchema: z.object({
     sinceHours: z.number().int().min(1).max(168).optional().describe("Only rows newer than this many hours."),
   }),
@@ -36,6 +38,8 @@ export const healthSummaryTool = defineTool({
           id: group.id,
           label: group.label,
           total: rows.length,
+          /** False when the page's own row cap was hit: `total` is then "at least this many". */
+          complete: !group.capped,
           rows: rows.slice(0, ROWS_PER_GROUP).map((row) => ({
             title: row.title,
             fact: row.fact,
@@ -59,7 +63,7 @@ type FeedbackRow = {
 export const openFeedbackTool = defineTool({
   name: "open_feedback",
   description:
-    "Open bug reports and feedback from users (status Open or In progress), newest first, with the total still unresolved.",
+    "Open bug reports and feedback from users (status Open or In progress), newest first, with the number still unresolved and `complete`. When `complete` is false only the newest reports were read, so `unresolved` is a floor — say 'at least N'.",
   inputSchema: z.object({}),
   async handler(ctx: AdminAgentContext) {
     // Same read the account record's support card uses: one tiny projection of row_data.
@@ -67,13 +71,13 @@ export const openFeedbackTool = defineTool({
       .from("portal_bug_feedback_records")
       .select("id, report_type, created_at, title:row_data->>title, status:row_data->>status")
       .order("created_at", { ascending: false })
-      .limit(500);
+      .limit(FEEDBACK_READ);
     if (error) throw new Error("Could not read feedback.");
-    const unresolved = ((data ?? []) as unknown as FeedbackRow[]).filter(
-      (row) => normalizeBugFeedbackStatus(row.status) !== "completed",
-    );
+    const rows = (data ?? []) as unknown as FeedbackRow[];
+    const unresolved = rows.filter((row) => normalizeBugFeedbackStatus(row.status) !== "completed");
     return {
       unresolved: unresolved.length,
+      complete: rows.length < FEEDBACK_READ,
       feedback: unresolved.slice(0, FEEDBACK_LISTED).map((row) => ({
         id: row.id,
         type: row.report_type === "feedback" ? "feedback" : "bug",

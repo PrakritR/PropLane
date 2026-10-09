@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input } from "@/components/ui/input";
 
@@ -39,6 +39,9 @@ export function AdminBillingActionDialog({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /* These changes are live Stripe mutations, so the latch is a ref: `busy` is still false on the
+     second of two Enter presses in the same tick, and Enter never passes the disabled button. */
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -46,13 +49,15 @@ export function AdminBillingActionDialog({
       setReason("");
       setError(null);
       setBusy(false);
+      inFlight.current = false;
     });
   }, [open]);
 
   const trimmed = reason.trim();
 
   const submit = async () => {
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -62,6 +67,7 @@ export function AdminBillingActionDialog({
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
@@ -78,7 +84,7 @@ export function AdminBillingActionDialog({
       dataAttr={dataAttr}
       primaryAction={{
         label: submitLabel,
-        onClick: () => void submit(),
+        onClick: () => submit(),
         disabled: !canSubmit || !trimmed || busy,
         loading: busy,
         dataAttr: `${dataAttr}-submit`,

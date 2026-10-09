@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { growthApi, type GrowthPostView, type GrowthVideoStatus } from "@/lib/growth/client";
-import { MAX_SCENES } from "@/lib/growth/scenes";
+import { MAX_SCENES, newSceneId, reflowScenes, withSceneIds } from "@/lib/growth/scenes";
 import type { GrowthAsset, GrowthScene } from "@/lib/growth/types";
 import { GrowthErrorBanner } from "@/components/portal/growth-shared";
 
@@ -15,9 +15,18 @@ type SceneState = "ready" | "missing" | "fallback";
 
 const KIND_LABEL: Record<GrowthScene["kind"], string> = { generated: "Generated", template: "Template", shot: "Product shot", still: "Still" };
 
-/** Asset for a scene: by meta.sceneIndex when the renderer wrote it (TODO inferred), else by order among clip/shot assets. */
+/**
+ * Asset for a scene: by its stable `meta.sceneId`, else by `meta.sceneIndex` while nothing in the pool
+ * carries an id (a post that predates scene ids), else by order. Matching a renumbered index against an
+ * id-keyed asset is how the studio used to show another scene's clip.
+ */
 function sceneAsset(assets: GrowthAsset[], scene: GrowthScene, position: number): GrowthAsset | null {
   const pool = assets.filter((a) => a.kind === "clip" || a.kind === "shot");
+  if (scene.id) {
+    const byId = pool.find((a) => a.meta?.sceneId === scene.id);
+    if (byId) return byId;
+    if (pool.some((a) => typeof a.meta?.sceneId === "string" && a.meta.sceneId)) return null;
+  }
   return pool.find((a) => Number(a.meta?.sceneIndex) === scene.index) ?? (pool.every((a) => a.meta?.sceneIndex == null) ? (pool[position] ?? null) : null);
 }
 
@@ -43,8 +52,9 @@ function fallbackReasons(video: GrowthAsset | undefined): Map<number, string> {
 
 const STATE_TONE = { ready: "success", missing: "warning", fallback: "info" } as const;
 
+/** Re-index AND re-flow: removing a scene must not leave a hole the renderer fills with flat background. */
 function renumber(scenes: GrowthScene[]): GrowthScene[] {
-  return scenes.map((s, i) => ({ ...s, index: i }));
+  return reflowScenes(withSceneIds(scenes));
 }
 
 export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onPost: (p: GrowthPostView) => void; locked: boolean }) {
@@ -137,7 +147,7 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
               const fellBack = fallbacks.get(s.index);
               const state = sceneState(s, asset, fellBack !== undefined);
               return (
-                <li key={i} className="flex gap-3 rounded-2xl border border-border bg-card p-3" data-attr="admin-growth-reel-scene" data-state={state}>
+                <li key={s.id ?? i} className="flex gap-3 rounded-2xl border border-border bg-card p-3" data-attr="admin-growth-reel-scene" data-state={state}>
                   <div
                     className="flex h-24 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#2863f0] to-[#0b1f6b] text-white"
                   >
@@ -214,7 +224,7 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
                 onClick={() => {
                   const last = scenes[scenes.length - 1];
                   const start = last?.endMs ?? 0;
-                  setScenes(renumber([...scenes, { index: scenes.length, kind: "template", startMs: start, endMs: start + 3000, text: "", direction: "" }]));
+                  setScenes(renumber([...scenes, { id: newSceneId(), index: scenes.length, kind: "template", startMs: start, endMs: start + 3000, text: "", direction: "" }]));
                   setDirty(true);
                 }}
               >

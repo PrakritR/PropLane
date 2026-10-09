@@ -64,7 +64,7 @@ The audit covered public, authentication, manager, resident, vendor, and admin r
 
 10. **Loading states do not preserve useful structure.** Finance and other data-heavy destinations can render a visually blank waiting area. Skeletons should preserve the title, controls, column rhythm, and expected row density.
 
-11. **Admin communication routing can soft-404.** `/admin/communication/schedule` used to render a not-found experience with HTTP 200 while `/admin/communication/inbox/schedule` is canonical. Fixed 2026-09-04: flat inbox tab segments redirect to `/admin/communication/inbox/{tab}`; admin sidebar prefetch hrefs use the inbox prefix.
+11. **Admin communication routing can soft-404.** `/admin/communication/schedule` used to render a not-found experience with HTTP 200 while `/admin/communication/inbox/schedule` is canonical. Fixed 2026-09-04: flat inbox tab segments redirect to `/admin/communication/inbox/{tab}`; admin sidebar prefetch hrefs use the inbox prefix. Superseded 2026-10-08 — admin Communication is now `/admin/communication/{active|archived}` and the `inbox/` prefix is itself a redirect; see [`docs/agents/communication-inbox.md`](agents/communication-inbox.md).
 
 ### P3 — polish and motion
 

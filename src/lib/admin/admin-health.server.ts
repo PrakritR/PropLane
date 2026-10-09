@@ -25,13 +25,25 @@ export type AdminHealthRow = {
 
 export type AdminHealthGroupId = "sms" | "webhooks" | "disputes" | "applications";
 
+export type AdminHealthGroup = {
+  id: AdminHealthGroupId;
+  label: string;
+  rows: AdminHealthRow[];
+  /**
+   * True when the group holds more rows than were read: `rows` is then the NEWEST {@link ROW_CAP},
+   * not all of them, so a count taken from `rows.length` is a floor and must be labelled as one.
+   */
+  capped: boolean;
+};
+
 export type AdminHealth = {
-  groups: { id: AdminHealthGroupId; label: string; rows: AdminHealthRow[] }[];
+  groups: AdminHealthGroup[];
 };
 
 const WINDOW_DAYS = 7;
 const STUCK_APPLICATION_DAYS = 7;
 const ROW_CAP = 50;
+const STUCK_APPLICATION_READ = 200;
 
 type Row = Record<string, unknown>;
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -100,7 +112,7 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
       .eq("row_data->>bucket", "pending")
       .lt("created_at", stuckBefore)
       .order("created_at", { ascending: true })
-      .limit(200),
+      .limit(STUCK_APPLICATION_READ),
   ]);
 
   // The attempt rows carry no manager; their outbox row does.
@@ -115,6 +127,7 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
     for (const row of (data ?? []) as Row[]) outboxById.set(str(row.id), row);
   }
 
+  const smsCapped = (smsLogRes.data ?? []).length >= ROW_CAP || attempts.length >= ROW_CAP;
   const sms: AdminHealthRow[] = [
     ...((smsLogRes.data ?? []) as Row[]).map((r) => ({
       id: `log-${str(r.id)}`,
@@ -163,8 +176,10 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
     accountId: strOrNull(d.manager_user_id),
   }));
 
-  const applications: AdminHealthRow[] = ((appRes.data ?? []) as unknown as Row[])
-    .filter((r) => isStuckApplication({ bucket: str(r.bucket), stage: str(r.stage) }))
+  const stuckRows = ((appRes.data ?? []) as unknown as Row[]).filter((r) =>
+    isStuckApplication({ bucket: str(r.bucket), stage: str(r.stage) }),
+  );
+  const applications: AdminHealthRow[] = stuckRows
     .slice(0, ROW_CAP)
     .map((r) => ({
       id: `application-${str(r.id)}`,
@@ -176,10 +191,15 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
 
   return {
     groups: [
-      { id: "sms", label: "Failed text messages", rows: sms },
-      { id: "webhooks", label: "Failed webhooks", rows: webhooks },
-      { id: "disputes", label: "Open Stripe disputes", rows: disputes },
-      { id: "applications", label: "Stuck applications", rows: applications },
+      { id: "sms", label: "Failed text messages", rows: sms, capped: smsCapped },
+      { id: "webhooks", label: "Failed webhooks", rows: webhooks, capped: webhooks.length >= ROW_CAP },
+      { id: "disputes", label: "Open Stripe disputes", rows: disputes, capped: disputes.length >= ROW_CAP },
+      {
+        id: "applications",
+        label: "Stuck applications",
+        rows: applications,
+        capped: stuckRows.length > applications.length || (appRes.data ?? []).length >= STUCK_APPLICATION_READ,
+      },
     ],
   };
 }

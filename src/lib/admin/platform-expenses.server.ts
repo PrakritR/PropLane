@@ -159,12 +159,25 @@ export async function listPlatformExpenses(
     .filter((expense) => expense.recurrence !== "none" || expense.spentOn >= fromDay);
 }
 
+/**
+ * A receipt object belongs to ONE expense. The path pattern alone would let a second expense name a
+ * receipt the first already has, and then deleting or replacing either one takes the file out from
+ * under the other.
+ */
+async function assertReceiptUnclaimed(db: Db, receiptPath: string, exceptExpenseId?: string): Promise<void> {
+  const { data, error } = await db.from("platform_expenses").select("id").eq("receipt_path", receiptPath);
+  if (error) throw error;
+  const claimed = ((data ?? []) as Array<{ id: string }>).filter((row) => row.id !== exceptExpenseId);
+  if (claimed.length > 0) throw new AdminInputError("That receipt is already attached to another expense.");
+}
+
 export async function createPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: string,
   deps: { db?: Db } = {},
 ): Promise<PlatformExpense> {
   const db = deps.db ?? createSupabaseServiceRoleClient();
+  if (input.receiptPath) await assertReceiptUnclaimed(db, input.receiptPath);
   const { data, error } = await db
     .from("platform_expenses")
     .insert({
@@ -213,6 +226,9 @@ export async function updatePlatformExpense(
   });
   if (!merged.success) throw new AdminInputError(merged.error.issues[0]?.message ?? "Invalid expense.");
   const next = merged.data;
+  if (next.receiptPath && next.receiptPath !== current.receiptPath) {
+    await assertReceiptUnclaimed(db, next.receiptPath, patch.id);
+  }
 
   const { data, error } = await db
     .from("platform_expenses")

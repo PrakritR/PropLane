@@ -1,7 +1,9 @@
 import "server-only";
 
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
+import { Readable } from "node:stream";
 
 function ipv4Private(a: number, b: number, c: number): boolean {
   return (
@@ -57,10 +59,89 @@ export function isPrivateAddress(ip: string): boolean {
   return true;
 }
 
+/** Every address of `hostname` when all of them are public, else null. */
+export async function resolvePublicAddresses(hostname: string): Promise<string[] | null> {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  if (isIP(host)) return isPrivateAddress(host) ? null : [host];
+  const addresses = await lookup(host, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some((entry) => isPrivateAddress(entry.address))) return null;
+  return addresses.map((entry) => entry.address);
+}
+
 /** Resolve every address of `hostname` and require all of them to be public. */
 export async function resolvesToPublicAddressesOnly(hostname: string): Promise<boolean> {
-  const host = hostname.replace(/^\[|\]$/g, "");
-  if (isIP(host)) return !isPrivateAddress(host);
-  const addresses = await lookup(host, { all: true, verbatim: true });
-  return addresses.length > 0 && addresses.every((entry) => !isPrivateAddress(entry.address));
+  return (await resolvePublicAddresses(hostname)) !== null;
+}
+
+/** A host that resolves to an address this fetch must never reach. The message is internal. */
+export class NonPublicHostError extends Error {}
+
+/** Only the addresses already vetted are ever connected to; the name still provides SNI and Host. */
+function pinnedLookup(hostname: string, addresses: readonly string[]): LookupFunction {
+  return ((host: string, options: unknown, callback: (...args: unknown[]) => void) => {
+    if (host !== hostname) {
+      callback(new NonPublicHostError("unexpected host lookup"));
+      return;
+    }
+    if ((options as { all?: boolean } | null)?.all === true) {
+      callback(
+        null,
+        addresses.map((address) => ({ address, family: isIP(address) })),
+      );
+      return;
+    }
+    const first = addresses[0]!;
+    callback(null, first, isIP(first));
+  }) as unknown as LookupFunction;
+}
+
+/**
+ * GET one https URL, connecting ONLY to an address resolved and vetted up front.
+ *
+ * Resolving the name and then handing the NAME to `fetch` lets the second resolution answer
+ * differently from the one that was checked (DNS rebinding): a TTL-0 record can say a public address
+ * for the check and 169.254.169.254 for the connection. The address is therefore pinned through the
+ * agent's own `lookup`, while SNI and the Host header keep the original name so TLS still verifies.
+ *
+ * Redirects are never followed here — the caller re-vets every hop.
+ */
+export async function fetchPinnedPublicHttps(
+  target: string,
+  init: { headers?: Record<string, string>; timeoutMs?: number } = {},
+): Promise<Response> {
+  const url = new URL(target);
+  if (url.protocol !== "https:") throw new NonPublicHostError("only https is fetched");
+  const addresses = await resolvePublicAddresses(url.hostname);
+  if (!addresses) throw new NonPublicHostError("host does not resolve to public addresses only");
+
+  return await new Promise<Response>((settle, reject) => {
+    const req = httpsRequest(
+      {
+        host: url.hostname,
+        servername: url.hostname,
+        port: url.port ? Number(url.port) : 443,
+        path: `${url.pathname}${url.search}`,
+        method: "GET",
+        headers: { host: url.host, "accept-encoding": "identity", ...(init.headers ?? {}) },
+        lookup: pinnedLookup(url.hostname, addresses),
+      },
+      (res) => {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(res.headers)) {
+          if (Array.isArray(value)) for (const one of value) headers.append(name, one);
+          else if (typeof value === "string") headers.set(name, value);
+        }
+        const status = res.statusCode ?? 502;
+        if (status >= 300 && status < 400) {
+          res.resume();
+          settle(new Response(null, { status, headers }));
+          return;
+        }
+        settle(new Response(Readable.toWeb(res) as ReadableStream<Uint8Array>, { status, headers }));
+      },
+    );
+    req.setTimeout(init.timeoutMs ?? 15_000, () => req.destroy(new Error("the request timed out")));
+    req.on("error", reject);
+    req.end();
+  });
 }

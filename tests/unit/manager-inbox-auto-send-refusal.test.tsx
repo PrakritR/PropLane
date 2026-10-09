@@ -39,13 +39,19 @@ const THREADS = [
 
 let inboxRows: Array<Record<string, unknown>> = THREADS;
 const showToast = vi.fn();
+/**
+ * Whether the thread is still waiting on a manager reply. It decides the one-responder rule:
+ * an SMS thread the server agent ANSWERED (nothing pending) gets no browser draft, while one it
+ * refused or escalated (still pending) does, or the manager is left with nothing queued.
+ */
+const replyPending = { current: true };
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   resolveCollapsedInboxThread: (id: string | null, collapsed: Array<{ id: string }>) => collapsed.find((t) => t.id === id) ?? null,
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
-  inboxThreadManagerReplyPending: () => true,
+  inboxThreadManagerReplyPending: () => replyPending.current,
   mergeInboxRowsWithLocalTrash: (rows: unknown[]) => rows,
   countUnopenedPersistedInbox: () => 0,
   beginInboxMutation: () => {},
@@ -145,6 +151,7 @@ describe("a refused auto-send does not loop", () => {
   afterEach(() => {
     inboxRows = THREADS;
     autoSendEnabled.current = false;
+    replyPending.current = true;
     showToast.mockReset();
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -194,7 +201,9 @@ describe("a refused auto-send does not loop", () => {
     });
   });
 
-  it("generates no client draft for an SMS thread the server agent answers", async () => {
+  it("generates no client draft for an SMS thread the server agent answered", async () => {
+    // Answered: the agent's reply is on the thread, so nothing is waiting on the manager.
+    replyPending.current = false;
     const draftless: Record<string, unknown> = {
       ...THREADS[0]!,
       id: "thr-2000000003",
@@ -212,6 +221,27 @@ describe("a refused auto-send does not loop", () => {
     expect(
       fetchMock.mock.calls.some(([input]) => String(input).includes("/api/portal/inbox-draft-reply")),
     ).toBe(false);
+  });
+
+  it("still drafts for an SMS thread the server agent did NOT answer (no credit, escalated)", async () => {
+    // Refused or escalated: the thread is still waiting, so the manager gets a draft to send.
+    replyPending.current = true;
+    const unanswered: Record<string, unknown> = {
+      ...THREADS[0]!,
+      id: "thr-2000000005",
+      threadType: "claw_leasing_sms",
+    };
+    delete unanswered.aiDraft;
+    inboxRows = [unanswered];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => okResponse(String(input)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderInbox("thr-2000000005");
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([input]) => String(input).includes("/api/portal/inbox-draft-reply")),
+      ).toBe(true);
+    });
   });
 
   it("still drafts for a thread no server agent answers (control)", async () => {
