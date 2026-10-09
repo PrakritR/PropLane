@@ -64,9 +64,18 @@ describe("listing post text", () => {
     expect(result.text).toContain("Text (206) 555-0100");
   });
 
+  it("tags the listing link with the channel it is posted on and keeps the tag on every channel", () => {
+    for (const channel of ["craigslist", "zillow", "facebook_marketplace", "reddit"] as const) {
+      const result = build(projected(), channel);
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.text).toContain(`Details and photos: https://proplane.ai/rent/listings/prop-1?src=${channel}`);
+    }
+  });
+
   it("keeps the attribution line on every channel even when the body is trimmed to the limit", () => {
     const long = projected({}, { houseOverview: "A lovely home near the water. ".repeat(40) });
-    for (const channel of ["instagram", "craigslist", "roomster", "google_business_profile"] as const) {
+    for (const channel of ["instagram", "craigslist", "roomster", "reddit"] as const) {
       const result = build(long, channel);
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
@@ -122,11 +131,11 @@ describe("listing post text", () => {
 
   it("each channel trims the body to its own limit but never cuts the link or contact lines", () => {
     const long = projected({}, { houseOverview: `${"A very long overview sentence. ".repeat(80)}` });
-    for (const channel of ["instagram", "craigslist", "roomster", "google_business_profile"] as const) {
+    for (const channel of ["instagram", "craigslist", "roomster", "reddit"] as const) {
       const result = build(long, channel);
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
-      const limit = { instagram: 2200, craigslist: 5000, roomster: 2000, google_business_profile: 1500 }[channel];
+      const limit = { instagram: 2200, craigslist: 5000, roomster: 2000, reddit: 5000 }[channel];
       expect(result.text.length).toBeLessThanOrEqual(limit);
       expect(result.text).toContain("Text (206) 555-0100");
       expect(result.text).toContain("https://proplane.ai/");

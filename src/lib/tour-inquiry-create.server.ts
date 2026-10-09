@@ -18,6 +18,7 @@
  * signed-in resident to the inquiry afterwards.
  */
 import "server-only";
+import { normalizeLeadSource } from "@/lib/listing-channels/lead-source";
 import { normalizeTourFormat } from "@/lib/tour-format";
 
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -251,6 +252,8 @@ export async function createTourInquiry(
      * requires an application before a tour reads as "no application".
      */
     verifiedApplicantEmail?: string | null;
+    /** Listing site the prospect came from (the `pl_src` cookie); re-validated against the allowlist here. */
+    sourceChannel?: string | null;
   },
 ): Promise<CreateTourInquiryResult> {
   // Strip this internal provenance key before copying public input. It is set
@@ -402,6 +405,7 @@ export async function createTourInquiry(
   const existing = inquiryRowsFromRecord(data?.row_data);
   const next = [row, ...existing.filter((item) => item.id !== id)];
 
+  const leadSource = normalizeLeadSource(args.sourceChannel);
   const records: Record<string, unknown>[] = [
     {
       id: INQUIRIES_RECORD_ID,
@@ -431,6 +435,7 @@ export async function createTourInquiry(
       manager_user_id: managerUserId || null,
       property_id: propertyId,
       record_type: INQUIRY_EVENT_RECORD_TYPE,
+      ...(leadSource ? { source_channel: leadSource } : {}),
       starts_at: window.start,
       ends_at: window.end,
       row_data: {

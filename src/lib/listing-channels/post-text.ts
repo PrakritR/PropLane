@@ -73,6 +73,12 @@ export function formatPostPrice(dollars: number | null, byRoom: boolean): string
   return `${byRoom ? "From " : ""}$${dollars.toLocaleString("en-US")}/mo`;
 }
 
+/** The public listing link tagged with the site it is posted on, so a lead can be traced back (`?src=<channelId>`). */
+export function taggedListingLink(url: string, channel: ListingChannelId): string {
+  const params = new URLSearchParams({ src: channel });
+  return `${url}${url.includes("?") ? "&" : "?"}${params.toString()}`;
+}
+
 export type ListingPostText =
   | { ok: true; text: string }
   | { ok: false; reason: "no_work_number" };
@@ -117,7 +123,7 @@ export function buildListingPostText(args: {
     .slice(0, 4)
     .map((p) => `• ${p}`);
 
-  const link = buildManagerListingUrl(origin, property.id);
+  const link = taggedListingLink(buildManagerListingUrl(origin, property.id), channel);
   const contactLine = ["Text " + phone, email ? `Email ${email}` : ""].filter(Boolean).join(" · ");
   const contactBlock = [`Details and photos: ${link}`, contactLine].join("\n");
   const attributionBlock = attribution ? listingAttributionLine(origin) : "";

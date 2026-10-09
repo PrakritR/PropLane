@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { listingChannels, metaAppConfigured, listingChannelsByGroup, partnerContactHrefs } from "@/lib/listing-channels/registry";
+import { LISTING_CHANNEL_DEFS, listingChannels, metaAppConfigured, partnerContactHrefs } from "@/lib/listing-channels/registry";
 import { buildListingPostText, listingChannelEligibility, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection.server";
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
 import { loadSyncListing, resolveListingPostContact } from "@/lib/listing-channels/sync.server";
+import { leadCountsByChannel } from "@/lib/listing-channels/lead-counts.server";
 import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ export const runtime = "nodejs";
  * GET: everything the Listing sites surfaces need for the active workspace, in one read: which
  * channels are live, the Meta connection (never its token), the workspace work contact, and the
  * per-listing posting rows. With `?propertyId=` it also returns that listing's hold reasons and the
- * ready-to-copy post text for the one-click channels, built from `publicListingProjection` only.
+ * ready-to-copy post text for every channel that is posted by hand, built from `publicListingProjection` only.
  */
 export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
@@ -25,10 +26,11 @@ export async function GET(request: Request) {
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() || "";
 
   try {
-    const [meta, contact, attributionState, postsRes] = await Promise.all([
+    const [meta, contact, attributionState, leadCounts, postsRes] = await Promise.all([
       loadMetaConnectionPublic(db, workspace.id),
       resolveListingPostContact(db, workspace.ownerUserId, workspace.id),
       resolveWorkspaceListingAttribution(db, workspace.ownerUserId, workspace.id),
+      leadCountsByChannel({ workspaceId: workspace.id, propertyId: propertyId || undefined }).catch(() => ({}) as Record<string, number>),
       (() => {
         let q = db
           .from("listing_channel_posts")
@@ -52,7 +54,7 @@ export async function GET(request: Request) {
         const postTexts: Record<string, string> = {};
         const origin = resolveEmailLinkBaseUrl();
         const { show: attribution } = attributionState;
-        for (const def of listingChannelsByGroup("one_click")) {
+        for (const def of LISTING_CHANNEL_DEFS.filter((d) => d.posting !== "partner_only")) {
           const built = buildListingPostText({ property: listing.projected, origin, contact, channel: def.id, attribution });
           if (built.ok) postTexts[def.id] = built.text;
         }
@@ -73,6 +75,8 @@ export async function GET(request: Request) {
         workContact: contact,
         // The "Listed with PropLane" switch: what it shows, and whether the plan pins it on.
         attribution: { enabled: attributionState.show, forced: attributionState.forced },
+        // Leads that arrived through a tagged (?src=<channel>) link, per channel.
+        leadCounts,
         posts: (postsRes.data ?? []).map((row) => toPostRow(row as Record<string, unknown>)),
         property,
       },

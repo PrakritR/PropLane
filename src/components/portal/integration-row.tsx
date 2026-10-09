@@ -1,6 +1,7 @@
 "use client";
 
-import type { ComponentType, ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ export function IntegrationRow({
   comingSoonAction,
   dataAttr,
   className,
+  onOpen,
 }: {
   icon: ComponentType<{ className?: string }>;
   /** Tailwind text color for the logo glyph. */
@@ -33,11 +35,27 @@ export function IntegrationRow({
   comingSoonAction?: ReactNode;
   dataAttr?: string;
   className?: string;
+  /** Makes the whole row open something (a guide, a drawer) and draws a trailing chevron. */
+  onOpen?: () => void;
 }) {
   return (
     <div
       data-attr={dataAttr}
-      className={cn("flex min-h-14 items-center gap-3 border-b border-border px-4 py-2 last:border-0", className)}
+      className={cn("flex min-h-14 items-center gap-3 border-b border-border px-4 py-2 last:border-0", onOpen && "cursor-pointer hover:bg-foreground/5", className)}
+      {...(onOpen
+        ? {
+            role: "button" as const,
+            tabIndex: 0,
+            "aria-label": name,
+            onClick: onOpen,
+            onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen();
+              }
+            },
+          }
+        : {})}
     >
       <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent/60" aria-hidden>
         <Icon className={cn("size-5", tone ?? "text-muted")} />
@@ -59,6 +77,7 @@ export function IntegrationRow({
         ) : (
           action
         )}
+        {onOpen ? <ChevronRight className="size-4 text-muted" aria-hidden /> : null}
       </div>
     </div>
   );

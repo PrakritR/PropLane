@@ -14,7 +14,7 @@ import {
 } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
+import { listingChannelsOrdered } from "@/lib/listing-channels/registry";
 import { PropertyListingSitesPanel } from "@/components/portal/listing-sites-panel";
 import { resolveZillowSyndicationStatus } from "@/lib/listing-syndication/zillow-syndication-status";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -861,7 +861,7 @@ export function ManagerPropertyPromotionPanel({
     const tabs: { id: "flyers" | "social" | "sites" | "yours"; label: string; count: number }[] = [
       { id: "flyers", label: "Flyers & printables", count: customFlyers + builtinFlyerCount },
       { id: "social", label: "Social", count: customSocial + builtinSocialCount },
-      { id: "sites", label: "Listing sites", count: LISTING_CHANNEL_DEFS.length },
+      { id: "sites", label: "Listing sites", count: listingChannelsOrdered().length },
     ];
     if (customAssets.length > 0) {
       tabs.push({ id: "yours", label: "Yours", count: customAssets.length });
