@@ -687,11 +687,12 @@ webhook retry cannot text twice.
 Texts to a MANAGER on the workspace (the owner or a teammate), all from the
 workspace's OWN work number and billed to the workspace OWNER's credit
 (reserved before the provider call; a teammate is never billed and has no
-line of their own). Three purposes share one consent rule
+line of their own). Four purposes share one consent rule
 (`isManagerRecipientSmsPurpose` in `sms/team-notice-consent.server.ts`, used by
 `loadSendPolicy`): consent is the recipient's own verified work phone
 (`ensureTeamNoticeScopedSmsConsent`: verified, matching, `sms_forward_inbound`
-not false; a STOP or scoped revoke always wins), never a rental application.
+not false; a STOP or scoped revoke always wins), never a rental application. Three
+are below; the fourth, `team_inbound_forward`, is the resident forward further down.
 - **Assistant notices** (`manager_agent_notification_<category>`, body
   `PropLane: …`, dedupe `notice:<idempotencyKey>:<memberId>`), sent by
   `notifyManagerFromAgent` with `sendFrom: { ownerUserId, workspaceId }` and pinned
@@ -1085,8 +1086,8 @@ number and is idempotent per owner/resident/ISO week through the durable outbox
 unique key. Purpose-specific consent is materialized only from server-owned
 evidence and a matching phone — the rental application's consent timestamp,
 or for the manager-directed `manager_inbound_forward` / `team_notice` /
-`team_chat_relay` / `manager_agent_notification_*` purposes that manager's own
-phone verification; a later scoped revoke always wins.
+`team_chat_relay` / `team_inbound_forward` / `manager_agent_notification_*`
+purposes that manager's own phone verification; a later scoped revoke always wins.
 
 STOP/START/HELP are authenticated and applied by one transactional RPC. A
 MessageSid-unique control receipt plus Twilio's immutable Message `dateCreated`

@@ -142,7 +142,13 @@ path counts as a write too**: `GET …/connections?roomId=` mints a connection r
 with its secret public export token, so it is gated at `edit` like the rest.
 `GET …/connections?writableFor=<ids>` is how the popup lists only writable
 houses (and scopes "Entire workspace" to them) — that is a **hint for the UI**;
-every write re-checks on the server. Co-manager levels themselves are owned by
+every write re-checks on the server. **Blocking a room is the same write**: a
+`room_date_block` belongs to the HOUSE, and the capacity trigger only accepts a
+row stamped with the property owner, so `/api/portal-schedule-records` (and MCP
+`block_room_dates`) stamps `manager_user_id` with the owner and keeps the author
+in `row_data.createdByUserId` whenever a teammate holding Calendar at `edit`
+blocks dates; anyone else is refused 403 rather than stamped. Co-manager levels
+themselves are owned by
 [`co-manager-access.md`](co-manager-access.md); shared availability by
 [`tours-scheduling.md`](tours-scheduling.md).
 
