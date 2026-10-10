@@ -35,6 +35,7 @@ import {
   type InboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
 import { teamThreadRowForViewer } from "@/lib/team-thread-view";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
@@ -199,7 +200,9 @@ export async function GET(request: Request) {
       }
     }
 
-    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id) {
+    // A View-as session is read-only: this GET heals (inserts) the notice and Team chat threads, so it
+    // must not run for an operator looking at someone else's account.
+    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id && !(await isViewAsSessionOpen())) {
       try {
         const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
         const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);

@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
   viewer: { id: "", email: "" },
   cookie: undefined as string | undefined,
   db: null as unknown,
+  viewAs: false,
 }));
 
 vi.mock("next/headers", () => ({
@@ -33,7 +34,9 @@ vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
   applyPortalInboxThreadScope: (query: { in: (col: string, ids: string[]) => unknown }, user: { id: string }, extra: string[] = []) =>
     query.in("owner_user_id", [user.id, ...extra]),
 }));
-vi.mock("@/lib/agent-notify.server", () => ({ ensureManagerAgentNoticeThread: vi.fn() }));
+vi.mock("@/lib/auth/view-as.server", () => ({ isViewAsSessionOpen: async () => state.viewAs }));
+const ensureNotice = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/agent-notify.server", () => ({ ensureManagerAgentNoticeThread: ensureNotice }));
 vi.mock("@/lib/agent/resident-inbox-agent.server", () => ({ ensureResidentAgentThread: vi.fn() }));
 vi.mock("@/lib/resident-manager-scope", () => ({ managerIdsOwningResident: vi.fn(async () => []) }));
 vi.mock("@/lib/sms-inbox-state.server", () => ({ smsNoticeMembers: vi.fn(async () => []), storedSmsNoticeIdentity: () => false, updateSmsNoticeMailboxState: vi.fn() }));
@@ -103,6 +106,8 @@ async function listIds(): Promise<string[]> {
 beforeEach(() => {
   state.db = seed();
   state.cookie = undefined;
+  state.viewAs = false;
+  ensureNotice.mockClear();
 });
 
 describe("GET /api/portal-inbox-threads — manager Communication visibility", () => {
@@ -135,5 +140,16 @@ describe("GET /api/portal-inbox-threads — manager Communication visibility", (
     const response = await GET(new Request(`https://example.test/api/portal-inbox-threads?scope=${SCOPE}`));
     const body = (await response.json()) as { rows: { id: string; houses?: { propertyId: string }[] }[] };
     expect(body.rows.find((row) => row.id === "t-h2")?.houses?.map((h) => h.propertyId)).toEqual(["h2"]);
+  });
+
+  it("heals nothing during a View-as session, and heals on an ordinary read", async () => {
+    state.viewer = { id: A, email: "a@example.test" };
+    state.cookie = W1;
+    state.viewAs = true;
+    await listIds();
+    expect(ensureNotice).not.toHaveBeenCalled();
+    state.viewAs = false;
+    await listIds();
+    expect(ensureNotice).toHaveBeenCalledTimes(1);
   });
 });

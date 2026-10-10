@@ -23,6 +23,18 @@ import { pacificDate, shiftDate } from "@/lib/growth/engage/dates";
 import { cn } from "@/lib/utils";
 import { GrowthErrorBanner, GrowthSkeletonBlocks } from "@/components/portal/growth-shared";
 
+/** A stored link opens only when it is https; anything else (`javascript:`, `data:`, junk) does nothing. */
+function openHttpsUrl(raw: string | null | undefined) {
+  let url: URL;
+  try {
+    url = new URL(String(raw ?? "").trim());
+  } catch {
+    return;
+  }
+  if (url.protocol !== "https:") return;
+  window.open(url.href, "_blank", "noopener,noreferrer");
+}
+
 const PLATFORM_NAME: Record<string, string> = {
   instagram: "Instagram",
   tiktok: "TikTok",
@@ -73,7 +85,7 @@ function EngageRow({ item, onChange }: { item: EngageItem; onChange: (next: Enga
             icon={ExternalLink}
             label="Open"
             data-attr={`growth-engage-open-${item.id}`}
-            onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}
+            onClick={() => openHttpsUrl(item.url)}
           />
           <PortalIconAction
             icon={Check}
@@ -314,7 +326,7 @@ export function GrowthEngageTab() {
             {w.handle} · {PLATFORM_NAME[w.platform] ?? w.platform}
           </span>
           {w.url ? (
-            <PortalIconAction icon={ExternalLink} label="Open" onClick={() => window.open(w.url!, "_blank", "noopener,noreferrer")} />
+            <PortalIconAction icon={ExternalLink} label="Open" onClick={() => openHttpsUrl(w.url)} />
           ) : null}
           <PortalIconAction icon={Trash2} label="Remove" tone="danger" data-attr={`growth-watchlist-remove-${w.id}`} onClick={() => void removeWatch(w.id)} />
         </div>

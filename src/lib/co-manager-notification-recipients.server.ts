@@ -1,6 +1,7 @@
 import "server-only";
 
 import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { normalizeE164Us } from "@/lib/claw-messenger.server";
 import {
   hasCoManagerPermissionLevelForProperty,
@@ -94,11 +95,12 @@ export async function resolvePropertyScopedManagerRecipientIds(
   if (!propertyId) return [...recipientIds];
 
   try {
-    const { data: links, error } = await db
+    // A Property owner (investor) link is never a teammate to notify.
+    const { data: links, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
-      .eq("inviter_user_id", ownerId);
+      .eq("inviter_user_id", ownerId));
 
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       return [...recipientIds];
@@ -191,11 +193,12 @@ export async function loadCoManagerNotificationRecipients(
 
   let inviteeIds: string[] = [];
   try {
-    const { data: links, error } = await db
+    // A Property owner (investor) link is never a teammate to notify.
+    const { data: links, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
-      .eq("inviter_user_id", ownerId);
+      .eq("inviter_user_id", ownerId));
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       return [];
     }

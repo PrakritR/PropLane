@@ -39,7 +39,6 @@ const REVIEWED: Record<string, string> = {
   // Reads gated by a module permission an owner row never holds.
   "app/api/property-records/route.ts": "adds linked houses only where the properties module is granted",
   "lib/team-comms.server.ts": "gated by the inbox module",
-  "lib/co-manager-notification-recipients.server.ts": "gated by the module's notification level",
   "lib/tour-host-enumeration.server.ts": "gated by calendar/applications edit",
   "lib/workspace-connect/resolve.server.ts": "gated by bankAccount",
   "lib/test-workspaces/schedule-route.server.ts": "gated by the calendar grant",
