@@ -147,7 +147,15 @@ every write re-checks on the server. **Blocking a room is the same write**: a
 row stamped with the property owner, so `/api/portal-schedule-records` (and MCP
 `block_room_dates`) stamps `manager_user_id` with the owner and keeps the author
 in `row_data.createdByUserId` whenever a teammate holding Calendar at `edit`
-blocks dates; anyone else is refused 403 rather than stamped. Co-manager levels
+blocks dates; anyone else is refused 403 rather than stamped. The stamp then
+stays put for the row's whole life: an update restores the stored owner, and
+changing or REMOVING a block (the cancelled-block write and the delete path)
+re-checks Calendar `edit` on the block's own house, so a revoked grant stops
+reaching a block it once created. Because the owner column is not the author, a
+teammate's own blocks are listed by the writer's id in the record id
+(`roomDateBlockRecordIdPrefix`, `portal-schedule-record-scope.ts`) — an insert
+cannot claim another user's prefix — so they can still Remove what they just
+blocked. Co-manager levels
 themselves are owned by
 [`co-manager-access.md`](co-manager-access.md); shared availability by
 [`tours-scheduling.md`](tours-scheduling.md).

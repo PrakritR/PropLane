@@ -703,7 +703,15 @@ are below; the fourth, `team_inbound_forward`, is the resident forward further d
   `<FirstName>: <text>`, dedupe `team-chat:<messageId>:<memberId>`): a line typed
   in the app or texted to the work number is relayed to every OTHER member, never
   back to the sender, at most 60 relayed texts per workspace per hour (counted
-  from `sms_outbox`; over it the chat keeps working and the texts wait).
+  from `sms_outbox`, blocked rows excluded; the chat keeps working and a text over
+  the cap is dropped, reported `hourly_cap`, never queued for later). The cap is
+  read before the fan-out, so it is **re-counted after each insert**
+  (`withdrawTeamRelayIfOverCap`): the loser of a race between two fan-outs is set
+  to `blocked` / `blocked_reason: "hourly_cap"` while still `queued`, and an
+  update that matches no row means the dispatcher already sent it — that text is
+  reported as sent, never as withheld. A member the relay could not text is
+  logged by reason (never a phone or a body); the inbound text still completes,
+  because a terminal reason would otherwise retry forever.
 - **Legacy `team_notice`** keeps the same consent rule (no producer remains).
 
 **A member texting the work number** (`routeManagerInboundText`,

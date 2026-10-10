@@ -167,7 +167,7 @@ describe("evidence · the public room-occupancy snapshot is rate-limited", () =>
     say(`     read 1                     -> HTTP ${first.status}  cache-control: ${first.headers.get("cache-control")}`);
     expect(first.status).toBe(200);
 
-    let statuses: number[] = [first.status];
+    const statuses: number[] = [first.status];
     for (let i = 0; i < 40; i += 1) statuses.push((await publicOccupancyGET(request(""))).status);
     const firstRefusal = statuses.indexOf(429);
     say(`     reads 2…41                 -> first 429 at read ${firstRefusal + 1}; ${statuses.filter((s) => s === 429).length} of 41 refused`);

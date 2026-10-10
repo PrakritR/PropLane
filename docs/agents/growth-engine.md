@@ -153,7 +153,10 @@ come). Auto-follow/auto-like/auto-DM are out of scope permanently (platform term
 
 The engine **never follows, likes, DMs or posts on the admin's behalf** (auto-follow/like bots violate
 Instagram, TikTok and LinkedIn terms and get brand accounts restricted). It builds a ~10-minute daily list
-with a drafted comment per target; the admin edits it, taps Open, and posts by hand. The UI only opens links.
+with a drafted comment per target; the admin edits it, taps Open, and posts by hand. The UI only opens
+links, and only **https** ones: an engage item's or watchlist row's stored URL is parsed before
+`window.open`, so a `javascript:` / `data:` value does nothing (the write routes already refuse
+anything but `https://`).
 
 Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-only OAuth (`client_credentials`, token cached in module scope, one refresh on 401) when `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` are set (a "script" app at reddit.com/prefs/apps); with them unset it falls back to the anonymous `www.reddit.com` call.
 
