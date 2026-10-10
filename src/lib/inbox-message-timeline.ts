@@ -112,9 +112,11 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const nextDayKey = next ? inboxDayKey(next.at) : null;
     const nextDayChanged = nextDayKey != null && dayKey != null && nextDayKey !== dayKey;
 
-    // A timeline that names a party beside the author (a service's Everyone view) only clusters turns of one sender.
+    // Only turns by the SAME author cluster: a run shows its author once, so
+    // clustering two posters (a workspace Team chat, or a service's Everyone
+    // view that names a party beside the author) would drop the second name.
     const sameSender = (a: InboxBubbleMessage, b: InboxBubbleMessage) =>
-      !(a.authorNote || b.authorNote) || (a.author === b.author && a.authorNote === b.authorNote);
+      a.author === b.author && (a.authorNote ?? "") === (b.authorNote ?? "");
     const sameDirAsPrev = prev?.direction === message.direction && sameSender(prev, message) && !dayChanged && !houseHeader;
     const sameDirAsNext = next?.direction === message.direction && sameSender(next, message) && !nextDayChanged && !nextHouseHeader;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);

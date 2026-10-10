@@ -181,7 +181,9 @@ describe("the workspace Team chat, as the inbox draws it", () => {
       `Ambika opens the Team chat after two different teammates have posted in a row. Author lines actually rendered: ${authors.join(" | ") || "(none)"}.`,
       container.innerHTML,
     );
-    // Recorded, not asserted: this render is the artifact the finding points at.
     expect(container.textContent).toContain("I can cover the 4709A walkthrough.");
+    // Each poster's own line carries their name: two inbound turns by different
+    // teammates never collapse into one run under the first author.
+    expect(authors).toEqual([THREAD_NAME, "Prakrit Ramachandran", "Akshaya Rao", "Ambika Mago"]);
   });
 });
