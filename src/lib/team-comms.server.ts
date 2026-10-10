@@ -43,7 +43,7 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { resolveWorkspaceSendLine } from "@/lib/sms/manager-number-provisioning.server";
-import { TEAM_CHAT_RELAY_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
+import { TEAM_CHAT_RELAY_SMS_PURPOSE, TEAM_INBOUND_FORWARD_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
 import { teamThreadId, workspaceTeamThreadId } from "@/lib/team-thread-id";
 
@@ -460,7 +460,7 @@ export type TeamSmsRelayOutcome = {
 
 type MemberPhoneEligibility = { eligible: true; phone: string } | { eligible: false; reason: string };
 
-async function memberPhoneEligibility(
+export async function memberPhoneEligibility(
   db: SupabaseClient,
   memberUserId: string,
 ): Promise<MemberPhoneEligibility> {
@@ -483,6 +483,34 @@ async function memberPhoneEligibility(
 export function teamRelayFirstName(fullName: string | null | undefined): string {
   const first = String(fullName ?? "").trim().split(/\s+/)[0] ?? "";
   return first || "A teammate";
+}
+
+/**
+ * Texts a workspace may still relay this hour. Chat relays and forwarded
+ * resident / prospect texts to teammates share ONE cap per workspace line,
+ * counted from `sms_outbox`. An unreadable count is "none left" (fail closed).
+ */
+export async function teamRelayCapRemaining(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; numberId: string | null; now?: Date; cap?: number },
+): Promise<number> {
+  const cap = input.cap ?? TEAM_CHAT_RELAY_HOURLY_CAP;
+  const since = new Date((input.now ?? new Date()).getTime() - 60 * 60_000).toISOString();
+  let used = cap;
+  try {
+    let query = db
+      .from("sms_outbox")
+      .select("id", { count: "exact", head: true })
+      .eq("manager_user_id", input.ownerManagerUserId)
+      .in("purpose", [TEAM_CHAT_RELAY_SMS_PURPOSE, TEAM_INBOUND_FORWARD_SMS_PURPOSE])
+      .gte("created_at", since);
+    if (input.numberId) query = query.eq("selected_work_line_id", input.numberId);
+    const { count, error } = await query;
+    used = error ? cap : (count ?? 0);
+  } catch {
+    used = cap;
+  }
+  return Math.max(0, cap - used);
 }
 
 /**
@@ -524,23 +552,12 @@ export async function relayTeamChatMessageToSms(
 
   // Per-workspace hourly cap, counted from the outbox itself (durable, shared
   // across instances). Over it the texts are skipped; the chat keeps working.
-  const cap = input.cap ?? TEAM_CHAT_RELAY_HOURLY_CAP;
-  const since = new Date((input.now ?? new Date()).getTime() - 60 * 60_000).toISOString();
-  let used = cap;
-  try {
-    let query = db
-      .from("sms_outbox")
-      .select("id", { count: "exact", head: true })
-      .eq("manager_user_id", ownerId)
-      .eq("purpose", TEAM_CHAT_RELAY_SMS_PURPOSE)
-      .gte("created_at", since);
-    if (line.numberId) query = query.eq("selected_work_line_id", line.numberId);
-    const { count, error } = await query;
-    used = error ? cap : (count ?? 0);
-  } catch {
-    used = cap;
-  }
-  let remaining = Math.max(0, cap - used);
+  let remaining = await teamRelayCapRemaining(db, {
+    ownerManagerUserId: ownerId,
+    numberId: line.numberId,
+    now: input.now,
+    cap: input.cap,
+  });
 
   const body = `${teamRelayFirstName(input.senderName)}: ${input.text.trim()}`.slice(0, 1500);
   const outcomes: TeamSmsRelayOutcome[] = [];

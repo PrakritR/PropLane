@@ -714,8 +714,17 @@ MessageSid) and relayed. Text that starts `@assistant`, `assistant,` /
 `assistant:` or `@ai` (any case) goes to the Manager SMS agent with the address
 stripped and the answer goes only to the asker; a one-member workspace, a Viewer,
 or a sender who is not a member of that workspace keeps the agent route. Never
-log a raw phone or body. Not extended: resident / vendor / prospect inbound
-forwards still go to the owner's cell only (`forwardResidentInboundToManagerCell`).
+log a raw phone or body.
+- **Resident inbound forward to teammates** (`team_inbound_forward`,
+  `inbound-forward-team.server.ts`): beside the owner's own forward
+  (`forwardResidentInboundToManagerCell`, unchanged), a resident's text is also
+  forwarded to accepted teammates of the number's workspace who hold
+  Communication notification on the resident's house, from the work number,
+  billed to the owner, dedupe `fwd:<MessageSid>:<memberId>`, same consent gate
+  and the same 60/hour workspace cap as the relay. The house is the one every
+  non-voided lease of the resident names; unresolved (none, several, unreadable),
+  prospects and unknown texters forward to the owner alone. Vendors have no
+  inbound forward.
 Owner of what fires notices: [automated-communication.md](automated-communication.md).
 
 Every other manager-directed ALERT SMS (tour alerts, work-order alerts, manager

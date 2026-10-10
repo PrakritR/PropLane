@@ -5,6 +5,7 @@ import { runInlineProspectBurst } from "@/lib/sms/prospect-sms-burst-job.server"
 import { publishDeferredProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
+import { forwardInboundToTeammates, resolveResidentForwardHouseId } from "@/lib/sms/inbound-forward-team.server";
 import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
 import { routeManagerInboundText } from "@/lib/sms/team-chat-inbound.server";
@@ -1092,6 +1093,19 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         body,
         messageSid,
         counterpartyRole: "resident",
+      }).catch(() => undefined);
+      // Teammates with the resident's house get the same forward from the work
+      // number. An unresolved house forwards to the owner alone, as before.
+      await forwardInboundToTeammates(db, {
+        managerUserId: managerId,
+        workspaceId: workspaceId ?? null,
+        houseId: await resolveResidentForwardHouseId(db, {
+          ownerManagerUserId: managerId,
+          residentEmail: residentIdentity.ctx.email,
+        }),
+        fromPhone,
+        body,
+        messageSid,
       }).catch(() => undefined);
     }
     if (turn) return twimlOk();

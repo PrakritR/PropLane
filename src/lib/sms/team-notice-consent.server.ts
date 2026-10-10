@@ -10,6 +10,8 @@ import {
 export const TEAM_NOTICE_SMS_PURPOSE = "team_notice";
 /** A line one member typed in the workspace Team chat, relayed to the others. */
 export const TEAM_CHAT_RELAY_SMS_PURPOSE = "team_chat_relay";
+/** A resident / prospect text to the work number, forwarded to a teammate with that house. */
+export const TEAM_INBOUND_FORWARD_SMS_PURPOSE = "team_inbound_forward";
 /** Prefix of every PropLane Assistant notice text (`manager_agent_notification_<category>`). */
 export const MANAGER_NOTICE_SMS_PURPOSE_PREFIX = "manager_agent_notification_";
 
@@ -24,6 +26,7 @@ export function isManagerRecipientSmsPurpose(purpose: string | null | undefined)
   return (
     value === TEAM_NOTICE_SMS_PURPOSE ||
     value === TEAM_CHAT_RELAY_SMS_PURPOSE ||
+    value === TEAM_INBOUND_FORWARD_SMS_PURPOSE ||
     value.startsWith(MANAGER_NOTICE_SMS_PURPOSE_PREFIX)
   );
 }

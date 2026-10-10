@@ -88,6 +88,7 @@ describe("which purposes are manager-recipient texts", () => {
     expect(isManagerRecipientSmsPurpose("manager_agent_notification_messages")).toBe(true);
     expect(isManagerRecipientSmsPurpose("team_chat_relay")).toBe(true);
     expect(isManagerRecipientSmsPurpose("team_notice")).toBe(true);
+    expect(isManagerRecipientSmsPurpose("team_inbound_forward")).toBe(true);
     for (const other of ["manager_conversation", "prospect_tour_followup", "legacy_automated_message", "", null, undefined]) {
       expect(isManagerRecipientSmsPurpose(other as string)).toBe(false);
     }
