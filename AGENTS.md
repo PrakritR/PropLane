@@ -441,6 +441,7 @@ answer. Fail closed to `true`.
 | Documents | `docs/agents/documents-module.md` | Private bucket; bytes only via server-minted signed URLs |
 | Public listing payload | `docs/agents/lease-generation.md` | Explicit allowlist (`publicListingProjection`) for both anonymous readers |
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
+| Admin Accounts | `docs/agents/admin-accounts.md` | Disabling or enabling an account goes through `setAdminAccountActive` only, refuses without a reason before the flag moves, and writes one `admin_account_active` audit row; the insert is best-effort, so `auditRecorded: false` is reported, never hidden |
 | View as | `docs/agents/view-as.md` | Read-only, 30 minutes, reason required, allowlisted operators only; audit row BEFORE the cookie; the cookie is signed and bound to the signed-in operator; the middleware refuses every non-read request; a GET that heals on read checks `isViewAsSessionOpen()` |
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
