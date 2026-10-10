@@ -1,19 +1,29 @@
 # Action event catalog
 
 `emitActionEvent` in `src/lib/action-events.server.ts` is the only fanout bus for
-system-created lifecycle messages. `ACTION_EVENT_CATALOG` in
-`src/lib/domain-action-events.server.ts` is the authoritative list of domains and
-event names; the table below mirrors it. Domain adapters render audience-safe
-copy; the bus owns persistence, preference-aware inbox/email/SMS delivery,
-idempotency, deferral, and retry.
+system-created lifecycle messages. Domain adapters render audience-safe copy; the
+bus owns persistence, preference-aware inbox/email/SMS delivery, idempotency,
+deferral, and retry. This file owns the producer and consumer contract only — the
+event names, audiences and categories are read from the code, never copied here.
 
-| Domain | Events | Notification category |
-| --- | --- | --- |
-| Work order | `created`, `vendor_offered`, `accepted`, `scheduled`, `completed`, `invoiced`, `paid` | `maintenance` |
-| Payment | `charge_created`, `payment_processing`, `payment_received`, `payment_failed`, `payment_refunded` | `payments` |
-| Lease | `lease_created`, `lease_sent`, `lease_signed_by_resident`, `lease_countersigned`, `lease_signed`, `lease_voided` | `leases` |
-| Application | `application_submitted`, `application_approved`, `application_declined`, `application_withdrawn` | `applications` |
-| Add-on service request | `service_request_submitted`, `service_request_approved`, `service_request_denied`, `service_request_returned` | `maintenance` |
+**Which events exist** — `AUTOMATED_MESSAGE_CATALOG` in
+`src/lib/automated-messages-settings.ts` is the one enumeration of every
+`(domain, event)` with its audiences and settings area, and the read-only
+"What PropLane sends" list is built from it so it cannot drift
+([`docs/agents/automated-communication.md`](agents/automated-communication.md)).
+`ACTION_EVENT_CATALOG` in `src/lib/domain-action-events.server.ts` is the typed
+subset that file's renderers cover (`payment`, `lease`, `application`,
+`service_request`, plus the `work_order` names). Emission itself is per-domain —
+`work_order` (`work-order-events.server.ts`), `tour` and the team-only
+`availability` (`tour-events.server.ts`), `inspection`
+(`inspection-events.server.ts`), `task`
+(`work-order-vendor-messages.server.ts`), `move_in_form`
+(`move-in-forms/move-in-form-events.server.ts`), `vendor_banking`
+(`vendor-banking/events.server.ts`), and `channel_booking`
+(`channel-booking-events.server.ts` — owned by
+[`docs/agents/integrations.md`](agents/integrations.md) § Two-way with Airbnb).
+Each adapter passes its own `NotificationCategory`; the bus never infers one from
+the domain.
 
 ## Producer contract
 
@@ -25,13 +35,7 @@ idempotency, deferral, and retry.
 - Put only ids, enums, and non-sensitive routing facts in `payload`. Audience
   copy is rendered before it reaches the bus.
 
-Domains outside that constant: the team-only `tour.claimed` and
-`availability.changed` (`tour-events.server.ts`), and `channel_booking`
-(`channel_booking_created` / `channel_booking_cancelled`, manager audience,
-`channel-booking-events.server.ts` — owned by
-[`docs/agents/integrations.md`](agents/integrations.md) § Two-way with Airbnb).
-The `team` audience and the
-auto-send / draft-for-review gate are described in
+The `team` audience and the auto-send / draft-for-review gate are described in
 [`docs/agents/automated-communication.md`](agents/automated-communication.md).
 
 ## Consumer and thread contract
