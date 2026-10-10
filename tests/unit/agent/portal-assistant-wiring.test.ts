@@ -158,7 +158,7 @@ describe("role registries never cross", () => {
    * unique to it — that is what keeps a texting prospect or a one-job vendor
    * away from a manager's financials and a resident's records.
    */
-  const SMS_SHARED_PUBLIC_TOOLS = new Set(["list_open_tour_slots", "request_tour"]);
+  const SMS_SHARED_PUBLIC_TOOLS = new Set(["list_open_tour_slots", "request_tour", "check_room_availability"]);
 
   it("the SMS registries stay tiny and see no manager financials or resident data", () => {
     const smsNames = [...vendorWorkOrderAgentRegistry.keys(), ...leasingSmsAgentRegistry.keys()];
@@ -168,10 +168,10 @@ describe("role registries never cross", () => {
       expect(resident.has(name), `${name} is a resident tool`).toBe(false);
     }
     expect(vendorWorkOrderAgentRegistry.size).toBeLessThanOrEqual(6);
-    // Ten intentional capabilities: listing/link reads, nearby transit,
+    // Eleven intentional capabilities: listing/link reads, nearby transit,
     // public property research, tour availability, redundant-reply suppression,
-    // manager escalation, and tour requests.
-    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(10);
+    // manager escalation, tour requests, and dates-only room availability.
+    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(11);
   });
 
   it("the one-job vendor SMS agent shares nothing at all", () => {

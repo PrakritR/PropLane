@@ -183,6 +183,7 @@ describe("leasing SMS agent registry", () => {
     expect([...leasingSmsAgentRegistry.keys()].sort()).toEqual(
       [
         "build_prospect_links",
+        "check_room_availability",
         "escalate_to_manager",
         "get_listing_details",
         "get_nearby_transit",
