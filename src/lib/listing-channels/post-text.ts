@@ -28,12 +28,24 @@ const HOLD_REASON_COPY: Record<ListingHoldReason, string> = {
   no_work_number: "set up work number",
 };
 
+export const LISTING_HOLD_WORK_NUMBER_PHRASE = "Set up work number";
+
 /** The plain fact a row shows for a held listing, e.g. "Held: no photo". */
 export function listingHoldFact(reasons: readonly ListingHoldReason[]): string {
-  if (reasons.includes("no_work_number") && reasons.length === 1) return "Set up work number";
+  if (reasons.includes("no_work_number") && reasons.length === 1) return LISTING_HOLD_WORK_NUMBER_PHRASE;
   const parts = reasons.filter((r) => r !== "no_work_number").map((r) => HOLD_REASON_COPY[r]);
   const held = `Held: ${parts.join(" and ")}`;
-  return reasons.includes("no_work_number") ? `${held} · Set up work number` : held;
+  return reasons.includes("no_work_number") ? `${held} · ${LISTING_HOLD_WORK_NUMBER_PHRASE}` : held;
+}
+
+/**
+ * The same fact, split so a surface can render the trailing "Set up work number" phrase as its
+ * link. `lead` already excludes that phrase, so a caller never prints it twice.
+ */
+export function listingHoldFactParts(reasons: readonly ListingHoldReason[]): { lead: string; workNumberLink: boolean } {
+  const fact = listingHoldFact(reasons);
+  if (!reasons.includes("no_work_number")) return { lead: fact, workNumberLink: false };
+  return { lead: fact.slice(0, fact.length - LISTING_HOLD_WORK_NUMBER_PHRASE.length), workNumberLink: true };
 }
 
 /**
@@ -71,6 +83,12 @@ function trimTo(text: string, max: number): string {
 export function formatPostPrice(dollars: number | null, byRoom: boolean): string {
   if (dollars === null) return "";
   return `${byRoom ? "From " : ""}$${dollars.toLocaleString("en-US")}/mo`;
+}
+
+/** The public listing link tagged with the site it is posted on, so a lead can be traced back (`?src=<channelId>`). */
+export function taggedListingLink(url: string, channel: ListingChannelId): string {
+  const params = new URLSearchParams({ src: channel });
+  return `${url}${url.includes("?") ? "&" : "?"}${params.toString()}`;
 }
 
 export type ListingPostText =
@@ -117,7 +135,7 @@ export function buildListingPostText(args: {
     .slice(0, 4)
     .map((p) => `• ${p}`);
 
-  const link = buildManagerListingUrl(origin, property.id);
+  const link = taggedListingLink(buildManagerListingUrl(origin, property.id), channel);
   const contactLine = ["Text " + phone, email ? `Email ${email}` : ""].filter(Boolean).join(" · ");
   const contactBlock = [`Details and photos: ${link}`, contactLine].join("\n");
   const attributionBlock = attribution ? listingAttributionLine(origin) : "";

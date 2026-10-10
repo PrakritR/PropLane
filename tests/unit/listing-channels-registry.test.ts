@@ -2,57 +2,75 @@ import { describe, expect, it } from "vitest";
 
 import {
   LISTING_CHANNEL_DEFS,
+  RETIRED_PARTNER_CONTACTS,
   apiPostingChannelIds,
   listingChannelAvailability,
   listingChannelDef,
   listingChannels,
-  listingChannelsByGroup,
+  listingChannelsOrdered,
   metaAppConfigured,
   metaChannelsLive,
   partnerContactHref,
   partnerContactHrefs,
 } from "@/lib/listing-channels/registry";
 
+const ORDER = [
+  "zillow",
+  "facebook_marketplace",
+  "facebook_groups",
+  "craigslist",
+  "spareroom",
+  "roomies",
+  "roomster",
+  "zumper_padmapper",
+  "apartments_com",
+  "redfin_rent",
+  "apartment_list",
+  "furnished_finder",
+  "nextdoor",
+  "reddit",
+  "facebook_page",
+  "instagram",
+];
+
 describe("listing channel registry", () => {
-  it("has exactly the three groups the plan names, with the agreed sites in each", () => {
-    expect(listingChannelsByGroup("automatic").map((c) => c.id)).toEqual(["zillow", "facebook_page", "instagram"]);
-    expect(listingChannelsByGroup("one_click").map((c) => c.id)).toEqual([
-      "facebook_marketplace",
-      "facebook_groups",
-      "roomster",
-      "roomies",
-      "craigslist",
-    ]);
-    expect(listingChannelsByGroup("request_access").map((c) => c.id)).toEqual([
-      "zumper_padmapper",
-      "apartments_com",
-      "apartment_list",
-      "furnished_finder",
-      "spareroom",
-      "nextdoor",
-      "google_business_profile",
-      "linkedin",
-    ]);
+  it("lists the 16 agreed sites in reach order, with Redfin and Reddit added and Google Business Profile and LinkedIn gone", () => {
+    expect(listingChannelsOrdered().map((c) => c.id)).toEqual(ORDER);
     expect(new Set(LISTING_CHANNEL_DEFS.map((c) => c.id)).size).toBe(LISTING_CHANNEL_DEFS.length);
+    expect(listingChannelDef("google_business_profile")).toBeNull();
+    expect(listingChannelDef("linkedin")).toBeNull();
   });
 
-  it("every one-click channel has an https create page; nothing else carries one", () => {
+  it("every channel has a posting mode and a complete guide", () => {
     for (const def of LISTING_CHANNEL_DEFS) {
-      if (def.group === "one_click") expect(def.createUrl).toMatch(/^https:\/\//);
-      else expect(def.createUrl).toBeUndefined();
+      expect(["feed", "api", "manual", "partner_only"]).toContain(def.posting);
+      expect(def.guide.how.length, def.id).toBeGreaterThan(10);
+      if (def.posting === "partner_only") {
+        expect(def.createUrl).toBeUndefined();
+        continue;
+      }
+      expect(def.guide.signupUrl, def.id).toMatch(/^https:\/\//);
+      expect(def.guide.createUrl, def.id).toMatch(/^https:\/\//);
+      expect(def.guide.signupNote, def.id).toBeTruthy();
+      expect(def.guide.createNote, def.id).toBeTruthy();
+      expect(def.guide.cost, def.id).toBeTruthy();
+      expect(def.guide.rules.length, def.id).toBeGreaterThan(0);
     }
   });
 
   it("the queue only ever touches Meta's API channels; Zillow is a feed", () => {
     expect(apiPostingChannelIds()).toEqual(["facebook_page", "instagram"]);
     expect(listingChannelDef("zillow")?.mode).toBe("feed");
+    expect(listingChannelDef("apartment_list")?.posting).toBe("partner_only");
   });
 
-  it("Zillow and the one-click channels are live; request-access sites are Coming soon", () => {
+  it("feed and manual sites are live, partner-only is partner_only, and nothing is a dead Coming soon row without Meta", () => {
     const byId = Object.fromEntries(listingChannels({}).map((c) => [c.id, c.availability]));
-    expect(byId.zillow).toBe("live");
-    for (const def of listingChannelsByGroup("one_click")) expect(byId[def.id]).toBe("live");
-    for (const def of listingChannelsByGroup("request_access")) expect(byId[def.id]).toBe("coming_soon");
+    for (const def of LISTING_CHANNEL_DEFS) {
+      if (def.posting === "feed" || def.posting === "manual") expect(byId[def.id], def.id).toBe("live");
+      if (def.posting === "partner_only") expect(byId[def.id], def.id).toBe("partner_only");
+    }
+    expect(byId.facebook_page).toBe("coming_soon");
   });
 
   it("Facebook Page and Instagram are Coming soon when the Meta env is missing", () => {
@@ -72,22 +90,15 @@ describe("listing channel registry", () => {
     expect(metaChannelsLive({ META_APP_ID: "1", META_APP_SECRET: "s", META_APP_LIVE: "0" })).toBe(false);
   });
 
-  it("Furnished Finder is Request access (Coming soon) with no create page", () => {
-    const def = listingChannelDef("furnished_finder")!;
-    expect(def.group).toBe("request_access");
-    expect(def.createUrl).toBeUndefined();
-    expect(listingChannelAvailability(def)).toBe("coming_soon");
-  });
-
-  it("every request-access channel carries its company's real partner contact", () => {
+  it("partner-contact channels carry their company's real contact; the retired two stay available to the admin kit", () => {
     const hrefs = partnerContactHrefs();
-    for (const def of listingChannelsByGroup("request_access")) expect(hrefs[def.id], def.id).toBeTruthy();
     expect(hrefs.zumper_padmapper).toMatch(/^mailto:directlistings@zumper\.com/);
     expect(hrefs.apartments_com).toMatch(/^mailto:feeds@apartments\.com/);
     expect(hrefs.apartment_list).toMatch(/^mailto:clientservices@apartmentlist\.com/);
     expect(hrefs.furnished_finder).toMatch(/^mailto:partnerships@furnishedfinder\.com/);
     expect(hrefs.nextdoor).toMatch(/^https:\/\//);
-    expect(hrefs.google_business_profile).toMatch(/^https:\/\//);
+    expect(RETIRED_PARTNER_CONTACTS.google_business_profile?.contact).toMatchObject({ kind: "url" });
+    expect(RETIRED_PARTNER_CONTACTS.linkedin?.contact).toMatchObject({ kind: "url" });
     expect(JSON.stringify(hrefs)).not.toContain("support@proplane.ai");
     expect(partnerContactHref({ label: "x" })).toBeNull();
   });

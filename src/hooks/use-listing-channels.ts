@@ -14,19 +14,25 @@ import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 export type ListingChannelsStatus = {
   workspaceId: string;
   canManage: boolean;
-  /** Request-access partner contacts; empty unless the viewer is a PropLane admin. */
-  partnerContacts?: Partial<Record<ListingChannelId, string>>;
   schemaReady: boolean;
   channels: { id: ListingChannelId; availability: ListingChannelAvailability }[];
   meta: { configured: boolean; connected: boolean; pageName: string | null; igUsername: string | null; revoked: boolean };
   workContact: { phone: string | null; email: string | null };
   /** "Listed with PropLane": whether the line is included, and whether the plan pins it on. */
   attribution?: { enabled: boolean; forced: boolean };
+  /** Leads that arrived through each site's tagged link; absent channel = 0. */
+  leadCounts?: Record<string, number>;
   posts: ListingChannelPostRow[];
   property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string> } | null;
 };
 
 const ROUTE = "/api/manager/listing-channels";
+const CHANGED_EVENT = "listing-channels:changed";
+
+function broadcastChanged(source: unknown) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(CHANGED_EVENT, { detail: { source } }));
+}
 
 function isStatus(data: unknown): data is ListingChannelsStatus {
   const d = data as Partial<ListingChannelsStatus> | null;
@@ -72,6 +78,18 @@ export function useListingChannels(propertyId?: string) {
   const refresh = useCallback(async () => {
     invalidateSharedGets(ROUTE);
     await read(true);
+    broadcastChanged(read);
+  }, [read]);
+
+  // Other mounted instances (different URL) re-read when any instance writes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChanged = (e: Event) => {
+      if ((e as CustomEvent<{ source?: unknown }>).detail?.source === read) return;
+      void read(true);
+    };
+    window.addEventListener(CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(CHANGED_EVENT, onChanged);
   }, [read]);
 
   return { status, loading, refresh, workspaceId };

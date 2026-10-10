@@ -1,5 +1,4 @@
 import {
-  Briefcase,
   Building,
   Camera,
   Globe,
@@ -35,6 +34,6 @@ export const CHANNEL_GLYPH: Record<ListingChannelId, { icon: LucideIcon; tone: s
   apartment_list: { icon: Building, tone: "text-indigo-600" },
   spareroom: { icon: Home, tone: "text-rose-600" },
   nextdoor: { icon: Globe, tone: "text-green-600" },
-  google_business_profile: { icon: MapPin, tone: "text-blue-600" },
-  linkedin: { icon: Briefcase, tone: "text-sky-700" },
+  redfin_rent: { icon: Building, tone: "text-red-600" },
+  reddit: { icon: Users, tone: "text-orange-500" },
 };

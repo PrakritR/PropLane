@@ -1,7 +1,7 @@
 import { listingHoldFact, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import type { ListingChannelPostRow } from "@/lib/listing-channels/registry";
 
-function shortDate(iso: string | null | undefined): string {
+export function shortDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -31,15 +31,4 @@ export function automaticChannelFact(args: {
   if (row.state === "failed") return ERROR_COPY[row.lastError ?? ""] ?? (row.lastError ? `Failed: ${row.lastError.slice(0, 60)}` : "Failed");
   if (row.state === "held") return listingHoldFact((row.lastError?.split(",") as ListingHoldReason[] | undefined) ?? holdReasons);
   return listingLive ? "Posts when saved" : "Posts when live";
-}
-
-/** One-click channel: only what the manager has told us, or why the pre-filled post cannot be built. */
-export function oneClickChannelFact(args: {
-  row: ListingChannelPostRow | null;
-  holdReasons: readonly ListingHoldReason[];
-}): string | null {
-  const { row, holdReasons } = args;
-  if (row?.state === "posted_by_me") return row.postedAt ? `Posted by me ${shortDate(row.postedAt)}` : "Posted by me";
-  if (holdReasons.length > 0) return listingHoldFact(holdReasons);
-  return null;
 }

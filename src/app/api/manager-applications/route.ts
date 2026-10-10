@@ -1,3 +1,5 @@
+import { isMissingColumnError } from "@/lib/db-missing-column";
+import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
 import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from "@/lib/security/application-record-normalization.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -323,7 +325,12 @@ async function persistDraftRow(
       .eq("row_data->>bucket", "pending")
       .is("row_data->>withdrawnAt", null)
       .select("id");
-    if (updateError) throw new Error(`Could not persist the application draft: ${updateError.message}`);
+    if (updateError) {
+      throw Object.assign(new Error(`Could not persist the application draft: ${updateError.message}`), {
+        code: updateError.code,
+        cause: updateError,
+      });
+    }
     return (data?.length ?? 0) > 0;
   };
 
@@ -336,7 +343,12 @@ async function persistDraftRow(
     await updateIfStillDraft();
     return;
   }
-  if (error) throw new Error(`Could not persist the application draft: ${error.message}`);
+  if (error) {
+    throw Object.assign(new Error(`Could not persist the application draft: ${error.message}`), {
+      code: error.code,
+      cause: error,
+    });
+  }
 }
 
 /** A submitted, pending application the applicant is writing again: re-check the forms its answers owe (idempotent). */
@@ -344,9 +356,21 @@ function owesLinkedFormCheck(row: DemoApplicantRow): boolean {
   return isSubmittedPendingApplicationRow(row) && Boolean(row.managerUserId?.trim());
 }
 
+/**
+ * The listing site THIS request's applicant arrived from, or null when the request is not the
+ * applicant writing their own application. A manager who once opened one of their own tagged
+ * listing links carries `pl_src` for 30 days, so a manager-initiated create or draft save must
+ * never be credited to that site.
+ */
+async function applicantLeadSource(req: Request, applicantFacing: boolean): Promise<string | null> {
+  if (!applicantFacing) return null;
+  return await readListingSource(req);
+}
+
 async function persistNormalizedRow(
   db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow,
   authorizedExisting: (Omit<Partial<ApplicationRecordSnapshot>, "id"> & { id?: string | null }) | null,
+  sourceChannel: string | null = null,
 ) {
   // Carry the exact snapshot whose actor/property/token access was checked.
   // Re-reading it here could adopt a concurrent transfer without reauthorizing.
@@ -358,7 +382,7 @@ async function persistNormalizedRow(
   row = prepareApplicantIdentityWrite(row, existing?.row_data, String(existing?.id ?? row.id));
   const renaming = Boolean(existing && existing.id !== row.id);
   if (renaming) row = { ...row, managerUserId: existing!.manager_user_id ?? null };
-  const values = {
+  const core = {
     id: row.id,
     manager_user_id: row.managerUserId || null,
     resident_email: row.email?.trim().toLowerCase() || null,
@@ -367,19 +391,32 @@ async function persistNormalizedRow(
     row_data: sealApplicantRow(row, row.id, existing?.manager_user_id || row.managerUserId),
     updated_at: new Date().toISOString(),
   };
+  // First touch only: a brand-new row records the listing site the applicant came from. An
+  // existing row keeps whatever it already has, and the rename path never carries the column.
+  const tagged = !existing && sourceChannel ? { ...core, source_channel: sourceChannel } : core;
   const incomingDraft = { ...row, withdrawnAt: undefined };
-  if (renaming) {
-    // The source snapshot check is the draft downgrade guard for this atomic
-    // ID transition; an intervening submit/withdrawal/transfer rejects it.
-    await persistRenamedApplicationRecord(db, existing!, values);
-  } else if (isDraftApplicationRow(incomingDraft)) {
-    await persistDraftRow(db, idVariants(row.id), values);
-  } else {
-    // Submit and every forward move stay authoritative and write unconditionally.
-    const { error: upsertError } = await db
-      .from("manager_application_records")
-      .upsert(values, { onConflict: "id" });
-    if (upsertError) throw Object.assign(new Error(`Could not persist the application: ${upsertError.message}`), { code: upsertError.code });
+  const writeValues = async (values: typeof core & { source_channel?: string }) => {
+    if (renaming) {
+      // The source snapshot check is the draft downgrade guard for this atomic
+      // ID transition; an intervening submit/withdrawal/transfer rejects it.
+      await persistRenamedApplicationRecord(db, existing!, values);
+    } else if (isDraftApplicationRow(incomingDraft)) {
+      await persistDraftRow(db, idVariants(row.id), values);
+    } else {
+      // Submit and every forward move stay authoritative and write unconditionally.
+      const { error: upsertError } = await db
+        .from("manager_application_records")
+        .upsert(values, { onConflict: "id" });
+      if (upsertError) throw Object.assign(new Error(`Could not persist the application: ${upsertError.message}`), { code: upsertError.code, cause: upsertError });
+    }
+  };
+  try {
+    await writeValues(tagged);
+  } catch (cause) {
+    // The lead-source column only tags the row; a database still waiting on
+    // `20261008180000_listing_lead_source.sql` must never cost the applicant their submission.
+    if (tagged === core || !isMissingColumnError(cause, "source_channel")) throw cause;
+    await writeValues(core);
   }
   if (row.bucket === "approved") {
     try {
@@ -1357,7 +1394,10 @@ export async function POST(req: Request) {
         }
       }
       const previousRow = existing ?? null;
-      const persistedGuestRow = await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
+      const persistedGuestRow = await persistNormalizedRow(
+        db, existingRecord?.id ?? row.id, row, existingRecord ?? null,
+        await applicantLeadSource(req, true),
+      );
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
       // Forms the published template's rules owe after this submit. The first submit creates them (the share
       // tokens are returned once, to the browser that just submitted); a later write by the applicant re-checks,
@@ -1633,7 +1673,10 @@ export async function POST(req: Request) {
         );
       }
     }
-    row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
+    row = await persistNormalizedRow(
+      db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord,
+      await applicantLeadSource(req, residentSelfWrite),
+    );
     // The one writer of the proof that lets a manager's "Delete resident" also delete this
     // login: the id is the authenticated session's (`user.id`), the manager is the listing's.
     // Only a real submit binds — an abandoned draft is not the resident choosing this
