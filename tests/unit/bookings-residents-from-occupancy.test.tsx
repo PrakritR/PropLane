@@ -10,7 +10,7 @@ import { PORTAL_READ_TIMEOUT_MS } from "@/lib/auth/fetch-with-timeout";
 
 const channel = vi.fn<(ids: string[]) => Promise<unknown[]>>();
 const occupancy = vi.fn<() => Promise<{ days: unknown[]; stays?: unknown[] }>>();
-const applicationsSync = vi.fn<() => Promise<{ rows: unknown[]; ok: boolean }>>();
+const applicationsSync = vi.fn<() => Promise<{ rows: unknown[]; ok: boolean; complete?: boolean }>>();
 let storedApplicationRows: unknown[] = [];
 
 vi.mock("@/lib/channel-calendar/client", () => ({
@@ -173,7 +173,7 @@ describe("Bookings residents from the occupancy snapshot", () => {
     };
     const second = { ...application, id: "AXIS-2", name: "Resident 2", assignedRoomChoice: "house-1::r2", manualResidentDetails: { moveInDate: "2026-10-05", moveOutDate: "2027-01-31" } };
     storedApplicationRows = [application, second];
-    applicationsSync.mockResolvedValue({ rows: [application, second], ok: true });
+    applicationsSync.mockResolvedValue({ rows: [application, second], ok: true, complete: true });
     const { result } = renderHook(() => useManagerBookingEntries(PROPS));
     await flush();
 
@@ -197,11 +197,48 @@ describe("Bookings residents from the occupancy snapshot", () => {
       manualResidentDetails: { moveInDate: "2026-10-05" },
     };
     storedApplicationRows = [application];
-    applicationsSync.mockResolvedValue({ rows: [application], ok: true });
+    applicationsSync.mockResolvedValue({ rows: [application], ok: true, complete: true });
     const { result } = renderHook(() => useManagerBookingEntries(PROPS));
     await flush();
     const ids = residentEntries(result.current.entries).map((entry) => (entry as { applicationId?: string }).applicationId);
     expect(ids).toEqual(["AXIS-1"]);
+  });
+
+  it("keeps every snapshot hold when the applications answer was only PART of the list", async () => {
+    occupancy.mockResolvedValue({ days: [], stays: [stay(1), stay(2)] });
+    const application = {
+      id: "AXIS-1",
+      bucket: "approved",
+      name: "Resident 1",
+      propertyId: "house-1",
+      assignedRoomChoice: "house-1::r1",
+      manualResidentDetails: { moveInDate: "2026-10-05" },
+    };
+    storedApplicationRows = [application];
+    // The route capped (or workspace-raced) its answer: AXIS-2's absence is not its deletion.
+    applicationsSync.mockResolvedValue({ rows: [application], ok: true, complete: false });
+    const { result } = renderHook(() => useManagerBookingEntries(PROPS));
+    await flush();
+    const ids = residentEntries(result.current.entries).map((entry) => (entry as { applicationId?: string }).applicationId);
+    expect(ids).toEqual(["AXIS-1", "AXIS-2"]);
+    expect(result.current.failedSources).toEqual([]);
+  });
+
+  it("offers the snapshot's lease residents in the Block dates picker while the lease read is down", async () => {
+    occupancy.mockResolvedValue({
+      days: [],
+      stays: [
+        stay(1, {
+          kind: "lease",
+          resident: { source: "proplane", leaseId: "L-1", residentName: "Resident 1", residentEmail: "r1@example.com" },
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useManagerBookingEntries(PROPS));
+    await flush();
+    expect(result.current.residentOptions).toEqual([
+      expect.objectContaining({ key: "email:r1@example.com", name: "Resident 1", email: "r1@example.com" }),
+    ]);
   });
 });
 

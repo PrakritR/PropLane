@@ -500,26 +500,29 @@ export async function occupancySnapshotForManager(
       ...occupancyForDay(entries, dayKey, [propertyId], capacities),
     })),
   }));
-  const stays: OccupancySnapshotStay[] = entries.map((entry) => ({
-    id: `${entry.propertyId}:${entry.roomId}:${entry.start}:${entry.summary}`,
-    propertyId: entry.propertyId,
-    roomId: entry.roomId,
-    roomLabel: entry.roomLabel,
-    start: entry.start,
-    end: entry.end,
-    kind: occupancyStayKind(entry),
-    name: dayStayDisplayName(entry),
-    ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
-      ? { monthlyRent: entry.monthlyRent }
-      : {}),
-    ...(occupancyStayResident(entry)
-      ? {
-          resident: financialHouses.has(entry.propertyId)
-            ? occupancyStayResident(entry)
-            : occupancyStayResidentWithoutIdentifiers(occupancyStayResident(entry)),
-        }
-      : {}),
-  }));
+  const stays: OccupancySnapshotStay[] = entries.map((entry) => {
+    const resident = occupancyStayResident(entry);
+    return {
+      id: `${entry.propertyId}:${entry.roomId}:${entry.start}:${entry.summary}`,
+      propertyId: entry.propertyId,
+      roomId: entry.roomId,
+      roomLabel: entry.roomLabel,
+      start: entry.start,
+      end: entry.end,
+      kind: occupancyStayKind(entry),
+      name: dayStayDisplayName(entry),
+      ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
+        ? { monthlyRent: entry.monthlyRent }
+        : {}),
+      ...(resident
+        ? {
+            resident: financialHouses.has(entry.propertyId)
+              ? resident
+              : occupancyStayResidentWithoutIdentifiers(resident),
+          }
+        : {}),
+    };
+  });
   return {
     days,
     stays,

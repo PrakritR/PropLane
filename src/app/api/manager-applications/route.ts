@@ -793,14 +793,11 @@ type ApplicationsPhaseTimer = {
   phases: Record<string, number>;
   /** Run `work`, adding its wall time to `name` (overlapping phases are each measured on their own). */
   timed: <T>(name: string, work: () => Promise<T>) => Promise<T>;
-  /** Add the time since the previous `lap` (or the start) to `name`. */
-  lap: (name: string) => void;
   total: () => number;
 };
 
 function createApplicationsPhaseTimer(): ApplicationsPhaseTimer {
   const startedAt = performance.now();
-  let last = startedAt;
   const phases: Record<string, number> = {};
   const add = (name: string, ms: number) => {
     phases[name] = Math.round(((phases[name] ?? 0) + ms) * 10) / 10;
@@ -814,11 +811,6 @@ function createApplicationsPhaseTimer(): ApplicationsPhaseTimer {
       } finally {
         add(name, performance.now() - at);
       }
-    },
-    lap(name) {
-      const now = performance.now();
-      add(name, now - last);
-      last = now;
     },
     total: () => Math.round((performance.now() - startedAt) * 10) / 10,
   };

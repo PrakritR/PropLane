@@ -42,6 +42,19 @@ async function activeWorkspaceIsOwnDefault(db: ServiceClient, userId: string): P
   }
 }
 
+/**
+ * A read that failed because the table is not there (a project that predates the migration),
+ * which legitimately means "no links". Matched on the PostgREST / Postgres codes first and the
+ * shapes of their messages second — NEVER on the table name appearing in the message, which also
+ * matches a permission error, a dropped column and a schema-cache mismatch, every one of which is
+ * a lookup that failed to answer rather than an answer of "none".
+ */
+function looksLikeMissingTableError(err: { message?: string; code?: string } | null | undefined): boolean {
+  if (err?.code === "42P01" || err?.code === "PGRST205") return true;
+  const m = (err?.message ?? "").toLowerCase();
+  return m.includes("schema cache") || m.includes("does not exist");
+}
+
 export type LeaseScopeRecord = {
   id: string;
   manager_user_id?: string | null;
@@ -120,7 +133,7 @@ export async function collectLinkedPropertyPermissionsForUser(
       .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("invitee_user_id", userId));
-    if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
+    if (error && !looksLikeMissingTableError(error)) {
       if (strict) throw new Error(`Co-manager link permissions lookup failed: ${error.message}`);
       console.error("Co-manager link permissions lookup failed:", { userId, message: error.message });
       return byProperty;
