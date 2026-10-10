@@ -268,6 +268,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Which outside vendor marketplaces (TaskRabbit, Thumbtack, ...) the manager says they hold an account
+    // at: a label and an optional profile link, never a credential. Deleted with the login.
+    table: "vendor_marketplace_accounts",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "cosigner_submission_records",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -1267,6 +1274,9 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   growth_publications: "Delivery records for PropLane's own marketing posts; no account data.",
   growth_metrics: "Engagement metrics for PropLane's own marketing posts; no account data.",
   growth_learned: "Aggregated content learnings for PropLane's own marketing; no account data.",
+  growth_watchlist: "Public social handles PropLane's own growth engine engages with; no account data.",
+  growth_engage_items: "Daily engagement targets (public posts) and drafted replies for PropLane's own marketing; no account data.",
+  growth_keywords: "PropLane's own comment-keyword auto-replies; no account data.",
   comms_plan_credit_rules: "Admin-editable per-tier defaults for the messaging-credit pool; global plan config, not owned by any one account.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",

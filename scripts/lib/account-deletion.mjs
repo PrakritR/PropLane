@@ -108,6 +108,7 @@ export const DELETE_ORDER = [
   "manager_house_public_links",
   "manager_syndication_feeds",
   "listing_channel_posts",
+  "vendor_marketplace_accounts",
   "listing_channel_connections",
   "cosigner_submission_records",
   "screening_orders",
