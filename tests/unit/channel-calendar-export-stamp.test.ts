@@ -12,6 +12,7 @@ vi.mock("@/lib/supabase/service", () => ({
       const chain: Record<string, unknown> = {
         select: () => chain,
         eq: () => chain,
+        in: () => chain,
         or: () => chain,
         like: () => chain,
         order: () => chain,

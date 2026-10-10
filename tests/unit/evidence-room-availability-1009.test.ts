@@ -133,7 +133,9 @@ function installDb(submission: ReturnType<typeof buildListing>) {
           const data =
             table === "manager_property_records"
               ? [{ id: "home-1", manager_user_id: "manager-1", property_data: { listingSubmission: submission } }]
-              : table === "external_calendar_connections"
+              : table === "account_link_invites"
+                ? []
+                : table === "external_calendar_connections"
                 ? calendar
                 : null;
           if (data === null) throw new Error(`Unexpected table: ${table}`);

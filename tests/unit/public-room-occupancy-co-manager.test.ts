@@ -46,7 +46,9 @@ function fakeDb(
         then(resolve: (value: unknown) => unknown) {
           const data = table === "manager_property_records"
             ? [{ id: "home-1", manager_user_id: "owner-1", property_data: { listingSubmission: submission } }]
-            : [];
+            : table === "account_link_invites"
+              ? [{ inviter_user_id: "owner-1", invitee_user_id: "co-manager-9", assigned_property_ids: ["home-1"], team_role: "leasing" }]
+              : [];
           return Promise.resolve({ data, error: null }).then(resolve);
         },
       };

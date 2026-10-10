@@ -61,7 +61,6 @@ function makeDb() {
 }
 
 const ATTACKER = "mgr-attacker";
-const CO_MANAGER = "mgr-comanager";
 const OWN_HOUSE = "house-own";
 const VICTIM_HOUSE = "house-victim";
 

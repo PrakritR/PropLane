@@ -104,7 +104,11 @@ export function residentFactsFromApplication(row: ApplicationHoldRow | undefined
  */
 export function withoutResidentFinancials<T extends Partial<PropertyBookingEntry>>(entry: T): T {
   if (entry.source !== "hold" && entry.source !== "proplane") return entry;
-  const { monthlyRent: _rent, securityDeposit: _deposit, leaseTerm: _term, residentPhone: _phone, ...rest } = entry;
+  const rest: Partial<PropertyBookingEntry> = { ...entry };
+  delete rest.monthlyRent;
+  delete rest.securityDeposit;
+  delete rest.leaseTerm;
+  delete rest.residentPhone;
   return rest as T;
 }
 

@@ -13,7 +13,22 @@ type Read = { column?: string; ids?: string[]; like?: string; from: number; to: 
  * property columns (or room choice) match, so a test can see what the snapshot narrowed on.
  */
 function fakeDb(rows: Record<string, unknown>[], calls: { reads: Read[]; eqUser?: boolean }) {
-  const from = () => {
+  const from = (table: string) => {
+    // Who may speak for p1: its owner and one linked teammate (the "other" manager the rows are stamped with).
+    if (table === "manager_property_records") {
+      const authors = { in: () => authors, then: (resolve: (v: unknown) => unknown) => resolve({ data: [{ id: "p1", manager_user_id: "owner-1" }], error: null }), select: () => authors };
+      return authors;
+    }
+    if (table === "account_link_invites") {
+      const links = {
+        select: () => links,
+        eq: () => links,
+        in: () => links,
+        then: (resolve: (v: unknown) => unknown) =>
+          resolve({ data: [{ inviter_user_id: "owner-1", invitee_user_id: "other-manager", assigned_property_ids: ["p1"], team_role: "leasing" }], error: null }),
+      };
+      return links;
+    }
     const read: Read = { from: 0, to: 0 };
     let match: (row: Record<string, unknown>) => boolean = () => true;
     const chain: Record<string, unknown> = {
