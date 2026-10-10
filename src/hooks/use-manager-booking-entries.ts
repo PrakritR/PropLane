@@ -1,5 +1,6 @@
 "use client";
 
+import { withoutEchoedHostBlocks } from "@/lib/channel-calendar/host-block";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PORTAL_READ_TIMEOUT_MS, withTimeout } from "@/lib/auth/fetch-with-timeout";
 import { fetchManagerChannelBookings, fetchOccupancySnapshot } from "@/lib/channel-calendar/client";
@@ -411,8 +412,10 @@ export function useManagerBookingEntries({
   const entries = useMemo(
     () =>
       applyStayMeta(
-        [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
-          (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+        withoutEchoedHostBlocks(
+          [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
+            (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+          ),
         ),
         stayMetas,
       ),
