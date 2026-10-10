@@ -182,11 +182,15 @@ export async function GET(request: Request) {
       if (ownerRefusal) return ownerRefusal;
     }
 
+    // A View-as session is read-only, and both heals below insert a thread row into the account
+    // being looked at — resident Communication included. Resolved once for this GET.
+    const viewAsOpen = await isViewAsSessionOpen();
+
     // Make sure a resident always has their assistant conversation before the
     // list is read, so it simply appears in Communication with no extra call
     // from the client. Deterministic id keeps this idempotent; a failure here
     // must never take down the inbox, so it is swallowed.
-    if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email) {
+    if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email && !viewAsOpen) {
       try {
         const managerIds = await managerIdsOwningResident(ctx.db, ctx.user.email);
         // Bound to ONE manager when known — the first that owns this resident.
@@ -202,7 +206,7 @@ export async function GET(request: Request) {
 
     // A View-as session is read-only: this GET heals (inserts) the notice and Team chat threads, so it
     // must not run for an operator looking at someone else's account.
-    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id && !(await isViewAsSessionOpen())) {
+    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id && !viewAsOpen) {
       try {
         const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
         const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);

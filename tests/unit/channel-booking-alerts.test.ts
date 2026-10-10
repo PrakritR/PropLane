@@ -35,6 +35,24 @@ describe("diffChannelReservations", () => {
     const diff = diffChannelReservations({ previous: [range("old", "2026-09-01", "2026-09-05")], next: [], baseline: false, today: TODAY });
     expect(diff.cancelled).toEqual([]);
   });
+  it("does not cancel every stay when the feed comes back carrying nothing at all", () => {
+    const diff = diffChannelReservations({
+      previous: [range("a", "2026-10-20", "2026-10-22"), range("b", "2026-11-01", "2026-11-04")],
+      next: [],
+      baseline: false,
+      today: TODAY,
+    });
+    expect(diff).toEqual({ created: [], cancelled: [] });
+  });
+  it("still reports a cancellation when the feed kept its other events", () => {
+    const diff = diffChannelReservations({
+      previous: [range("a", "2026-10-20", "2026-10-22")],
+      next: [range("hb", "2026-10-25", "2026-10-26", "Airbnb (Not available)")],
+      baseline: false,
+      today: TODAY,
+    });
+    expect(diff.cancelled.map((r) => r.sourceUid)).toEqual(["a"]);
+  });
   it("keys a feed without UIDs on the stay itself", () => {
     const a = { ...range("", "2026-10-12", "2026-10-14"), sourceUid: "" };
     expect(diffChannelReservations({ previous: [a], next: [{ ...a }], baseline: false, today: TODAY })).toEqual({ created: [], cancelled: [] });

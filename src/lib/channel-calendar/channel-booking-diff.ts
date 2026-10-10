@@ -31,6 +31,12 @@ export function diffChannelReservations(input: {
   today: string;
 }): ChannelBookingDiff {
   if (input.baseline) return { created: [], cancelled: [] };
+  // A feed that parsed but carries no events at all is not evidence that every stay was
+  // cancelled - an upstream blip reads exactly the same. Announcing it would spend each stay's
+  // one-shot event id, muting both the stay's return and its real cancellation later, so this
+  // sync updates the calendar and announces nothing. A feed that still carries events (a host
+  // block, another stay) is trusted, so an ordinary cancellation is still news.
+  if (input.next.length === 0 && input.previous.length > 0) return { created: [], cancelled: [] };
   const reservations = (ranges: readonly ChannelCalendarImportedRange[]) =>
     ranges.filter((range) => !isHostBlockRange(range) && (range.end || range.start) >= input.today);
   const before = new Map(reservations(input.previous).map((range) => [channelRangeKey(range), range] as const));

@@ -142,12 +142,22 @@ async function occupancyRangesForRoom(
     }
     const property = String(row.assigned_property_id || row.property_id || "").trim();
     if (property !== propertyId && !String(row.choice || row.preferred || "").startsWith(`${propertyId}::`)) continue;
-    if (!occupancyAuthorTrusted(authors, propertyId, row.manager_user_id)) continue;
     const choice = String(row.choice || row.preferred || "");
     if (choice && !choice.endsWith(roomToken) && choice !== roomId) continue;
     const start = day(row.manual_start) || day(row.lease_start);
     if (!start) continue;
     const end = day(row.manual_end) || day(row.lease_end) || start;
+    // A row this house's authors did not write is not its occupancy, so it is not published - but a
+    // row that SHOULD have counted (a stamp left wrong by a re-assigned grant) would then offer an
+    // occupied room as free. Dropping one is reported loudly rather than passing silently, since
+    // nothing downstream can tell the two apart.
+    if (!occupancyAuthorTrusted(authors, propertyId, row.manager_user_id)) {
+      console.error(
+        "calendar export dropped an approved row this house did not author",
+        JSON.stringify({ propertyId, roomId, rowId: typeof row.id === "string" ? row.id : null, start, end }),
+      );
+      continue;
+    }
     const range = { start, end };
     if (String(row.manually_added ?? "") === "true") holds.push(range);
     else leases.push(range);

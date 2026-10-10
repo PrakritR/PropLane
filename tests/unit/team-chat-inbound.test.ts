@@ -7,7 +7,8 @@ const members = vi.fn(async (..._args: unknown[]): Promise<Member[]> => []);
 const post = vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({
   ok: true, posted: true, threadId: "team-thread:o:ws:ws1", workspaceId: "ws1",
 }));
-const relay = vi.fn(async (..._args: unknown[]) => []);
+type RelayOutcome = { memberUserId: string; status: "sent" | "skipped" | "failed"; reason?: string };
+const relay = vi.fn(async (..._args: unknown[]): Promise<RelayOutcome[]> => []);
 vi.mock("@/lib/team-comms.server", () => ({
   resolveWorkspaceTeamMembers: (...args: unknown[]) => members(...args),
   postTeamThreadMessage: (...args: unknown[]) => post(...args),
@@ -47,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   members.mockResolvedValue(trio);
   post.mockResolvedValue({ ok: true, posted: true, threadId: "team-thread:o:ws:ws1", workspaceId: "ws1" });
+  relay.mockResolvedValue([]);
   sessionLookup.mockResolvedValue({ ok: true, session: null });
   openProposal.mockResolvedValue({ status: "none" });
 });
@@ -125,6 +127,20 @@ describe("routeManagerInboundText", () => {
     post.mockResolvedValue({ ok: false, error: "Could not post to the team thread." });
     expect(await route("hello")).toEqual({ kind: "team", ok: false });
     expect(relay).not.toHaveBeenCalled();
+  });
+
+  it("reports a member the relay could not text, and still completes the inbound", async () => {
+    relay.mockResolvedValue([
+      { memberUserId: "akhil", status: "sent" },
+      { memberUserId: "akshaya", status: "failed", reason: "no_credit" },
+    ]);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await route("hello")).toEqual({ kind: "team", ok: true });
+      expect(logged).toHaveBeenCalledWith("team-chat inbound relay undelivered", expect.stringContaining("no_credit"));
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("a replayed MessageSid re-posts nothing but still relays (the per-member dedupe key makes that exactly-once)", async () => {

@@ -108,7 +108,7 @@ export async function routeManagerInboundText(
   if (!posted.ok) return { kind: "team", ok: false };
   // Always relay: the dedupe key (message, member) makes a replay or a retry
   // after a crash between the post and the texts send each text exactly once.
-  await relayTeamChatMessageToSms(db, {
+  const relayed = await relayTeamChatMessageToSms(db, {
     ownerManagerUserId: input.ownerManagerUserId,
     workspaceId: posted.workspaceId,
     senderUserId: input.actorUserId,
@@ -117,6 +117,17 @@ export async function routeManagerInboundText(
     messageId,
   }).catch((error: unknown) => {
     console.error("team-chat inbound relay failed", error instanceof Error ? error.name : "unknown");
+    return [] as Awaited<ReturnType<typeof relayTeamChatMessageToSms>>;
   });
+  // A member the relay could not text is reported, never swallowed: the chat itself succeeded, so
+  // the inbound stays completed (a terminal reason — no credit, a paused line — would otherwise
+  // retry this text forever), but the reasons must be visible. Never logs a phone or a body.
+  const undelivered = relayed.filter((outcome) => outcome.status === "failed");
+  if (undelivered.length > 0) {
+    console.error(
+      "team-chat inbound relay undelivered",
+      JSON.stringify({ count: undelivered.length, reasons: [...new Set(undelivered.map((o) => o.reason ?? "unknown"))] }),
+    );
+  }
   return { kind: "team", ok: true };
 }

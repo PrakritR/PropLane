@@ -234,10 +234,21 @@ describe("Bookings snapshot hides resident money from a calendar-only viewer", (
 });
 
 describe("withoutResidentFinancials", () => {
-  it("drops rent, deposit, term and phone from a resident-backed entry only", async () => {
+  it("drops rent, deposit, term, rate and phone from a resident-backed entry only", async () => {
     const { withoutResidentFinancials } = await import("@/lib/channel-calendar/property-bookings");
     const facts = { monthlyRent: 1, securityDeposit: 2, leaseTerm: "Long-term", residentPhone: "+1", residentName: "R" };
     expect(withoutResidentFinancials({ source: "hold" as const, ...facts })).toEqual({ source: "hold", residentName: "R" });
-    expect(withoutResidentFinancials({ source: "block" as const, ...facts })).toEqual({ source: "block", ...facts });
+    // A manager's block held for a named resident is the same stay, drawn as a hold.
+    expect(withoutResidentFinancials({ source: "block" as const, ...facts, rate: 90, rateBasis: "monthly" as const })).toEqual({
+      source: "block",
+      residentName: "R",
+    });
+    // A plain closed range names nobody, and a channel stay's rate is not a resident's money.
+    expect(withoutResidentFinancials({ source: "block" as const, reason: "Repairs", rate: 90 })).toEqual({
+      source: "block",
+      reason: "Repairs",
+      rate: 90,
+    });
+    expect(withoutResidentFinancials({ source: "airbnb" as const, rate: 120 })).toEqual({ source: "airbnb", rate: 120 });
   });
 });

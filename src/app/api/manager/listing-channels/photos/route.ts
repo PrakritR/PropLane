@@ -89,7 +89,10 @@ export async function GET(request: Request) {
   if (!listing) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
   const hosts = allowedPhotoHosts();
-  const allowed = listingPostPhotoUrls(listing.projected).filter((u) => isAllowedPhotoUrl(u, hosts));
+  // The denominator is every photo the listing has, not just the fetchable ones: a photo on a
+  // host this route will not read is still missing from the zip the manager posts.
+  const listed = listingPostPhotoUrls(listing.projected);
+  const allowed = listed.filter((u) => isAllowedPhotoUrl(u, hosts));
   const urls = allowed.slice(0, MAX_PHOTOS);
   if (urls.length === 0) return NextResponse.json({ error: "This listing has no photos to download." }, { status: 404 });
 
@@ -116,7 +119,7 @@ export async function GET(request: Request) {
 
   // A zip short of the listing's photos says so in its name and a header: 2 of 12 photos must
   // never look like a complete 2-photo listing, or the manager posts an under-photographed ad.
-  const partial = entries.length < allowed.length;
+  const partial = entries.length < listed.length;
   const zip = buildStoreZip(entries);
   return new NextResponse(zip as unknown as BodyInit, {
     status: 200,
@@ -125,7 +128,7 @@ export async function GET(request: Request) {
       "Content-Length": String(zip.length),
       "Content-Disposition": `attachment; filename="${slugify(listing.projected.title || propertyId)}-photos${partial ? "-partial" : ""}.zip"`,
       "Cache-Control": "private, no-store",
-      ...(partial ? { "X-Photos-Partial": `${entries.length}/${allowed.length}` } : {}),
+      ...(partial ? { "X-Photos-Partial": `${entries.length}/${listed.length}` } : {}),
     },
   });
 }

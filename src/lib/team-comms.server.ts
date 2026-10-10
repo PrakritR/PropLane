@@ -548,12 +548,15 @@ export async function withdrawTeamRelayIfOverCap(
   const cap = input.cap ?? TEAM_CHAT_RELAY_HOURLY_CAP;
   if ((await teamRelayUsedThisHour(db, input)) <= cap) return false;
   try {
-    const { error } = await db
+    // The affected row is the answer: the predicate matches nothing once the dispatcher has
+    // claimed the text, and that text WENT OUT - reporting it as withheld would be a lie.
+    const { data, error } = await db
       .from("sms_outbox")
       .update({ status: "blocked", blocked_reason: "hourly_cap", updated_at: new Date().toISOString() })
       .eq("id", input.outboxId)
-      .in("status", ["queued", "deferred"]);
-    return !error;
+      .in("status", ["queued", "deferred"])
+      .select("id");
+    return !error && Array.isArray(data) && data.length > 0;
   } catch {
     return false;
   }

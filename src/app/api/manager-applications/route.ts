@@ -655,6 +655,15 @@ async function assertPropertyInActiveWorkspace(
   return scope.includes(propertyId);
 }
 
+/**
+ * A row readers turn into occupancy: approved, or a resident the manager added by hand. ONE
+ * predicate for the write gate and the read filter — they have to agree for the author-trust rule
+ * to hold at all.
+ */
+function isResidentSlotRow(row: { bucket?: unknown; manuallyAdded?: unknown } | null | undefined): boolean {
+  return row?.bucket === "approved" || row?.manuallyAdded === true;
+}
+
 /** Every property id a row names: its property columns and the property part of each room-choice value. */
 function applicationReferencedPropertyIds(row: Partial<DemoApplicantRow> | null | undefined): Set<string> {
   const out = new Set<string>();
@@ -715,7 +724,7 @@ async function resolveApplicationWriteOwner(
     propertyId: existing?.property_id ?? undefined,
     assignedPropertyId: existing?.assigned_property_id ?? undefined,
   } as DemoApplicantRow);
-  const writesResidentSlot = row.bucket === "approved" || row.manuallyAdded === true;
+  const writesResidentSlot = isResidentSlotRow(row);
   const newlyNamed = [...applicationReferencedPropertyIds(row)].filter((id) => writesResidentSlot || !alreadyNamed.has(id));
   if (newlyNamed.length > 0) {
     const { data: namedRows, error: namedErr } = await db
@@ -894,12 +903,13 @@ async function fetchApplicationsForManagerUser(
   // to a house only when its author is that house's owner or a teammate linked to it, so a row some other
   // manager filed naming this viewer's house never reaches their Residents list or Bookings grid.
   // Applications in flight keep their submit-time attribution, and an unstamped legacy row still shows.
-  const slotRows = [...byId.values()].filter((row) => {
-    const data = (row.row_data ?? {}) as { bucket?: unknown; manuallyAdded?: unknown };
-    return data.bucket === "approved" || data.manuallyAdded === true;
-  });
+  const storedApplicationRow = (value: unknown): Partial<DemoApplicantRow> =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Partial<DemoApplicantRow>) : {};
+  const slotRows = [...byId.values()].filter((row) => isResidentSlotRow(storedApplicationRow(row.row_data)));
   const authors = slotRows.length > 0 ? await loadOccupancyAuthors(db, [...scopedPropertyIds]) : null;
   for (const row of slotRows) {
+    // The houses that brought the row into this list, and the only ones its author has to be
+    // trusted for: a room-choice house it also names cannot vouch for the house it is filed on.
     const houses = [String(row.property_id ?? "").trim(), String(row.assigned_property_id ?? "").trim()].filter(
       (id) => id && scopedPropertyIds.has(id),
     );
