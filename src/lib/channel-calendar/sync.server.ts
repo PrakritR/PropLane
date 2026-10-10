@@ -22,6 +22,8 @@ import type {
   ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
+import { diffChannelReservations } from "@/lib/channel-calendar/channel-booking-diff";
+import { emitChannelBookingEvent } from "@/lib/channel-booking-events.server";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -424,6 +426,31 @@ export async function syncChannelCalendarConnection(
     );
     if (recheck.dropped.length > 0) {
       await persistConnectionImportedRanges(db, parseConnectionRow(saved as Record<string, unknown>), recheck.kept);
+    }
+    // Every sync path (cron, Sync, Sync all) ends here, so the alert diff lives here too.
+    // Best-effort: an alert that cannot be sent must never fail a calendar sync.
+    try {
+      const room = updatedSubmission.rooms.find((item) => item.id === connection.room_id);
+      const diff = diffChannelReservations({
+        previous: connection.imported_ranges ?? [],
+        next: recheck.kept,
+        // Never synced = the first read of this channel: record what is there, announce nothing.
+        baseline: !connection.last_synced_at,
+        today: now.slice(0, 10),
+      });
+      const base = {
+        connectionId: connection.id,
+        managerUserId: connection.manager_user_id,
+        propertyId: connection.property_id,
+        roomId: connection.room_id,
+        provider: connection.provider,
+        propertyLabel: record.property.buildingName?.trim() || record.property.title?.trim() || undefined,
+        roomLabel: room?.name?.trim() || connection.label?.trim() || undefined,
+      };
+      for (const range of diff.created) await emitChannelBookingEvent(db, { ...base, event: "channel_booking_created", range });
+      for (const range of diff.cancelled) await emitChannelBookingEvent(db, { ...base, event: "channel_booking_cancelled", range });
+    } catch {
+      // Delivery has its own retry; the sync result is the calendar.
     }
     return parseConnectionRow(saved as Record<string, unknown>);
   } catch (e) {

@@ -212,14 +212,16 @@ describe("saveRoomDateBlock propagates the server's 409 refusal", () => {
 });
 
 describe("booking cancellation server eligibility", () => {
-  it("checks persisted dates and refuses channel stays, missing stays and in-house bookings", async () => {
+  it("checks persisted dates and refuses channel stays, missing stays and ended bookings", async () => {
     const atomicWrite = routeMocks.config!.atomicWrite as AtomicWrite;
     const record = { id: "block", record_type: "cancelled_room_date_block", row_data: { checkIn: "2099-01-01" } };
-    for (const existing of [null, { record_type: "room_date_block", row_data: { checkIn: "2000-01-01" } }, { record_type: "room_date_block", row_data: { checkIn: "2099-01-01", reason: "Airbnb" } }, { record_type: "event", row_data: { checkIn: "2099-01-01" } }]) {
+    for (const existing of [null, { record_type: "room_date_block", row_data: { checkIn: "2000-01-01", checkOut: "2000-01-03" } }, { record_type: "room_date_block", row_data: { checkIn: "2099-01-01", reason: "Airbnb" } }, { record_type: "event", row_data: { checkIn: "2099-01-01" } }]) {
       const result = await atomicWrite({ user: { id: "manager" }, record, existing });
       expect(result.status).toBe(409);
     }
     expect(await atomicWrite({ user: { id: "manager" }, record, existing: { record_type: "room_date_block", row_data: { checkIn: "2099-01-01", reason: "Guest" } } })).toEqual({ handled: false });
+    // A reservation that has started but not ended can still be removed (captain, Oct 9).
+    expect(await atomicWrite({ user: { id: "manager" }, record, existing: { record_type: "room_date_block", row_data: { checkIn: "2000-01-01", checkOut: "2099-01-03", reason: "Reserved" } } })).toEqual({ handled: false });
   });
 
   it("refuses a save when availability cannot be read", async () => {

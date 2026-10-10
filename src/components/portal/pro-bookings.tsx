@@ -122,6 +122,8 @@ function useBookingsWorkspace({
     open: boolean;
     dayKey: string | null;
     editingBlock: PropertyBookingEntry | null;
+    /** Set when an empty room-day was clicked: the modal opens as Mark reserved for that room. */
+    reserve?: { propertyId: string; roomId: string };
   }>({ open: false, dayKey: null, editingBlock: null });
   const [calendarsOpen, setCalendarsOpen] = useState(false);
   const [cancelEntry, setCancelEntry] = useState<PropertyBookingEntry | null>(null);
@@ -141,7 +143,7 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, occupancyDays, loading, failedSources, retry, residentOptions } = useManagerBookingEntries({
+  const { entries: rawEntries, occupancyDays, loading, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
@@ -437,6 +439,7 @@ function useBookingsWorkspace({
         preferenceKey={showPropertyFilter ? "workspace" : propertyIds[0]}
         onAddBooking={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
         onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
+        onReserveRoomDay={({ propertyId, roomId, dayKey }) => setSheet({ open: true, dayKey, editingBlock: null, reserve: { propertyId, roomId } })}
         onDayClick={goToDayPage}
         selectedDayKey={selectedDayKey}
         searchQuery={listSearch}
@@ -517,10 +520,12 @@ function useBookingsWorkspace({
         open={sheet.open && !sheet.editingBlock}
         onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })}
         propertyOptions={propertyOptions}
+        mode={sheet.reserve ? "reserve" : "add"}
+        channelLinks={channelLinks}
         initialPropertyId={
-          propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined
+          sheet.reserve?.propertyId ?? (propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined)
         }
-        initialRoomId={roomFilterId}
+        initialRoomId={sheet.reserve ? sheet.reserve.roomId : roomFilterId}
         initialDayKey={sheet.dayKey}
         editingBlock={sheet.editingBlock}
         entries={rawEntries}
@@ -552,6 +557,7 @@ function useBookingsWorkspace({
     saveBlock,
     saveStayDetails,
     removeBlock,
+    channelLinks,
   };
 }
 
@@ -643,7 +649,7 @@ export function ManagerBookings({
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
     selectedDayKey: dayKey,
   });
-  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock } = workspace;
+  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock, channelLinks } = workspace;
 
   if (bookingId) {
     return (
@@ -658,6 +664,7 @@ export function ManagerBookings({
         onSaveBlock={saveBlock}
         onSaveStayMeta={saveStayDetails}
         onRefresh={() => setRefreshSignal((n) => n + 1)}
+        channelLinks={channelLinks}
         onRemoveBlock={removeBlock}
         showToast={showToast}
       />

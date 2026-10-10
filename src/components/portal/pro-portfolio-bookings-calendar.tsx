@@ -313,6 +313,7 @@ export function ManagerPortfolioBookingsCalendar({
   onDayClick,
   onAddBooking,
   onEditBooking,
+  onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
   searchQuery = "",
@@ -331,6 +332,8 @@ export function ManagerPortfolioBookingsCalendar({
   onDayClick?: (dayKey: string) => void;
   onAddBooking?: () => void;
   onEditBooking?: (entry: PropertyBookingEntry) => void;
+  /** An empty room-day was clicked: open Mark reserved for that room and night. */
+  onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
@@ -350,6 +353,7 @@ export function ManagerPortfolioBookingsCalendar({
       onDayClick={onDayClick}
       onAddBooking={onAddBooking}
       onEditBooking={onEditBooking}
+      onReserveRoomDay={onReserveRoomDay}
       preferenceKey={preferenceKey}
       selectedDayKey={selectedDayKey}
       searchQuery={searchQuery}
@@ -370,6 +374,7 @@ export function ManagerBookingsHub({
   onDayClick,
   onAddBooking,
   onEditBooking,
+  onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
   searchQuery = "",
@@ -389,6 +394,8 @@ export function ManagerBookingsHub({
   onDayClick?: (dayKey: string) => void;
   onAddBooking?: () => void;
   onEditBooking?: (entry: PropertyBookingEntry) => void;
+  /** An empty room-day was clicked: open Mark reserved for that room and night. */
+  onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
@@ -534,6 +541,7 @@ export function ManagerBookingsHub({
                   onOpenDay={openDay}
                   onAddBooking={onAddBooking}
                   onEditBooking={onEditBooking}
+                  onReserveRoomDay={onReserveRoomDay}
                   preferenceKey={preferenceKey}
                   roomFilterId={roomFilterId}
                   occupancyDays={occupancyDays}

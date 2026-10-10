@@ -10,6 +10,7 @@ import {
 } from "@/lib/channel-calendar/connections.server";
 import { importedRangesForFeed, type FeedConnection, type FeedPlacement } from "@/lib/channel-calendar/export-feed";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
+import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 import { exportBlockedRanges } from "@/lib/occupancy/snapshot";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -180,6 +181,9 @@ export async function GET(
     if (!connection) {
       return new NextResponse("Not found", { status: 404 });
     }
+
+    // "Airbnb checked PropLane": best-effort and throttled, never part of the feed's outcome.
+    await stampExportFetch(db, connection, req.headers.get("user-agent"));
 
     const record = await loadPropertyRecord(db, connection.property_id);
     const submission = listingSubmissionFromProperty(record?.property ?? null);

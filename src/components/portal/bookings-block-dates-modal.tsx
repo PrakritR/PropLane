@@ -26,9 +26,14 @@ import { addDaysToDateKey, formatBookingStayRange } from "@/lib/channel-calendar
 import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
+import { airbnbLinkForRoom, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { cn } from "@/lib/utils";
 
 const FIELD_LINK = "text-xs font-semibold normal-case tracking-normal text-primary hover:underline disabled:opacity-50";
+
+/** Stable defaults: an inline `[]` default is a new array every render and would retrigger the open effect forever. */
+const NO_RESIDENTS: readonly BlockDatesResidentOption[] = [];
+const NO_CHANNEL_LINKS: readonly ChannelRoomLink[] = [];
 
 /** The select's value for "new resident" — never a real identity key, which are `email:` / `name:` / `id:` prefixed. */
 export const NEW_RESIDENT_CHOICE = "__new__";
@@ -108,9 +113,11 @@ export function BookingsBlockDatesModal({
   initialDayKey,
   editingBlock = null,
   entries,
-  residentOptions = [],
+  residentOptions = NO_RESIDENTS,
   onSave,
   onDeleteBlock,
+  mode = "add",
+  channelLinks = NO_CHANNEL_LINKS,
 }: {
   open: boolean;
   onClose: () => void;
@@ -126,6 +133,13 @@ export function BookingsBlockDatesModal({
   residentOptions?: readonly BlockDatesResidentOption[];
   onSave: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   onDeleteBlock?: (blockId: string) => Promise<void>;
+  /**
+   * "reserve" is a click on an empty room-day: titled Mark reserved, opens on the
+   * review step with the house, room and night already filled, and saves with one press.
+   */
+  mode?: "add" | "reserve";
+  /** Rooms linked to a channel, so the review can say Airbnb picks the change up. */
+  channelLinks?: readonly ChannelRoomLink[];
 }) {
   const [stepIdx, setStepIdx] = useState(0);
   const [propertyId, setPropertyId] = useState("");
@@ -146,12 +160,12 @@ export function BookingsBlockDatesModal({
 
   useEffect(() => {
     if (!open) return;
-    setStepIdx(0);
     const property = initialPropertyId || (propertyOptions.length === 1 ? propertyOptions[0]!.id : "");
     setPropertyId(property);
     setRoomChoice(initialRoomId && property ? `${property}::${initialRoomId}` : "");
     setCheckIn(initialDayKey ?? "");
     setCheckOut(initialDayKey ? addDaysToDateKey(initialDayKey, 1) : "");
+    setStepIdx(mode === "reserve" && !editingBlock && property && initialDayKey ? 2 : 0);
     setReason("");
     setStayDetails(editingBlock?.stayDetails ?? {});
     setResidentChoice("");
@@ -174,7 +188,7 @@ export function BookingsBlockDatesModal({
       setEditingBlockId,
       residentOptions,
     );
-  }, [open, initialPropertyId, initialRoomId, initialDayKey, editingBlock, propertyOptions, residentOptions]);
+  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, editingBlock, propertyOptions, residentOptions]);
 
   const roomOptions = useMemo(
     () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }) : []),
@@ -217,6 +231,8 @@ export function BookingsBlockDatesModal({
     [entries],
   );
 
+  const airbnbLink = airbnbLinkForRoom(channelLinks, propertyId, roomId);
+  const reserving = mode === "reserve" && !editingBlockId;
   const selectedProperty = propertyOptions.find((property) => property.id === propertyId) ?? null;
   const selectedRoom = roomOptions.find((room) => room.value === roomChoice) ?? null;
   const residentSummary = isNewResident
@@ -254,9 +270,11 @@ export function BookingsBlockDatesModal({
         roomId,
         checkIn,
         checkOut,
-        reason,
+        // "Mark reserved" with nobody attached is a reservation, not a closed room: it reads
+        // "Reserved" and Confirmed in Bookings (and still blocks the room on Airbnb via the feed).
+        reason: reserving && !resident.residentName && !reason.trim() ? "Reserved" : reason,
         stayDetails,
-        bookingStatus: editingBlock?.bookingStatus,
+        bookingStatus: editingBlock?.bookingStatus ?? (reserving && !resident.residentName ? "confirmed" : undefined),
         rate: editingBlock?.rate,
         rateBasis: editingBlock?.rateBasis,
         isBookingResidency: editingBlock?.isBookingResidency,
@@ -315,18 +333,18 @@ export function BookingsBlockDatesModal({
   return (
     <div data-attr="bookings-block-dates-modal">
       <AddWorkspace
-        title={editingBlockId ? "Edit booking" : "Add booking"}
+        title={editingBlockId ? "Edit booking" : reserving ? "Mark reserved" : "Add booking"}
         steps={steps}
         current={current}
         onJump={setStepIdx}
-        onClose={() => { workspaceDraft.preserve(); (onClose)(); }}
-        keepsDraft
+        onClose={() => { if (!reserving) workspaceDraft.preserve(); (onClose)(); }}
+        keepsDraft={!reserving}
         onDiscardDraft={workspaceDraft.clear}
-        dirty={Boolean(propertyId || checkIn || residentChoice)}
+        dirty={reserving ? Boolean(residentChoice || reason) : Boolean(propertyId || checkIn || residentChoice)}
         discardTitle={editingBlockId ? "Discard these edits?" : "Discard this booking?"}
         assistantContext={editingBlockId ? "Edit booking" : "Add booking"}
         assistantScopeKey={editingBlockId ? "edit-booking" : "add-booking"}
-        lastLabel={inviteResult ? "Done" : editingBlockId ? "Save booking" : "Add booking"}
+        lastLabel={inviteResult ? "Done" : editingBlockId ? "Save booking" : reserving ? "Save" : "Add booking"}
         lastDisabled={!inviteResult && !canSave}
         nextDisabled={
           (stepId === "property" && !propertyId) ||
@@ -551,6 +569,12 @@ export function BookingsBlockDatesModal({
               <dt className="text-sm text-muted">When</dt>
               <dd className="text-right text-sm font-semibold text-foreground">{checkIn && checkOut ? whenSummary : "—"}</dd>
             </div>
+            {airbnbLink ? (
+              <div className="flex items-start justify-between gap-4 py-3" data-attr="bookings-block-airbnb-fact">
+                <dt className="text-sm text-muted">Airbnb</dt>
+                <dd className="text-right text-sm font-semibold text-foreground">Updates when Airbnb next checks PropLane</dd>
+              </div>
+            ) : null}
           </dl>
 
           {existingBlocks.length > 0 ? (

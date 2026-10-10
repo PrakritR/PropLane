@@ -25,6 +25,7 @@ import {
   handleTestWorkspaceSchedulePost,
 } from "@/lib/test-workspaces/schedule-route.server";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 
 export const runtime = "nodejs";
 
@@ -313,12 +314,36 @@ const route = createJsonRecordRoute({
       }
       const start = roomDateBlockField(existing, "checkIn");
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-      if (priorType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE && (!start || start <= today || isImportedChannelBlock({ reason: roomDateBlockField(existing, "reason") }))) {
-        return { handled: true, error: "Only upcoming manager bookings can be cancelled.", status: 409 };
+      // A started block can still be removed until its last night (check-out is exclusive); the
+      // export feed then drops it and the channel reopens the rest. Same rule as `canCancelBooking`.
+      const end = roomDateBlockField(existing, "checkOut");
+      if (priorType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE && (!start || (end && end <= today) || isImportedChannelBlock({ reason: roomDateBlockField(existing, "reason") }))) {
+        return { handled: true, error: "Only current or upcoming manager bookings can be removed.", status: 409 };
       }
       return { handled: false };
     }
     if (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE) {
+      // A room block belongs to the house: the capacity trigger only accepts one stamped with the
+      // property OWNER. A co-manager holding Calendar at edit on that house writes it under the
+      // owner (their own id kept as createdByUserId); anyone else is refused here, never stamped.
+      const blockPropertyId = String(record.property_id ?? "").trim();
+      if (!existing && blockPropertyId) {
+        const owner = await resolvePropertyOwnerUserId(db, blockPropertyId);
+        if (owner && String(record.manager_user_id ?? "") !== owner) {
+          // An admin's write arrives unstamped (assignOwnership leaves admin rows alone).
+          const allowed =
+            owner === user.id ||
+            scheduleUserHasRole(user, "admin") ||
+            (await managerCanWriteCalendarForProperty(db, user.id, blockPropertyId));
+          if (!allowed) {
+            return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
+          }
+          const rowData = record.row_data && typeof record.row_data === "object" ? (record.row_data as Record<string, unknown>) : {};
+          // Mutates the record the shared handler upserts next (see portal-record-api atomicWrite).
+          record.manager_user_id = owner;
+          record.row_data = { ...rowData, createdByUserId: user.id };
+        }
+      }
       const conflict = await roomDateBlockOverlapConflict({
         db,
         managerUserId: String(record.manager_user_id ?? user.id),
