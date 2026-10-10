@@ -29,3 +29,44 @@ export function isHostBlockRange(range: { hostBlock?: boolean; summary?: string 
 export function withoutHostBlocks<T extends { hostBlock?: boolean; summary?: string | null }>(ranges: readonly T[]): T[] {
   return ranges.filter((range) => !isHostBlockRange(range));
 }
+
+type EchoCandidate = {
+  source: string;
+  propertyId: string;
+  roomId: string;
+  start: string;
+  end: string;
+  openEnded?: boolean;
+  bookingStatus?: string;
+  summary?: string | null;
+  hostBlock?: boolean;
+};
+
+const LOCAL_OCCUPANT_SOURCES = new Set(["proplane", "hold", "block"]);
+
+/** YYYY-MM-DD plus one day (a channel's re-export can carry the exclusive check-out as its last day). */
+function nextDayKey(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+/**
+ * Drops a channel's host block ("Airbnb (Not available)") that sits inside a PropLane stay on the
+ * same room: that range is PropLane's own export feed coming back from the channel, not a second
+ * booking, and drawing it on top of the resident reads as an overbooked room. A host block with no
+ * PropLane stay under it (the manager closed dates on the channel itself) is kept.
+ */
+export function withoutEchoedHostBlocks<T extends EchoCandidate>(entries: readonly T[]): T[] {
+  const locals = entries.filter((entry) => LOCAL_OCCUPANT_SOURCES.has(entry.source) && entry.bookingStatus !== "cancelled");
+  return entries.filter((entry) => {
+    if (LOCAL_OCCUPANT_SOURCES.has(entry.source) || !isHostBlockRange(entry)) return true;
+    return !locals.some(
+      (local) =>
+        local.propertyId === entry.propertyId &&
+        (!local.roomId || local.roomId === entry.roomId) &&
+        local.start <= entry.start &&
+        (local.openEnded || entry.end <= nextDayKey(local.end)),
+    );
+  });
+}
