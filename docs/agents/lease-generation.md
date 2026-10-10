@@ -8,7 +8,12 @@
 
 A property offers some of exactly four lease types, and the lease and payments follow the one an applicant
 picks. `LEASE_TYPES` in `src/lib/rental-application/lease-terms.ts` is the one owner of the list, the labels
-and the stored terms; do not re-declare it.
+and the stored terms; do not re-declare it. **A human picks only two of them** (captain, Oct 8 2026):
+Long-term and Short-term, with Custom dates and Month-to-month as two indented checkboxes under Long-term.
+`LEASE_PICK_OPTIONS` (same file, with `normalizeLeasePick` / `leasePickFromStored` /
+`storedTermsFromLeasePick` / `leasePickSummary`) is the one owner of that picker shape; a picker that lists
+either child at the top level fails `tests/unit/lease-pick-two-types.test.ts`. Only the picker changed — the
+stored terms below are untouched.
 
 | Type | Stored term | Term and dates | Charges |
 | --- | --- | --- | --- |
@@ -19,7 +24,12 @@ and the stored terms; do not re-declare it.
 
 - Manager: the "Lease terms" multi-select picks which are offered (stored in `allowedLeaseTerms`,
   unchanged; existing properties keep what they effectively offered). It appears in the live property
-  editor's Pricing step and in the legacy add-listing form. The Basics step's **"Stays you offer"**
+  editor's Pricing step and in the legacy add-listing form; a room's "Leases offered" is the same picker
+  over `room.offeredLeaseTerms`. Every one of them is built from `LEASE_PICK_OPTIONS`, so each offers
+  Long-term and Short-term with Custom dates and Month-to-month indented under Long-term and shown only
+  while it is ticked (unticking Long-term drops its children). Prorated rent and Daily rent are not on the
+  room card: they live on Pricing (§ Partial months in
+  [`listing-wizard-defaults.md`](listing-wizard-defaults.md)). The Basics step's **"Stays you offer"**
   is the coarser third writer — the two stays, Long term and/or Short term, where Month-to-month and
   Custom count as Long term and Airbnb as Short term (`staysPatch` in `src/lib/listing-stays.ts`,
   which also keeps `shortTermRentalsAllowed` in step and refuses turning the last stay off). All
@@ -28,9 +38,11 @@ and the stored terms; do not re-declare it.
   lengths keeps them while its type stays ticked. **Those same two stays are the only sections the
   Pricing, Application, Lease and Move-in lists group by** (`StaySectionKey`): there is no "Both"
   section, an item that applies to both stays is listed in each, and a section only shows when the
-  listing offers the stay (hiding one never deletes anything). Applicant: ONE "Lease term" select lists
-  only the enabled types (`applicantTermOptions`), and preselects when exactly one is enabled. There is no
-  separate "Length" select.
+  listing offers the stay (hiding one never deletes anything). Applicant: the same two top-level types
+  (`applicantTermOptions` — a property offering only Custom or Month-to-month still reads as Long-term),
+  with Long-term's children as checkboxes (`applicantLongTermChildren`) and no question at all when one
+  stored type is all that is offered (`onlyOfferedStoredTerm`). The wizard step that draws it is owned by
+  [`application-questions.md`](application-questions.md) § Your lease, not restated here.
 - Everything is server-derived from the stored term and dates through `resolveStayPricing`, the ledger and
   `buildLeaseHtml`; the client never sends a price. A type the property did not enable is rejected at submit by
   `validateSubmittedApplication` (the wizard's own validator, `leaseTermIsOfferedType` is the pure test).

@@ -638,9 +638,10 @@ reply · Replied, rows `★ tile · reviewer · the review · date · ✓ Replie
 link, and the redesign did not reverse that. Reply opens a small pop-up with the review for context,
 a ⚡ quick-reply menu and **Save reply** in the footer.
 
-**Payments** (`/vendor/financials/income`, `VendorFinancesPanel`) is one tab of Finances (below) and carries no
-balance card; refunds live on Finances → Refunds, and the per-payment Refund on a payout record page stays hidden until the
-Payments tab wires `VendorRefundModal` — the route is off by default (`VENDOR_REFUNDS_ENABLED`) and answers 409
+**Incoming payments** (`/vendor/payments/*`, `VendorFinancesPanel`) is its own nav row, not a tab of Finances
+(`/vendor/financials/income` and bare `/financials/invoices` redirect here), and carries no
+balance card; refunds live on Finances → Refunds, and the per-payment Refund on a payout record page stays hidden until this
+list wires `VendorRefundModal` — the route is off by default (`VENDOR_REFUNDS_ENABLED`) and answers 409
 `VENDOR_REFUND_PAUSED`; the refund itself runs on the central refund rail, see `financials.md` § Vendor refunds. Tabs are **Pending · Paid · Overdue**
 (`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
 **unpaid, non-rejected invoice whose due date is before today** (a payment due today is still

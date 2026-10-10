@@ -16,7 +16,14 @@ including the newer orphan-cleanup implementation with its financial deletion bu
 - Resident deletion detaches UUID, email and legacy JSON access keys from a surviving
   manager's financial/lease history. Recovery conditionally restores identity only,
   preserving intervening financial edits and reassignment. Manager removal of a
-  resident is property-scoped; global resident deletion is admin-only.
+  resident is property-scoped. **Since Oct 8 2026 it may also delete the resident's
+  LOGIN** — only a resident-only account whose own session bound it to this manager
+  and that nothing else holds, deleted by the workspace owner (or an admin) through
+  the same purge as self-delete, with their copies of this workspace's conversations.
+  The conditions are the contract and live with the code
+  (`src/lib/auth/resident-account-deletion.ts`,
+  `tests/unit/resident-account-deletion.test.ts`); any read that fails keeps the
+  account. Everything broader than that is still admin-only.
 - Canonical shared records respect every owner's current choice. Independently owned
   vendor financial records preserve the surviving business party. Portal archives
   already pending for the same login remain independent on final-portal deletion.

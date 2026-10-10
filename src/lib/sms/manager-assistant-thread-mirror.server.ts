@@ -21,7 +21,6 @@ import {
 } from "@/lib/communication-manager-assistant-thread";
 import { normalizeE164 } from "@/lib/phone-e164";
 
-const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const ASSISTANT_NAME = "PropLane Assistant";
 /** The manager's own words, as the thread's other bubbles label them. */
 const MANAGER_AUTHOR = "You";

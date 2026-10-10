@@ -820,8 +820,30 @@ catalog, over text, with proposals confirmed by a `YES` reply. A self-SMS turn
 continues the authenticated actor's newest manager `portal_chat`, so the text
 and its assistant reply appear in PropLane Assistant with the same persisted
 timestamps and context as in-site turns. In-site turns append to that transcript
-but never send an SMS. Neither transport leg is copied into Communication, so a
-manager-to-self thread cannot reappear there. Proposals remain ordinary manager
+but never send an SMS.
+
+**One PropLane Assistant conversation across SMS and the app (captain, Oct 8).**
+Every text the work number exchanges with the manager's OWN phone is mirrored
+into their existing `agent_notice_<uid>` Assistant thread, stamped
+`channel: "sms"` — their inbound text (id `sms_in_<MessageSid>`, appended before
+the agent answers), the agent's reply, and a notice or reminder sent to their
+phone (`manager-assistant-thread-mirror.server.ts`; the thread id comes from
+`managerAgentNoticeThreadId`, the same function the in-app notices use, so there
+is never a second assistant conversation). The mirror is idempotent on the
+outbox id / MessageSid, so a webhook or repair-queue retry appends nothing. An
+outbound copy is written only once the carrier has accepted the text, and a
+failed append retries through that outbound's own `sms_outbox`
+conversation-log queue; nothing here ever sends or blocks a text.
+`notifyManagerFromAgent` writes the in-app copy under an `updated_at`
+compare-and-retry because the mirror appends to the same row, and pushes only a
+notice a row actually holds. Still **no second manager-to-self conversation** is
+projected into Communication: those sends carry
+`suppressConversationLog`, and a reply typed in the app thread stays in-app
+(`runManagerInboxAgentTurn`). Coverage:
+`tests/unit/manager-assistant-sms-thread.test.ts`,
+`tests/unit/agent-notice-single-thread.test.ts`.
+
+Proposals remain ordinary manager
 `agent_pending_actions` rows executed by the shared confirm gate. Migration
 `20260920120000_merge_manager_sms_into_portal_assistant.sql` folds existing
 `manager_sms` sessions into the actor's matching workspace archive and removes
@@ -1293,7 +1315,10 @@ delivery path as other PropLane Assistant notices. Preferences → Manager alert
 is authoritative: `none` sends nothing, `assistant` writes the in-app Assistant
 notice and push, `personal_number` sends the grounded reminder from the
 manager's active work number to their personal phone (falling back to Assistant
-until both phone legs are ready), and `both` sends both copies.
+until both phone legs are ready), and `both` sends both copies. A copy that goes
+to their phone also lands in the one Assistant thread marked SMS — see § A
+manager texting a work number gets the AI; `personal_number` is where it is
+delivered, never whether the thread keeps it.
 
 `/api/cron/dispatch-reminders` runs every five minutes. Tour, manager-assigned
 task, service-order, work-order, and inspection sweeps enqueue manager-role

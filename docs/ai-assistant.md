@@ -517,7 +517,11 @@ portal or vendor registry, and it has no route of its own (SMS only).
 - **Number.** `provisionResidentAgentNumber` (`src/lib/resident-agent-number/number.server.ts`) on
   subscription activation (Stripe webhook, flag-independent) and from Settings > PropLane agent
   (`POST /api/number-subscription/resident-number`). Same provider adapter, runtime switch and release
-  worker as the vendor number, its own table; the row insert is the purchase claim.
+  worker as the vendor number, its own table; the row insert is the purchase claim. A subscription is
+  never sold when no number can be provisioned (the row reads **Unavailable**), the page shows
+  **Activating** while it polls back from Checkout, and the Settings action says why a number did not
+  arrive instead of doing nothing — [`docs/agents/vendor-portal.md`](agents/vendor-portal.md)
+  § PropLane Number owns those conditions.
 - Tests: `resident-personal-agent`, `resident-agent-listing-search`, `resident-agent-number-provisioning`.
 
 ## Links first (every conversational surface)
