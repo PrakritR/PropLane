@@ -14,6 +14,7 @@ let PROPERTIES: { id: string; manager_user_id: string }[];
 let UPSERTS: { id: string; manager_user_id: string | null }[];
 let EDIT_GRANTS: Record<string, string[]>;
 let ROLE = "manager";
+let STORED: Record<string, unknown>[] = [];
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => false) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
@@ -52,7 +53,7 @@ function makeDb() {
         maybeSingle: () =>
           Promise.resolve({ data: table === "profiles" ? { role: ROLE, email: "mgr@test.local" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
-          return Promise.resolve({ data: table === "manager_property_records" ? PROPERTIES : [], error: null }).then(resolve);
+          return Promise.resolve({ data: table === "manager_property_records" ? PROPERTIES : table === "manager_application_records" ? STORED : [], error: null }).then(resolve);
         },
       };
       return builder;
@@ -97,6 +98,7 @@ beforeEach(() => {
   UPSERTS = [];
   EDIT_GRANTS = {};
   ROLE = "manager";
+  STORED = [];
   PROPERTIES = [
     { id: OWN_HOUSE, manager_user_id: ATTACKER },
     { id: VICTIM_HOUSE, manager_user_id: "mgr-victim" },
@@ -135,6 +137,23 @@ describe("manager application writes may only name houses the writer runs", () =
   it("accepts a stranger's house the writer holds an edit grant on", async () => {
     EDIT_GRANTS[ATTACKER] = [VICTIM_HOUSE];
     expect(await upsert(approved({ assignedPropertyId: VICTIM_HOUSE, assignedRoomChoice: `${VICTIM_HOUSE}::room-1` }))).toBe(200);
+  });
+});
+
+describe("moving a row to approved checks every house it names", () => {
+  it("refuses an approval that names a stranger's house even when the stored row already named it", async () => {
+    const named = { assignedPropertyId: VICTIM_HOUSE, assignedRoomChoice: `${VICTIM_HOUSE}::room-1` };
+    STORED = [
+      {
+        id: "AXIS-PLANT1",
+        manager_user_id: ATTACKER,
+        property_id: OWN_HOUSE,
+        assigned_property_id: VICTIM_HOUSE,
+        row_data: { id: "AXIS-PLANT1", email: "planted@example.com", bucket: "pending", propertyId: OWN_HOUSE, ...named },
+      },
+    ];
+    expect(await upsert(approved({ bucket: "approved", manuallyAdded: false, ...named }))).toBe(403);
+    expect(UPSERTS).toHaveLength(0);
   });
 });
 

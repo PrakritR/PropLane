@@ -5,7 +5,8 @@ import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from 
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse, after } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
+import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
+import { applicantRoomChoicesForListing, prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
 import { buildResidentSetupHref } from "@/lib/auth/resident-setup-token";
 import { linkResidentOnApplicationSubmit } from "@/lib/auth/link-resident-on-application-submit";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -705,14 +706,17 @@ async function resolveApplicationWriteOwner(
   // Every house the row NAMES must be one the writer runs. Readers count an approved row toward
   // each property it names (assigned / room-choice values included), so a row filed under the
   // caller's own house but pointing a room at someone else's would show that room occupied.
-  // References the stored row already carried are not re-checked (a house that changed hands
-  // must not lock an old row), and a house that does not exist has no occupancy to plant on.
+  // References the stored row already carried are not re-checked for an ordinary application (a house
+  // that changed hands must not lock an old row), but a row that is, or becomes, a resident slot
+  // (approved / manually added) has every house it names checked. A house that does not exist has no
+  // occupancy to plant on.
   const alreadyNamed = applicationReferencedPropertyIds({
     ...(existing?.row_data ?? {}),
     propertyId: existing?.property_id ?? undefined,
     assignedPropertyId: existing?.assigned_property_id ?? undefined,
   } as DemoApplicantRow);
-  const newlyNamed = [...applicationReferencedPropertyIds(row)].filter((id) => !alreadyNamed.has(id));
+  const writesResidentSlot = row.bucket === "approved" || row.manuallyAdded === true;
+  const newlyNamed = [...applicationReferencedPropertyIds(row)].filter((id) => writesResidentSlot || !alreadyNamed.has(id));
   if (newlyNamed.length > 0) {
     const { data: namedRows, error: namedErr } = await db
       .from("manager_property_records")
@@ -884,6 +888,23 @@ async function fetchApplicationsForManagerUser(
       if (!row.id || byId.has(row.id)) continue;
       byId.set(row.id, row);
     }
+  }
+
+  // An approved / manually added row is a resident slot, which readers turn into occupancy. It belongs
+  // to a house only when its author is that house's owner or a teammate linked to it, so a row some other
+  // manager filed naming this viewer's house never reaches their Residents list or Bookings grid.
+  // Applications in flight keep their submit-time attribution, and an unstamped legacy row still shows.
+  const slotRows = [...byId.values()].filter((row) => {
+    const data = (row.row_data ?? {}) as { bucket?: unknown; manuallyAdded?: unknown };
+    return data.bucket === "approved" || data.manuallyAdded === true;
+  });
+  const authors = slotRows.length > 0 ? await loadOccupancyAuthors(db, [...scopedPropertyIds]) : null;
+  for (const row of slotRows) {
+    const houses = [String(row.property_id ?? "").trim(), String(row.assigned_property_id ?? "").trim()].filter(
+      (id) => id && scopedPropertyIds.has(id),
+    );
+    if (houses.length === 0) continue;
+    if (!houses.some((house) => occupancyAuthorTrusted(authors!, house, row.manager_user_id))) byId.delete(row.id);
   }
 
   const rows = [...byId.values()].sort((a, b) => {
@@ -1569,8 +1590,9 @@ export async function POST(req: Request) {
         // The login bound to this application is the authenticated writer's own, never a client-supplied id.
         residentUserId: existing?.residentUserId ?? user.id,
         withdrawnAt: existing?.withdrawnAt ?? row.withdrawnAt,
-        assignedPropertyId: existing?.assignedPropertyId ?? row.assignedPropertyId,
-        assignedRoomChoice: existing?.assignedRoomChoice ?? row.assignedRoomChoice,
+        // Manager-assigned placement: never from the applicant, only what the manager stored.
+        assignedPropertyId: existing?.assignedPropertyId,
+        assignedRoomChoice: existing?.assignedRoomChoice,
         signedMonthlyRent: existing?.signedMonthlyRent ?? row.signedMonthlyRent,
         managerUserId: existing?.managerUserId ?? null,
         backgroundCheckStatus: existing?.backgroundCheckStatus ?? row.backgroundCheckStatus,
@@ -1591,6 +1613,11 @@ export async function POST(req: Request) {
                 managerOtherCostAmount: existing.application.managerOtherCostAmount,
               }
             : row.application,
+      };
+      // A room choice may only name a room of the listing the applicant applied to.
+      row = {
+        ...row,
+        application: applicantRoomChoicesForListing(row.application, String(row.propertyId || row.application?.propertyId || "")),
       };
       row = prepareApplicantIdentityWrite(row, existing, String(records?.[0]?.id ?? row.id));
       if (!existing || isDraftShapedApplicationRow(existing)) {
