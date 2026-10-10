@@ -248,6 +248,11 @@ export async function POST(req: Request) {
 
     const rowData = target.rowData as ThreadRowData;
 
+    // The team chat is people talking to each other, never a resident to answer.
+    if (target.threadType === "team" || target.threadId.startsWith("team-thread:")) {
+      return NextResponse.json({ ok: true, skip: true, reason: "team-thread" });
+    }
+
     // Only inbound (inbox-folder) messages get a draft.
     if (String(rowData.folder ?? "") !== "inbox") {
       return NextResponse.json({ ok: true, skip: true, reason: "not-inbound" });

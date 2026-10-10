@@ -36,6 +36,7 @@ import {
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
+import { teamThreadRowForViewer } from "@/lib/team-thread-view";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import {
@@ -360,7 +361,9 @@ export async function GET(request: Request) {
       }
     }
     const rows = visibleRecords.map((record) => {
-      const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
+      const storedRow = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
+      // A team chat is read by several people: whose lines are "mine" is the viewer's.
+      const row = isTeamThreadId(String(record.id ?? "")) ? teamThreadRowForViewer(storedRow, ctx.user.id) : storedRow;
       return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
     });
 

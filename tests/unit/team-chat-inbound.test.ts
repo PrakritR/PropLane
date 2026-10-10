@@ -15,6 +15,7 @@ vi.mock("@/lib/team-comms.server", () => ({
   teamMemberCanPost: (member: Member | undefined) => Boolean(member) && member!.teamRole !== "viewer",
 }));
 
+import { inboxInitials } from "@/components/portal/portal-inbox-ui";
 import { routeManagerInboundText } from "@/lib/sms/team-chat-inbound.server";
 
 const db = {
@@ -123,5 +124,14 @@ describe("routeManagerInboundText", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await route("hello")).toEqual({ kind: "team", ok: true });
     spy.mockRestore();
+  });
+});
+
+describe("team chat avatar", () => {
+  it("initials skip the separator in 'Team · <workspace>'", () => {
+    expect(inboxInitials("Team · Seattle Homes")).toBe("TS");
+    expect(inboxInitials("Team · My workspace")).toBe("TM");
+    expect(inboxInitials("Ambika Mago")).toBe("AM");
+    expect(inboxInitials("+1 555 000 9253")).toBe("?");
   });
 });

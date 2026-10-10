@@ -347,3 +347,30 @@ describe("ensureWorkspaceTeamThread", () => {
     expect(fake.tables.portal_inbox_thread_records).toHaveLength(0);
   });
 });
+
+describe("the team chat is never an AI-draft candidate and reads per viewer", () => {
+  it("the stored first line is the neutral outbound root, so no inbound turn waits for an AI reply", async () => {
+    const fake = seed();
+    await postTeamThreadMessage(fake as unknown as SupabaseClient, {
+      ownerManagerUserId: OWNER, workspaceId: WS, actorUserId: "prakrit", actorName: "Prakrit", text: "hi", messageId: "m1", channel: "app",
+    });
+    expect((fake.tables.portal_inbox_thread_records![0]!.row_data as { rootOutbound: boolean }).rootOutbound).toBe(true);
+  });
+
+  it("teamThreadRowForViewer: my lines are mine (outbound), everyone else's are inbound with their name, the root is never mine", async () => {
+    const { teamThreadRowForViewer } = await import("@/lib/team-thread-view");
+    const row = teamThreadRowForViewer(
+      {
+        rootOutbound: true,
+        messages: [
+          { id: "a", from: "Prakrit", actorUserId: "prakrit", outbound: true },
+          { id: "b", from: "Akshaya", actorUserId: "akshaya", outbound: true },
+          { id: "legacy", from: "Old", outbound: true },
+        ],
+      },
+      "prakrit",
+    ) as { rootOutbound: boolean; messages: Array<{ id: string; outbound: boolean }> };
+    expect(row.rootOutbound).toBe(false);
+    expect(row.messages.map((m) => [m.id, m.outbound])).toEqual([["a", true], ["b", false], ["legacy", true]]);
+  });
+});

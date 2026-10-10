@@ -358,7 +358,7 @@ export function planTeamThreadFold(
       body: TEAM_ROOT_TEXT,
       rootMessageId: `team-root:${canonicalId}`,
       rootAt: str(messages[0]?.at) || str(baseData.rootAt) || str(baseData.time),
-      rootOutbound: false,
+      rootOutbound: true,
       workspaceId,
       messages,
       preview: latest ? str(latest.body).slice(0, 100).replace(/\n/g, " ") : str(baseData.preview),
