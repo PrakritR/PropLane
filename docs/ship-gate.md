@@ -241,15 +241,21 @@ the broad one:
   is exactly the thing these 6 cases trip over.
 - **Set `VERCEL_ENV: preview` on the `e2e-full` job** (these 6 cases live only
   in the full suite now, not in the `main` smoke gate) — one line, but it flips
-  `isProductionRuntime()` for the whole suite, and 11 modules read it: not just
-  `public/property-lead`, but `src/lib/auth/portal-access.ts`
-  (`adminBlockedFromManagerPortal` stops blocking admin→manager portal crossing),
-  `src/lib/public-listings.server.ts`, `src/lib/listing-cta-phone.server.ts`
-  (listing CTA falls back to the shared dev line), `src/lib/server-env.ts`
-  (the admin-register key and the `FREE100` payment waiver gain dev fallbacks,
-  and `assertNonProdDatabase` starts enforcing), and six `/api/cron/*` routes
-  (which begin accepting unauthenticated calls when `CRON_SECRET` is unset).
-  Several of those are the behaviours other specs assert, so this can mask or
+  `isProductionRuntime()` to false for the whole suite, and two dozen-plus
+  modules read it (`grep -rl isProductionRuntime src` for the current set): not
+  just `public/property-lead`, but `src/lib/public-listings.server.ts`,
+  `src/lib/server-env.ts` (the admin-register key and the `FREE100` payment
+  waiver gain their dev fallbacks), `src/lib/growth/publishers/index.server.ts`
+  (the fake `log` publisher becomes allowed), and
+  `src/lib/sms/prospect-sms-burst.server.ts` (the burst callback origin stops
+  being pinned). It also opens the subset of `/api/cron/*` routes whose
+  secretless fallback is `!isProductionRuntime()` **alone** — currently 12 of
+  the 33 — which begin accepting unauthenticated calls when `CRON_SECRET` is
+  unset. The rest stay closed either way: the growth and reminder crons gate on
+  the shared `requireCronSecret` (`src/lib/cron-auth.server.ts`) and eight keep a
+  local copy of the same rule, both of which also require `!VERCEL_ENV`, while
+  the remaining eight demand a bearer unconditionally.
+  Several of these are the behaviours other specs assert, so this can mask or
   alter failures well outside the 6 cases it targets. Don't apply it as a
   one-liner without re-reading the whole suite's result set.
 

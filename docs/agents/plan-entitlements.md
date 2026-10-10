@@ -331,17 +331,10 @@ read-modify-writes its own key.
   the resolver reads, Free when there is none). It is still an admin assignment
   (`billing: admin`, which clears `stripe_subscription_id`): it does not edit the
   Stripe subscription, so use it for accounts not billed through Stripe.
-- **Disable / enable an account requires a reason too**, for every kind.
-  `setAdminAccountActive` (`src/lib/admin/admin-account-active.server.ts`) is the
-  one writer behind `PATCH /api/admin/managers|residents|vendors` (`active`): it
-  refuses (400) before touching `profiles.application_approved`, then writes one
-  `audit_log` row (`admin_account_active`, `landlord_id` the account, before →
-  after, the reason) — so the Accounts list, the account record page and the
-  manager Danger zone all collect it through one popup
-  (`AdminAccountActiveDialog` over `AdminBillingActionDialog`). The audit insert
-  is best-effort because the flag has already moved: the response carries
-  `auditRecorded`, and `false` makes the toast say the entry could not be
-  written rather than reading as a clean success.
+- **Disabling or enabling an account is an access decision, not a plan one.**
+  It rides the same `PATCH /api/admin/managers` route and asks for a reason the
+  same way, but the contract is owned by
+  [admin-accounts.md](admin-accounts.md) § Disabling access is audited.
 
 Every accepted change writes one `audit_log` row PER FIELD THAT ACTUALLY MOVED
 (`writeAdminBillingAudit`, `src/lib/admin-billing-audit.server.ts`):
