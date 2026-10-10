@@ -143,8 +143,112 @@ describe("payment-update fold", () => {
   });
 });
 
-describe("team hook (stage 2)", () => {
-  it("plans nothing today", () => {
+describe("team fold (--team)", () => {
+  const OWNER = USER;
+  const HOUSE_A = "house-a";
+  const HOUSE_B = "house-b";
+  const HOUSE_C = "house-c";
+  const context = {
+    workspaceByHouse: new Map([[HOUSE_A, DEFAULT_WS], [HOUSE_B, DEFAULT_WS], [HOUSE_C, OTHER_WS]]),
+    defaultWorkspaceByOwner: new Map([[OWNER, DEFAULT_WS]]),
+    workspaceNameById: new Map([[DEFAULT_WS, "Seattle Homes"], [OTHER_WS, "Portland"]]),
+    nameByUserId: new Map([[OWNER, "Ambika Mago"]]),
+  };
+  const teamRow = (id: string, over: Record<string, unknown>, messages: Record<string, unknown>[], updated: string): BackfillRow => ({
+    id,
+    scope: SCOPE,
+    owner_user_id: OWNER,
+    participant_email: null,
+    thread_type: "team",
+    updated_at: updated,
+    row_data: { id, folder: "inbox", from: "Ambika Mago", subject: "Team", body: "", time: "t", unread: false, messages, ...over },
+  });
+
+  it("folds per-house and house-less rows of one workspace into the workspace chat: lines unioned by id in time order, root dressed as the thread becomes its author's line", () => {
+    const a = teamRow(`team-thread:${OWNER}:${HOUSE_A}`, {
+      body: "I'll meet the plumber", rootMessageId: "root-a", rootAt: "2026-10-01T09:00:00.000Z", rootActorUserId: OWNER, propertyId: HOUSE_A,
+    }, [{ id: "a2", from: "Prakrit", body: "ok", at: "2026-10-01T10:00:00.000Z", actorUserId: "p" }], "2026-10-01T10:00:00.000Z");
+    const b = teamRow(`team-thread:${OWNER}:${HOUSE_B}`, { propertyId: HOUSE_B, aiDraft: { text: "draft" } }, [
+      { id: "b1", from: "Akshaya", body: "gate code", at: "2026-10-01T09:30:00.000Z" },
+      { id: "a2", from: "Prakrit", body: "ok", at: "2026-10-01T10:00:00.000Z" },
+    ], "2026-10-01T09:30:00.000Z");
+    const houseless = teamRow(`team-thread:${OWNER}`, {}, [{ id: "h1", from: "Ambika Mago", body: "hi", at: "2026-10-01T08:00:00.000Z" }], "2026-10-01T08:00:00.000Z");
+    const plan = planTeamThreadFold([a, b, houseless], context);
+    expect(plan.actions).toHaveLength(1);
+    const action = plan.actions[0]!;
+    if (action.kind !== "team-fold") throw new Error("expected a team fold");
+    expect(action.canonicalId).toBe(`team-thread:${OWNER}:ws:${DEFAULT_WS}`);
+    expect(action.createCanonical).toBe(true);
+    expect(action.workspaceId).toBe(DEFAULT_WS);
+    expect([...action.absorbIds].sort()).toEqual([a.id, b.id, houseless.id].sort());
+    const messages = action.rowData.messages as Array<{ id: string; from: string; channel: string }>;
+    expect(messages.map((m) => m.id)).toEqual(["h1", "root-a", "b1", "a2"]);
+    // The old root was named after the thread; its author is restored.
+    expect(messages.find((m) => m.id === "root-a")).toMatchObject({ from: "Ambika Mago", actorUserId: OWNER, channel: "proplane" });
+    expect(action.rowData).toMatchObject({
+      id: action.canonicalId, from: "Team · Seattle Homes", subject: "Team · Seattle Homes", workspaceId: DEFAULT_WS,
+    });
+    // House tags and review drafts of the per-house threads do not describe a workspace chat.
+    expect(action.rowData).not.toHaveProperty("propertyId");
+    expect(action.rowData).not.toHaveProperty("aiDraft");
+    expect(action.turns).toBe(4);
+    expect([...new Set(touchedIds(action))].sort()).toEqual([...new Set([action.baseId, action.canonicalId, ...action.absorbIds])].sort());
+  });
+
+  it("a house goes to ITS workspace, a house-less thread to the owner's default, and two workspaces never merge", () => {
+    const a = teamRow(`team-thread:${OWNER}:${HOUSE_A}`, {}, [{ id: "a1", from: "x", body: "one", at: "2026-10-01T09:00:00.000Z" }], "2026-10-01T09:00:00.000Z");
+    const c = teamRow(`team-thread:${OWNER}:${HOUSE_C}`, {}, [{ id: "c1", from: "x", body: "two", at: "2026-10-01T09:00:00.000Z" }], "2026-10-01T09:00:00.000Z");
+    const plan = planTeamThreadFold([a, c], context);
+    expect(plan.actions.map((x) => (x.kind === "team-fold" ? x.canonicalId : "")).sort()).toEqual(
+      [`team-thread:${OWNER}:ws:${DEFAULT_WS}`, `team-thread:${OWNER}:ws:${OTHER_WS}`].sort(),
+    );
+  });
+
+  it("automated notice lines are not carried into the human chat; notice-only rows are retired, not turned into an empty chat", () => {
+    const noticeOnly = teamRow(`team-thread:${OWNER}:${HOUSE_A}`, {}, [
+      { id: `action-event:k1:team:${OWNER}`, from: "PropLane Portal", body: "$1,000 received", at: "2026-10-01T09:00:00.000Z" },
+    ], "2026-10-01T09:00:00.000Z");
+    const [action] = planTeamThreadFold([noticeOnly], context).actions;
+    if (action?.kind !== "team-fold") throw new Error("expected a team fold");
+    expect(action.droppedNotices).toBe(1);
+    expect(action.turns).toBe(0);
+    expect(action.retire).toBe(true);
+    expect(action.absorbIds).toEqual([noticeOnly.id]);
+  });
+
+  it("mixed rows keep the human lines and drop the notices (never retire a chat that has people in it)", () => {
+    const mixed = teamRow(`team-thread:${OWNER}:${HOUSE_A}`, {}, [
+      { id: `action-event:k1:team:${OWNER}`, from: "PropLane Portal", body: "$1,000 received", at: "2026-10-01T09:00:00.000Z" },
+      { id: "team-reply:1", from: "Prakrit", body: "on it", at: "2026-10-01T10:00:00.000Z" },
+    ], "2026-10-01T10:00:00.000Z");
+    const [action] = planTeamThreadFold([mixed], context).actions;
+    if (action?.kind !== "team-fold") throw new Error("expected a team fold");
+    expect(action.retire).toBe(false);
+    expect((action.rowData.messages as Array<{ id: string }>).map((m) => m.id)).toEqual(["team-reply:1"]);
+  });
+
+  it("an existing workspace chat is the base: a lone healthy row is left alone, legacy rows fold into it", () => {
+    const canonicalId = `team-thread:${OWNER}:ws:${DEFAULT_WS}`;
+    const healthy = teamRow(canonicalId, { rootMessageId: `team-root:${canonicalId}`, workspaceId: DEFAULT_WS }, [{ id: "w1", from: "x", body: "one", at: "2026-10-01T09:00:00.000Z" }], "2026-10-01T09:00:00.000Z");
+    expect(planTeamThreadFold([healthy], context).actions).toEqual([]);
+    const legacy = teamRow(`team-thread:${OWNER}:${HOUSE_A}`, {}, [{ id: "a1", from: "x", body: "two", at: "2026-10-02T09:00:00.000Z" }], "2026-10-02T09:00:00.000Z");
+    const [action] = planTeamThreadFold([healthy, legacy], context).actions;
+    if (action?.kind !== "team-fold") throw new Error("expected a team fold");
+    expect(action.createCanonical).toBe(false);
+    expect(action.baseId).toBe(canonicalId);
+    expect(action.absorbIds).toEqual([legacy.id]);
+    expect((action.rowData.messages as Array<{ id: string }>).map((m) => m.id)).toEqual(["w1", "a1"]);
+  });
+
+  it("an owner with no workspace for the house or a default is skipped with a reason, never guessed", () => {
+    const orphan = teamRow(`team-thread:nobody:${HOUSE_A}`, {}, [], "2026-10-01T09:00:00.000Z");
+    orphan.owner_user_id = "nobody";
+    const plan = planTeamThreadFold([orphan], { ...context, workspaceByHouse: new Map() });
+    expect(plan.actions).toEqual([]);
+    expect(plan.skipped[0]?.id).toBe(orphan.id);
+  });
+
+  it("plans nothing for no rows (the script's default without --team)", () => {
     expect(planTeamThreadFold([])).toEqual({ actions: [], skipped: [] });
   });
 });

@@ -17,8 +17,12 @@
  *       resident's one keyed conversation (same planner and resolver the live
  *       writers and merge-conversations-backfill use). Absorbed ids are written
  *       to `portal_inbox_thread_aliases` when that table exists;
- *   (c) `--team` is a STAGE 2 hook (one Team thread per workspace) and plans
- *       nothing yet (`planTeamThreadFold`).
+ *   (c) `--team`: the legacy `team-thread:<owner>` and
+ *       `team-thread:<owner>:<propertyId>` rows fold into the workspace Team
+ *       chat `team-thread:<owner>:ws:<workspaceId>` (a house -> its workspace,
+ *       house-less -> the owner's default workspace). Human lines are unioned by
+ *       id in time order; automated notice lines are not carried over (see
+ *       `planTeamThreadFold`). Absorbed ids become aliases like (a) and (b).
  *
  * Safety:
  *   - `--project-ref <ref>` is REQUIRED and must equal the project in
@@ -144,6 +148,41 @@ async function loadDefaultWorkspaces(db) {
   return new Map(data.map((row) => [String(row.owner_user_id), String(row.id)]));
 }
 
+/** Everything `planTeamThreadFold` needs to place a legacy row in a workspace and name its authors. */
+async function loadTeamFoldContext(db, rows, defaults) {
+  const houseIds = new Set();
+  const actorIds = new Set();
+  for (const row of rows) {
+    const id = String(row.id);
+    const rest = id.startsWith("team-thread:") ? id.slice("team-thread:".length) : "";
+    const tail = rest.includes(":") ? rest.slice(rest.indexOf(":") + 1) : "";
+    if (tail && !tail.startsWith("ws:")) houseIds.add(tail);
+    const actor = String(row.row_data?.rootActorUserId ?? "").trim();
+    if (actor) actorIds.add(actor);
+  }
+  const workspaceByHouse = new Map();
+  const houses = [...houseIds];
+  for (let i = 0; i < houses.length; i += 100) {
+    const chunk = houses.slice(i, i + 100);
+    const data = await withRetry(
+      () => db.from("manager_property_records").select("id, workspace_id").in("id", chunk),
+      "team house workspaces",
+    );
+    for (const row of data) if (row.workspace_id) workspaceByHouse.set(String(row.id), String(row.workspace_id));
+  }
+  const workspaceNameById = new Map();
+  const workspaces = await withRetry(() => db.from("portal_workspaces").select("id, name"), "workspace names");
+  for (const row of workspaces) workspaceNameById.set(String(row.id), String(row.name ?? "").trim());
+  const nameByUserId = new Map();
+  const actors = [...actorIds];
+  for (let i = 0; i < actors.length; i += 100) {
+    const chunk = actors.slice(i, i + 100);
+    const data = await withRetry(() => db.from("profiles").select("id, full_name").in("id", chunk), "team author names");
+    for (const row of data) if (String(row.full_name ?? "").trim()) nameByUserId.set(String(row.id), String(row.full_name).trim());
+  }
+  return { workspaceByHouse, defaultWorkspaceByOwner: defaults, workspaceNameById, nameByUserId };
+}
+
 async function aliasesAvailable(db) {
   const { error } = await db.from("portal_inbox_thread_aliases").select("alias_id").limit(1);
   return !error;
@@ -171,16 +210,22 @@ async function deleteAbsorbed(db, ids, rowsById) {
 }
 
 async function applyAction(db, action, rowsById, aliases) {
-  if (action.kind === "assistant-fold") {
+  if (action.kind === "assistant-fold" || action.kind === "team-fold") {
+    const threadType = action.kind === "team-fold" ? "team" : "agent_notice";
     const base = rowsById.get(action.baseId);
     const nowIso = new Date().toISOString();
+    if (action.kind === "team-fold" && action.retire) {
+      // Notice-only legacy rows: nothing to carry, nothing to create.
+      const gone = await deleteAbsorbed(db, action.absorbIds, rowsById);
+      return gone.status === "ok" ? { status: "merged", id: action.canonicalId } : gone;
+    }
     if (action.createCanonical) {
       const { error } = await db.from("portal_inbox_thread_records").insert({
         id: action.canonicalId,
         scope: base.scope,
         owner_user_id: base.owner_user_id,
         participant_email: null,
-        thread_type: "agent_notice",
+        thread_type: threadType,
         row_data: action.rowData,
         updated_at: nowIso,
       });
@@ -292,15 +337,21 @@ async function buildPlan(db, args) {
     for (const row of rows) inputs.push({ row, ref: await resolveConversationRef(db, sideOf(row), hintsOf(row)) });
     paymentPlans.push({ owner, plan: planPaymentUpdateFold(inputs) });
   }
-  const teamPlan = args.team ? planTeamThreadFold([]) : { actions: [], skipped: [] };
+  let teamRows = [];
+  let teamPlan = { actions: [], skipped: [] };
+  if (args.team) {
+    teamRows = await loadPaged(db, (q) => q.like("id", "team-thread:%"), "team rows");
+    teamPlan = planTeamThreadFold(teamRows, await loadTeamFoldContext(db, teamRows, defaults));
+  }
 
   const rowsById = new Map();
-  for (const row of [...assistantRows, ...personRows]) rowsById.set(row.id, row);
+  for (const row of [...assistantRows, ...personRows, ...teamRows]) rowsById.set(row.id, row);
   return { assistantPlan, paymentPlans, teamPlan, rowsById };
 }
 
 function ownerOfAction(action) {
   if (action.kind === "assistant-fold") return action.userId;
+  if (action.kind === "team-fold") return action.ownerUserId;
   if (action.kind === "merge") return action.ownerUserId ?? `p:${action.participantEmail ?? ""}`;
   return null;
 }
@@ -309,13 +360,18 @@ function summarize(plan) {
   const perOwner = new Map();
   const bump = (owner, field, n = 1) => {
     const key = String(owner ?? "-").slice(0, 8);
-    const entry = perOwner.get(key) ?? { assistantFolds: 0, assistantAbsorbed: 0, paymentMerges: 0, paymentAbsorbed: 0, stamps: 0 };
+    const entry = perOwner.get(key) ?? { assistantFolds: 0, assistantAbsorbed: 0, paymentMerges: 0, paymentAbsorbed: 0, stamps: 0, teamFolds: 0, teamAbsorbed: 0, teamDroppedNotices: 0 };
     entry[field] += n;
     perOwner.set(key, entry);
   };
   for (const action of plan.assistantPlan.actions) {
     bump(ownerOfAction(action), "assistantFolds");
     bump(ownerOfAction(action), "assistantAbsorbed", action.absorbIds.length);
+  }
+  for (const action of plan.teamPlan.actions) {
+    bump(ownerOfAction(action), "teamFolds");
+    bump(ownerOfAction(action), "teamAbsorbed", action.absorbIds.length);
+    bump(ownerOfAction(action), "teamDroppedNotices", action.droppedNotices);
   }
   for (const { owner, plan: p } of plan.paymentPlans) {
     for (const action of p.actions) {
@@ -359,14 +415,18 @@ async function main() {
     console.log(`-- owner ${String(owner).slice(0, 8)}`);
     for (const line of lines) console.log(`   ${line}`);
   }
-  if (args.team) console.log("\n== (c) team threads: stage 2 (planTeamThreadFold) - nothing planned yet");
+  if (args.team) {
+    console.log("\n== (c) legacy Team threads -> one Team chat per workspace");
+    for (const line of describeAssistantTeamPlan(plan.teamPlan)) console.log(`   ${line}`);
+  }
 
   console.log("\n== summary per owner");
   const summary = summarize(plan);
   if (summary.size === 0) console.log("   nothing to fold");
   for (const [owner, s] of summary) {
     console.log(
-      `   owner ${owner}: assistant folds ${s.assistantFolds} (absorbing ${s.assistantAbsorbed}), payment-update merges ${s.paymentMerges} (absorbing ${s.paymentAbsorbed}), stamps ${s.stamps}`,
+      `   owner ${owner}: assistant folds ${s.assistantFolds} (absorbing ${s.assistantAbsorbed}), payment-update merges ${s.paymentMerges} (absorbing ${s.paymentAbsorbed}), stamps ${s.stamps}` +
+        (args.team ? `, team folds ${s.teamFolds} (absorbing ${s.teamAbsorbed}, dropping ${s.teamDroppedNotices} automated notice line(s))` : ""),
     );
   }
   console.log(`   total actions: ${allActions.length}`);
