@@ -49,6 +49,10 @@ surface here. The channels themselves are owned by
 
 ## Bookings: one popup connects a channel
 
+This tab owns the **connection**. The Bookings screen the connection feeds —
+what the calendar and the booking record draw, its five reads and its status
+vocabulary — is owned by [`bookings.md`](bookings.md).
+
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
