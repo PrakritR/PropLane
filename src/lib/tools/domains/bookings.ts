@@ -25,6 +25,12 @@ import { occupancySnapshotForManager } from "@/lib/occupancy/snapshot.server";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 import { smsAccessAllowsPropertyRecord, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
+import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
+import {
+  CHECK_ROOM_AVAILABILITY_DESCRIPTION,
+  checkRoomAvailabilityInputSchema,
+  pacificTodayKey,
+} from "@/lib/room-availability-range";
 
 const DEFAULT_WINDOW_DAYS = 90;
 const MAX_WINDOW_DAYS = 366;
@@ -82,7 +88,7 @@ function formatDay(dateKey: string): string {
 /* Property scope                                                           */
 /* ------------------------------------------------------------------------ */
 
-type ScopedProperty = { id: string; ownerId: string; title: string; rooms: Map<string, string>; hasRooms: boolean };
+type ScopedProperty = { id: string; ownerId: string; title: string; rooms: Map<string, string>; hasRooms: boolean; submission: unknown };
 
 type PropertyRow = { id: string; manager_user_id?: string | null; row_data: unknown; property_data: unknown };
 
@@ -126,7 +132,8 @@ async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProp
   for (const rec of byId.values()) {
     if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, rec.id))) continue;
     const rooms = propertyRooms(rec);
-    out.push({ id: rec.id, ownerId: String(rec.manager_user_id ?? ""), title: propertyTitle(rec), rooms, hasRooms: rooms.size > 0 });
+    const submission = asObject(rec.property_data)?.listingSubmission ?? asObject(rec.row_data)?.submission ?? null;
+    out.push({ id: rec.id, ownerId: String(rec.manager_user_id ?? ""), title: propertyTitle(rec), rooms, hasRooms: rooms.size > 0, submission });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title));
 }
@@ -319,6 +326,26 @@ export const listBookingsTool = defineTool({
       };
     });
     return { from, to, count: properties.reduce((n, p) => n + p.rooms.reduce((m, r) => m + r.entries.length, 0), 0), properties };
+  },
+});
+
+/* ------------------------------------------------------------------------ */
+/* check_room_availability                                                  */
+/* ------------------------------------------------------------------------ */
+
+export const checkManagerRoomAvailabilityTool = defineTool({
+  name: "check_room_availability",
+  description: `${CHECK_ROOM_AVAILABILITY_DESCRIPTION} Only houses whose calendar you can read. To see WHO is in a room, use list_bookings.`,
+  kind: "read",
+  inputSchema: checkRoomAvailabilityInputSchema,
+  handler: async (ctx, input) => {
+    if (input.moveIn < pacificTodayKey()) throw new Error("moveIn must be today or later.");
+    const property = pickProperty(await calendarReadableProperties(ctx), input.listingId);
+    const result = await roomAvailabilityForRange(
+      { propertyId: property.id, roomId: input.roomId, moveIn: input.moveIn, moveOut: input.moveOut },
+      { submission: property.submission },
+    );
+    return { found: true as const, propertyTitle: property.title, ...result };
   },
 });
 
@@ -663,4 +690,4 @@ export const removeRoomBlockTool = defineWriteTool({
   },
 });
 
-export const managerBookingsTools = [listBookingsTool, listRoomBlocksTool, blockRoomDatesTool, removeRoomBlockTool];
+export const managerBookingsTools = [listBookingsTool, checkManagerRoomAvailabilityTool, listRoomBlocksTool, blockRoomDatesTool, removeRoomBlockTool];

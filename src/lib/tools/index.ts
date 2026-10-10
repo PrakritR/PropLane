@@ -146,6 +146,7 @@ import { getPropertyLinksTool, getVendorSmsLinksTool } from "./domains/portal-li
 import { portfolioImportStatusTool } from "./domains/portfolio-import";
 import {
   buildProspectLinksTool,
+  checkRoomAvailabilityTool,
   escalateLeasingToManagerTool,
   getListingDetailsTool,
   getNearbyTransitTool,
@@ -378,6 +379,7 @@ export const vendorWorkOrderAgentRegistry = buildRegistry([
 export const leasingSmsAgentRegistry = buildRegistry([
   listLiveListingsTool,
   getListingDetailsTool,
+  checkRoomAvailabilityTool,
   getNearbyTransitTool,
   getProspectPropertyLocationResearchTool,
   buildProspectLinksTool,

@@ -136,6 +136,7 @@ const APPLICATION_PHASE_TOOLS = new Set([
   "cancel_scheduled_message",
   "list_live_listings",
   "get_listing_details",
+  "check_room_availability",
   "get_listing_link",
 ]);
 
