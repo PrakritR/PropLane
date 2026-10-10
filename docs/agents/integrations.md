@@ -55,17 +55,25 @@ Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
 working and stays manageable. SpareRoom, Furnished Finder and Apartments.com are
 listed as Coming soon so a manager can see what is planned.
 
-The popup is **one page, not a wizard**: channel → scope → a paste field per
-unit. Scope is `SegmentedTwo` — **Entire workspace** or **specific properties** —
-and an entire-home listing has one row ("Whole house"), a shared house one row
-per room (`channelCalendarUnits`). An import URL must be that channel's own
-export link (`isValidChannelImportUrl` per host + path; the error message names
-the exact clicks on that channel's site), so the fetcher can never be pointed at
-an arbitrary target.
+The popup is **one page, not a wizard**: channel → a paste field per unit. There
+is no scope picker — connecting a channel always covers the **entire workspace**
+(every property the caller may write), and an entire-home listing has one row
+("Whole house"), a shared house one row per room (`channelCalendarUnits`). An
+import URL must be that channel's own export link (`isValidChannelImportUrl` per
+host + path; the error message names the exact clicks on that channel's site), so
+the fetcher can never be pointed at an arbitrary target.
+
+**The paste box shows the link that is already saved**, with a Copy action beside
+it, so a manager can read back what PropLane is fetching instead of guessing from
+a "Connected" placeholder. Only a value that differs from the saved one is sent;
+**emptying a box that had a link unlinks that channel** (row status "Link will be
+removed", toast "Calendar link removed") and clears the stays that feed had
+imported, since nothing is left to re-sync them. PropLane's own export token
+survives — throwing that away is what ⋯ Disconnect is for.
 
 **Each room row says where it stands**, because a two-way link is only live once
-BOTH halves are done: the paste state (Linked / "Paste <channel> calendar link" /
-"Feed failed · <error>"), whether PropLane's own export link has been taken yet
+BOTH halves are done: the paste state (Connected / Ready to connect / "Link not
+valid" / "Feed failed · <error>"), whether PropLane's own export link has been taken yet
 (Copied, or "Not yet pasted into <channel>"), and "Last sync <relative>"
 (`relativeSyncTime`). Its ⋯ holds Sync now · Feed preview · Disconnect, plus
 **Copy Airbnb listing pack** on Airbnb only — `buildAirbnbListingPack`
@@ -76,6 +84,31 @@ pastes into Airbnb's own composer. It never posts anywhere and never invents a
 photo: a data-URL photo is listed as "embedded photo (open the room in PropLane to
 save it)" rather than a URL. **Sync all now** (footer) syncs every row in scope and
 reports how many failed.
+
+### A host block is not a reservation
+
+A channel exports the host's OWN calendar blocks alongside real stays, and they
+are not the same thing: nobody holds the bed. `isHostBlockSummary` /
+`isHostBlockRange` / `withoutHostBlocks`
+(`src/lib/channel-calendar/host-block.ts`) are the one decision, matched on the
+WHOLE summary (optionally wrapped in the channel's name, as Airbnb writes it) —
+`not available`, `blocked`, `unavailable`, never a substring, and deliberately
+**not** `Reserved`, because Booking.com and VRBO privacy-strip real reservations
+to "CLOSED - Not available" and reading one of those as a block would publish an
+occupied room as free. A sync stamps `hostBlock` on the imported range; ranges
+stored before the flag existed are derived from their summary.
+
+A host block therefore: reads as "<channel> block" in the Bookings calendar
+(`bookingGuestLabel`) and still closes those dates there, but it is never a
+resident (`icalGuestStaysForResidents`), never a double-booking conflict
+(`conflictingChannelStays`), never a bed against a room's capacity when an
+application is placed or a move-out checked (`manualBlockPlacements`,
+`checkMoveOutAvailabilityForLease` — see
+[`shared-room-capacity.md`](shared-room-capacity.md)), and **never re-exported**
+in PropLane's own feed, where it would echo straight back to the channel it came
+from. `isIcalAvailabilityBlock` (`src/lib/occupancy/snapshot.ts`) stays
+deliberately WIDER: it is "a bed with no name on it", which includes `Reserved`
+and the privacy-stripped stays, and every host block is one of those too.
 
 ### A channel calendar is a WRITE on the house
 
@@ -88,7 +121,12 @@ path counts as a write too**: `GET …/connections?roomId=` mints a connection r
 with its secret public export token, so it is gated at `edit` like the rest.
 `GET …/connections?writableFor=<ids>` is how the popup lists only writable
 houses (and scopes "Entire workspace" to them) — that is a **hint for the UI**;
-every write re-checks on the server. Co-manager levels themselves are owned by
+every write re-checks on the server. **The saved import URL is a bearer secret**
+(anyone holding it reads the channel's reservations outside PropLane), so
+`listManagerChannelCalendarBookings` returns `importUrl` only for the properties
+the viewer may write — the same bar as linking it — and a view-only teammate gets
+`hasImportUrl` alone. The bookings route that carries it answers
+`Cache-Control: private, no-store`. Co-manager levels themselves are owned by
 [`co-manager-access.md`](co-manager-access.md); shared availability by
 [`tours-scheduling.md`](tours-scheduling.md).
 
@@ -106,6 +144,14 @@ produced a feed link Airbnb rejected). The client no longer sends an `origin`
 query param at all — the route derives it with `resolveRequestOrigin`.
 Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
 `channel-calendar-write-access.test.ts`.
+
+**What the feed publishes is scoped by PROPERTY, never by `manager_user_id`.** A
+row's manager stamp is whoever authored it (the acting teammate in a co-managed
+workspace, or a previous owner), while the connection carries the property's
+current owner — filtering on the pair dropped every resident the owner had not
+personally added and published their nights as free. The feed token already pins
+one property, so a row naming that property is that property's occupancy whoever
+wrote it; the same rule governs `occupancySnapshotForManager`.
 
 ## Posting
 

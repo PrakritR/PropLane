@@ -280,9 +280,11 @@ logging and data-discount sharing in its dashboard. Never expose the key in a
 - **Confirmed-by-human is the backstop.** The model can only produce a
   pending row; nothing in a tool result can execute anything. `runReadTool`
   refuses write tools even if one reaches it (defense in depth).
-- **Prompt injection:** tenant/applicant/vendor/message text returned by
-  read tools is wrapped as
-  `{ untrustedContent: "<<<EXTERNAL_MESSAGE …>>> … <<<END…>>>" }` and every
+- **Prompt injection:** tenant/applicant/vendor/message text and linked-sheet
+  cells returned by read tools are wrapped as
+  `{ untrustedContent: "<<<EXTERNAL_MESSAGE …>>> … <<<END…>>>" }` (delimiter
+  look-alikes inside the text are defused, so a cell cannot close the envelope
+  early) and every
   system prompt forbids following instructions found in tool results or
   proposing actions because tool-result text asked.
 - **Cross-tenant isolation** is enforced three times: context resolution,
@@ -354,8 +356,10 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 (`get_manager_profile` R, `get_dashboard_summary` R), promotions
 (`list_promotions` R, `create_promotion` W, `update_promotion` W,
 `delete_promotion` W destructive), spreadsheets (`list_spreadsheets` R,
-`read_spreadsheet` R — clipped to a column/cell/total-character budget, never a
-whole sheet, `sync_spreadsheet` W; see
+`read_spreadsheet` R — 200 rows a call and clipped to a column/cell/total-character
+budget, never a whole sheet, and the cells come back inside one `untrustedContent`
+envelope (external clients: [`docs/agents/mcp-api.md`](agents/mcp-api.md)),
+`sync_spreadsheet` W; see
 [`docs/agents/integrations.md`](agents/integrations.md) § Spreadsheets),
 team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
