@@ -11,6 +11,10 @@ export type ChannelCalendarImportedRange = {
   summary: string;
   /** The host's own calendar block ("Not available"), not a reservation. Derived from `summary` when absent. */
   hostBlock?: boolean;
+  /** Airbnb reservation code (HM...), read from the feed's Reservation URL. The raw description is never stored. */
+  reservationCode?: string;
+  /** Last four digits of the guest's phone, when the feed carries them. */
+  phoneLast4?: string;
 };
 
 export type ChannelCalendarConnectionPublic = {
@@ -50,6 +54,12 @@ export type ManagerChannelBookingRange = {
   summary: string;
   /** The host's own calendar block; shown as "Airbnb block" and never counted as a booking. */
   hostBlock?: boolean;
+  reservationCode?: string;
+  /** Rebuilt on the server from `reservationCode`; never the feed's own URL. */
+  reservationUrl?: string;
+  phoneLast4?: string;
+  /** The name the manager entered for this stay (`channel_stay_details`). */
+  guestName?: string;
 };
 
 export type ManagerChannelBookingRoom = {

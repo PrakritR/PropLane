@@ -10,6 +10,7 @@ import {
   type ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
+import { isPhoneLast4, isReservationCode } from "@/lib/channel-calendar/reservation-details";
 import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 export function mintChannelCalendarExportToken(): string {
@@ -140,6 +141,8 @@ export function parseConnectionRow(raw: Record<string, unknown>): ChannelCalenda
             sourceUid: String(o.sourceUid ?? o.source_uid ?? "").trim(),
             summary: String(o.summary ?? "").trim(),
             ...(isHostBlockRange({ hostBlock: typeof o.hostBlock === "boolean" ? o.hostBlock : undefined, summary: String(o.summary ?? "") }) ? { hostBlock: true } : {}),
+            ...(isReservationCode(o.reservationCode) ? { reservationCode: o.reservationCode } : {}),
+            ...(isPhoneLast4(o.phoneLast4) ? { phoneLast4: o.phoneLast4 } : {}),
           };
         })
         .filter((x): x is ChannelCalendarImportedRange => Boolean(x))

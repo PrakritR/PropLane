@@ -2,9 +2,9 @@
 import { useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Button } from "@/components/ui/button";
-import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { removeChannelStay, restoreChannelStay } from "@/lib/channel-calendar/client";
 
@@ -20,7 +20,7 @@ export function BookingsRemoveStayDialog({ entry, onClose, onChanged, remove = r
   const [removed, setRemoved] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const guest = bookingGuestLabel(entry.summary, isChannelBookingSource(entry.source) ? entry.source : "airbnb");
+  const guest = bookingEntryGuestLabel(entry);
   const ref = { connectionId: entry.connectionId ?? "", sourceUid: entry.sourceUid ?? "" };
   const run = async (undo: boolean) => {
     setBusy(true); setError("");

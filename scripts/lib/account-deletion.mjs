@@ -250,6 +250,8 @@ export const DELETE_ORDER = [
   "stripe_payouts",
   "payout_destinations_cache",
   "payout_destination_cache_refreshes",
+  // Guest names typed for channel stays; cascades from the connection below (no ownership column of its own).
+  "channel_stay_details",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.

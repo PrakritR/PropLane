@@ -2,11 +2,13 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { UserRound } from "lucide-react";
+import { ExternalLink, Pencil, UserRound } from "lucide-react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { RecordFactCard, RecordFactRow, RecordRowsCard, type RecordRowItem } from "@/components/portal/portal-record-overview-kit";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { BookingsGuestNameDialog } from "@/components/portal/bookings-guest-name-dialog";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
@@ -18,9 +20,10 @@ import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-date
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingDatesLabel, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingResidentHref, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingCancelLabel, bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { airbnbLinkForRoom, channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
 import { bookingCharges, bookingMoney, bookingNights, bookingOverdueTotal, bookingRateSummary, guestPastStays } from "@/lib/channel-calendar/booking-record";
 import { readHouseholdCharges } from "@/lib/household-charges";
@@ -42,6 +45,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const navigate = usePortalNavigate();
   const [editing, setEditing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [namingGuest, setNamingGuest] = useState(false);
   const [removingStay, setRemovingStay] = useState<PropertyBookingEntry | null>(null);
   const entry = entries.find((candidate) => bookingEntryKey(candidate) === bookingId || bookingLegacyEntryKey(candidate) === bookingId);
   useEffect(() => {
@@ -51,7 +55,10 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   if (!entry) return <>{removeStayDialog}<PortalDataTableEmpty icon="default" message={loading ? "Loading…" : "Booking not found."} /></>;
   const tab = parseBookingDetailTab(tabProp);
   const channel = isChannelBookingSource(entry.source);
-  const name = isChannelBookingSource(entry.source) ? bookingGuestLabel(entry.summary, entry.source) : entry.summary;
+  const name = bookingEntryGuestLabel(entry);
+  // An Airbnb stay carries its own reservation code and feed id; the manager can name the guest and open it in Airbnb.
+  const airbnbStay = entry.source === "airbnb" && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
+  const airbnbUrl = airbnbStay && entry.reservationUrl?.startsWith("https://www.airbnb.com/hosting/reservations/details/") ? entry.reservationUrl : null;
   const resident = residentOptions.find((option) => option.email === entry.residentEmail || option.name === entry.residentName || option.name === entry.summary);
   const guestEmail = entry.residentEmail || resident?.email || "";
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
@@ -86,7 +93,9 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     const past = guestPastStays(entry, entries, today);
     body = (
       <RecordFactCard title="Guest" dataAttr="booking-guest-card">
-        <RecordFactRow label="Name" value={name} />
+        <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label="Edit name" onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
+        {airbnbStay && entry.reservationCode ? <RecordFactRow label="Reservation" value={<span className="flex items-center gap-1.5">{entry.reservationCode}{airbnbUrl ? <PortalIconAction icon={ExternalLink} label="Open in Airbnb" onClick={() => window.open(airbnbUrl, "_blank", "noopener,noreferrer")} data-attr="booking-open-in-airbnb" /> : null}</span>} /> : null}
+        {entry.phoneLast4 ? <RecordFactRow label="Phone ending" value={entry.phoneLast4} /> : null}
         <RecordFactRow label="Email" value={guestEmail || "—"} />
         <RecordFactRow label="Phone" value={entry.residentPhone || "—"} />
         <RecordFactRow label="Past stays" value={past.count === 0 ? "None yet" : `${past.count} · ${past.latest ? `last ${formatBookingStayRange(past.latest.start, past.latest.end)}` : ""}`} />
@@ -136,6 +145,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
       </PortalRecordSectionChrome>
     </PortalRecordDetailPage>
     {removeStayDialog}
+    {namingGuest ? <BookingsGuestNameDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast("Guest name saved"); onRefresh?.(); }} /> : null}
     {editing ? <BookingsEditSheet key={bookingEntryKey(entry)} entry={entry} entries={entries} propertyOptions={propertyOptions} onClose={() => setEditing(false)} onSave={onSaveBlock} onSaveStayMeta={onSaveStayMeta} /> : null}
     {cancelling ? <BookingsCancelDialog key={bookingEntryKey(entry)} entry={{ ...entry, residentEmail: entry.residentEmail || resident?.email }} onClose={() => setCancelling(false)} onSave={onSaveBlock} /> : null}
   </>;
