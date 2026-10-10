@@ -2,7 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { fetchLeasesForManagerUser } from "@/lib/auth/manager-lease-scope";
+import { collectLinkedPropertyPermissionsForUser, fetchLeasesForManagerUser } from "@/lib/auth/manager-lease-scope";
+import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
@@ -11,6 +12,7 @@ import {
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
+  withoutResidentFinancials,
   type ApplicationHoldRow,
   type LeaseBookingRow,
   type RoomDateBlock,
@@ -432,6 +434,28 @@ async function occupancyBlockEntries(
   };
 }
 
+/**
+ * Houses whose residents' money and phone numbers this viewer may read: the ones they own, and the
+ * ones a teammate link grants them Residents view on. Calendar access alone shows who is where and
+ * when, never what they pay.
+ */
+async function residentFinancialPropertyIds(db: SupabaseClient, userId: string, propertyIds: string[]): Promise<Set<string>> {
+  const allowed = new Set<string>();
+  if (propertyIds.length === 0) return allowed;
+  const [owned, linked] = await Promise.all([
+    db.from("manager_property_records").select("id").eq("manager_user_id", userId).in("id", propertyIds),
+    collectLinkedPropertyPermissionsForUser(db as Parameters<typeof collectLinkedPropertyPermissionsForUser>[0], userId),
+  ]);
+  for (const row of (owned.data ?? []) as Array<{ id?: unknown }>) {
+    const id = String(row.id ?? "").trim();
+    if (id) allowed.add(id);
+  }
+  for (const id of propertyIds) {
+    if (!allowed.has(id) && hasCoManagerPermissionLevelForProperty(linked.get(id), id, "residents", "read")) allowed.add(id);
+  }
+  return allowed;
+}
+
 export async function occupancySnapshotForManager(
   db: SupabaseClient,
   userId: string,
@@ -451,9 +475,10 @@ export async function occupancySnapshotForManager(
     roomLabelForId: meta.roomLabelForId,
     openEndedHorizonKey: openEndedBookingHorizonKey(),
   });
-  const [holdEntries, blockEntries] = await Promise.all([
+  const [holdEntries, blockEntries, financialHouses] = await Promise.all([
     occupancyHoldEntries(db, propertyIds, leaseRows, meta),
     occupancyBlockEntries(db, propertyIds, meta),
+    residentFinancialPropertyIds(db, userId, propertyIds),
   ]);
   const entries = combineOccupancyEntries(
     airbnbBookingEntries(bookings),
@@ -461,7 +486,7 @@ export async function occupancySnapshotForManager(
     leaseEntries,
     holdEntries,
     blockEntries.typed,
-  );
+  ).map((entry) => (financialHouses.has(entry.propertyId) ? entry : withoutResidentFinancials(entry)));
   const days: OccupancySnapshotDay[] = eachDayKey(input.from, input.to).map((dayKey) => ({
     dayKey,
     ...occupancyForDay(entries, dayKey, propertyIds, capacities),

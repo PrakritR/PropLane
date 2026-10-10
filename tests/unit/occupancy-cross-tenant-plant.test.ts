@@ -136,3 +136,108 @@ describe("Bookings holds ignore rows a stranger authored", () => {
     expect((await holds([linked])).map((entry) => entry.applicationId)).toEqual(["AXIS-LINKED"]);
   });
 });
+
+describe("Bookings snapshot hides resident money from a calendar-only viewer", () => {
+  const HOLD_FACTS = {
+    id: "AXIS-RENT",
+    manager_user_id: OWNER,
+    property_id: HOUSE,
+    assigned_property_id: HOUSE,
+    row_data: {
+      bucket: "approved",
+      manuallyAdded: true,
+      name: "Rita Resident",
+      assignedRoomChoice: `${HOUSE}::room-a`,
+      manualResidentDetails: {
+        moveInDate: "2026-10-01",
+        moveOutDate: "2026-12-31",
+        monthlyRent: 1450,
+        securityDeposit: 900,
+        leaseTerm: "long_term",
+        phone: "+12065550123",
+      },
+    },
+  };
+
+  /** A db for the whole snapshot: one house, one hold, and the viewer's grants. */
+  function snapshotDb(submission: ReturnType<typeof listing>["submission"], links: unknown[]) {
+    return {
+      from(table: string) {
+        let ownerFilter: string | null = null;
+        const query = {
+          select() { return this; },
+          in() { return this; },
+          eq(column: string, value: string) {
+            if (column === "manager_user_id") ownerFilter = value;
+            return this;
+          },
+          neq() { return this; },
+          like() { return this; },
+          order() { return this; },
+          or() { return this; },
+          is() { return this; },
+          limit() { return this; },
+          maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+          range(start: number) {
+            return Promise.resolve({ data: table === "manager_application_records" ? [HOLD_FACTS].slice(start) : [], error: null });
+          },
+          then(resolve: (value: unknown) => unknown) {
+            const data =
+              table === "manager_property_records"
+                ? [{ id: HOUSE, manager_user_id: OWNER, property_data: { listingSubmission: submission } }].filter(
+                    (row) => !ownerFilter || row.manager_user_id === ownerFilter,
+                  )
+                : table === "account_link_invites"
+                  ? links
+                  : [];
+            return Promise.resolve({ data, error: null }).then(resolve);
+          },
+        };
+        return query;
+      },
+    } as never;
+  }
+
+  async function stays(viewer: string, links: unknown[]) {
+    const { submission } = listing();
+    const { occupancySnapshotForManager } = await import("@/lib/occupancy/snapshot.server");
+    const snapshot = await occupancySnapshotForManager(snapshotDb(submission, links), viewer, {
+      propertyIds: [HOUSE],
+      from: "2026-10-01",
+      to: "2026-10-31",
+    });
+    return snapshot.stays;
+  }
+
+  const calendarOnly = [{
+    inviter_user_id: OWNER, invitee_user_id: LINKED, assigned_property_ids: [HOUSE], team_role: "custom", status: "accepted",
+    property_co_manager_permissions: { [HOUSE]: { calendar: { read: true } } },
+  }];
+  const withResidents = [{
+    ...calendarOnly[0]!,
+    property_co_manager_permissions: { [HOUSE]: { calendar: { read: true }, residents: { read: true } } },
+  }];
+
+  it("the owner sees rent", async () => {
+    expect((await stays(OWNER, [])).map((stay) => stay.monthlyRent)).toEqual([1450]);
+  });
+
+  it("a calendar-only teammate sees the stay but not the rent", async () => {
+    const result = await stays(LINKED, calendarOnly);
+    expect(result).toHaveLength(1);
+    expect(result[0]).not.toHaveProperty("monthlyRent");
+  });
+
+  it("a teammate with Residents view sees the rent", async () => {
+    expect((await stays(LINKED, withResidents)).map((stay) => stay.monthlyRent)).toEqual([1450]);
+  });
+});
+
+describe("withoutResidentFinancials", () => {
+  it("drops rent, deposit, term and phone from a resident-backed entry only", async () => {
+    const { withoutResidentFinancials } = await import("@/lib/channel-calendar/property-bookings");
+    const facts = { monthlyRent: 1, securityDeposit: 2, leaseTerm: "Long-term", residentPhone: "+1", residentName: "R" };
+    expect(withoutResidentFinancials({ source: "hold" as const, ...facts })).toEqual({ source: "hold", residentName: "R" });
+    expect(withoutResidentFinancials({ source: "block" as const, ...facts })).toEqual({ source: "block", ...facts });
+  });
+});

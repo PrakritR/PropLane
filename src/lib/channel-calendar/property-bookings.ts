@@ -97,6 +97,17 @@ export function residentFactsFromApplication(row: ApplicationHoldRow | undefined
   };
 }
 
+/**
+ * What a viewer without Residents access may not read off a resident-backed entry: what the
+ * resident pays, the deposit, the lease term and their phone. The stay itself (who, where, when)
+ * stays: that is the calendar.
+ */
+export function withoutResidentFinancials<T extends Partial<PropertyBookingEntry>>(entry: T): T {
+  if (entry.source !== "hold" && entry.source !== "proplane") return entry;
+  const { monthlyRent: _rent, securityDeposit: _deposit, leaseTerm: _term, residentPhone: _phone, ...rest } = entry;
+  return rest as T;
+}
+
 /** Stored terms are ids (`long_term`); people read "Long-term". Free text passes through. */
 function bookingLeaseTermLabel(value: string): string {
   const term = value.trim();
