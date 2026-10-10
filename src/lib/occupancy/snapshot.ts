@@ -66,6 +66,22 @@ export function occupancyStayResident(entry: PropertyBookingEntry): OccupancySta
   };
 }
 
+/**
+ * The resident facts a viewer without Residents access may see: who, where, when and the status
+ * label. The contact email and the record ids (application / lease) open the resident's records,
+ * so they stay with the owner and with a teammate who holds Residents view on the house.
+ */
+export function occupancyStayResidentWithoutIdentifiers(
+  resident: OccupancyStayResident | undefined,
+): OccupancyStayResident | undefined {
+  if (!resident) return resident;
+  const rest: OccupancyStayResident = { ...resident };
+  delete rest.applicationId;
+  delete rest.leaseId;
+  delete rest.residentEmail;
+  return rest;
+}
+
 type SnapshotStayLike = {
   propertyId?: unknown;
   roomId?: unknown;
@@ -131,14 +147,28 @@ export function mergeResidentEntries(
 ): PropertyBookingEntry[] {
   const out: PropertyBookingEntry[] = [];
   const index = new Map<string, number>();
+  // A stay the snapshot sent without record ids (viewer lacks Residents access) has no key; the
+  // same stay arriving from the applications / leases reads is matched by where and when instead.
+  const shapeKey = (entry: PropertyBookingEntry) =>
+    `${entry.source}\0${entry.propertyId}\0${entry.roomId}\0${entry.start}\0${entry.end}`;
+  const keylessIndex = new Map<string, number>();
   const push = (entry: PropertyBookingEntry) => {
     const key = residentEntryKey(entry);
-    const at = key ? index.get(key) : undefined;
+    let at = key ? index.get(key) : undefined;
+    if (key && at === undefined) {
+      const keyless = keylessIndex.get(shapeKey(entry));
+      if (keyless !== undefined) {
+        at = keyless;
+        keylessIndex.delete(shapeKey(entry));
+      }
+    }
     if (key && at !== undefined) {
       out[at] = { ...out[at], ...entry };
+      index.set(key, at);
       return;
     }
     if (key) index.set(key, out.length);
+    else if (!keylessIndex.has(shapeKey(entry))) keylessIndex.set(shapeKey(entry), out.length);
     out.push(entry);
   };
   primary.forEach(push);

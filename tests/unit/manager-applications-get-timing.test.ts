@@ -109,8 +109,9 @@ describe("GET /api/manager-applications timing", () => {
     // The purge only starts when a scheduled callback runs, after the response.
     expect(afterSpy).toHaveBeenCalled();
     expect(purge).not.toHaveBeenCalled();
+    // The sweep resolves its live property set first, then purges.
     for (const [run] of afterSpy.mock.calls) void run();
-    expect(purge).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(purge).toHaveBeenCalledTimes(1));
   });
 
   it("a failing purge after the response is swallowed", async () => {

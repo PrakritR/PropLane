@@ -33,6 +33,7 @@ import {
   occupancyForDay,
   occupancyStayKind,
   occupancyStayResident,
+  occupancyStayResidentWithoutIdentifiers,
   type OccupancyCapacities,
   type OccupancyStayResident,
   type OccupancyDayCell,
@@ -511,7 +512,13 @@ export async function occupancySnapshotForManager(
     ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
       ? { monthlyRent: entry.monthlyRent }
       : {}),
-    ...(occupancyStayResident(entry) ? { resident: occupancyStayResident(entry) } : {}),
+    ...(occupancyStayResident(entry)
+      ? {
+          resident: financialHouses.has(entry.propertyId)
+            ? occupancyStayResident(entry)
+            : occupancyStayResidentWithoutIdentifiers(occupancyStayResident(entry)),
+        }
+      : {}),
   }));
   return {
     days,

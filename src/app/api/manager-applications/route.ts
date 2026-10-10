@@ -838,17 +838,38 @@ function serverTimingHeader(phases: Record<string, number>, total: number): stri
   return parts.join(", ");
 }
 
-/** The orphan-housing sweep may delete rows and costs ~14 sequential reads: never part of the response's wait. */
-function purgeOrphansAfterResponse(
+/**
+ * The orphan-housing sweep may delete rows and costs ~14 sequential reads: never part of the response's wait.
+ *
+ * It is a write inside a GET, so a View-as session (read-only) never schedules it. The live set is
+ * resolved INSIDE the sweep, right before it deletes: the co-manager lookup is strict (a failed read
+ * skips the sweep rather than reading as "no co-managed houses"), and the owned ids are re-read so a
+ * property created after the response was sent never has its rows purged.
+ */
+async function purgeOrphansAfterResponse(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
-  propertyScopedIds: Set<string>,
-): void {
-  const run = () =>
-    purgeOrphanHousingRecordsForManager(db, userId, propertyScopedIds).then(
+): Promise<void> {
+  if (await isViewAsSessionOpen()) return;
+  const run = async () => {
+    let live: Set<string>;
+    try {
+      const [owned, applications, residents] = await Promise.all([
+        managerOwnedPropertyIdSet(db, userId),
+        linkedPropertyIdsForModule(db, userId, "applications", { strict: true }),
+        linkedPropertyIdsForModule(db, userId, "residents", { strict: true }),
+      ]);
+      live = new Set<string>([...owned, ...applications, ...residents]);
+    } catch (error) {
+      // A failed scope lookup is not an empty portfolio: delete nothing.
+      bestEffortFailed("orphan housing purge scope", { manager: userId })(error);
+      return;
+    }
+    await purgeOrphanHousingRecordsForManager(db, userId, live).then(
       () => undefined,
       bestEffortFailed("orphan housing purge", { manager: userId }),
     );
+  };
   try {
     after(run);
   } catch {
@@ -912,7 +933,7 @@ async function fetchApplicationsForManagerUser(
   // source of truth for who should see the row.
   const propertyScopedIds = new Set<string>([...ownedPropertyIds, ...appIds, ...resIds]);
   // The sweep (14 sequential reads, may delete) runs after the response is sent, not before it.
-  purgeOrphansAfterResponse(db, userId, propertyScopedIds);
+  await purgeOrphansAfterResponse(db, userId);
 
   // Active-workspace narrowing, the same three rules everywhere:
   // `null` (no workspaces, or the load failed) never narrows; a resolved
