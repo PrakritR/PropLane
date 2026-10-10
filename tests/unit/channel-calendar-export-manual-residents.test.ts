@@ -26,6 +26,7 @@ vi.mock("@/lib/supabase/service", () => ({
       const filters: Array<(row: Record<string, unknown>) => boolean> = [];
       const chain = {
         select: () => chain,
+        in: () => chain,
         eq: (column: string, value: unknown) => (filters.push((row) => pathValue(row, column) === value), chain),
         like: (column: string, pattern: string) => {
           const prefix = pattern.replace(/%$/, "");
@@ -41,6 +42,7 @@ vi.mock("@/lib/supabase/service", () => ({
               error: null,
               data: rows.map((row) => ({
                 id: row.id,
+                manager_user_id: row.manager_user_id,
                 assigned_property_id: row.assigned_property_id,
                 property_id: row.property_id,
                 choice: pathValue(row, "row_data->>assignedRoomChoice"),
@@ -53,6 +55,13 @@ vi.mock("@/lib/supabase/service", () => ({
                 bucket: pathValue(row, "row_data->>bucket"),
                 ical_connection: pathValue(row, "row_data->>icalConnectionId"),
               })),
+            });
+          } else if (table === "manager_property_records") {
+            resolve({ error: null, data: [{ id: "prop-1", manager_user_id: "owner-user" }] });
+          } else if (table === "account_link_invites") {
+            resolve({
+              error: null,
+              data: [{ inviter_user_id: "owner-user", invitee_user_id: "acting-co-manager", assigned_property_ids: ["prop-1"], team_role: "leasing" }],
             });
           } else if (table === "portal_schedule_records") {
             resolve({ error: null, data: (state.blocks as Record<string, unknown>[]).filter((row) => filters.every((f) => f(row))) });
@@ -134,6 +143,11 @@ describe("export feed holds for manually added residents", () => {
     const body = await (await request()).text();
     expect(body).toContain("DTSTART;VALUE=DATE:20261009");
     expect(body).not.toContain("20261101");
+  });
+
+  it("ignores an approved row a stranger filed naming this room (cross-tenant plant)", async () => {
+    state.records = [manualResident("app-plant", "room-1789775850636-3", "stranger-manager", "2026-10-09", "2027-10-08")];
+    expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
   });
 
   it("ignores residents of another property and non-approved rows", async () => {

@@ -10,6 +10,7 @@ import {
   type ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
+import { isPhoneLast4, isReservationCode } from "@/lib/channel-calendar/reservation-details";
 import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 export function mintChannelCalendarExportToken(): string {
@@ -119,6 +120,7 @@ export function toPublicConnection(
     importedRangeCount: imported.length,
     lastSyncedAt: row.last_synced_at,
     lastError: row.last_error,
+    exportLastFetchedAt: row.export_last_fetched_at,
   };
 }
 
@@ -139,6 +141,8 @@ export function parseConnectionRow(raw: Record<string, unknown>): ChannelCalenda
             sourceUid: String(o.sourceUid ?? o.source_uid ?? "").trim(),
             summary: String(o.summary ?? "").trim(),
             ...(isHostBlockRange({ hostBlock: typeof o.hostBlock === "boolean" ? o.hostBlock : undefined, summary: String(o.summary ?? "") }) ? { hostBlock: true } : {}),
+            ...(isReservationCode(o.reservationCode) ? { reservationCode: o.reservationCode } : {}),
+            ...(isPhoneLast4(o.phoneLast4) ? { phoneLast4: o.phoneLast4 } : {}),
           };
         })
         .filter((x): x is ChannelCalendarImportedRange => Boolean(x))
@@ -156,6 +160,7 @@ export function parseConnectionRow(raw: Record<string, unknown>): ChannelCalenda
     imported_ranges: imported,
     last_synced_at: raw.last_synced_at == null ? null : String(raw.last_synced_at),
     last_error: raw.last_error == null ? null : String(raw.last_error),
+    export_last_fetched_at: raw.export_last_fetched_at == null ? null : String(raw.export_last_fetched_at),
   };
 }
 

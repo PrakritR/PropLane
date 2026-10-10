@@ -12,6 +12,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 // listed, or Vitest throws while building the mock and fails the whole file.
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
+  leasePipelineReadSucceeded: () => true,
   readLeasePipeline: () => LEASES,
   syncLeasePipelineFromServer: () => Promise.resolve(LEASES),
   // Mirrors the real predicate closely enough for the fixtures here, which
@@ -37,8 +38,8 @@ vi.mock("@/lib/manager-applications-storage", () => ({
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   normalizeApplicationAxisId: (id: unknown) => String(id ?? ""),
   readManagerApplicationRows: () => [{ email: "cv.ponce@example.test", bucket: "current" }],
-  syncManagerApplicationsFromServer: () =>
-    Promise.resolve([{ email: "cv.ponce@example.test", bucket: "current" }]),
+  syncManagerApplicationsFromServerWithStatus: () =>
+    Promise.resolve({ rows: [{ email: "cv.ponce@example.test", bucket: "current" }], ok: true }),
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchWritableChannelCalendarPropertyIds: (ids: string[]) => Promise.resolve(ids),

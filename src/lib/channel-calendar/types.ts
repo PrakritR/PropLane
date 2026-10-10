@@ -11,6 +11,10 @@ export type ChannelCalendarImportedRange = {
   summary: string;
   /** The host's own calendar block ("Not available"), not a reservation. Derived from `summary` when absent. */
   hostBlock?: boolean;
+  /** Airbnb reservation code (HM...), read from the feed's Reservation URL. The raw description is never stored. */
+  reservationCode?: string;
+  /** Last four digits of the guest's phone, when the feed carries them. */
+  phoneLast4?: string;
 };
 
 export type ChannelCalendarConnectionPublic = {
@@ -24,6 +28,8 @@ export type ChannelCalendarConnectionPublic = {
   importedRangeCount: number;
   lastSyncedAt: string | null;
   lastError: string | null;
+  /** When the channel last fetched PropLane's export feed (stamped by the export route). */
+  exportLastFetchedAt: string | null;
 };
 
 export type ChannelCalendarConnectionRow = {
@@ -38,6 +44,7 @@ export type ChannelCalendarConnectionRow = {
   imported_ranges: ChannelCalendarImportedRange[];
   last_synced_at: string | null;
   last_error: string | null;
+  export_last_fetched_at: string | null;
 };
 
 export type ManagerChannelBookingRange = {
@@ -47,6 +54,12 @@ export type ManagerChannelBookingRange = {
   summary: string;
   /** The host's own calendar block; shown as "Airbnb block" and never counted as a booking. */
   hostBlock?: boolean;
+  reservationCode?: string;
+  /** Rebuilt on the server from `reservationCode`; never the feed's own URL. */
+  reservationUrl?: string;
+  phoneLast4?: string;
+  /** The name the manager entered for this stay (`channel_stay_details`). */
+  guestName?: string;
 };
 
 export type ManagerChannelBookingRoom = {
@@ -58,6 +71,8 @@ export type ManagerChannelBookingRoom = {
   ranges: ManagerChannelBookingRange[];
   lastSyncedAt: string | null;
   lastError: string | null;
+  /** When the channel last fetched PropLane's export feed for this room. */
+  exportLastFetchedAt?: string | null;
   hasImportUrl: boolean;
   /** The manager's own saved channel link; returned only on the manager-scoped bookings route. */
   importUrl: string | null;

@@ -1,20 +1,21 @@
 "use client";
 
 /**
- * Vendor Finances > Overview (vendor-portal-ia-1007), copying the manager Finances overview's
- * shape: a balance strip, this month's strip, then "By manager" rows. Every figure comes from
+ * Vendor Finances > Overview tab (vendor-portal-ia-1007; a tab of the one Finances page since
+ * vendor-finances-1008). The page above it already shows Available / Pending / Held / On the way,
+ * so this body adds only what those cards do not: Owed to you, Paid this year, this month's
+ * earnings and spend, then "By manager" rows. Every figure comes from
  * `GET /api/vendor/finances/overview` (integer cents computed on the server); this component
- * only formats. When Stripe cannot answer the strip shows the PropLane ledger's numbers with a
- * quiet "Stripe unavailable" fact, never an error page.
+ * only formats. When Stripe cannot answer, the figures are the PropLane ledger's and a quiet
+ * "Stripe unavailable" fact says so above them, never an error page — unless the page's own
+ * balance strip already fell back to the ledger and is saying it (`hideStripeNotice`).
  */
 import { useCallback, useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
 import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
 import { PortalPropertyRecordRow, PortalRowIconTile } from "@/components/portal/portal-record-row";
-import { VendorWithdrawAction, useVendorBalance } from "@/components/portal/vendor-finances-balance";
 import type { VendorFinancesOverview } from "@/lib/vendor-banking/overview";
 
 /** Whole dollars like the manager overview ("$7,700"); exact cents live in Statements. */
@@ -30,11 +31,9 @@ function monthName(monthKey: string): string {
   return Number.isNaN(d.getTime()) ? "This month" : d.toLocaleString("en-US", { month: "long" });
 }
 
-export function VendorFinancesOverview({ basePath: _basePath = "/vendor" }: { basePath?: string }) {
-  void _basePath;
+export function VendorFinancesOverviewBody({ hideStripeNotice = false }: { hideStripeNotice?: boolean } = {}) {
   const [data, setData] = useState<VendorFinancesOverview | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  const withdrawState = useVendorBalance();
 
   const load = useCallback(async () => {
     try {
@@ -56,24 +55,18 @@ export function VendorFinancesOverview({ basePath: _basePath = "/vendor" }: { ba
   }, [load]);
 
   if (state === "loading") {
-    return (
-      <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
-        <PortalRecordListSurface loading dataAttr="vendor-overview-loading" />
-      </ManagerPortalPageShell>
-    );
+    return <PortalRecordListSurface loading dataAttr="vendor-overview-loading" />;
   }
   if (state === "error" || !data) {
     return (
-      <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
-        <PortalRecordListSurface
-          loadError="Could not load your finances."
-          onRetry={() => {
-            setState("loading");
-            void load();
-          }}
-          dataAttr="vendor-overview-error"
-        />
-      </ManagerPortalPageShell>
+      <PortalRecordListSurface
+        loadError="Could not load your finances."
+        onRetry={() => {
+          setState("loading");
+          void load();
+        }}
+        dataAttr="vendor-overview-error"
+      />
     );
   }
 
@@ -88,64 +81,48 @@ export function VendorFinancesOverview({ basePath: _basePath = "/vendor" }: { ba
   });
 
   return (
-    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
-      <div className="space-y-4 pb-6" data-attr="vendor-finances-overview">
-        <div className="flex items-start gap-3">
-          <PortalStatStrip
-            size="lg"
-            className="min-w-0 flex-1"
-            dataAttr="vendor-overview-balance-strip"
-            items={[
-              stat("available", "Available", data.balance.availableCents),
-              stat("pending", "Pending payout", data.balance.pendingCents),
-              stat("owed", "Owed to you", data.balance.owedCents),
-              stat("paid-year", "Paid this year", data.balance.paidThisYearCents, "ok"),
-            ]}
-          />
-          <div className="flex shrink-0 items-center gap-1.5 pt-1">
-            <VendorWithdrawAction state={withdrawState.state} reload={withdrawState.reload} />
-          </div>
-        </div>
-        {data.stripeUnavailable ? (
-          <p role="status" className="text-sm text-muted" data-attr="vendor-overview-stripe-unavailable">
-            Stripe unavailable
-          </p>
-        ) : null}
-        <PortalStatStrip
-          size="lg"
-          dataAttr="vendor-overview-month-strip"
-          className="[grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]"
-          items={[
-            stat("earned", `Earned (${month})`, data.month.earnedCents, "ok"),
-            stat("spent", `Spent (${month})`, data.month.spentCents),
-            stat("profit", `Profit (${month})`, data.month.profitCents, "ok"),
-            { id: "jobs", label: `Jobs (${month})`, value: String(data.month.jobs), dataAttr: "vendor-overview-jobs" },
-          ]}
-        />
-        {data.byManager.length > 0 ? (
-          <section className="overflow-hidden rounded-[10px] border border-border bg-card" data-attr="vendor-overview-by-manager">
-            <h3 className="border-b border-border px-4 py-2.5 text-[14px] font-semibold text-foreground">By manager</h3>
-            <PortalListGroupRowContext.Provider value>
-              {data.byManager.map((row) => (
-                <PortalPropertyRecordRow
-                  key={row.managerUserId ?? "unassigned"}
-                  title={row.label}
-                  leading={<PortalRowIconTile icon={UserRound} />}
-                  leadingShape="square"
-                  facts={
-                    <>
-                      <span className="font-medium text-[var(--status-confirmed-fg)]">Earned {wholeMoney(row.earnedCents, cur)}</span>
-                      <span>Spent {wholeMoney(row.spentCents, cur)}</span>
-                    </>
-                  }
-                  amount={wholeMoney(row.profitCents, cur)}
-                  dataAttr="vendor-overview-by-manager-row"
-                />
-              ))}
-            </PortalListGroupRowContext.Provider>
-          </section>
-        ) : null}
-      </div>
-    </ManagerPortalPageShell>
+    <div className="space-y-4 pb-6" data-attr="vendor-finances-overview">
+      {data.stripeUnavailable && !hideStripeNotice ? (
+        <p role="status" className="px-1 text-sm text-muted" data-attr="vendor-overview-stripe-unavailable">
+          Stripe unavailable
+        </p>
+      ) : null}
+      <PortalStatStrip
+        size="lg"
+        dataAttr="vendor-overview-month-strip"
+        className="[grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]"
+        items={[
+          stat("owed", "Owed to you", data.balance.owedCents),
+          stat("paid-year", "Paid this year", data.balance.paidThisYearCents, "ok"),
+          stat("earned", `Earned (${month})`, data.month.earnedCents, "ok"),
+          stat("spent", `Spent (${month})`, data.month.spentCents),
+          stat("profit", `Profit (${month})`, data.month.profitCents, "ok"),
+          { id: "jobs", label: `Jobs (${month})`, value: String(data.month.jobs), dataAttr: "vendor-overview-jobs" },
+        ]}
+      />
+      {data.byManager.length > 0 ? (
+        <section className="overflow-hidden rounded-[10px] border border-border bg-card" data-attr="vendor-overview-by-manager">
+          <h3 className="border-b border-border px-4 py-2.5 text-[14px] font-semibold text-foreground">By manager</h3>
+          <PortalListGroupRowContext.Provider value>
+            {data.byManager.map((row) => (
+              <PortalPropertyRecordRow
+                key={row.managerUserId ?? "unassigned"}
+                title={row.label}
+                leading={<PortalRowIconTile icon={UserRound} />}
+                leadingShape="square"
+                facts={
+                  <>
+                    <span className="font-medium text-[var(--status-confirmed-fg)]">Earned {wholeMoney(row.earnedCents, cur)}</span>
+                    <span>Spent {wholeMoney(row.spentCents, cur)}</span>
+                  </>
+                }
+                amount={wholeMoney(row.profitCents, cur)}
+                dataAttr="vendor-overview-by-manager-row"
+              />
+            ))}
+          </PortalListGroupRowContext.Provider>
+        </section>
+      ) : null}
+    </div>
   );
 }

@@ -326,7 +326,9 @@ inbox (`list_inbox_threads` R, `get_thread_messages` R, `reply_to_thread` W,
 `update_thread` W*),
 calendar (`list_calendar_events` R, `list_tour_inquiries` R,
 `update_manager_availability` W, `create_calendar_event` W,
-`cancel_calendar_event` W, `accept_tour_inquiry` W, `confirm_tour_inquiry` W —
+`cancel_calendar_event` W, `list_bookings` R, `check_room_availability` R (dates only; also on the prospect and resident-SMS registries via `roomAvailabilityForRange`), `list_room_blocks` R,
+`block_room_dates` W, `remove_room_block` W destructive (Calendar edit on the house;
+bookings built on `occupancySnapshotForManager`), `accept_tour_inquiry` W, `confirm_tour_inquiry` W —
 backs the approval-first auto-tour proposals), tours (`list_open_tour_slots` R —
 the ONE source of bookable times; `book_tour` W from scratch, `reschedule_tour` W,
 `cancel_tour` W, both of which email the guest; see
@@ -412,7 +414,12 @@ Deliberately NOT tools: lease signing (legal ceremony — deep-link to
 
 The manager catalog above MINUS every tool flagged `destructive`, for a manager
 texting their own work number from their verified cell. Derived from the flag,
-never a name list. Reasoning and the upgrade path:
+never a name list. A plain text from a member of a workspace with two or more
+people now goes to that workspace's Team chat instead; the agent answers when the
+text is addressed to it (`@assistant` / `assistant,` / `@ai`), for a
+one-member workspace, a Viewer, or a sender who is not a member of that number's
+workspace, and for a bare YES/NO answering a proposal that is actually open on
+that member's Assistant session. Routing, consent and the upgrade path:
 [`docs/agents/sms-system.md`](agents/sms-system.md).
 
 ### Prospect leasing SMS (`leasingSmsAgentRegistry`)
@@ -521,7 +528,11 @@ portal or vendor registry, and it has no route of its own (SMS only).
 - **Number.** `provisionResidentAgentNumber` (`src/lib/resident-agent-number/number.server.ts`) on
   subscription activation (Stripe webhook, flag-independent) and from Settings > PropLane agent
   (`POST /api/number-subscription/resident-number`). Same provider adapter, runtime switch and release
-  worker as the vendor number, its own table; the row insert is the purchase claim.
+  worker as the vendor number, its own table; the row insert is the purchase claim. A subscription is
+  never sold when no number can be provisioned (the row reads **Unavailable**), the page shows
+  **Activating** while it polls back from Checkout, and the Settings action says why a number did not
+  arrive instead of doing nothing — [`docs/agents/vendor-portal.md`](agents/vendor-portal.md)
+  § PropLane Number owns those conditions.
 - Tests: `resident-personal-agent`, `resident-agent-listing-search`, `resident-agent-number-provisioning`.
 
 ## Links first (every conversational surface)

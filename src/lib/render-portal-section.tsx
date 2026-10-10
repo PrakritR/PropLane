@@ -10,6 +10,7 @@ import {
   RESIDENT_DOCUMENT_KIND_DEFAULT_TAB,
   type ResidentDocumentTab,
 } from "@/lib/resident-documents-tabs";
+import { isListingChannelId, listingChannelDef } from "@/lib/listing-channels/registry";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
@@ -44,6 +45,10 @@ import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
 import {
   legacyManagerPortalSectionPath,
+  LISTING_SITES_SEGMENT,
+  listingSiteDetailHref,
+  listingSitesListHref,
+  parseListingSiteTab,
   isMoveInFormTabSlug,
   isRetiredMoveInFormsTab,
   parseApplicationDetailTab,
@@ -300,9 +305,9 @@ export async function renderPortalSectionWith(
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
-    VendorFinancesPanel, VendorBalancePanel, VendorWithdrawalDetail, VendorRefundsPanel,
+    VendorFinancesPanel, VendorFinancesPage, VendorWithdrawalDetail,
     VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
-    VendorOutgoingPaymentsPanel, VendorFinancesOverview, VendorReviewsPanel, ManagerPortalPageShell, loadManagerAllServicesPanel, loadManagerTaskList,
+    VendorOutgoingPaymentsPanel, VendorReviewsPanel, ManagerPortalPageShell, loadManagerAllServicesPanel, loadManagerTaskList,
     loadManagerTours, loadManagerBookings, loadManagerApplications, loadManagerCommunication,
     loadManagerFormsPage, loadManagerProperties, loadManagerResidents, loadManagerVendorsPanel,
     loadManagerOutgoingInvoicesPanel, loadPortalCalendar, loadResidentServicesPanel,
@@ -1444,6 +1449,26 @@ export async function renderPortalSectionWith(
     if (section === "promotion") {
       if (tabParts?.length) {
         const segment = tabParts[0]!;
+        // A listing site is a record page: /promotion/listing-sites/<channelId>[/<tab>]. The word is
+        // reserved (a promotion asset id always contains "::"), so it is claimed before the assetId branch.
+        if (segment === LISTING_SITES_SEGMENT) {
+          const channelId = tabParts[1] ? decodeSegment(tabParts[1]) : "";
+          if (!channelId) redirect(listingSitesListHref(def.basePath));
+          if (!isListingChannelId(channelId) || tabParts.length > 3) notFound();
+          const tabRaw = tabParts[2] ? decodeSegment(tabParts[2]) : "";
+          const siteTab = parseListingSiteTab(tabRaw);
+          const hiddenTabs = listingChannelDef(channelId)?.posting === "partner_only" ? ["listings", "post", "leads"] : [];
+          if (!tabRaw || (siteTab && hiddenTabs.includes(siteTab))) {
+            redirect(listingSiteDetailHref(def.basePath, channelId, "overview"));
+          }
+          if (!siteTab) notFound();
+          return subscriptionGated(
+            <ManagerPromotion basePath={def.basePath} listingSite={{ channelId, tab: siteTab }} />,
+            kind,
+            "promotion",
+            managerOwnerSubscriptionTier,
+          );
+        }
         if (segment === "text" || segment === "image") {
           redirect(`${def.basePath}/promotion`);
         }
@@ -2032,31 +2057,35 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "vendor" && section === "financials") {
-    if (!meta.tabs.length) notFound();
+    // One page, three in-page tabs (vendor-finances-1008): the section declares no registry tabs,
+    // so the sidebar shows a single Finances row; Overview · Payouts · Refunds are the segment.
     if (!tabParts?.length) {
       // Finances opens on Overview.
       redirect(`${def.basePath}/financials/overview`);
     }
     const finTab = tabParts[0]!;
+    const VENDOR_FINANCES_PAGE_TABS = ["overview", "payouts", "refunds"] as const;
+    // The old Balance & payouts tab is Payouts now (a withdrawal's own page under `balance/<id>` stays).
+    if (finTab === "balance" && tabParts.length === 1) redirect(`${def.basePath}/financials/payouts`);
     // "payouts" and "invoices" are detail-only ids: a payment's / an invoice's own record page
     // (`/financials/payouts/<id>[/<tab>]`, `/financials/invoices/<id>[/<tab>]`) must still resolve
     // although neither is a tab (the bare ids are doors, handled below).
-    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts", "invoices"] as const;
+    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts", "invoices", "balance"] as const;
     if (
-      !meta.tabs.some((tab) => tab.id === finTab) &&
+      !(VENDOR_FINANCES_PAGE_TABS as readonly string[]).includes(finTab) &&
       !(DETAIL_ONLY_FINANCIALS_TABS as readonly string[]).includes(finTab)
     ) {
       notFound();
     }
 
-    if (finTab === "invoices" || finTab === "payouts") {
+    if (finTab === "invoices" || (finTab === "payouts" && tabParts.length > 1)) {
       // A record under this tab: /financials/invoices|payouts/<id>/<tab>
       // (PLAN-0920-1058, area 1c).
       if (tabParts.length > 3) notFound();
       if (tabParts.length === 1) {
-        // The bare `payouts` id is a door to Balance & payouts; the bare `invoices` id (handled by
-        // `vendorMovedMoneyPath` above) to Incoming payments. A record below still renders here.
-        redirect(`${def.basePath}/financials/balance`);
+        // The bare `invoices` id (handled by `vendorMovedMoneyPath` above) is a door to Incoming
+        // payments. A record below still renders here; bare `payouts` is the Payouts tab.
+        redirect(vendorIncomingHref(def.basePath));
       }
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${finTab}`);
@@ -2093,9 +2122,7 @@ export async function renderPortalSectionWith(
       }
       notFound();
     }
-    if (finTab === "overview") return <VendorFinancesOverview basePath={def.basePath} />;
-    if (finTab === "balance") return <VendorBalancePanel basePath={def.basePath} />;
-    return <VendorRefundsPanel basePath={def.basePath} />;
+    return <VendorFinancesPage basePath={def.basePath} tab={finTab as (typeof VENDOR_FINANCES_PAGE_TABS)[number]} />;
   }
 
   if (!meta.tabs.length) {

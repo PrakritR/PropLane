@@ -75,8 +75,10 @@ its own shell.
 
 A property record does not carry Activity (`hasActivity: false` on the manager/property registry entry): it is not
 in the rail, the phone picker, `PROPERTY_DETAIL_TABS` or the Activity band of `pro-house-properties-panel.tsx`.
-An old `/portal/properties/<stage>/<id>/activity` URL parses to Preview (`parsePropertyDetailTab`). Resident,
-vendor and every other kind keep their Activity. Guard: `tests/unit/property-redesign-round2.test.tsx`.
+An old `/portal/properties/<stage>/<id>/activity` URL parses to Preview (`parsePropertyDetailTab`). Property is
+not the only opt-out — which kinds carry Activity, Communication and Documents at all is each kind's own
+`hasActivity` / `hasCommunication` / `hasDocuments` flag in `record-sections.ts`, never a list repeated here.
+Guard: `tests/unit/property-redesign-round2.test.tsx`.
 
 ## Property sections split by stay
 

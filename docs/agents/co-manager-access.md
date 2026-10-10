@@ -29,6 +29,20 @@ Pure rules live in `src/lib/workspaces/membership.ts`; server lookups
 (`actorWorkspaceStanding`, `workspaceAdminCount`, `previewHouseMove`) in
 `membership.server.ts`. Coverage: `tests/unit/workspace-membership.test.ts`.
 
+**A teammate is reached through the workspace, never with a line of their own.**
+Every PropLane Assistant notice for a house goes to the owner and each teammate
+granted that module on it (`notifyPropertyScopedManagersFromAgent`), in the
+teammate's own Assistant, texted from the OWNER's work number and billed to the
+OWNER, emailed from the workspace work email. The Team chat is the workspace's
+membership (owner plus accepted, non-property-owner rows for THAT workspace,
+regardless of house; a Viewer reads only), `account_link_invites.workspace_id`
+being the source, and a property owner is never a member. With no workspace to
+resolve (an unplaced work number, or a failed default-workspace read) the roster
+is the OWNER ALONE — an empty workspace id used to mean "no filter", which
+admitted every workspace's teammates to the chat the line lands in.
+Coverage: `tests/unit/work-number-notices.test.ts`,
+`tests/unit/team-chat-workspace.test.ts`.
+
 **Workspace rights follow the role, never a per-link flag.** Owner and
 **Admin** (new; `full` is the legacy stamp and lists as Admin) invite, edit and
 remove members and add or move houses in THAT workspace; Property manager may
@@ -270,6 +284,18 @@ it. One resolver decides: `src/lib/communication/conversation-visibility.server.
 (see `docs/agents/communication-inbox.md`). `describeCoManagerPermissions`
 says so on the invite.
 
+**Calendar shows the stay; the money needs Residents.** The Bookings /
+occupancy snapshot answers with who is where and when for every house in scope,
+but a viewer without `residents` at `read` on a house reads none of its
+residents' money or contact: `withoutResidentFinancials`
+(`src/lib/channel-calendar/property-bookings.ts`) strips the monthly rent,
+security deposit, lease term, resident phone and the room's rate off every
+resident-backed entry — application holds, leases, and a manager's block held
+for a named resident alike. A channel stay's own nightly rate is not a
+resident's money and stays. The houses that keep the figures are resolved
+server-side in `occupancySnapshotForManager`, never from the request.
+Coverage: `tests/unit/occupancy-cross-tenant-plant.test.ts`.
+
 **`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
 module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
 client portfolio mirror (`src/lib/manager-portfolio-access.ts`) both delegate to
@@ -451,8 +477,10 @@ resolve it from the listing record (`resolveManagerUserIdForProperty`, shared by
 `guest-application-upsert.ts` and `link-resident-on-application-submit.ts`) or
 from the already-stored value on an edit, and manager/admin writes take it from
 the ownership gate. A new applicant submit whose listing resolves to no manager
-is refused rather than stored unattributed. Coverage:
-`tests/unit/link-resident-on-application-submit.test.ts`,
+is refused rather than stored unattributed. Placement is server-derived the same
+way, and which houses a row may NAME is owned by
+[`shared-room-capacity.md`](shared-room-capacity.md) (occupancy author trust).
+Coverage: `tests/unit/link-resident-on-application-submit.test.ts`,
 `tests/unit/guest-application-upsert.test.ts`.
 
 **Hard-won gotcha:** the account-links API selects BOTH

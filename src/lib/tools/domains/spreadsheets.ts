@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import { writeAuditLog } from "../audit";
+import { wrapUntrustedContent } from "../untrusted-content";
 import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 import {
   loadManagerSheetBindings,
@@ -21,15 +22,9 @@ const MAX_RESULT_CHARS = 40_000;
 /** Rows per call; the model pages with `offset` for the rest. */
 const MAX_ROWS = 200;
 
-/** Delimiter look-alikes inside third-party text are defused so a cell can never close the envelope early. */
-function defuse(text: string): string {
-  return text.replace(/<<<|>>>/g, (m) => (m === "<<<" ? "<\u200b<<" : ">>\u200b>"));
-}
-
 /** Same envelope as inbox/SMS text: everything a sheet author typed is data, never instructions. */
 export function wrapUntrustedSheet(title: string, table: { headers: string[]; rows: string[][] }): { untrustedContent: string } {
-  const body = defuse(JSON.stringify(table));
-  return { untrustedContent: `<<<EXTERNAL_SPREADSHEET from ${defuse(JSON.stringify(title))}>>> ${body} <<<END EXTERNAL_SPREADSHEET>>>` };
+  return wrapUntrustedContent("SPREADSHEET", JSON.stringify(title), JSON.stringify(table));
 }
 
 type ClippedTable = { headers: string[]; rows: string[][]; clipped: boolean };

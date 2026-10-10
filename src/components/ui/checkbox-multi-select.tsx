@@ -55,6 +55,11 @@ export type CheckboxMultiSelectOption = {
   info?: string;
   /** A red dot after the label (a wizard step that still needs something). */
   attention?: boolean;
+  /**
+   * The `value` of another option this one belongs under. A child is drawn indented and only while its
+   * parent is ticked; unticking the parent unticks the child with it (Long-term, then Custom dates).
+   */
+  parent?: string;
 };
 export type CheckboxMultiSelectGroup = { label: string; options: CheckboxMultiSelectOption[] };
 
@@ -183,25 +188,38 @@ export function CheckboxMultiSelect({
     if (readOnly) return;
     const option = flatOptions.find((o) => o.value === value);
     if (option?.disabled) return;
-    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+    if (selected.includes(value)) {
+      // Unticking a parent clears every child under it.
+      const children = new Set(flatOptions.filter((o) => o.parent === value).map((o) => o.value));
+      onChange(selected.filter((v) => v !== value && !children.has(v)));
+      return;
+    }
+    onChange([...selected, value]);
   };
+
+  // A child option exists only while its parent is ticked.
+  const childVisible = (o: CheckboxMultiSelectOption) => !o.parent || selected.includes(o.parent);
 
   // Filtering only hides rows from view; the `selected` array is never mutated, so a
   // search never drops an already-selected option from the selection.
   const filteredGroups = useMemo(() => {
     if (!groups?.length) return null;
-    if (!query.trim()) return groups;
     return groups
-      .map((g) => ({ ...g, options: g.options.filter((o) => matchesQuery(o.label, query)) }))
+      .map((g) => ({
+        ...g,
+        options: g.options.filter((o) => childVisible(o) && (!query.trim() || matchesQuery(o.label, query))),
+      }))
       .filter((g) => g.options.length > 0);
-  }, [groups, query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, query, selected]);
 
   const filteredOptions = useMemo(() => {
     if (groups?.length) return [];
-    const base = options ?? [];
+    const base = (options ?? []).filter(childVisible);
     if (!query.trim()) return base;
     return base.filter((o) => matchesQuery(o.label, query));
-  }, [groups, options, query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, options, query, selected]);
 
   const listRef = useFieldSelectListboxPointerPick((value) => {
     if (readOnly) return;
@@ -220,7 +238,8 @@ export function CheckboxMultiSelect({
         aria-selected={checked}
         aria-disabled={optionDisabled || undefined}
         {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
-        className={`flex items-start gap-2.5 px-3 py-2 text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} ${
+        data-child-of={opt.parent || undefined}
+        className={`flex items-start gap-2.5 py-2 text-sm ${opt.parent ? "pl-8 pr-3" : "px-3"} ${FIELD_SELECT_MENU_OPTION_CLASS} ${
           optionDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
         }`}
       >

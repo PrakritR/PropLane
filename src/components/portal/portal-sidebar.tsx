@@ -208,26 +208,14 @@ export function PortalSidebar({
       const tab = parts[paymentsIdx + 1];
       return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
     }
-    if (activeSection === "financials" && definition.kind === "vendor") {
-      const tab = parts[parts.indexOf("financials") + 1];
-      // Invoice / payout records live under their list's tab.
-      if (tab === "invoices" || tab === "payouts") return "income";
-      return definition.sections.find((s) => s.section === "financials")?.tabs.some((t) => t.id === tab)
-        ? (tab ?? "balance")
-        : "balance";
-    }
     return null;
-  }, [activeSection, definition, pathname]);
+  }, [activeSection, pathname]);
 
   useEffect(() => {
-    if (
-      activeSection === "payments" ||
-      activeSection === "applications" ||
-      (activeSection === "financials" && definition.kind === "vendor")
-    ) {
+    if (activeSection === "payments" || activeSection === "applications") {
       setExpandableNavOpen((prev) => ({ ...prev, [activeSection]: true }));
     }
-  }, [activeSection, definition.kind]);
+  }, [activeSection]);
 
   const isNavItemActive = useCallback(
     (item: PortalSidebarNavItem) => {

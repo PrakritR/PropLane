@@ -31,16 +31,17 @@ describe("public occupancy reader scope", () => {
           select() { return this; },
           in() { return this; },
           eq() { return this; },
+          or() { return this; },
           order() { return this; },
           range(start: number) {
-            if (table === "portal_lease_pipeline_records") return Promise.resolve({ data: [], error: null });
+            if (table === "portal_lease_pipeline_records" || table === "portal_schedule_records") return Promise.resolve({ data: [], error: null });
             if (table === "manager_application_records") return Promise.resolve({ data: applications.slice(start), error: null });
             throw new Error(`Unexpected paged table: ${table}`);
           },
           then(resolve: (value: unknown) => unknown) {
             const data = table === "manager_property_records"
               ? [{ id: "home-1", manager_user_id: "manager-1", property_data: { listingSubmission: submission } }]
-              : table === "external_calendar_connections" ? [] : null;
+              : table === "external_calendar_connections" || table === "account_link_invites" ? [] : null;
             if (data === null) throw new Error(`Unexpected table: ${table}`);
             return Promise.resolve({ data, error: null }).then(resolve);
           },

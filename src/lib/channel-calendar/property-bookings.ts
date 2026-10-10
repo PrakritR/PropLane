@@ -1,3 +1,4 @@
+import { RESIDENT_TERM_LABELS, type ResidentTerm } from "@/lib/resident-term-split";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
 import { leaseIsFullyExecuted, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
@@ -33,6 +34,11 @@ export type PropertyBookingEntry = {
   rateBasis?: "daily" | "weekly" | "monthly";
   stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string };
   sourceUid?: string;
+  /** Channel stays only - Airbnb's reservation code, the link to open it, the guest's phone suffix, and the name the manager typed. */
+  reservationCode?: string;
+  reservationUrl?: string;
+  phoneLast4?: string;
+  guestName?: string;
   connectionId?: string;
   lastSyncedAt?: string | null;
   applicationId?: string;
@@ -64,7 +70,65 @@ export type PropertyBookingEntry = {
   isBookingResidency?: boolean;
   /** PropLane stays only — the lease this booking was derived from, so its record page can link back to it. */
   leaseId?: string;
+  /** Resident-backed bookings only — what the resident pays per month (their own rent, not the room listing's). */
+  monthlyRent?: number;
+  /** Resident-backed bookings only — the security deposit on file. */
+  securityDeposit?: number;
+  /** Resident-backed bookings only — the lease term as the manager entered it. */
+  leaseTerm?: string;
 };
+
+/** The resident facts a hold / lease entry copies off its application row. */
+export function residentFactsFromApplication(row: ApplicationHoldRow | undefined): Partial<PropertyBookingEntry> {
+  if (!row) return {};
+  const manual = row.manualResidentDetails;
+  const rent = [row.signedMonthlyRent, manual?.monthlyRent].find(
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
+  );
+  const deposit = manual?.securityDeposit;
+  return {
+    applicationId: row.id,
+    ...(row.name?.trim() ? { residentName: row.name.trim() } : {}),
+    ...(row.email?.trim() ? { residentEmail: row.email.trim().toLowerCase() } : {}),
+    ...(manual?.phone?.trim() ? { residentPhone: manual.phone.trim() } : {}),
+    ...(rent != null ? { monthlyRent: rent } : {}),
+    ...(typeof deposit === "number" && Number.isFinite(deposit) && deposit >= 0 ? { securityDeposit: deposit } : {}),
+    ...(manual?.leaseTerm?.trim() ? { leaseTerm: bookingLeaseTermLabel(manual.leaseTerm) } : {}),
+  };
+}
+
+/**
+ * What a viewer without Residents access may not read off a resident-backed entry: what the
+ * resident pays, the deposit, the lease term, the room's rate and their phone. The stay itself
+ * (who, where, when) stays: that is the calendar.
+ *
+ * Resident-backed covers a manager's block held for a named resident too — the same entry
+ * `bookingVisualSource` already draws as a hold — not only applications and leases. A channel
+ * stay's own nightly rate is not a resident's money, so it is left alone.
+ */
+export function withoutResidentFinancials<T extends Partial<PropertyBookingEntry>>(entry: T): T {
+  if (entry.source !== "hold" && entry.source !== "proplane" && !isResidentBackedBlock(entry)) return entry;
+  const rest: Partial<PropertyBookingEntry> = { ...entry };
+  delete rest.monthlyRent;
+  delete rest.securityDeposit;
+  delete rest.leaseTerm;
+  delete rest.residentPhone;
+  delete rest.rate;
+  delete rest.rateBasis;
+  return rest as T;
+}
+
+/** A manager's block that holds the room for a person: a resident's stay, drawn as a hold. */
+function isResidentBackedBlock(entry: Partial<PropertyBookingEntry>): boolean {
+  if (entry.source !== "block") return false;
+  return Boolean(entry.residentName?.trim() || entry.residentEmail?.trim() || entry.isBookingResidency);
+}
+
+/** Stored terms are ids (`long_term`); people read "Long-term". Free text passes through. */
+function bookingLeaseTermLabel(value: string): string {
+  const term = value.trim();
+  return RESIDENT_TERM_LABELS[term as ResidentTerm] ?? (term === "month_to_month" ? "Month-to-month" : term);
+}
 
 /** A manager's explicit closed range. `checkOut` is exclusive: the day is free again. */
 export type RoomDateBlock = {
@@ -229,7 +293,16 @@ export type ApplicationHoldRow = {
   assignedRoomChoice?: string;
   application?: { leaseStart?: string; leaseEnd?: string; roomChoice1?: string } | null;
   /** Resident-wizard dates; win over the application's lease dates (same precedence as /portal/residents). */
-  manualResidentDetails?: { moveInDate?: string | null; moveOutDate?: string | null } | null;
+  manualResidentDetails?: {
+    moveInDate?: string | null;
+    moveOutDate?: string | null;
+    phone?: string | null;
+    monthlyRent?: number | null;
+    securityDeposit?: number | null;
+    leaseTerm?: string | null;
+  } | null;
+  /** Rent locked for this tenant at approval; the resident's own rent. */
+  signedMonthlyRent?: number | null;
 };
 
 export function applicationHoldEntries(
@@ -269,6 +342,7 @@ export function applicationHoldEntries(
       roomId,
       roomLabel: roomId ? opts.roomLabelForId(propertyId, roomId) : "Whole home",
       summary: row.name?.trim() || "Approved applicant",
+      ...residentFactsFromApplication(row),
       start,
       end: end >= start ? end : start,
       statusLabel: "Approved · lease pending",
@@ -291,6 +365,7 @@ export function openEndedBookingHorizonKey(from: Date = new Date()): string {
 /** Structural subset of `LeasePipelineRow` this module needs. */
 export type LeaseBookingRow = {
   id?: string;
+  axisId?: string;
   propertyId?: string;
   roomChoice?: string | null;
   residentName?: string;
@@ -341,6 +416,10 @@ export function airbnbBookingEntries(
           roomLabel: room.roomLabel,
           summary: range.summary,
           sourceUid: range.sourceUid,
+          ...(range.reservationCode ? { reservationCode: range.reservationCode } : {}),
+          ...(range.reservationUrl ? { reservationUrl: range.reservationUrl } : {}),
+          ...(range.phoneLast4 ? { phoneLast4: range.phoneLast4 } : {}),
+          ...(range.guestName ? { guestName: range.guestName } : {}),
           connectionId: room.connectionId,
           lastSyncedAt: room.lastSyncedAt,
           start,
@@ -378,6 +457,8 @@ export function leaseBookingEntries(
      * have not been updated to pass a directory set keep their old behavior).
      */
     isResidentLinked?: (residentEmail: string) => boolean;
+    /** The application / resident row this lease belongs to, when there is one: its facts ride on the stay. */
+    applicationForLease?: (row: LeaseBookingRow) => ApplicationHoldRow | undefined;
   },
 ): PropertyBookingEntry[] {
   const propertyId = opts.propertyId.trim();
@@ -410,6 +491,7 @@ export function leaseBookingEntries(
       statusLabel: row.stageLabel?.trim() || row.status?.trim() || undefined,
       ...(openEnded ? { openEnded: true } : {}),
       ...(row.id?.trim() ? { leaseId: row.id.trim() } : {}),
+      ...residentFactsFromApplication(opts.applicationForLease?.(row)),
     });
   }
   return out;
@@ -431,6 +513,7 @@ export function leaseBookingEntriesForProperties(
     openEndedHorizonKey: string;
     /** N080: see `leaseBookingEntries`. */
     isResidentLinked?: (residentEmail: string) => boolean;
+    applicationForLease?: (row: LeaseBookingRow) => ApplicationHoldRow | undefined;
   },
 ): PropertyBookingEntry[] {
   const out: PropertyBookingEntry[] = [];
@@ -443,6 +526,7 @@ export function leaseBookingEntriesForProperties(
         openEndedHorizonKey: opts.openEndedHorizonKey,
         entireHomeListing: property.entireHomeListing,
         isResidentLinked: opts.isResidentLinked,
+        applicationForLease: opts.applicationForLease,
       }),
     );
   }

@@ -10,7 +10,7 @@
  *
  * Top to bottom:
  * 1. Quiet hours (this panel's own state, from `/api/portal/reminder-settings`).
- * 2. Team & automated sends (send-mode globals).
+ * 2. Automated sends (send-mode globals).
  * 3. `WhatProplaneSends` — the read-only list of shipped-default messages
  *    that have no per-workspace rule at all (e.g. tour reminders, C191).
  * 4. "Rules & messages" — every reminder rule and automated-message toggle
@@ -486,26 +486,10 @@ export function ManagerPortalAutomationSettingsPanel({
         </PortalSettingsSection>
 
         <PortalSettingsSection
-          title="Team & automated sends"
+          title="Automated sends"
           action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
         >
           <PortalSettingsGroup>
-            <PortalSettingsRow label="Team notices send automatically">
-              <PortalSettingsToggle
-                checked={settings.automationSendMode.team === "auto"}
-                onChange={(checked) =>
-                  setSettings((c) => ({
-                    ...c,
-                    automationSendMode: {
-                      ...c.automationSendMode,
-                      team: (checked ? "auto" : "draft") satisfies AutomationSendMode,
-                    },
-                  }))
-                }
-                label="Team notices auto-send"
-                dataAttr="settings-toggle-team-auto-send"
-              />
-            </PortalSettingsRow>
             <PortalSettingsRow label="Resident & vendor messages need my approval first">
               <PortalSettingsToggle
                 checked={settings.automationSendMode.partyFacing === "draft"}

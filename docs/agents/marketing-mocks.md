@@ -97,8 +97,10 @@ that tab.
   (`site/product-mock/demo-nav.ts`) is `buildPortalNavItems` over the real portal definitions (`proPortal`,
   the resident catalog, `vendorPortal`) bucketed by the real `groupNavItems` / `PORTAL_NAV_GROUPS`: same rows,
   labels, order, groups, icons (`PortalNavIcon`), count badges (`PortalNavCountBadge`, red for unread mail and
-  overdue money, a quiet number otherwise), the vendor Finances' nested rows with the chevron, and the real
-  "Conversations" group. A tab id IS the real section id (`move-in`, `work-orders`, `payments`). Never write a
+  overdue money, a quiet number otherwise) and the real "Conversations" group. **No row nests any more** —
+  vendor Finances was the last one and is a single row since `financials` stopped declaring registry tabs
+  ([`vendor-portal.md`](vendor-portal.md) § Finances), so `home-demo-nav-parity.test.ts` expects an empty
+  `subItems` everywhere. A tab id IS the real section id (`move-in`, `work-orders`, `payments`). Never write a
   second list: `tests/unit/home-demo-nav-parity.test.ts` rebuilds the expectation from `PORTAL_NAV_GROUPS` and
   fails when a section is added, renamed, moved or left without a panel.
 - **Panels come through one contract**, `site/product-mock/demo-panels.tsx`:
@@ -107,8 +109,9 @@ that tab.
   `panels-manager-rest.tsx` (Tasks, Bookings, Promotion, Forms, Outgoing payments, Finances, Documents),
   `panels-resident-more.tsx` (Tour, Documents) and `panels-vendor.tsx` (Documents, Finances) from
   `fixtures-more.ts`; each copies the real page's tabs, search placeholder, header icon actions and row anatomy
-  (read from its component), and the list-band icon vocabulary guard still applies (a Landmark or Withdraw icon
-  belongs in the balance strip, not the command band).
+  (read from its component), and the list-band icon vocabulary guard still applies — the allowed set is
+  `PORTAL_LIST_BAND_ALLOWED_ICONS` in `portal-list-control-stack.tsx` (Landmark and Withdraw joined it for
+  the vendor Finances band; see [`../portal-list-section-layout.md`](../portal-list-section-layout.md)).
 - **Pop-ups and record pages are the real ones, drawn from fixtures** (captain 2026-10-08: "a lot of the pop ups in
   home page are not accurate to real portal"). The round + opens the real pop-up (same title, step rail, field
   labels, right-hand preview, footer words), a row opens what the real row opens (a record page, or a modal when the

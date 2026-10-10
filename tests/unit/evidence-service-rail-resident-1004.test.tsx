@@ -116,15 +116,15 @@ describe("a resident portal list", () => {
 });
 
 describe("which lease terms a property offers", () => {
-  it("is one multi-select of the four types — Long-term, Short-term, Custom, Month-to-month", async () => {
+  it("is one multi-select: Long-term and Short-term, with Custom dates and Month-to-month under Long-term", async () => {
     const { LeaseTermsField } = await import("@/components/portal/listing-wizard-v2/wizard-primitives");
     const { createDefaultListingSubmission } = await import("@/lib/manager-listing-submission");
     const { fireEvent } = await import("@testing-library/react");
-    const sub = createDefaultListingSubmission();
+    const sub = { ...createDefaultListingSubmission(), allowedLeaseTerms: ["Long-term"] };
     render(<LeaseTermsField sub={sub} onPatch={() => {}} />);
     fireEvent.click(document.querySelector('[data-attr="lease-type"]') ?? document.body);
     await waitFor(() => expect(document.body.textContent).toContain("Month-to-month"));
-    for (const label of ["Long-term", "Short-term", "Custom", "Month-to-month"]) {
+    for (const label of ["Long-term", "Short-term", "Custom dates", "Month-to-month"]) {
       expect(document.body.textContent, label).toContain(label);
     }
     capture("property-lease-terms-picker");

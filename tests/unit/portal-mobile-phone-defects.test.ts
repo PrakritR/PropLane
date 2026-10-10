@@ -33,10 +33,17 @@ describe("phone tap targets (B-G)", () => {
 });
 
 describe("grouped list toggle (I) and KPI copy (K)", () => {
-  it("floats the expand/collapse-all control instead of giving it a row on phones", () => {
+  // (I) used to float an Expand all / Collapse all icon over the first group header on phones. The
+  // captain retired that control outright (Oct 8 2026) — groups now start open and a header click
+  // opens or closes just that group — so there is nothing left to float. What replaced the guard is
+  // that the control must NOT come back: `tests/unit/portal-grouped-record-list.test.tsx` owns the
+  // behaviour, and this keeps the phone-layout hack from being reintroduced with it.
+  it("has no expand/collapse-all control to lay out on phones (groups start open)", () => {
     const src = read("src/components/portal/portal-grouped-record-list.tsx");
-    expect(src).toContain("max-lg:absolute");
-    expect(src).toContain("max-lg:[&>:nth-child(2)>button]:!pr-12");
+    expect(src).not.toContain("groups-toggle-all");
+    expect(src).not.toContain("max-lg:[&>:nth-child(2)>button]:!pr-12");
+    expect(src).not.toContain("Expand all");
+    expect(src).not.toContain("Collapse all");
   });
   it("lets dashboard KPI copy take two lines on phones", () => {
     const src = read("src/components/portal/pro-dashboard-kpis.tsx");

@@ -35,6 +35,16 @@ export function roomDateBlockRecordId(userId: string, blockUid: string): string 
   return `${ROOM_DATE_BLOCK_PREFIX}${userId.trim()}_${blockUid}`;
 }
 
+/**
+ * The id space of the blocks THIS user wrote. A block is stamped to the property owner (so the
+ * capacity trigger accepts it), which leaves a co-manager's own block outside an owner-column
+ * scope; the writer's id is in the record id, and an insert is refused unless it matches
+ * (`managerScheduleRecordIdOwnedByUser`), so this prefix names exactly their own blocks.
+ */
+export function roomDateBlockRecordIdPrefix(userId: string): string {
+  return `${ROOM_DATE_BLOCK_PREFIX}${userId.trim()}_`;
+}
+
 /** True when a manager-scoped schedule record id is owned by the authenticated user. */
 export function managerScheduleRecordIdOwnedByUser(
   recordId: string,

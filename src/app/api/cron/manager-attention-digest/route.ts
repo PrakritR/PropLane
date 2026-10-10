@@ -1,3 +1,4 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import {
@@ -5,19 +6,12 @@ import {
   managerAttentionDigestDue,
 } from "@/lib/manager-attention-digest.server";
 import { normalizeManagerAttentionDigestCadence } from "@/lib/manager-notification-preferences";
-import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
-
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

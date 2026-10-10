@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
-import { VendorBalancePanel, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
+import { VendorFinancesPage, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
 import { resetSharedGets } from "@/lib/shared-get-cache";
 
 const navigate = vi.hoisted(() => vi.fn());
@@ -60,7 +60,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const renderBalance = () => render(<AppUiProvider><VendorBalancePanel basePath="/vendor" /></AppUiProvider>);
+const renderBalance = () => render(<AppUiProvider><VendorFinancesPage basePath="/vendor" tab="payouts" /></AppUiProvider>);
 const q = (attr: string) => document.querySelector(`[data-attr="${attr}"]`) as HTMLElement | null;
 
 describe("vendor Balance & payouts", () => {
@@ -77,8 +77,14 @@ describe("vendor Balance & payouts", () => {
     expect(q("vendor-balance-held")?.textContent).toBe("$0.00");
     expect(q("vendor-balance-on-the-way")?.textContent).toBe("$180.00");
     expect(q("vendor-balance-owed")).toBeNull();
-    const buttons = Array.from(card.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"));
-    expect(buttons).toEqual(["Bank", "Withdraw"]);
+    expect(card.querySelectorAll("button")).toHaveLength(0);
+    // Bank and Withdraw are the header band's only icons (the band also holds the Overview / Payouts / Refunds tabs).
+    expect(q("vendor-balance-bank")).toBeTruthy();
+    const icons = Array.from(document.querySelectorAll("[data-attr^='vendor-balance-']")).filter(
+      (el) => el.tagName === "BUTTON" && ["vendor-balance-bank", "vendor-balance-withdraw"].includes(el.getAttribute("data-attr") ?? ""),
+    );
+    expect(icons.map((b) => b.getAttribute("aria-label"))).toEqual(["Bank", "Withdraw"]);
+    expect(["overview", "payouts", "refunds"].every((id) => q(`vendor-finances-band-tab-${id}`))).toBe(true);
     expect((q("vendor-balance-withdraw") as HTMLButtonElement).disabled).toBe(false);
     expect(q("vendor-balance-banner")).toBeNull();
   });
@@ -114,6 +120,21 @@ describe("vendor Balance & payouts", () => {
     renderBalance();
     await waitFor(() => expect(screen.getByText("Could not load your balance.")).toBeTruthy());
     expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
+  });
+
+  it("a failed balance read still renders the tab band and each tab's own body (Overview and Refunds have their own APIs)", async () => {
+    // The stub answers the other APIs with {}, so each body mounts and reports its OWN state.
+    const bodies = { overview: "vendor-overview-error", refunds: "vendor-refunds-panel", payouts: "vendor-payouts-unavailable" } as const;
+    for (const tab of ["overview", "refunds", "payouts"] as const) {
+      cleanup();
+      resetSharedGets();
+      stub({ error: "boom" }, { balanceStatus: 500 });
+      render(<AppUiProvider><VendorFinancesPage basePath="/vendor" tab={tab} /></AppUiProvider>);
+      await waitFor(() => expect(screen.getByText("Could not load your balance.")).toBeTruthy());
+      for (const id of ["overview", "payouts", "refunds"]) expect(q(`vendor-finances-band-tab-${id}`)).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: /try again/i }).length).toBeGreaterThan(0);
+      await waitFor(() => expect(q(bodies[tab])).toBeTruthy());
+    }
   });
 
   it("lists payout history and a row opens its detail page", async () => {

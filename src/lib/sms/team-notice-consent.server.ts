@@ -8,6 +8,28 @@ import {
 } from "@/lib/sms-consent";
 
 export const TEAM_NOTICE_SMS_PURPOSE = "team_notice";
+/** A line one member typed in the workspace Team chat, relayed to the others. */
+export const TEAM_CHAT_RELAY_SMS_PURPOSE = "team_chat_relay";
+/** A resident / prospect text to the work number, forwarded to a teammate with that house. */
+export const TEAM_INBOUND_FORWARD_SMS_PURPOSE = "team_inbound_forward";
+/** Prefix of every PropLane Assistant notice text (`manager_agent_notification_<category>`). */
+export const MANAGER_NOTICE_SMS_PURPOSE_PREFIX = "manager_agent_notification_";
+
+/**
+ * Purposes whose recipient is a MANAGER on the workspace (the owner or a
+ * teammate) texted at their own verified phone. Their consent is that
+ * verification (`ensureTeamNoticeScopedSmsConsent`), never a rental
+ * application they never filed, so the dispatcher routes all of them there.
+ */
+export function isManagerRecipientSmsPurpose(purpose: string | null | undefined): boolean {
+  const value = String(purpose ?? "");
+  return (
+    value === TEAM_NOTICE_SMS_PURPOSE ||
+    value === TEAM_CHAT_RELAY_SMS_PURPOSE ||
+    value === TEAM_INBOUND_FORWARD_SMS_PURPOSE ||
+    value.startsWith(MANAGER_NOTICE_SMS_PURPOSE_PREFIX)
+  );
+}
 
 /**
  * Scoped consent for a `team_notice` text (WS6): the recipient is a MANAGER

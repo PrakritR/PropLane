@@ -6,13 +6,12 @@ import Link from "next/link";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import {
   bookedDayKeyCountInMonth,
   bookingEntriesForDayKey,
   bookingVisualSource,
   filterBookingEntriesByRoom,
-  isChannelBookingSource,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import {
@@ -279,10 +278,7 @@ function YearMonthMiniGrid({
 }
 
 function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
-  const name =
-    isChannelBookingSource(booking.source)
-      ? bookingGuestLabel(booking.summary, booking.source)
-      : booking.summary;
+  const name = bookingEntryGuestLabel(booking);
   return (
     <li
       className="rounded-xl border border-border bg-card/95 p-3 shadow-[var(--shadow-sm)]"
@@ -313,6 +309,7 @@ export function ManagerPortfolioBookingsCalendar({
   onDayClick,
   onAddBooking,
   onEditBooking,
+  onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
   searchQuery = "",
@@ -331,6 +328,8 @@ export function ManagerPortfolioBookingsCalendar({
   onDayClick?: (dayKey: string) => void;
   onAddBooking?: () => void;
   onEditBooking?: (entry: PropertyBookingEntry) => void;
+  /** An empty room-day was clicked: open Mark reserved for that room and night. */
+  onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
@@ -350,6 +349,7 @@ export function ManagerPortfolioBookingsCalendar({
       onDayClick={onDayClick}
       onAddBooking={onAddBooking}
       onEditBooking={onEditBooking}
+      onReserveRoomDay={onReserveRoomDay}
       preferenceKey={preferenceKey}
       selectedDayKey={selectedDayKey}
       searchQuery={searchQuery}
@@ -370,6 +370,7 @@ export function ManagerBookingsHub({
   onDayClick,
   onAddBooking,
   onEditBooking,
+  onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
   searchQuery = "",
@@ -389,6 +390,8 @@ export function ManagerBookingsHub({
   onDayClick?: (dayKey: string) => void;
   onAddBooking?: () => void;
   onEditBooking?: (entry: PropertyBookingEntry) => void;
+  /** An empty room-day was clicked: open Mark reserved for that room and night. */
+  onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
@@ -534,6 +537,7 @@ export function ManagerBookingsHub({
                   onOpenDay={openDay}
                   onAddBooking={onAddBooking}
                   onEditBooking={onEditBooking}
+                  onReserveRoomDay={onReserveRoomDay}
                   preferenceKey={preferenceKey}
                   roomFilterId={roomFilterId}
                   occupancyDays={occupancyDays}

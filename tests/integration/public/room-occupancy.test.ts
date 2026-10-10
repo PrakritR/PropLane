@@ -58,11 +58,15 @@ const EXECUTED_LEASE = {
   },
 };
 
-/** `manager_property_records` resolves on `.in()`; applications and leases on `.range()`. */
+/**
+ * `manager_property_records` and `external_calendar_connections` resolve on
+ * `.in()`; applications, leases and date blocks on `.range()`. The application
+ * read is scoped by property through `.or()`, so the chain carries it too.
+ */
 function fakeDb(opts: { properties: unknown[]; applications: unknown[]; leases?: unknown[] }) {
   const chain = (terminal: string, value: unknown) => {
     const node: Record<string, unknown> = {};
-    for (const key of ["select", "eq", "in", "order", "range"]) {
+    for (const key of ["select", "eq", "in", "or", "order", "range"]) {
       node[key] = () => (key === terminal ? Promise.resolve({ data: value, error: null }) : node);
     }
     return node;
@@ -70,7 +74,9 @@ function fakeDb(opts: { properties: unknown[]; applications: unknown[]; leases?:
   return {
     from: (table: string) => {
       if (table === "manager_property_records") return chain("in", opts.properties);
+      if (table === "external_calendar_connections") return chain("in", []);
       if (table === "portal_lease_pipeline_records") return chain("range", opts.leases ?? []);
+      if (table === "portal_schedule_records") return chain("range", []);
       return chain("range", opts.applications);
     },
   } as never;
@@ -160,11 +166,28 @@ describe("GET /api/public/approved-room-occupancy", () => {
     ]);
   });
 
-  it("reports an empty room rather than counting a placement owned by someone else", async () => {
+  /**
+   * The scope is the PROPERTY, not the row's manager stamp (a co-manager's
+   * resident still holds the room), so the guard that keeps a stranger's
+   * placement out of this room is the listing it names.
+   */
+  it("reports an empty room rather than counting a placement on another listing", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
       fakeDb({
         properties: [{ id: "p1", manager_user_id: "mgr-1" }],
-        applications: [{ ...APPROVED_APPLICATION, manager_user_id: "other-manager" }],
+        applications: [
+          {
+            ...APPROVED_APPLICATION,
+            manager_user_id: "other-manager",
+            property_id: "p2",
+            assigned_property_id: "p2",
+            assigned: "p2",
+            property: "p2",
+            application_property: "p2",
+            choice: "p2::r1",
+            preferred: "p2::r1",
+          },
+        ],
         leases: [EXECUTED_LEASE],
       }),
     );

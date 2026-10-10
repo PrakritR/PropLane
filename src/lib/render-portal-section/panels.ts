@@ -37,10 +37,8 @@ import type { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feed
 import type { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import type { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
 import type { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
-import type { VendorBalancePanel, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
+import type { VendorFinancesPage, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
 import type { VendorOutgoingPaymentsPanel } from "@/components/portal/vendor-outgoing-payments-panel";
-import type { VendorFinancesOverview } from "@/components/portal/vendor-finances-overview";
-import type { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
 import type { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
 import type { VendorTaxPanel } from "@/components/portal/vendor-tax-panel";
 import type { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
@@ -110,11 +108,9 @@ export type PortalPanels = Partial<{
   VendorDashboard: typeof VendorDashboard;
   VendorWorkOrdersPanel: typeof VendorWorkOrdersPanel;
   VendorFinancesPanel: typeof VendorFinancesPanel;
-  VendorBalancePanel: typeof VendorBalancePanel;
+  VendorFinancesPage: typeof VendorFinancesPage;
   VendorWithdrawalDetail: typeof VendorWithdrawalDetail;
-  VendorRefundsPanel: typeof VendorRefundsPanel;
   VendorOutgoingPaymentsPanel: typeof VendorOutgoingPaymentsPanel;
-  VendorFinancesOverview: typeof VendorFinancesOverview;
   VendorStatementsPanel: typeof VendorStatementsPanel;
   VendorTaxPanel: typeof VendorTaxPanel;
   VendorDocumentsPanel: typeof VendorDocumentsPanel;

@@ -154,8 +154,35 @@ export async function upsertKeyedThreadRow(
   db: Db,
   payload: Record<string, unknown>,
   ref: ConversationRef | null,
-): Promise<{ error: PgError; conflict: boolean }> {
+  /**
+   * Compare-and-set on the `updated_at` the caller read. Concurrent appends to
+   * one thread (a burst of automated sends) each read the same row and each
+   * upsert it back, so the last write silently drops the others' turns. With
+   * this set the write only lands on the row it read; a stale read reports
+   * `stale: true` and the caller re-reads and appends again.
+   */
+  expectUpdatedAt?: string | null,
+): Promise<{ error: PgError; conflict: boolean; stale?: boolean }> {
   const withColumns = { ...payload, ...conversationColumns(ref) };
+  if (expectUpdatedAt) {
+    const casWrite = async (body: Record<string, unknown>) => {
+      const { id: _id, ...patch } = body;
+      return db
+        .from("portal_inbox_thread_records")
+        .update(patch)
+        .eq("id", String(payload.id))
+        .eq("updated_at", expectUpdatedAt)
+        .select("id");
+    };
+    let cas = await casWrite(withColumns);
+    if (cas.error && ref && isMissingConversationSchema(cas.error)) {
+      markSchemaMissing();
+      cas = await casWrite(payload);
+    }
+    if (cas.error) return { error: cas.error, conflict: false };
+    if (!Array.isArray(cas.data) || cas.data.length === 0) return { error: null, conflict: false, stale: true };
+    return { error: null, conflict: false };
+  }
   const first = await db.from("portal_inbox_thread_records").upsert(withColumns, { onConflict: "id" });
   if (!first.error) return { error: null, conflict: false };
   if (isUniqueViolation(first.error) && ref) return { error: first.error, conflict: true };

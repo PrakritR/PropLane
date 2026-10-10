@@ -8,7 +8,9 @@ import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
 import { loadSyncListing, resolveListingPostContact } from "@/lib/listing-channels/sync.server";
 import { leadCountsByChannel } from "@/lib/listing-channels/lead-counts.server";
+import { leadReadablePropertyIds } from "@/lib/listing-channels/lead-scope.server";
 import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
+import { loadListingPickerSources } from "@/lib/listing-channels/listing-picker.server";
 
 export const runtime = "nodejs";
 
@@ -27,19 +29,28 @@ const POST_COLUMNS_BEFORE_POSTED_URL = "property_id, channel, enabled, state, ex
  * channels are live, the Meta connection (never its token), the workspace work contact, and the
  * per-listing posting rows. With `?propertyId=` it also returns that listing's hold reasons and the
  * ready-to-copy post text for every channel that is posted by hand, built from `publicListingProjection` only.
+ * With `?listings=1` it also returns the workspace's listings for the picker (name, rooms, status, hold
+ * reasons), read from the workspace's own property ids, never from the request.
  */
 export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const { db, workspace } = ctx;
-  const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() || "";
+  const searchParams = new URL(request.url).searchParams;
+  const propertyId = searchParams.get("propertyId")?.trim() || "";
+  const withListings = searchParams.get("listings") === "1";
 
   try {
     const [meta, contact, attributionState, leadCounts, postsRes] = await Promise.all([
       loadMetaConnectionPublic(db, workspace.id),
       resolveListingPostContact(db, workspace.ownerUserId, workspace.id),
       resolveWorkspaceListingAttribution(db, workspace.ownerUserId, workspace.id),
-      leadCountsByChannel({ workspaceId: workspace.id, propertyId: propertyId || undefined }).catch(() => ({}) as Record<string, number>),
+      // The badge counts only the houses whose applicant and tour-requester identities this viewer
+      // may read — the same narrowing the Leads tab applies, so a count can never point at leads the
+      // tab then withholds.
+      leadReadablePropertyIds(db, ctx.userId, workspace)
+        .then((propertyIds) => leadCountsByChannel({ propertyIds, propertyId: propertyId || undefined }))
+        .catch(() => ({}) as Record<string, number>),
       (async () => {
         const read = async (columns: string) => {
           let q = db
@@ -79,6 +90,14 @@ export async function GET(request: Request) {
       }
     }
 
+    const listings = withListings
+      ? await loadListingPickerSources(db, {
+          workspaceId: workspace.id,
+          propertyIds: workspace.propertyIds,
+          workNumberSet: Boolean(contact.phone?.trim()),
+        }).catch(() => [])
+      : undefined;
+
     return NextResponse.json(
       {
         workspaceId: workspace.id,
@@ -97,6 +116,7 @@ export async function GET(request: Request) {
         leadCounts,
         posts: postsRes.rows.map(toPostRow),
         property,
+        ...(listings ? { listings } : {}),
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

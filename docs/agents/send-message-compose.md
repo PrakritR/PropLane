@@ -14,7 +14,8 @@ spacing, and controls do not.
 ```
 Title                         Ask PropLane    ×
 To            [ recipient dropdown / locked name ]
-Subject       [ text ]        Send via   [ PropLane · Email · SMS ]
+Communication type [ PropLane · Email · SMS ]
+Subject       [ text ]
 Message       [ textarea ]
 ☐ Schedule for later
                               [ Send email | Send SMS | Send message | Schedule ]
@@ -54,7 +55,7 @@ second window. What differs per role lives in one place,
 | | Manager | Vendor | Resident |
 | --- | --- | --- | --- |
 | To | house / Manager / Vendor / admin, typed email or phone | Manager, admin | household, Manager, admin |
-| Channels | In-app, Email, Text (SMS UI on) | none shown: one sponsored email delivery (also the recipient's inbox copy) | In-app, Email |
+| Channels | "Communication type" dropdown under To (multi-select): PropLane, Email, SMS (SMS UI on) | no dropdown: one sponsored email delivery (also the recipient's inbox copy) | "Communication type" dropdown: PropLane, Email |
 | Schedule | yes | no (no vendor scheduled-send route) | no (residents schedule from the thread composer; New message hides it on purpose) |
 | Attach | yes | yes (`/api/vendor/send-inbox-message` takes `attachmentUrls`) | yes (`/api/portal/send-inbox-message`) |
 | Draft with PropLane | yes | no | no (the only draft endpoint, `/api/portal/inbox-draft-reply`, drafts as the manager) |

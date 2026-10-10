@@ -51,14 +51,8 @@ describe("vendor payout detail route (/vendor/financials/payouts/<id>)", () => {
     await expect(renderPortalSection("vendor", "financials", ["bogus-tab"])).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("redirects the bare (recordless) payouts tab to Balance & payouts — unaffected by the detail-only bypass", async () => {
-    try {
-      await renderPortalSection("vendor", "financials", ["payouts"]);
-      throw new Error("expected a redirect");
-    } catch (error) {
-      expect(error).toBeInstanceOf(RedirectError);
-      expect((error as RedirectError).to).toBe("/vendor/financials/balance");
-    }
+  it("the bare (recordless) payouts id is the Payouts tab of the Finances page, not a redirect", async () => {
+    expect(await renderPortalSection("vendor", "financials", ["payouts"])).toBeTruthy();
   });
 
   it("still resolves the real invoices tab and its own record page", async () => {

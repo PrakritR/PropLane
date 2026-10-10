@@ -1,5 +1,5 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
-import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { type HouseholdCharge, type RecurringRentProfile, filterChargesEligibleForPaymentReminders, householdChargeDueDate, isUnpaidHouseholdCharge } from "@/lib/household-charges";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -46,12 +46,6 @@ const LATE_FEE_ELIGIBLE_KINDS = new Set<HouseholdCharge["kind"]>([
 ]);
 const SENT_DEDUP_ID_LIMIT = 10000;
 
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
-
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
@@ -70,7 +64,7 @@ function listingFromPropertyRow(propertyData: unknown): ManagerListingSubmission
 }
 
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

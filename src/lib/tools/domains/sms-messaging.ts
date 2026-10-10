@@ -4,6 +4,7 @@ import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import { auditDayBucket, writeAuditLog, updateAuditResult } from "../audit";
 import { withBodyWarnings } from "../preview-body";
+import { wrapUntrustedContent } from "../untrusted-content";
 import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
@@ -39,9 +40,7 @@ function recentInboundContext(row: Awaited<ReturnType<typeof conversations>>["ro
     .slice(-SMS_CONTEXT_SNIPPET_LIMIT)
     .map((message) => ({
       at: message.createdAt,
-      body: {
-        untrustedContent: `<<<EXTERNAL_SMS>>> ${message.body.slice(0, SMS_CONTEXT_SNIPPET_CHARS)} <<<END EXTERNAL_SMS>>>`,
-      },
+      body: wrapUntrustedContent("SMS", null, message.body.slice(0, SMS_CONTEXT_SNIPPET_CHARS)),
     }));
 }
 
@@ -91,7 +90,7 @@ export const listSmsConversationsTool = defineTool({
           messages: row.messages.slice(-30).map((message) => ({
             direction: message.direction,
             at: message.createdAt,
-            body: { untrustedContent: `<<<EXTERNAL_SMS>>> ${message.body} <<<END EXTERNAL_SMS>>>` },
+            body: wrapUntrustedContent("SMS", null, message.body),
           })),
           } : {}),
         };

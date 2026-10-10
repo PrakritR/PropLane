@@ -7,6 +7,7 @@ import {
   NUMBER_SUBSCRIPTION_PRICE_CENTS,
 } from "@/lib/number-subscription/constants";
 import { getNumberCreditBalance } from "@/lib/number-subscription/credit.server";
+import { getNumberAvailability } from "@/lib/number-subscription/availability.server";
 import { getNumberSubscription, toPublicNumberSubscription } from "@/lib/number-subscription/subscription.server";
 import {
   getResidentAgentNumberStatus,
@@ -18,14 +19,16 @@ export const runtime = "nodejs";
 
 async function residentSnapshot(userId: string) {
   const db = createSupabaseServiceRoleClient();
-  const [subscription, credit, number, phone] = await Promise.all([
+  const [subscription, credit, number, phone, availability] = await Promise.all([
     getNumberSubscription(userId, db),
     getNumberCreditBalance(userId, db),
     getResidentAgentNumberStatus(db, userId),
     loadVendorVerifiedPhone(db, userId),
+    getNumberAvailability(db, "resident"),
   ]);
   return {
     enabled: isNumberSubscriptionEnabled(),
+    available: availability.available,
     priceCents: NUMBER_SUBSCRIPTION_PRICE_CENTS,
     includedMonthlyCents: NUMBER_INCLUDED_CREDIT_CENTS,
     subscription: toPublicNumberSubscription(subscription),

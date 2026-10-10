@@ -5,6 +5,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const toast = vi.hoisted(() => vi.fn());
 const copied = vi.hoisted(() => vi.fn(async (_text: string) => true));
 const status = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+const navigate = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => () => Promise.resolve(true),
@@ -85,6 +88,16 @@ describe("property Promotion › Listing sites", () => {
     expect(ZILLOW.onToggle).toHaveBeenCalledWith(false);
   });
 
+  it("the property pop-up keeps its steps but carries no how-it-works sentence or rules list (those live on the site's record page)", async () => {
+    render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
+    fireEvent.click(rowByName("Craigslist"));
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-steps"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="listing-site-guide-mode"]')?.textContent).toBe("Copy and post");
+    expect(document.querySelector('[data-attr="listing-site-guide-how"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-site-guide-rules"]')).toBeNull();
+    expect(screen.queryByText("Craigslist forbids posting software, so you paste. It still brings a lot of whole-unit renters.")).toBeNull();
+  });
+
   it("Facebook Page and Instagram say Coming soon · post by hand for now with no control while Meta is not live", async () => {
     render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
     for (const id of ["facebook_page", "instagram"]) {
@@ -135,6 +148,21 @@ describe("property Promotion › Listing sites", () => {
 });
 
 describe("overall Promotion › Listing sites", () => {
+  it("a row opens that site's record page instead of a pop-up", async () => {
+    render(<WorkspaceListingSitesPanel />);
+    fireEvent.click(rowByName("Craigslist"));
+    expect(navigate).toHaveBeenCalledWith("/portal/promotion/listing-sites/craigslist/overview");
+    expect(document.querySelector('[data-attr="listing-site-guide"]')).toBeNull();
+    fireEvent.click(rowByName("Zillow Rental Network"));
+    expect(navigate).toHaveBeenLastCalledWith("/portal/promotion/listing-sites/zillow/overview");
+  });
+
+  it("honors a non-default base path in the record href", async () => {
+    render(<WorkspaceListingSitesPanel basePath="/pro" />);
+    fireEvent.click(rowByName("Roomster"));
+    expect(navigate).toHaveBeenCalledWith("/pro/promotion/listing-sites/roomster/overview");
+  });
+
   it("renders 16 rows in reach order with no toggle, no sub-tabs and no Listed with PropLane row", async () => {
     render(<WorkspaceListingSitesPanel />);
     expect(rows()).toHaveLength(16);

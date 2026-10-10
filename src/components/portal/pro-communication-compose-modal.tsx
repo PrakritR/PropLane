@@ -3,11 +3,11 @@
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X, Mail, Smartphone, MessageSquare, Paperclip, Sparkles } from "lucide-react";
+import { X, Paperclip, Sparkles } from "lucide-react";
 import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
 import { INBOX_ATTACHMENT_ACCEPT, INBOX_MAX_ATTACHMENTS, createPendingInboxAttachment, uploadInboxAttachment, revokeInboxAttachmentPreview, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, type CheckboxMultiSelectGroup, type CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
 import {
   defaultPortalMessageChannelSelection,
   defaultPortalMessageScheduleAt,
@@ -780,7 +780,7 @@ export function ManagerCommunicationComposeModal({
 
   const submit = async () => {
     if (attachments.some((item) => item.uploading || item.error)) {setFormError("Wait for uploads to finish or remove failed attachments."); return;}
-    if (attachments.length && (scheduleLater || viaSms)) {setFormError(scheduleLater ? "Scheduled attachments are not supported. Remove the files or send now." : "Attachments can be sent by Email or In-app. Turn off Text message to send these files."); return;}
+    if (attachments.length && (scheduleLater || viaSms)) {setFormError(scheduleLater ? "Scheduled attachments are not supported. Remove the files or send now." : "Attachments can be sent by Email or PropLane. Turn off SMS to send these files."); return;}
 
     if (recipientQuery.trim()) { setFormError("Press Enter to add the recipient before sending."); return; }
     setFormError(null);
@@ -1134,7 +1134,7 @@ export function ManagerCommunicationComposeModal({
     }
     setFormError(null);
     if (caps.channels.length > 0 && !viaInbox && !viaEmail) {
-      fail("Choose In-app or Email.");
+      fail("Choose PropLane or Email.");
       return;
     }
     const s = subject.trim();
@@ -1204,6 +1204,17 @@ export function ManagerCommunicationComposeModal({
       setSending(false);
     }
   };
+
+  /** SMS (only with the SMS UI on, manager only), Email, PropLane: a type the role cannot use is not offered. */
+  const communicationTypeOptions = useMemo<CheckboxMultiSelectOption[]>(
+    () =>
+      ([
+        { value: "sms", label: "SMS" },
+        { value: "email", label: "Email" },
+        { value: "proplane", label: "PropLane" },
+      ] as const).filter((option) => caps.channels.includes(option.value)).map((option) => ({ ...option })),
+    [caps.channels],
+  );
 
   const sendLabel = (() => {
     if (sending) return "Sending…";
@@ -1276,6 +1287,17 @@ export function ManagerCommunicationComposeModal({
             }}>{option.label}</button>)}
           </div> : null}
         </div>
+        {communicationTypeOptions.length > 0 ? (
+          <CheckboxMultiSelect
+            label="Communication type"
+            labelClassName={portalMessageFieldLabel()}
+            options={communicationTypeOptions}
+            selected={sendVia}
+            onChange={setSendVia}
+            emptyLabel="Choose a type…"
+            dataAttr="communication-compose-type"
+          />
+        ) : null}
         <PortalMessageSubjectField value={subject} onChange={setSubject} dataAttr="communication-compose-subject" />
 
         <PortalMessageBodyField
@@ -1323,7 +1345,6 @@ export function ManagerCommunicationComposeModal({
           </label> : null}
           {caps.draft ? <button type="button" aria-label="Draft with PropLane" title="Draft with PropLane" disabled={drafting || sending} className="grid h-10 w-10 max-md:h-11 max-md:w-11 place-items-center rounded-full text-primary disabled:opacity-40" onClick={() => draftMessage()} data-attr="communication-compose-draft"><Sparkles className="h-4 w-4" /></button> : null}
           {caps.schedule ? <InboxComposerScheduleMenu scheduleLater={scheduleLater} onScheduleLaterChange={setScheduleLater} sendAt={sendAt} onSendAtChange={setSendAt} scheduleDataAttr="communication-compose-schedule-later" sendAtDataAttr="communication-compose-schedule-at" /> : null}
-          {[{ id: "proplane", label: "In-app", icon: MessageSquare }, { id: "email", label: "Email", icon: Mail }, { id: "sms", label: "Text message", icon: Smartphone }].filter(({ id }) => caps.channels.includes(id as "proplane" | "email" | "sms")).map(({id, label, icon: Icon}) => <button type="button" key={id} title={label} aria-label={label} aria-pressed={sendVia.includes(id)} className={`grid h-10 w-10 max-md:h-11 max-md:w-11 place-items-center rounded-full ${sendVia.includes(id) ? "bg-primary/10 text-primary" : "text-muted"}`} onClick={() => setSendVia((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])}><Icon className="h-4 w-4" /></button>)}
         </div>
       </PortalMessageComposeModalBody>
     </PortalDialog>

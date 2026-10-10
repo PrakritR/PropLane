@@ -12,6 +12,7 @@ import {
   resolveCommunicationScope,
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
+import { inboxStoreOwnerIds } from "@/lib/communication/inbox-store-owner-ids";
 import { buildClientPortalInboxThreadUpsert, isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
 import {
   clearedInboxThreadRowData,
@@ -34,7 +35,9 @@ import {
   type InboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
+import { teamThreadRowForViewer } from "@/lib/team-thread-view";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import {
@@ -179,11 +182,15 @@ export async function GET(request: Request) {
       if (ownerRefusal) return ownerRefusal;
     }
 
+    // A View-as session is read-only, and both heals below insert a thread row into the account
+    // being looked at — resident Communication included. Resolved once for this GET.
+    const viewAsOpen = await isViewAsSessionOpen();
+
     // Make sure a resident always has their assistant conversation before the
     // list is read, so it simply appears in Communication with no extra call
     // from the client. Deterministic id keeps this idempotent; a failure here
     // must never take down the inbox, so it is swallowed.
-    if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email) {
+    if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email && !viewAsOpen) {
       try {
         const managerIds = await managerIdsOwningResident(ctx.db, ctx.user.email);
         // Bound to ONE manager when known — the first that owns this resident.
@@ -197,14 +204,26 @@ export async function GET(request: Request) {
       }
     }
 
-    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id) {
+    // A View-as session is read-only: this GET heals (inserts) the notice and Team chat threads, so it
+    // must not run for an operator looking at someone else's account.
+    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id && !viewAsOpen) {
       try {
         const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
         const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
-        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id, {
-          id: active.id,
-          isDefault: active.isDefault,
+        // A UI read: the viewer's selected workspace is passed in explicitly,
+        // and the one resolver normalizes the default workspace to the legacy id.
+        const { resolveManagerAssistantThreadWorkspace } = await import(
+          "@/lib/communication/manager-assistant-workspace.server"
+        );
+        const workspace = await resolveManagerAssistantThreadWorkspace(ctx.db, ctx.user.id, {
+          workspaceId: active.id,
         });
+        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id, workspace);
+        // The workspace's Team chat exists once the workspace has two people, so
+        // anyone in it can start the conversation. Only for a workspace the
+        // viewer is a member of (the active workspace is one of theirs).
+        const { ensureWorkspaceTeamThread } = await import("@/lib/team-comms.server");
+        await ensureWorkspaceTeamThread(ctx.db, { ownerManagerUserId: active.ownerUserId, workspaceId: active.id });
       } catch (e) {
         console.error("ensureManagerAgentNoticeThread failed", e);
       }
@@ -225,7 +244,7 @@ export async function GET(request: Request) {
       if (scopeParam === MANAGER_INBOX_SCOPE) {
         communicationScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "read");
       }
-      query = applyPortalInboxThreadScope(query, ctx.user, communicationScope?.ownerIds ?? [], {
+      query = applyPortalInboxThreadScope(query, ctx.user, communicationScope ? inboxStoreOwnerIds(communicationScope) : [], {
         participantOnlyWhenUnowned: scopeParam === MANAGER_INBOX_SCOPE,
       }) as typeof query;
       if (scopeParam) {
@@ -349,7 +368,9 @@ export async function GET(request: Request) {
       }
     }
     const rows = visibleRecords.map((record) => {
-      const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
+      const storedRow = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
+      // A team chat is read by several people: whose lines are "mine" is the viewer's.
+      const row = isTeamThreadId(String(record.id ?? "")) ? teamThreadRowForViewer(storedRow, ctx.user.id) : storedRow;
       return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
     });
 
@@ -460,7 +481,7 @@ export async function POST(req: Request) {
       }
       const ids = [...requested.keys()];
       const editScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "edit");
-      const extraOwnerIds = editScope.ownerIds;
+      const extraOwnerIds = inboxStoreOwnerIds(editScope);
       let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").in("id", ids);
       query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof query;
       const { data, error } = await query;
@@ -524,7 +545,7 @@ export async function POST(req: Request) {
         .select("id, owner_user_id, participant_email, scope, thread_type, row_data")
         .eq("id", id)
         .eq("scope", scopeKey);
-      clearQuery = applyPortalInboxThreadScope(clearQuery, ctx.user, clearScope?.ownerIds ?? [], {
+      clearQuery = applyPortalInboxThreadScope(clearQuery, ctx.user, clearScope ? inboxStoreOwnerIds(clearScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
       }) as typeof clearQuery;
       const { data: clearTarget, error: clearError } = await clearQuery.maybeSingle();
@@ -578,7 +599,7 @@ export async function POST(req: Request) {
         : null;
       let query = ctx.db.from("portal_inbox_thread_records")
         .select("id, owner_user_id, participant_email, thread_type, scope, row_data").in("id", ids);
-      query = applyPortalInboxThreadScope(query, ctx.user, folderScope?.ownerIds ?? [], {
+      query = applyPortalInboxThreadScope(query, ctx.user, folderScope ? inboxStoreOwnerIds(folderScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
       }) as typeof query;
       const { data: fetchedFolderRows, error } = await query;
@@ -619,7 +640,7 @@ export async function POST(req: Request) {
         scopeKey === MANAGER_INBOX_SCOPE
           ? await resolveCommunicationScope(ctx.db, ctx.user.id, "delete")
           : null;
-      const extraOwnerIds = deleteScope?.ownerIds ?? [];
+      const extraOwnerIds = deleteScope ? inboxStoreOwnerIds(deleteScope) : [];
       const scopeOptions = { participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE };
       let deleted = 0;
       for (const id of ids) {
@@ -635,6 +656,15 @@ export async function POST(req: Request) {
           ? (await filterVisibleInboxThreadRecords(ctx.db, deleteScope, [fetchedTarget as DeleteRow]))[0]
           : (fetchedTarget as DeleteRow);
         if (!target) continue;
+        // A workspace Team chat belongs to the workspace, not to the person
+        // deleting it: every member reaches it through their own membership, so
+        // a delete here is the same soft mailbox move the upsert path makes.
+        // Hard-deleting the row would take the whole team's history with it.
+        if ((target as { thread_type?: string | null }).thread_type === "team" || isTeamThreadId(target.id)) {
+          await updateTeamThreadMailboxState(ctx.db, { id: target.id }, { folder: "trash" });
+          deleted += 1;
+          continue;
+        }
         const members = await smsNoticeMembers(ctx.db, target);
         let deleteQuery = ctx.db.from("portal_inbox_thread_records").delete().in("id", members.map((m) => m.id)).select("id");
         deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user, extraOwnerIds, scopeOptions) as typeof deleteQuery;
@@ -682,7 +712,7 @@ export async function POST(req: Request) {
             ? await resolveCommunicationScope(ctx.db, ctx.user.id, "edit")
             : null;
         let visibleQuery = ctx.db.from("portal_inbox_thread_records").select("id").eq("id", id).limit(1);
-        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, upsertScope?.ownerIds ?? [], {
+        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, upsertScope ? inboxStoreOwnerIds(upsertScope) : [], {
           participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
         }) as typeof visibleQuery;
         const { data: visible, error: visibleError } = await visibleQuery;

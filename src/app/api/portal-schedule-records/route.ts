@@ -8,6 +8,7 @@ import {
   ROOM_DATE_BLOCK_RECORD_TYPE,
   CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
   isDedicatedBookingsRecordType,
+  roomDateBlockRecordIdPrefix,
 } from "@/lib/portal-schedule-record-scope";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
@@ -25,6 +26,7 @@ import {
   handleTestWorkspaceSchedulePost,
 } from "@/lib/test-workspaces/schedule-route.server";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 
 export const runtime = "nodejs";
 
@@ -38,6 +40,10 @@ export const runtime = "nodejs";
 const AVAILABILITY_RECORD_TYPES = new Set(["manager_availability", "manager_property_availability"]);
 
 type RoomDateBlockRow = { id?: unknown; row_data?: unknown };
+
+function isRoomDateBlockRecordType(recordType: string): boolean {
+  return recordType === ROOM_DATE_BLOCK_RECORD_TYPE || recordType === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE;
+}
 
 function roomDateBlockField(row: RoomDateBlockRow, key: string): string {
   const rowData = row.row_data;
@@ -156,8 +162,11 @@ function scheduleRecordScope(
       `manager_user_id.eq.${user.id},id.eq.axis_vendor_avail_slots_v2_${user.id},id.eq.axis_vendor_flex_prefs_${user.id}`,
     );
   }
+  // A room block the caller wrote is stamped to the house's OWNER, so the owner column alone would
+  // hide a co-manager's own block from the Remove they just created it with. Their blocks carry
+  // their id in the record id and an insert cannot claim anyone else's prefix.
   return q.or(
-    `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.eq.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
+    `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.like.${roomDateBlockRecordIdPrefix(user.id)}%,id.eq.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
   );
 }
 
@@ -304,7 +313,30 @@ const route = createJsonRecordRoute({
     // (partner inquiries, planned events) keep their existing owner handling.
     return managerScoped ? { ...record, manager_user_id: user.id } : record;
   },
+  // A room block stays stamped to the house owner for its whole life: the capacity trigger only
+  // accepts the owner's stamp, and a co-manager's Remove (saved as a cancelled block) must not
+  // move the row onto them. `buildUpsert` pins every non-admin write to the caller, so the stored
+  // owner is restored here for an UPDATE; an INSERT is stamped in `atomicWrite` instead.
+  reconcileExisting: (record, user, existing) => {
+    if (!existing || user.role === "admin") return record;
+    if (!isRoomDateBlockRecordType(String(record.record_type ?? ""))) return record;
+    const storedOwner = String(existing.manager_user_id ?? "").trim();
+    return storedOwner ? { ...record, manager_user_id: storedOwner } : record;
+  },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    if (isRoomDateBlockRecordType(String(record.record_type ?? "")) && existing) {
+      // Changing or removing a block needs the same Calendar edit access that creating it did,
+      // re-checked now: a revoked grant must not keep a block of someone else's house writable.
+      const storedOwner = String(existing.manager_user_id ?? "").trim();
+      const blockPropertyId = String(existing.property_id ?? record.property_id ?? "").trim();
+      if (storedOwner && storedOwner !== user.id && !scheduleUserHasRole(user, "admin")) {
+        const allowed =
+          Boolean(blockPropertyId) && (await managerCanWriteCalendarForProperty(db, user.id, blockPropertyId));
+        if (!allowed) {
+          return { handled: true, error: "You need Calendar edit access on this property to change its room blocks.", status: 403 };
+        }
+      }
+    }
     if (String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) {
       // Eligibility comes from the persisted stay, never the replacement body's dates.
       const priorType = String(existing?.record_type ?? "");
@@ -313,12 +345,36 @@ const route = createJsonRecordRoute({
       }
       const start = roomDateBlockField(existing, "checkIn");
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-      if (priorType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE && (!start || start <= today || isImportedChannelBlock({ reason: roomDateBlockField(existing, "reason") }))) {
-        return { handled: true, error: "Only upcoming manager bookings can be cancelled.", status: 409 };
+      // A started block can still be removed until its last night (check-out is exclusive); the
+      // export feed then drops it and the channel reopens the rest. Same rule as `canCancelBooking`.
+      const end = roomDateBlockField(existing, "checkOut");
+      if (priorType !== CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE && (!start || (end && end <= today) || isImportedChannelBlock({ reason: roomDateBlockField(existing, "reason") }))) {
+        return { handled: true, error: "Only current or upcoming manager bookings can be removed.", status: 409 };
       }
       return { handled: false };
     }
     if (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE) {
+      // A room block belongs to the house: the capacity trigger only accepts one stamped with the
+      // property OWNER. A co-manager holding Calendar at edit on that house writes it under the
+      // owner (their own id kept as createdByUserId); anyone else is refused here, never stamped.
+      const blockPropertyId = String(record.property_id ?? "").trim();
+      if (!existing && blockPropertyId) {
+        const owner = await resolvePropertyOwnerUserId(db, blockPropertyId);
+        if (owner && String(record.manager_user_id ?? "") !== owner) {
+          // An admin's write arrives unstamped (assignOwnership leaves admin rows alone).
+          const allowed =
+            owner === user.id ||
+            scheduleUserHasRole(user, "admin") ||
+            (await managerCanWriteCalendarForProperty(db, user.id, blockPropertyId));
+          if (!allowed) {
+            return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
+          }
+          const rowData = record.row_data && typeof record.row_data === "object" ? (record.row_data as Record<string, unknown>) : {};
+          // Mutates the record the shared handler upserts next (see portal-record-api atomicWrite).
+          record.manager_user_id = owner;
+          record.row_data = { ...rowData, createdByUserId: user.id };
+        }
+      }
       const conflict = await roomDateBlockOverlapConflict({
         db,
         managerUserId: String(record.manager_user_id ?? user.id),
@@ -452,6 +508,19 @@ const route = createJsonRecordRoute({
         ok: false,
         error: "Shared calendar and inquiry records must be changed through their dedicated lifecycle routes.",
       };
+    }
+    // Removing a block of someone else's house needs the Calendar edit access that created it,
+    // re-checked here — the same rule the update path applies in `atomicWrite`.
+    if (!scheduleUserHasRole(user, "admin")) {
+      for (const record of records) {
+        if (!isRoomDateBlockRecordType(String(record.record_type ?? ""))) continue;
+        const storedOwner = String(record.manager_user_id ?? "").trim();
+        if (!storedOwner || storedOwner === user.id) continue;
+        const propertyId = String(record.property_id ?? "").trim();
+        if (!propertyId || !(await managerCanWriteCalendarForProperty(db, user.id, propertyId))) {
+          return { ok: false, error: "You need Calendar edit access on this property to remove its room blocks.", status: 403 };
+        }
+      }
     }
     // An update or delete must refuse a row outside the active workspace, same
     // as a create — see the matching check in `authorizeUpsert`.

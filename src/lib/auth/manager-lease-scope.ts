@@ -187,6 +187,42 @@ export async function managerHasCalendarAccessForProperty(
 }
 
 /**
+ * The same decision as {@link managerHasCalendarAccessForProperty} for MANY houses, in two round
+ * trips instead of up to four per house: a tool call asks about the whole portfolio at once, and the
+ * per-property call issues a `manager_property_records` lookup plus a co-manager link read for the
+ * `calendar` grant and again for the legacy `properties` one.
+ */
+export async function managerCalendarReadableProperties(
+  db: ServiceClient,
+  userId: string,
+  propertyIds: readonly string[],
+): Promise<Set<string>> {
+  const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  const readable = new Set<string>();
+  if (ids.length === 0) return readable;
+  const [owned, linked] = await Promise.all([
+    db.from("manager_property_records").select("id").eq("manager_user_id", userId).in("id", ids),
+    collectLinkedPropertyPermissionsForUser(db, userId),
+  ]);
+  for (const row of (owned.data ?? []) as Array<{ id?: unknown }>) {
+    const id = String(row.id ?? "").trim();
+    if (id) readable.add(id);
+  }
+  for (const id of ids) {
+    if (readable.has(id)) continue;
+    if (!linked.has(id)) continue;
+    const perms = linked.get(id);
+    if (
+      hasCoManagerPermissionLevelForProperty(perms, id, "calendar", "read") ||
+      hasCoManagerPermissionLevelForProperty(perms, id, "properties", "read")
+    ) {
+      readable.add(id);
+    }
+  }
+  return readable;
+}
+
+/**
  * Owner, or a co-manager holding the Calendar module at EDIT on this property. Linking, unlinking or syncing a
  * channel calendar changes what the property publishes and what it blocks, so it needs more than the read access
  * `managerHasCalendarAccessForProperty` grants (and the legacy `properties` read grant does not stand in for it).

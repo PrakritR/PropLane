@@ -5,7 +5,10 @@ import { runInlineProspectBurst } from "@/lib/sms/prospect-sms-burst-job.server"
 import { publishDeferredProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
+import { forwardInboundToTeammates, resolveResidentForwardHouseId } from "@/lib/sms/inbound-forward-team.server";
+import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
+import { routeManagerInboundText } from "@/lib/sms/team-chat-inbound.server";
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
 import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { routeUnrecognizedInboundText } from "@/lib/sms/inbound-text-routing.server";
@@ -762,6 +765,41 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   mark("identity");
   if (managerInbound) {
     mark("route:manager");
+    // A member texting the work number is talking to the team unless the text
+    // is addressed to the Assistant ("@assistant ...") or the workspace has one
+    // member. A team line is appended to the workspace Team chat as that member
+    // and relayed to the others; it never reaches the agent.
+    let teamRoute: Awaited<ReturnType<typeof routeManagerInboundText>>;
+    try {
+      teamRoute = await routeManagerInboundText(db, {
+        ownerManagerUserId: managerInbound.workNumberOwnerId,
+        workspaceId: workspaceId ?? null,
+        actorUserId: managerInbound.actorUserId,
+        body,
+        messageSid,
+      });
+    } catch {
+      teamRoute = { kind: "team", ok: false };
+    }
+    if (teamRoute.kind === "team") {
+      if (!teamRoute.ok) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Team chat message unavailable." }, { status: 503 });
+      }
+      // The line lives in the Team chat now; drop the raw inbound copy, as an
+      // agent turn does once it has persisted the text.
+      const { error: cleanupError } = await db
+        .from("inbound_sms_log")
+        .delete()
+        .eq("message_sid", messageSid)
+        .eq("manager_user_id", managerId);
+      if (cleanupError || !(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+    // The agent sees the text without its "@assistant" address.
+    const agentBody = teamRoute.text;
     await projectClassifiedInbound(db, {
       managerUserId: managerId,
       role: "manager",
@@ -769,7 +807,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       fromPhone,
       toPhone,
       messageSid,
-      body,
+      body: agentBody,
       occurredAt,
     }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
     const managerIdentity = await resolveManagerSmsAgentContext(db, {
@@ -778,11 +816,27 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       access: managerInbound.access,
       workspaceId: workspaceId,
     });
+    // One assistant conversation: the manager's own text lands in their
+    // PropLane Assistant thread (marked SMS) before the agent answers. The id
+    // is the Twilio MessageSid, so a webhook retry appends nothing. A failed
+    // append never blocks the agent's answer; the retry repeats it.
+    const assistantThread = managerIdentity.ok
+      ? await appendSmsTurnToManagerAssistantThread(db, {
+          ownerUserId: managerInbound.actorUserId,
+          workspaceId: workspaceId ?? null,
+          messageId: `sms_in_${messageSid}`,
+          author: "manager",
+          body: agentBody,
+        })
+      : null;
+    if (assistantThread && !assistantThread.ok) {
+      console.error("manager inbound assistant thread mirror failed", assistantThread.error);
+    }
     const turn = managerIdentity.ok
       ? await runManagerSmsAgentTurn(db, {
           ctx: managerIdentity.ctx,
           managerPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
-          inboundText: body,
+          inboundText: agentBody,
           inboundMessageSid: messageSid,
           onInboundPersisted: async () => {
             const { error } = await db
@@ -797,6 +851,12 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           return null;
         })
       : null;
+    if (turn?.sessionId && assistantThread?.ok) {
+      // Link the SMS agent's saved session to the one Assistant thread (best effort).
+      await db.from("agent_sessions").update({ inbox_thread_id: assistantThread.threadId })
+        .eq("id", turn.sessionId).eq("user_id", managerInbound.actorUserId)
+        .then(undefined, () => undefined);
+    }
     if (!managerIdentity.ok) {
       console.info("twilio inbound manager agent identity unresolved", {
         managerUserId: managerId,
@@ -1033,6 +1093,19 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         body,
         messageSid,
         counterpartyRole: "resident",
+      }).catch(() => undefined);
+      // Teammates with the resident's house get the same forward from the work
+      // number. An unresolved house forwards to the owner alone, as before.
+      await forwardInboundToTeammates(db, {
+        managerUserId: managerId,
+        workspaceId: workspaceId ?? null,
+        houseId: await resolveResidentForwardHouseId(db, {
+          ownerManagerUserId: managerId,
+          residentEmail: residentIdentity.ctx.email,
+        }),
+        fromPhone,
+        body,
+        messageSid,
       }).catch(() => undefined);
     }
     if (turn) return twimlOk();

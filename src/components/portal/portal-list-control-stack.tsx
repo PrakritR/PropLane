@@ -28,6 +28,8 @@ import {
   UserPlus,
   Pencil,
   type LucideIcon,
+  Landmark,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
@@ -67,6 +69,8 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Pencil, // Edit (service record, Service)
   Bell, // Send reminder (resident record: payments, lease signing, application consent)
   ClipboardCheck, // Add inspection (resident record: Move-in → Forms)
+  Landmark, // Bank (vendor Finances band: payout destination)
+  ArrowUpFromLine, // Withdraw (vendor Finances band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

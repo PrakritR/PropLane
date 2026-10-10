@@ -18,7 +18,9 @@ import type { MockProperty } from "@/data/types";
 import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
-import { pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import { airbnbReservationUrl, isPhoneLast4 } from "@/lib/channel-calendar/reservation-details";
+import { loadChannelStayGuestNames } from "@/lib/channel-calendar/stay-details.server";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
@@ -50,14 +52,25 @@ function roomLabelFromSubmission(
   return room?.name?.trim() || fallbackLabel?.trim() || roomId;
 }
 
-function normalizeRanges(imported: ChannelCalendarImportedRange[]): ManagerChannelBookingRange[] {
-  return imported.map((r) => ({
-    sourceUid: r.sourceUid,
-    start: r.start,
-    end: r.end || r.start,
-    summary: r.summary?.trim() || "Booked",
-    ...(isHostBlockRange(r) ? { hostBlock: true } : {}),
-  }));
+export function normalizeRanges(
+  imported: ChannelCalendarImportedRange[],
+  guestNames?: ReadonlyMap<string, string>,
+): ManagerChannelBookingRange[] {
+  return imported.map((r) => {
+    const hostBlock = isHostBlockRange(r);
+    const reservationUrl = hostBlock ? null : airbnbReservationUrl(r.reservationCode);
+    const guestName = hostBlock ? undefined : guestNames?.get(importedRangeUid(r));
+    return {
+      sourceUid: r.sourceUid,
+      start: r.start,
+      end: r.end || r.start,
+      summary: r.summary?.trim() || "Booked",
+      ...(hostBlock ? { hostBlock: true } : {}),
+      ...(reservationUrl && r.reservationCode ? { reservationCode: r.reservationCode, reservationUrl } : {}),
+      ...(!hostBlock && isPhoneLast4(r.phoneLast4) ? { phoneLast4: r.phoneLast4 } : {}),
+      ...(guestName ? { guestName } : {}),
+    };
+  });
 }
 
 export async function listManagerChannelCalendarBookings(
@@ -102,6 +115,12 @@ export async function listManagerChannelCalendarBookings(
   // flight stored it again (C2-AB7).
   const tombstoneKeys = await loadChannelStayTombstoneKeys(db, allowed);
 
+  // Manager-entered guest names, one query for every connection in scope.
+  const guestNames = await loadChannelStayGuestNames(
+    db,
+    (data ?? []).map((row) => String((row as { id?: unknown }).id ?? "")),
+  );
+
   const propertyCache = new Map<
     string,
     Awaited<ReturnType<typeof loadPropertyRecord>>
@@ -129,9 +148,11 @@ export async function listManagerChannelCalendarBookings(
           { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
           tombstoneKeys,
         ).kept,
+        guestNames.get(connection.id),
       ),
       lastSyncedAt: connection.last_synced_at,
       lastError: connection.last_error,
+      exportLastFetchedAt: connection.export_last_fetched_at,
       hasImportUrl: Boolean(connection.import_url?.trim()),
       importUrl: canSeeImportUrl.has(connection.property_id) ? connection.import_url?.trim() || null : null,
       exportUrl: buildExportCalendarUrl(connection.export_token, browserOrigin),

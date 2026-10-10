@@ -9,6 +9,14 @@ vi.mock("@/lib/payment-automation-settings", async (importOriginal) => {
 
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
   resolveActiveManagerSendNumber: vi.fn(),
+  resolveWorkspaceSendLine: vi.fn(),
+}));
+
+const sendPropLaneSms = vi.fn(async (_args: Record<string, unknown>) => ({
+  ok: true, durablyAccepted: true, outboxStatus: "queued",
+}));
+vi.mock("@/lib/proplane-sms-transport.server", () => ({
+  sendPropLaneSms: (args: Record<string, unknown>) => sendPropLaneSms(args),
 }));
 
 vi.mock("@/lib/sms-consent", () => ({
@@ -16,10 +24,16 @@ vi.mock("@/lib/sms-consent", () => ({
 }));
 
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import {
+  resolveActiveManagerSendNumber,
+  resolveWorkspaceSendLine,
+} from "@/lib/sms/manager-number-provisioning.server";
+import { isPhoneOptedOut } from "@/lib/sms-consent";
 import {
   isManagerNotificationSmsAccepted,
   resolveManagerNotificationChannels,
+  managerNotificationSmsRefused,
+  sendManagerNotificationSms,
 } from "@/lib/manager-notification-routing.server";
 
 const db = {} as SupabaseClient;
@@ -117,5 +131,103 @@ describe("isManagerNotificationSmsAccepted", () => {
   it("never accepts an unknown or terminal failed outbox state", () => {
     expect(isManagerNotificationSmsAccepted({ ok: true, durablyAccepted: true, outboxStatus: "unknown" })).toBe(false);
     expect(isManagerNotificationSmsAccepted({ ok: true, durablyAccepted: true, outboxStatus: "failed" })).toBe(false);
+  });
+});
+
+describe("a notice texted from the workspace OWNER's line", () => {
+  const OWNER = "owner-1";
+  const MATE = "mate-1";
+  const profileDb = (row: Record<string, unknown>) =>
+    ({
+      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error: null }) }) }) }),
+    }) as unknown as SupabaseClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isPhoneOptedOut).mockResolvedValue(false);
+    vi.mocked(loadManagerAutomationSettings).mockResolvedValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+    vi.mocked(resolveActiveManagerSendNumber).mockResolvedValue("+15005550001");
+    vi.mocked(resolveWorkspaceSendLine).mockResolvedValue({ phoneNumber: "+15005550001", numberId: "line-1" });
+  });
+
+  it("asks about the OWNER's workspace line, not the teammate's, and reports the destination and topic for the email leg", async () => {
+    const channels = await resolveManagerNotificationChannels(
+      db, MATE, "payment_reminders", profile, undefined, undefined, { ownerUserId: OWNER, workspaceId: "ws-1" },
+    );
+    expect(resolveActiveManagerSendNumber).toHaveBeenCalledWith(db, OWNER, "ws-1");
+    expect(channels).toMatchObject({ sms: true, email: true, destination: "both", categoryEnabled: true });
+  });
+
+  it("a teammate's text: PropLane: prefix, the owner's pinned line, billed to the owner, consent read for the teammate", async () => {
+    const result = await sendManagerNotificationSms(
+      profileDb({ ...profile }),
+      {
+        managerUserId: MATE, category: "payment_reminders", subject: "Rent · Payment update",
+        text: "$1,000.00 was received", purpose: "manager_agent_notification_payment_reminders",
+        dedupeKey: "notice:k:mate-1", sendFrom: { ownerUserId: OWNER, workspaceId: "ws-1" },
+      },
+    );
+    expect(result).toEqual({ sent: true });
+    const sent = sendPropLaneSms.mock.calls[0]![0] as Record<string, unknown> & { log: Record<string, unknown> };
+    expect(String(sent.text)).toMatch(/^PropLane: /);
+    expect(sent).toMatchObject({
+      to: profile.phone,
+      selectedWorkLineId: "line-1",
+      actorUserId: MATE,
+      recipientUserId: MATE,
+      purpose: "manager_agent_notification_payment_reminders",
+      dedupeKey: "notice:k:mate-1",
+    });
+    expect(sent.log.managerUserId).toBe(OWNER); // the owner's wallet, never the teammate's
+    expect(resolveWorkspaceSendLine).toHaveBeenCalledWith(expect.anything(), OWNER, "ws-1");
+  });
+
+  it("an unverified, STOPped or forwarding-off phone gets no text", async () => {
+    const send = (row: Record<string, unknown>) =>
+      sendManagerNotificationSms(profileDb(row), {
+        managerUserId: MATE, category: "payment_reminders", subject: "s", text: "t",
+        purpose: "manager_agent_notification_payment_reminders", sendFrom: { ownerUserId: OWNER, workspaceId: "ws-1" },
+      });
+    // A refusal, not a failure: the caller must be able to tell them apart.
+    expect(await send({ ...profile, phone_verified_at: null })).toEqual({ sent: false, reason: "not_routed" });
+    expect(await send({ ...profile, sms_forward_inbound: false })).toEqual({ sent: false, reason: "not_routed" });
+    vi.mocked(isPhoneOptedOut).mockResolvedValue(true);
+    expect(await send({ ...profile })).toEqual({ sent: false, reason: "not_routed" });
+    expect(sendPropLaneSms).not.toHaveBeenCalled();
+  });
+
+  it("no sendable workspace line, no text", async () => {
+    vi.mocked(resolveActiveManagerSendNumber).mockResolvedValue(null);
+    vi.mocked(resolveWorkspaceSendLine).mockResolvedValue(null);
+    const result = await sendManagerNotificationSms(profileDb({ ...profile }), {
+      managerUserId: MATE, category: "payment_reminders", subject: "s", text: "t",
+      purpose: "manager_agent_notification_payment_reminders", sendFrom: { ownerUserId: OWNER, workspaceId: "ws-1" },
+    });
+    // No line at all is a refusal: the recipient simply has no number to text.
+    expect(result).toEqual({ sent: false, reason: "not_routed" });
+    expect(sendPropLaneSms).not.toHaveBeenCalled();
+  });
+
+  it("a line that cannot be READ is a transient failure, never a quiet refusal", async () => {
+    vi.mocked(resolveActiveManagerSendNumber).mockRejectedValueOnce(new Error("read failed"));
+    const result = await sendManagerNotificationSms(profileDb({ ...profile }), {
+      managerUserId: MATE, category: "payment_reminders", subject: "s", text: "t",
+      purpose: "manager_agent_notification_payment_reminders", sendFrom: { ownerUserId: OWNER, workspaceId: "ws-1" },
+    });
+    expect(result).toEqual({ sent: false, reason: "line_unreadable" });
+    expect(managerNotificationSmsRefused("line_unreadable")).toBe(false);
+    expect(managerNotificationSmsRefused("no_work_number")).toBe(true);
+  });
+
+  it("a caller with no sendFrom is unchanged: own line, own wallet, no prefix, no pin", async () => {
+    await sendManagerNotificationSms(profileDb({ ...profile }), {
+      managerUserId: OWNER, category: "payment_reminders", subject: "Subject", text: "Body",
+      purpose: "manager_agent_notification_payment_reminders",
+    });
+    const sent = sendPropLaneSms.mock.calls[0]![0] as Record<string, unknown> & { log: Record<string, unknown> };
+    expect(sent.text).toBe("Subject\nBody");
+    expect(sent.selectedWorkLineId).toBeUndefined();
+    expect(sent.actorUserId).toBeUndefined();
+    expect(sent.log.managerUserId).toBe(OWNER);
   });
 });

@@ -2894,13 +2894,16 @@ html[data-communication-surface]
   flex: 0 0 auto;
 }
 
+/* `clip`, never `hidden`: a hidden box is still a scroll container, so a trackpad swipe or a
+   focus scroll could slide the whole list pane sideways and cut off its left edge. */
 html[data-communication-surface] .portal-inbox-list-pane > *,
 html[data-communication-surface] .portal-inbox-thread-pane > * {
   display: flex;
   min-height: 0;
+  min-width: 0;
   flex: 1 1 0%;
   flex-direction: column;
-  overflow: hidden;
+  overflow: clip;
 }
 
 @media (max-width: 1023px) {

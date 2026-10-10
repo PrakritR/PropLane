@@ -130,7 +130,10 @@ describe("Find work (the board list)", () => {
     await publish();
     const result = await listBoardServices(asDb(), VENDOR);
     expect(result.ok && result.services.map((s) => s.title)).toEqual(["Kitchen sink leak"]);
-    const wire = JSON.stringify(result);
+    // The ref is a random hex id by construction (asserted on publish), so it is left out of the
+    // leak scan - a chance "1420" inside it is not a leaked address.
+    expect(result.ok && result.services[0]?.ref).toMatch(/^pub_[a-f0-9]{32}$/);
+    const wire = JSON.stringify(result, (key, value) => (key === "ref" ? undefined : value));
     for (const secret of ["1420", "Alder St", "4B", "SECRET RESIDENT", "wo-1", MANAGER]) expect(wire).not.toContain(secret);
     expect(result.ok && result.services[0]).toMatchObject({ trade: "Plumbing", area: "Seattle", budget: "Up to $250", postedBy: "Alder Property Co" });
   });

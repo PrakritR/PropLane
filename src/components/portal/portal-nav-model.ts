@@ -91,8 +91,8 @@ export function buildPortalNavItems(
         ];
       }
       if (definition.kind === "vendor" && section.section === "financials" && section.tabs.length > 1) {
-        // Finances (vendor-banking-1006): Balance & payouts · Payments · Refunds ·
-        // Statements · Tax info nest under the one Finances row, like manager Payments.
+        // Legacy shape: a vendor Finances with several registry tabs would nest them under
+        // its one row. Today Finances declares none (its tabs are in-page), so this is unused.
         return [
           {
             section: section.section,

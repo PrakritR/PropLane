@@ -24,15 +24,14 @@ export const vendorPortal: PortalDefinition = {
     // This month / Last month / Earlier is the URL segment (`/vendor/outgoing/this-month`).
     { section: "outgoing", label: "Outgoing payments", tabs: [] },
     {
-      // Overview is the default. `invoices` and `payouts` stay detail-only ids (an invoice / payment
-      // record page) and are not tabs; Statements and Tax moved to Documents.
+      // ONE nav row, no sub-items (vendor-finances-1008): the page carries Overview · Payouts ·
+      // Refunds as tabs in its own header card and owns them as the URL segment
+      // (`/vendor/financials/overview|payouts|refunds`), like Incoming / Outgoing payments.
+      // `invoices` and `payouts/<id>` stay detail-only record pages; Statements and Tax live in
+      // Documents; the old `/financials/balance` is an alias of Payouts.
       section: "financials",
       label: "Finances",
-      tabs: [
-        { id: "overview", label: "Overview" },
-        { id: "balance", label: "Balance & payouts" },
-        { id: "refunds", label: "Refunds" },
-      ],
+      tabs: [],
     },
     {
       // Tax (W-9 / 1099) · Business license · Insurance · Statements · From managers.
@@ -61,7 +60,7 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Incoming payments", path: "/vendor/payments/pending" },
   { label: "Outgoing payments", path: "/vendor/outgoing/this-month" },
   { label: "Finances", path: "/vendor/financials/overview" },
-  { label: "Balance & payouts", path: "/vendor/financials/balance" },
+  { label: "Payouts", path: "/vendor/financials/payouts" },
   { label: "Refunds", path: "/vendor/financials/refunds" },
   { label: "Documents", path: "/vendor/documents/tax" },
   { label: "Reviews", path: "/vendor/reviews" },

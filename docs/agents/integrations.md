@@ -49,33 +49,29 @@ surface here. The channels themselves are owned by
 
 ## Bookings: one popup connects a channel
 
+This tab owns the **connection**. The Bookings screen the connection feeds —
+what the calendar and the booking record draw, its five reads and its status
+vocabulary — is owned by [`bookings.md`](bookings.md).
+
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
 working and stays manageable. SpareRoom, Furnished Finder and Apartments.com are
 listed as Coming soon so a manager can see what is planned.
 
-The popup is **one page, not a wizard**: channel → a paste field per unit. There
-is no scope picker — connecting a channel always covers the **entire workspace**
-(every property the caller may write), and an entire-home listing has one row
-("Whole house"), a shared house one row per room (`channelCalendarUnits`). An
-import URL must be that channel's own export link (`isValidChannelImportUrl` per
-host + path; the error message names the exact clicks on that channel's site), so
-the fetcher can never be pointed at an arbitrary target.
-
-**The paste box shows the link that is already saved**, with a Copy action beside
-it, so a manager can read back what PropLane is fetching instead of guessing from
-a "Connected" placeholder. Only a value that differs from the saved one is sent;
-**emptying a box that had a link unlinks that channel** (row status "Link will be
-removed", toast "Calendar link removed") and clears the stays that feed had
-imported, since nothing is left to re-sync them. PropLane's own export token
-survives — throwing that away is what ⋯ Disconnect is for.
+The popup is **one page, not a wizard**: channel → scope → a paste field per
+unit. Scope is `SegmentedTwo` — **Entire workspace** or **specific properties** —
+and an entire-home listing has one row ("Whole house"), a shared house one row
+per room (`channelCalendarUnits`). An import URL must be that channel's own
+export link (`isValidChannelImportUrl` per host + path; the error message names
+the exact clicks on that channel's site), so the fetcher can never be pointed at
+an arbitrary target.
 
 **Each room row says where it stands**, because a two-way link is only live once
-BOTH halves are done: the paste state (Connected / Ready to connect / "Link not
-valid" / "Feed failed · <error>"), whether PropLane's own export link has been taken yet
-(Copied, or "Not yet pasted into <channel>"), and "Last sync <relative>"
-(`relativeSyncTime`). Its ⋯ holds Sync now · Feed preview · Disconnect, plus
+BOTH halves are done: the paste state (Linked / "Paste <channel> calendar link" /
+"Feed failed · <error>"), whether PropLane's own export link has been taken yet
+(Copied, or "Not yet pasted into <channel>"), and the two "last checked" facts
+(`channelCheckFacts`, `channel-links.ts`): "Airbnb checked PropLane · 5:42 PM" and "PropLane checked Airbnb · 5:40 PM". Its ⋯ holds Sync now · Feed preview · Disconnect, plus
 **Copy Airbnb listing pack** on Airbnb only — `buildAirbnbListingPack`
 (`src/lib/channel-calendar/listing-pack.ts`) composes the room's own listing facts
 (32-character title, address, overview, amenities, house rules, a nightly price
@@ -85,30 +81,59 @@ photo: a data-URL photo is listed as "embedded photo (open the room in PropLane 
 save it)" rather than a URL. **Sync all now** (footer) syncs every row in scope and
 reports how many failed.
 
-### A host block is not a reservation
+### Two-way with Airbnb
 
-A channel exports the host's OWN calendar blocks alongside real stays, and they
-are not the same thing: nobody holds the bed. `isHostBlockSummary` /
-`isHostBlockRange` / `withoutHostBlocks`
-(`src/lib/channel-calendar/host-block.ts`) are the one decision, matched on the
-WHOLE summary (optionally wrapped in the channel's name, as Airbnb writes it) —
-`not available`, `blocked`, `unavailable`, never a substring, and deliberately
-**not** `Reserved`, because Booking.com and VRBO privacy-strip real reservations
-to "CLOSED - Not available" and reading one of those as a block would publish an
-occupied room as free. A sync stamps `hostBlock` on the imported range; ranges
-stored before the flag existed are derived from their summary.
+Airbnb has no public write API, so the two directions are not equally fast:
 
-A host block therefore: reads as "<channel> block" in the Bookings calendar
-(`bookingGuestLabel`) and still closes those dates there, but it is never a
-resident (`icalGuestStaysForResidents`), never a double-booking conflict
-(`conflictingChannelStays`), never a bed against a room's capacity when an
-application is placed or a move-out checked (`manualBlockPlacements`,
-`checkMoveOutAvailabilityForLease` — see
-[`shared-room-capacity.md`](shared-room-capacity.md)), and **never re-exported**
-in PropLane's own feed, where it would echo straight back to the channel it came
-from. `isIcalAvailabilityBlock` (`src/lib/occupancy/snapshot.ts`) stays
-deliberately WIDER: it is "a bed with no name on it", which includes `Reserved`
-and the privacy-stripped stays, and every host block is one of those too.
+| Direction | How | Speed |
+| --- | --- | --- |
+| PropLane -> Airbnb | The per-room export feed (`/api/calendar/export/<token>.ics`) that Airbnb polls. Mark reserved / Remove on the Bookings calendar writes a `room_date_block`; the feed already carries it (a cancelled block drops out) | Instant in PropLane, then **whenever Airbnb next polls** (a few hours) |
+| Airbnb -> PropLane | Our import sync: cron `sync-channel-calendars` every 15 minutes, plus **Sync** / **Sync all** | Up to 15 minutes, or immediate on a manual Sync |
+
+- **Mark reserved.** Clicking an empty room-day (today or later) on the Bookings calendar
+  opens `BookingsBlockDatesModal` with `mode="reserve"`: house, room and night
+  prefilled, titled "Mark reserved", one **Save**. A room linked to Airbnb adds the fact
+  row "Airbnb · Updates when Airbnb next checks PropLane" (`airbnbLinkForRoom`).
+- **Remove.** A manager block can be cancelled until its last night has passed,
+  **including one that already started** (`canCancelBooking`); a block with nobody
+  attached is labelled "Remove" (`isReservedBlock`, `bookingCancelLabel`) in the row and
+  record-page ⋯, behind the destructive confirm in `BookingsCancelDialog`. A resident (hold
+  or lease) is never removed here.
+- **Airbnb checked PropLane.** The export route stamps
+  `external_calendar_connections.export_last_fetched_at` when the request's User-Agent
+  contains "Airbnb" (`stampExportFetch`, `export-fetch-stamp.ts`): best-effort, never
+  fails the feed, written at most every 5 minutes. **PropLane checked Airbnb** is the
+  connection's `last_synced_at`. Both show on the booking record page and per room in the
+  Connect popup.
+- **Booking alerts.** `syncChannelCalendarConnection` diffs the new ranges against the
+  connection's stored ones (`diffChannelReservations`, `channel-booking-diff.ts`) and
+  emits `channel_booking_created` / `channel_booking_cancelled` on the action-event bus
+  (`channel-booking-events.server.ts`): "New Airbnb booking · 5259 Brooklyn Ave · Room 3 ·
+  Oct 12 – Oct 15 (3 nights)". Every path (cron, Sync, Sync all) ends in that one
+  function, so a manual Sync alerts too. They ride the manager audience of the bus
+  - the PropLane Assistant notice, which follows the alert destination to the work number
+  - exactly like a confirmed tour. Never on a connection's first sync (the baseline),
+  never for a host block, never for a stay that already ended, and idempotent on
+  connection + stay (`eventId`), so a re-run does not notify twice. Copy carries no guest
+  name; the payload keeps only what the feed exposes ("Reserved" when it hides the guest).
+- **Who booked.** The feed never carries the guest's name, so a stay is identified from
+  three things. Two are read off the event DESCRIPTION
+  (`parseReservationDescription`, `reservation-details.ts`): the **reservation code**
+  (`HM…`, taken only from a `https://www.airbnb.com/hosting/reservations/details/<code>`
+  URL, and the Open-in-Airbnb link is rebuilt from the code — never the raw feed URL) and
+  the guest's **phone ending** (last 4). Both show as fact rows on the booking record page;
+  the raw description is never stored. The third is the **name the manager types**
+  (`channel_stay_details`, keyed connection + `source_uid`, `20261009190000_channel_stay_details.sql`):
+  RLS on with no client policy or grant, so `GET/PUT
+  /api/portal/channel-calendar/stay-details` is the only door. It needs Calendar `read` / `edit` on
+  the connection's OWN house (a house id in the body is never read), only names a stay the
+  connection still carries, and clearing both fields deletes the row. One label rule
+  everywhere a guest is drawn (`bookingEntryGuestLabel`): the typed name, else
+  "Airbnb guest · HM…", else the feed summary — host blocks keep their own label.
+- **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
+  available)". `isHostBlockRange` keeps that out of the alert diff, and
+  `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when it sits inside a
+  PropLane stay on the same room.
 
 ### A channel calendar is a WRITE on the house
 
@@ -121,12 +146,21 @@ path counts as a write too**: `GET …/connections?roomId=` mints a connection r
 with its secret public export token, so it is gated at `edit` like the rest.
 `GET …/connections?writableFor=<ids>` is how the popup lists only writable
 houses (and scopes "Entire workspace" to them) — that is a **hint for the UI**;
-every write re-checks on the server. **The saved import URL is a bearer secret**
-(anyone holding it reads the channel's reservations outside PropLane), so
-`listManagerChannelCalendarBookings` returns `importUrl` only for the properties
-the viewer may write — the same bar as linking it — and a view-only teammate gets
-`hasImportUrl` alone. The bookings route that carries it answers
-`Cache-Control: private, no-store`. Co-manager levels themselves are owned by
+every write re-checks on the server. **Blocking a room is the same write**: a
+`room_date_block` belongs to the HOUSE, and the capacity trigger only accepts a
+row stamped with the property owner, so `/api/portal-schedule-records` (and MCP
+`block_room_dates`) stamps `manager_user_id` with the owner and keeps the author
+in `row_data.createdByUserId` whenever a teammate holding Calendar at `edit`
+blocks dates; anyone else is refused 403 rather than stamped. The stamp then
+stays put for the row's whole life: an update restores the stored owner, and
+changing or REMOVING a block (the cancelled-block write and the delete path)
+re-checks Calendar `edit` on the block's own house, so a revoked grant stops
+reaching a block it once created. Because the owner column is not the author, a
+teammate's own blocks are listed by the writer's id in the record id
+(`roomDateBlockRecordIdPrefix`, `portal-schedule-record-scope.ts`) — an insert
+cannot claim another user's prefix — so they can still Remove what they just
+blocked. Co-manager levels
+themselves are owned by
 [`co-manager-access.md`](co-manager-access.md); shared availability by
 [`tours-scheduling.md`](tours-scheduling.md).
 
@@ -144,14 +178,6 @@ produced a feed link Airbnb rejected). The client no longer sends an `origin`
 query param at all — the route derives it with `resolveRequestOrigin`.
 Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
 `channel-calendar-write-access.test.ts`.
-
-**What the feed publishes is scoped by PROPERTY, never by `manager_user_id`.** A
-row's manager stamp is whoever authored it (the acting teammate in a co-managed
-workspace, or a previous owner), while the connection carries the property's
-current owner — filtering on the pair dropped every resident the owner had not
-personally added and published their nights as free. The feed token already pins
-one property, so a row naming that property is that property's occupancy whoever
-wrote it; the same rule governs `occupancySnapshotForManager`.
 
 ## Posting
 

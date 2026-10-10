@@ -14,9 +14,6 @@
 /** Rows a group draws before "Show all N" takes over. */
 export const GROUPED_LIST_PAGE_SIZE = 25;
 
-/** More groups than this start collapsed, so a hundred houses open as a hundred headers, not 2,500 rows. */
-export const GROUPED_LIST_AUTO_COLLAPSE_AFTER = 8;
-
 export type GroupedListGroup<T> = {
   /** Stable id for collapsed / show-all state. `"__other__"` for the catch-all bucket. */
   key: string;
@@ -83,21 +80,34 @@ export function visibleGroupItems<T>(
 }
 
 /**
- * Whether a group is collapsed. A click (`override`) always wins; otherwise an
- * active search opens everything (the matches are what you came for), then an
- * Expand all / Collapse all choice, then the size default: a long list of
- * groups starts collapsed.
+ * Most groups a list may start fully expanded. There is no Expand all / Collapse
+ * all control, so a portfolio with more groups than this opens collapsed except
+ * its first group; a header click or a search opens the rest.
+ */
+export const GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS = 20;
+
+/**
+ * Whether a group is collapsed. A click (`override`) always wins. Otherwise a
+ * search opens every group that still has a match, and with no search the
+ * groups start expanded when there are at most
+ * `GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS` of them; above that every group starts
+ * collapsed except the first (`groupIndex` 0).
+ *
+ * Cost: an expanded group mounts its first page of rows (`GROUPED_LIST_PAGE_SIZE`),
+ * so the worst start is 20 groups x 25 rows = 500 mounted rows, and the
+ * threshold is what keeps a 100-house portfolio from mounting 2,500. "Show all"
+ * can still add every row of one group, so a single huge group is not capped.
  */
 export function resolveGroupCollapsed(args: {
   override: boolean | undefined;
-  allMode: "expanded" | "collapsed" | null;
   searchActive: boolean;
   groupCount: number;
+  groupIndex: number;
 }): boolean {
   if (args.override !== undefined) return args.override;
   if (args.searchActive) return false;
-  if (args.allMode) return args.allMode === "collapsed";
-  return args.groupCount > GROUPED_LIST_AUTO_COLLAPSE_AFTER;
+  if (args.groupCount <= GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS) return false;
+  return args.groupIndex !== 0;
 }
 
 /** The sort the Residents and Applications Filter popovers offer (House is the default). */

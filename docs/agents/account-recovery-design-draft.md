@@ -16,7 +16,11 @@ including the newer orphan-cleanup implementation with its financial deletion bu
 - Resident deletion detaches UUID, email and legacy JSON access keys from a surviving
   manager's financial/lease history. Recovery conditionally restores identity only,
   preserving intervening financial edits and reassignment. Manager removal of a
-  resident is property-scoped; global resident deletion is admin-only.
+  resident is property-scoped; since Oct 8 2026 it may also delete a resident-only
+  LOGIN through the same purge as self-delete, under narrow conditions owned by
+  `src/lib/auth/resident-account-deletion.ts` (see `AGENTS.md`
+  § Deleting an account must leave the email reusable). Everything broader than
+  that is still admin-only.
 - Canonical shared records respect every owner's current choice. Independently owned
   vendor financial records preserve the surviving business party. Portal archives
   already pending for the same login remain independent on final-portal deletion.
@@ -75,7 +79,7 @@ operations considerations, not evidence that all external copies have been erase
 | Resident starts fresh or expires | Destroy their recoverable personal copy and recovery links. Keep the manager's books. A reused email must not expose those old records to the fresh account. |
 | Manager deletes their portal | Archive that manager's workspace, unpublish its listings, stop jobs/integrations and remove delegated access. Preserve residents' logins, independently owned records and relationships with other managers. Show the removed tenancy as unavailable; do not delete residents globally. |
 | Manager recovers | Restore eligible workspace data; re-enable integrations, billing, automation and delegated access only through their normal setup/approval flows. Respect resident deletions that happened since the snapshot. |
-| Manager removes a resident from one property | Revoke only the authorized tenancy/property relationship. This must never become global resident account deletion. Preserve its accounting history. |
+| Manager removes a resident from one property | Revoke only the authorized tenancy/property relationship. This must never become global resident account deletion: the login goes only when `decideResidentAccountFate` finds every condition holds. Preserve its accounting history. |
 | Both delete, in either order | A recovery snapshot must not override the other person's deletion, expiry, fresh start or later recovery. Shared data must follow its actual owners' current decisions, not whichever archive restores last. |
 
 Financial history is an explicit exception to personal-data erasure: the surviving

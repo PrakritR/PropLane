@@ -1,12 +1,16 @@
 "use client";
 
+import { withoutEchoedHostBlocks } from "@/lib/channel-calendar/host-block";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PORTAL_READ_TIMEOUT_MS, withTimeout } from "@/lib/auth/fetch-with-timeout";
+import { channelLinksFromBookings, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { fetchManagerChannelBookings, fetchOccupancySnapshot } from "@/lib/channel-calendar/client";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import type { OccupancyDayCell } from "@/lib/occupancy/snapshot";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
+  type ApplicationHoldRow,
   importedChannelStayEntries,
   isImportedChannelBlock,
   leaseBookingEntriesForProperties,
@@ -29,7 +33,7 @@ import {
   MANAGER_APPLICATIONS_EVENT,
   normalizeApplicationAxisId,
   readManagerApplicationRows,
-  syncManagerApplicationsFromServer,
+  syncManagerApplicationsFromServerWithStatus,
 } from "@/lib/manager-applications-storage";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -46,44 +50,65 @@ const BOOKING_CALENDAR_SOURCES = new Set<PropertyBookingEntry["source"]>([
   "block",
 ]);
 
+/** The fetches Bookings is built from; one that errors or times out is listed in `failedSources`. */
+export type BookingsSourceId = "channel" | "occupancy" | "applications" | "blocks" | "leases";
+type SourceStatus = "pending" | "ok" | "failed";
+const BOOKINGS_SOURCE_IDS: readonly BookingsSourceId[] = ["channel", "occupancy", "applications", "blocks", "leases"];
+const PENDING_SOURCES: Record<BookingsSourceId, SourceStatus> = {
+  channel: "pending",
+  occupancy: "pending",
+  applications: "pending",
+  blocks: "pending",
+  leases: "pending",
+};
+
 export function useManagerBookingEntries({
   userId,
   propertyIds,
   propertyOptions,
   propertyTick,
   refreshSignal = 0,
-  showToast,
 }: {
   userId: string | null;
   propertyIds: string[];
   propertyOptions: ManagerPropertyFilterOption[];
   propertyTick: number;
   refreshSignal?: number;
-  showToast: (message: string) => void;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
+  const [channelLinks, setChannelLinks] = useState<ChannelRoomLink[]>([]);
   const [occupancyDays, setOccupancyDays] = useState<OccupancyDayLookup>({ overall: {}, houses: {} });
-  const [channelReady, setChannelReady] = useState(false);
   const [applicationRows, setApplicationRows] = useState<DemoApplicantRow[]>([]);
-  const [applicationsReady, setApplicationsReady] = useState(false);
   const [blocks, setBlocks] = useState<RoomDateBlock[]>([]);
-  const [blocksReady, setBlocksReady] = useState(false);
   const [stayMetas, setStayMetas] = useState<StayMeta[]>([]);
+  const [sourceStatus, setSourceStatus] = useState<Record<BookingsSourceId, SourceStatus>>(PENDING_SOURCES);
+  const [retryTick, setRetryTick] = useState(0);
 
-  const { rows: leaseRows, ready: leasesReady } = useLeasePipelineRows(userId, {
-    enabled: Boolean(userId),
-  });
+  const markSource = useCallback((id: BookingsSourceId, status: SourceStatus) => {
+    setSourceStatus((current) => (current[id] === status ? current : { ...current, [id]: status }));
+  }, []);
+
+  const {
+    rows: leaseRows,
+    ready: leasesReady,
+    failed: leasesFailed,
+  } = useLeasePipelineRows(userId, { enabled: Boolean(userId), reloadKey: retryTick });
 
   useEffect(() => {
-    setApplicationsReady(false);
-    setBlocksReady(false);
-  }, [userId]);
+    markSource("applications", "pending");
+    markSource("blocks", "pending");
+  }, [userId, markSource]);
+
+  useEffect(() => {
+    if (!leasesReady) markSource("leases", "pending");
+    else markSource("leases", leasesFailed ? "failed" : "ok");
+  }, [leasesReady, leasesFailed, markSource]);
 
   // Approved applications hold a room before the lease is signed.
   useEffect(() => {
     if (!userId) {
       setApplicationRows([]);
-      setApplicationsReady(true);
+      markSource("applications", "ok");
       return;
     }
     let cancelled = false;
@@ -91,37 +116,42 @@ export function useManagerBookingEntries({
       if (!cancelled) setApplicationRows(readManagerApplicationRows());
     };
     sync();
-    void syncManagerApplicationsFromServer({ managerUserId: userId })
-      .then(sync)
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setApplicationsReady(true);
+    void withTimeout(syncManagerApplicationsFromServerWithStatus({ managerUserId: userId }), PORTAL_READ_TIMEOUT_MS)
+      .then((result) => {
+        sync();
+        // A superseded read (`stale`) says nothing about the server.
+        if (!cancelled) markSource("applications", result.ok || result.stale ? "ok" : "failed");
+      })
+      .catch(() => {
+        if (!cancelled) markSource("applications", "failed");
       });
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, sync);
     return () => {
       cancelled = true;
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, sync);
     };
-  }, [userId, refreshSignal]);
+  }, [userId, refreshSignal, retryTick, markSource]);
 
   // Explicit closed dates, kept on the server so every device sees them.
   useEffect(() => {
     if (!userId) {
       setBlocks([]);
-      setBlocksReady(true);
+      markSource("blocks", "ok");
       return;
     }
     let cancelled = false;
     const load = () =>
-      fetchRoomDateBlocks()
+      withTimeout(fetchRoomDateBlocks(), PORTAL_READ_TIMEOUT_MS)
         .then((rows) => {
-          if (!cancelled) setBlocks(rows);
+          if (cancelled) return;
+          setBlocks(rows);
+          markSource("blocks", "ok");
         })
         .catch(() => {
-          if (!cancelled) setBlocks([]);
-        })
-        .finally(() => {
-          if (!cancelled) setBlocksReady(true);
+          if (cancelled) return;
+          // Keep the blocks already on screen: redrawing a held night as free invites a manager
+          // to reserve a room a channel or a resident already has. The Retry band says it is stale.
+          markSource("blocks", "failed");
         });
     void load();
     const onChange = () => void load();
@@ -130,7 +160,7 @@ export function useManagerBookingEntries({
       cancelled = true;
       window.removeEventListener(ROOM_DATE_BLOCKS_CHANGED, onChange);
     };
-  }, [userId, refreshSignal]);
+  }, [userId, refreshSignal, retryTick, markSource]);
 
   // Notes and stay details on signed-lease / application stays (C2-BK2). Read
   // failure leaves the stays drawn without them rather than blanking Bookings.
@@ -173,6 +203,27 @@ export function useManagerBookingEntries({
   // them behind) and must not keep drawing a stay on Bookings.
   const directoryEmails = useMemo(() => directoryResidentEmailSet(applicationRows), [applicationRows]);
 
+  // The resident behind a lease, by the same two-way match as `isLeased` below:
+  // the Axis id binds exactly; email + property covers a lease whose id was never stamped.
+  const applicationForLease = useMemo(() => {
+    const byAxisId = new Map<string, ApplicationHoldRow>();
+    const byPerson = new Map<string, ApplicationHoldRow>();
+    for (const row of applicationRows) {
+      const axisId = normalizeApplicationAxisId(row.id);
+      if (axisId && !byAxisId.has(axisId)) byAxisId.set(axisId, row);
+      const email = row.email?.trim().toLowerCase();
+      const propertyId = (row.assignedPropertyId ?? row.propertyId ?? "").trim();
+      if (email && !byPerson.has(`${email}|${propertyId}`)) byPerson.set(`${email}|${propertyId}`, row);
+    }
+    return (lease: { axisId?: string; residentEmail?: string; propertyId?: string }) => {
+      const axisId = normalizeApplicationAxisId(lease.axisId ?? "");
+      const byId = axisId ? byAxisId.get(axisId) : undefined;
+      if (byId) return byId;
+      const email = lease.residentEmail?.trim().toLowerCase();
+      return email ? byPerson.get(`${email}|${(lease.propertyId ?? "").trim()}`) : undefined;
+    };
+  }, [applicationRows]);
+
   const leaseEntries = useMemo<PropertyBookingEntry[]>(() => {
     if (!userId) return [];
     const scoped = new Set(propertyIds);
@@ -188,8 +239,9 @@ export function useManagerBookingEntries({
         bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
       openEndedHorizonKey: openEndedBookingHorizonKey(),
       isResidentLinked: (email) => isLinkedToDirectoryResident(email, directoryEmails),
+      applicationForLease,
     });
-  }, [userId, leaseRows, propertyOptions, propertyIds, bookingsRoomLabels, directoryEmails]);
+  }, [userId, leaseRows, propertyOptions, propertyIds, bookingsRoomLabels, directoryEmails, applicationForLease]);
 
   const holdEntries = useMemo<PropertyBookingEntry[]>(() => {
     if (!userId) return [];
@@ -276,27 +328,31 @@ export function useManagerBookingEntries({
     const ids = propertyIdsKey ? propertyIdsKey.split("\u0000") : [];
     if (ids.length === 0) {
       setAirbnbEntries([]);
+      setChannelLinks([]);
       setOccupancyDays({ overall: {}, houses: {} });
-      setChannelReady(true);
+      markSource("channel", "ok");
+      markSource("occupancy", "ok");
       return;
     }
-    try {
-      const [bookingsResult, snapshotResult] = await Promise.allSettled([
-        fetchManagerChannelBookings(ids),
-        fetchOccupancySnapshot({ propertyIds: ids, from: occupancyWindow.from, to: occupancyWindow.to }),
-      ]);
-      if (bookingsResult.status === "fulfilled") {
-        setAirbnbEntries(airbnbBookingEntries(bookingsResult.value));
-      } else {
-        showToast(
-          bookingsResult.reason instanceof Error ? bookingsResult.reason.message : "Could not load bookings.",
-        );
-        setAirbnbEntries([]);
-      }
-      if (snapshotResult.status === "fulfilled") {
+    // Each fetch settles on its own: one slow or failed source never holds the other back.
+    const channel = withTimeout(fetchManagerChannelBookings(ids), PORTAL_READ_TIMEOUT_MS).then(
+      (bookings) => {
+        setAirbnbEntries(airbnbBookingEntries(bookings));
+        setChannelLinks(channelLinksFromBookings(bookings));
+        markSource("channel", "ok");
+      },
+      // Same rule as the blocks read: a failed refresh keeps the last good channel stays rather
+      // than drawing their nights free.
+      () => markSource("channel", "failed"),
+    );
+    const occupancy = withTimeout(
+      fetchOccupancySnapshot({ propertyIds: ids, from: occupancyWindow.from, to: occupancyWindow.to }),
+      PORTAL_READ_TIMEOUT_MS,
+    ).then(
+      (snapshot) => {
         const overall: Record<string, OccupancyDayCell> = {};
         const houses: Record<string, OccupancyDayCell> = {};
-        for (const day of snapshotResult.value.days ?? []) {
+        for (const day of snapshot.days ?? []) {
           overall[day.dayKey] = {
             occupied: day.occupied,
             total: day.total,
@@ -313,22 +369,37 @@ export function useManagerBookingEntries({
           }
         }
         setOccupancyDays({ overall, houses });
-      }
-    } finally {
-      setChannelReady(true);
-    }
-  }, [propertyIdsKey, occupancyWindow, showToast]);
+        markSource("occupancy", "ok");
+      },
+      () => markSource("occupancy", "failed"),
+    );
+    await Promise.all([channel, occupancy]);
+  }, [propertyIdsKey, occupancyWindow, markSource]);
 
   useEffect(() => {
     void reloadAirbnb();
-  }, [reloadAirbnb, refreshSignal]);
+  }, [reloadAirbnb, refreshSignal, retryTick]);
 
   /**
-   * Wait until leases, applications, blocks, and channel syncs have each
-   * settled once. Later refreshes keep the stays already on screen — only the
-   * first coordinated load draws skeletons.
+   * The spinner shows only until the FIRST source settles (loaded, failed or
+   * timed out); after that the page draws whatever has arrived. Later
+   * refreshes keep the stays already on screen.
    */
-  const loading = !channelReady || !leasesReady || !applicationsReady || !blocksReady;
+  const failedSources = useMemo(
+    () => BOOKINGS_SOURCE_IDS.filter((id) => sourceStatus[id] === "failed"),
+    [sourceStatus],
+  );
+  const loading = BOOKINGS_SOURCE_IDS.every((id) => sourceStatus[id] === "pending");
+
+  /** Re-run the sources. A failed one stops counting as failed while it retries, so the band clears. */
+  const retry = useCallback(() => {
+    setSourceStatus((current) => {
+      const next = { ...current };
+      for (const id of BOOKINGS_SOURCE_IDS) if (next[id] === "failed") next[id] = "pending";
+      return next;
+    });
+    setRetryTick((tick) => tick + 1);
+  }, []);
 
   const importedAirbnbEntries = useMemo<PropertyBookingEntry[]>(() => {
     const scoped = new Set(propertyIds);
@@ -345,13 +416,15 @@ export function useManagerBookingEntries({
   const entries = useMemo(
     () =>
       applyStayMeta(
-        [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
-          (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+        withoutEchoedHostBlocks(
+          [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
+            (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+          ),
         ),
         stayMetas,
       ),
     [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries, stayMetas],
   );
 
-  return { entries, occupancyDays, loading, reloadAirbnb, blocks, residentOptions };
+  return { entries, occupancyDays, loading, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
 }

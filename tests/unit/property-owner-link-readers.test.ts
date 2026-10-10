@@ -30,6 +30,7 @@ const REVIEWED: Record<string, string> = {
   "lib/co-manager-open-invite.server.ts": "open-invite redeem",
   "lib/workspaces/membership.server.ts": "standing: an owner row resolves to rights of none",
   "lib/workspaces/server.ts": "workspace switcher: owner rows add no houses (no module key) and carry no rights",
+  "lib/auth/resident-account-deletion.ts": "existence check only: ANY invite row, owner rows included, keeps the resident's login",
   "lib/auth/purge-orphaned-co-manager-links.ts": "cleanup",
   "lib/auth/clear-property-housing-access.ts": "cleanup",
   "lib/co-manager-plan-reconcile.server.ts": "plan downgrade disconnects links",
@@ -38,7 +39,6 @@ const REVIEWED: Record<string, string> = {
   // Reads gated by a module permission an owner row never holds.
   "app/api/property-records/route.ts": "adds linked houses only where the properties module is granted",
   "lib/team-comms.server.ts": "gated by the inbox module",
-  "lib/co-manager-notification-recipients.server.ts": "gated by the module's notification level",
   "lib/tour-host-enumeration.server.ts": "gated by calendar/applications edit",
   "lib/workspace-connect/resolve.server.ts": "gated by bankAccount",
   "lib/test-workspaces/schedule-route.server.ts": "gated by the calendar grant",

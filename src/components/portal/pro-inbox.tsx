@@ -218,6 +218,8 @@ function replyHouseIdFor(thread: InboxThread): string {
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
   if (isPropLaneAssistantInboxThread(thread)) return false;
+  // The team chat is people talking to each other: never an AI draft, never an auto-reply.
+  if (isTeamInboxThread({ id: thread.id })) return false;
   if (thread.folder !== "inbox") return false;
   // A text to the work number is answered by the server agent (one responder per inbound message):
   // it replies on the same channel and records the reply on the thread. A browser draft would be a
@@ -2788,7 +2790,7 @@ export const ManagerInbox = forwardRef<
         <div
           className={`${
             embeddedResidentChat || !pageScroll
-              ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+              ? "flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip"
               : "flex flex-col"
           }`}
         >
@@ -2801,7 +2803,7 @@ export const ManagerInbox = forwardRef<
   );
 
   if (embeddedInCommunication) {
-    return <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">{inboxBody}</div>;
+    return <div className="flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip">{inboxBody}</div>;
   }
 
   return (

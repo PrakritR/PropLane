@@ -54,6 +54,12 @@ export async function sendPortalConversationEmails(opts: {
    * inbox rather than a synthetic address. Omitted or empty keeps the shared sender.
    */
   fromAddress?: string | null;
+  /**
+   * A one-way notice (an Assistant notice emailed to a manager) has no
+   * conversation to continue: no signed reply address, so a reply goes to the
+   * From address (the workspace work email) instead of a thread reply route.
+   */
+  omitReplyTo?: boolean;
 }): Promise<Map<string, ConversationEmailResult>> {
   const results = new Map<string, ConversationEmailResult>(
     opts.toEmails.map((email) => [email, { sent: false, resendId: null }]),
@@ -75,7 +81,7 @@ export async function sendPortalConversationEmails(opts: {
 
   const payloads = opts.toEmails.map((email) => {
     const anchor = conversationAnchorMessageId(opts.senderUserId, email, domain);
-    const replyTo = buildReplyAddress(opts.senderUserId, email);
+    const replyTo = opts.omitReplyTo ? null : buildReplyAddress(opts.senderUserId, email);
     return {
       email,
       body: {

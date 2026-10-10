@@ -268,6 +268,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Which outside vendor marketplaces (TaskRabbit, Thumbtack, ...) the manager says they hold an account
+    // at: a label and an optional profile link, never a credential. Deleted with the login.
+    table: "vendor_marketplace_accounts",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "cosigner_submission_records",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -548,6 +555,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
       ids: ["applicant_user_id"],
       detachIds: ["helper_user_id", "filled_by_user_id", "fee_paid_by_user_id"],
     },
+  },
+  {
+    // The resident's own proof that they bound their account to this manager (see resident-account-deletion.ts).
+    table: "resident_workspace_bindings",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"] },
   },
   {
     // The applicant <-> helper link behind "Forms for <applicant>". Either person's deletion removes it.
@@ -1235,6 +1249,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  channel_stay_details: "Child of external_calendar_connections: the guest name and note a manager typed for an imported channel stay. The connection is purged by manager_user_id and this row is deleted by cascade with it; updated_by only records which teammate typed it.",
   resident_charge_payment_slots: "Identity-free child of a charge, checkout attempt, or autopay run; those account-owned parents delete it by cascade.",
   platform_source_refund_evidence: "Opaque Stripe refund/charge evidence can arrive before an owned allocation; retain it to prevent a later payment replay from minting refunded funds, then reconcile by exact provider source.",
   portal_inbox_thread_aliases: "Child of portal_inbox_thread_records; the old ids a folded conversation answers to are deleted by cascade with it.",
@@ -1260,9 +1275,9 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   growth_publications: "Delivery records for PropLane's own marketing posts; no account data.",
   growth_metrics: "Engagement metrics for PropLane's own marketing posts; no account data.",
   growth_learned: "Aggregated content learnings for PropLane's own marketing; no account data.",
-  growth_watchlist: "Public accounts and subreddits PropLane's own growth engine watches; a handle on another platform, never a customer account.",
-  growth_engage_items: "The growth engine's daily engage list (public threads plus a drafted comment an admin posts by hand); no account data.",
-  growth_keywords: "Keywords and canned replies for PropLane's own growth engine; no account data.",
+  growth_watchlist: "Public social handles PropLane's own growth engine engages with; no account data.",
+  growth_engage_items: "Daily engagement targets (public posts) and drafted replies for PropLane's own marketing; no account data.",
+  growth_keywords: "PropLane's own comment-keyword auto-replies; no account data.",
   comms_plan_credit_rules: "Admin-editable per-tier defaults for the messaging-credit pool; global plan config, not owned by any one account.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",

@@ -13,9 +13,11 @@
  * here as a real React component instead of the studio's DOM-delegation
  * version.
  *
- * Wired into {@link PortalDialog}'s danger-tone footer action — the one
- * `.plp-modal-actions`-equivalent shared by every destructive confirm in the
- * app (co-manager removal, cancel a tour, remove a fee row, sign-out, …).
+ * Wired into {@link PortalDialog}'s danger-tone footer action, for the callers
+ * that ask for it with `confirmGuard: "hold"`. It is NOT every destructive
+ * confirm any more: `ConfirmDeleteModal` (and so `useConfirm()`) renders a
+ * plain-click red button, because the hold was undiscoverable and read as a
+ * dead Delete. Today's one caller is `service-remove-dialog.tsx`.
  *
  * Unlike the studio prototype, this component does NOT shorten the hold
  * under reduced motion: the press duration is the actual confirmation gate,

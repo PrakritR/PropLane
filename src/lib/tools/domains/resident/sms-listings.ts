@@ -4,10 +4,12 @@ import { buildManagerListingUrl } from "@/lib/manager-property-links";
 import type { AgentContext } from "../../context";
 import type { ResidentAgentContext } from "../../resident-context";
 import { defineTool } from "../../registry";
+import { CHECK_ROOM_AVAILABILITY_DESCRIPTION } from "@/lib/room-availability-range";
 import {
   listLiveListingsTool,
   publicOrigin,
   getListingDetailsTool,
+  checkRoomAvailabilityTool,
   resolveLiveListingForSms,
 } from "../leasing-sms";
 
@@ -51,6 +53,17 @@ export const residentSmsGetListingDetailsTool = defineTool<
   handler: async (ctx, input) => getListingDetailsTool.handler(managerListingContext(ctx), input),
 });
 
+export const residentSmsCheckRoomAvailabilityTool = defineTool<
+  z.infer<typeof checkRoomAvailabilityTool.inputSchema>,
+  Awaited<ReturnType<typeof checkRoomAvailabilityTool.handler>>,
+  ResidentAgentContext
+>({
+  name: "check_room_availability",
+  description: CHECK_ROOM_AVAILABILITY_DESCRIPTION,
+  inputSchema: checkRoomAvailabilityTool.inputSchema,
+  handler: async (ctx, input) => checkRoomAvailabilityTool.handler(managerListingContext(ctx), input),
+});
+
 export const residentSmsGetListingLinkTool = defineTool<
   { propertyId: string },
   { ok: boolean; listingUrl?: string; error?: string },
@@ -69,5 +82,6 @@ export const residentSmsGetListingLinkTool = defineTool<
 export const residentSmsListingTools = [
   residentSmsListLiveListingsTool,
   residentSmsGetListingDetailsTool,
+  residentSmsCheckRoomAvailabilityTool,
   residentSmsGetListingLinkTool,
 ];

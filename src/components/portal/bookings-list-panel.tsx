@@ -8,7 +8,7 @@ import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingEntryKey,
@@ -28,9 +28,7 @@ const LIST_TABS: { id: BookingsListTabId; label: string }[] = [
 ];
 
 function guestName(entry: PropertyBookingEntry): string {
-  return isChannelBookingSource(entry.source)
-    ? bookingGuestLabel(entry.summary, entry.source)
-    : entry.summary;
+  return bookingEntryGuestLabel(entry);
 }
 
 /**

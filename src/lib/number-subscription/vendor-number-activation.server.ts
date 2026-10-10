@@ -1,10 +1,18 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadVendorBusinessProfile } from "@/lib/vendor-business-profile.server";
-import { provisionVendorWorkNumberAtSignup } from "@/lib/vendor-work-number-signup.server";
+import { setupVendorWorkIdentity } from "@/lib/vendor-work-identity.server";
+import { provisionVendorWorkNumberAtSignup, vendorSignupIdempotencyKey } from "@/lib/vendor-work-number-signup.server";
 import { isNumberSubscriptionEnabled } from "./constants";
 
 export type VendorActivationResult = "provisioned" | "already" | "skipped" | "failed";
+
+function logOutcome(subscriptionId: string, what: string, outcome: string) {
+  // A skipped or failed provisioning is never silent in the server log; the vendor sees the real state
+  // in Settings (Setting up, Failed, or the claim flow to retry).
+  if (outcome === "provisioned" || outcome === "already" || outcome === "ready") return;
+  console.warn("[vendor number] activation", { subscription: subscriptionId, what, outcome });
+}
 
 /**
  * Right after a vendor's PropLane Number subscription becomes `active`, give them their number
@@ -20,7 +28,7 @@ export type VendorActivationResult = "provisioned" | "already" | "skipped" | "fa
 export async function provisionVendorNumberOnActivation(
   db: SupabaseClient,
   subscription: string | { id?: string | null } | null | undefined,
-  deps: { provision?: typeof provisionVendorWorkNumberAtSignup } = {},
+  deps: { provision?: typeof provisionVendorWorkNumberAtSignup; setupEmail?: typeof setupVendorWorkIdentity } = {},
 ): Promise<VendorActivationResult> {
   try {
     if (!isNumberSubscriptionEnabled()) return "skipped";
@@ -45,6 +53,23 @@ export async function provisionVendorNumberOnActivation(
       serviceAreaZips,
       idempotencySeed: subscriptionId,
     });
+    logOutcome(subscriptionId, "number", result.status === "skipped" ? `skipped:${result.reason}` : result.status);
+
+    // The plan is a work number AND a work email: the email half is set up under the same subscription
+    // (its own idempotency key, so a replay never repeats it). Soft-fail and independent of the number:
+    // an unverified phone or a number outage must not hold the email back. Settings still offers Claim.
+    try {
+      const identity = await (deps.setupEmail ?? setupVendorWorkIdentity)(
+        db,
+        row.owner_user_id,
+        vendorSignupIdempotencyKey(row.owner_user_id, `email:${subscriptionId}`),
+        "email",
+      );
+      logOutcome(subscriptionId, "email", identity.email.state === "ready" ? "ready" : `${identity.email.state}:${identity.email.blockedReason}`);
+    } catch (error) {
+      console.error("[vendor number] activation email failed", error instanceof Error ? error.message : "unknown");
+    }
+
     if (result.status === "provisioned" || result.status === "already") return result.status;
     return result.status === "failed" ? "failed" : "skipped";
   } catch (error) {

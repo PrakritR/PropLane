@@ -284,13 +284,24 @@ export function workspaceRowFilterClause(
  * workspace `loadWorkspaces` attributes them to). Omitting it preserves the
  * exact prior behavior for callers that have not opted in (e.g. the
  * attention digest) — this is never a default.
+ *
+ * `opts.onTruncated` fires when any of those queries came back AT its limit. A caller that
+ * treats a row's absence from this answer as proof the row was deleted MUST pass it: one capped
+ * query runs per branch and per property column, so a genuinely partial answer can hold far
+ * fewer rows than the limit once the branches are de-duplicated.
  */
 export async function fetchRowsForManagerWithLinked<T extends { id: string }>(
   db: ServiceClient,
   table: string,
   userId: string,
   linkedPropertyIds: Set<string>,
-  opts?: { select?: string; propertyColumns?: string[]; limit?: number; workspaceScope?: ManagerWorkspaceRowScope },
+  opts?: {
+    select?: string;
+    propertyColumns?: string[];
+    limit?: number;
+    workspaceScope?: ManagerWorkspaceRowScope;
+    onTruncated?: () => void;
+  },
 ): Promise<T[]> {
   const select = opts?.select ?? "id, row_data, updated_at";
   const propertyColumns = opts?.propertyColumns ?? ["property_id"];
@@ -300,6 +311,7 @@ export async function fetchRowsForManagerWithLinked<T extends { id: string }>(
     workspaceScope && workspaceScope.propertyIds !== null ? workspaceScope.propertyIds : null;
 
   const byId = new Map<string, T>();
+  const noteTruncated = () => opts?.onTruncated?.();
   if (!narrowingWorkspaceIds) {
     const { data: ownedRows, error: ownedError } = await db
       .from(table)
@@ -308,6 +320,7 @@ export async function fetchRowsForManagerWithLinked<T extends { id: string }>(
       .order("updated_at", { ascending: false })
       .limit(limit);
     if (ownedError) throw ownedError;
+    if ((ownedRows ?? []).length >= limit) noteTruncated();
     for (const row of (ownedRows ?? []) as unknown as T[]) {
       if (row.id) byId.set(row.id, row);
     }
@@ -322,6 +335,7 @@ export async function fetchRowsForManagerWithLinked<T extends { id: string }>(
         .order("updated_at", { ascending: false })
         .limit(limit);
       if (ownedError) throw ownedError;
+      if ((ownedRows ?? []).length >= limit) noteTruncated();
       for (const row of (ownedRows ?? []) as unknown as T[]) {
         if (row.id) byId.set(row.id, row);
       }
@@ -345,6 +359,7 @@ export async function fetchRowsForManagerWithLinked<T extends { id: string }>(
         // Column may not exist on this table — skip rather than fail the request.
         continue;
       }
+      if ((linkedRows ?? []).length >= limit) noteTruncated();
       for (const row of (linkedRows ?? []) as unknown as T[]) {
         if (row.id && !byId.has(row.id)) byId.set(row.id, row);
       }

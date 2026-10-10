@@ -21,6 +21,7 @@ vi.mock("@/lib/mcp/oauth.server", () => ({
     redirectUris: ["https://claude.ai/api/mcp/auth_callback"],
   })),
   createMcpAuthorizationCode: vi.fn(async () => "pl_mcp_code_test"),
+  signMcpConnected: vi.fn((payload: { destination: string }) => `signed:${encodeURIComponent(payload.destination)}`),
 }));
 
 import { POST as approve } from "@/app/api/mcp/oauth/approve/route";
@@ -37,19 +38,22 @@ describe("MCP OAuth consent redirects", () => {
     resolveAgentContext.mockResolvedValue({ userId: "u1", db: {}, workspace: { id: "w1" } });
   });
 
-  it("approve answers 303 so the browser GETs the client callback", async () => {
+  it("approve answers 303 to the PropLane connected screen, carrying the callback in a signed token", async () => {
     const res = await approve(consentRequest("/api/mcp/oauth/approve"));
     expect(res.status).toBe(303);
-    const location = new URL(res.headers.get("location") ?? "");
-    expect(location.origin + location.pathname).toBe("https://claude.ai/api/mcp/auth_callback");
-    expect(location.searchParams.get("code")).toBe("pl_mcp_code_test");
-    expect(location.searchParams.get("state")).toBe("s1");
+    const location = new URL(res.headers.get("location") ?? "", "https://prop-lane.test");
+    expect(location.origin + location.pathname).toBe("https://prop-lane.test/mcp/connected");
+    const token = location.searchParams.get("token") ?? "";
+    const destination = new URL(decodeURIComponent(token.replace(/^signed:/, "")));
+    expect(destination.origin + destination.pathname).toBe("https://claude.ai/api/mcp/auth_callback");
+    expect(destination.searchParams.get("code")).toBe("pl_mcp_code_test");
+    expect(destination.searchParams.get("state")).toBe("s1");
   });
 
   it("deny answers 303 with access_denied and state", async () => {
     const res = await deny(consentRequest("/api/mcp/oauth/deny"));
     expect(res.status).toBe(303);
-    const location = new URL(res.headers.get("location") ?? "");
+    const location = new URL(res.headers.get("location") ?? "", "https://prop-lane.test");
     expect(location.searchParams.get("error")).toBe("access_denied");
     expect(location.searchParams.get("state")).toBe("s1");
   });

@@ -39,9 +39,15 @@ function inclusiveEndFromIcalDtEnd(dtEnd: string | null, dtStart: string): strin
   return addDaysYmd(dtEnd, -1);
 }
 
+/** RFC 5545 TEXT unescape: backslash-n becomes a newline; backslash before a comma, semicolon or backslash is dropped. */
+function unescapeIcsText(value: string): string {
+  return value.replace(/\\([nN,;\\])/g, (_m, ch: string) => (ch === "n" || ch === "N" ? "\n" : ch));
+}
+
 function parseVeventBlock(lines: string[]): IcalEvent | null {
   let uid = "";
   let summary = "";
+  let description = "";
   let dtStart: string | null = null;
   let dtEnd: string | null = null;
 
@@ -49,7 +55,10 @@ function parseVeventBlock(lines: string[]): IcalEvent | null {
     const upper = line.toUpperCase();
     if (upper.startsWith("UID:")) uid = line.slice(4).trim();
     else if (upper.startsWith("SUMMARY:")) summary = line.slice(8).trim();
-    else if (upper.startsWith("DTSTART")) dtStart = parseIcsDateValue(line);
+    else if (upper.startsWith("DESCRIPTION:") || upper.startsWith("DESCRIPTION;")) {
+      const colon = line.indexOf(":");
+      if (colon >= 0) description = unescapeIcsText(line.slice(colon + 1)).trim();
+    } else if (upper.startsWith("DTSTART")) dtStart = parseIcsDateValue(line);
     else if (upper.startsWith("DTEND")) dtEnd = parseIcsDateValue(line);
   }
 
@@ -59,6 +68,7 @@ function parseVeventBlock(lines: string[]): IcalEvent | null {
   return {
     uid: uid || `${startDate}:${endDate}:${summary}`,
     summary,
+    ...(description ? { description } : {}),
     startDate,
     endDate,
   };

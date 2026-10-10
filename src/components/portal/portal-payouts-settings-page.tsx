@@ -354,7 +354,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
           <PortalSettingsGroup>
             <PortalSettingsRow label="Available to withdraw"><span data-attr="payouts-settings-available">{formatMoney(vendorWithdrawable, balance.currency)}</span></PortalSettingsRow>
             <PortalSettingsRow label="Balance, payouts and statements">
-              <Link href="/vendor/financials/balance" className="text-sm font-medium text-primary hover:underline" data-attr="payouts-settings-finances-link">
+              <Link href="/vendor/financials/payouts" className="text-sm font-medium text-primary hover:underline" data-attr="payouts-settings-finances-link">
                 Open Finances
               </Link>
             </PortalSettingsRow>

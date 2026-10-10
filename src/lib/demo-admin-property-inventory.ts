@@ -962,24 +962,33 @@ export function ensureDemoManagerSideBucketsSeed(): void {
   /* no-op */
 }
 
-/** Permanently removes a live mgr-* listing from the portal (does not move to Unlisted). */
-export function deleteManagerLiveListing(listingId: string, forManagerUserId: string | null): boolean {
+/**
+ * Permanently removes a live mgr-* listing from the portal (does not move to
+ * Unlisted). Server first: resolves false, leaving the listing where it is,
+ * unless the server row is actually gone, so a delete that never landed is
+ * reported instead of the row quietly coming back on the next sync.
+ */
+export async function deleteManagerLiveListing(listingId: string, forManagerUserId: string | null): Promise<boolean> {
   if (!forManagerUserId?.trim()) return false;
   const extras = readExtraListingsForUser(forManagerUserId);
   const hit = extras.find((p) => p.id === listingId);
   if (!hit || !hit.id.startsWith("mgr-")) return false;
-  const ok = removeExtraListing(listingId) !== null;
-  if (ok) deleteMirroredPropertyRecord(listingId);
-  return ok;
+  if (!(await deletePropertyRecordFromServer(listingId))) return false;
+  return removeExtraListing(listingId) !== null;
 }
 
-/** Drops a row from the manager-only unlisted queue (does not restore a public listing). */
-export function deleteUnlistedManagerProperty(adminRefId: string, forManagerUserId: string | null): boolean {
+/**
+ * Drops a row from the manager-only unlisted queue (does not restore a public
+ * listing). Server first, like {@link deleteManagerLiveListing}: false means
+ * nothing was removed.
+ */
+export async function deleteUnlistedManagerProperty(adminRefId: string, forManagerUserId: string | null): Promise<boolean> {
   const side = readSide(forManagerUserId);
   const idx = side.unlisted.findIndex((r) => r.adminRefId === adminRefId);
   if (idx === -1) return false;
-  const nextUn = [...side.unlisted.slice(0, idx), ...side.unlisted.slice(idx + 1)];
-  writeSideStorage({ ...side, unlisted: nextUn }, forManagerUserId);
-  deleteMirroredPropertyRecord(adminRefId);
+  if (!(await deletePropertyRecordFromServer(adminRefId))) return false;
+  const fresh = readSide(forManagerUserId);
+  const nextUn = fresh.unlisted.filter((r) => r.adminRefId !== adminRefId);
+  writeSideStorage({ ...fresh, unlisted: nextUn }, forManagerUserId);
   return true;
 }

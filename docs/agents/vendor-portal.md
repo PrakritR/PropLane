@@ -324,11 +324,22 @@ and § Vendor side). The work **email** stays free and is not part of the gate.
   dollars, one purchase id per attempt). At $0 the row reads **Out of credit** (texts and AI replies are paused until
   the 1st or until the vendor buys credit). A held number of a lapsed vendor shows **Paused** beside Subscribe.
   `/demo` and a flag-off server render none of this.
+- **Never sold undeliverable (Oct 8).** `getNumberAvailability` (`number-subscription/availability.server.ts`) must be
+  true for a NEW checkout: `vendor_work_identity_runtime.enabled` with `max_active_identities > 0` (a resident needs only
+  `enabled`), the SMS provider configured (`VENDOR_WORK_IDENTITY_PROVIDER_ENABLED=1`, Twilio, `TWILIO_MESSAGING_SERVICE_SID`,
+  `VENDOR_WORK_IDENTITY_SMS_WEBHOOK_URL` and `..._STATUS_CALLBACK_URL`) and `SMS_PROVISIONING_ENABLED=1` (or a non-production
+  `VENDOR_WORK_NUMBER_DRY_RUN=1`). Otherwise the Subscribe row reads **Unavailable** (no button) and `POST .../checkout`
+  answers 409 `not_available`. Existing subscribers are untouched. `GET /api/number-subscription` and the resident snapshot
+  carry `available`.
+- **Back from Checkout (`?number=success`)** the page shows **Activating** and polls quietly (status + identity, ~3s,
+  up to a minute) because the webhook that records the subscription and buys the number can land after the redirect.
 - **Provisioning on activation.** The signed Stripe webhook, only after it recorded the subscription `applied`,
   calls `provisionVendorNumberOnActivation` for a vendor with a verified phone: the owner comes from our
   `number_subscriptions` row (never event metadata), the claim key is seeded with the Stripe subscription id (a
   replay buys once; a new subscription after a released number buys a new one), and a failure never fails the
-  webhook - the vendor can still claim from Settings.
+  webhook - the vendor can still claim from Settings. The same activation also sets up the **work email** (its own
+  per-subscription key; independent of the number, so an unverified phone does not hold it back). A skipped or failed
+  step is logged with its reason (`[vendor number] activation`), never silent.
 - **Lapsed (canceled / incomplete).** The number is paused: no outbound text, no AI, `sendReady` false with
   `blockedReason: subscription_required`; inbound still lands in the inbox; a manager's text falls back to the
   vendor's own phone from the manager's work number (`getRoutableVendorNumber`, used by `providerDestinationFor` and the
@@ -627,9 +638,10 @@ reply · Replied, rows `★ tile · reviewer · the review · date · ✓ Replie
 link, and the redesign did not reverse that. Reply opens a small pop-up with the review for context,
 a ⚡ quick-reply menu and **Save reply** in the footer.
 
-**Payments** (`/vendor/financials/income`, `VendorFinancesPanel`) is one tab of Finances (below) and carries no
-balance card; refunds live on Finances → Refunds, and the per-payment Refund on a payout record page stays hidden until the
-Payments tab wires `VendorRefundModal` — the route is off by default (`VENDOR_REFUNDS_ENABLED`) and answers 409
+**Incoming payments** (`/vendor/payments/*`, `VendorFinancesPanel`) is its own nav row, not a tab of Finances
+(`/vendor/financials/income` and bare `/financials/invoices` redirect here), and carries no
+balance card; refunds live on Finances → Refunds, and the per-payment Refund on a payout record page stays hidden until this
+list wires `VendorRefundModal` — the route is off by default (`VENDOR_REFUNDS_ENABLED`) and answers 409
 `VENDOR_REFUND_PAUSED`; the refund itself runs on the central refund rail, see `financials.md` § Vendor refunds. Tabs are **Pending · Paid · Overdue**
 (`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
 **unpaid, non-rejected invoice whose due date is before today** (a payment due today is still
@@ -643,15 +655,18 @@ View invoice (View payment on an income row) · Edit · Retract invoice (a submi
 the client as `refundsEnabled` on the one balance snapshot, never a client guess — and opens the Refund a payment
 pop-up (`VendorRefundModal`, owned by the refund path) on that payment. The payout record page's header still hides Refund.
 
-## Finances: Balance & payouts · Payments · Refunds · Statements · Tax info (vendor-banking-1006, Oct 7)
+## Finances: one page, three tabs (vendor-banking-1006, Oct 7; combined vendor-finances-1008)
 
-One vendor nav section, id `financials` (so every old URL keeps resolving), label **Finances**, five routed tabs
-(`vendor.ts`): `balance`, `income` (Payments — the id never changed), `refunds`, `statements`, `tax`. The sidebar
-nests them under the one Finances row (`portal-sidebar.tsx`, like manager Payments); the phone More sheet nests
-them too. `invoices` and `payouts` are **detail-only** ids (an invoice / a payment record page); bare
-`/financials` opens Balance, bare `/financials/invoices` → Payments, bare `/financials/payouts` → Balance,
-`/vendor/payments` → Payments. Settings › Payouts keeps only **Bank accounts + Schedule** and links to Finances;
-the balance, withdraw, payout history, fee rate and W-9 rows moved out of it.
+**One page, one nav row (vendor-finances-1008, captain Oct 8).** Finances is a single sidebar / More row with no
+sub-items (`financials` declares `tabs: []`). `VendorFinancesPage` (`vendor-finances-balance.tsx`) is the whole
+page: the four balance cards (below), then one `RecordTabBand` header card with the tabs **Overview · Payouts ·
+Refunds** and the Bank + Withdraw icons. The tab is the URL segment, handled in `render-portal-section.tsx`:
+`/vendor/financials/overview` (default for bare `/financials`), `/payouts`, `/refunds`. Aliases: `/financials/balance`
+(bare) -> `/payouts`; `/financials/balance/<id>` is still a withdrawal's own page; `/financials/payouts/<id>[/<tab>]`
+is still a payment's record page; `invoices` bare / `income` -> Incoming payments, `statements` / `tax` -> Documents,
+`/vendor/payments` -> Incoming payments. Overview adds only what the cards do not show (Owed to you, Paid this
+year, this month's earned / spent / profit / jobs, By manager); Refunds mounts `VendorRefundsPanel embedded`, whose
+round + sits in the band. Settings > Payouts keeps only **Bank accounts + Schedule** and links to the Payouts tab.
 
 **One server snapshot feeds every number**: `GET /api/vendor/payouts/balance`. `deriveVendorFinancesFigures`
 (`src/lib/vendor-banking/finances.ts`, pure) turns it into **Available · Pending · Held (with its reason: until you

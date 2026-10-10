@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { useState } from "react";
 import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
 import {
-  GROUPED_LIST_AUTO_COLLAPSE_AFTER,
+  GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS,
   GROUPED_LIST_PAGE_SIZE,
   groupItems,
   resolveGroupCollapsed,
@@ -93,7 +93,7 @@ describe("groupItems on a 100-house, 2,000-resident portfolio", () => {
   });
 });
 
-describe("Show all arithmetic and the collapsed default", () => {
+describe("Show all arithmetic and the expanded default", () => {
   it("draws the first page and reports how many Show all would add", () => {
     const group = { items: Array.from({ length: 120 }, (_, i) => i) };
     const page = visibleGroupItems(group, false);
@@ -103,13 +103,23 @@ describe("Show all arithmetic and the collapsed default", () => {
     expect(visibleGroupItems({ items: [1, 2, 3] }, false)).toEqual({ items: [1, 2, 3], hidden: 0 });
   });
 
-  it("starts a long list of groups collapsed, a short one open, and lets a click or a search override", () => {
-    const many = GROUPED_LIST_AUTO_COLLAPSE_AFTER + 1;
-    expect(resolveGroupCollapsed({ override: undefined, allMode: null, searchActive: false, groupCount: many })).toBe(true);
-    expect(resolveGroupCollapsed({ override: undefined, allMode: null, searchActive: false, groupCount: 3 })).toBe(false);
-    expect(resolveGroupCollapsed({ override: undefined, allMode: null, searchActive: true, groupCount: many })).toBe(false);
-    expect(resolveGroupCollapsed({ override: false, allMode: "collapsed", searchActive: false, groupCount: many })).toBe(false);
-    expect(resolveGroupCollapsed({ override: undefined, allMode: "expanded", searchActive: false, groupCount: many })).toBe(false);
+  it("starts expanded up to the threshold; above it only the first group starts open; a click or a search always wins", () => {
+    const max = GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS;
+    expect(max).toBe(20);
+    const at = (groupCount: number, groupIndex: number, extra: { override?: boolean; searchActive?: boolean } = {}) =>
+      resolveGroupCollapsed({ override: extra.override, searchActive: extra.searchActive ?? false, groupCount, groupIndex });
+    // At the threshold every group is open.
+    expect(at(max, 0)).toBe(false);
+    expect(at(max, max - 1)).toBe(false);
+    // One over: the first stays open, the rest start shut.
+    expect(at(max + 1, 0)).toBe(false);
+    expect(at(max + 1, 1)).toBe(true);
+    expect(at(100, 99)).toBe(true);
+    // A search opens every group, however many there are.
+    expect(at(100, 50, { searchActive: true })).toBe(false);
+    // A click overrides either way.
+    expect(at(100, 50, { override: false })).toBe(false);
+    expect(at(max, 3, { override: true })).toBe(true);
   });
 });
 
@@ -134,34 +144,63 @@ function Harness({ rows, initialSearch = "" }: { rows: Resident[]; initialSearch
 }
 
 describe("PortalGroupedRecordList", () => {
-  it("opens 100 houses as 101 collapsed headers, each with a plain-text count and no row mounted", () => {
+  it("opens 100 houses as 101 groups with only the first expanded, each with a plain-text count", () => {
     const { container } = render(<Harness rows={PORTFOLIO} />);
     const headers = container.querySelectorAll('[data-attr="portal-list-group-header"]');
     expect(headers).toHaveLength(HOUSES + 1);
-    expect(screen.queryAllByTestId("row")).toHaveLength(0);
+    expect(container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(1);
+    // Only the first house mounts rows: 20 residents, not 2,007.
+    expect(screen.getAllByTestId("row")).toHaveLength(RESIDENTS / HOUSES);
     const first = headers[0]!;
     expect(first.textContent).toContain("Maple House 1");
     expect(first.textContent).toContain(String(RESIDENTS / HOUSES));
-    expect(first.getAttribute("aria-expanded")).toBe("false");
+    expect(first.getAttribute("aria-expanded")).toBe("true");
     // Sticky band, count is plain text (no pill / badge shape).
     expect(first.className).toContain("sticky");
     expect(first.querySelector(".rounded-full")).toBeNull();
     expect(headers[headers.length - 1]!.textContent).toContain("No house");
+    expect(headers[headers.length - 1]!.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("expands one house on click, draws only its first 25 rows, and Show all draws the rest", () => {
+  it("20 houses start fully open; a 21st collapses all but the first, and a header click opens one", () => {
+    const houses = (n: number) => PORTFOLIO.filter((r) => Array.from({ length: n }, (_, i) => houseName(i)).includes(r.house));
+    const atMax = render(<Harness rows={houses(GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS)} />);
+    expect(atMax.container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS);
+    cleanup();
+    const over = render(<Harness rows={houses(GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS + 1)} />);
+    const headers = over.container.querySelectorAll('[data-attr="portal-list-group-header"]');
+    expect(headers).toHaveLength(GROUPED_LIST_AUTO_EXPAND_MAX_GROUPS + 1);
+    expect(over.container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(1);
+    expect(headers[0]!.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(headers[1]!);
+    expect(headers[1]!.getAttribute("aria-expanded")).toBe("true");
+    expect(over.container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(2);
+  });
+
+  it("collapses one house from its header and reopens it", () => {
+    const { container } = render(<Harness rows={PORTFOLIO} />);
+    const first = container.querySelector('[data-attr="portal-list-group-header"]') as HTMLElement;
+    const group = first.closest('[data-attr="test-group"]') as HTMLElement;
+    expect(within(group).getAllByTestId("row")).toHaveLength(RESIDENTS / HOUSES);
+    fireEvent.click(first);
+    expect(first.getAttribute("aria-expanded")).toBe("false");
+    expect(within(group).queryAllByTestId("row")).toHaveLength(0);
+    fireEvent.click(first);
+    expect(within(group).getAllByTestId("row")).toHaveLength(RESIDENTS / HOUSES);
+  });
+
+  it("draws only a house's first 25 rows, and Show all draws the rest", () => {
     const big: Resident[] = Array.from({ length: 140 }, (_, i) => ({
       id: `b-${i}`,
       name: `Big ${String(i).padStart(3, "0")}`,
       house: "Tower",
     }));
-    const rows = [...big, ...PORTFOLIO.filter((r) => r.house.trim())];
+    const rows = [...big, ...PORTFOLIO.filter((r) => r.house === houseName(0))];
     const { container } = render(<Harness rows={rows} />);
     const tower = [...container.querySelectorAll('[data-attr="portal-list-group-header"]')].find((h) =>
       h.textContent?.includes("Tower"),
     ) as HTMLElement;
     expect(tower.textContent).toContain("140");
-    fireEvent.click(tower);
     const group = tower.closest('[data-attr="test-group"]') as HTMLElement;
     expect(within(group).getAllByTestId("row")).toHaveLength(GROUPED_LIST_PAGE_SIZE);
     fireEvent.click(within(group).getByRole("button", { name: "Show all 140" }));
@@ -171,20 +210,13 @@ describe("PortalGroupedRecordList", () => {
     expect(within(group).getAllByTestId("row")).toHaveLength(GROUPED_LIST_PAGE_SIZE);
   });
 
-  it("Expand all opens every house (each capped at a page), and Collapse all closes them again", () => {
-    const { container } = render(<Harness rows={PORTFOLIO.filter((r) => r.house.trim())} />);
-    const toggle = screen.getByRole("button", { name: "Expand all" });
-    fireEvent.click(toggle);
-    // 20 residents per house is under a page, so every resident is on screen.
-    expect(screen.getAllByTestId("row")).toHaveLength(RESIDENTS);
-    expect(container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(HOUSES);
-    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(screen.queryAllByTestId("row")).toHaveLength(0);
+  it("draws no expand-all or collapse-all control", () => {
+    render(<Harness rows={PORTFOLIO} />);
+    expect(screen.queryByRole("button", { name: /Expand all|Collapse all/ })).toBeNull();
   });
 
   it("an active search opens the houses that still match and draws no empty group", () => {
     const { container } = render(<Harness rows={PORTFOLIO} />);
-    expect(screen.queryAllByTestId("row")).toHaveLength(0);
     fireEvent.change(screen.getByLabelText("search"), { target: { value: "Resident 0042" } });
     // One resident matches: exactly one group survives, already open, with that one row.
     const headers = container.querySelectorAll('[data-attr="portal-list-group-header"]');
@@ -194,14 +226,22 @@ describe("PortalGroupedRecordList", () => {
     expect(screen.getByText("Resident 0042")).toBeTruthy();
   });
 
-  it("a search that matches nothing draws no groups at all, and clearing it brings the headers back collapsed", () => {
+  it("a search that matches nothing draws no groups at all, and clearing it brings every header back at its starting state", () => {
     const { container } = render(<Harness rows={PORTFOLIO} />);
     const input = screen.getByLabelText("search");
     fireEvent.change(input, { target: { value: "zzzz-no-such-resident" } });
     expect(container.querySelectorAll('[data-attr="portal-list-group-header"]')).toHaveLength(0);
     fireEvent.change(input, { target: { value: "" } });
     expect(container.querySelectorAll('[data-attr="portal-list-group-header"]')).toHaveLength(HOUSES + 1);
-    expect(screen.queryAllByTestId("row")).toHaveLength(0);
+    expect(screen.getAllByTestId("row")).toHaveLength(RESIDENTS / HOUSES);
+  });
+
+  it("a search that matches in a collapsed house opens it, however many houses there are", () => {
+    const { container } = render(<Harness rows={PORTFOLIO} />);
+    fireEvent.change(screen.getByLabelText("search"), { target: { value: "Resident" } });
+    const headers = container.querySelectorAll('[data-attr="portal-list-group-header"]');
+    expect(headers).toHaveLength(HOUSES);
+    expect(container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(HOUSES);
   });
 
   it("a short list (3 houses) starts open", () => {
@@ -209,11 +249,5 @@ describe("PortalGroupedRecordList", () => {
     const { container } = render(<Harness rows={rows} />);
     expect(container.querySelectorAll('[aria-expanded="true"]')).toHaveLength(3);
     expect(screen.getAllByTestId("row").length).toBe(rows.length);
-  });
-
-  it("a single group draws no expand-all control", () => {
-    const rows = PORTFOLIO.filter((r) => r.house === houseName(0));
-    render(<Harness rows={rows} />);
-    expect(screen.queryByRole("button", { name: /Expand all|Collapse all/ })).toBeNull();
   });
 });

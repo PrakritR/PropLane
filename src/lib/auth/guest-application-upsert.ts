@@ -2,6 +2,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { attachResidentSetupToken, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
 import { validateSubmittedApplication } from "@/lib/rental-application/validate-submission.server";
@@ -17,6 +18,23 @@ export type GuestApplicationUpsertResult =
       /** Per-field messages from the shared wizard validator. */
       fieldErrors?: Record<string, string>;
     };
+
+/**
+ * An applicant's `roomChoiceN` may only name a room of the listing they applied to. Readers count a
+ * row toward every house its room choices name, so a choice pointing at another house is dropped.
+ */
+export function applicantRoomChoicesForListing<A extends DemoApplicantRow["application"]>(
+  application: A,
+  propertyId: string,
+): A {
+  if (!application || typeof application !== "object") return application;
+  const next: Record<string, unknown> = { ...(application as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(next)) {
+    if (!/^roomChoice\d*$/.test(key) || typeof value !== "string" || !value.trim()) continue;
+    if (parseRoomChoiceValue(value).propertyId !== propertyId.trim()) next[key] = "";
+  }
+  return next as A;
+}
 
 /** Shown when the same person already has a submitted application for this room. */
 export const DUPLICATE_APPLICATION_ERROR =
@@ -128,7 +146,6 @@ export async function prepareGuestApplicationUpsert(
 
   const propertyId =
     params.row.propertyId?.trim() ||
-    params.row.assignedPropertyId?.trim() ||
     params.row.application?.propertyId?.trim() ||
     "";
   if (!propertyId) {
@@ -201,8 +218,9 @@ export async function prepareGuestApplicationUpsert(
     residentUserId: params.existing?.residentUserId ?? null,
     // Guests cannot escalate manager-controlled fields.
     withdrawnAt: params.existing?.withdrawnAt ?? params.row.withdrawnAt,
-    assignedPropertyId: params.existing?.assignedPropertyId ?? params.row.assignedPropertyId,
-    assignedRoomChoice: params.existing?.assignedRoomChoice ?? params.row.assignedRoomChoice,
+    // Manager-assigned placement: never from the applicant, only what the manager stored.
+    assignedPropertyId: params.existing?.assignedPropertyId,
+    assignedRoomChoice: params.existing?.assignedRoomChoice,
     signedMonthlyRent: params.existing?.signedMonthlyRent ?? params.row.signedMonthlyRent,
     backgroundCheckStatus: params.existing?.backgroundCheckStatus ?? params.row.backgroundCheckStatus,
     screening: params.existing?.screening ?? params.row.screening,
@@ -223,6 +241,8 @@ export async function prepareGuestApplicationUpsert(
           }
         : params.row.application,
   };
+
+  baseRow.application = applicantRoomChoicesForListing(baseRow.application, propertyId);
 
   const clientToken = params.clientSetupToken?.trim();
   if (params.existing && clientToken && isResidentSetupTokenValid(params.existing, clientToken)) {

@@ -3,7 +3,9 @@
  * the stay's nights, what the rate adds up to, and the guest's earlier stays with this workspace.
  * Pure - the page hands in the entries and the charges it already holds.
  */
+import { isHouseholdChargeOverdue, type HouseholdCharge } from "@/lib/household-charges";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { parseMoneyAmount } from "@/lib/parse-money";
 
 const DAY_MS = 86_400_000;
 
@@ -52,4 +54,34 @@ export function guestPastStays(
     .filter((candidate) => candidate !== entry && candidate.bookingStatus !== "cancelled" && !candidate.openEnded && candidate.end < today && sameGuest(entry, candidate))
     .sort((a, b) => b.end.localeCompare(a.end));
   return { count: past.length, latest: past[0] ?? null };
+}
+
+/**
+ * The charges behind a resident-backed booking: the application's own, or any
+ * on the resident's email at this house (a charge raised before the
+ * application id was stamped). A booking with neither has no ledger.
+ */
+export function bookingCharges(
+  entry: Pick<PropertyBookingEntry, "applicationId" | "residentEmail" | "propertyId">,
+  charges: readonly HouseholdCharge[],
+): HouseholdCharge[] {
+  const applicationId = entry.applicationId?.trim();
+  const email = entry.residentEmail?.trim().toLowerCase();
+  if (!applicationId && !email) return [];
+  return charges.filter(
+    (charge) =>
+      (Boolean(applicationId) && charge.applicationId === applicationId) ||
+      (Boolean(email) && charge.residentEmail.trim().toLowerCase() === email && charge.propertyId === entry.propertyId),
+  );
+}
+
+/** What the resident owes past due across these charges, in dollars. */
+export function bookingOverdueTotal(charges: readonly HouseholdCharge[], now = new Date()): number {
+  return charges
+    .filter((charge) => isHouseholdChargeOverdue(charge, now))
+    .reduce((sum, charge) => sum + parseMoneyAmount(charge.balanceLabel), 0);
+}
+
+export function bookingMoney(amount: number): string {
+  return money(amount);
 }

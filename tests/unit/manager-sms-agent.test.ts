@@ -53,6 +53,7 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
       "delete_charge",
       "delete_promotion",
       "dispose_inspection_deposit",
+      "remove_room_block",
       "revoke_resident_access",
       "void_lease",
     ]);

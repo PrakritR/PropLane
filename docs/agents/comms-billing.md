@@ -86,8 +86,11 @@ and `manager_comms_usage_events`, none of which a vendor or resident has. The me
   (`other_subscription`). Replays and reordered events therefore only ever write Stripe's current state.
 - **Number purchases** use purpose `number_communication_credit`; webhook fulfilment is exact-amount,
   USD, undiscounted, owner-bound, once per purchase; refunds and disputes reverse once per provider event.
-- **Routes:** `GET /api/number-subscription` (own status + balance), `POST .../checkout`, `POST .../portal`,
-  `POST .../credit-checkout` - vendor or resident via `profile_roles` only, a View-as session is refused.
+- **Routes:** `GET /api/number-subscription` (own status + balance, plus `available`), `POST .../checkout`,
+  `POST .../portal`, `POST .../credit-checkout` - vendor or resident via `profile_roles` only, a View-as
+  session is refused. A NEW checkout is refused 409 `not_available` when a number cannot actually be
+  provisioned - never sell an undeliverable number
+  ([vendor-portal.md](vendor-portal.md) § PropLane Number owns the conditions).
 - **Resident (Oct 8).** The subscription gives a resident a personal number (`resident_agent_numbers`,
   `20261008210000_resident_agent_numbers.sql`, provisioned on activation and from Settings > PropLane
   agent: `GET/POST /api/number-subscription/resident-number`) and the PropLane agent behind it

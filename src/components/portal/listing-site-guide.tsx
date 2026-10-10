@@ -8,7 +8,6 @@ import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-ico
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, useModalPresentation } from "@/components/ui/modal";
 import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing-channels";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
@@ -18,7 +17,6 @@ import { listingChannelDef, type ListingChannelId } from "@/lib/listing-channels
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { getPropertyById } from "@/lib/rental-application/data";
 
-export type GuideListingOption = { id: string; label: string };
 export type GuideZillowToggle = { enabled: boolean; fact: string; saving: boolean; onToggle: (next: boolean) => void };
 
 const ICON_LINK = "grid size-9 place-items-center rounded-full text-foreground/80 hover:bg-foreground/5";
@@ -35,7 +33,7 @@ export function listingGuideModeLine(posting: string, metaLive: boolean, feedApp
 }
 
 /** The one held line, identical wherever a guide shows it: the work-number phrase is always its link. */
-function HeldLine({ reasons, className }: { reasons: readonly ListingHoldReason[]; className?: string }) {
+export function HeldLine({ reasons, className }: { reasons: readonly ListingHoldReason[]; className?: string }) {
   const { lead, workNumberLink } = listingHoldFactParts(reasons);
   return (
     <p className={className ?? "text-sm text-foreground"} data-attr="listing-site-guide-held">
@@ -66,35 +64,35 @@ function Step({ n, done, title, note, children, action }: { n: number; done?: bo
 }
 
 /**
- * The how-to for one listing site: create an account, copy the post, post it, mark it posted.
- * Workspace mode shows a listing picker; property mode (`propertyId` given) is bound to that listing.
+ * The how-to for one listing site on ONE listing (the property's Promotion › Listing sites pop-up):
+ * create an account, copy the post, post it, mark it posted. The workspace-wide view of a site is its
+ * record page (`ListingSiteRecord`); how it works, the cost and the rules live on that page's Overview.
  */
 export function ListingSiteGuide({
   channelId,
   open,
   onClose,
   propertyId,
-  listings = [],
+  listingLabel = "This listing",
   zillow,
 }: {
   channelId: ListingChannelId;
   open: boolean;
   onClose: () => void;
-  /** Property mode: the guide is bound to this listing and shows no picker. */
-  propertyId?: string;
-  /** Workspace mode: the listings the picker offers, oldest first (the newest is the default). */
-  listings?: GuideListingOption[];
-  /** Property mode only: Zillow's per-listing switch. */
+  /** The listing this guide is bound to. */
+  propertyId: string;
+  /** How the listing is named, from the shared `listingPickerLabel` rule. */
+  listingLabel?: string;
+  /** Zillow's per-listing switch. */
   zillow?: GuideZillowToggle;
 }) {
   const presentation = useModalPresentation();
   const def = listingChannelDef(channelId);
   const { showToast } = useAppUi();
-  const [picked, setPicked] = useState<string | null>(null);
   const [typedUrl, setTypedUrl] = useState<{ key: string; value: string }>({ key: "", value: "" });
   const [busy, setBusy] = useState(false);
-  const selectedId = propertyId ?? picked ?? listings[listings.length - 1]?.id ?? "";
-  const { status, refresh } = useListingChannels(selectedId || undefined);
+  const selectedId = propertyId;
+  const { status, refresh } = useListingChannels(selectedId);
 
   // The ad link belongs to one listing on one site: keying it by that pair empties the box
   // when either changes, with no effect that writes state back after a render.
@@ -114,12 +112,9 @@ export function ListingSiteGuide({
   const zillowRows = useMemo(
     () =>
       channelId === "zillow"
-        ? (propertyId ? [{ id: propertyId, label: listings.find((l) => l.id === propertyId)?.label ?? "This listing" }] : listings).map((l) => ({
-            ...l,
-            on: getPropertyById(l.id)?.listingSubmission?.syndication?.zillow?.enabled === true,
-          }))
+        ? [{ id: propertyId, label: listingLabel, on: getPropertyById(propertyId)?.listingSubmission?.syndication?.zillow?.enabled === true }]
         : [],
-    [channelId, listings, propertyId],
+    [channelId, listingLabel, propertyId],
   );
 
   if (!def) return null;
@@ -170,18 +165,8 @@ export function ListingSiteGuide({
     >
       <div className="space-y-3 pb-2" data-attr="listing-site-guide">
         <p className="text-sm text-muted" data-attr="listing-site-guide-mode">{listingGuideModeLine(def.posting, metaLive, feedApproved)}</p>
-        <p className="text-sm text-foreground" data-attr="listing-site-guide-how">{feedApproved && guide.howApproved ? guide.howApproved : guide.how}</p>
         {feed && holdReasons.length > 0 ? <HeldLine reasons={holdReasons} /> : null}
 
-        {!partner && !propertyId && listings.length > 0 ? (
-          <FieldSingleSelect
-            label="Listing"
-            options={listings.map((l) => ({ value: l.id, label: l.label }))}
-            value={selectedId}
-            onChange={(next) => setPicked(next)}
-            dataAttr="listing-site-guide-picker"
-          />
-        ) : null}
         {!partner ? (
           <p className="text-sm text-muted" data-attr="listing-site-guide-leads">
             {leads} {leads === 1 ? "lead" : "leads"} from this site
@@ -330,16 +315,6 @@ export function ListingSiteGuide({
           </div>
         )}
 
-        {guide.rules.length > 0 ? (
-          <div data-attr="listing-site-guide-rules">
-            <h3 className="text-sm font-medium text-foreground">Keep the account safe</h3>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-muted">
-              {guide.rules.map((r) => (
-                <li key={r}>{r}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
       </div>
     </Modal>
   );

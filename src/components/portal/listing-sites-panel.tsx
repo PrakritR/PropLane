@@ -3,12 +3,16 @@
 import { useMemo, useState } from "react";
 
 import { IntegrationRow } from "@/components/portal/integration-row";
-import { ListingSiteGuide, type GuideListingOption } from "@/components/portal/listing-site-guide";
+import { ListingSiteGuide } from "@/components/portal/listing-site-guide";
 import { zillowPostingCounts } from "@/components/portal/integrations-posting-panel";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useListingChannels } from "@/hooks/use-listing-channels";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
 import { automaticChannelFact, shortDate } from "@/lib/listing-channels/row-fact";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { listingSiteDetailHref } from "@/lib/portal-detail-routes";
+import { listingPickerLabel, listingPickerNameOf } from "@/lib/listing-channels/listing-picker";
+import { getPropertyById } from "@/lib/rental-application/data";
 import { listingChannelsOrdered, type ListingChannelDef, type ListingChannelId, type ListingChannelPostRow } from "@/lib/listing-channels/registry";
 
 export type ZillowListingToggle = {
@@ -37,6 +41,8 @@ function manualFact(rows: readonly ListingChannelPostRow[]): string {
 export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: string; zillow: ZillowListingToggle }) {
   const { status } = useListingChannels(propertyId);
   const [openId, setOpenId] = useState<ListingChannelId | null>(null);
+  const stored = getPropertyById(propertyId);
+  const listingLabel = stored ? listingPickerLabel(listingPickerNameOf(stored).name, listingPickerNameOf(stored).roomCount) : "This listing";
   const holdReasons = status?.property?.holdReasons ?? [];
   const listingLive = status?.property?.live ?? true;
 
@@ -76,7 +82,7 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
           open
           onClose={() => setOpenId(null)}
           propertyId={propertyId}
-          listings={[{ id: propertyId, label: "This listing" }]}
+          listingLabel={listingLabel}
           zillow={openId === "zillow" ? zillow : undefined}
         />
       ) : null}
@@ -84,24 +90,22 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
   );
 }
 
-/** The overall Promotion › Listing sites view: every site in one list; a row opens that site's guide. */
-export function WorkspaceListingSitesPanel() {
+/** The overall Promotion › Listing sites view: every site in one list; a row opens that site's record page. */
+export function WorkspaceListingSitesPanel({ basePath = "/portal" }: { basePath?: string }) {
   const workspaceCtx = useWorkspaces();
   const propertyIds = useMemo(() => workspaceCtx?.active?.propertyIds ?? [], [workspaceCtx?.active?.propertyIds]);
-  const labels = workspaceCtx?.active?.propertyLabels;
   const { status } = useListingChannels();
-  const [openId, setOpenId] = useState<ListingChannelId | null>(null);
+  const navigate = usePortalNavigate();
 
   const total = propertyIds.length;
   const listingsText = (n: number) => `${n} of ${total} ${total === 1 ? "listing" : "listings"}`;
   const inWorkspace = (status?.posts ?? []).filter((p) => propertyIds.includes(p.propertyId));
   const countFor = (channel: ListingChannelId, state: "posted" | "posted_by_me") =>
     new Set(inWorkspace.filter((p) => p.channel === channel && p.state === state).map((p) => p.propertyId)).size;
-  const options: GuideListingOption[] = propertyIds.map((id) => ({ id, label: labels?.[id]?.trim() || id }));
 
   const factFor = (def: ListingChannelDef): string => {
     if (def.posting === "feed") {
-      // The row and the guide it opens must make the same claim: nothing posts until Zillow approves
+      // The row and the page it opens must make the same claim: nothing posts until Zillow approves
       // the feed, so until then the row carries the same by-hand fact as every manual channel. The
       // feed-queued count is only honest once the feed is what actually posts.
       return status?.zillowFeedApproved === true
@@ -129,11 +133,10 @@ export function WorkspaceListingSitesPanel() {
             fact={factFor(def)}
             factDataAttr={`promotion-listing-site-fact-${def.id}`}
             dataAttr={`listing-site-row-${def.id}`}
-            onOpen={() => setOpenId(def.id)}
+            onOpen={() => navigate(listingSiteDetailHref(basePath, def.id))}
           />
         );
       })}
-      {openId ? <ListingSiteGuide channelId={openId} open onClose={() => setOpenId(null)} listings={options} /> : null}
     </div>
   );
 }

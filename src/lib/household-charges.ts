@@ -94,7 +94,7 @@ import {
   moneyLabel,
 } from "@/lib/bundle-group/bundle-cost-split";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
-import { selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
 
@@ -112,6 +112,34 @@ let householdChargesSyncPromise: Promise<HouseholdChargesSyncResult> | null = nu
 const householdChargesRefreshers = new Map<string, CoalescedRefresher<HouseholdChargesSyncResult>>();
 export const HOUSEHOLD_CHARGES_SESSION_KEY = "axis:household-charges:v1";
 const HOUSEHOLD_RENT_PROFILES_SESSION_KEY = "axis:household-rent-profiles:v1";
+/**
+ * Ids the SERVER has told us it holds, stored beside the cache they describe.
+ *
+ * A row missing from a FULL read is either (a) deleted server-side or (b) created here and not yet
+ * accepted. Only the second may be uploaded. A row whose id the server previously confirmed and now
+ * omits was deleted on purpose (Delete resident, `deleteCharge` from another device, an admin
+ * cleanup): it is dropped locally and never re-posted. Without this, any stale manager tab's
+ * `action:"replace"` mirror re-inserted deleted rows with the SAME ids and the write-through
+ * re-created their ledger/GL rows (production, 2026-10-08).
+ *
+ * Confirmation comes from server READS only, never from our own POSTs: a read that began before a
+ * local creation's POST landed can legitimately omit it, and that row must still be uploaded.
+ */
+const HOUSEHOLD_CONFIRMED_IDS_SESSION_KEY = "axis:household-confirmed-ids:v1";
+/** Mirrors the route's read caps: a read this long may have been truncated, so absence proves nothing. */
+const HOUSEHOLD_CHARGE_READ_CAP = 2000;
+const HOUSEHOLD_RENT_PROFILE_READ_CAP = 500;
+let confirmedChargeIds = new Set<string>();
+let confirmedProfileIds = new Set<string>();
+let confirmedIdsHydrated = false;
+/**
+ * The workspace the confirmed sets were gathered under. The route narrows a manager's charges
+ * and rent profiles to the ACTIVE workspace, so a row confirmed under one workspace is
+ * legitimately absent from another workspace's read — that absence is a scope change, never a
+ * deletion. The sets are evidence about one scope only, so a workspace switch discards them.
+ */
+let confirmedIdsWorkspaceId: string | null = null;
+let confirmedIdsWorkspaceListenerRegistered = false;
 
 /**
  * Incremental resync (`?updatedSince=`) — plan load-followups-1007, item 3.
@@ -392,8 +420,65 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
+function registerConfirmedIdsWorkspaceListener() {
+  if (confirmedIdsWorkspaceListenerRegistered || !isBrowser()) return;
+  confirmedIdsWorkspaceListenerRegistered = true;
+  // A workspace switch re-slices the server list without deleting anything, so the evidence
+  // gathered under the previous workspace is dropped rather than letting the narrower read look
+  // like a deletion. The cached rows themselves stay: the next read merges them back, and a row
+  // the server never confirmed is never evicted.
+  window.addEventListener(WORKSPACE_SELECTION_EVENT, () => {
+    const next = selectedWorkspaceId();
+    if (next === confirmedIdsWorkspaceId) return;
+    confirmedChargeIds = new Set();
+    confirmedProfileIds = new Set();
+    confirmedIdsWorkspaceId = null;
+    persistHouseholdStateToSession();
+  });
+}
+
+/**
+ * Load the confirmed-id sets once per page. A session cache written before this bookkeeping existed
+ * has no confirmed key: every row in it is treated as server-confirmed, so a legacy cache can never
+ * resurrect anything (the worst case is an unsynced edit from the old bundle being lost).
+ */
+function hydrateConfirmedIdsFromSession() {
+  if (confirmedIdsHydrated || !isBrowser()) return;
+  confirmedIdsHydrated = true;
+  registerConfirmedIdsWorkspaceListener();
+  try {
+    const raw = window.sessionStorage.getItem(HOUSEHOLD_CONFIRMED_IDS_SESSION_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { charges?: unknown; profiles?: unknown; workspaceId?: unknown } | null;
+      if (parsed && Array.isArray(parsed.charges) && Array.isArray(parsed.profiles)) {
+        confirmedChargeIds = new Set(parsed.charges.filter((id): id is string => typeof id === "string"));
+        confirmedProfileIds = new Set(parsed.profiles.filter((id): id is string => typeof id === "string"));
+        confirmedIdsWorkspaceId = typeof parsed.workspaceId === "string" ? parsed.workspaceId : null;
+        return;
+      }
+    }
+    const rawCharges = window.sessionStorage.getItem(HOUSEHOLD_CHARGES_SESSION_KEY);
+    const rawProfiles = window.sessionStorage.getItem(HOUSEHOLD_RENT_PROFILES_SESSION_KEY);
+    const legacyCharges = rawCharges ? (JSON.parse(rawCharges) as unknown) : null;
+    const legacyProfiles = rawProfiles ? (JSON.parse(rawProfiles) as unknown) : null;
+    if (Array.isArray(legacyCharges)) {
+      for (const row of legacyCharges as Array<{ id?: unknown }>) {
+        if (typeof row?.id === "string") confirmedChargeIds.add(row.id);
+      }
+    }
+    if (Array.isArray(legacyProfiles)) {
+      for (const row of legacyProfiles as Array<{ id?: unknown }>) {
+        if (typeof row?.id === "string") confirmedProfileIds.add(row.id);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function hydrateHouseholdStateFromSession() {
   if (!isBrowser()) return;
+  hydrateConfirmedIdsFromSession();
   try {
     if (memoryCharges.length === 0) {
       const rawCharges = window.sessionStorage.getItem(HOUSEHOLD_CHARGES_SESSION_KEY);
@@ -419,6 +504,14 @@ function persistHouseholdStateToSession() {
   try {
     window.sessionStorage.setItem(HOUSEHOLD_CHARGES_SESSION_KEY, JSON.stringify(memoryCharges));
     window.sessionStorage.setItem(HOUSEHOLD_RENT_PROFILES_SESSION_KEY, JSON.stringify(memoryRentProfiles));
+    window.sessionStorage.setItem(
+      HOUSEHOLD_CONFIRMED_IDS_SESSION_KEY,
+      JSON.stringify({
+        charges: [...confirmedChargeIds],
+        profiles: [...confirmedProfileIds],
+        workspaceId: confirmedIdsWorkspaceId,
+      }),
+    );
   } catch {
     /* ignore */
   }
@@ -444,7 +537,12 @@ function reconcileChargeWithLocal(serverCharge: HouseholdCharge, local: Househol
 }
 
 /** Exported for unit tests — merges server rows with in-session manager edits. */
-export function mergeHouseholdChargesWithServer(serverCharges: HouseholdCharge[], localCharges: HouseholdCharge[]): {
+export function mergeHouseholdChargesWithServer(
+  serverCharges: HouseholdCharge[],
+  localCharges: HouseholdCharge[],
+  /** Ids the server previously confirmed. A local row with one of these that a FULL read omits was deleted server-side: drop it. */
+  confirmedServerIds?: ReadonlySet<string>,
+): {
   merged: HouseholdCharge[];
   hasUpdated: boolean;
 } {
@@ -462,16 +560,24 @@ export function mergeHouseholdChargesWithServer(serverCharges: HouseholdCharge[]
     return merged;
   });
 
-  const localOnly = localCharges.filter((c) => !serverIds.has(c.id) && !serverKeys.has(chargeBusinessKey(c)));
+  const localOnly = localCharges.filter(
+    (c) => !serverIds.has(c.id) && !serverKeys.has(chargeBusinessKey(c)) && !confirmedServerIds?.has(c.id),
+  );
   if (localOnly.some((c) => c.status === "paid")) hasUpdated = true;
   return { merged: dedupeCharges([...reconciled, ...localOnly]), hasUpdated };
 }
 
-function mergeServerAuthoritativeRentProfiles(serverProfiles: RecurringRentProfile[], localProfiles: RecurringRentProfile[]) {
+/** Exported for unit tests. `confirmedServerIds` as in {@link mergeHouseholdChargesWithServer}. */
+export function mergeServerAuthoritativeRentProfiles(
+  serverProfiles: RecurringRentProfile[],
+  localProfiles: RecurringRentProfile[],
+  confirmedServerIds?: ReadonlySet<string>,
+) {
   const serverIds = new Set(serverProfiles.map((profile) => profile.id));
   const serverKeys = new Set(serverProfiles.map((profile) => recurringRentProfileKey(profile)));
   const localOnly = localProfiles.filter(
-    (profile) => !serverIds.has(profile.id) && !serverKeys.has(recurringRentProfileKey(profile)),
+    (profile) =>
+      !serverIds.has(profile.id) && !serverKeys.has(recurringRentProfileKey(profile)) && !confirmedServerIds?.has(profile.id),
   );
   return dedupeRecurringRentProfiles([...serverProfiles, ...localOnly]);
 }
@@ -696,15 +802,20 @@ async function runHouseholdChargesSync({
         // the watermark so the next tick asks for the same window again.
         return { charges: readAll(), rentProfiles: readRentProfiles() };
       }
-      const body = res.ok
-        ? (await res.json() as {
-            charges?: HouseholdCharge[];
-            rentProfiles?: RecurringRentProfile[];
-            viewerRole?: string;
-            syncedAt?: string;
-            incremental?: boolean;
-          })
-        : {};
+      // A failed or unreadable FULL read says nothing about the ledger. Treating it as an empty
+      // server list made every cached row look "local-only" (uploaded) and, with confirmed ids,
+      // every confirmed row look deleted. Take the offline path instead: change nothing.
+      if (!res.ok) throw new Error(`household charges read failed (${res.status})`);
+      const body = (await res.json()) as {
+        charges?: HouseholdCharge[];
+        rentProfiles?: RecurringRentProfile[];
+        viewerRole?: string;
+        syncedAt?: string;
+        incremental?: boolean;
+        chargesTruncated?: boolean;
+        rentProfilesTruncated?: boolean;
+      };
+      if (!Array.isArray(body.charges)) throw new Error("household charges read returned no charge list");
       if (body.viewerRole === "resident" || body.viewerRole === "manager" || body.viewerRole === "admin") {
         householdViewerRole = body.viewerRole;
       }
@@ -714,6 +825,10 @@ async function runHouseholdChargesSync({
       // The server may answer a delta request with a full read (invalid watermark, truncated
       // window, older server): only an explicit `incremental: true` is treated as a delta.
       const incrementalResponse = requestedIncremental && body.incremental === true;
+      // The confirmed sets describe one workspace. They may only decide a deletion when this
+      // answer describes that same workspace AND it is still the selected one.
+      const workspaceStillActive = requestWorkspaceId === selectedWorkspaceId();
+      const sameConfirmedScope = workspaceStillActive && confirmedIdsWorkspaceId === requestWorkspaceId;
       let mergedCharges: HouseholdCharge[];
       let hasUpdatedCharges = false;
       let mergedProfiles: RecurringRentProfile[];
@@ -747,18 +862,88 @@ async function runHouseholdChargesSync({
         // is manager-only (403 for residents), including stale manager-session profiles.
         mergedProfiles = dedupeRecurringRentProfiles(serverProfiles);
       } else {
-        const result = mergeHouseholdChargesWithServer(serverCharges, memoryCharges);
+        // FULL read: a row the server confirmed earlier and now omits was deleted there. Drop it and
+        // never upload it. The server says so itself when any of its capped queries may have cut
+        // rows (`chargesTruncated` / `rentProfilesTruncated`) — the response length is only the
+        // floor for a server that predates those flags, since de-duplication and workspace scoping
+        // shrink it below the cap. Absence also only proves a deletion within one scope.
+        const chargeAbsenceIsDeletion =
+          body.chargesTruncated !== true
+          && serverCharges.length < HOUSEHOLD_CHARGE_READ_CAP
+          && sameConfirmedScope;
+        const profileAbsenceIsDeletion =
+          Array.isArray(body.rentProfiles)
+          && body.rentProfilesTruncated !== true
+          && serverProfiles.length < HOUSEHOLD_RENT_PROFILE_READ_CAP
+          && sameConfirmedScope;
+        const result = mergeHouseholdChargesWithServer(
+          serverCharges,
+          memoryCharges,
+          chargeAbsenceIsDeletion ? confirmedChargeIds : undefined,
+        );
         mergedCharges = result.merged;
         hasUpdatedCharges = result.hasUpdated;
-        mergedProfiles = mergeServerAuthoritativeRentProfiles(serverProfiles, memoryRentProfiles);
+        mergedProfiles = Array.isArray(body.rentProfiles)
+          ? mergeServerAuthoritativeRentProfiles(
+              serverProfiles,
+              memoryRentProfiles,
+              profileAbsenceIsDeletion ? confirmedProfileIds : undefined,
+            )
+          : dedupeRecurringRentProfiles(memoryRentProfiles);
+        // A profile the server deleted takes with it the untouched months THIS tab generated from it
+        // (not yet read back, so not "confirmed" themselves). Otherwise they would be uploaded as
+        // orphans of a rent schedule that no longer exists. Money that moved is history: kept.
+        if (profileAbsenceIsDeletion) {
+          const keptKeys = new Set(mergedProfiles.map((profile) => recurringRentProfileKey(profile)));
+          const deletedProfileIds = new Set(
+            memoryRentProfiles
+              .filter((profile) => confirmedProfileIds.has(profile.id) && !keptKeys.has(recurringRentProfileKey(profile)))
+              .map((profile) => profile.id),
+          );
+          if (deletedProfileIds.size > 0) {
+            const serverChargeIds = new Set(serverCharges.map((charge) => charge.id));
+            mergedCharges = mergedCharges.filter(
+              (charge) =>
+                serverChargeIds.has(charge.id) ||
+                !charge.recurringRentProfileId ||
+                !deletedProfileIds.has(charge.recurringRentProfileId) ||
+                charge.status !== "pending" ||
+                Boolean(charge.paidAmountCents),
+            );
+          }
+        }
+      }
+      // Remember what this read confirmed. A full, complete read of the SAME workspace REPLACES the
+      // sets (an id it omits is no longer confirmed); a delta, a truncated read, or a read whose
+      // workspace has since changed can only add.
+      // The resident view is a narrower slice of the same cache, so it only ever adds.
+      const fullChargeRead =
+        !incrementalResponse
+        && !skipReconcile
+        && body.chargesTruncated !== true
+        && serverCharges.length < HOUSEHOLD_CHARGE_READ_CAP
+        && sameConfirmedScope;
+      const fullProfileRead =
+        !incrementalResponse &&
+        !skipReconcile &&
+        Array.isArray(body.rentProfiles) &&
+        body.rentProfilesTruncated !== true &&
+        serverProfiles.length < HOUSEHOLD_RENT_PROFILE_READ_CAP &&
+        sameConfirmedScope;
+      if (workspaceStillActive) {
+        confirmedChargeIds = new Set([...(fullChargeRead ? [] : confirmedChargeIds), ...serverCharges.map((c) => c.id)]);
+        confirmedProfileIds = new Set([...(fullProfileRead ? [] : confirmedProfileIds), ...serverProfiles.map((p) => p.id)]);
+        confirmedIdsWorkspaceId = requestWorkspaceId;
       }
       mergedCharges = advanceStaleProcessingChargesForDev(mergedCharges);
       const hasLocalOnlyCharges = !incrementalResponse && mergedCharges.length > serverCharges.length;
-      const hasLocalOnlyProfiles = !incrementalResponse && mergedProfiles.length > serverProfiles.length;
+      const hasLocalOnlyProfiles =
+        !incrementalResponse && Array.isArray(body.rentProfiles) && mergedProfiles.length > serverProfiles.length;
       memoryCharges = mergedCharges;
       memoryRentProfiles = mergedProfiles;
       persistHouseholdStateToSession();
-      if (res.ok && typeof body.syncedAt === "string" && Number.isFinite(Date.parse(body.syncedAt))) {
+      // A non-ok response threw or returned above, so `res` is ok here.
+      if (typeof body.syncedAt === "string" && Number.isFinite(Date.parse(body.syncedAt))) {
         writeHouseholdSyncMark(
           incrementalResponse && priorMark
             ? { ...priorMark, syncedAt: body.syncedAt, viewerRole: householdViewerRole ?? priorMark.viewerRole }
@@ -770,7 +955,7 @@ async function runHouseholdChargesSync({
                 workspaceId: requestWorkspaceId,
               },
         );
-      } else if (res.ok) {
+      } else {
         // An older server that sends no watermark: stay on full reads.
         writeHouseholdSyncMark(null);
       }
@@ -811,7 +996,12 @@ export function readHouseholdCharges(): HouseholdCharge[] {
   return readAll();
 }
 
-/** Apply server-confirmed charge rows without exposing the store's private writers. */
+/**
+ * Apply charge rows from the server without exposing the store's private writers. This replaces
+ * rows by id but never adds to the confirmed set: confirmation comes only from a server read in
+ * `runHouseholdChargesSync` (see the invariant above), so a row applied here is still
+ * uploaded if the next read omits it.
+ */
 export function applyHouseholdChargeServerUpdates(updates: HouseholdCharge[]): void {
   if (!isBrowser() || updates.length === 0) return;
   hydrateHouseholdStateFromSession();
@@ -1434,6 +1624,10 @@ export function isHouseholdChargeOverdue(charge: HouseholdCharge, now = new Date
 /** True when a charge still has an outstanding balance and should receive payment reminders. */
 export function isUnpaidHouseholdCharge(charge: HouseholdCharge): boolean {
   if (charge.status === "paid") return false;
+  // A waived (cancelled) or refunded charge keeps its balance label — it is what
+  // the resident WAS asked for, not what they owe. Settled everywhere else that
+  // classifies a charge, so it is never unpaid, overdue, or reminder-worthy here.
+  if (charge.status === "cancelled" || charge.status === "refunded") return false;
   if (charge.paidAt) return false;
   if (parseMoneyAmount(charge.balanceLabel) <= 0) return false;
   return true;

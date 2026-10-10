@@ -1,5 +1,6 @@
 "use client";
 
+import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import type {
   ChannelCalendarConnectionPublic,
   ChannelCalendarProvider,
@@ -139,7 +140,7 @@ export async function fetchOccupancySnapshot(input: {
     from: input.from,
     to: input.to,
   });
-  const res = await fetch(`/api/portal/occupancy?${params}`, { credentials: "include" });
+  const res = await fetchWithTimeout(`/api/portal/occupancy?${params}`, { credentials: "include" }, PORTAL_READ_TIMEOUT_MS);
   const data = (await res.json()) as OccupancySnapshotResponse & { error?: string };
   if (!res.ok) throw new Error(data.error ?? "Could not load occupancy.");
   return data;
@@ -153,9 +154,11 @@ export async function fetchManagerChannelBookings(
     ids.length > 0
       ? `?propertyIds=${encodeURIComponent(ids.join(","))}`
       : "";
-  const res = await fetch(`/api/portal/channel-calendar/bookings${query}`, {
-    credentials: "include",
-  });
+  const res = await fetchWithTimeout(
+    `/api/portal/channel-calendar/bookings${query}`,
+    { credentials: "include" },
+    PORTAL_READ_TIMEOUT_MS,
+  );
   const data = (await res.json()) as {
     properties?: ManagerChannelBookingProperty[];
     error?: string;
@@ -186,4 +189,17 @@ export function removeChannelStay(input: { connectionId: string; sourceUid: stri
 /** Undo for Remove stay. */
 export function restoreChannelStay(input: { connectionId: string; sourceUid: string }): Promise<void> {
   return postChannelStayTombstone("restore", input);
+}
+
+/** Save the guest name a manager types for a channel stay (empty clears it). */
+export async function saveChannelStayGuestName(input: { connectionId: string; sourceUid: string; guestName: string }): Promise<string> {
+  const res = await fetch("/api/portal/channel-calendar/stay-details", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; guestName?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not save the guest name.");
+  return data.guestName ?? "";
 }

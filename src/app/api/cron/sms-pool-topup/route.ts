@@ -1,15 +1,9 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
-import { isProductionRuntime } from "@/lib/server-env";
 import { releaseExpiredRelayCooldowns, topUpRelayPool } from "@/lib/sms-relay.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
-
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
 
 /**
  * Hourly cron: release expired cooldowns and keep the relay pool pre-warmed
@@ -24,7 +18,7 @@ function isAuthorized(req: Request): boolean {
  * Flip the flag only once a Standard brand exists.
  */
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const db = createSupabaseServiceRoleClient();

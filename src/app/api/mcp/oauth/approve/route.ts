@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveAgentContext } from "@/lib/tools/context";
-import { createMcpAuthorizationCode, getMcpOAuthClient, MCP_OAUTH_SCOPE, verifyMcpApproval } from "@/lib/mcp/oauth.server";
+import { createMcpAuthorizationCode, getMcpOAuthClient, MCP_OAUTH_SCOPE, signMcpConnected, verifyMcpApproval } from "@/lib/mcp/oauth.server";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -37,6 +37,20 @@ export async function POST(req: Request) {
   const destination = new URL(redirectUri);
   destination.searchParams.set("code", code);
   if (state) destination.searchParams.set("state", state);
-  // 303: the browser follows a form POST with a GET (307 would re-POST to the client's callback).
-  return NextResponse.redirect(destination, 303);
+  // Land on PropLane's own "connected" screen first; it carries the validated callback in a signed,
+  // 2-minute token and continues to it. 303: the browser follows a form POST with a GET (307 would
+  // re-POST to the client's callback). If the token cannot be signed, fall back to the callback itself.
+  const token = signMcpConnected({
+    destination: destination.toString(),
+    clientName: client.clientName?.trim() || "your app",
+    workspaceName: actor.workspace?.name?.trim() || "your workspace",
+    userId: actor.userId,
+  });
+  if (!token) return NextResponse.redirect(destination, 303);
+  // A relative Location: the browser resolves it against the host it actually used. `req.url` can
+  // carry the dev server's bind address (0.0.0.0), where the session cookie does not exist.
+  // The parameter is named `token` because the signed value carries the one-time
+  // authorization code: `sanitizeAnalyticsProperties` redacts a `token=` query, so
+  // PropLane's own $pageview can never ship it to an analytics processor.
+  return new NextResponse(null, { status: 303, headers: { Location: `/mcp/connected?token=${encodeURIComponent(token)}` } });
 }

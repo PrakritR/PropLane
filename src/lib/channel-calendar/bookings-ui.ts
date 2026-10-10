@@ -1,6 +1,6 @@
 import { bookedDayKeyCountInMonth, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
-import { applicationDetailHref, leaseDetailHref, propertyDetailHref } from "@/lib/portal-detail-routes";
+import { applicationDetailHref, leaseDetailHref, propertyDetailHref, residentDetailHref } from "@/lib/portal-detail-routes";
 
 export type BookingsListTabId = "all" | "check_ins" | "check_outs";
 
@@ -255,7 +255,11 @@ export function bookingOpenTarget(
   entry: PropertyBookingEntry,
   basePath: string,
 ): { href: string; label: string } | null {
-  if (entry.source === "hold" && entry.applicationId) return { href: applicationDetailHref(basePath, "approved", entry.applicationId), label: "Open application" };
+  if (entry.source === "hold" && entry.applicationId) {
+    // An approved hold IS a resident: open their resident record, not the application inbox.
+    const href = bookingResidentHref(entry, basePath, dateKey(new Date()));
+    return href ? { href, label: "Open resident" } : { href: applicationDetailHref(basePath, "approved", entry.applicationId), label: "Open application" };
+  }
   if (entry.source === "proplane" && entry.leaseId) {
     return { href: leaseDetailHref(basePath, "manager", entry.leaseId), label: "Open lease" };
   }
@@ -263,6 +267,22 @@ export function bookingOpenTarget(
     return { href: propertyDetailHref(basePath, "all", entry.propertyId, "preview"), label: "Open listing" };
   }
   return null;
+}
+
+/**
+ * The resident record behind a booking, or `null` when the booking is not
+ * backed by a resident. The tab only names where they sit in the directory
+ * (finished stay = Past, started = Current, otherwise Potential).
+ */
+export function bookingResidentHref(
+  entry: Pick<PropertyBookingEntry, "applicationId" | "start" | "end" | "openEnded">,
+  basePath: string,
+  todayKey: string,
+): string | null {
+  const id = entry.applicationId?.trim();
+  if (!id) return null;
+  const tab = !entry.openEnded && entry.end < todayKey ? "past" : entry.start <= todayKey ? "current" : "potential";
+  return residentDetailHref(basePath, tab, id, "overview");
 }
 
 /**
@@ -334,6 +354,31 @@ export function formatBookingStayRangeShort(
   };
   if (openEnded) return `From ${fmt(start)}`;
   return `${fmt(start)} → ${fmt(addDaysToDateKey(lastNight, 1))}`;
+}
+
+/**
+ * A resident's stay, read off the move-in and move-out dates the manager entered: the end is
+ * shown as entered ("Sep 24 – Dec 31, 2026"), not turned into a next-day check-out like a
+ * guest stay. `short` keeps the row compact (year once, on the end).
+ */
+export function formatResidentStayRange(start: string, end: string, openEnded?: boolean, short = false): string {
+  const fmt = (iso: string, withYear: boolean) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    if (!y || !m || !d) return iso;
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}) });
+  };
+  if (openEnded) return `From ${fmt(start, true)}`;
+  const sameYear = start.slice(0, 4) === end.slice(0, 4);
+  return `${fmt(start, !short || !sameYear)} – ${fmt(end, true)}`;
+}
+
+/** The dates a row or record shows for a booking: a resident's own move-in/out, else the stay's check-in/out. */
+export function bookingDatesLabel(entry: Pick<PropertyBookingEntry, "applicationId" | "start" | "end" | "openEnded">, short = false): string {
+  return entry.applicationId
+    ? formatResidentStayRange(entry.start, entry.end, entry.openEnded, short)
+    : short
+      ? formatBookingStayRangeShort(entry.start, entry.end, entry.openEnded)
+      : formatBookingStayRange(entry.start, entry.end, entry.openEnded);
 }
 
 /**

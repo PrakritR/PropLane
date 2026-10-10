@@ -22,6 +22,13 @@ import { getPublicListings } from "@/lib/public-listings.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
 import { availabilityLabelFromPublicSpans, pacificListingDay } from "@/lib/public-room-occupancy";
+import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
+import {
+  CHECK_ROOM_AVAILABILITY_DESCRIPTION,
+  applyMoveInDateToLabel,
+  checkRoomAvailabilityInputSchema,
+  pacificTodayKey,
+} from "@/lib/room-availability-range";
 import {
   normalizeAiCommunicationInfoShortTerm,
   normalizeManagerListingSubmissionV1,
@@ -784,7 +791,11 @@ export const getListingDetailsTool = defineTool({
           return {
             ...room,
             currentAvailability: spans
-              ? availabilityLabelFromPublicSpans(spans, roomCapacity.get(room.id), pacificListingDay())
+              ? applyMoveInDateToLabel(
+                  availabilityLabelFromPublicSpans(spans, roomCapacity.get(room.id), pacificListingDay()),
+                  room.moveInAvailableDate,
+                  pacificTodayKey(),
+                )
               : null,
             currentAvailabilityVerified: spans !== undefined,
           };
@@ -797,6 +808,30 @@ export const getListingDetailsTool = defineTool({
         utilities: facts.utilities,
       },
     };
+  },
+});
+
+export const checkRoomAvailabilityTool = defineTool({
+  name: "check_room_availability",
+  description: CHECK_ROOM_AVAILABILITY_DESCRIPTION,
+  kind: "read",
+  inputSchema: checkRoomAvailabilityInputSchema,
+  handler: async (ctx, input) => {
+    if (input.moveIn < pacificTodayKey()) {
+      return { found: true as const, ok: false as const, error: "invalid_dates" as const, message: "moveIn is in the past." };
+    }
+    const rec = await loadResolvableListing(ctx, input.listingId);
+    if (!rec) return { found: false as const };
+    const submission = asObject(propertySource(rec)?.listingSubmission);
+    if (submission?.v !== 1) {
+      return { found: true as const, ok: false as const, error: "listing_unreadable" as const, message: "This listing's rooms could not be read." };
+    }
+    const ownerId = isCrossCatalog(ctx) ? undefined : ctx.landlordId;
+    const result = await roomAvailabilityForRange(
+      { propertyId: rec.id, roomId: input.roomId, moveIn: input.moveIn, moveOut: input.moveOut },
+      { submission, loadOccupancy: () => loadListingOccupancyForSms(rec, submission, ownerId) },
+    );
+    return { found: true as const, ...result };
   },
 });
 

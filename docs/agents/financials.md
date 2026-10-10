@@ -5,6 +5,21 @@
 
 The ordinary `/api/portal-household-charges` full-list mirror carries charge edits only. It cannot create `paid`/processing/refunded status, provider or receipt fields, or waiver audit fields. Existing financial rows are immutable through that mirror. Writes to known rows compare stored status and `updated_at`; new IDs insert only, and only rows actually persisted reach reminder/ledger sync. If a later row in the same mirror fails, earlier persisted rows still sync before the request returns an error. A manager's offline receipt uses only `action: "recordOfflinePayment"`, which rechecks owner, workspace, status, and the stored amount before ledger posting.
 
+**A stale tab must never resurrect a deleted charge or rent profile (Oct 8 2026).** That mirror's
+`action: "replace"` re-posted every locally cached row, so a tab open across a server-side delete
+(Delete resident, `deleteCharge` on another device, an admin cleanup) re-inserted the rows under the same
+ids and the write-through re-created their ledger / GL entries. `household-charges.ts` now keeps the ids
+the server has confirmed beside the cache (`axis:household-confirmed-ids:v1`): a confirmed id a FULL read
+omits was deleted there, so the row is dropped locally and never uploaded, while a row the server has
+never confirmed is still local-only and still uploads. Confirmation comes from server READS only, never
+from our own POSTs. Four things make absence inconclusive and are all respected: a failed or unreadable
+read (treated as offline — nothing changes), a read that came back AT its cap (the route answers
+`chargesTruncated` / `rentProfilesTruncated`; never infer completeness from the row count, which
+de-duplication and workspace scoping shrink), an incremental `?updatedSince=` delta, and a workspace
+switch (the confirmed sets describe one workspace and are discarded on `WORKSPACE_SELECTION_EVENT`).
+`/api/manager-applications` reports the same thing as `truncated`. Coverage:
+`tests/unit/household-charges-no-resurrect.test.ts`, `tests/unit/manager-applications-no-resurrect.test.ts`.
+
 `unmarkPaid` refuses settled or ambiguous receipts with 409 while there is no accounting-safe reversal; Payments offers no Undo or Move to pending on a recorded charge. Returning a service photo never marks its charge paid. The currently unused short-to-long application-fee projection cancels a clean unpaid obligation without a paid date or provider source, preserves any actual receipt or in-flight source, and does not mint a server waiver audit. A new Checkout cannot begin when a same-manager/property/resident legacy paid fee lacks application identity. The manager application detail receipt is read from the exact application's owned claim, charge and ledger source; a current listing quote never proves payment, and a failed read never appears as “Not received.”
 
 # Source arbitration, classified held funds and payment claims (payment audit)

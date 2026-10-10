@@ -37,6 +37,54 @@ describe("ResidentAgentSettings", () => {
     await waitFor(() => expect(assign).toHaveBeenCalledWith("about:blank#checkout"));
   });
 
+  it("not subscribed while numbers cannot be provisioned: Unavailable, no Subscribe", () => {
+    render(<ResidentAgentSettings snapshot={{ ...base, available: false }} reload={async () => undefined} />);
+    expect(screen.getByText("Your own PropLane agent · $5 / month")).toBeTruthy();
+    expect(screen.getByText("Unavailable")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Subscribe" })).toBeNull();
+  });
+
+  it("back from Checkout before the webhook lands: Activating, polling quietly, then the number", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    window.history.pushState({}, "", "/resident/profile?tab=agent&number=success");
+    try {
+      const reload = vi.fn(async () => undefined);
+      const { rerender } = render(<ResidentAgentSettings snapshot={base} reload={reload} />);
+      expect(screen.getByText("Activating…")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Subscribe" })).toBeNull();
+      await vi.advanceTimersByTimeAsync(3500);
+      expect(reload).toHaveBeenCalled();
+      rerender(
+        <ResidentAgentSettings
+          snapshot={{
+            ...base,
+            subscription: { status: "active", currentPeriodEnd: null, cancelAtPeriodEnd: false },
+            number: { state: "ready", phoneNumber: "+12065550178", sendReady: true },
+            phoneVerified: true,
+          }}
+          reload={reload}
+        />,
+      );
+      expect(screen.getByText(/555-0178/)).toBeTruthy();
+      expect(screen.queryByText("Activating…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      window.history.pushState({}, "", "/");
+    }
+  });
+
+  it("Get my number never fails silently: a skipped or pending provision says why", async () => {
+    const { residentNumberProvisionMessage } = await import("@/components/portal/resident-agent-settings");
+    expect(residentNumberProvisionMessage({ status: "ready" })).toBeNull();
+    expect(residentNumberProvisionMessage({ status: "already" })).toBeNull();
+    expect(residentNumberProvisionMessage({ status: "pending" })).toMatch(/being set up/);
+    expect(residentNumberProvisionMessage({ status: "skipped", reason: "phone_unverified" })).toMatch(/Verify your phone/);
+    expect(residentNumberProvisionMessage({ status: "skipped", reason: "provider_disabled" })).toMatch(/not available yet/);
+    expect(residentNumberProvisionMessage({ status: "skipped", reason: "no_candidate" })).toMatch(/No number is available/);
+    expect(residentNumberProvisionMessage({ status: "failed" })).toMatch(/Could not get your number/);
+    expect(residentNumberProvisionMessage(undefined)).toBeNull();
+  });
+
   it("subscribed: the number, the plan with Manage, and the credit with Buy credit", () => {
     render(
       <ResidentAgentSettings

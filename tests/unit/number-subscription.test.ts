@@ -48,6 +48,11 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 const activation = vi.hoisted(() => ({ provision: vi.fn(async () => "provisioned") }));
 vi.mock("@/lib/number-subscription/vendor-number-activation.server", () => ({ provisionVendorNumberOnActivation: activation.provision }));
 
+// Whether a NEW subscriber's number can be provisioned is tested on its own (number-availability.test.ts);
+// here the checkout route only has to honour the answer.
+const availability = vi.hoisted(() => ({ get: vi.fn(async () => ({ available: true }) as { available: boolean; reason?: string }) }));
+vi.mock("@/lib/number-subscription/availability.server", () => ({ getNumberAvailability: availability.get }));
+
 // A resident's number is provisioned by the webhook only for a subscription recorded as a resident's.
 const residentNumber = vi.hoisted(() => ({ provision: vi.fn(async () => ({ status: "ready", phoneNumber: "+12065550177" })) }));
 vi.mock("@/lib/resident-agent-number/number.server", () => ({ provisionResidentAgentNumber: residentNumber.provision }));
@@ -197,6 +202,17 @@ describe("POST /api/number-subscription/checkout", () => {
     actAs(MANAGER, ["manager", "admin"]);
     expect((await checkoutRoute(req("/api/number-subscription/checkout", { role: "vendor" }))).status).toBe(403);
     expect((state.stripe as ReturnType<typeof makeStripe>).checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("never sells a number that cannot be provisioned: 409 not_available, no Stripe call, nothing written", async () => {
+    availability.get.mockResolvedValueOnce({ available: false, reason: "provider_disabled" });
+    const res = await checkoutRoute(req("/api/number-subscription/checkout"));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("not_available");
+    const stripe = state.stripe as ReturnType<typeof makeStripe>;
+    expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(stripe.customers.create).not.toHaveBeenCalled();
+    expect(availability.get).toHaveBeenCalledWith(expect.anything(), "vendor");
   });
 
   it("refuses a View-as session so an operator never starts a charge as the viewed account", async () => {

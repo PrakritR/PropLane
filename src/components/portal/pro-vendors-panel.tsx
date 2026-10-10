@@ -10,6 +10,7 @@ import { ArrowUpRight, FileCheck2, Mail, MapPin, MessageSquare, Phone, ShieldChe
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { VendorListFilterFields } from "@/components/portal/vendor-list-filter-fields";
+import { VendorServicesPanel } from "@/components/portal/vendor-services-panel";
 import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
 import {
   VENDOR_OTHER_CATEGORY,
@@ -1160,7 +1161,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   };
 
   const listBody =
-    directoryTab === "catalog" && catalogRows.length === 0 ? (
+    directoryTab === "services" ? (
+      <VendorServicesPanel />
+    ) : directoryTab === "catalog" && catalogRows.length === 0 ? (
       <PortalListEmptyCard
         section="vendors"
         title={portalEmptyCopy("vendors.catalog").title}
@@ -1322,22 +1325,26 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
       ) : null}
-        loading={listLoading}
-        loadError={listError ? "Couldn’t load vendors" : undefined}
+        loading={directoryTab === "services" ? false : listLoading}
+        loadError={listError && directoryTab !== "services" ? "Couldn’t load vendors" : undefined}
         onRetry={retryVendors}
         isEmpty={false}
         add={undefined}
-        dataAttr={directoryTab === "catalog" ? "vendor-catalog-list" : "vendor-your-list"}
+        dataAttr={directoryTab === "catalog" ? "vendor-catalog-list" : directoryTab === "services" ? "vendor-services-tab-list" : "vendor-your-list"}
       >{listBody}</PortalRecordListSurface>
     </>
   );
 
-  const vendorToolbar = (
+  const vendorToolbar = directoryTab === "services" ? undefined : (
     <>
       {vendorFilterSheet}
       <ManagerVendorsToolbar />
     </>
   );
+  const vendorSearchControl =
+    directoryTab === "services"
+      ? undefined
+      : { value: vendorSearch, onChange: setVendorSearch, placeholder: "Search vendors", dataAttr: "vendors-search" };
 
   const vendorDestinations = bare
     ? undefined
@@ -1356,6 +1363,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           count: catalogRows.length,
           dataAttr: "vendors-tab-catalog",
         },
+        {
+          id: "services",
+          label: "Vendor services",
+          href: vendorListHref(basePath, "services"),
+          dataAttr: "vendors-tab-services",
+        },
       ];
 
   const addVendorAction = (
@@ -1372,7 +1385,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         activeDestinationId={directoryTab}
         destinationAriaLabel="Vendor lists"
         stickyDestinations={false}
-        search={{ value: vendorSearch, onChange: setVendorSearch, placeholder: "Search vendors", dataAttr: "vendors-search" }}
+        search={vendorSearchControl}
         actions={vendorToolbar}
         primary={bare ? undefined : addVendorAction}
       />
@@ -1393,9 +1406,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         destinations={vendorDestinations}
         activeDestinationId={directoryTab}
         destinationAriaLabel="Vendor lists"
-        search={{ value: vendorSearch, onChange: setVendorSearch, placeholder: "Search vendors", dataAttr: "vendors-search" }}
+        search={vendorSearchControl}
         actions={vendorToolbar}
-        primary={addVendorAction}
+        primary={directoryTab === "services" ? undefined : addVendorAction}
       />
       {body}
     </ManagerPortalPageShell>

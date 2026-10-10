@@ -62,7 +62,8 @@ import {
   smsConversationPersonKey,
   smsConversationRowId,
 } from "@/lib/communication-active-rows";
-import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread, isTeamInboxThread } from "@/lib/communication-inbox-assistant";
+import { teamThreadDisplayName } from "@/lib/team-thread-display";
 import {
   assistantUnifiedListItemFromThread,
   buildManagerAssistantPlaceholderThread,
@@ -800,8 +801,9 @@ export function ManagerUnifiedInbox({
       const sentSemantics = t.folder === "sent";
       // Title the row by the person's name when they are in the directory
       // (PRP-315); the address stays available in the open thread.
-      const displayName =
-        inboxCounterpartyName(
+      const displayName = isTeamInboxThread(t)
+        ? t.from?.trim() || teamThreadDisplayName()
+        : inboxCounterpartyName(
           t.email,
           sentSemantics && !adapter.namesSentThreadsByFrom ? null : t.from,
           filterContacts,
@@ -1470,7 +1472,7 @@ export function ManagerUnifiedInbox({
   const listControlsPublished = usePublishTitleActions(listControls, listChrome === "internal" && listControls != null);
 
   const listPane = (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip">
       <div className="shrink-0" data-attr="communication-list-header-card">
         {adapter.identityBoxes}
         {listChrome === "internal" ? (

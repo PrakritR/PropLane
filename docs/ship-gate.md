@@ -248,13 +248,13 @@ the broad one:
   waiver gain their dev fallbacks), `src/lib/growth/publishers/index.server.ts`
   (the fake `log` publisher becomes allowed), and
   `src/lib/sms/prospect-sms-burst.server.ts` (the burst callback origin stops
-  being pinned). It also opens the subset of `/api/cron/*` routes whose
-  secretless fallback is `!isProductionRuntime()` **alone** — currently 12 of
-  the 33 — which begin accepting unauthenticated calls when `CRON_SECRET` is
-  unset. The rest stay closed either way: the growth and reminder crons gate on
-  the shared `requireCronSecret` (`src/lib/cron-auth.server.ts`) and eight keep a
-  local copy of the same rule, both of which also require `!VERCEL_ENV`, while
-  the remaining eight demand a bearer unconditionally.
+  being pinned). It no longer opens any `/api/cron/*` route: as of Oct 2026 no
+  cron falls back on `!isProductionRuntime()` **alone**, so all 33 stay closed on
+  a preview either way — 17 gate on the shared `requireCronSecret`
+  (`src/lib/cron-auth.server.ts`) and 8 keep a local copy of the same rule, both
+  of which also require `!VERCEL_ENV`, while the remaining 8 demand a bearer
+  unconditionally. Re-derive that split (`grep -rl requireCronSecret
+  src/app/api/cron`) rather than trusting these counts.
   Several of these are the behaviours other specs assert, so this can mask or
   alter failures well outside the 6 cases it targets. Don't apply it as a
   one-liner without re-reading the whole suite's result set.

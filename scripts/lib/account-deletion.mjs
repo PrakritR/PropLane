@@ -108,6 +108,7 @@ export const DELETE_ORDER = [
   "manager_house_public_links",
   "manager_syndication_feeds",
   "listing_channel_posts",
+  "vendor_marketplace_accounts",
   "listing_channel_connections",
   "cosigner_submission_records",
   "screening_orders",
@@ -224,6 +225,7 @@ export const DELETE_ORDER = [
   "number_credit_accounts",
   "number_subscriptions",
   "resident_agent_numbers",
+  "resident_workspace_bindings",
   "manager_document_templates",
   "manager_promotion_records",
   "manager_reserve_policies",
@@ -248,6 +250,8 @@ export const DELETE_ORDER = [
   "stripe_payouts",
   "payout_destinations_cache",
   "payout_destination_cache_refreshes",
+  // Guest names typed for channel stays; cascades from the connection below (no ownership column of its own).
+  "channel_stay_details",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.

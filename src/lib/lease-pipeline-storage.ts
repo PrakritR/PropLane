@@ -17,6 +17,7 @@ import type { ApplicationTemplateQuestionConfig } from "@/lib/property-applicati
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { leaseSendRequiresApprovedApplication } from "@/lib/leasing-pipeline-preferences";
 import { cacheLeasingPipelinePreferences, readCachedLeasingPipelinePreferences, sharedRoomIsOnJointLease } from "@/lib/leasing-pipeline-client-cache";
+import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { type DemoApplicantRow, type ManagerLeaseBucket, type ManagerLeaseTab } from "@/data/demo-portal";
 import {
   buildAiGeneratedLeaseHtml,
@@ -140,6 +141,8 @@ let activeLeasePipelineScopeUserId: string | undefined;
 let leaseScopeGeneration = 0;
 let leaseReadSucceeded = false;
 const LEASE_PIPELINE_SYNC_TTL_MS = 15_000;
+/** A hung lease GET must settle (and fall back to the local copy) rather than hold Bookings on a spinner. */
+const LEASE_PIPELINE_FETCH_TIMEOUT_MS = PORTAL_READ_TIMEOUT_MS;
 let leasePipelineLastSyncedAt = 0;
 let leasePipelineSyncPromise: Promise<LeasePipelineRow[]> | null = null;
 /** Scope the in-flight sync was started for; a call for another scope must not adopt it. */
@@ -2460,7 +2463,7 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
   }
   const ownPromise: Promise<LeasePipelineRow[]> = (async () => {
       const localSnapshot = readLeasePipeline(managerUserId);
-      const res = await fetch("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" });
+      const res = await fetchWithTimeout("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" }, LEASE_PIPELINE_FETCH_TIMEOUT_MS);
       // Another scope took over while this request was out: its own sync owns
       // the store now. Touching it here would reset the scope under that caller.
       if (generation !== leaseScopeGeneration) return [];

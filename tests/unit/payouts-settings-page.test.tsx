@@ -289,7 +289,7 @@ describe("PortalPayoutsSettingsPage — vendor keeps bank accounts, schedule and
   it("links to Finances, offers Withdraw and no payout history or W-9 / fee section", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("Bank accounts");
-    expect(screen.getByRole("link", { name: "Open Finances" })).toHaveAttribute("href", "/vendor/financials/balance");
+    expect(screen.getByRole("link", { name: "Open Finances" })).toHaveAttribute("href", "/vendor/financials/payouts");
     expect(screen.getByText("Schedule")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw" })).not.toBeDisabled();
     expect(screen.queryByText("History")).not.toBeInTheDocument();

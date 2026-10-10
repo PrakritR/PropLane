@@ -384,9 +384,9 @@ describe("vendor Money draws Incoming payments, Outgoing payments and Finances",
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("the Finances sub-rows are the real nav ids", () => {
+  it("Finances is one nav row with no sub-rows, like the real nav", () => {
     const finances = vendorPortal.sections.find((s) => s.section === "financials")!;
-    expect(finances.tabs.map((t) => t.id)).toEqual(["overview", "balance", "refunds"]);
+    expect(finances.tabs.map((t) => t.id)).toEqual([]);
   });
 });
 

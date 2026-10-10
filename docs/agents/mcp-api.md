@@ -52,6 +52,18 @@ Managers can disconnect any active MCP client from Settings → API & MCP; this
 revokes every active token for that manager/client grant immediately. Clients
 may also use the advertised RFC 7009 revocation endpoint.
 
+The browser half is two screens. **`/mcp/authorize`** is the consent screen: who
+is signed in, the workspace the connection will be scoped to (it refuses with
+"Pick a workspace first" rather than minting a connection with no workspace), what
+the app may do (read; drafts that wait for approval; disconnect in Settings), then
+Allow / Cancel. `POST /api/mcp/oauth/approve` then lands on **`/mcp/connected`**
+("PropLane is connected") and continues to the client's callback after a beat. That
+screen is reached with a 2-minute HMAC token (`signMcpConnected`, domain-separated
+from the approval signature) carrying the already-validated callback, so it can
+never redirect anywhere the approve route did not itself build; it renders only for
+the signed-in manager who just approved, and a copied link is inert. A token that
+cannot be signed falls back to redirecting straight to the callback.
+
 **REST API** at `/api/v1/tools` uses manually created, bearer API keys. Do not make
 these credentials portable between endpoints; separate credentials make revocation
 and audit boundaries clearer.

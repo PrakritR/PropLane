@@ -25,13 +25,19 @@ describe("residents list — bulk delete", () => {
     expect(SOURCE).toMatch(/listSelectedResidents\.map\(\(resident\)/);
   });
 
-  it("deletes through the same path Edit resident uses, one at a time", () => {
+  it("deletes through the same path Edit resident uses: server deletes a few at a time, local cleanup one at a time", () => {
     // `executeResidentDelete` is what purges the server record plus the local
     // application, lease, charge, service and inbox rows; a second implementation
-    // would drift from it. Serial, because they all rewrite the same stores.
+    // would drift from it. The server calls are independent and go out with bounded
+    // concurrency (no re-preview: the confirm already showed each one), while the
+    // local cleanup stays serial because it all rewrites the same stores.
+    expect(SOURCE).toContain("const RESIDENT_DELETE_CONCURRENCY = 3;");
+    expect(SOURCE).toMatch(/runBounded\(listSelectedResidents, RESIDENT_DELETE_CONCURRENCY,/);
     expect(SOURCE).toMatch(
-      /for \(const resident of listSelectedResidents\) \{\s*\n\s*const result = await executeResidentDelete\(resident\);/,
+      /for \(const \[index, resident\] of listSelectedResidents\.entries\(\)\) \{\s*\n\s*const result = await executeResidentDelete\(resident, serverResults\[index\]\);/,
     );
+    const bulk = SOURCE.slice(SOURCE.indexOf("async function deleteSelectedResidents"));
+    expect(bulk.slice(0, bulk.indexOf("setBulkDeleteBusy(false)"))).not.toContain("previewResidentDelete");
   });
 
   /**

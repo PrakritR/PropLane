@@ -95,9 +95,8 @@ export function PortalListGroup({
   footer?: PortalListGroupFooter;
   defaultCollapsed?: boolean;
   /**
-   * Controlled mode: the caller owns whether the group is open (a long grouped
-   * list drives Expand all / Collapse all and opens every group while a search
-   * is active). Nothing is read from or written to local storage in this mode.
+   * Controlled mode: the caller owns whether the group is open (a grouped list
+   * drives each group's open state). Nothing is read from or written to local storage in this mode.
    */
   collapsed?: boolean;
   onCollapsedChange?: (next: boolean) => void;

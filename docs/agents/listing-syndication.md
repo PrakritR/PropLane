@@ -153,8 +153,20 @@ advertised. Every channel has one **posting mode** (`posting` in
 `registry.ts`), and the UI is one flat list of 16 rows in reach order (`order`,
 `listingChannelsOrdered()`), no groups and no sub-tabs, in property
 **Promotion › Listing sites** and the overall **Promotion › Listing sites** view
-(there is no rail tab). A row (glyph, name, plain-text fact, chevron) opens that
-site's guide (`listing-site-guide.tsx`) in the drawer/dialog.
+(there is no rail tab). A row (glyph, name, plain-text fact, chevron) in the
+**overall** view opens that site's **record page**,
+`/portal/promotion/listing-sites/<channelId>/<overview|listings|post|leads>`
+(`listing-site-record.tsx`, record kind `listingSite`, built like the Vendor page; `listing-sites`
+is a reserved first segment under Promotion, never an asset id). Overview holds how/cost/rules as
+fact cards; Listings is one row per listing; Post is the copy-ready ad; Leads reads
+`GET /api/manager/listing-channels/leads?channel=` (workspace-scoped, tours and applications with
+that `source_channel`, each linking to its own record page). Both the list and the count are scoped
+by `leadReadablePropertyIds` — the workspace's own houses narrowed to those whose applicant
+identities this viewer may read (`applications` or `residents`) — so a badge can never count leads
+the tab then withholds. A failed page of either read throws instead of returning a short answer. The **property**-level row still opens
+the pop-up guide (`listing-site-guide.tsx`), bound to that one listing. Every "which listing?"
+dropdown is built by `listingPickerOptions()` (`listing-picker.ts`): house name or short street, then
+`· N rooms`; Ready to post before Held (reason beside the name); drafts never offered.
 
 | Posting mode | Channels | How it works |
 | --- | --- | --- |
@@ -193,7 +205,8 @@ the step's "Open ad" link). It ends with "Keep the account
 safe" (`rules`). Workspace mode has a listing picker (newest listing by
 default); the property panel binds the guide to its listing. The guide shows
 "<n> leads from this site" from `leadCounts[channelId]` on
-`GET /api/manager/listing-channels` (`leadCountsByChannel`).
+`GET /api/manager/listing-channels` (`leadCountsByChannel`, over the same
+`leadReadablePropertyIds` as the Leads tab).
 
 ### The `?src=` tag
 
