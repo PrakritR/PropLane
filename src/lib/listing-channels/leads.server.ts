@@ -39,7 +39,8 @@ function asObject(value: unknown): Record<string, unknown> | null {
  * A tour request writes one event row per requested time window, so tours are de-duplicated by the
  * inquiry id they carry. Each read is PAGED, ordered by primary key, so a page boundary cannot
  * repeat or skip a row, and the newest 100 are the newest of ALL the tagged rows: ids are not
- * time-ordered, so a plain `limit` would hide the most recent leads of a busy channel.
+ * time-ordered, so a plain `limit` would hide the most recent leads of a busy channel. A failed page
+ * throws, so the tab reports the failure instead of showing a short list as the whole truth.
  */
 export async function listingSiteLeads({
   channel,
@@ -65,7 +66,8 @@ export async function listingSiteLeads({
         .in("property_id", slice)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
-      if (error || !data) break;
+      if (error) throw new Error(error.message);
+      if (!data) break;
       for (const row of data as { id: unknown; property_id: unknown; starts_at: unknown; row_data: unknown }[]) {
         const payload = asObject(asObject(row.row_data)?.payload);
         const tourId = text(payload?.id);
@@ -98,7 +100,8 @@ export async function listingSiteLeads({
         .in("property_id", slice)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
-      if (error || !data) break;
+      if (error) throw new Error(error.message);
+      if (!data) break;
       for (const record of data as { id: unknown; property_id: unknown; row_data: unknown; updated_at: unknown }[]) {
         if (!record.row_data) continue;
         const id = String(record.id);

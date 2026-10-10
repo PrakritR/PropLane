@@ -713,8 +713,13 @@ workspace Team chat as that member (`channel: "sms"`, idempotent on the
 MessageSid) and relayed. Text that starts `@assistant`, `assistant,` /
 `assistant:` or `@ai` (any case) goes to the Manager SMS agent with the address
 stripped and the answer goes only to the asker; a one-member workspace, a Viewer,
-or a sender who is not a member of that workspace keeps the agent route. Never
-log a raw phone or body.
+or a sender who is not a member of that workspace keeps the agent route. A bare
+YES/NO (`classifySmsConfirmationReply`) also keeps the agent route when that
+member really has an open proposal on their own Assistant session: a
+confirmation is an authorization, and posted to the Team chat it would claim
+nothing and broadcast their private approval to every teammate. The check fails
+closed to the chat, so an unreadable session or proposal read is never read as
+an open proposal. Never log a raw phone or body.
 - **Resident inbound forward to teammates** (`team_inbound_forward`,
   `inbound-forward-team.server.ts`): beside the owner's own forward
   (`forwardResidentInboundToManagerCell`, unchanged), a resident's text is also

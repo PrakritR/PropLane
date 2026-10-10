@@ -8,6 +8,7 @@ import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
 import { loadSyncListing, resolveListingPostContact } from "@/lib/listing-channels/sync.server";
 import { leadCountsByChannel } from "@/lib/listing-channels/lead-counts.server";
+import { leadReadablePropertyIds } from "@/lib/listing-channels/lead-scope.server";
 import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
 import { loadListingPickerSources } from "@/lib/listing-channels/listing-picker.server";
 
@@ -44,7 +45,12 @@ export async function GET(request: Request) {
       loadMetaConnectionPublic(db, workspace.id),
       resolveListingPostContact(db, workspace.ownerUserId, workspace.id),
       resolveWorkspaceListingAttribution(db, workspace.ownerUserId, workspace.id),
-      leadCountsByChannel({ propertyIds: workspace.propertyIds, propertyId: propertyId || undefined }).catch(() => ({}) as Record<string, number>),
+      // The badge counts only the houses whose applicant and tour-requester identities this viewer
+      // may read — the same narrowing the Leads tab applies, so a count can never point at leads the
+      // tab then withholds.
+      leadReadablePropertyIds(db, ctx.userId, workspace)
+        .then((propertyIds) => leadCountsByChannel({ propertyIds, propertyId: propertyId || undefined }))
+        .catch(() => ({}) as Record<string, number>),
       (async () => {
         const read = async (columns: string) => {
           let q = db

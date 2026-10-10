@@ -8,6 +8,8 @@ import {
   teamMemberCanPost,
 } from "@/lib/team-comms.server";
 import { startsWithAssistantAddress, stripAssistantAddress } from "@/lib/sms/team-chat-routing";
+import { classifySmsConfirmationReply, resolveOpenSmsProposal } from "@/lib/sms/agent-confirmation.server";
+import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 
 export type ManagerInboundRoute =
   /** Goes to the PropLane Assistant (an explicit address, a solo workspace, or a sender who cannot post to the chat). */
@@ -18,6 +20,36 @@ export type ManagerInboundRoute =
   | { kind: "team"; ok: false };
 
 /**
+ * Is this text the answer to a write the Assistant asked this member to confirm?
+ *
+ * The Assistant ends a proposal with "Reply YES to confirm or NO to cancel", and a confirmation is
+ * an authorization, not conversation: routed to the Team chat it would claim nothing, leave the
+ * pending action unanswered, and broadcast a private authorization to every teammate. The reply
+ * only wins when there really is an open proposal on this member's own Assistant session, so a
+ * teammate agreeing with a plan ("yes") still reaches the chat.
+ *
+ * Fails CLOSED to the Team chat: an unreadable session or proposal read is not evidence of an open
+ * proposal, and the agent turn re-reads it anyway.
+ */
+async function answersOpenAssistantProposal(
+  db: SupabaseClient,
+  input: { actorUserId: string; workspaceId: string | null; body: string },
+): Promise<boolean> {
+  if (classifySmsConfirmationReply(input.body) === "none") return false;
+  const found = await readPortalAssistantSmsSession(db, {
+    actorUserId: input.actorUserId,
+    workspaceId: input.workspaceId,
+  });
+  if (!found.ok || !found.session) return false;
+  const open = await resolveOpenSmsProposal(db, {
+    userId: input.actorUserId,
+    sessionId: found.session.id,
+    portal: "manager",
+  });
+  return open.status === "one" || open.status === "ambiguous";
+}
+
+/**
  * Decide and carry out the route for a text from an identified manager
  * (`resolveManagerSmsInboundIdentity` already proved exactly one verified
  * match for this work number's owner; STOP/HELP were handled before this).
@@ -25,6 +57,7 @@ export type ManagerInboundRoute =
  *  - "@assistant ..." / "assistant, ..." / "@ai ..." -> the Assistant, prefix stripped.
  *  - a workspace with fewer than two members       -> the Assistant (today's behavior).
  *  - a sender who is not a member of THIS number's workspace, or a Viewer -> the Assistant.
+ *  - a bare YES/NO answering a write the Assistant asked them to confirm -> the Assistant.
  *  - otherwise -> the workspace Team chat as that member (channel sms, idempotent on the
  *    MessageSid) and relayed to every OTHER member, never back to the sender.
  *
@@ -51,6 +84,13 @@ export async function routeManagerInboundText(
   if (members.length < 2 || !sender || !teamMemberCanPost(sender)) {
     return { kind: "agent", text: input.body };
   }
+
+  const confirming = await answersOpenAssistantProposal(db, {
+    actorUserId: input.actorUserId,
+    workspaceId: input.workspaceId,
+    body: input.body,
+  }).catch(() => false);
+  if (confirming) return { kind: "agent", text: input.body };
 
   const { data: profile } = await db.from("profiles").select("full_name").eq("id", input.actorUserId).maybeSingle();
   const senderName = String((profile as { full_name?: unknown } | null)?.full_name ?? "").trim() || "A teammate";

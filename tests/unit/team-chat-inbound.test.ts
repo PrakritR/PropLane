@@ -15,6 +15,18 @@ vi.mock("@/lib/team-comms.server", () => ({
   teamMemberCanPost: (member: Member | undefined) => Boolean(member) && member!.teamRole !== "viewer",
 }));
 
+const sessionLookup = vi.fn(async (..._args: unknown[]) => ({ ok: true, session: null as { id: string } | null }));
+const openProposal = vi.fn(async (..._args: unknown[]): Promise<{ status: string }> => ({ status: "none" }));
+vi.mock("@/lib/agent/portal-assistant-session.server", () => ({
+  readPortalAssistantSmsSession: (...args: unknown[]) => sessionLookup(...args),
+}));
+// `classifySmsConfirmationReply` stays REAL: it is the gate that keeps a chatty "yes I will" out of
+// the confirm path, so a stub here would prove nothing.
+vi.mock("@/lib/sms/agent-confirmation.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/sms/agent-confirmation.server")>()),
+  resolveOpenSmsProposal: (...args: unknown[]) => openProposal(...args),
+}));
+
 import { inboxInitials } from "@/components/portal/portal-inbox-ui";
 import { routeManagerInboundText } from "@/lib/sms/team-chat-inbound.server";
 
@@ -35,6 +47,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   members.mockResolvedValue(trio);
   post.mockResolvedValue({ ok: true, posted: true, threadId: "team-thread:o:ws:ws1", workspaceId: "ws1" });
+  sessionLookup.mockResolvedValue({ ok: true, session: null });
+  openProposal.mockResolvedValue({ status: "none" });
 });
 
 describe("assistant address", () => {
@@ -117,6 +131,45 @@ describe("routeManagerInboundText", () => {
     post.mockResolvedValue({ ok: true, posted: false, threadId: "team-thread:o:ws:ws1", workspaceId: "ws1" });
     expect(await route("hello")).toEqual({ kind: "team", ok: true });
     expect(relay).toHaveBeenCalledTimes(1);
+  });
+
+  it("a bare YES answering an open Assistant proposal reaches the agent, not the team", async () => {
+    sessionLookup.mockResolvedValue({ ok: true, session: { id: "sess-1" } });
+    openProposal.mockResolvedValue({ status: "one" });
+    expect(await route("YES")).toEqual({ kind: "agent", text: "YES" });
+    expect(openProposal.mock.calls[0]![1]).toMatchObject({ userId: "prakrit", sessionId: "sess-1", portal: "manager" });
+    expect(post).not.toHaveBeenCalled();
+    expect(relay).not.toHaveBeenCalled();
+  });
+
+  it("holds a reply back from the agent when more than one proposal is open, rather than broadcasting it", async () => {
+    sessionLookup.mockResolvedValue({ ok: true, session: { id: "sess-1" } });
+    openProposal.mockResolvedValue({ status: "ambiguous" });
+    expect(await route("no")).toEqual({ kind: "agent", text: "no" });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("a conversational yes with nothing pending is still a team line", async () => {
+    sessionLookup.mockResolvedValue({ ok: true, session: { id: "sess-1" } });
+    openProposal.mockResolvedValue({ status: "none" });
+    expect(await route("yes")).toEqual({ kind: "team", ok: true });
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sentence that merely contains yes never asks about proposals at all", async () => {
+    expect(await route("yes I will meet them at 4")).toEqual({ kind: "team", ok: true });
+    expect(sessionLookup).not.toHaveBeenCalled();
+    expect(openProposal).not.toHaveBeenCalled();
+  });
+
+  it("fails closed to the Team chat when the session or proposal read is unavailable", async () => {
+    sessionLookup.mockResolvedValue({ ok: false, session: null });
+    expect(await route("YES")).toEqual({ kind: "team", ok: true });
+    sessionLookup.mockResolvedValue({ ok: true, session: { id: "sess-1" } });
+    openProposal.mockResolvedValue({ status: "unavailable" });
+    expect(await route("YES")).toEqual({ kind: "team", ok: true });
+    openProposal.mockRejectedValueOnce(new Error("db down"));
+    expect(await route("YES")).toEqual({ kind: "team", ok: true });
   });
 
   it("a relay failure never fails the inbound (the chat line is already durable)", async () => {

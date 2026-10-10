@@ -18,9 +18,11 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * Leads per listing site: rows carrying a `source_channel` (tour requests and applications),
  * counted over the listings this session already resolved.
  *
- * `propertyIds` must be the session's own list (`workspace.propertyIds`), never re-derived from
- * `manager_property_records.workspace_id`: in a shared workspace the viewer holds a subset of the
- * owner's houses, and a workspace-wide re-read counted the houses they were not assigned.
+ * `propertyIds` must be the session's own list, narrowed by `leadReadablePropertyIds` exactly as the
+ * Leads tab narrows it, and never re-derived from `manager_property_records.workspace_id`: in a
+ * shared workspace the viewer holds a subset of the owner's houses, a workspace-wide re-read counted
+ * the houses they were not assigned, and `workspace.propertyIds` alone would badge a count of
+ * applicants and tour requesters whose identities the Leads tab deliberately withholds.
  *
  * A tour request writes one row per requested time window, all carrying the same channel, so tours
  * are counted by the inquiry id they share — the same collapse the Leads tab makes, so the badge and
@@ -28,7 +30,8 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  *
  * Every paged read is ordered by the primary key: PostgREST leaves row order unspecified without
  * one, so past the first page the same row could be counted twice or skipped and the counts would
- * be silently wrong.
+ * be silently wrong. A failed page THROWS rather than returning what it had: a badge quietly short
+ * of the leads the tab lists is worse than no badge, and the caller already degrades to no counts.
  */
 export async function leadCountsByChannel({
   propertyIds,
@@ -61,7 +64,8 @@ export async function leadCountsByChannel({
         .not("source_channel", "is", null)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
-      if (error || !data) break;
+      if (error) throw new Error(error.message);
+      if (!data) break;
       for (const row of data as { id: unknown; source_channel: unknown; inquiry: unknown }[]) {
         const inquiryId = typeof row.inquiry === "string" ? row.inquiry.trim() : "";
         const key = inquiryId || `row:${String(row.id)}`;
@@ -82,7 +86,8 @@ export async function leadCountsByChannel({
         .not("source_channel", "is", null)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
-      if (error || !data) break;
+      if (error) throw new Error(error.message);
+      if (!data) break;
       for (const row of data as { source_channel: unknown }[]) bump(row.source_channel);
       if (data.length < PAGE) break;
     }

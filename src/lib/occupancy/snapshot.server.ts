@@ -232,6 +232,10 @@ async function occupancyPropertyMeta(
 const APPROVED_HOLD_ROW_PAGE = 500;
 const APPROVED_HOLD_ROW_MAX_PAGES = 40;
 const APPROVED_HOLD_ID_CHUNK = 50;
+const APPROVED_HOLD_SCOPE_CONCURRENCY = 6;
+const ROOM_BLOCK_ROW_PAGE = 500;
+const ROOM_BLOCK_ROW_MAX_PAGES = 40;
+const ROOM_BLOCK_ID_CHUNK = 100;
 
 type ApprovedHoldRow = { id: unknown; property_id: unknown; assigned_property_id: unknown; row_data: unknown };
 
@@ -262,44 +266,60 @@ function approvedHoldScopes(propertyIds: string[]): ApprovedHoldScope[] {
   return scopes;
 }
 
+async function readApprovedHoldScope(db: SupabaseClient, scope: ApprovedHoldScope): Promise<ApprovedHoldRow[]> {
+  const rows: ApprovedHoldRow[] = [];
+  for (let page = 0; page < APPROVED_HOLD_ROW_MAX_PAGES; page += 1) {
+    const base = db
+      .from("manager_application_records")
+      .select("id, property_id, assigned_property_id, row_data")
+      .eq("row_data->>bucket", "approved");
+    const scoped =
+      scope.kind === "column"
+        ? base.in(scope.column, scope.ids)
+        : base.like("row_data->>assignedRoomChoice", `${escapeLikePattern(scope.propertyId)}::%`);
+    // One row past the page, so "is there more?" is answered by the same read: a scope whose row
+    // count lands exactly on a page boundary must not be mistaken for a truncated one.
+    const { data, error } = await scoped
+      .order("id", { ascending: true })
+      .range(page * APPROVED_HOLD_ROW_PAGE, page * APPROVED_HOLD_ROW_PAGE + APPROVED_HOLD_ROW_PAGE);
+    if (error) throw new Error(error.message);
+    const batch = (data ?? []) as unknown as ApprovedHoldRow[];
+    const hasMore = batch.length > APPROVED_HOLD_ROW_PAGE;
+    for (const row of hasMore ? batch.slice(0, APPROVED_HOLD_ROW_PAGE) : batch) rows.push(row);
+    if (!hasMore) return rows;
+  }
+  // Rows beyond the bound are occupancy this snapshot never read. Drawing the calendar anyway
+  // would show an occupied room as free, so refuse the snapshot rather than truncate it.
+  throw new Error("Approved-application read for this occupancy snapshot exceeded its page bound.");
+}
+
+/**
+ * Every scope is an independent read of the same table, so they run together rather than one after
+ * the other: a portfolio of 50 houses asks for one room-choice scope per house, and serialized that
+ * is ~52 round trips the Bookings calendar and the export feed both wait on. Concurrency is capped
+ * so a large portfolio cannot open an unbounded number of connections at once.
+ */
 async function readApprovedHoldRows(db: SupabaseClient, propertyIds: string[]): Promise<ApprovedHoldRow[]> {
+  const scopes = approvedHoldScopes(propertyIds);
+  const batches: ApprovedHoldRow[][] = [];
+  for (let at = 0; at < scopes.length; at += APPROVED_HOLD_SCOPE_CONCURRENCY) {
+    batches.push(
+      ...(await Promise.all(
+        scopes.slice(at, at + APPROVED_HOLD_SCOPE_CONCURRENCY).map((scope) => readApprovedHoldScope(db, scope)),
+      )),
+    );
+  }
   const rows: ApprovedHoldRow[] = [];
   const seen = new Set<string>();
-  for (const scope of approvedHoldScopes(propertyIds)) {
-    let exhausted = false;
-    for (let page = 0; page < APPROVED_HOLD_ROW_MAX_PAGES; page += 1) {
-      const base = db
-        .from("manager_application_records")
-        .select("id, property_id, assigned_property_id, row_data")
-        .eq("row_data->>bucket", "approved");
-      const scoped =
-        scope.kind === "column"
-          ? base.in(scope.column, scope.ids)
-          : base.like("row_data->>assignedRoomChoice", `${escapeLikePattern(scope.propertyId)}::%`);
-      // One row past the page, so "is there more?" is answered by the same read: a scope whose row
-      // count lands exactly on a page boundary must not be mistaken for a truncated one.
-      const { data, error } = await scoped
-        .order("id", { ascending: true })
-        .range(page * APPROVED_HOLD_ROW_PAGE, page * APPROVED_HOLD_ROW_PAGE + APPROVED_HOLD_ROW_PAGE);
-      if (error) throw new Error(error.message);
-      const batch = (data ?? []) as unknown as ApprovedHoldRow[];
-      const hasMore = batch.length > APPROVED_HOLD_ROW_PAGE;
-      for (const row of hasMore ? batch.slice(0, APPROVED_HOLD_ROW_PAGE) : batch) {
-        const id = typeof row.id === "string" ? row.id.trim() : "";
-        if (id) {
-          if (seen.has(id)) continue;
-          seen.add(id);
-        }
-        rows.push(row);
+  for (const batch of batches) {
+    for (const row of batch) {
+      const id = typeof row.id === "string" ? row.id.trim() : "";
+      if (id) {
+        if (seen.has(id)) continue;
+        seen.add(id);
       }
-      if (!hasMore) {
-        exhausted = true;
-        break;
-      }
+      rows.push(row);
     }
-    // Rows beyond the bound are occupancy this snapshot never read. Drawing the calendar anyway
-    // would show an occupied room as free, so refuse the snapshot rather than truncate it.
-    if (!exhausted) throw new Error("Approved-application read for this occupancy snapshot exceeded its page bound.");
   }
   return rows;
 }
@@ -338,19 +358,59 @@ export async function occupancyHoldEntries(
   });
 }
 
+type RoomDateBlockRow = { id: unknown; property_id: unknown; row_data: unknown };
+
+/**
+ * Every `room_date_block` row of these houses, paged and ordered by primary key.
+ *
+ * PostgREST leaves row order unspecified without an `order`, so a bare `limit` returned an
+ * arbitrary slice past the cap and the closed dates it dropped drew as free on the Bookings
+ * calendar and in the export feed. Refuse the snapshot past the bound rather than truncate it,
+ * exactly as the approved-hold read does.
+ */
+async function readRoomDateBlockRows(db: SupabaseClient, propertyIds: string[]): Promise<RoomDateBlockRow[]> {
+  const rows: RoomDateBlockRow[] = [];
+  const seen = new Set<string>();
+  for (let at = 0; at < propertyIds.length; at += ROOM_BLOCK_ID_CHUNK) {
+    const ids = propertyIds.slice(at, at + ROOM_BLOCK_ID_CHUNK);
+    let exhausted = false;
+    for (let page = 0; page < ROOM_BLOCK_ROW_MAX_PAGES; page += 1) {
+      // One row past the page answers "is there more?" from the same read.
+      const { data, error } = await db
+        .from("portal_schedule_records")
+        .select("id, property_id, row_data")
+        .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+        .in("property_id", ids)
+        .order("id", { ascending: true })
+        .range(page * ROOM_BLOCK_ROW_PAGE, page * ROOM_BLOCK_ROW_PAGE + ROOM_BLOCK_ROW_PAGE);
+      if (error) throw new Error(error.message);
+      const batch = (data ?? []) as unknown as RoomDateBlockRow[];
+      const hasMore = batch.length > ROOM_BLOCK_ROW_PAGE;
+      for (const row of hasMore ? batch.slice(0, ROOM_BLOCK_ROW_PAGE) : batch) {
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        rows.push(row);
+      }
+      if (!hasMore) {
+        exhausted = true;
+        break;
+      }
+    }
+    if (!exhausted) throw new Error("Room-block read for this occupancy snapshot exceeded its page bound.");
+  }
+  return rows;
+}
+
 async function occupancyBlockEntries(
   db: SupabaseClient,
   propertyIds: string[],
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
   if (propertyIds.length === 0) return { imported: [], typed: [] };
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("id, property_id, row_data")
-    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
-    .in("property_id", propertyIds)
-    .limit(1000);
-  if (error) throw new Error(error.message);
+  const data = await readRoomDateBlockRows(db, propertyIds);
   const blocks = (data ?? [])
     .map(roomDateBlockFromRecord)
     .filter((block): block is RoomDateBlock => Boolean(block));
