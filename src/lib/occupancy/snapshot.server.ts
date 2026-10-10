@@ -32,7 +32,10 @@ import {
   exportBlockedRanges,
   occupancyForDay,
   occupancyStayKind,
+  occupancyStayResident,
+  occupancyStayResidentWithoutIdentifiers,
   type OccupancyCapacities,
+  type OccupancyStayResident,
   type OccupancyDayCell,
 } from "@/lib/occupancy/snapshot";
 
@@ -54,6 +57,8 @@ export type OccupancySnapshotStay = {
   name: string;
   /** Resident-backed stays only — what the resident pays per month, when it is on file. */
   monthlyRent?: number;
+  /** Resident-backed stays only (hold / executed lease): everything Bookings needs to draw and open the row. */
+  resident?: OccupancyStayResident;
 };
 
 function eachDayKey(from: string, to: string): string[] {
@@ -495,19 +500,29 @@ export async function occupancySnapshotForManager(
       ...occupancyForDay(entries, dayKey, [propertyId], capacities),
     })),
   }));
-  const stays: OccupancySnapshotStay[] = entries.map((entry) => ({
-    id: `${entry.propertyId}:${entry.roomId}:${entry.start}:${entry.summary}`,
-    propertyId: entry.propertyId,
-    roomId: entry.roomId,
-    roomLabel: entry.roomLabel,
-    start: entry.start,
-    end: entry.end,
-    kind: occupancyStayKind(entry),
-    name: dayStayDisplayName(entry),
-    ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
-      ? { monthlyRent: entry.monthlyRent }
-      : {}),
-  }));
+  const stays: OccupancySnapshotStay[] = entries.map((entry) => {
+    const resident = occupancyStayResident(entry);
+    return {
+      id: `${entry.propertyId}:${entry.roomId}:${entry.start}:${entry.summary}`,
+      propertyId: entry.propertyId,
+      roomId: entry.roomId,
+      roomLabel: entry.roomLabel,
+      start: entry.start,
+      end: entry.end,
+      kind: occupancyStayKind(entry),
+      name: dayStayDisplayName(entry),
+      ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
+        ? { monthlyRent: entry.monthlyRent }
+        : {}),
+      ...(resident
+        ? {
+            resident: financialHouses.has(entry.propertyId)
+              ? resident
+              : occupancyStayResidentWithoutIdentifiers(resident),
+          }
+        : {}),
+    };
+  });
   return {
     days,
     stays,

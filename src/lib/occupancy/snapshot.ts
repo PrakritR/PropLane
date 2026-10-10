@@ -28,6 +28,154 @@ export type OccupancyCapacities = {
 
 export type OccupancyStayKind = "lease" | "hold" | "guest" | "block";
 
+/**
+ * What a resident-backed stay (an approved application's hold, an executed lease) carries so
+ * Bookings can draw its row and open its record from the occupancy snapshot alone, without
+ * waiting on the applications or lease-pipeline reads. Financial fields are already redacted
+ * server-side for a viewer without Residents access.
+ */
+export type OccupancyStayResident = {
+  source: "hold" | "proplane";
+  applicationId?: string;
+  leaseId?: string;
+  residentName?: string;
+  residentEmail?: string;
+  residentPhone?: string;
+  monthlyRent?: number;
+  securityDeposit?: number;
+  leaseTerm?: string;
+  statusLabel?: string;
+  openEnded?: boolean;
+};
+
+/** The resident facts of a booking entry, for the snapshot's stay payload. Undefined for non-resident stays. */
+export function occupancyStayResident(entry: PropertyBookingEntry): OccupancyStayResident | undefined {
+  if (entry.source !== "hold" && entry.source !== "proplane") return undefined;
+  return {
+    source: entry.source,
+    ...(entry.applicationId ? { applicationId: entry.applicationId } : {}),
+    ...(entry.leaseId ? { leaseId: entry.leaseId } : {}),
+    ...(entry.residentName ? { residentName: entry.residentName } : {}),
+    ...(entry.residentEmail ? { residentEmail: entry.residentEmail } : {}),
+    ...(entry.residentPhone ? { residentPhone: entry.residentPhone } : {}),
+    ...(typeof entry.monthlyRent === "number" ? { monthlyRent: entry.monthlyRent } : {}),
+    ...(typeof entry.securityDeposit === "number" ? { securityDeposit: entry.securityDeposit } : {}),
+    ...(entry.leaseTerm ? { leaseTerm: entry.leaseTerm } : {}),
+    ...(entry.statusLabel ? { statusLabel: entry.statusLabel } : {}),
+    ...(entry.openEnded ? { openEnded: true } : {}),
+  };
+}
+
+/**
+ * The resident facts a viewer without Residents access may see: who, where, when and the status
+ * label. The contact email and the record ids (application / lease) open the resident's records,
+ * so they stay with the owner and with a teammate who holds Residents view on the house.
+ */
+export function occupancyStayResidentWithoutIdentifiers(
+  resident: OccupancyStayResident | undefined,
+): OccupancyStayResident | undefined {
+  if (!resident) return resident;
+  const rest: OccupancyStayResident = { ...resident };
+  delete rest.applicationId;
+  delete rest.leaseId;
+  delete rest.residentEmail;
+  return rest;
+}
+
+type SnapshotStayLike = {
+  propertyId?: unknown;
+  roomId?: unknown;
+  roomLabel?: unknown;
+  start?: unknown;
+  end?: unknown;
+  name?: unknown;
+  resident?: OccupancyStayResident;
+};
+
+/** Resident booking entries (holds + executed leases) rebuilt from the snapshot's stays. */
+export function residentEntriesFromStays(
+  stays: readonly unknown[] | undefined,
+  propertyLabelForId: (propertyId: string) => string,
+): PropertyBookingEntry[] {
+  const out: PropertyBookingEntry[] = [];
+  for (const raw of stays ?? []) {
+    const stay = raw as SnapshotStayLike;
+    const resident = stay?.resident;
+    if (!resident || (resident.source !== "hold" && resident.source !== "proplane")) continue;
+    const propertyId = String(stay.propertyId ?? "").trim();
+    const start = String(stay.start ?? "").trim();
+    const end = String(stay.end ?? "").trim();
+    if (!propertyId || !start || !end) continue;
+    out.push({
+      source: resident.source,
+      propertyId,
+      propertyLabel: propertyLabelForId(propertyId),
+      roomId: String(stay.roomId ?? ""),
+      roomLabel: String(stay.roomLabel ?? ""),
+      summary: String(stay.name ?? "") || resident.residentName || "Resident",
+      start,
+      end,
+      ...(resident.applicationId ? { applicationId: resident.applicationId } : {}),
+      ...(resident.leaseId ? { leaseId: resident.leaseId } : {}),
+      ...(resident.residentName ? { residentName: resident.residentName } : {}),
+      ...(resident.residentEmail ? { residentEmail: resident.residentEmail } : {}),
+      ...(resident.residentPhone ? { residentPhone: resident.residentPhone } : {}),
+      ...(typeof resident.monthlyRent === "number" ? { monthlyRent: resident.monthlyRent } : {}),
+      ...(typeof resident.securityDeposit === "number" ? { securityDeposit: resident.securityDeposit } : {}),
+      ...(resident.leaseTerm ? { leaseTerm: resident.leaseTerm } : {}),
+      ...(resident.statusLabel ? { statusLabel: resident.statusLabel } : {}),
+      ...(resident.openEnded ? { openEnded: true } : {}),
+    });
+  }
+  return out;
+}
+
+/** The identity two copies of one resident stay share: source + applicationId (hold) or leaseId (lease). */
+export function residentEntryKey(entry: Pick<PropertyBookingEntry, "source" | "applicationId" | "leaseId">): string | null {
+  const id = entry.source === "proplane" ? entry.leaseId || entry.applicationId : entry.applicationId;
+  return id ? `${entry.source}\0${id}` : null;
+}
+
+/**
+ * Occupancy-sourced resident entries are the base; entries built from the (slower) applications /
+ * leases reads only enrich or override the same stay, and anything they carry that the base lacks is added.
+ * Never two rows for one stay.
+ */
+export function mergeResidentEntries(
+  primary: readonly PropertyBookingEntry[],
+  enrichment: readonly PropertyBookingEntry[],
+): PropertyBookingEntry[] {
+  const out: PropertyBookingEntry[] = [];
+  const index = new Map<string, number>();
+  // A stay the snapshot sent without record ids (viewer lacks Residents access) has no key; the
+  // same stay arriving from the applications / leases reads is matched by where and when instead.
+  const shapeKey = (entry: PropertyBookingEntry) =>
+    `${entry.source}\0${entry.propertyId}\0${entry.roomId}\0${entry.start}\0${entry.end}`;
+  const keylessIndex = new Map<string, number>();
+  const push = (entry: PropertyBookingEntry) => {
+    const key = residentEntryKey(entry);
+    let at = key ? index.get(key) : undefined;
+    if (key && at === undefined) {
+      const keyless = keylessIndex.get(shapeKey(entry));
+      if (keyless !== undefined) {
+        at = keyless;
+        keylessIndex.delete(shapeKey(entry));
+      }
+    }
+    if (key && at !== undefined) {
+      out[at] = { ...out[at], ...entry };
+      index.set(key, at);
+      return;
+    }
+    if (key) index.set(key, out.length);
+    else if (!keylessIndex.has(shapeKey(entry))) keylessIndex.set(shapeKey(entry), out.length);
+    out.push(entry);
+  };
+  primary.forEach(push);
+  enrichment.forEach(push);
+  return out;
+}
+
 export type OccupancyStayInput = {
   id: string;
   propertyId: string;

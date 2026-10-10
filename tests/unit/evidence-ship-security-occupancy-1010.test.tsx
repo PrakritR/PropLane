@@ -253,6 +253,29 @@ describe("evidence · resident money is hidden from a calendar-only teammate", (
     say();
   });
 
+  it("the snapshot's resident payload drops email and record ids for Calendar-only, keeps them for owner and Residents view", async () => {
+    const HOLD_WITH_EMAIL = { ...HOLD, row_data: { ...HOLD.row_data, email: "rita@example.com" } };
+    const resident = async (viewer: string, links: unknown[]) => {
+      const snapshot = await occupancySnapshotForManager(fakeDb(listing(), [HOLD_WITH_EMAIL], links), viewer, {
+        propertyIds: [HOUSE],
+        from: "2026-10-01",
+        to: "2026-10-31",
+      });
+      return snapshot.stays[0]?.resident;
+    };
+    const owner = await resident(OWNER, []);
+    const calendar = await resident(LINKED, calendarOnly);
+    const residents = await resident(LINKED, withResidents);
+    expect(owner?.residentEmail).toBe("rita@example.com");
+    expect(owner?.applicationId).toBe("AXIS-RENT");
+    expect(residents?.residentEmail).toBe("rita@example.com");
+    expect(calendar?.residentName).toBe("Rita Resident");
+    expect(calendar).not.toHaveProperty("residentEmail");
+    expect(calendar).not.toHaveProperty("applicationId");
+    expect(calendar).not.toHaveProperty("leaseId");
+    expect(JSON.stringify(calendar)).not.toContain("rita@example.com");
+  });
+
   it("renders the Bookings row each viewer actually sees", async () => {
     const ownerEntry = applicationHoldEntries([holdRowFromApplication(HOLD)], {
       properties: [{ id: HOUSE, label: "5259 Brooklyn Ave" }],

@@ -5,8 +5,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-vi.mock("@/lib/demo-mode", () => ({
+// The preview is exercised signed-in, not in the demo sandbox. jsdom serves the
+// page at "/", which `isDemoModeActive()` treats as the landing-page demo embed,
+// so without this mock the pdf variant kicks off an unawaited `pdf-lib` import
+// that lands after the environment is torn down.
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
+}));
+
+// The flow variant mounts the rasterizing preview, which lazily imports pdf.js.
+// Only the shell is under test here, so stub it rather than start an import the
+// test never awaits.
+vi.mock("@/components/portal/uploaded-lease-pdf-preview", () => ({
+  UploadedLeasePdfPreview: () => <div data-testid="uploaded-lease-pdf-preview" />,
 }));
 
 import { ApplicationDocumentPreview } from "@/components/portal/pro-applications";
@@ -15,6 +27,7 @@ afterEach(cleanup);
 
 const row = {
   id: "app-1",
+  name: "Alex Resident",
   bucket: "approved",
   application: { firstName: "Alex", lastName: "Resident", consentCredit: true },
 } as never;
@@ -69,6 +82,7 @@ describe("application document preview — stretch mode", () => {
     const shell = container.querySelector('[data-testid="application-pdf-preview"]');
     expect(shell).not.toBeNull();
     expect(shell!.className).not.toContain("flex-1");
+    expect(container.querySelector('[data-testid="uploaded-lease-pdf-preview"]')).not.toBeNull();
     expect(container.querySelector("iframe")).toBeNull();
   });
 });

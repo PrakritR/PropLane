@@ -294,7 +294,15 @@ resident-backed entry — application holds, leases, and a manager's block held
 for a named resident alike. A channel stay's own nightly rate is not a
 resident's money and stays. The houses that keep the figures are resolved
 server-side in `occupancySnapshotForManager`, never from the request.
-Coverage: `tests/unit/occupancy-cross-tenant-plant.test.ts`.
+
+The snapshot's own resident payload is stripped the same way, by the same
+house set: `occupancyStayResidentWithoutIdentifiers`
+(`src/lib/occupancy/snapshot.ts`) also drops the resident's **contact email**
+and the **record ids** (application / lease) off every stay on a house the
+viewer lacks `residents` read on, because those ids are what opens the
+resident's records. Who, where, when and the status label remain — that is the
+calendar. Coverage: `tests/unit/occupancy-cross-tenant-plant.test.ts`,
+`tests/unit/occupancy-stay-resident-identifiers.test.ts`.
 
 **`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
 module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
@@ -395,8 +403,17 @@ never treated as Free. Coverage: `tests/unit/co-manager-plan-reconcile.test.ts`,
 `fetchRowsForManagerWithLinked` (owned+linked merge, deduped). Wired into the
 GET paths of work orders, service requests, household charges, vendors, and
 manager documents; leases/applications/property-records already had their own
-(`fetchLeasesForManagerUser` etc.). Write enforcement goes through
-`assertCoManagerModuleAccess(..., { level: "edit" })`
+(`fetchLeasesForManagerUser` etc.). A caller that acts on the **absence** of a
+grant — a delete, like the orphan-housing sweep behind the manager Applications
+GET — passes `{ strict: true }`, so a lookup that failed throws instead of
+reading as "no linked properties"; the fail-open default is only for a read that
+may safely narrow. Which errors legitimately mean "no links" is
+`looksLikeMissingTableError` (`manager-lease-scope.ts`), matched on the
+PostgREST / Postgres codes, never on the table name appearing in a message —
+which also matches a permission error and a schema-cache mismatch. Coverage:
+`tests/unit/co-manager-link-lookup-strict.test.ts`.
+
+Write enforcement goes through `assertCoManagerModuleAccess(..., { level: "edit" })`
 (`src/lib/auth/co-manager-access.ts`) — bills POST is the exemplar. That is the
 ONE gate: it resolves through `linkedOwnerScopeForModule` → `coManagerModuleAllowed`
 (so `{}` denies), and it pairs the grant with the row's owner. Never add a second

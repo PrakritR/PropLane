@@ -65,8 +65,11 @@ export async function linkedPropertyIdsForModule(
   db: ServiceClient,
   userId: string,
   module: CoManagerPermissionId,
+  options?: { strict?: boolean },
 ): Promise<Set<string>> {
-  const byProperty = await collectLinkedPropertyPermissionsForUser(db, userId);
+  // `strict` is for callers that act on the ABSENCE of a grant (a delete): a failed lookup throws
+  // instead of reading as "no linked properties".
+  const byProperty = await collectLinkedPropertyPermissionsForUser(db, userId, { strict: options?.strict === true });
   const out = new Set<string>();
   for (const [propertyId] of byProperty) {
     if (moduleAllowed(byProperty.get(propertyId), propertyId, module)) out.add(propertyId);

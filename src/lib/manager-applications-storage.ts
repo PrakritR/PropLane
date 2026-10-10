@@ -68,6 +68,14 @@ export type ManagerApplicationsSyncResult = {
   /** A completed current-scope server response, including a successful empty list. */
   ok: boolean;
   stale?: boolean;
+  /**
+   * The answer was a COMPLETE manager-scope list for the still-selected workspace, so absence
+   * from `rows` proves the row is gone. A `?scope=self` slice, an answer the route marked
+   * `truncated`, one sitting at the read cap, or one whose workspace changed mid-flight proves
+   * nothing by absence — a caller that acts on absence (hiding a stay, dropping a cached row)
+   * must not act on those.
+   */
+  complete?: boolean;
 };
 let managerApplicationsSyncPromise: Promise<ManagerApplicationsSyncResult> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
@@ -76,6 +84,12 @@ const publicPropertyRefreshRevisions = new Map<string, number>();
 
 let applicationsScopeGeneration = 0;
 let applicationsReadSucceeded = false;
+/**
+ * Whether the LAST successful read was a complete manager-scope list. Reused answers (the TTL
+ * hit, the in-flight share) carry it too, so a caller that acts on absence keeps the same
+ * evidence a fresh read gave it instead of silently losing it on a remount.
+ */
+let applicationsReadWasComplete = false;
 let applicationsReadScope: "manager" | "self" | null = null;
 let applicationsReadGeneration = 0;
 let applicationWriteGeneration = 0;
@@ -83,6 +97,7 @@ let applicationWriteGeneration = 0;
 function clearSensitiveApplicationCache() {
   const changed = memoryRows.length > 0;
   applicationsReadSucceeded = false;
+  applicationsReadWasComplete = false;
   applicationsReadScope = null;
   applicationsReadGeneration++;
   memoryRows = [];
@@ -872,7 +887,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   const managerUserId = opts?.managerUserId ?? portalSessionViewerId() ?? undefined;
   ensureApplicationsScope(managerUserId);
   hydrateManagerApplicationsFromSession(managerUserId);
-  if (isDemoModeActive()) return { rows: readManagerApplicationRows(), ok: true };
+  if (isDemoModeActive()) return { rows: readManagerApplicationRows(), ok: true, complete: true };
   // Stop polling once the session is gone — this loader runs on an interval and
   // otherwise keeps 401ing for as long as the signed-out tab stays open.
   if (activeApplicationsScopeUserId && portalSessionEnded()) {
@@ -895,7 +910,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
   if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < (opts?.maxAgeMs ?? MANAGER_APPLICATIONS_SYNC_TTL_MS)) {
-    return { rows: readManagerApplicationRows(), ok: true };
+    return { rows: readManagerApplicationRows(), ok: true, complete: applicationsReadWasComplete };
   }
   const generation = applicationsScopeGeneration;
   const readGeneration = ++applicationsReadGeneration;
@@ -963,12 +978,12 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // property-scoped manager read never includes — confirming it there made the
       // next manager sync treat it as deleted and drop it from the store.
       const confirmable = !opts?.selfScope && workspaceStillActive;
-      const absenceIsDeletion =
+      const listIsComplete =
         !opts?.selfScope
         && body.truncated !== true
         && body.rows.length < MANAGER_APPLICATIONS_READ_CAP
-        && workspaceStillActive
-        && confirmedApplicationsWorkspaceId === readWorkspaceId;
+        && workspaceStillActive;
+      const absenceIsDeletion = listIsComplete && confirmedApplicationsWorkspaceId === readWorkspaceId;
       const retained = absenceIsDeletion
         ? memoryRows.filter((row) => serverIds.has(row.id) || !confirmedApplicationIds.has(row.id))
         : memoryRows;
@@ -981,10 +996,11 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       memoryRows = rows;
       persistManagerApplicationsToSession(rows, managerUserId);
       applicationsReadSucceeded = true;
+      applicationsReadWasComplete = listIsComplete;
       managerApplicationsLastSyncedAt = Date.now();
       managerApplicationsSuccessfulServerSyncAt = managerApplicationsLastSyncedAt;
       if (changed) emit();
-      return { rows, ok: true };
+      return { rows, ok: true, complete: listIsComplete };
     })().catch(() =>
       isCurrentRead()
         ? (applicationsReadSucceeded = false, managerApplicationsSuccessfulServerSyncAt = 0, { rows: readManagerApplicationRows(), ok: false })

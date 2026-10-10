@@ -32,6 +32,31 @@ A resident-backed entry carries that resident's OWN figures — `monthlyRent`,
 (`booking-presentation.ts`) prints the resident's rent ahead of the room
 listing's rate or a block's nightly rate, because the resident is who pays.
 
+## Residents come from the occupancy snapshot
+
+Every resident stay — an approved application's hold and an executed lease — is
+drawn from the occupancy snapshot's own `stays[].resident` payload
+(`OccupancyStayResident`, `src/lib/occupancy/snapshot.ts`), rebuilt into entries
+by `residentEntriesFromStays`. That one server read already knows who is where
+and when, so residents appear as soon as `/api/portal/occupancy` answers instead
+of waiting on the much slower applications and lease-pipeline reads (the live
+portfolio took ~30s there, which read as a calendar with no residents on it).
+
+The applications and lease reads only **enrich** the same stay:
+`mergeResidentEntries` matches an entry by source + `leaseId` / `applicationId`,
+falling back to where-and-when for a stay the snapshot sent without record ids
+(a calendar-only viewer — [`co-manager-access.md`](co-manager-access.md)
+§ Calendar shows the stay). Never two rows for one stay, and never a second
+resident source beside the snapshot.
+
+Those lists un-draw a stay only on PROVEN absence: a lease or application the
+snapshot named but the client list does not is orphaned data and stops holding
+the room — but only once the applications answer was a **complete** manager-scope
+list (`complete` on `ManagerApplicationsSyncResult`, i.e. not `truncated`, not
+sitting at the read cap, same workspace). A partial answer is missing rows that
+still exist, so absence there proves nothing. Coverage:
+`tests/unit/bookings-residents-from-occupancy.test.tsx`.
+
 ## Five reads; one that fails never blanks the screen
 
 `useManagerBookingEntries` (`src/hooks/use-manager-booking-entries.ts`) builds
@@ -41,7 +66,10 @@ the screen from five reads — `channel`, `occupancy`, `applications`, `blocks`,
 in `failedSources`; everything that did load is still drawn, under one compact
 `BookingsLoadFailedBand` ("Some bookings didn't load." · **Retry**, which re-runs
 every source). Do not make a new source fatal to the whole calendar, and do not
-grow a second error surface. Coverage:
+grow a second error surface. Because residents come from the snapshot, a failed
+`applications` or `leases` read is NOT a missing-bookings failure once
+`occupancy` answered — it only cost the enrichment — and so stays out of
+`failedSources` and off the band. Coverage:
 `tests/unit/bookings-failed-sources.test.tsx`.
 
 ## Status is derived from the dates, never stored

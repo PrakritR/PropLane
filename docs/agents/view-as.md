@@ -69,6 +69,8 @@ queries (`resident-profile-panel`, `vendor-settings-panel`,
 
 ## Adding a route
 
-A new GET that heals/backfills/provisions on read must check `isViewAsSessionOpen()`.
+A new GET that heals/backfills/provisions on read must check `isViewAsSessionOpen()`
+— **before** the response is sent, including for work it defers with `after()`,
+because the deferred callback no longer has the request's cookies to read.
 A new GET that streams private bytes or mints a signed URL goes in
 `PRIVATE_BYTES_PATTERNS`. Never read the viewing cookie yourself.
