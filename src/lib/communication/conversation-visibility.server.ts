@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { managerAgentNoticeVisibleInWorkspace } from "@/lib/communication-manager-assistant-thread";
 import { restrictThreadToHouses, threadHouseIds } from "@/lib/communication/conversation-house-filter";
+import { parseTeamThreadId } from "@/lib/team-thread-id";
 
 /**
  * The ONE answer to "may this viewer see this conversation" in manager
@@ -18,6 +19,10 @@ import { restrictThreadToHouses, threadHouseIds } from "@/lib/communication/conv
  *     only when it is about a house they hold Communication on at the level
  *     asked for. A grant on one house never unlocks the owner's other houses,
  *     and a conversation about no house is never shared.
+ *  2b. A workspace Team chat (`team-thread:<owner>:ws:<workspace>`) belongs to
+ *     the WORKSPACE, not to a house: the owner and every accepted teammate of
+ *     that workspace see it (a Viewer reads, never posts), and only while that
+ *     workspace is the active one.
  *  3. The active workspace NARROWS. A conversation shows in the workspace that
  *     holds its house. A conversation about no house follows the LINE it went
  *     through: a text to a workspace's work number shows in that workspace
@@ -55,6 +60,12 @@ export type CommunicationScope = {
    * rows. Shared-in number assignments do not duplicate threads.
    */
   workspaceByLine: Map<string, Set<string>>;
+  /**
+   * For each OTHER owner, the workspaces the viewer is a Team chat member of
+   * (an accepted, non-property-owner membership row) and whether they may post
+   * (everyone but a Viewer). Empty when none or when the read failed: no chat.
+   */
+  teamWorkspacesByOwner?: Map<string, Map<string, { canPost: boolean }>>;
   /**
    * True when no workspace could be named for a surface that has no browser
    * cookie (API key, MCP, SMS / email assistant). Nothing is visible: a
@@ -128,6 +139,16 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   const ownerId = clean(input.ownerId);
   const threadId = clean(input.threadId);
   const houses = [...new Set(input.houseIds.map(clean).filter(Boolean))];
+  const team = threadId.startsWith("team-thread:") ? parseTeamThreadId(threadId) : null;
+  if (team?.workspaceId) {
+    // One chat per workspace. The row must belong to the owner the id names.
+    if (ownerId !== team.ownerManagerUserId) return false;
+    if (scope.activeWorkspaceId && scope.activeWorkspaceId !== team.workspaceId) return false;
+    if (ownerId === scope.viewerId) return true;
+    const membership = scope.teamWorkspacesByOwner?.get(ownerId)?.get(team.workspaceId);
+    if (!membership) return false;
+    return scope.level === "read" || membership.canPost;
+  }
   const isAssistant =
     input.threadType === "agent_notice" || (threadId.length > 0 && threadId.startsWith(AGENT_NOTICE_PREFIX));
   if (isAssistant) {
@@ -226,6 +247,10 @@ export async function resolveCommunicationScope(
     scope.ownerIds = [viewerId];
   }
 
+  // Team chat membership: a workspace's chat is shared by its accepted members
+  // whether or not they hold a house. A failure shares no chat.
+  await loadTeamChatMemberships(db, scope);
+
   // Workspace: a failure narrows nothing (the grant above is still the authority).
   if (options.selectedWorkspaceId === null) return scope;
   try {
@@ -289,6 +314,52 @@ export async function resolveCommunicationScope(
     scope.workspaceByLine = new Map();
   }
   return scope;
+}
+
+/**
+ * The viewer's Team chat memberships (`account_link_invites` accepted rows,
+ * one per owner and workspace; a property-owner row is never a teammate).
+ * `ownerIds` is NOT widened (every other consumer reads it as "owners whose
+ * houses I hold"); the inbox store query adds these owners itself through
+ * `inboxStoreOwnerIds` (`inbox-store-owner-ids.ts`), and the visibility rule still decides what shows.
+ */
+async function loadTeamChatMemberships(db: SupabaseClient, scope: CommunicationScope): Promise<void> {
+  scope.teamWorkspacesByOwner = new Map();
+  if (!scope.viewerId) return;
+  try {
+    const { withoutOwnerLinks } = await import("@/lib/co-manager-team-roles");
+    const { data, error } = withoutOwnerLinks(
+      await db
+        .from("account_link_invites")
+        .select("inviter_user_id, workspace_id, team_role")
+        .eq("status", "accepted")
+        .eq("invitee_user_id", scope.viewerId),
+    );
+    if (error) return;
+    const rows = (data ?? []) as Array<{ inviter_user_id?: unknown; workspace_id?: unknown; team_role?: unknown }>;
+    const ownersNeedingDefault = [
+      ...new Set(rows.filter((row) => !clean(row.workspace_id)).map((row) => clean(row.inviter_user_id)).filter(Boolean)),
+    ];
+    const defaultByOwner = new Map<string, string>();
+    if (ownersNeedingDefault.length > 0) {
+      const { data: defaults } = await db
+        .from("portal_workspaces")
+        .select("id, owner_user_id")
+        .in("owner_user_id", ownersNeedingDefault)
+        .eq("is_default", true);
+      for (const row of defaults ?? []) defaultByOwner.set(clean(row.owner_user_id), clean(row.id));
+    }
+    for (const row of rows) {
+      const ownerId = clean(row.inviter_user_id);
+      const workspaceId = clean(row.workspace_id) || defaultByOwner.get(ownerId) || "";
+      if (!ownerId || ownerId === scope.viewerId || !workspaceId) continue;
+      const byWorkspace = scope.teamWorkspacesByOwner.get(ownerId) ?? new Map<string, { canPost: boolean }>();
+      byWorkspace.set(workspaceId, { canPost: clean(row.team_role) !== "viewer" });
+      scope.teamWorkspacesByOwner.set(ownerId, byWorkspace);
+    }
+  } catch {
+    scope.teamWorkspacesByOwner = new Map();
+  }
 }
 
 /** A scope that shows nothing: the answer when a surface cannot say which workspace it speaks for. */

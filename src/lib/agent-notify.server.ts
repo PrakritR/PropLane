@@ -12,13 +12,18 @@ import {
   resolveManagerNotificationChannels,
   sendManagerNotificationSms,
 } from "@/lib/manager-notification-routing.server";
+import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import {
   managerAgentNoticeThreadId,
   type ManagerAssistantWorkspace,
 } from "@/lib/communication-manager-assistant-thread";
-import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
+import {
+  assistantWorkspaceForThreadId,
+  resolveManagerAssistantWorkspace,
+  resolveManagerAssistantThreadWorkspace,
+} from "@/lib/communication/manager-assistant-workspace.server";
 import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
@@ -37,39 +42,6 @@ function noticeAppendBackoff(attempt: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, base + Math.floor(Math.random() * base)));
 }
 
-async function managerNoticeWorkspace(
-  db: SupabaseClient,
-  landlordId: string,
-  propertyId?: string | null,
-): Promise<ManagerAssistantWorkspace | null> {
-  const houseId = propertyId?.trim();
-  if (houseId) {
-    const { data } = await db
-      .from("manager_property_records")
-      .select("workspace_id")
-      .eq("id", houseId)
-      .maybeSingle();
-    const workspaceId = typeof data?.workspace_id === "string" ? data.workspace_id.trim() : "";
-    if (workspaceId) {
-      const { data: workspace } = await db
-        .from("portal_workspaces")
-        .select("id, is_default")
-        .eq("id", workspaceId)
-        .maybeSingle();
-      if (workspace?.id) {
-        return { id: String(workspace.id), isDefault: Boolean(workspace.is_default) };
-      }
-      return { id: workspaceId, isDefault: false };
-    }
-  }
-  try {
-    const active = await resolveActiveWorkspaceFromRequest(db, landlordId);
-    return { id: active.id, isDefault: active.isDefault };
-  } catch {
-    return null;
-  }
-}
-
 export async function notifyManagerFromAgent(
   db: SupabaseClient,
   args: {
@@ -86,8 +58,21 @@ export async function notifyManagerFromAgent(
     externalText?: string;
     /** When set, the notice lands in that house's workspace assistant chat. */
     propertyId?: string | null;
+    /** A work line (`manager_sms_numbers.id`) the notice is about; names the workspace when no house does. */
+    workLineId?: string | null;
+    /** An already-known workspace (a work number's); outranks the house. Never the browser cookie. */
+    workspaceId?: string | null;
+    /**
+     * The WORKSPACE OWNER, when `landlordId` is a teammate of theirs. The notice
+     * lands in the teammate's own Assistant thread for the owner's workspace,
+     * the text leaves from the OWNER's work number and is billed to the owner
+     * (a co-manager never has a line or a wallet of their own), and the email
+     * leaves from the owner's workspace work email. Omitted = the recipient is
+     * the owner.
+     */
+    senderOwnerId?: string | null;
   },
-): Promise<{ delivered: boolean; suppressed: boolean }> {
+): Promise<{ delivered: boolean; suppressed: boolean; sms?: "sent" | "skipped" | "failed"; email?: "sent" | "skipped" | "failed" }> {
   if (captureSmsTestDelivery({
     kind: "manager_notification",
     summary: args.subject.trim() || "Manager notification captured in the test conversation.",
@@ -100,17 +85,37 @@ export async function notifyManagerFromAgent(
   })) {
     return { delivered: true, suppressed: false };
   }
+  const nowIso = new Date().toISOString();
+  const ownerId = args.senderOwnerId?.trim() || args.landlordId;
+  const isTeammate = ownerId !== args.landlordId;
+  /**
+   * The notice's workspace is the OWNER's: the house's, else the work line's,
+   * else the owner's default. A teammate's own default workspace never names it.
+   */
+  const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, {
+    workspaceId: args.workspaceId,
+    propertyId: args.propertyId,
+    workLineId: args.workLineId,
+  });
+  const sendWorkspaceId = noticeWorkspace.workspaceId || null;
   const channels = await resolveManagerNotificationChannels(
     db,
     args.landlordId,
     args.category ?? "messages",
+    undefined,
+    undefined,
+    undefined,
+    // The text leaves from the OWNER's workspace line, whoever is texted.
+    { ownerUserId: ownerId, workspaceId: sendWorkspaceId },
   );
-  const nowIso = new Date().toISOString();
   /**
-   * ONE PropLane Assistant thread per manager per workspace. Legacy
-   * `agent_notice_{userId}` stays the default workspace's chat.
+   * ONE PropLane Assistant thread per person per workspace. Legacy
+   * `agent_notice_{userId}` stays the default workspace's chat. A teammate gets
+   * their own thread for the owner's workspace.
    */
-  const workspace = await managerNoticeWorkspace(db, args.landlordId, args.propertyId);
+  const workspace = isTeammate
+    ? await resolveManagerAssistantThreadWorkspace(db, args.landlordId, { workspaceId: sendWorkspaceId })
+    : assistantWorkspaceForThreadId(noticeWorkspace);
   const threadId = managerAgentNoticeThreadId(args.landlordId, workspace);
   const messageId = args.idempotencyKey
     ? `agent_notice_msg_${createHash("sha256").update(`${args.landlordId}:${args.idempotencyKey}`).digest("hex").slice(0, 24)}`
@@ -223,8 +228,26 @@ export async function notifyManagerFromAgent(
     }
   }
 
+  // Email: the recipient's account email, FROM the workspace work email, on the
+  // recipient's own alert destination (none = no mail) and topic switch.
+  const emailRequested =
+    channels.email === true && channels.destination !== "none" && channels.categoryEnabled !== false;
+  let emailStatus: "sent" | "skipped" | "failed" = "skipped";
+  if (emailRequested) {
+    const emailed = await sendManagerNoticeEmail(db, {
+      recipientUserId: args.landlordId,
+      ownerUserId: ownerId,
+      workspaceId: sendWorkspaceId,
+      subject: args.subject,
+      text: args.externalText ?? args.text,
+      url: args.url,
+      idempotencyKey: args.idempotencyKey,
+    });
+    emailStatus = emailed.status === "sent" ? "sent" : emailed.status === "failed" ? "failed" : "skipped";
+  }
+
   const smsRequested = channels.sms && args.notify?.sms !== false;
-  let smsDelivered = false;
+  let smsStatus: "sent" | "skipped" | "failed" = "skipped";
   if (smsRequested) {
     const sms = await sendManagerNotificationSms(db, {
       managerUserId: args.landlordId,
@@ -233,29 +256,41 @@ export async function notifyManagerFromAgent(
       text: args.externalText ?? args.text,
       purpose: `manager_agent_notification_${args.category ?? "messages"}`,
       dedupeKey: args.idempotencyKey
-        ? `manager-agent:${args.landlordId}:${args.idempotencyKey}`
+        ? `notice:${args.idempotencyKey}:${args.landlordId}`
         : undefined,
+      // Always the OWNER's workspace line, billed to the owner.
+      sendFrom: { ownerUserId: ownerId, workspaceId: sendWorkspaceId },
     });
-    smsDelivered = sms.sent;
-    if (!smsDelivered) throw new Error("Manager SMS was not accepted for delivery.");
-    // The notice went to their phone too: keep ONE Assistant thread with the
-    // in-app copy marked SMS (or, when the destination is SMS-only, the copy
-    // itself). Same message id as the inbox write, so a retry appends nothing.
-    const mirrored = await appendSmsTurnToManagerAssistantThread(db, {
-      ownerUserId: args.landlordId,
-      workspaceId: workspace?.id ?? null,
-      messageId,
-      author: "assistant",
-      body: args.text,
-      ...(args.threadType ? { noticeType: args.threadType } : {}),
-    });
-    // The text already went out; never throw here (a retry would risk a resend).
-    if (!mirrored.ok) console.error("manager notice SMS sent but Assistant thread copy failed", mirrored.error);
+    smsStatus = sms.sent ? "sent" : "failed";
+    if (sms.sent) {
+      // The notice went to their phone too: keep ONE Assistant thread with the
+      // in-app copy marked SMS (or, when the destination is SMS-only, the copy
+      // itself). Same message id as the inbox write, so a retry appends nothing.
+      const mirrored = await appendSmsTurnToManagerAssistantThread(db, {
+        ownerUserId: args.landlordId,
+        workspaceId: workspace.id || null,
+        messageId,
+        author: "assistant",
+        body: args.text,
+        ...(args.threadType ? { noticeType: args.threadType } : {}),
+      });
+      // The text already went out; never throw here (a retry would risk a resend).
+      if (!mirrored.ok) console.error("manager notice SMS sent but Assistant thread copy failed", mirrored.error);
+    }
   }
 
-  const suppressed = !channels.inbox && !smsRequested;
-  // smsDelivered is true here when requested (a refused SMS threw above); the thread copy never decides delivery.
-  return { delivered: inboxDelivered || smsDelivered, suppressed };
+  const smsDelivered = smsStatus === "sent";
+  const emailDelivered = emailStatus === "sent";
+  // A refused text is not an error when the notice reached them another way
+  // (fail closed per channel: no credit, no number or a STOP is a quiet no, and
+  // the in-app notice + email still go). Only a notice that reached NOTHING
+  // durable throws, so its caller retries it (every leg is idempotent).
+  if (smsRequested && !smsDelivered && !inboxDelivered && !emailDelivered) {
+    throw new Error("Manager SMS was not accepted for delivery.");
+  }
+
+  const suppressed = !channels.inbox && !smsRequested && !emailRequested;
+  return { delivered: inboxDelivered || smsDelivered || emailDelivered, suppressed, sms: smsStatus, email: emailStatus };
 }
 
 /**
@@ -269,7 +304,7 @@ export async function ensureManagerAgentNoticeThread(
   landlordId: string,
   workspace?: ManagerAssistantWorkspace | null,
 ): Promise<string> {
-  const resolved = workspace ?? (await managerNoticeWorkspace(db, landlordId));
+  const resolved = workspace ?? (await resolveManagerAssistantThreadWorkspace(db, landlordId.trim()));
   const threadId = managerAgentNoticeThreadId(landlordId.trim(), resolved);
   const { data: existing } = await db
     .from("portal_inbox_thread_records")

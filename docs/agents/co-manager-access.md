@@ -29,6 +29,17 @@ Pure rules live in `src/lib/workspaces/membership.ts`; server lookups
 (`actorWorkspaceStanding`, `workspaceAdminCount`, `previewHouseMove`) in
 `membership.server.ts`. Coverage: `tests/unit/workspace-membership.test.ts`.
 
+**A teammate is reached through the workspace, never with a line of their own.**
+Every PropLane Assistant notice for a house goes to the owner and each teammate
+granted that module on it (`notifyPropertyScopedManagersFromAgent`), in the
+teammate's own Assistant, texted from the OWNER's work number and billed to the
+OWNER, emailed from the workspace work email. The Team chat is the workspace's
+membership (owner plus accepted, non-property-owner rows for THAT workspace,
+regardless of house; a Viewer reads only), `account_link_invites.workspace_id`
+being the source, and a property owner is never a member.
+Coverage: `tests/unit/work-number-notices.test.ts`,
+`tests/unit/team-chat-workspace.test.ts`.
+
 **Workspace rights follow the role, never a per-link flag.** Owner and
 **Admin** (new; `full` is the legacy stamp and lists as Admin) invite, edit and
 remove members and add or move houses in THAT workspace; Property manager may

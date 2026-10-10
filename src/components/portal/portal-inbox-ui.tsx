@@ -937,6 +937,12 @@ export function inboxInitials(name: string): string {
     .filter(Boolean);
   if (parts.length === 0) return "?";
   if (!/\p{L}/u.test(parts.join(""))) return "?";
+  // A separator ("Team · Seattle Homes") is not a name part.
+  if (parts.some((part) => !/\p{L}|\p{N}/u.test(part))) {
+    const named = parts.filter((part) => /\p{L}|\p{N}/u.test(part));
+    if (named.length === 1) return named[0]!.slice(0, 2).toUpperCase();
+    return `${named[0]![0] ?? ""}${named[1]![0] ?? ""}`.toUpperCase();
+  }
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }

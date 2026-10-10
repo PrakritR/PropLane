@@ -28,7 +28,6 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { workspaceKey } from "@/lib/communication/conversation-key";
-import { RESIDENT_AGENT_FROM_NAME } from "@/lib/agent/resident-inbox-agent-ids";
 
 /** The PropLane Assistant's own thread: never a manager conversation, never keyed, never given a counterparty or texts. */
 export function isResidentAssistantRow(row: PersistedInboxThread): boolean {
@@ -39,8 +38,7 @@ export function isResidentAssistantRow(row: PersistedInboxThread): boolean {
     type === "resident_agent" ||
     type === "agent_notice" ||
     id.startsWith("resident-agent-") ||
-    id.startsWith("agent_notice_") ||
-    String(row.from ?? "").trim() === RESIDENT_AGENT_FROM_NAME
+    id.startsWith("agent_notice_")
   );
 }
 

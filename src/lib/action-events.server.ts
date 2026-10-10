@@ -8,15 +8,11 @@ import { DEFAULT_PROPERTY_TIME_ZONE, propertyTimeZoneForZip } from "@/lib/proper
 import { vendorTopicForEvent } from "@/lib/vendor-notification-settings";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
-import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
-import {
-  postTeamThreadMessage,
-  mirrorTeamThreadMessageToSms,
-  type TeamNoticeModule,
-} from "@/lib/team-comms.server";
+import type { TeamNoticeModule } from "@/lib/team-comms.server";
 import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
 import { DEFAULT_AUTOMATION_SEND_MODE_SETTINGS } from "@/lib/automation-send-mode";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
@@ -41,12 +37,16 @@ export type ActionEventDomain =
   /** A reservation appeared on / vanished from a linked channel calendar (`channel-booking-events.server.ts`). */
   | "channel_booking";
 /**
- * `team` (WS5): one rendered copy posted once into the owning manager's Team
- * thread for the event's house (`team-comms.server.ts`), never fanned out per
- * co-manager the way the other three audiences are. `recipient.userId` for a
- * `team` recipient is the OWNING manager's user id; the house comes from the
- * event's `payload.propertyId`, and the Teams module that gates who hears it
- * from the event's domain ({@link teamModuleForDomain}).
+ * Automated notices never post into the Team chat (the Team chat is for
+ * people). A `manager` audience notice reaches the owner AND every teammate
+ * with access to the house, each in their own PropLane Assistant
+ * (`notifyPropertyScopedManagersFromAgent`). A `team` audience is the same
+ * fan-out for events with no manager copy of their own (a tour claimed, an
+ * availability change): `recipient.userId` is the OWNING manager's user id, the
+ * house comes from the event's `payload.propertyId`, and the Teams module that
+ * gates who hears it from the event's domain ({@link teamModuleForDomain}).
+ * Where a `manager` copy for the same person exists, the `team` copy is
+ * dropped (the manager fan-out already covers the team).
  */
 export type ActionEventAudience = "manager" | "resident" | "vendor" | "team";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
@@ -203,6 +203,17 @@ async function eventTimeZone(db: SupabaseClient, propertyId: string | null): Pro
   }
 }
 
+/**
+ * The owner's manager-audience copy is addressed to the person who acted
+ * ("You approved Jo's application"). A teammate reading it in their own
+ * Assistant needs the actor's name instead of "You", and "your countersignature"
+ * becomes "the countersignature". Pure; text with neither phrase is unchanged.
+ */
+export function teammateNoticeText(text: string, actorName?: string | null): string {
+  const name = actorName?.trim() || "A teammate";
+  return text.replace(/^You (?=[a-z])/, `${name} `).replace(/\bwaiting on your\b/g, "waiting on the");
+}
+
 type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; submitted: number; deferred: number; failed: number };
 
 async function deliverProjection(
@@ -239,52 +250,26 @@ async function deliverProjection(
   const text = input.digest
     ? `Several updates were recorded. Open PropLane for the latest status.`
     : input.rendered.text;
-  // Team (WS5): one copy, posted once into the owner's Team thread for the
-  // house instead of fanned out per recipient. Never digested — a digest
-  // placeholder in a shared team channel would be meaningless without knowing
-  // whose events. Under `automationSendMode.team === "draft"` the copy is
-  // queued on that thread for the owner's approval instead of posted.
+  // `team` audience: a notice for the owning manager's TEAM (a tour claimed, an
+  // availability change, a work order accepted). It is never a Team chat line:
+  // it reaches the owner and every teammate with access to the house, each in
+  // their own PropLane Assistant (plus text and email), except the person who
+  // acted. Never digested: a placeholder would mean nothing to a teammate.
   if (input.recipient.audience === "team" && input.recipient.userId) {
     const updatedAt = input.now.toISOString();
-    const messageId = `action-event:${input.eventKey}:team:${input.recipient.userId}`;
-    const teamModule = teamModuleForDomain(input.domain ?? "");
     try {
-      if (input.draftForReview) {
-        const { queueTeamThreadDraftForReview } = await import("@/lib/action-event-draft-review.server");
-        const queued = await queueTeamThreadDraftForReview(db, {
-          ownerManagerUserId: input.recipient.userId,
-          propertyId: input.propertyId ?? null,
-          subject: input.rendered.subject,
-          text: input.rendered.text,
-          origin: `automation:${input.domain ?? "unknown"}:${input.eventType ?? "unknown"}`,
-        });
-        if (!queued.ok) throw new Error(queued.error);
-      } else {
-        const posted = await postTeamThreadMessage(db, {
-          ownerManagerUserId: input.recipient.userId,
-          propertyId: input.propertyId ?? null,
-          actorUserId: input.senderUserId,
-          actorName: input.senderName?.trim() || "PropLane Portal",
-          subject: input.rendered.subject,
-          text: input.rendered.text,
-          smsText: input.rendered.smsText,
-          messageId,
-          urgent: input.urgent,
-        });
-        if (!posted.ok) throw new Error(posted.error);
-        // Best-effort SMS mirror (WS6) — never fail the team-thread post over a text failure.
-        await mirrorTeamThreadMessageToSms(db, {
-          ownerManagerUserId: input.recipient.userId,
-          propertyId: input.propertyId ?? null,
-          module: teamModule,
-          actorUserId: input.senderUserId,
-          subject: input.rendered.subject,
-          text: input.rendered.smsText ?? input.rendered.text,
-          messageId,
-          urgent: input.urgent,
-          now: input.now,
-        }).catch(() => undefined);
-      }
+      await notifyPropertyScopedManagersFromAgent(db as Parameters<typeof notifyPropertyScopedManagersFromAgent>[0], {
+        ownerManagerUserId: input.recipient.userId,
+        propertyId: input.propertyId ?? null,
+        module: teamModuleForDomain(input.domain ?? ""),
+        subject: input.rendered.subject,
+        text: input.rendered.text,
+        externalText: input.rendered.smsText ?? input.rendered.text,
+        threadType: "action_event",
+        category: managerNotificationCategoryForEvent(input.category),
+        idempotencyKey: `action-event:${input.eventKey}:team`,
+        excludeUserIds: [input.senderUserId],
+      });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
         delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
@@ -294,7 +279,7 @@ async function deliverProjection(
     } catch (error) {
       const { error: updateError } = await db.from("action_event_deliveries").update({
         status: "failed", attempts: input.attempts + 1,
-        last_error: error instanceof Error ? error.message : "Team post failed",
+        last_error: error instanceof Error ? error.message : "Team notice failed",
         next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(), updated_at: updatedAt,
       }).eq("id", input.deliveryId);
       if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
@@ -338,18 +323,25 @@ async function deliverProjection(
   // A manager's own copy of an event they (or the system acting as them) sent
   // is a self-send, which the inbox drops as "No recipients selected". It is
   // really an Assistant notice — the same surface reminders use for the
-  // manager — so route it there, where their alert destination applies.
+  // manager — so route it there, where their alert destination applies. The
+  // same notice reaches every teammate with access to the house (their own
+  // Assistant, text from the owner's work number, email), not a Team chat line.
   if (input.recipient.audience === "manager" && input.recipient.userId && input.recipient.userId === input.senderUserId) {
     const updatedAt = input.now.toISOString();
     try {
-      await notifyManagerFromAgent(db, {
-        landlordId: input.recipient.userId,
+      const ownerId = input.managerUserId?.trim() || input.recipient.userId;
+      await notifyPropertyScopedManagersFromAgent(db as Parameters<typeof notifyPropertyScopedManagersFromAgent>[0], {
+        ownerManagerUserId: ownerId,
+        propertyId: input.propertyId ?? null,
+        module: teamModuleForDomain(input.domain ?? ""),
         subject: input.rendered.subject,
         text,
         externalText: input.rendered.smsText ?? text,
+        teammateText: teammateNoticeText(text, input.senderName),
+        teammateExternalText: teammateNoticeText(input.rendered.smsText ?? text, input.senderName),
         threadType: "action_event",
         category: managerNotificationCategoryForEvent(input.category),
-        idempotencyKey: `action-event:${input.eventKey}:manager:${input.recipient.userId}`,
+        idempotencyKey: `action-event:${input.eventKey}:manager`,
       });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
@@ -366,6 +358,31 @@ async function deliverProjection(
       if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
       return "failed";
     }
+  }
+  // The owner's copy of something a TEAMMATE did reaches the owner as the
+  // normal message below; the other teammates with access to the house still
+  // hear about it, each in their own Assistant (never the actor).
+  if (
+    input.recipient.audience === "manager" &&
+    !input.retryMode &&
+    input.managerUserId?.trim() &&
+    input.recipient.userId === input.managerUserId.trim() &&
+    input.senderUserId !== input.recipient.userId
+  ) {
+    await notifyPropertyScopedManagersFromAgent(db as Parameters<typeof notifyPropertyScopedManagersFromAgent>[0], {
+      ownerManagerUserId: input.managerUserId.trim(),
+      propertyId: input.propertyId ?? null,
+      module: teamModuleForDomain(input.domain ?? ""),
+      subject: input.rendered.subject,
+      text: teammateNoticeText(text, input.senderName),
+      externalText: teammateNoticeText(input.rendered.smsText ?? text, input.senderName),
+      threadType: "action_event",
+      category: managerNotificationCategoryForEvent(input.category),
+      idempotencyKey: `action-event:${input.eventKey}:manager`,
+      excludeUserIds: [input.recipient.userId, input.senderUserId],
+    }).catch((error: unknown) => {
+      console.error("teammate notice fan-out failed", error instanceof Error ? error.name : "unknown");
+    });
   }
   const result = await deliverPortalInboxMessage(db, {
     senderUserId: input.senderUserId,
@@ -516,7 +533,14 @@ export async function emitActionEvent(
         loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null),
         resolveAutomationSendModeForEvent(db, { managerUserId: input.managerUserId, propertyId }),
       ]);
-  const recipients = input.recipients.flatMap((recipient) => {
+  // A `team` copy for a person who also has a `manager` copy is the same notice
+  // twice: the manager fan-out already reaches the owner and the teammates.
+  const managerCopyUserIds = new Set(
+    input.recipients.filter((recipient) => recipient.audience === "manager" && recipient.userId).map((recipient) => recipient.userId!.trim()),
+  );
+  const recipients = input.recipients
+    .filter((recipient) => !(recipient.audience === "team" && recipient.userId && managerCopyUserIds.has(recipient.userId.trim())))
+    .flatMap((recipient) => {
     const applied = systemNotice
       ? recipient.rendered
       : applyAutomatedMessageSetting(automated, {
@@ -528,15 +552,13 @@ export async function emitActionEvent(
         });
     if (!applied) return [];
     // Draft-for-review is decided HERE, for every domain, from the workspace
-    // setting — a party-facing copy under `partyFacing: "draft"` and a team
-    // copy under `team: "draft"` are queued for approval instead of sent.
+    // setting — a party-facing copy under `partyFacing: "draft"` is queued for
+    // approval instead of sent. (`team` drafts are retired with the team audience.)
     const partyFacing = recipient.audience === "resident" || recipient.audience === "vendor";
     // A system notice is never a draft: there is no workspace to approve it.
     const draftForReview =
       !systemNotice &&
-      (recipient.draftForReview === true ||
-        (partyFacing && sendMode.partyFacing === "draft") ||
-        (recipient.audience === "team" && sendMode.team === "draft"));
+      (recipient.draftForReview === true || (partyFacing && sendMode.partyFacing === "draft"));
     return [{ ...recipient, rendered: applied, draftForReview }];
   });
   const smsTest = currentSmsTestProvenance();
@@ -704,14 +726,14 @@ export async function retryDueActionEventDeliveries(
     let draftForReview = Boolean(row.draft_for_review);
     if (!draftForReview && !isSystemNoticePayload(event.payload) && row.status === "pending" && Number(row.attempts ?? 0) === 0) {
       const partyFacing = audience === "resident" || audience === "vendor";
-      if (partyFacing || audience === "team") {
+      if (partyFacing) {
         const key = `${event.event_key}`;
         let mode = sendModeByEvent.get(key);
         if (!mode) {
           mode = await resolveAutomationSendModeForEvent(db, { managerUserId: String(event.manager_user_id ?? ""), propertyId });
           sendModeByEvent.set(key, mode);
         }
-        draftForReview = (partyFacing && mode.partyFacing === "draft") || (audience === "team" && mode.team === "draft");
+        draftForReview = partyFacing && mode.partyFacing === "draft";
       }
     }
     const outcome = await deliverProjection(db, {

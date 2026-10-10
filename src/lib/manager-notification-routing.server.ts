@@ -6,9 +6,13 @@ import {
   managerNotificationCategoryForEvent,
   resolveManagerNotificationRoute,
   type ManagerNotificationCategory,
+  type ManagerNotificationDestination,
 } from "@/lib/manager-notification-preferences";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import {
+  resolveActiveManagerSendNumber,
+  resolveWorkspaceSendLine,
+} from "@/lib/sms/manager-number-provisioning.server";
 import { resolveSettingsScope, type SettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 
 export type ManagerNotificationProfile = {
@@ -32,7 +36,23 @@ export async function resolveManagerNotificationChannels(
    */
   workspaceId?: string | null,
   cache?: SettingsScopeCache,
-): Promise<{ inbox: boolean; email: boolean; sms: boolean; fellBackToAssistant: boolean }> {
+  /**
+   * Whose work number the text would leave from. A teammate is texted from the
+   * WORKSPACE OWNER's number (a co-manager never has a line of their own), so
+   * "work number ready" asks about that line, not the recipient's. Omitted =
+   * the recipient's own default line, exactly as before.
+   */
+  sendFrom?: { ownerUserId: string; workspaceId?: string | null },
+): Promise<{
+  inbox: boolean;
+  email: boolean;
+  sms: boolean;
+  fellBackToAssistant: boolean;
+  /** The recipient's alert destination, so an email leg can honor "none". */
+  destination: ManagerNotificationDestination;
+  /** The topic is switched on for this recipient. */
+  categoryEnabled: boolean;
+}> {
   let profile = suppliedProfile ?? null;
   if (!profile) {
     const { data } = await db
@@ -59,7 +79,10 @@ export async function resolveManagerNotificationChannels(
     settings.managerNotificationDestination === "both";
   const activeWorkNumber =
     categoryEnabled && destinationNeedsSms
-      ? await resolveActiveManagerSendNumber(db, managerUserId).catch(() => null)
+      ? await (sendFrom
+          ? resolveActiveManagerSendNumber(db, sendFrom.ownerUserId, sendFrom.workspaceId ?? null)
+          : resolveActiveManagerSendNumber(db, managerUserId)
+        ).catch(() => null)
       : null;
   const route = resolveManagerNotificationRoute({
     destination: settings.managerNotificationDestination,
@@ -76,6 +99,8 @@ export async function resolveManagerNotificationChannels(
     email: true,
     sms: route.sms,
     fellBackToAssistant: route.fellBackToAssistant,
+    destination: settings.managerNotificationDestination,
+    categoryEnabled,
   };
 }
 
@@ -103,6 +128,13 @@ export async function sendManagerNotificationSms(
     dedupeKey?: string;
     /** The triggering row's workspace, when it has one (phase C). */
     workspaceId?: string | null;
+    /**
+     * Send from a WORKSPACE line that is not the recipient's own: a teammate's
+     * notice leaves from the workspace owner's number and is billed to the
+     * owner (`ownerUserId`), never to the teammate. `text` is then prefixed
+     * "PropLane: " and pinned to that line.
+     */
+    sendFrom?: { ownerUserId: string; workspaceId?: string | null };
   },
 ): Promise<{ sent: boolean }> {
   const { data } = await db
@@ -117,27 +149,45 @@ export async function sendManagerNotificationSms(
     input.category,
     profile,
     input.workspaceId,
+    undefined,
+    input.sendFrom,
   );
   const to = String(profile?.phone ?? "").trim();
-  const fromNumber = channels.sms
-    ? await resolveActiveManagerSendNumber(db, input.managerUserId).catch(() => null)
+  const line = channels.sms
+    ? input.sendFrom
+      ? await resolveWorkspaceSendLine(db, input.sendFrom.ownerUserId, input.sendFrom.workspaceId ?? null).catch(() => null)
+      : await resolveActiveManagerSendNumber(db, input.managerUserId)
+          .then((phoneNumber) => (phoneNumber ? { phoneNumber, numberId: null } : null))
+          .catch(() => null)
     : null;
-  if (!channels.sms || !to || !fromNumber) return { sent: false };
+  if (!channels.sms || !to || !line) return { sent: false };
+  const fromNumber = line.phoneNumber;
+  const billedTo = input.sendFrom?.ownerUserId.trim() || input.managerUserId;
 
   const { sendPropLaneSms } = await import("@/lib/proplane-sms-transport.server");
   const result = await sendPropLaneSms({
     to,
     fromNumber,
-    text: `${input.subject}\n${input.text}`.slice(0, 1500),
+    text: `${input.sendFrom ? "PropLane: " : ""}${input.subject}\n${input.text}`.slice(0, 1500),
     sendClass: "transactional",
     purpose: input.purpose,
     dedupeKey: input.dedupeKey,
+    // A workspace-line send is billed to the line's owner; the recipient (the
+    // account whose verified phone this is) is named so the dispatcher reads
+    // THEIR consent, and the line is pinned for the provider-boundary recheck.
+    ...(input.sendFrom
+      ? {
+          actorUserId: input.managerUserId,
+          recipientUserId: input.managerUserId,
+          selectedWorkLineId: line.numberId,
+        }
+      : {}),
     // The manager's PropLane Assistant thread is the one transcript of texts to
     // their own phone (the outbox dispatcher mirrors it there once the carrier
     // accepts), so no second manager-to-self SMS conversation is projected.
     suppressConversationLog: true,
     log: {
-      managerUserId: input.managerUserId,
+      managerUserId: billedTo,
       residentPhone: to,
       source: "automated",
       counterpartyRole: "manager",

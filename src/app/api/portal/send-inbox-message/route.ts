@@ -40,7 +40,7 @@ import {
 import { runManagerInboxAgentTurn } from "@/lib/agent/manager-inbox-agent.server";
 import {
   assertTeamThreadMember,
-  mirrorTeamThreadMessageToSms,
+  relayTeamChatMessageToSms,
   parseTeamThreadId,
   postTeamThreadMessage,
 } from "@/lib/team-comms.server";
@@ -369,18 +369,21 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, agentHandled: true });
       }
 
-      // A manager<->manager Team thread (WS5): the reply is a post into the
-      // thread as this manager, mirrored to the house's SMS roster, and never
-      // a person send. `resolveInboxThreadReplyTarget` already admitted only
-      // the owner or a co-manager with Communication EDIT on the house;
-      // `assertTeamThreadMember` re-derives that from the thread id itself so
-      // a mis-tagged row can never widen it.
+      // The workspace Team chat: the reply is a post into the thread as this
+      // person, relayed by text to every OTHER member from the workspace's work
+      // number (billed to the owner), and never a person send.
+      // `resolveInboxThreadReplyTarget` admitted the viewer through the same
+      // visibility rule; `assertTeamThreadMember` re-derives membership from
+      // the thread id itself so a mis-tagged row can never widen it. A legacy
+      // per-house thread is answered in place and not relayed (it is folded
+      // into the workspace chat by the merge script).
       if (replyTarget.threadType === "team") {
         const team = parseTeamThreadId(threadId);
         const member =
           team &&
           (await assertTeamThreadMember(db, {
             ownerManagerUserId: team.ownerManagerUserId,
+            workspaceId: team.workspaceId,
             propertyId: team.propertyId,
             userId: user.id,
             level: "edit",
@@ -393,29 +396,30 @@ export async function POST(req: Request) {
         const messageId = `team-reply:${sendId || crypto.randomUUID()}`;
         const posted = await postTeamThreadMessage(db, {
           ownerManagerUserId: team.ownerManagerUserId,
+          workspaceId: team.workspaceId,
           propertyId: team.propertyId,
           actorUserId: user.id,
           actorName,
-          subject,
           text,
           messageId,
-          consumeDraft: true,
+          channel: "app",
         });
         if (!posted.ok) return NextResponse.json({ ok: false, error: posted.error }, { status: 500 });
-        const mirrorTask = () =>
-          mirrorTeamThreadMessageToSms(db, {
-            ownerManagerUserId: team.ownerManagerUserId,
-            propertyId: team.propertyId,
-            module: "inbox",
-            actorUserId: user.id,
-            subject,
-            text,
-            messageId,
-          }).catch((e) => console.error("team-thread SMS mirror failed", e));
-        try {
-          after(mirrorTask);
-        } catch {
-          void mirrorTask();
+        if (posted.posted && !team.propertyId) {
+          const relayTask = () =>
+            relayTeamChatMessageToSms(db, {
+              ownerManagerUserId: team.ownerManagerUserId,
+              workspaceId: posted.workspaceId,
+              senderUserId: user.id,
+              senderName: actorName,
+              text,
+              messageId,
+            }).catch((e) => console.error("team-chat SMS relay failed", e instanceof Error ? e.name : "unknown"));
+          try {
+            after(relayTask);
+          } catch {
+            void relayTask();
+          }
         }
         return NextResponse.json({ ok: true, teamHandled: true, posted: posted.posted });
       }

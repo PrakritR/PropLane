@@ -5,7 +5,7 @@ import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.serv
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readScopedSmsConsentState, readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
-import { TEAM_NOTICE_SMS_PURPOSE, ensureTeamNoticeScopedSmsConsent } from "@/lib/sms/team-notice-consent.server";
+import { ensureTeamNoticeScopedSmsConsent, isManagerRecipientSmsPurpose } from "@/lib/sms/team-notice-consent.server";
 import { validateTourSmsPurposeAtDispatch } from "@/lib/sms/tour-sms-eligibility.server";
 import {
   estimateSmsSegments,
@@ -214,10 +214,11 @@ async function loadSendPolicy(
       conversationKey: input.conversationKey,
       messagingServiceSid: expectedServiceSid,
     };
-    // A team notice goes to a manager, whose consent is their own verified
+    // A team notice, Assistant notice or Team chat relay goes to a manager
+    // (the owner or a teammate), whose consent is their own verified
     // work phone — an applicant's rental-application stamp can never vouch
     // for a co-manager (see team-notice-consent.server.ts).
-    if (input.purpose === TEAM_NOTICE_SMS_PURPOSE) {
+    if (isManagerRecipientSmsPurpose(input.purpose)) {
       const consent = await ensureTeamNoticeScopedSmsConsent(db, consentScope);
       if (!consent.ok) return { allowed: false, reason: consent.error };
       if (!consent.granted) return { allowed: false, reason: "scoped_consent_missing" };

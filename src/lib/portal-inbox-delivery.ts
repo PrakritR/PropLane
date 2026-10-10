@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
@@ -50,11 +51,14 @@ import {
   conversationSchemaAvailable,
   createKeyedThreadRow,
   findThreadByConversation,
+  isUniqueViolation,
   resolveThreadAlias,
   upsertKeyedThreadRow,
 } from "@/lib/communication/conversation-thread.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
+/** Re-reads a stale compare-and-set append may spend before it reports a failure the bus retries. */
+const MAX_CAS_APPEND_ATTEMPTS = 8;
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
 export const VENDOR_INBOX_SCOPE = "axis_portal_inbox_vendor_v1";
 
@@ -555,11 +559,61 @@ async function emitInboxMessageWebhook(
   );
 }
 
+/**
+ * A thread id that depends only on WHO the conversation is between (and the
+ * house), so two sends racing to create the same person's thread pick the same
+ * id and the second one collides instead of minting a duplicate row. Only used
+ * with `serializeCreate`; ids written before this keep their random suffix.
+ */
+export function stablePersonThreadId(prefix: string, ...parts: (string | null | undefined)[]): string {
+  const digest = createHash("sha256")
+    .update(parts.map((part) => String(part ?? "").trim().toLowerCase()).join("|"))
+    .digest("hex")
+    .slice(0, 20);
+  return `${prefix}_${digest}`;
+}
+
+function advanceAfter(previous: string | null, nowIso: string): string {
+  const prev = Date.parse(previous ?? "");
+  if (!Number.isFinite(prev) || Date.parse(nowIso) > prev) return nowIso;
+  return new Date(prev + 1).toISOString();
+}
+
+type ThreadSideArgs = Parameters<typeof deliverPortalMessageThreadSide>[1];
+
+/**
+ * A serialized create lost the race for its id. First time: re-read, the winner
+ * is there now, append to it. If the id is still taken but no thread is found
+ * for this person (the id belongs to another conversation), fall back to a
+ * unique id once rather than ever dropping the message.
+ */
+function retryAfterCreateCollision(
+  db: SupabaseClient,
+  args: ThreadSideArgs,
+): ReturnType<typeof deliverPortalMessageThreadSide> {
+  if (!args.retried) return deliverPortalMessageThreadSide(db, { ...args, retried: true });
+  const rand = Math.random().toString(36).slice(2, 6);
+  return deliverPortalMessageThreadSide(db, {
+    ...args,
+    serializeCreate: false,
+    retried: true,
+    fallbackId: `${args.fallbackId}_${Date.now().toString(36)}${rand}`,
+  });
+}
+
 export async function deliverPortalMessageThreadSide(
   db: SupabaseClient,
   args: PortalMessageThreadSide & {
     /** Id used only when creating a brand-new thread. */
     fallbackId: string;
+    /**
+     * Automated bursts (several payment events for one resident in the same
+     * second) must produce ONE new thread, not one each. With this set the
+     * create is insert-only: a concurrent winner makes this call re-read and
+     * append to its thread instead of writing a second row. Pair it with an id
+     * from `stablePersonThreadId`.
+     */
+    serializeCreate?: boolean;
     fromName: string;
     subject: string;
     body: string;
@@ -620,6 +674,8 @@ export async function deliverPortalMessageThreadSide(
     alreadyRecordedIn?: string;
     /** Internal: one re-read after losing a create race. */
     retried?: boolean;
+    /** Internal: how many times a stale compare-and-set append has re-read (see `serializeCreate`). */
+    casAttempt?: number;
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string; delivery?: "sending" | "sent" | "failed" }> {
   const ref = await resolveConversationRef(db, args, args.conversation ?? {});
@@ -704,7 +760,7 @@ export async function deliverPortalMessageThreadSide(
       : existing.matchedByKey && storedFolder === "sent" && !args.outbound
         ? { folder: "inbox" }
         : {};
-    const { error, conflict } = await upsertKeyedThreadRow(
+    const { error, conflict, stale } = await upsertKeyedThreadRow(
       db,
       {
         id: existing.id,
@@ -750,10 +806,20 @@ export async function deliverPortalMessageThreadSide(
             ? { recordRef: normalizeRecordRef((existing.rowData as { recordRef?: unknown }).recordRef) ?? normalizedRecordRef }
             : {}),
         },
-        updated_at: nowIso,
+        // Strictly after the row we read: two writes inside one millisecond must
+        // still differ, or the compare-and-set below cannot see the other one.
+        updated_at: args.serializeCreate ? advanceAfter(existing.updatedAt, nowIso) : nowIso,
       },
       ref,
+      // Automated bursts append against the row they read; a concurrent append
+      // makes this one stale and it re-reads instead of overwriting that turn.
+      args.serializeCreate ? existing.updatedAt : null,
     );
+    if (stale) {
+      const attempt = (args.casAttempt ?? 0) + 1;
+      if (attempt > MAX_CAS_APPEND_ATTEMPTS) throw new Error("Could not save the reply.");
+      return deliverPortalMessageThreadSide(db, { ...args, casAttempt: attempt });
+    }
     // Another writer created this person's conversation between our read and
     // our write: append to theirs instead of failing or forking.
     if (conflict && !args.retried) return deliverPortalMessageThreadSide(db, { ...args, retried: true });
@@ -808,14 +874,22 @@ export async function deliverPortalMessageThreadSide(
   if (ref) {
     // The ONLY way a person's conversation is created: a database function
     // that takes a lock, so two sends at the same instant make one row.
-    const created = await createKeyedThreadRow(db, ref, {
-      id: args.fallbackId,
-      scope: args.scope,
-      ownerUserId: args.ownerUserId,
-      participantEmail: args.participantEmail,
-      threadType,
-      rowData: createRowData,
-    });
+    const created = await createKeyedThreadRow(
+      db,
+      ref,
+      {
+        id: args.fallbackId,
+        scope: args.scope,
+        ownerUserId: args.ownerUserId,
+        participantEmail: args.participantEmail,
+        threadType,
+        rowData: createRowData,
+      },
+      args.serializeCreate ? "insert" : "upsert",
+    );
+    if (created.error && args.serializeCreate && isUniqueViolation(created.error)) {
+      return retryAfterCreateCollision(db, args);
+    }
     if (created.error) throw new Error("Could not save the message.", { cause: created.error });
     if (!created.created) {
       // Lost the race: the winner's row is there now; append to it.
@@ -824,18 +898,23 @@ export async function deliverPortalMessageThreadSide(
     }
     createdId = created.id;
   } else {
-    const { error } = await db.from("portal_inbox_thread_records").upsert(
-      {
-        id: args.fallbackId,
-        scope: args.scope,
-        owner_user_id: args.ownerUserId,
-        participant_email: args.participantEmail,
-        thread_type: threadType,
-        row_data: createRowData,
-        updated_at: nowIso,
-      },
-      { onConflict: "id" },
-    );
+    const row = {
+      id: args.fallbackId,
+      scope: args.scope,
+      owner_user_id: args.ownerUserId,
+      participant_email: args.participantEmail,
+      thread_type: threadType,
+      row_data: createRowData,
+      updated_at: nowIso,
+    };
+    // Insert-only when serialized: an upsert on a shared id would overwrite the
+    // winner's row (and its first message) instead of joining it.
+    const { error } = args.serializeCreate
+      ? await db.from("portal_inbox_thread_records").insert(row)
+      : await db.from("portal_inbox_thread_records").upsert(row, { onConflict: "id" });
+    if (error && args.serializeCreate && isUniqueViolation(error)) {
+      return retryAfterCreateCollision(db, args);
+    }
     if (error) throw new Error("Could not save the message.", { cause: error });
   }
   await emitInboxMessageWebhook(args, createdId, args.unread);
@@ -1175,8 +1254,6 @@ export async function deliverPortalInboxMessage(
       null;
     const senderIsManagerSide = senderScope === MANAGER_INBOX_SCOPE;
     for (const recipient of recipients) {
-      const ts = Date.now();
-      const rand = Math.random().toString(36).slice(2, 6);
       const recipientLower = recipient.email;
 
       // Sender's "Sent" copy — one thread per recipient; repeated sends append.
@@ -1192,7 +1269,16 @@ export async function deliverPortalInboxMessage(
           otherPartyUserId: recipient.userId,
           managerUserId: senderIsManagerSide ? opts.senderUserId : recipient.userId,
         },
-        fallbackId: `msg_${opts.senderUserId}_${ts}_${rand}`,
+        // Stable per (sender, recipient, house): a burst of automated sends (a
+        // batch of charges for one resident) creates ONE thread, the rest append.
+        fallbackId: stablePersonThreadId(
+          `msg_${opts.senderUserId}`,
+          senderScope,
+          opts.senderUserId,
+          recipientLower,
+          conversationPropertyId,
+        ),
+        serializeCreate: true,
         fromName,
         subject,
         body: text,
@@ -1220,7 +1306,14 @@ export async function deliverPortalInboxMessage(
           otherPartyUserId: opts.senderUserId,
           managerUserId: senderIsManagerSide ? (opts.ownerManagerUserId?.trim() || opts.senderUserId) : recipient.userId,
         },
-        fallbackId: `msg_inbox_${ts}_${rand}`,
+        fallbackId: stablePersonThreadId(
+          "msg_inbox",
+          recipient.scope,
+          recipient.userId ?? recipientLower,
+          senderEmail,
+          conversationPropertyId,
+        ),
+        serializeCreate: true,
         fromName,
         subject,
         body: text,
