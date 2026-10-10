@@ -1761,7 +1761,12 @@ export function vendorDetailHref(basePath: string, vendorId: string, tab: Vendor
   return `${basePath}/vendors/${encodeURIComponent(vendorId)}/${tab}`;
 }
 
-/** Workspace Promotion sections — live in `?kind=`, never a path (collides with [assetId]). */
+/**
+ * Workspace Promotion sections — live in `?kind=`, never a path (a bare `/promotion/<x>` is an
+ * [assetId]). The one path under Promotion that is not an asset is the Listing sites record page,
+ * `/promotion/listing-sites/<channelId>/<tab>`: `listing-sites` is a reserved first segment, and a
+ * promotion asset id (`makePromotionAssetId`) is never that word.
+ */
 export const PROMOTION_KIND_SECTIONS = ["all", "text", "image"] as const;
 export type PromotionKindSectionId = (typeof PROMOTION_KIND_SECTIONS)[number];
 
@@ -1787,6 +1792,25 @@ export function promotionListHref(
 
 export function promotionDetailHref(basePath: string, assetId: string): string {
   return `${basePath}/promotion/${encodeURIComponent(assetId)}`;
+}
+
+/** A listing site is a record page: `/promotion/listing-sites/<channelId>/<tab>` (Overview · Listings · Post · Leads). */
+export const LISTING_SITE_TABS = ["overview", "listings", "post", "leads"] as const;
+export type ListingSiteTabId = (typeof LISTING_SITE_TABS)[number];
+/** The reserved first path segment under Promotion; never a promotion asset id. */
+export const LISTING_SITES_SEGMENT = "listing-sites";
+
+export function parseListingSiteTab(raw: string | undefined | null): ListingSiteTabId | null {
+  return raw && (LISTING_SITE_TABS as readonly string[]).includes(raw) ? (raw as ListingSiteTabId) : null;
+}
+
+/** Promotion › Listing sites, the list a site's record page goes back to. */
+export function listingSitesListHref(basePath: string): string {
+  return `${basePath}/promotion?kind=sites`;
+}
+
+export function listingSiteDetailHref(basePath: string, channelId: string, tab: ListingSiteTabId = "overview"): string {
+  return `${basePath}/promotion/${LISTING_SITES_SEGMENT}/${encodeURIComponent(channelId)}/${tab}`;
 }
 
 /** Map mistaken top-level portal segments to their routed section paths. */
