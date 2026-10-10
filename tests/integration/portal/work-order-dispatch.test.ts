@@ -116,15 +116,37 @@ function mockDb(opts: {
       }
       if (table === "portal_inbox_thread_records") {
         return {
-          // Agent notices append to the manager's existing assistant thread.
+          // Agent notices append to the manager's one assistant thread with a
+          // guarded read-modify-write: read `row_data` + `updated_at`, insert the
+          // thread the first time, then update with that `updated_at` as the
+          // compare-and-set.
           select: () => ({
             eq: (_column: string, id: string) => ({
-              maybeSingle: async () => ({ data: inboxRows.findLast((row) => row.id === id) ?? null, error: null }),
+              maybeSingle: async () => ({ data: inboxRows.find((row) => row.id === id) ?? null, error: null }),
             }),
           }),
-          upsert: async (row: Record<string, unknown>) => {
-            inboxRows.push(row);
+          insert: async (row: Record<string, unknown>) => {
+            if (inboxRows.some((r) => r.id === row.id)) {
+              return { error: { code: "23505", message: "duplicate key" } };
+            }
+            inboxRows.push({ ...row });
             return { error: null };
+          },
+          update: (patch: Record<string, unknown>) => {
+            const filters: Array<[string, unknown]> = [];
+            const chain = {
+              eq: (column: string, value: unknown) => {
+                filters.push([column, value]);
+                return chain;
+              },
+              select: async () => {
+                const row = inboxRows.find((r) => filters.every(([column, value]) => r[column] === value));
+                if (!row) return { data: [], error: null };
+                Object.assign(row, patch);
+                return { data: [{ id: row.id }], error: null };
+              },
+            };
+            return chain;
           },
         };
       }
