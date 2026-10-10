@@ -137,7 +137,7 @@ jobs:
       # This is the only per-push browser signal on `main` / `staging`, so its failures are
       # the ones most likely to be read. Traces/screenshots/videos are written on
       # the runner and discarded with it unless they are uploaded.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-smoke-test-results
@@ -209,7 +209,7 @@ jobs:
       # exist only in the dev/test project (their default passwords are in
       # `tests/fixtures/index.ts` already), so the traces stay; the retention
       # window is kept just long enough to triage a Friday-night nightly.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-full-test-results
@@ -286,7 +286,7 @@ jobs:
           QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
       - name: Upload encrypted local QA build
         if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: local-qa-build-${{ github.sha }}
           path: local-qa-build-artifact/
