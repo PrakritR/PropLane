@@ -171,6 +171,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     router.refresh();
   }, [mutate, router]);
   const active = payload.workspaces.find((w) => w.id === payload.activeWorkspaceId) ?? null;
+  /*
+   * Per-workspace state below is reset by throwing the subtree away — on a
+   * SWITCH, and only on a switch.
+   *
+   * `activeWorkspaceId` is null until GET /api/workspaces answers, so keying
+   * straight on it made that first answer look like a switch and remounted the
+   * entire portal a second or so after it became interactive: an open phone
+   * filter sheet closed itself and every list redrew its loading skeletons
+   * mid-interaction. Nothing below can be holding another workspace's state
+   * before the first id arrives, so the first answer keys the subtree without
+   * replacing it; each later change of id bumps the generation and does.
+   */
+  const [keyedWorkspace, setKeyedWorkspace] = useState<{ id: string; generation: number } | null>(null);
+  if (payload.activeWorkspaceId && keyedWorkspace?.id !== payload.activeWorkspaceId) {
+    const id = payload.activeWorkspaceId;
+    setKeyedWorkspace((prev) => (prev ? { id, generation: prev.generation + 1 } : { id, generation: 0 }));
+  }
   return (
     <WorkspaceContext.Provider value={{ workspaces: payload.workspaces, active, plan: payload.plan ?? null, error, loading, refresh, mutate, select }}>
       {/* Never in the marketing embed — the catch block above already keeps
@@ -179,7 +196,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       {error && !isDemoModeActive() ? <div role="alert" className="flex items-center gap-2 border-b border-border bg-card px-3 py-2 text-sm">
         <span>{error}</span><Button variant="ghost" onClick={refresh}>Retry</Button>
       </div> : null}
-      <Fragment key={payload.activeWorkspaceId}>{children}</Fragment>
+      <Fragment key={keyedWorkspace?.generation ?? 0}>{children}</Fragment>
     </WorkspaceContext.Provider>
   );
 }
