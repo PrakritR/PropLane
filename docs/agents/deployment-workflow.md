@@ -117,6 +117,16 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
    production Supabase project, even if `VERCEL_ENV=production`.
 5. **`scripts/promote-main-to-production.sh`**: retired; exits 1.
 
+## Functions run beside the database (`pdx1`)
+
+`vercel.json` pins `"regions": ["pdx1"]`. PropLane's Supabase projects
+([database environments](../database-environments.md)) are in `us-west-2`, so
+Oregon puts the function in the same place as the rows it reads; the default
+region would pay a cross-continent round trip on every query, and a portal GET
+makes many. Do not change the region without moving the database, and do not
+set a per-function region that disagrees with it. Guard:
+`tests/unit/vercel-region.test.ts`.
+
 ## Agent rules
 
 - Never push feature branches expecting a Vercel deploy.

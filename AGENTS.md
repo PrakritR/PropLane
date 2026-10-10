@@ -463,7 +463,7 @@ answer. Fail closed to `true`.
 | Tours | `docs/agents/tours-scheduling.md` | `slotKey` is Pacific wall time; `listOpenTourSlots` is the one "what's open" |
 | Inspections | `docs/agents/inspections.md` | Residency-scoped; a completed report is permanently locked |
 | Shared-room capacity | `docs/agents/shared-room-capacity.md` | One bed unless set; last bed is arbitrated in the database (409) |
-| Bookings surface | `docs/agents/bookings.md` | One `PropertyBookingEntry` shape for every source; five reads at a 12s cap and a failed one only costs its own rows, never the calendar; status is derived from the dates |
+| Bookings surface | `docs/agents/bookings.md` | One `PropertyBookingEntry` shape for every source; residents are drawn from the occupancy snapshot and the slower applications/lease reads only enrich the same stay; five reads at a 12s cap and a failed one never blanks the calendar; status is derived from the dates |
 | Group applications | `docs/agents/group-applications.md` | Several independent apps + shared `AXISGRP-…` id; a group never blocks |
 | Rent basis | `docs/agents/rent-basis.md` | `rentBasis` alone; daily never wins unless the manager set it |
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
