@@ -11,6 +11,7 @@ import {
   memberPhoneEligibility,
   resolveWorkspaceTeamMembers,
   teamRelayCapRemaining,
+  withdrawTeamRelayIfOverCap,
 } from "@/lib/team-comms.server";
 
 /**
@@ -129,6 +130,14 @@ export async function forwardInboundToTeammates(
       },
       db,
     ).catch((error: unknown) => ({ ok: false as const, error: error instanceof Error ? error.message : "send failed" }));
+    if (
+      result.ok &&
+      !result.deduplicated &&
+      (await withdrawTeamRelayIfOverCap(db, { ownerManagerUserId: ownerId, numberId: line.numberId, outboxId: result.outboxId, now: input.now }))
+    ) {
+      outcomes.push({ memberUserId: member.userId, status: "skipped", reason: "hourly_cap" });
+      continue;
+    }
     outcomes.push(
       result.ok ? { memberUserId: member.userId, status: "sent" } : { memberUserId: member.userId, status: "failed", reason: result.error },
     );

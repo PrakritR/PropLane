@@ -88,6 +88,9 @@ export async function resolveWorkspaceTeamMembers(
     // returned every workspace's teammates, so an unplaced work number admitted
     // (and relayed to) people who are not in the chat the line lands in.
     const workspaceId = requested || defaultId;
+    // No default workspace (or its read failed): there is no chat to place anyone in. An empty id
+    // used to mean "no filter", which admitted every workspace's teammates.
+    if (!workspaceId) return members;
     const { data, error } = withoutOwnerLinks(
       await db
         .from("account_link_invites")
@@ -507,22 +510,53 @@ export async function teamRelayCapRemaining(
   input: { ownerManagerUserId: string; numberId: string | null; now?: Date; cap?: number },
 ): Promise<number> {
   const cap = input.cap ?? TEAM_CHAT_RELAY_HOURLY_CAP;
+  return Math.max(0, cap - (await teamRelayUsedThisHour(db, input)));
+}
+
+/** Relay texts counted this hour; an unreadable count is "the whole cap" (fail closed). */
+async function teamRelayUsedThisHour(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; numberId: string | null; now?: Date; cap?: number },
+): Promise<number> {
+  const cap = input.cap ?? TEAM_CHAT_RELAY_HOURLY_CAP;
   const since = new Date((input.now ?? new Date()).getTime() - 60 * 60_000).toISOString();
-  let used = cap;
   try {
     let query = db
       .from("sms_outbox")
       .select("id", { count: "exact", head: true })
       .eq("manager_user_id", input.ownerManagerUserId)
       .in("purpose", [TEAM_CHAT_RELAY_SMS_PURPOSE, TEAM_INBOUND_FORWARD_SMS_PURPOSE])
+      .neq("status", "blocked")
       .gte("created_at", since);
     if (input.numberId) query = query.eq("selected_work_line_id", input.numberId);
     const { count, error } = await query;
-    used = error ? cap : (count ?? 0);
+    return error ? cap : (count ?? 0);
   } catch {
-    used = cap;
+    return cap;
   }
-  return Math.max(0, cap - used);
+}
+
+/**
+ * The cap is read before a fan-out, so two fan-outs racing both saw room. Re-count AFTER the insert
+ * (this text is in the count): when the workspace is now over its cap this text lost the race, so
+ * it is blocked before the dispatcher claims it. True = withdrawn (report it as `hourly_cap`).
+ */
+export async function withdrawTeamRelayIfOverCap(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; numberId: string | null; outboxId: string; now?: Date; cap?: number },
+): Promise<boolean> {
+  const cap = input.cap ?? TEAM_CHAT_RELAY_HOURLY_CAP;
+  if ((await teamRelayUsedThisHour(db, input)) <= cap) return false;
+  try {
+    const { error } = await db
+      .from("sms_outbox")
+      .update({ status: "blocked", blocked_reason: "hourly_cap", updated_at: new Date().toISOString() })
+      .eq("id", input.outboxId)
+      .in("status", ["queued", "deferred"]);
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -601,6 +635,14 @@ export async function relayTeamChatMessageToSms(
       },
       db,
     ).catch((error: unknown) => ({ ok: false as const, error: error instanceof Error ? error.message : "send failed" }));
+    if (
+      result.ok &&
+      !result.deduplicated &&
+      (await withdrawTeamRelayIfOverCap(db, { ownerManagerUserId: ownerId, numberId: line.numberId, outboxId: result.outboxId, now: input.now, cap: input.cap }))
+    ) {
+      outcomes.push({ memberUserId: member.userId, status: "skipped", reason: "hourly_cap" });
+      continue;
+    }
     outcomes.push(
       result.ok
         ? { memberUserId: member.userId, status: "sent" }
