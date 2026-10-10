@@ -190,3 +190,16 @@ export function removeChannelStay(input: { connectionId: string; sourceUid: stri
 export function restoreChannelStay(input: { connectionId: string; sourceUid: string }): Promise<void> {
   return postChannelStayTombstone("restore", input);
 }
+
+/** Save the guest name a manager types for a channel stay (empty clears it). */
+export async function saveChannelStayGuestName(input: { connectionId: string; sourceUid: string; guestName: string }): Promise<string> {
+  const res = await fetch("/api/portal/channel-calendar/stay-details", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; guestName?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not save the guest name.");
+  return data.guestName ?? "";
+}

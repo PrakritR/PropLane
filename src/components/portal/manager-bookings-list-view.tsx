@@ -1,14 +1,14 @@
 "use client";
 
 import type { ComponentProps, ReactNode } from "react";
-import { CalendarDays, CircleCheck, Globe } from "lucide-react";
+import { CalendarDays, CircleCheck, Globe, Phone } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingEntryKey,
@@ -24,9 +24,7 @@ import { dateKey } from "@/lib/room-availability-calendar";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 function guestName(entry: PropertyBookingEntry): string {
-  return isChannelBookingSource(entry.source)
-    ? bookingGuestLabel(entry.summary, entry.source)
-    : entry.summary;
+  return bookingEntryGuestLabel(entry);
 }
 
 /**
@@ -136,6 +134,7 @@ export function ManagerBookingsListView({
                     <PortalRowFact icon={CalendarDays} srLabel="Dates">{bookingDatesLabel(entry, true)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                     {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.stayDetails.earlyCheckIn || entry.stayDetails.lateCheckOut) ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
+                    {entry.phoneLast4 ? <PortalRowFact icon={Phone} srLabel="Phone">{`Phone ending ${entry.phoneLast4}`}</PortalRowFact> : null}
                     {isChannelBookingSource(entry.source) ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
                   </>
                 }

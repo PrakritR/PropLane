@@ -14,6 +14,7 @@ import { dateKey } from "@/lib/room-availability-calendar";
 import { occupancyStayKind, type OccupancyCapacities } from "@/lib/occupancy/snapshot";
 import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -63,10 +64,11 @@ export function BookingsCalendarLegend() {
 function BookingBar({ entry, today, children, className, style, onEdit }: { entry: PropertyBookingEntry; today: string; children?: ReactNode; className?: string; style?: React.CSSProperties; onEdit?: (entry: PropertyBookingEntry) => void }) {
   const status = calendarStatus(entry, today);
   const checkout = bookingCheckout(entry);
-  return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${entry.summary}, ${status}`}>
-    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : ""}{entry.residentName || entry.summary}</span>{children}
+  const barLabel = entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
+  return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${barLabel}, ${status}`}>
+    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : ""}{barLabel}</span>{children}
   </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
-    <div className="grid gap-2 p-3 text-sm"><strong>{entry.residentName || entry.summary}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
+    <div className="grid gap-2 p-3 text-sm"><strong>{barLabel}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
     {onEdit && !isChannelBookingSource(entry.source) ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
     <DropdownMenuItem asChild><Link href={bookingRecordHref("/portal", bookingEntryKey(entry))}><ArrowUpRight />Open booking</Link></DropdownMenuItem>
   </DropdownMenuContent></DropdownMenu>;

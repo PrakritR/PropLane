@@ -34,6 +34,11 @@ export type PropertyBookingEntry = {
   rateBasis?: "daily" | "weekly" | "monthly";
   stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string };
   sourceUid?: string;
+  /** Channel stays only - Airbnb's reservation code, the link to open it, the guest's phone suffix, and the name the manager typed. */
+  reservationCode?: string;
+  reservationUrl?: string;
+  phoneLast4?: string;
+  guestName?: string;
   connectionId?: string;
   lastSyncedAt?: string | null;
   applicationId?: string;
@@ -384,6 +389,10 @@ export function airbnbBookingEntries(
           roomLabel: room.roomLabel,
           summary: range.summary,
           sourceUid: range.sourceUid,
+          ...(range.reservationCode ? { reservationCode: range.reservationCode } : {}),
+          ...(range.reservationUrl ? { reservationUrl: range.reservationUrl } : {}),
+          ...(range.phoneLast4 ? { phoneLast4: range.phoneLast4 } : {}),
+          ...(range.guestName ? { guestName: range.guestName } : {}),
           connectionId: room.connectionId,
           lastSyncedAt: room.lastSyncedAt,
           start,

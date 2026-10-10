@@ -22,6 +22,7 @@ import type {
   ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
+import { parseReservationDescription } from "@/lib/channel-calendar/reservation-details";
 import { diffChannelReservations } from "@/lib/channel-calendar/channel-booking-diff";
 import { emitChannelBookingEvent } from "@/lib/channel-booking-events.server";
 import { parseIcsCalendar } from "@/lib/ical/parse";
@@ -36,14 +37,21 @@ const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 export function icalEventsToImportedRanges(
   events: ReturnType<typeof parseIcsCalendar>,
 ): ChannelCalendarImportedRange[] {
-  return events.map((ev) => ({
-    id: ev.uid,
-    sourceUid: ev.uid,
-    summary: ev.summary,
-    ...(isHostBlockSummary(ev.summary) ? { hostBlock: true } : {}),
-    start: ev.startDate,
-    end: ev.endDate,
-  }));
+  return events.map((ev) => {
+    const hostBlock = isHostBlockSummary(ev.summary);
+    // Only the reservation code and phone suffix survive; the description itself is dropped.
+    const details = hostBlock ? {} : parseReservationDescription(ev.description);
+    return {
+      id: ev.uid,
+      sourceUid: ev.uid,
+      summary: ev.summary,
+      ...(hostBlock ? { hostBlock: true } : {}),
+      ...(details.reservationCode ? { reservationCode: details.reservationCode } : {}),
+      ...(details.phoneLast4 ? { phoneLast4: details.phoneLast4 } : {}),
+      start: ev.startDate,
+      end: ev.endDate,
+    };
+  });
 }
 
 /** A real channel export is a few hundred KB at most; anything past this is not a calendar. */
