@@ -132,6 +132,7 @@ export async function listManagerChannelCalendarBookings(
       ),
       lastSyncedAt: connection.last_synced_at,
       lastError: connection.last_error,
+      exportLastFetchedAt: connection.export_last_fetched_at,
       hasImportUrl: Boolean(connection.import_url?.trim()),
       importUrl: canSeeImportUrl.has(connection.property_id) ? connection.import_url?.trim() || null : null,
       exportUrl: buildExportCalendarUrl(connection.export_token, browserOrigin),

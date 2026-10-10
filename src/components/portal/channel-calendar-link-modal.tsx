@@ -24,7 +24,7 @@ import {
 import type { ChannelCalendarProvider, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
 import { channelCalendarProviderLabel, isValidChannelImportUrl } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
-import { relativeSyncTime } from "@/lib/channel-calendar/channel-row-fact";
+import { channelCheckFacts } from "@/lib/channel-calendar/channel-links";
 import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
 import { channelCalendarUnits, type ChannelCalendarUnit } from "@/lib/channel-calendar/property-units";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -238,7 +238,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
             <div data-attr="channel-calendar-room-status" className="flex flex-wrap items-center gap-1.5 text-xs text-muted md:col-start-2 md:col-span-2">
               {connection?.lastError ? <Badge tone="danger">Feed failed · {connection.lastError}</Badge> : connection?.hasImportUrl ? <Badge tone="success">Linked</Badge> : <Badge>Paste {name} calendar link</Badge>}
               {copiedKeys[`${row.key}:${channel}`] || connection?.exportUrl ? <Badge tone="success">Copied</Badge> : <Badge>Not yet pasted into {name}</Badge>}
-              <span>Last sync {connection?.lastSyncedAt ? relativeSyncTime(connection.lastSyncedAt) : "—"}</span>
+              {connection?.hasImportUrl ? channelCheckFacts(connection, new Date(), channel).map((fact) => <span key={fact.label} data-attr="channel-calendar-check-fact">{fact.label} · {fact.value}</span>) : null}
             </div>
             <div className="flex md:justify-end">
               <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${row.unit.label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">

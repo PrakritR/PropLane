@@ -119,6 +119,7 @@ export function toPublicConnection(
     importedRangeCount: imported.length,
     lastSyncedAt: row.last_synced_at,
     lastError: row.last_error,
+    exportLastFetchedAt: row.export_last_fetched_at,
   };
 }
 
@@ -156,6 +157,7 @@ export function parseConnectionRow(raw: Record<string, unknown>): ChannelCalenda
     imported_ranges: imported,
     last_synced_at: raw.last_synced_at == null ? null : String(raw.last_synced_at),
     last_error: raw.last_error == null ? null : String(raw.last_error),
+    export_last_fetched_at: raw.export_last_fetched_at == null ? null : String(raw.export_last_fetched_at),
   };
 }
 

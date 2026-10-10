@@ -66,8 +66,8 @@ an arbitrary target.
 **Each room row says where it stands**, because a two-way link is only live once
 BOTH halves are done: the paste state (Linked / "Paste <channel> calendar link" /
 "Feed failed · <error>"), whether PropLane's own export link has been taken yet
-(Copied, or "Not yet pasted into <channel>"), and "Last sync <relative>"
-(`relativeSyncTime`). Its ⋯ holds Sync now · Feed preview · Disconnect, plus
+(Copied, or "Not yet pasted into <channel>"), and the two "last checked" facts
+(`channelCheckFacts`, `channel-links.ts`): "Airbnb checked PropLane · 5:42 PM" and "PropLane checked Airbnb · 5:40 PM". Its ⋯ holds Sync now · Feed preview · Disconnect, plus
 **Copy Airbnb listing pack** on Airbnb only — `buildAirbnbListingPack`
 (`src/lib/channel-calendar/listing-pack.ts`) composes the room's own listing facts
 (32-character title, address, overview, amenities, house rules, a nightly price
@@ -76,6 +76,46 @@ pastes into Airbnb's own composer. It never posts anywhere and never invents a
 photo: a data-URL photo is listed as "embedded photo (open the room in PropLane to
 save it)" rather than a URL. **Sync all now** (footer) syncs every row in scope and
 reports how many failed.
+
+### Two-way with Airbnb
+
+Airbnb has no public write API, so the two directions are not equally fast:
+
+| Direction | How | Speed |
+| --- | --- | --- |
+| PropLane -> Airbnb | The per-room export feed (`/api/calendar/export/<token>.ics`) that Airbnb polls. Mark reserved / Remove on the Bookings calendar writes a `room_date_block`; the feed already carries it (a cancelled block drops out) | Instant in PropLane, then **whenever Airbnb next polls** (a few hours) |
+| Airbnb -> PropLane | Our import sync: cron `sync-channel-calendars` every 15 minutes, plus **Sync** / **Sync all** | Up to 15 minutes, or immediate on a manual Sync |
+
+- **Mark reserved.** Clicking an empty room-day (today or later) on the Bookings calendar
+  opens `BookingsBlockDatesModal` with `mode="reserve"`: house, room and night
+  prefilled, titled "Mark reserved", one **Save**. A room linked to Airbnb adds the fact
+  row "Airbnb · Updates when Airbnb next checks PropLane" (`airbnbLinkForRoom`).
+- **Remove.** A manager block can be cancelled until its last night has passed,
+  **including one that already started** (`canCancelBooking`); a block with nobody
+  attached is labelled "Remove" (`isReservedBlock`, `bookingCancelLabel`) in the row and
+  record-page ⋯, behind the destructive confirm in `BookingsCancelDialog`. A resident (hold
+  or lease) is never removed here.
+- **Airbnb checked PropLane.** The export route stamps
+  `external_calendar_connections.export_last_fetched_at` when the request's User-Agent
+  contains "Airbnb" (`stampExportFetch`, `export-fetch-stamp.ts`): best-effort, never
+  fails the feed, written at most every 5 minutes. **PropLane checked Airbnb** is the
+  connection's `last_synced_at`. Both show on the booking record page and per room in the
+  Connect popup.
+- **Booking alerts.** `syncChannelCalendarConnection` diffs the new ranges against the
+  connection's stored ones (`diffChannelReservations`, `channel-booking-diff.ts`) and
+  emits `channel_booking_created` / `channel_booking_cancelled` on the action-event bus
+  (`channel-booking-events.server.ts`): "New Airbnb booking · 5259 Brooklyn Ave · Room 3 ·
+  Oct 12 – Oct 15 (3 nights)". Every path (cron, Sync, Sync all) ends in that one
+  function, so a manual Sync alerts too. They ride the manager audience of the bus
+  - the PropLane Assistant notice, which follows the alert destination to the work number
+  - exactly like a confirmed tour. Never on a connection's first sync (the baseline),
+  never for a host block, never for a stay that already ended, and idempotent on
+  connection + stay (`eventId`), so a re-run does not notify twice. Copy carries no guest
+  name; the payload keeps only what the feed exposes ("Reserved" when it hides the guest).
+- **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
+  available)". `isHostBlockRange` keeps that out of the alert diff, and
+  `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when it sits inside a
+  PropLane stay on the same room.
 
 ### A channel calendar is a WRITE on the house
 

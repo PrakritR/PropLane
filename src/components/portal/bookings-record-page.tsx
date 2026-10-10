@@ -18,7 +18,8 @@ import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-date
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingDatesLabel, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingResidentHref, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
-import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
+import { bookingCancelLabel, bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
+import { airbnbLinkForRoom, channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
 import { bookingCharges, bookingMoney, bookingNights, bookingOverdueTotal, bookingRateSummary, guestPastStays } from "@/lib/channel-calendar/booking-record";
@@ -27,7 +28,7 @@ import { dateKey } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
-export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh }: {
+export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh, channelLinks = [] }: {
   bookingId: string; tab?: string; basePath: string; entries: readonly PropertyBookingEntry[]; loading: boolean;
   residentOptions: readonly BlockDatesResidentOption[]; propertyOptions?: readonly ManagerPropertyFilterOption[];
   onSaveBlock: (draft: BlockDatesDraft) => Promise<{ message?: string } | void>;
@@ -35,6 +36,8 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   onRemoveBlock: (blockId: string) => Promise<void>; showToast: (message: string) => void;
   /** Reload the bookings after a change made outside the block store (a removed channel stay). */
   onRefresh?: () => void;
+  /** Rooms linked to a channel - the record says when each side last checked the other. */
+  channelLinks?: readonly ChannelRoomLink[];
 }) {
   const navigate = usePortalNavigate();
   const [editing, setEditing] = useState(false);
@@ -74,6 +77,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const stayDetailRows = Object.entries(entry.stayDetails ?? {}).filter(([key, value]) => key !== "source" && value);
   const checkTimes = [entry.stayDetails?.earlyCheckIn && `Check-in ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Check-out ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ");
   const status = bookingStatusLabel(entry);
+  const airbnbLink = airbnbLinkForRoom(channelLinks, entry.propertyId, entry.roomId);
 
   let body: ReactNode;
   if (tab === "communication") {
@@ -117,6 +121,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {entry.securityDeposit != null ? <RecordFactRow label="Deposit" value={bookingMoney(entry.securityDeposit)} /> : null}
         {entry.leaseTerm ? <RecordFactRow label="Lease term" value={entry.leaseTerm} /> : null}
         {entry.lastSyncedAt ? <RecordFactRow label="Last synced" value={new Date(entry.lastSyncedAt).toLocaleString()} /> : null}
+        {airbnbLink ? channelCheckFacts(airbnbLink).map((fact) => <RecordFactRow key={fact.label} label={fact.label} value={fact.value} />) : null}
         {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
         {stayDetailRows.filter(([key]) => key !== "earlyCheckIn" && key !== "lateCheckOut").map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
         {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
@@ -125,7 +130,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   }
   return <>
     <PortalRecordDetailPage pageTitle="Bookings" title={name} subtitle={place} avatarName={name} backHref={backHref} backLabel="Back to bookings" hideBackText bareHeader dataAttrBack="booking-detail-back" iconTitleActions pinScrollBody>
-      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" /><BookingsRowOverflow label={name} onCancel={canCancelBooking(entry) ? () => setCancelling(true) : canRemoveChannelStay(entry) ? () => setRemovingStay(entry) : undefined} cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : undefined} /></PortalRecordActions>
+      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" /><BookingsRowOverflow label={name} onCancel={canCancelBooking(entry) ? () => setCancelling(true) : canRemoveChannelStay(entry) ? () => setRemovingStay(entry) : undefined} cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : bookingCancelLabel(entry)} /></PortalRecordActions>
       <PortalRecordSectionChrome sections={sections} recordId={bookingId} activeId={tab} title={name} subtitle={entry.propertyLabel} backHref={backHref} backLabel="All bookings" ariaLabel="Booking sections" onHeaderAction={onAction}>
         {body}
       </PortalRecordSectionChrome>

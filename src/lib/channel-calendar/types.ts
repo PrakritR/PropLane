@@ -24,6 +24,8 @@ export type ChannelCalendarConnectionPublic = {
   importedRangeCount: number;
   lastSyncedAt: string | null;
   lastError: string | null;
+  /** When the channel last fetched PropLane's export feed (stamped by the export route). */
+  exportLastFetchedAt: string | null;
 };
 
 export type ChannelCalendarConnectionRow = {
@@ -38,6 +40,7 @@ export type ChannelCalendarConnectionRow = {
   imported_ranges: ChannelCalendarImportedRange[];
   last_synced_at: string | null;
   last_error: string | null;
+  export_last_fetched_at: string | null;
 };
 
 export type ManagerChannelBookingRange = {
@@ -58,6 +61,8 @@ export type ManagerChannelBookingRoom = {
   ranges: ManagerChannelBookingRange[];
   lastSyncedAt: string | null;
   lastError: string | null;
+  /** When the channel last fetched PropLane's export feed for this room. */
+  exportLastFetchedAt?: string | null;
   hasImportUrl: boolean;
   /** The manager's own saved channel link; returned only on the manager-scoped bookings route. */
   importUrl: string | null;

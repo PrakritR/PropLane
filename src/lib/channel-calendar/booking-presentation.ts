@@ -22,8 +22,21 @@ export function bookingStatusLabel(entry: PropertyBookingEntry, today = dateKey(
   if (entry.start <= today) return "In-house";
   return "Confirmed";
 }
+/**
+ * A manager block can be cancelled until its last night has passed - including one that has already
+ * started (ending a reservation early frees the rest of the room, and the export feed drops it).
+ * Residents (a hold or a lease) are never cancelled from here; their dates belong to the lease.
+ */
 export function canCancelBooking(entry: PropertyBookingEntry, today = dateKey(new Date())): boolean {
-  return entry.source === "block" && Boolean(entry.blockId) && entry.bookingStatus !== "cancelled" && entry.start > today;
+  return entry.source === "block" && Boolean(entry.blockId) && entry.bookingStatus !== "cancelled" && (entry.openEnded === true || entry.end >= today);
+}
+/** A block with nobody attached: dates the manager marked reserved. Removing it is "Remove", not "Cancel booking". */
+export function isReservedBlock(entry: Pick<PropertyBookingEntry, "source" | "residentName" | "residentEmail" | "residentPhone">): boolean {
+  return entry.source === "block" && !entry.residentName?.trim() && !entry.residentEmail?.trim() && !entry.residentPhone?.trim();
+}
+/** The destructive action's label in the row/record ⋯: "Remove" for marked-reserved dates, else "Cancel booking". */
+export function bookingCancelLabel(entry: Parameters<typeof isReservedBlock>[0]): string {
+  return isReservedBlock(entry) ? "Remove" : "Cancel booking";
 }
 /** A reservation read from a channel calendar feed: it can be removed (tombstoned), never edited or cancelled here. */
 export function canRemoveChannelStay(entry: PropertyBookingEntry): boolean {

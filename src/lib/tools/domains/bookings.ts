@@ -82,7 +82,7 @@ function formatDay(dateKey: string): string {
 /* Property scope                                                           */
 /* ------------------------------------------------------------------------ */
 
-type ScopedProperty = { id: string; title: string; rooms: Map<string, string>; hasRooms: boolean };
+type ScopedProperty = { id: string; ownerId: string; title: string; rooms: Map<string, string>; hasRooms: boolean };
 
 type PropertyRow = { id: string; manager_user_id?: string | null; row_data: unknown; property_data: unknown };
 
@@ -126,7 +126,7 @@ async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProp
   for (const rec of byId.values()) {
     if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, rec.id))) continue;
     const rooms = propertyRooms(rec);
-    out.push({ id: rec.id, title: propertyTitle(rec), rooms, hasRooms: rooms.size > 0 });
+    out.push({ id: rec.id, ownerId: String(rec.manager_user_id ?? ""), title: propertyTitle(rec), rooms, hasRooms: rooms.size > 0 });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title));
 }
@@ -526,13 +526,17 @@ export const blockRoomDatesTool = defineWriteTool({
       bookingStatus: "hold",
       ...(r.residentName ? { residentName: r.residentName } : {}),
       createdAt: now,
+      createdByUserId: ctx.userId,
       recordType: ROOM_DATE_BLOCK_RECORD_TYPE,
       startsAt: `${r.start}T00:00:00`,
       endsAt: `${r.end}T00:00:00`,
     };
+    // A room block belongs to the house: the capacity trigger only accepts the property OWNER's id.
+    // The preview already required Calendar edit; a co-manager's block is stamped to the owner.
+    const ownerId = r.property.ownerId.trim() || ctx.userId;
     const { error } = await ctx.db.from("portal_schedule_records").insert({
       id,
-      manager_user_id: ctx.userId,
+      manager_user_id: ownerId,
       property_id: r.property.id,
       record_type: ROOM_DATE_BLOCK_RECORD_TYPE,
       starts_at: row.startsAt,

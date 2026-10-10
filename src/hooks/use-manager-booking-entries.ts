@@ -3,6 +3,7 @@
 import { withoutEchoedHostBlocks } from "@/lib/channel-calendar/host-block";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PORTAL_READ_TIMEOUT_MS, withTimeout } from "@/lib/auth/fetch-with-timeout";
+import { channelLinksFromBookings, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { fetchManagerChannelBookings, fetchOccupancySnapshot } from "@/lib/channel-calendar/client";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import type { OccupancyDayCell } from "@/lib/occupancy/snapshot";
@@ -75,6 +76,7 @@ export function useManagerBookingEntries({
   refreshSignal?: number;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
+  const [channelLinks, setChannelLinks] = useState<ChannelRoomLink[]>([]);
   const [occupancyDays, setOccupancyDays] = useState<OccupancyDayLookup>({ overall: {}, houses: {} });
   const [applicationRows, setApplicationRows] = useState<DemoApplicantRow[]>([]);
   const [blocks, setBlocks] = useState<RoomDateBlock[]>([]);
@@ -325,6 +327,7 @@ export function useManagerBookingEntries({
     const ids = propertyIdsKey ? propertyIdsKey.split("\u0000") : [];
     if (ids.length === 0) {
       setAirbnbEntries([]);
+      setChannelLinks([]);
       setOccupancyDays({ overall: {}, houses: {} });
       markSource("channel", "ok");
       markSource("occupancy", "ok");
@@ -334,10 +337,12 @@ export function useManagerBookingEntries({
     const channel = withTimeout(fetchManagerChannelBookings(ids), PORTAL_READ_TIMEOUT_MS).then(
       (bookings) => {
         setAirbnbEntries(airbnbBookingEntries(bookings));
+        setChannelLinks(channelLinksFromBookings(bookings));
         markSource("channel", "ok");
       },
       () => {
         setAirbnbEntries([]);
+        setChannelLinks([]);
         markSource("channel", "failed");
       },
     );
@@ -422,5 +427,5 @@ export function useManagerBookingEntries({
     [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries, stayMetas],
   );
 
-  return { entries, occupancyDays, loading, failedSources, retry, reloadAirbnb, blocks, residentOptions };
+  return { entries, occupancyDays, loading, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
 }

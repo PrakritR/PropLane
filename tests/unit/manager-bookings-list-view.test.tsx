@@ -75,7 +75,7 @@ describe("ManagerBookingsListView", () => {
     expect(navigate).toHaveBeenCalledWith(bookingRecordHref("/portal", bookingEntryKey(stay)));
   });
 
-  it("a block's ⋯ offers Edit dates, Move room and Cancel; a lease/import row only Message + Copy link", () => {
+  it("a block's ⋯ offers Edit dates, Move room and Remove (a block with nobody attached); a lease/import row only Message + Copy link", () => {
     render(
       <ManagerBookingsListView
         entries={[block, stay]}
@@ -94,7 +94,7 @@ describe("ManagerBookingsListView", () => {
     const blockMenu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
     expect(blockMenu.textContent).toContain("Edit");
     expect(blockMenu.textContent).not.toContain("Move room");
-    expect(blockMenu.textContent).toContain("Cancel booking");
+    expect(blockMenu.textContent).toContain("Remove");
     // The row itself opens the booking record (`omitActionView`), so the ⋯ never
     // repeats it — see the "row click opens the booking's own record page" case above.
     expect(blockMenu.textContent).not.toContain("View");

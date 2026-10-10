@@ -37,7 +37,9 @@ export type ActionEventDomain =
   /** Vendor banking: payouts, bank/account state, refunds and disputes (`vendor-banking/events.server.ts`). */
   | "vendor_banking"
   /** WS5: team-only, no resident/vendor/manager side. */
-  | "availability";
+  | "availability"
+  /** A reservation appeared on / vanished from a linked channel calendar (`channel-booking-events.server.ts`). */
+  | "channel_booking";
 /**
  * `team` (WS5): one rendered copy posted once into the owning manager's Team
  * thread for the event's house (`team-comms.server.ts`), never fanned out per
@@ -77,6 +79,7 @@ export function teamModuleForDomain(domain: string): TeamNoticeModule {
       return "services";
     case "tour":
     case "availability":
+    case "channel_booking":
     case "task":
       return "calendar";
     case "inspection":

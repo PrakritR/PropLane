@@ -19,7 +19,7 @@ import {
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
-import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
+import { bookingCancelLabel, bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { dateKey } from "@/lib/room-availability-calendar";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
@@ -125,7 +125,7 @@ export function ManagerBookingsListView({
                     ? () => onRemoveStay(entry)
                     : undefined
               }
-              cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : undefined}
+              cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : bookingCancelLabel(entry)}
             >
               <PortalApplicantRecordRow
                 name={name}
