@@ -12,6 +12,7 @@ import {
   resolveCommunicationScope,
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
+import { inboxStoreOwnerIds } from "@/lib/communication/inbox-store-owner-ids";
 import { buildClientPortalInboxThreadUpsert, isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
 import {
   clearedInboxThreadRowData,
@@ -210,6 +211,11 @@ export async function GET(request: Request) {
           workspaceId: active.id,
         });
         await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id, workspace);
+        // The workspace's Team chat exists once the workspace has two people, so
+        // anyone in it can start the conversation. Only for a workspace the
+        // viewer is a member of (the active workspace is one of theirs).
+        const { ensureWorkspaceTeamThread } = await import("@/lib/team-comms.server");
+        await ensureWorkspaceTeamThread(ctx.db, { ownerManagerUserId: active.ownerUserId, workspaceId: active.id });
       } catch (e) {
         console.error("ensureManagerAgentNoticeThread failed", e);
       }
@@ -230,7 +236,7 @@ export async function GET(request: Request) {
       if (scopeParam === MANAGER_INBOX_SCOPE) {
         communicationScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "read");
       }
-      query = applyPortalInboxThreadScope(query, ctx.user, communicationScope?.ownerIds ?? [], {
+      query = applyPortalInboxThreadScope(query, ctx.user, communicationScope ? inboxStoreOwnerIds(communicationScope) : [], {
         participantOnlyWhenUnowned: scopeParam === MANAGER_INBOX_SCOPE,
       }) as typeof query;
       if (scopeParam) {
@@ -465,7 +471,7 @@ export async function POST(req: Request) {
       }
       const ids = [...requested.keys()];
       const editScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "edit");
-      const extraOwnerIds = editScope.ownerIds;
+      const extraOwnerIds = inboxStoreOwnerIds(editScope);
       let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").in("id", ids);
       query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof query;
       const { data, error } = await query;
@@ -529,7 +535,7 @@ export async function POST(req: Request) {
         .select("id, owner_user_id, participant_email, scope, thread_type, row_data")
         .eq("id", id)
         .eq("scope", scopeKey);
-      clearQuery = applyPortalInboxThreadScope(clearQuery, ctx.user, clearScope?.ownerIds ?? [], {
+      clearQuery = applyPortalInboxThreadScope(clearQuery, ctx.user, clearScope ? inboxStoreOwnerIds(clearScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
       }) as typeof clearQuery;
       const { data: clearTarget, error: clearError } = await clearQuery.maybeSingle();
@@ -583,7 +589,7 @@ export async function POST(req: Request) {
         : null;
       let query = ctx.db.from("portal_inbox_thread_records")
         .select("id, owner_user_id, participant_email, thread_type, scope, row_data").in("id", ids);
-      query = applyPortalInboxThreadScope(query, ctx.user, folderScope?.ownerIds ?? [], {
+      query = applyPortalInboxThreadScope(query, ctx.user, folderScope ? inboxStoreOwnerIds(folderScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
       }) as typeof query;
       const { data: fetchedFolderRows, error } = await query;
@@ -624,7 +630,7 @@ export async function POST(req: Request) {
         scopeKey === MANAGER_INBOX_SCOPE
           ? await resolveCommunicationScope(ctx.db, ctx.user.id, "delete")
           : null;
-      const extraOwnerIds = deleteScope?.ownerIds ?? [];
+      const extraOwnerIds = deleteScope ? inboxStoreOwnerIds(deleteScope) : [];
       const scopeOptions = { participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE };
       let deleted = 0;
       for (const id of ids) {
@@ -687,7 +693,7 @@ export async function POST(req: Request) {
             ? await resolveCommunicationScope(ctx.db, ctx.user.id, "edit")
             : null;
         let visibleQuery = ctx.db.from("portal_inbox_thread_records").select("id").eq("id", id).limit(1);
-        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, upsertScope?.ownerIds ?? [], {
+        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, upsertScope ? inboxStoreOwnerIds(upsertScope) : [], {
           participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
         }) as typeof visibleQuery;
         const { data: visible, error: visibleError } = await visibleQuery;

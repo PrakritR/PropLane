@@ -1,0 +1,82 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  postTeamThreadMessage,
+  relayTeamChatMessageToSms,
+  resolveWorkspaceTeamMembers,
+  teamMemberCanPost,
+} from "@/lib/team-comms.server";
+import { startsWithAssistantAddress, stripAssistantAddress } from "@/lib/sms/team-chat-routing";
+
+export type ManagerInboundRoute =
+  /** Goes to the PropLane Assistant (an explicit address, a solo workspace, or a sender who cannot post to the chat). */
+  | { kind: "agent"; text: string }
+  /** Appended to the workspace Team chat and relayed; nothing else to do. */
+  | { kind: "team"; ok: true }
+  /** The chat append failed; the caller retries the whole inbound. */
+  | { kind: "team"; ok: false };
+
+/**
+ * Decide and carry out the route for a text from an identified manager
+ * (`resolveManagerSmsInboundIdentity` already proved exactly one verified
+ * match for this work number's owner; STOP/HELP were handled before this).
+ *
+ *  - "@assistant ..." / "assistant, ..." / "@ai ..." -> the Assistant, prefix stripped.
+ *  - a workspace with fewer than two members       -> the Assistant (today's behavior).
+ *  - a sender who is not a member of THIS number's workspace, or a Viewer -> the Assistant.
+ *  - otherwise -> the workspace Team chat as that member (channel sms, idempotent on the
+ *    MessageSid) and relayed to every OTHER member, never back to the sender.
+ *
+ * Never logs a phone or a body.
+ */
+export async function routeManagerInboundText(
+  db: SupabaseClient,
+  input: {
+    ownerManagerUserId: string;
+    /** The work number's workspace (null = the owner's default). */
+    workspaceId: string | null;
+    actorUserId: string;
+    body: string;
+    messageSid: string;
+  },
+): Promise<ManagerInboundRoute> {
+  if (startsWithAssistantAddress(input.body)) return { kind: "agent", text: stripAssistantAddress(input.body) };
+
+  const members = await resolveWorkspaceTeamMembers(db, {
+    ownerManagerUserId: input.ownerManagerUserId,
+    workspaceId: input.workspaceId,
+  });
+  const sender = members.find((member) => member.userId === input.actorUserId);
+  if (members.length < 2 || !sender || !teamMemberCanPost(sender)) {
+    return { kind: "agent", text: input.body };
+  }
+
+  const { data: profile } = await db.from("profiles").select("full_name").eq("id", input.actorUserId).maybeSingle();
+  const senderName = String((profile as { full_name?: unknown } | null)?.full_name ?? "").trim() || "A teammate";
+  const text = input.body.trim();
+  const messageId = `team-sms:${input.messageSid}`;
+  const posted = await postTeamThreadMessage(db, {
+    ownerManagerUserId: input.ownerManagerUserId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    actorName: senderName,
+    text,
+    messageId,
+    channel: "sms",
+  });
+  if (!posted.ok) return { kind: "team", ok: false };
+  // Always relay: the dedupe key (message, member) makes a replay or a retry
+  // after a crash between the post and the texts send each text exactly once.
+  await relayTeamChatMessageToSms(db, {
+    ownerManagerUserId: input.ownerManagerUserId,
+    workspaceId: posted.workspaceId,
+    senderUserId: input.actorUserId,
+    senderName,
+    text,
+    messageId,
+  }).catch((error: unknown) => {
+    console.error("team-chat inbound relay failed", error instanceof Error ? error.name : "unknown");
+  });
+  return { kind: "team", ok: true };
+}

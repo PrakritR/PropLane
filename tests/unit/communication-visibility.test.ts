@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { inboxStoreOwnerIds } from "@/lib/communication/inbox-store-owner-ids";
 import {
   conversationVisible,
   emailThreadHouses,
@@ -212,5 +213,73 @@ describe("a work number's thread is scoped to the workspace that owns the line",
     expect(conversationVisible(home, input)).toBe(true);
     expect(conversationVisible(shared, input)).toBe(false);
     expect(conversationVisible(elsewhere, input)).toBe(false);
+  });
+});
+
+describe("conversationVisible: the workspace Team chat belongs to the workspace, not a house", () => {
+  const TEAM = `team-thread:${OWNER}:ws:ws-seattle`;
+  const row = { ownerId: OWNER, houseIds: [] as string[], threadType: "team", threadId: TEAM };
+
+  it("the owner sees it in its own workspace (or when the account is not partitioned), never in another workspace", () => {
+    const own = scope({ viewerId: OWNER, ownerIds: [OWNER], activeWorkspaceId: "ws-seattle" });
+    expect(conversationVisible(own, row)).toBe(true);
+    expect(conversationVisible(scope({ viewerId: OWNER, ownerIds: [OWNER], activeWorkspaceId: null }), row)).toBe(true);
+    expect(conversationVisible(scope({ viewerId: OWNER, ownerIds: [OWNER], activeWorkspaceId: "ws-portland" }), row)).toBe(false);
+  });
+
+  it("a member of that workspace sees it regardless of which houses they hold (even none)", () => {
+    const member = scope({
+      activeWorkspaceId: "ws-seattle",
+      teamWorkspacesByOwner: new Map([[OWNER, new Map([["ws-seattle", { canPost: true }]])]]),
+    });
+    expect(conversationVisible(member, row)).toBe(true);
+  });
+
+  it("a member of ANOTHER workspace of the same owner, a stranger, and a house grant alone do not", () => {
+    const otherWorkspace = scope({
+      teamWorkspacesByOwner: new Map([[OWNER, new Map([["ws-portland", { canPost: true }]])]]),
+    });
+    expect(conversationVisible(otherWorkspace, row)).toBe(false);
+    expect(conversationVisible(scope(), row)).toBe(false);
+    // Holding a house on the owner's side is not membership of the chat.
+    const houseOnly = scope({ grantedHousesByOwner: new Map([[OWNER, new Set(["house-a"])]]) });
+    expect(conversationVisible(houseOnly, row)).toBe(false);
+  });
+
+  it("a member sees it only while that workspace is the active one", () => {
+    const wrongActive = scope({
+      activeWorkspaceId: "ws-portland",
+      teamWorkspacesByOwner: new Map([[OWNER, new Map([["ws-seattle", { canPost: true }]])]]),
+    });
+    expect(conversationVisible(wrongActive, row)).toBe(false);
+  });
+
+  it("a Viewer reads the chat but cannot post to it (edit level)", () => {
+    const viewer = (level: "read" | "edit") =>
+      scope({ level, teamWorkspacesByOwner: new Map([[OWNER, new Map([["ws-seattle", { canPost: false }]])]]) });
+    expect(conversationVisible(viewer("read"), row)).toBe(true);
+    expect(conversationVisible(viewer("edit"), row)).toBe(false);
+  });
+
+  it("the row must belong to the owner the id names: a forged owner never widens it", () => {
+    const member = scope({ teamWorkspacesByOwner: new Map([[OWNER, new Map([["ws-seattle", { canPost: true }]])]]) });
+    expect(conversationVisible(member, { ...row, ownerId: "someone-else" })).toBe(false);
+  });
+
+  it("a LEGACY per-house team thread keeps the house rule", () => {
+    const granted = scope({ grantedHousesByOwner: new Map([[OWNER, new Set(["house-a"])]]) });
+    expect(conversationVisible(granted, { ownerId: OWNER, houseIds: ["house-a"], threadType: "team", threadId: `team-thread:${OWNER}:house-a` })).toBe(true);
+    expect(conversationVisible(granted, { ownerId: OWNER, houseIds: [], threadType: "team", threadId: `team-thread:${OWNER}` })).toBe(false);
+  });
+});
+
+describe("inboxStoreOwnerIds", () => {
+  it("fetches the owners whose houses I hold plus the owners whose workspace chat I belong to, once each", () => {
+    const s = scope({
+      ownerIds: [VIEWER, "owner-a"],
+      teamWorkspacesByOwner: new Map([["owner-a", new Map()], ["owner-b", new Map()]]),
+    });
+    expect(inboxStoreOwnerIds(s).sort()).toEqual([VIEWER, "owner-a", "owner-b"].sort());
+    expect(inboxStoreOwnerIds(scope())).toEqual([VIEWER]);
   });
 });

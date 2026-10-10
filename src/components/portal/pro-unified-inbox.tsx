@@ -802,7 +802,7 @@ export function ManagerUnifiedInbox({
       // Title the row by the person's name when they are in the directory
       // (PRP-315); the address stays available in the open thread.
       const displayName = isTeamInboxThread(t)
-        ? teamThreadDisplayName()
+        ? t.from?.trim() || teamThreadDisplayName()
         : inboxCounterpartyName(
           t.email,
           sentSemantics && !adapter.namesSentThreadsByFrom ? null : t.from,
