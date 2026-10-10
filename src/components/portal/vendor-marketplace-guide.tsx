@@ -145,6 +145,7 @@ export function VendorMarketplaceGuide({
   service,
   location,
   account,
+  canManage,
   workspaceId,
   open,
   onClose,
@@ -154,6 +155,8 @@ export function VendorMarketplaceGuide({
   service: ServiceKind;
   location: MarketplaceLocation;
   account: VendorMarketplaceAccountRow | null;
+  /** Only the workspace owner may add or change the account row (the route refuses the rest). */
+  canManage: boolean;
   workspaceId?: string;
   open: boolean;
   onClose: () => void;
@@ -227,7 +230,7 @@ export function VendorMarketplaceGuide({
                       <ExternalLink className="size-4" aria-hidden />
                     </a>
                   )}
-                  {account ? (
+                  {!canManage ? null : account ? (
                     <PortalIconAction
                       icon={Pencil}
                       label="Edit account"

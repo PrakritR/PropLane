@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       loadMetaConnectionPublic(db, workspace.id),
       resolveListingPostContact(db, workspace.ownerUserId, workspace.id),
       resolveWorkspaceListingAttribution(db, workspace.ownerUserId, workspace.id),
-      leadCountsByChannel({ workspaceId: workspace.id, propertyId: propertyId || undefined }).catch(() => ({}) as Record<string, number>),
+      leadCountsByChannel({ propertyIds: workspace.propertyIds, propertyId: propertyId || undefined }).catch(() => ({}) as Record<string, number>),
       (async () => {
         const read = async (columns: string) => {
           let q = db

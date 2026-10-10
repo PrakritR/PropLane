@@ -730,6 +730,14 @@ async function resolveApplicationWriteOwner(
  */
 const APPLICATIONS_READ_LIMIT = 500;
 
+/**
+ * The manager's rows, and whether ANY of the reads behind them hit its cap.
+ *
+ * `rows.length` is not a truncation test here: three independent capped queries
+ * are unioned and then narrowed to the active workspace, so a short answer can
+ * still be missing rows. The client treats absence as deletion, so it has to be
+ * told when the list is partial rather than inferring it from a count.
+ */
 async function fetchApplicationsForManagerUser(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,

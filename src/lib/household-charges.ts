@@ -1624,6 +1624,10 @@ export function isHouseholdChargeOverdue(charge: HouseholdCharge, now = new Date
 /** True when a charge still has an outstanding balance and should receive payment reminders. */
 export function isUnpaidHouseholdCharge(charge: HouseholdCharge): boolean {
   if (charge.status === "paid") return false;
+  // A waived (cancelled) or refunded charge keeps its balance label — it is what
+  // the resident WAS asked for, not what they owe. Settled everywhere else that
+  // classifies a charge, so it is never unpaid, overdue, or reminder-worthy here.
+  if (charge.status === "cancelled" || charge.status === "refunded") return false;
   if (charge.paidAt) return false;
   if (parseMoneyAmount(charge.balanceLabel) <= 0) return false;
   return true;

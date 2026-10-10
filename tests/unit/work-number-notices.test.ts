@@ -12,16 +12,21 @@ vi.mock("@/lib/push-notifications.server", () => ({ sendPushToUser: vi.fn(async 
 
 type Channels = {
   inbox: boolean; email: boolean; sms: boolean; fellBackToAssistant: boolean;
-  destination: string; categoryEnabled: boolean;
+  destination: string; categoryEnabled: boolean; workNumberUnreadable: boolean;
 };
 const baseChannels: Channels = {
   inbox: true, email: true, sms: true, fellBackToAssistant: false, destination: "both", categoryEnabled: true,
+  workNumberUnreadable: false,
 };
+type SmsResult = { sent: true } | { sent: false; reason: string };
 const resolveChannels = vi.fn(async (..._args: unknown[]): Promise<Channels> => ({ ...baseChannels }));
-const sendSms = vi.fn(async (_db: unknown, _input: Record<string, unknown>) => ({ sent: true }));
+const sendSms = vi.fn(async (_db: unknown, _input: Record<string, unknown>): Promise<SmsResult> => ({ sent: true }));
 vi.mock("@/lib/manager-notification-routing.server", () => ({
   resolveManagerNotificationChannels: (...args: unknown[]) => resolveChannels(...args),
   sendManagerNotificationSms: (db: unknown, input: Record<string, unknown>) => sendSms(db, input),
+  // The real rule: a refusal is the recipient's own no, everything else is a failure.
+  managerNotificationSmsRefused: (reason: string | undefined) =>
+    reason === "not_routed" || reason === "no_phone" || reason === "no_work_number" || reason === "blocked",
 }));
 
 const sendEmail = vi.fn(async (_db: unknown, _input: Record<string, unknown>) => ({ status: "sent" as "sent" | "failed" | "skipped" }));
@@ -148,15 +153,26 @@ describe("notifyManagerFromAgent: the workspace's number and email", () => {
   });
 
   it("a refused text (no credit, paused, STOP) never throws while the notice reached them another way", async () => {
-    sendSms.mockResolvedValue({ sent: false });
+    sendSms.mockResolvedValue({ sent: false, reason: "blocked" });
     const result = await notifyManagerFromAgent(seed() as unknown as SupabaseClient, { landlordId: OWNER, subject: "s", text: "t" });
-    expect(result).toMatchObject({ delivered: true, sms: "failed" });
+    expect(result).toMatchObject({ delivered: true, sms: "skipped" });
     expect(mirror).not.toHaveBeenCalled(); // nothing went out, so no "sent by text" copy
+  });
+
+  it("a TRANSIENT failure throws instead, so the notice's text is retried rather than dropped", async () => {
+    // The old guard could not tell this from a refusal, so an urgent text that
+    // failed on a read blip or the transport was lost for good.
+    for (const reason of ["transport", "line_unreadable"]) {
+      sendSms.mockResolvedValue({ sent: false, reason });
+      await expect(
+        notifyManagerFromAgent(seed() as unknown as SupabaseClient, { landlordId: OWNER, subject: "s", text: "t" }),
+      ).rejects.toThrow(/not accepted/);
+    }
   });
 
   it("but a notice that reached NOTHING durable still throws so its caller retries", async () => {
     resolveChannels.mockImplementation(async () => ({ ...baseChannels, inbox: false }));
-    sendSms.mockResolvedValue({ sent: false });
+    sendSms.mockResolvedValue({ sent: false, reason: "blocked" });
     sendEmail.mockResolvedValue({ status: "failed" });
     await expect(
       notifyManagerFromAgent(seed() as unknown as SupabaseClient, { landlordId: OWNER, subject: "s", text: "t" }),

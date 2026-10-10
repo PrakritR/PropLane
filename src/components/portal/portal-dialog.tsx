@@ -21,11 +21,13 @@ export type PortalDialogAction = {
   dataAttr?: string;
   /**
    * M008 — "hold" requires a genuine press-and-hold (pointer or Enter/Space)
-   * before the action fires; a plain tap is refused. Opt-in and scoped to
-   * {@link ConfirmDeleteModal} in `confirm-delete-modal.tsx` — the one
-   * destructive-confirm shape `useConfirm()` renders app-wide — rather than
-   * every `tone="danger"` dialog, so a hand-built danger confirm elsewhere in
-   * the portal keeps today's plain-click behavior unless it opts in too.
+   * before the action fires; a plain tap is refused.
+   *
+   * Opt-in per caller, and now a NARROW opt-in: `ConfirmDeleteModal` (the shape
+   * `useConfirm()` renders app-wide) retired its own `hold` to a plain-click
+   * `confirm`, because press-and-hold was undiscoverable and made Delete look
+   * dead. Only a caller that passes this explicitly gets the rail —
+   * `service-remove-dialog.tsx` is the one that does.
    */
   confirmGuard?: "hold";
 };

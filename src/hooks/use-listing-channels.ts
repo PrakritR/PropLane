@@ -126,11 +126,11 @@ export async function fetchListingPostText(
   args: { workspaceId: string | undefined; propertyId: string; channel: ListingChannelId },
 ): Promise<{ text: string; holdReasons: ListingHoldReason[] } | null> {
   try {
-    const res = await fetch(urlFor(args.workspaceId, args.propertyId, false), { credentials: "include" });
-    if (!res.ok) return null;
-    const data = (await res.json()) as unknown;
-    if (!isStatus(data) || !data.property) return null;
-    return { text: data.property.postTexts[args.channel] ?? "", holdReasons: data.property.holdReasons };
+    // Through the shared cache, like every other read of this route: a second bare
+    // fetch of a URL another component already reads is a duplicate round trip.
+    const res = await sharedGet(urlFor(args.workspaceId, args.propertyId, false));
+    if (!res.ok || !isStatus(res.data) || !res.data.property) return null;
+    return { text: res.data.property.postTexts[args.channel] ?? "", holdReasons: res.data.property.holdReasons };
   } catch {
     return null;
   }

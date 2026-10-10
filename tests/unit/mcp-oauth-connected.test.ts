@@ -84,7 +84,7 @@ describe("approve route -> connected screen (real signing)", () => {
     expect(res.status).toBe(303);
     const location = new URL(res.headers.get("location") ?? "", "https://prop-lane.test");
     expect(location.origin + location.pathname).toBe("https://prop-lane.test/mcp/connected");
-    const payload = verifyMcpConnected(location.searchParams.get("t") ?? "");
+    const payload = verifyMcpConnected(location.searchParams.get("token") ?? "");
     expect(payload).toMatchObject({ clientName: "Claude", workspaceName: "Main Street", userId: "u1" });
     const destination = new URL(payload!.destination);
     expect(destination.origin + destination.pathname).toBe("https://claude.ai/api/mcp/auth_callback");

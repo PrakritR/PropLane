@@ -1,16 +1,10 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
 
 import { deliverBookingsTodayDigests } from "@/lib/reminders/subjects/bookings-today.server";
-import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
-
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
 
 /**
  * BUILD-WAVE2 C211 — "Today at your houses: 3 check-ins, 1 check-out." at
@@ -22,7 +16,7 @@ function isAuthorized(req: Request): boolean {
  * the day is always safe, it just never sends a second notice for the day.
  */
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const db = createSupabaseServiceRoleClient();

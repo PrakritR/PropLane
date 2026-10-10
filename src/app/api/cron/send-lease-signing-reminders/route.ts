@@ -1,5 +1,5 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
-import { isProductionRuntime } from "@/lib/server-env";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
@@ -11,12 +11,6 @@ export const runtime = "nodejs";
  * Daily lease-signing SMS reminders for leases waiting on the resident signature.
  * Uses the shared Claw agent line and opens a durable two-way thread.
  */
-
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
 
 function needsResidentSignature(status: string): boolean {
   const s = status.trim().toLowerCase();
@@ -32,7 +26,7 @@ function needsResidentSignature(status: string): boolean {
 }
 
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

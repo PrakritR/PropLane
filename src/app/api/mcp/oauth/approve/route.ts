@@ -49,5 +49,8 @@ export async function POST(req: Request) {
   if (!token) return NextResponse.redirect(destination, 303);
   // A relative Location: the browser resolves it against the host it actually used. `req.url` can
   // carry the dev server's bind address (0.0.0.0), where the session cookie does not exist.
-  return new NextResponse(null, { status: 303, headers: { Location: `/mcp/connected?t=${encodeURIComponent(token)}` } });
+  // The parameter is named `token` because the signed value carries the one-time
+  // authorization code: `sanitizeAnalyticsProperties` redacts a `token=` query, so
+  // PropLane's own $pageview can never ship it to an analytics processor.
+  return new NextResponse(null, { status: 303, headers: { Location: `/mcp/connected?token=${encodeURIComponent(token)}` } });
 }

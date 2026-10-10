@@ -99,12 +99,12 @@ async function authorizeResidentRemoval(
 }
 
 /**
- * "No login" and "login kept" read the same to a manager: telling them apart would
- * let anyone who can add an application learn whether an arbitrary address has a
- * PropLane account. An admin may see the difference.
+ * "No login", "login kept" and "the delete failed" all read as "kept" to a manager:
+ * telling them apart would let anyone who can add an application learn whether an
+ * arbitrary address has a PropLane account. An admin may see the difference.
  */
 function publicAccountFate<T extends ResidentAccountOutcome>(fate: T, isAdmin: boolean): T | "kept" {
-  return fate === "none" && !isAdmin ? "kept" : fate;
+  return (fate === "none" || fate === "failed") && !isAdmin ? "kept" : fate;
 }
 
 /**
@@ -238,6 +238,12 @@ export async function removeResidentApplication(
         })
       : [];
   const account = await applyResidentAccountDecision(db, decision);
+  if (account.outcome === "failed") {
+    console.error("resident account purge failed after the workspace rows were removed", {
+      applicationId: target.applicationId,
+      reason: account.error,
+    });
+  }
   const removedThreads = account.outcome === "deleted" ? residentThreadIds.length : 0;
   if (account.outcome !== "deleted" && target.residentUserId) {
     // This manager's relationship has ended; the proof must not outlive it.
@@ -252,6 +258,8 @@ export async function removeResidentApplication(
     anonymized: result.anonymized,
     storageWarnings: result.storageWarnings,
     account: publicAccountFate(account.outcome, actor.isAdmin),
-    ...(account.error ? { accountError: account.error } : {}),
+    // The provider's own words (Supabase, Stripe) are operator detail: logged here,
+    // never returned to a manager, who must not learn the login even existed.
+    ...(account.error && actor.isAdmin ? { accountError: account.error } : {}),
   };
 }

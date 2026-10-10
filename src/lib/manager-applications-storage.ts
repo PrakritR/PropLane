@@ -958,6 +958,11 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // workspace this answer describes, and that workspace must still be the selected one.
       const serverIds = new Set(body.rows.map((row) => normalizeApplicationRow(row).id));
       const workspaceStillActive = readWorkspaceId === selectedWorkspaceId();
+      // Only a manager-scope read can confirm that a row exists for the LIST. A
+      // `?scope=self` read returns the viewer's own applicant row, which the
+      // property-scoped manager read never includes — confirming it there made the
+      // next manager sync treat it as deleted and drop it from the store.
+      const confirmable = !opts?.selfScope && workspaceStillActive;
       const absenceIsDeletion =
         !opts?.selfScope
         && body.truncated !== true
@@ -967,7 +972,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       const retained = absenceIsDeletion
         ? memoryRows.filter((row) => serverIds.has(row.id) || !confirmedApplicationIds.has(row.id))
         : memoryRows;
-      if (workspaceStillActive) {
+      if (confirmable) {
         confirmedApplicationIds = new Set([...(absenceIsDeletion ? [] : confirmedApplicationIds), ...serverIds]);
         confirmedApplicationsWorkspaceId = readWorkspaceId;
       }

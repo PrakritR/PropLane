@@ -52,6 +52,12 @@ export async function resolveManagerNotificationChannels(
   destination: ManagerNotificationDestination;
   /** The topic is switched on for this recipient. */
   categoryEnabled: boolean;
+  /**
+   * The work-number lookup FAILED (a read error), rather than answering "no
+   * line". `sms` is false either way, but only the second is a refusal: a caller
+   * that must not silently drop a text needs to tell them apart.
+   */
+  workNumberUnreadable: boolean;
 }> {
   let profile = suppliedProfile ?? null;
   if (!profile) {
@@ -77,12 +83,16 @@ export async function resolveManagerNotificationChannels(
   const destinationNeedsSms =
     settings.managerNotificationDestination === "personal_number" ||
     settings.managerNotificationDestination === "both";
+  let workNumberUnreadable = false;
   const activeWorkNumber =
     categoryEnabled && destinationNeedsSms
       ? await (sendFrom
           ? resolveActiveManagerSendNumber(db, sendFrom.ownerUserId, sendFrom.workspaceId ?? null)
           : resolveActiveManagerSendNumber(db, managerUserId)
-        ).catch(() => null)
+        ).catch(() => {
+          workNumberUnreadable = true;
+          return null;
+        })
       : null;
   const route = resolveManagerNotificationRoute({
     destination: settings.managerNotificationDestination,
@@ -101,7 +111,29 @@ export async function resolveManagerNotificationChannels(
     fellBackToAssistant: route.fellBackToAssistant,
     destination: settings.managerNotificationDestination,
     categoryEnabled,
+    workNumberUnreadable,
   };
+}
+
+/**
+ * Why a manager notification text did not go out. `not_routed` / `no_phone` /
+ * `no_work_number` / `blocked` are deliberate refusals (the topic is off, there is
+ * no verified number, a STOP, no credit) and are a quiet no. `line_unreadable` and
+ * `transport` are failures of something that should have worked, so a caller may retry.
+ */
+export type ManagerNotificationSmsRefusal =
+  | "not_routed"
+  | "no_phone"
+  | "no_work_number"
+  | "blocked"
+  | "line_unreadable"
+  | "transport";
+
+export type ManagerNotificationSmsResult = { sent: true } | { sent: false; reason: ManagerNotificationSmsRefusal };
+
+/** True when the reason is a deliberate refusal rather than a transient failure. */
+export function managerNotificationSmsRefused(reason: ManagerNotificationSmsRefusal | undefined): boolean {
+  return reason === "not_routed" || reason === "no_phone" || reason === "no_work_number" || reason === "blocked";
 }
 
 export function isManagerNotificationSmsAccepted(result: {
@@ -136,7 +168,7 @@ export async function sendManagerNotificationSms(
      */
     sendFrom?: { ownerUserId: string; workspaceId?: string | null };
   },
-): Promise<{ sent: boolean }> {
+): Promise<ManagerNotificationSmsResult> {
   const { data } = await db
     .from("profiles")
     .select("phone, phone_verified_at, sms_from_number, sms_forward_inbound")
@@ -153,14 +185,27 @@ export async function sendManagerNotificationSms(
     input.sendFrom,
   );
   const to = String(profile?.phone ?? "").trim();
-  const line = channels.sms
-    ? input.sendFrom
-      ? await resolveWorkspaceSendLine(db, input.sendFrom.ownerUserId, input.sendFrom.workspaceId ?? null).catch(() => null)
-      : await resolveActiveManagerSendNumber(db, input.managerUserId)
-          .then((phoneNumber) => (phoneNumber ? { phoneNumber, numberId: null } : null))
-          .catch(() => null)
-    : null;
-  if (!channels.sms || !to || !line) return { sent: false };
+  // A line that could not be READ is a transient failure, not a refusal: the two
+  // have to stay apart so a caller can retry the first and stay quiet about the second.
+  let lineUnreadable = false;
+  const readLine = async () => {
+    try {
+      return input.sendFrom
+        ? await resolveWorkspaceSendLine(db, input.sendFrom.ownerUserId, input.sendFrom.workspaceId ?? null)
+        : await resolveActiveManagerSendNumber(db, input.managerUserId).then((phoneNumber) =>
+            phoneNumber ? { phoneNumber, numberId: null } : null,
+          );
+    } catch {
+      lineUnreadable = true;
+      return null;
+    }
+  };
+  const line = channels.sms ? await readLine() : null;
+  // `sms: false` is normally the recipient's own choice (topic off, destination,
+  // no verified phone, a STOP). It is NOT when the work-number lookup threw.
+  if (!channels.sms) return { sent: false, reason: channels.workNumberUnreadable ? "line_unreadable" : "not_routed" };
+  if (!to) return { sent: false, reason: "no_phone" };
+  if (!line) return { sent: false, reason: lineUnreadable ? "line_unreadable" : "no_work_number" };
   const fromNumber = line.phoneNumber;
   const billedTo = input.sendFrom?.ownerUserId.trim() || input.managerUserId;
 
@@ -196,5 +241,8 @@ export async function sendManagerNotificationSms(
   // Managed sends return `{ ok, outboxStatus, durablyAccepted }`; they do not
   // expose a legacy `sent` field. A queued/deferred durable handoff is an
   // accepted notification, while unknown/failed/blocked outcomes never are.
-  return { sent: isManagerNotificationSmsAccepted(result) };
+  if (isManagerNotificationSmsAccepted(result)) return { sent: true };
+  // `blocked` is the transport's own quiet no (a STOP, no credit); anything else
+  // is a send that should have gone out and did not.
+  return { sent: false, reason: String(result?.outboxStatus ?? "") === "blocked" ? "blocked" : "transport" };
 }

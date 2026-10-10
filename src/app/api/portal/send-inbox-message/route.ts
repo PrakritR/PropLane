@@ -398,6 +398,10 @@ export async function POST(req: Request) {
           ownerManagerUserId: team.ownerManagerUserId,
           workspaceId: team.workspaceId,
           propertyId: team.propertyId,
+          // A legacy id (per-house or house-less) is answered in its own row: sending
+          // the line to the default workspace chat instead would report success for a
+          // message the thread on screen never received.
+          legacyHouseless: !team.workspaceId && !team.propertyId,
           actorUserId: user.id,
           actorName,
           text,
@@ -405,7 +409,9 @@ export async function POST(req: Request) {
           channel: "app",
         });
         if (!posted.ok) return NextResponse.json({ ok: false, error: posted.error }, { status: 500 });
-        if (posted.posted && !team.propertyId) {
+        // Only a real workspace chat relays: a legacy row's members are not the
+        // workspace's, so its line is read in place and never texted onward.
+        if (posted.posted && posted.workspaceId) {
           const relayTask = () =>
             relayTeamChatMessageToSms(db, {
               ownerManagerUserId: team.ownerManagerUserId,

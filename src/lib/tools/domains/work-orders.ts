@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import { withBodyWarnings } from "../preview-body";
+import { wrapUntrustedContent } from "../untrusted-content";
 import type { AgentContext } from "../context";
 import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
@@ -145,7 +146,7 @@ function visitTimeLabel(iso: string): string {
  * in previews: quoted data, never instructions to the model.
  */
 function wrapUntrusted(source: string, text: string): { untrustedContent: string } {
-  return { untrustedContent: `<<<EXTERNAL_MESSAGE from ${source}>>> ${text} <<<END EXTERNAL_MESSAGE>>>` };
+  return wrapUntrustedContent("MESSAGE", source, text);
 }
 
 /**

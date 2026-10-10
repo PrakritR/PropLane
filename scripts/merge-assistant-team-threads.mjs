@@ -197,6 +197,10 @@ async function writeAliases(db, aliasIds, threadId) {
 }
 
 async function deleteAbsorbed(db, ids, rowsById) {
+  // Every absorbed row is attempted: stopping at the first raced id left the rest
+  // in place while the canonical row already held their turns, which reads as
+  // duplicate threads until the next run.
+  let raced = null;
   for (const id of ids) {
     const row = rowsById.get(id);
     if (!row) continue;
@@ -204,9 +208,9 @@ async function deleteAbsorbed(db, ids, rowsById) {
     query = row.updated_at ? query.eq("updated_at", row.updated_at) : query;
     const { data, error } = await query.select("id");
     if (error) throw new Error(`absorb delete failed: ${error.message}`);
-    if (!data?.length) return { status: "raced", id };
+    if (!data?.length && !raced) raced = { status: "raced", id };
   }
-  return { status: "ok" };
+  return raced ?? { status: "ok" };
 }
 
 async function applyAction(db, action, rowsById, aliases) {
@@ -268,12 +272,21 @@ async function applyAction(db, action, rowsById, aliases) {
     return gone.status === "ok" ? { status: "merged", id: action.keepId } : gone;
   }
   if (action.kind === "stamp") {
-    const { error } = await db
+    // Compare-and-set, like every other write here: without it a live writer that
+    // set these columns mid-run is overwritten with the planned values.
+    const stampRow = rowsById.get(action.id);
+    let stamp = db
       .from("portal_inbox_thread_records")
-      .update({ conversation_key: action.key, workspace_id: action.workspaceId })
+      .update({
+        conversation_key: action.key,
+        workspace_id: action.workspaceId,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", action.id);
+    stamp = stampRow?.updated_at ? stamp.eq("updated_at", stampRow.updated_at) : stamp;
+    const { data, error } = await stamp.select("id");
     if (error) throw new Error(`stamp failed: ${error.message}`);
-    return { status: "stamped", id: action.id };
+    return { status: data?.length ? "stamped" : "raced", id: action.id };
   }
   const row = rowsById.get(action.id);
   let update = db

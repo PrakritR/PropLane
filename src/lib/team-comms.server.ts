@@ -80,9 +80,14 @@ export async function resolveWorkspaceTeamMembers(
   const ownerId = input.ownerManagerUserId.trim();
   if (!ownerId) return [];
   const members: TeamMember[] = [{ userId: ownerId, teamRole: null, isOwner: true }];
-  const workspaceId = input.workspaceId?.trim() ?? "";
+  const requested = input.workspaceId?.trim() ?? "";
   try {
     const defaultId = await userDefaultWorkspaceId(db, ownerId);
+    // No workspace asked for = the owner's DEFAULT workspace, the same place
+    // `postTeamThreadMessage` sends such a line. Reading it as "no filter"
+    // returned every workspace's teammates, so an unplaced work number admitted
+    // (and relayed to) people who are not in the chat the line lands in.
+    const workspaceId = requested || defaultId;
     const { data, error } = withoutOwnerLinks(
       await db
         .from("account_link_invites")
@@ -265,6 +270,12 @@ export async function postTeamThreadMessage(
     workspaceId?: string | null;
     /** A LEGACY per-house thread being replied to in place. */
     propertyId?: string | null;
+    /**
+     * A LEGACY house-less thread (`team-thread:<owner>`) being replied to in
+     * place. Without it the line resolves to the owner's default workspace chat
+     * and lands in a thread the reader is not looking at.
+     */
+    legacyHouseless?: boolean;
     actorUserId?: string;
     actorName: string;
     text: string;
@@ -275,7 +286,8 @@ export async function postTeamThreadMessage(
   const ownerId = input.ownerManagerUserId.trim();
   if (!ownerId) return { ok: false, error: "Team thread requires an owning manager." };
   const legacyPropertyId = input.propertyId?.trim() || null;
-  const workspaceId = legacyPropertyId ? "" : await postWorkspaceId(db, ownerId, input.workspaceId);
+  const legacyInPlace = legacyPropertyId !== null || input.legacyHouseless === true;
+  const workspaceId = legacyInPlace ? "" : await postWorkspaceId(db, ownerId, input.workspaceId);
   const threadId = workspaceId ? workspaceTeamThreadId(ownerId, workspaceId) : teamThreadId(ownerId, legacyPropertyId);
   const workspaceName = workspaceId ? await workspaceDisplayName(db, workspaceId) : "";
   const threadName = workspaceId ? teamThreadDisplayName(workspaceName) : teamThreadDisplayName();

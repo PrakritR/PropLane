@@ -20,33 +20,41 @@ function day(raw: unknown): string | null {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === normalized ? normalized : null;
 }
 
-async function executedApplicationIdsByOwner(
+/**
+ * Every application id a fully executed lease names, for these listings.
+ *
+ * Scoped by OWNER **and** by PROPERTY, because a lease carries the stamp of
+ * whoever generated it: a co-manager holding the grant executes it under their
+ * own `manager_user_id`, so an owner-only read missed that lease and the room's
+ * occupied nights published as free. Ids are globally unique, so one flat set.
+ */
+async function executedApplicationIds(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   owners: string[],
-): Promise<Map<string, Set<string>>> {
-  const byOwner = new Map<string, Set<string>>();
-  for (const ownerId of owners) byOwner.set(ownerId, new Set());
-  for (let chunk = 0; chunk < owners.length; chunk += 100) {
-    const slice = owners.slice(chunk, chunk + 100);
-    for (let offset = 0; ; offset += 500) {
-      const { data, error } = await db
-        .from("portal_lease_pipeline_records")
-        .select("manager_user_id, row_data")
-        .in("manager_user_id", slice)
-        .order("id")
-        .range(offset, offset + 499);
-      if (error) throw error;
-      for (const row of data ?? []) {
-        const ownerId = String(row.manager_user_id ?? "").trim();
-        if (!ownerId) continue;
-        const bucket = byOwner.get(ownerId) ?? new Set<string>();
-        for (const id of executedApplicationIdsFromLeaseRecords([row])) bucket.add(id);
-        byOwner.set(ownerId, bucket);
+  listingIds: string[],
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const pages = async (column: "manager_user_id" | "property_id", values: string[]) => {
+    for (let chunk = 0; chunk < values.length; chunk += 100) {
+      const slice = values.slice(chunk, chunk + 100);
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await db
+          .from("portal_lease_pipeline_records")
+          .select("row_data")
+          .in(column, slice)
+          .order("id")
+          .range(offset, offset + 499);
+        if (error) throw error;
+        for (const row of data ?? []) {
+          for (const id of executedApplicationIdsFromLeaseRecords([row])) ids.add(id);
+        }
+        if ((data ?? []).length < 500) break;
       }
-      if ((data ?? []).length < 500) break;
     }
-  }
-  return byOwner;
+  };
+  await pages("manager_user_id", owners);
+  await pages("property_id", listingIds);
+  return ids;
 }
 
 /** One source for the anonymous public occupancy route and scoped SMS reads. */
@@ -167,15 +175,12 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
     // The three reads are independent of one another (all key off the owner and
     // listing ids resolved above), so they run together. Results are applied in
     // the original order below, so the output is unchanged.
-    const [executedByOwner, applicationRows, calendarRows, blockRows] = await Promise.all([
-      executedApplicationIdsByOwner(db, owners),
+    const [executedIds, applicationRows, calendarRows, blockRows] = await Promise.all([
+      executedApplicationIds(db, owners, listingIds),
       fetchApplicationRows(),
       fetchCalendarRows(),
       fetchBlockRows(),
     ]);
-    // Application ids are globally unique, so a lease any teammate executed counts for the application.
-    const executedIds = new Set<string>();
-    for (const ids of executedByOwner.values()) for (const id of ids) executedIds.add(id);
     const listingById = new Map(listings.map((p) => [p.id, p] as const));
 
     for (const row of applicationRows) {

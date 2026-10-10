@@ -43,7 +43,7 @@ describe("MCP OAuth consent redirects", () => {
     expect(res.status).toBe(303);
     const location = new URL(res.headers.get("location") ?? "", "https://prop-lane.test");
     expect(location.origin + location.pathname).toBe("https://prop-lane.test/mcp/connected");
-    const token = location.searchParams.get("t") ?? "";
+    const token = location.searchParams.get("token") ?? "";
     const destination = new URL(decodeURIComponent(token.replace(/^signed:/, "")));
     expect(destination.origin + destination.pathname).toBe("https://claude.ai/api/mcp/auth_callback");
     expect(destination.searchParams.get("code")).toBe("pl_mcp_code_test");

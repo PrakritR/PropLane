@@ -649,6 +649,15 @@ export async function POST(req: Request) {
           ? (await filterVisibleInboxThreadRecords(ctx.db, deleteScope, [fetchedTarget as DeleteRow]))[0]
           : (fetchedTarget as DeleteRow);
         if (!target) continue;
+        // A workspace Team chat belongs to the workspace, not to the person
+        // deleting it: every member reaches it through their own membership, so
+        // a delete here is the same soft mailbox move the upsert path makes.
+        // Hard-deleting the row would take the whole team's history with it.
+        if ((target as { thread_type?: string | null }).thread_type === "team" || isTeamThreadId(target.id)) {
+          await updateTeamThreadMailboxState(ctx.db, { id: target.id }, { folder: "trash" });
+          deleted += 1;
+          continue;
+        }
         const members = await smsNoticeMembers(ctx.db, target);
         let deleteQuery = ctx.db.from("portal_inbox_thread_records").delete().in("id", members.map((m) => m.id)).select("id");
         deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user, extraOwnerIds, scopeOptions) as typeof deleteQuery;

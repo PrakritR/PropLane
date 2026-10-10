@@ -1,5 +1,6 @@
 import type { ResidentAgentContext } from "../../resident-context";
 import { residentManagerIds, residentScopeOrFilter } from "../../resident-context";
+import { wrapUntrustedContent } from "../../untrusted-content";
 
 const PAGE_SIZE = 1000;
 
@@ -104,7 +105,5 @@ export function contentHash(input: string): string {
 export function untrustedText(source: string, text: string | null | undefined): { untrustedContent: string } | null {
   const trimmed = text?.trim();
   if (!trimmed) return null;
-  return {
-    untrustedContent: `<<<EXTERNAL_MESSAGE from ${source}>>> ${trimmed} <<<END EXTERNAL_MESSAGE>>>`,
-  };
+  return wrapUntrustedContent("MESSAGE", source, trimmed);
 }

@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import {
   resolveManagerNotificationChannels,
+  managerNotificationSmsRefused,
   sendManagerNotificationSms,
 } from "@/lib/manager-notification-routing.server";
 import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
@@ -126,7 +127,11 @@ export async function notifyManagerFromAgent(
     const preview = args.text.slice(0, 100).replace(/\n/g, " ");
     // Read-modify-write on a row the SMS mirror also appends to: guard the write
     // on the `updated_at` we read and retry, or a turn mirrored in between is
-    // silently overwritten.
+    // silently overwritten. Two notices for the same person inside one read
+    // window (a batch of payments, an SMS mirror racing a notice) each read
+    // `messages`, and a last-writer-wins upsert lost one of them. Every
+    // manager-audience event now fans out to the owner plus each teammate, so
+    // the window is hit often.
     for (let attempt = 0; attempt < NOTICE_APPEND_ATTEMPTS && !inboxDelivered; attempt += 1) {
       if (attempt > 0) await noticeAppendBackoff(attempt);
       const { data: existingRow, error: readError } = await db
@@ -180,9 +185,17 @@ export async function notifyManagerFromAgent(
           row_data: rowData,
           updated_at: nowIso,
         });
-        // Someone else created the thread first: re-read and append to theirs.
-        if (error && error.code !== "23505") throw error;
-        if (!error) inboxDelivered = true;
+        if (error) {
+          // Someone else created the thread first: re-read and append to theirs.
+          // Postgres reports the unique violation as 23505, but not every client
+          // surfaces the code — some only carry it in the message.
+          const duplicate =
+            String((error as { code?: unknown }).code ?? "").includes("23505")
+            || /duplicate/i.test(String(error.message ?? ""));
+          if (!duplicate) throw error;
+        } else {
+          inboxDelivered = true;
+        }
         continue;
       }
 
@@ -248,6 +261,7 @@ export async function notifyManagerFromAgent(
 
   const smsRequested = channels.sms && args.notify?.sms !== false;
   let smsStatus: "sent" | "skipped" | "failed" = "skipped";
+  let smsTransientFailure = false;
   if (smsRequested) {
     const sms = await sendManagerNotificationSms(db, {
       managerUserId: args.landlordId,
@@ -261,7 +275,22 @@ export async function notifyManagerFromAgent(
       // Always the OWNER's workspace line, billed to the owner.
       sendFrom: { ownerUserId: ownerId, workspaceId: sendWorkspaceId },
     });
-    smsStatus = sms.sent ? "sent" : "failed";
+    // A refusal (topic off, no verified phone, no work number, a STOP, no credit)
+    // is a quiet no. Anything else is a send that should have gone out: it is
+    // reported as failed AND logged, so it is never indistinguishable from a refusal.
+    if (sms.sent) {
+      smsStatus = "sent";
+    } else if (managerNotificationSmsRefused(sms.reason)) {
+      smsStatus = "skipped";
+    } else {
+      smsStatus = "failed";
+      smsTransientFailure = true;
+      console.error("manager notice SMS was not accepted for delivery", {
+        reason: sms.reason,
+        category: args.category ?? "messages",
+        hasIdempotencyKey: Boolean(args.idempotencyKey),
+      });
+    }
     if (sms.sent) {
       // The notice went to their phone too: keep ONE Assistant thread with the
       // in-app copy marked SMS (or, when the destination is SMS-only, the copy
@@ -281,11 +310,13 @@ export async function notifyManagerFromAgent(
 
   const smsDelivered = smsStatus === "sent";
   const emailDelivered = emailStatus === "sent";
-  // A refused text is not an error when the notice reached them another way
+  // A REFUSED text is not an error when the notice reached them another way
   // (fail closed per channel: no credit, no number or a STOP is a quiet no, and
-  // the in-app notice + email still go). Only a notice that reached NOTHING
-  // durable throws, so its caller retries it (every leg is idempotent).
-  if (smsRequested && !smsDelivered && !inboxDelivered && !emailDelivered) {
+  // the in-app notice + email still go). A TRANSIENT failure is different: the
+  // text was meant to go out, so it throws and the caller retries the notice —
+  // every leg is idempotent (SMS dedupe key, inbox message id, email key), so a
+  // retry re-sends nothing that already landed.
+  if (smsRequested && !smsDelivered && (smsTransientFailure || (!inboxDelivered && !emailDelivered))) {
     throw new Error("Manager SMS was not accepted for delivery.");
   }
 

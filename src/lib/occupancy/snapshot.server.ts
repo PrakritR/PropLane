@@ -49,6 +49,8 @@ export type OccupancySnapshotStay = {
   end: string;
   kind: ReturnType<typeof occupancyStayKind>;
   name: string;
+  /** Resident-backed stays only — what the resident pays per month, when it is on file. */
+  monthlyRent?: number;
 };
 
 function eachDayKey(from: string, to: string): string[] {
@@ -236,15 +238,27 @@ export async function occupancyHoldEntries(
   if (propertyIds.length === 0) return [];
   // Scope by property, not owner: the workspace is shared, so a resident another co-manager added
   // still holds a room in these houses (same reach as the calendar export feed).
-  const quoted = propertyIds.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
-  const choiceFilters = propertyIds.map((id) => `row_data->>assignedRoomChoice.like.${id.replace(/[,()"]/g, "")}::%`);
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id, property_id, assigned_property_id, row_data")
-    .eq("row_data->>bucket", "approved")
-    .or([`property_id.in.(${quoted})`, `assigned_property_id.in.(${quoted})`, ...choiceFilters].join(","))
-    .limit(2000);
-  if (error) throw new Error(error.message);
+  // `%`, `*` and `\` go with the PostgREST metacharacters: `like` reads `*` as `%`,
+  // so an id carrying one would widen the filter into a cross-tenant scan.
+  const safeIds = propertyIds.map((id) => id.replace(/[,()"%*\\]/g, ""));
+  const quoted = safeIds.map((id) => `"${id}"`).join(",");
+  const choiceFilters = safeIds.map((id) => `row_data->>assignedRoomChoice.like.${id}::%`);
+  const filter = [`property_id.in.(${quoted})`, `assigned_property_id.in.(${quoted})`, ...choiceFilters].join(",");
+  // Paged, ordered by the primary key: a truncated read reports occupied rooms as
+  // free, which is the one answer this must never give.
+  const data: { id: unknown; property_id: unknown; assigned_property_id: unknown; row_data: unknown }[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const page = await db
+      .from("manager_application_records")
+      .select("id, property_id, assigned_property_id, row_data")
+      .eq("row_data->>bucket", "approved")
+      .or(filter)
+      .order("id")
+      .range(offset, offset + 499);
+    if (page.error) throw new Error(page.error.message);
+    data.push(...(page.data ?? []));
+    if ((page.data ?? []).length < 500) break;
+  }
   const scoped = new Set(propertyIds);
   const leasedIds = new Set<string>();
   const leasedPeople = new Set<string>();
@@ -348,6 +362,9 @@ export async function occupancySnapshotForManager(
     end: entry.end,
     kind: occupancyStayKind(entry),
     name: dayStayDisplayName(entry),
+    ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
+      ? { monthlyRent: entry.monthlyRent }
+      : {}),
   }));
   return {
     days,
