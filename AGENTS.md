@@ -326,6 +326,13 @@ Classify every new `public` table in `account-purge-manifest.ts` (or
 (legacy `profiles.role` included). On success only, clear localStorage via
 `clearPortalBrowserCache()`. Coverage: `tests/unit/account-purge-coverage.test.ts`.
 
+A manager's **Delete resident** may take a resident-only login with it, through
+that same purge — never a login with a life outside the workspace. Every
+condition is re-derived server-side and owned by
+`src/lib/auth/resident-account-deletion.ts` (+
+`tests/unit/resident-account-deletion.test.ts`); a read that fails keeps the
+account. Do not restate the conditions elsewhere.
+
 # The PostgREST surface is public — RLS row predicates are not a column gate
 
 `anon` / `authenticated` privileges are reachable with the public anon key.
