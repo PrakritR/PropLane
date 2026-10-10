@@ -32,7 +32,9 @@ import {
   exportBlockedRanges,
   occupancyForDay,
   occupancyStayKind,
+  occupancyStayResident,
   type OccupancyCapacities,
+  type OccupancyStayResident,
   type OccupancyDayCell,
 } from "@/lib/occupancy/snapshot";
 
@@ -54,6 +56,8 @@ export type OccupancySnapshotStay = {
   name: string;
   /** Resident-backed stays only — what the resident pays per month, when it is on file. */
   monthlyRent?: number;
+  /** Resident-backed stays only (hold / executed lease): everything Bookings needs to draw and open the row. */
+  resident?: OccupancyStayResident;
 };
 
 function eachDayKey(from: string, to: string): string[] {
@@ -507,6 +511,7 @@ export async function occupancySnapshotForManager(
     ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
       ? { monthlyRent: entry.monthlyRent }
       : {}),
+    ...(occupancyStayResident(entry) ? { resident: occupancyStayResident(entry) } : {}),
   }));
   return {
     days,

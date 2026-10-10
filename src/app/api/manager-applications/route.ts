@@ -786,6 +786,78 @@ async function resolveApplicationWriteOwner(
 const APPLICATIONS_READ_LIMIT = 500;
 
 /**
+ * Phase durations (ms) for one GET, emitted as `Server-Timing` and, when the request is slow, one
+ * `console.warn` line. Names only and numbers: no ids, emails or row content.
+ */
+type ApplicationsPhaseTimer = {
+  phases: Record<string, number>;
+  /** Run `work`, adding its wall time to `name` (overlapping phases are each measured on their own). */
+  timed: <T>(name: string, work: () => Promise<T>) => Promise<T>;
+  /** Add the time since the previous `lap` (or the start) to `name`. */
+  lap: (name: string) => void;
+  total: () => number;
+};
+
+function createApplicationsPhaseTimer(): ApplicationsPhaseTimer {
+  const startedAt = performance.now();
+  let last = startedAt;
+  const phases: Record<string, number> = {};
+  const add = (name: string, ms: number) => {
+    phases[name] = Math.round(((phases[name] ?? 0) + ms) * 10) / 10;
+  };
+  return {
+    phases,
+    async timed(name, work) {
+      const at = performance.now();
+      try {
+        return await work();
+      } finally {
+        add(name, performance.now() - at);
+      }
+    },
+    lap(name) {
+      const now = performance.now();
+      add(name, now - last);
+      last = now;
+    },
+    total: () => Math.round((performance.now() - startedAt) * 10) / 10,
+  };
+}
+
+const SLOW_APPLICATIONS_READ_MS = 3000;
+
+const SERVER_TIMING_PHASES = ["auth", "role", "links", "owned", "workspace", "rows", "authors", "normalize"] as const;
+
+/** `Server-Timing` value: the known phases that ran, then `total`. */
+function serverTimingHeader(phases: Record<string, number>, total: number): string {
+  const parts: string[] = [];
+  for (const name of SERVER_TIMING_PHASES) {
+    if (typeof phases[name] === "number") parts.push(`${name};dur=${phases[name]}`);
+  }
+  parts.push(`total;dur=${total}`);
+  return parts.join(", ");
+}
+
+/** The orphan-housing sweep may delete rows and costs ~14 sequential reads: never part of the response's wait. */
+function purgeOrphansAfterResponse(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+  propertyScopedIds: Set<string>,
+): void {
+  const run = () =>
+    purgeOrphanHousingRecordsForManager(db, userId, propertyScopedIds).then(
+      () => undefined,
+      bestEffortFailed("orphan housing purge", { manager: userId }),
+    );
+  try {
+    after(run);
+  } catch {
+    // Outside a request scope (no `after` context): still never awaited by the caller.
+    void run();
+  }
+}
+
+/**
  * The manager's rows, and whether ANY of the reads behind them hit its cap.
  *
  * `rows.length` is not a truncation test here: three independent capped queries
@@ -796,22 +868,35 @@ const APPLICATIONS_READ_LIMIT = 500;
 async function fetchApplicationsForManagerUser(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
+  timer: ApplicationsPhaseTimer = createApplicationsPhaseTimer(),
 ) {
+  const select = "id, row_data, occupancy_start, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
+  // The manager's own rows depend on nothing else: start the read now, beside the link lookups.
+  const ownedReadPromise = timer.timed("rows", async () =>
+    db
+      .from("manager_application_records")
+      .select(select)
+      .eq("manager_user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(APPLICATIONS_READ_LIMIT),
+  );
+  ownedReadPromise.catch(() => {});
+
   // This route feeds BOTH the Applications and Residents tabs (the client filters
   // each tab by its own module grant). So a co-manager's linked rows are included
   // when EITHER `applications` OR `residents` is granted on the property — a
   // co-manager with neither grant gets none of the owner's linked rows.
   const [appIds, resIds, ownedPropertyIds, workspaceScope] = await Promise.all([
-    linkedPropertyIdsForModule(db, userId, "applications"),
-    linkedPropertyIdsForModule(db, userId, "residents"),
+    timer.timed("links", () => linkedPropertyIdsForModule(db, userId, "applications")),
+    timer.timed("links", () => linkedPropertyIdsForModule(db, userId, "residents")),
     // Same helper the by-id action guard (`managerCanAccessApplicationRecord`)
     // uses, so the list and the guards resolve direct ownership identically.
-    managerOwnedPropertyIdSet(db, userId),
+    timer.timed("owned", () => managerOwnedPropertyIdSet(db, userId)),
     // The viewer's ACTIVE workspace, resolved server-side from the selection
     // cookie. This feeds BOTH the Applications tab and the Residents tab
     // (this one query backs both), plus the "approved" bucket the Leases tab
     // reads through this same function.
-    activeWorkspacePropertyScope(db, userId),
+    timer.timed("workspace", () => activeWorkspacePropertyScope(db, userId)),
   ]);
   // Every property this manager owns TODAY, unioned with co-manager-linked ones,
   // is a second, attribution-INDEPENDENT way in: the primary `manager_user_id ===
@@ -826,7 +911,8 @@ async function fetchApplicationsForManagerUser(
   // doesn't" gap. Property ownership (not the frozen attribution stamp) is the
   // source of truth for who should see the row.
   const propertyScopedIds = new Set<string>([...ownedPropertyIds, ...appIds, ...resIds]);
-  await purgeOrphanHousingRecordsForManager(db, userId, propertyScopedIds);
+  // The sweep (14 sequential reads, may delete) runs after the response is sent, not before it.
+  purgeOrphansAfterResponse(db, userId, propertyScopedIds);
 
   // Active-workspace narrowing, the same three rules everywhere:
   // `null` (no workspaces, or the load failed) never narrows; a resolved
@@ -845,14 +931,7 @@ async function fetchApplicationsForManagerUser(
       ? propertyScopedIds
       : new Set([...propertyScopedIds].filter((id) => workspaceScope.includes(id)));
 
-  const select = "id, row_data, occupancy_start, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
-
-  const { data: ownedRows, error: ownedError } = await db
-    .from("manager_application_records")
-    .select(select)
-    .eq("manager_user_id", userId)
-    .order("updated_at", { ascending: false })
-    .limit(APPLICATIONS_READ_LIMIT);
+  const { data: ownedRows, error: ownedError } = await ownedReadPromise;
   if (ownedError) throw ownedError;
   let truncated = (ownedRows ?? []).length >= APPLICATIONS_READ_LIMIT;
 
@@ -874,20 +953,24 @@ async function fetchApplicationsForManagerUser(
 
   if (scopedPropertyIds.size > 0) {
     const propertyIds = [...scopedPropertyIds];
-    const [{ data: byProperty, error: propertyError }, { data: byAssigned, error: assignedError }] = await Promise.all([
-      db
-        .from("manager_application_records")
-        .select(select)
-        .in("property_id", propertyIds)
-        .order("updated_at", { ascending: false })
-        .limit(APPLICATIONS_READ_LIMIT),
-      db
-        .from("manager_application_records")
-        .select(select)
-        .in("assigned_property_id", propertyIds)
-        .order("updated_at", { ascending: false })
-        .limit(APPLICATIONS_READ_LIMIT),
-    ]);
+    const [{ data: byProperty, error: propertyError }, { data: byAssigned, error: assignedError }] = await timer.timed(
+      "rows",
+      async () =>
+        Promise.all([
+          db
+            .from("manager_application_records")
+            .select(select)
+            .in("property_id", propertyIds)
+            .order("updated_at", { ascending: false })
+            .limit(APPLICATIONS_READ_LIMIT),
+          db
+            .from("manager_application_records")
+            .select(select)
+            .in("assigned_property_id", propertyIds)
+            .order("updated_at", { ascending: false })
+            .limit(APPLICATIONS_READ_LIMIT),
+        ]),
+    );
     if (propertyError) throw propertyError;
     if (assignedError) throw assignedError;
     if ((byProperty ?? []).length >= APPLICATIONS_READ_LIMIT || (byAssigned ?? []).length >= APPLICATIONS_READ_LIMIT) {
@@ -906,7 +989,8 @@ async function fetchApplicationsForManagerUser(
   const storedApplicationRow = (value: unknown): Partial<DemoApplicantRow> =>
     value && typeof value === "object" && !Array.isArray(value) ? (value as Partial<DemoApplicantRow>) : {};
   const slotRows = [...byId.values()].filter((row) => isResidentSlotRow(storedApplicationRow(row.row_data)));
-  const authors = slotRows.length > 0 ? await loadOccupancyAuthors(db, [...scopedPropertyIds]) : null;
+  const authors =
+    slotRows.length > 0 ? await timer.timed("authors", () => loadOccupancyAuthors(db, [...scopedPropertyIds])) : null;
   for (const row of slotRows) {
     // The houses that brought the row into this list, and the only ones its author has to be
     // trusted for: a room-choice house it also names cannot vouch for the house it is filed on.
@@ -1047,13 +1131,16 @@ function scheduleApprovedResidentBackfill(
 }
 
 export async function GET(req: Request) {
+  const timer = createApplicationsPhaseTimer();
   try {
-    const user = await sessionUser();
+    const user = await timer.timed("auth", () => sessionUser());
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
-    const admin = await isAdminUser(user.id);
-    const { role, email } = await resolvePortalRole(db, user);
+    const [admin, { role, email }] = await Promise.all([
+      timer.timed("auth", () => isAdminUser(user.id)),
+      timer.timed("role", () => resolvePortalRole(db, user)),
+    ]);
 
     // `?scope=self` returns ONLY the caller's own applicant rows (by their
     // authenticated email), regardless of their primary role — a signed-in
@@ -1089,7 +1176,7 @@ export async function GET(req: Request) {
       truncated = (result.data ?? []).length >= APPLICATIONS_READ_LIMIT;
     } else if (!admin && (role === "manager" || role === "owner" || role === "pro")) {
       try {
-        const loaded = await fetchApplicationsForManagerUser(db, user.id);
+        const loaded = await fetchApplicationsForManagerUser(db, user.id, timer);
         data = loaded.rows;
         truncated = loaded.truncated;
         error = null;
@@ -1113,7 +1200,7 @@ export async function GET(req: Request) {
 
     const byId = new Map<string, DemoApplicantRow>();
     const recordEmailByRowId = new Map<string, string>();
-    const normalizedRows = await Promise.all((data ?? []).map(async (record) => {
+    const normalizedRows = await timer.timed("normalize", () => Promise.all((data ?? []).map(async (record) => {
       if (!record.row_data) return null;
       const recordEmail =
         typeof (record as { resident_email?: string | null }).resident_email === "string"
@@ -1137,7 +1224,7 @@ export async function GET(req: Request) {
       }
       row.occupancyStartedOn = (record as { occupancy_start?: string }).occupancy_start || undefined;
       return { row, recordEmail };
-    }));
+    })));
     for (const result of normalizedRows) {
       if (!result) continue;
       const { row, recordEmail } = result;
@@ -1164,7 +1251,14 @@ export async function GET(req: Request) {
     // A view-as session is read-only: it must not provision accounts either.
     if (!(await isViewAsSessionOpen())) scheduleApprovedResidentBackfill(db, scopedRows);
 
-    return NextResponse.json({ rows: scopedRows, truncated }, { headers: { "Cache-Control": "private, no-store" } });
+    const total = timer.total();
+    if (total > SLOW_APPLICATIONS_READ_MS) {
+      console.warn(JSON.stringify({ route: "manager-applications", phases: { ...timer.phases, total }, rows: scopedRows.length }));
+    }
+    return NextResponse.json(
+      { rows: scopedRows, truncated },
+      { headers: { "Cache-Control": "private, no-store", "Server-Timing": serverTimingHeader(timer.phases, total) } },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load applications.";
     return NextResponse.json({ error: message }, { status: 500 });

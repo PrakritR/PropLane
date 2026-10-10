@@ -6,7 +6,11 @@ import { PORTAL_READ_TIMEOUT_MS, withTimeout } from "@/lib/auth/fetch-with-timeo
 import { channelLinksFromBookings, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { fetchManagerChannelBookings, fetchOccupancySnapshot } from "@/lib/channel-calendar/client";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
-import type { OccupancyDayCell } from "@/lib/occupancy/snapshot";
+import {
+  mergeResidentEntries,
+  residentEntriesFromStays,
+  type OccupancyDayCell,
+} from "@/lib/occupancy/snapshot";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
@@ -77,6 +81,9 @@ export function useManagerBookingEntries({
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [channelLinks, setChannelLinks] = useState<ChannelRoomLink[]>([]);
+  // Resident stays (holds + executed leases) straight off the occupancy snapshot: the primary source,
+  // so residents draw as soon as /api/portal/occupancy answers, whatever the slower reads are doing.
+  const [occupancyStays, setOccupancyStays] = useState<unknown[]>([]);
   const [occupancyDays, setOccupancyDays] = useState<OccupancyDayLookup>({ overall: {}, houses: {} });
   const [applicationRows, setApplicationRows] = useState<DemoApplicantRow[]>([]);
   const [blocks, setBlocks] = useState<RoomDateBlock[]>([]);
@@ -330,6 +337,7 @@ export function useManagerBookingEntries({
       setAirbnbEntries([]);
       setChannelLinks([]);
       setOccupancyDays({ overall: {}, houses: {} });
+      setOccupancyStays([]);
       markSource("channel", "ok");
       markSource("occupancy", "ok");
       return;
@@ -369,6 +377,7 @@ export function useManagerBookingEntries({
           }
         }
         setOccupancyDays({ overall, houses });
+        setOccupancyStays(snapshot.stays ?? []);
         markSource("occupancy", "ok");
       },
       () => markSource("occupancy", "failed"),
@@ -386,7 +395,14 @@ export function useManagerBookingEntries({
    * refreshes keep the stays already on screen.
    */
   const failedSources = useMemo(
-    () => BOOKINGS_SOURCE_IDS.filter((id) => sourceStatus[id] === "failed"),
+    () =>
+      BOOKINGS_SOURCE_IDS.filter((id) => {
+        if (sourceStatus[id] !== "failed") return false;
+        // Residents are drawn from the occupancy snapshot; a slow applications / lease read only
+        // enriches them, so its failure is not a missing-bookings failure once occupancy answered.
+        if ((id === "applications" || id === "leases") && sourceStatus.occupancy === "ok") return false;
+        return true;
+      }),
     [sourceStatus],
   );
   const loading = BOOKINGS_SOURCE_IDS.every((id) => sourceStatus[id] === "pending");
@@ -413,17 +429,55 @@ export function useManagerBookingEntries({
     );
   }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels]);
 
+  const residentEntries = useMemo<PropertyBookingEntry[]>(() => {
+    const labels = new Map(propertyOptions.map((property) => [property.id, property.label]));
+    const scoped = new Set(propertyIds);
+    let fromOccupancy = residentEntriesFromStays(occupancyStays, (propertyId) => labels.get(propertyId) ?? propertyId).filter(
+      (entry) => scoped.has(entry.propertyId),
+    );
+    // N080: once both reads have fully answered, a lease the directory-filtered client list does not
+    // know is orphaned data and stops drawing a stay (same rule the client-only path always applied).
+    if (sourceStatus.applications === "ok" && sourceStatus.leases === "ok" && leaseRows.length > 0) {
+      const knownLeases = new Set(leaseEntries.map((entry) => entry.leaseId).filter(Boolean));
+      fromOccupancy = fromOccupancy.filter(
+        (entry) => entry.source !== "proplane" || !entry.leaseId || knownLeases.has(entry.leaseId),
+      );
+    }
+    // Same for a hold: once the applications read has answered, its list is the truth, so a resident
+    // deleted or withdrawn since the snapshot was taken stops holding the room.
+    if (sourceStatus.applications === "ok" && applicationRows.length > 0) {
+      const knownApplications = new Set(applicationRows.map((row) => normalizeApplicationAxisId(row.id)));
+      fromOccupancy = fromOccupancy.filter(
+        (entry) =>
+          entry.source !== "hold" ||
+          !entry.applicationId ||
+          knownApplications.has(normalizeApplicationAxisId(entry.applicationId)),
+      );
+    }
+    return mergeResidentEntries(fromOccupancy, [...leaseEntries, ...holdEntries]);
+  }, [
+    occupancyStays,
+    propertyOptions,
+    propertyIds,
+    sourceStatus.applications,
+    sourceStatus.leases,
+    applicationRows,
+    leaseRows,
+    leaseEntries,
+    holdEntries,
+  ]);
+
   const entries = useMemo(
     () =>
       applyStayMeta(
         withoutEchoedHostBlocks(
-          [...airbnbEntries, ...importedAirbnbEntries, ...leaseEntries, ...holdEntries, ...blockEntries].filter(
+          [...airbnbEntries, ...importedAirbnbEntries, ...residentEntries, ...blockEntries].filter(
             (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
           ),
         ),
         stayMetas,
       ),
-    [airbnbEntries, importedAirbnbEntries, leaseEntries, holdEntries, blockEntries, stayMetas],
+    [airbnbEntries, importedAirbnbEntries, residentEntries, blockEntries, stayMetas],
   );
 
   return { entries, occupancyDays, loading, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
