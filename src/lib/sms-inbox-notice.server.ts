@@ -18,6 +18,9 @@ import { conversationRowData } from "@/lib/communication/conversation-thread.ser
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
+/** Author label of a server-sent auto-reply on a person's text thread. Not the Assistant chat's own name. */
+export const SMS_AUTO_REPLY_AUTHOR = "You · Assistant";
+
 /** Exact original SMS evidence, attached to each notice message independently.
  * A phone-level notice thread may contain unrelated line/role histories. */
 export type OriginalSmsNoticeEvent = {
@@ -164,9 +167,13 @@ export async function recordAutoReplyOnSmsNotice(
       idPrefix: "sms_auto_reply",
       threadType: String((existing as { thread_type?: unknown }).thread_type ?? "claw_leasing_sms"),
       folder: "sent",
-      // Same author name as `MANAGER_AGENT_NOTICE_FROM_NAME`, inlined to keep
-      // this server module free of the inbox-list client imports.
-      from: "PropLane Assistant",
+      // The auto-reply is the MANAGER's side of this text conversation (the
+      // assistant answered for them), so it is recorded as an outbound turn
+      // authored "You · Assistant": the list previews it as "You: …" and the
+      // row keeps the counterparty's name. Authoring it as the bare
+      // "PropLane Assistant" name made the whole prospect thread read as the
+      // Assistant chat.
+      from: SMS_AUTO_REPLY_AUTHOR,
       counterpartyPhone: phone,
       subject: "Reply",
       preview: text,

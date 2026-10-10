@@ -94,9 +94,10 @@ table:
   10 consecutive exhausted deliveries disable the subscription; a single success
   resets the counter to 0.
 
-Retries are driven by `GET /api/cron/webhook-deliveries`, guarded like every
-other cron route (`CRON_SECRET` bearer when configured, open on a non-production
-runtime). ⚠️ It is **not** registered in `vercel.json`'s `crons` yet — the same
+Retries are driven by `GET /api/cron/webhook-deliveries`, gated on the shared
+`requireCronSecret` (`src/lib/cron-auth.server.ts`) like the growth and reminder
+crons: a `CRON_SECRET` bearer when one is configured, otherwise a localhost/test
+run only — a preview deployment is never open. ⚠️ It is **not** registered in `vercel.json`'s `crons` yet — the same
 state `/api/cron/action-event-deliveries` is in — so today only the inline first
 attempt fires automatically and the backoff needs an external caller. Register
 it (or call it from an existing scheduler) before promising retry to a customer;

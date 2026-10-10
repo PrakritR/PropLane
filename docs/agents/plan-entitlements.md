@@ -331,6 +331,10 @@ read-modify-writes its own key.
   the resolver reads, Free when there is none). It is still an admin assignment
   (`billing: admin`, which clears `stripe_subscription_id`): it does not edit the
   Stripe subscription, so use it for accounts not billed through Stripe.
+- **Disabling or enabling an account is an access decision, not a plan one.**
+  It rides the same `PATCH /api/admin/managers` route and asks for a reason the
+  same way, but the contract is owned by
+  [admin-accounts.md](admin-accounts.md) § Disabling access is audited.
 
 Every accepted change writes one `audit_log` row PER FIELD THAT ACTUALLY MOVED
 (`writeAdminBillingAudit`, `src/lib/admin-billing-audit.server.ts`):

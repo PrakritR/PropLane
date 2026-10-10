@@ -97,18 +97,26 @@ export function draftBudgetSpent(budget: DraftBudget, nowMs: number = Date.now()
  * is retried with a shorter instruction while the build's single retry is
  * unspent. Never throws: an undraftable batch is left out of the day's list.
  */
+/** A single drafting call's deadline, inside the cron's `maxDuration`. */
+const DRAFT_TIMEOUT_MS = 90_000;
+
 export async function draftBatch(cands: EngageCandidate[], budget: DraftBudget = draftBudget()): Promise<Map<string, Drafted>> {
   if (cands.length === 0 || !process.env.ANTHROPIC_API_KEY?.trim()) return new Map();
   const client = new Anthropic();
   const content = cands.map((c, i) => `Candidate ${i + 1} (key: ${c.key})\n${c.context}`).join("\n\n---\n\n");
 
   const attempt = async (extra: string | null): Promise<Map<string, Drafted>> => {
-    const response = await client.messages.create({
-      model: TIER_MODELS.standard,
-      max_tokens: DRAFT_MAX_TOKENS,
-      system: extra ? `${SYSTEM_PROMPT}\n${extra}` : SYSTEM_PROMPT,
-      messages: [{ role: "user", content }],
-    });
+    const response = await client.messages.create(
+      {
+        model: TIER_MODELS.standard,
+        max_tokens: DRAFT_MAX_TOKENS,
+        system: extra ? `${SYSTEM_PROMPT}\n${extra}` : SYSTEM_PROMPT,
+        messages: [{ role: "user", content }],
+      },
+      // The SDK default is 10 minutes, past this cron's own 300 s: one hung call
+      // would lose the whole build instead of spending the drafting budget.
+      { timeout: DRAFT_TIMEOUT_MS },
+    );
     if (response.stop_reason === "max_tokens") throw new Error("reply hit the token cap");
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")

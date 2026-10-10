@@ -13,6 +13,7 @@ import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 import { exportBlockedRanges } from "@/lib/occupancy/snapshot";
+import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -23,7 +24,7 @@ function day(raw: unknown): string | null {
 }
 
 const APPROVED_ROW_SELECT =
-  "id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
+  "id,manager_user_id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
 const APPROVED_ROW_PAGE = 500;
 const APPROVED_ROW_MAX_PAGES = 40;
 
@@ -46,6 +47,7 @@ type ApprovedRowSource = (typeof APPROVED_ROW_SOURCES)[number];
 
 type ApprovedRow = {
   id: unknown;
+  manager_user_id: unknown;
   choice: unknown;
   preferred: unknown;
   lease_start: unknown;
@@ -123,6 +125,9 @@ async function occupancyRangesForRoom(
   roomId: string,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[]; importPlacements: FeedPlacement[] }> {
   const data = await readApprovedRowsForProperty(db, propertyId);
+  // A row counts for this house only when its author is the owner or a teammate linked to it: the
+  // read is by property, so an approved row any other manager wrote naming this house is not its occupancy.
+  const authors = await loadOccupancyAuthors(db, [propertyId]);
   const leases: { start: string; end: string }[] = [];
   const holds: { start: string; end: string }[] = [];
   const roomToken = `::${roomId}`;
@@ -142,6 +147,17 @@ async function occupancyRangesForRoom(
     const start = day(row.manual_start) || day(row.lease_start);
     if (!start) continue;
     const end = day(row.manual_end) || day(row.lease_end) || start;
+    // A row this house's authors did not write is not its occupancy, so it is not published - but a
+    // row that SHOULD have counted (a stamp left wrong by a re-assigned grant) would then offer an
+    // occupied room as free. Dropping one is reported loudly rather than passing silently, since
+    // nothing downstream can tell the two apart.
+    if (!occupancyAuthorTrusted(authors, propertyId, row.manager_user_id)) {
+      console.error(
+        "calendar export dropped an approved row this house did not author",
+        JSON.stringify({ propertyId, roomId, rowId: typeof row.id === "string" ? row.id : null, start, end }),
+      );
+      continue;
+    }
     const range = { start, end };
     if (String(row.manually_added ?? "") === "true") holds.push(range);
     else leases.push(range);

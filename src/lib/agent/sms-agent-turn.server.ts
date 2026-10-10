@@ -47,6 +47,7 @@ import { recordCommsAgentTurnUsage } from "@/lib/comms-billing/agent-usage.serve
 import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
 import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
+import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 
 type Db = SupabaseClient;
 
@@ -248,22 +249,9 @@ export async function findOrCreatePortalAssistantSmsSession(
   const workspaceId = args.workspaceId?.trim() || null;
   if (!actorUserId) return null;
 
-  let lookup = db
-    .from("agent_sessions")
-    .select(SESSION_COLUMNS)
-    .eq("kind", "portal_chat")
-    .eq("portal", "manager")
-    .eq("landlord_id", actorUserId)
-    .eq("user_id", actorUserId)
-    .order("updated_at", { ascending: false })
-    .limit(1);
-  lookup = workspaceId ? lookup.eq("workspace_id", workspaceId) : lookup.is("workspace_id", null);
-  const { data: existing, error: lookupError } = await lookup.maybeSingle();
-  if (lookupError) {
-    console.error("manager assistant portal session lookup failed", lookupError.message);
-    return null;
-  }
-  if (existing) return existing as SmsAgentSessionRow;
+  const found = await readPortalAssistantSmsSession(db, args);
+  if (!found.ok) return null;
+  if (found.session) return found.session;
 
   const { data: sessionId, error: createError } = await db.rpc(
     "find_or_create_manager_sms_portal_session",

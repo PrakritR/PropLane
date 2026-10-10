@@ -38,7 +38,11 @@ import {
   roomSelectOptionsWithNone,
 } from "@/lib/rental-application/data";
 import { addMonthsToDateString } from "@/lib/rental-application/long-term-length";
-import { sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
+import { sortLeaseTermsCanonical, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
+import {
+  applicantLongTermChildren,
+  applicantTermOptions,
+} from "@/lib/rental-application/applicant-lease-term";
 import {
   CUSTOM_DATES_LENGTH_VALUE,
   MONTH_TO_MONTH_LENGTH_VALUE,
@@ -376,6 +380,11 @@ function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: L
   );
 }
 
+/** Which side of the toggle a top-level lease type is. Only the two parent-less ids reach here. */
+function leaseKindOfTermOption(id: LeaseTypeId): LeaseKind {
+  return id === "short_term" ? "short" : "long";
+}
+
 type LeaseTypeAndDatesProps = {
   form: RentalWizardFormState;
   errors: RentalWizardErrors;
@@ -424,14 +433,19 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
     lengthValue === CUSTOM_DATES_LENGTH_VALUE || (implicitMoveOut && lengthValue !== MONTH_TO_MONTH_LENGTH_VALUE);
   // Custom dates and Month-to-month are checkboxes under Long-term, offered only when the listing ticked them;
   // the select holds the fixed lengths. A sole choice needs no question at all.
-  const offeredKinds = leaseKindsOffered(offeredStored);
+  // The two sides and their labels come from the one picker table, so the applicant reads the
+  // same words the listing's own lease-type picker shows.
+  const termOptions = applicantTermOptions(offeredStored).map((option) => ({
+    option: leaseKindOfTermOption(option.value),
+    label: option.label,
+  }));
   const fixedLengthOptions = lengthOptions.filter((option) => monthsOfLengthValue(option.value) !== null);
   const askLongTermChoice = lengthOptions.length > 1;
   const longTermChecks = askLongTermChoice
-    ? [
-        ...(offeredKinds.custom ? [{ value: CUSTOM_DATES_LENGTH_VALUE, label: "Custom dates" }] : []),
-        ...(offeredKinds.monthToMonth ? [{ value: MONTH_TO_MONTH_LENGTH_VALUE, label: "Month-to-month" }] : []),
-      ]
+    ? applicantLongTermChildren(offeredStored).map((child) => ({
+        value: child.value === "month_to_month" ? MONTH_TO_MONTH_LENGTH_VALUE : CUSTOM_DATES_LENGTH_VALUE,
+        label: child.label,
+      }))
     : [];
   const shortForm = form.rentalType === "short_term";
 
@@ -470,7 +484,7 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
         <div className="space-y-2" data-wizard-field="leaseTerm" data-application-question-id={props.termQuestionId}>
           <Label required={props.termRequired}>{props.termLabel}</Label>
           <div role="radiogroup" aria-label={props.termLabel} className={groupRoleStack}>
-            {(["long", "short"] as const).map((option) => (
+            {termOptions.map(({ option, label }) => (
               <button
                 key={option}
                 type="button"
@@ -480,7 +494,7 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
                 data-attr={`rental-wizard-lease-kind-${option}`}
                 onClick={() => pickKind(option)}
               >
-                {option === "long" ? "Long-term" : "Short-term"}
+                {label}
               </button>
             ))}
           </div>

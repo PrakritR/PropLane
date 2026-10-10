@@ -10,6 +10,7 @@ import {
   RESIDENT_DOCUMENT_KIND_DEFAULT_TAB,
   type ResidentDocumentTab,
 } from "@/lib/resident-documents-tabs";
+import { isListingChannelId, listingChannelDef } from "@/lib/listing-channels/registry";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
@@ -44,6 +45,10 @@ import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
 import {
   legacyManagerPortalSectionPath,
+  LISTING_SITES_SEGMENT,
+  listingSiteDetailHref,
+  listingSitesListHref,
+  parseListingSiteTab,
   isMoveInFormTabSlug,
   isRetiredMoveInFormsTab,
   parseApplicationDetailTab,
@@ -1444,6 +1449,26 @@ export async function renderPortalSectionWith(
     if (section === "promotion") {
       if (tabParts?.length) {
         const segment = tabParts[0]!;
+        // A listing site is a record page: /promotion/listing-sites/<channelId>[/<tab>]. The word is
+        // reserved (a promotion asset id always contains "::"), so it is claimed before the assetId branch.
+        if (segment === LISTING_SITES_SEGMENT) {
+          const channelId = tabParts[1] ? decodeSegment(tabParts[1]) : "";
+          if (!channelId) redirect(listingSitesListHref(def.basePath));
+          if (!isListingChannelId(channelId) || tabParts.length > 3) notFound();
+          const tabRaw = tabParts[2] ? decodeSegment(tabParts[2]) : "";
+          const siteTab = parseListingSiteTab(tabRaw);
+          const hiddenTabs = listingChannelDef(channelId)?.posting === "partner_only" ? ["listings", "post", "leads"] : [];
+          if (!tabRaw || (siteTab && hiddenTabs.includes(siteTab))) {
+            redirect(listingSiteDetailHref(def.basePath, channelId, "overview"));
+          }
+          if (!siteTab) notFound();
+          return subscriptionGated(
+            <ManagerPromotion basePath={def.basePath} listingSite={{ channelId, tab: siteTab }} />,
+            kind,
+            "promotion",
+            managerOwnerSubscriptionTier,
+          );
+        }
         if (segment === "text" || segment === "image") {
           redirect(`${def.basePath}/promotion`);
         }

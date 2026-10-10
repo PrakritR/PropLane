@@ -16,7 +16,7 @@ type Search = Record<string, string | string[] | undefined>;
 
 export default async function McpConnectedPage({ searchParams }: { searchParams: Promise<Search> }) {
   const search = await searchParams;
-  const raw = search.t;
+  const raw = search.token;
   const payload = typeof raw === "string" ? verifyMcpConnected(raw) : null;
   // Only the signed-in manager who just approved may continue; a copied link is inert.
   let userId: string | null = null;

@@ -212,7 +212,7 @@ export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: V
             <VendorBalanceLedgerFallback onRetry={reload} />
           )}
           {tabBand(null)}
-          {tab === "overview" ? <VendorFinancesOverviewBody /> : null}
+          {tab === "overview" ? <VendorFinancesOverviewBody hideStripeNotice={state.status === "unavailable"} /> : null}
           {tab === "payouts" ? (
             <PortalRecordListSurface
               isEmpty

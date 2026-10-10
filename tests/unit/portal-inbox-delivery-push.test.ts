@@ -53,6 +53,29 @@ function makeFakeDb(seedProfiles: StoredRow[]) {
       maybeSingle() {
         return Promise.resolve({ data: rows().find(match) ?? null, error: null });
       },
+      insert(row: StoredRow) {
+        if (rows().some((r) => r.id === row.id)) {
+          return Promise.resolve({ error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+        }
+        rows().push({ ...row });
+        return Promise.resolve({ error: null });
+      },
+      /** `update(patch).eq(..).select("id")`: the compare-and-set append reads which rows it changed. */
+      update(patch: Partial<StoredRow>) {
+        const conds: [string, unknown][] = [];
+        const updater = {
+          eq(col: string, val: unknown) {
+            conds.push([col, val]);
+            return updater;
+          },
+          select() {
+            const hit = rows().filter((r) => conds.every(([c, v]) => (r as unknown as Record<string, unknown>)[c] === v));
+            for (const r of hit) Object.assign(r, patch);
+            return Promise.resolve({ data: hit.map((r) => ({ id: r.id })), error: null });
+          },
+        };
+        return updater;
+      },
       upsert(row: StoredRow) {
         const idx = rows().findIndex((r) => r.id === row.id);
         if (idx >= 0) rows()[idx] = { ...rows()[idx], ...row };

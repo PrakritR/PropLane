@@ -509,23 +509,31 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   `tests/unit/communication-visibility.test.ts`,
   `tests/unit/portal-inbox-thread-scope.test.ts`,
   `tests/unit/portal-inbox-thread-reply.test.ts`.
-- **The manager↔manager Team thread is server-owned and shared.** WS5 added
-  exactly one new `portal_inbox_thread_records` kind, `thread_type: "team"`
-  (`team-thread:<owner>[:<propertyId>]`, `src/lib/team-comms.server.ts`) —
-  one per owning account per house, plus a house-less one for the owner
-  alone. It is where every `team`-audience action event posts (owner:
-  [`automated-communication.md`](automated-communication.md)). It reads and
-  replies through the same house rules as rule (2) above: `inbox` on the
-  house at `read` lists it, `edit` posts to it, and the send route
-  re-derives membership from the thread id itself (`assertTeamThreadMember`)
-  before `postTeamThreadMessage` appends under a CAS on `updated_at` and
-  mirrors the post to SMS. A reply is an in-app post (no person
-  counterparty — `isTeamInboxThread` treats it like an assistant thread).
-  The browser's wholesale `replace` never carries a team thread and
-  `/api/portal-inbox-threads` merges only mailbox state (read / archive /
-  resolved drafts) for one, so a stale snapshot can never overwrite turns
-  others posted. Coverage: `tests/unit/team-comms.test.ts`,
-  `tests/unit/action-events-team-audience.test.ts`.
+- **One Team chat per workspace, server-owned and shared, for people only.**
+  `thread_type: "team"`, id `team-thread:<owner>:ws:<workspaceId>`
+  (`src/lib/team-comms.server.ts`, pure id helpers in `team-thread-id.ts`),
+  named "Team · <workspace name>". Members are the owner plus every accepted
+  non-property-owner teammate of THAT workspace, regardless of house (a
+  Viewer reads, never posts). Automated notices are never posted here; they go
+  to each person's Assistant ([`automated-communication.md`](automated-communication.md)).
+  Each line carries `actorUserId`, `from` (the poster's name) and `channel`
+  (`proplane` = typed in the app, `sms` = texted to the work number, shown as the
+  "via Text" line); the thread opens with a neutral system line so no first
+  poster is dressed as "Team". Visibility is `conversationVisible`'s team
+  branch (membership map `scope.teamWorkspacesByOwner`, active workspace
+  narrows); the store query adds those owners through `inboxStoreOwnerIds`,
+  never by widening `scope.ownerIds`. The send route re-derives membership from
+  the id (`assertTeamThreadMember`), `postTeamThreadMessage` appends under a CAS
+  on `updated_at`, and `relayTeamChatMessageToSms` texts every OTHER member
+  (see [`sms-system.md`](sms-system.md)). The list GET creates the chat once the
+  workspace has two people (`ensureWorkspaceTeamThread`). Legacy ids
+  (`team-thread:<owner>[:<propertyId>]`) still parse and are answered in place;
+  `scripts/merge-assistant-team-threads.mjs --team` folds them into the
+  workspace chat (human lines only; notice-only rows are retired). The browser's
+  wholesale `replace` never carries a team thread and `/api/portal-inbox-threads`
+  merges only mailbox state for one. Coverage:
+  `tests/unit/team-chat-workspace.test.ts`, `tests/unit/communication-visibility.test.ts`,
+  `tests/unit/team-chat-inbound.test.ts`.
 - **A conversation's `time` is BOTH its label and its sort key, so every writer
   must stamp it identically.** The canonical shape is `formatInboxStamp`
   (`portal-inbox-storage.ts`) — `"Aug 3, 5:31 PM"`, en-US and pinned to
@@ -608,6 +616,41 @@ chat's `resolvePropertyManagerThread`): `portal-inbox-delivery.ts`,
 controls and source markers are phone-keyed) but carries the SAME key in
 `row_data`, and the SMS projection stamps it on the summary. A turn carries its
 `houseId` / `houseLabel`; the conversation row no longer claims one house.
+
+**Automated bursts create one thread, not one each.** Several payment events for
+one resident in the same second used to each find "no thread yet" and each mint a
+`msg_*` row titled "<charge> · Payment update". `deliverPortalInboxMessage` now
+passes `serializeCreate` and an id from `stablePersonThreadId` (sender, recipient,
+house): the create is insert-only, the loser of the race re-reads and appends, and
+the append is a compare-and-set on `updated_at` (`upsertKeyedThreadRow`'s
+`expectUpdatedAt`) so concurrent appends cannot drop each other's turns. Existing
+duplicates fold with `scripts/merge-assistant-team-threads.mjs` (dry run by
+default; `--project-ref` required; backs up every touched row first).
+
+## One PropLane Assistant per person per workspace
+
+- The chat is `agent_notice_<uid>` for the user's REAL default workspace and
+  `agent_notice_<uid>__<workspaceId>` for any other (`managerAgentNoticeThreadId`).
+- **Every writer asks one resolver**, `resolveManagerAssistantWorkspace`
+  (`src/lib/communication/manager-assistant-workspace.server.ts`): explicit
+  `workspaceId`, else the house's workspace, else the work line's, else the
+  user's default. It compares against the real default workspace id, so the
+  default always yields the unsuffixed id, and a lookup miss falls through
+  instead of producing a suffix. Server paths (`notifyManagerFromAgent`, the SMS
+  mirror, the assistant-email mirror, the action-event self-send which now passes
+  `propertyId`) NEVER read the browser cookie; only the list GET passes the
+  selected workspace in explicitly.
+- **Classification is by type, never by name.** A row is the Assistant only when
+  `threadType === "agent_notice"` / `resident_agent` or its id has the
+  `agent_notice_` / `resident-agent-` prefix (`isPropLaneAssistantInboxThread`,
+  `isPropLaneAssistantInboxThreadRow`, `isResidentAssistantRow`). A text thread
+  whose last turn was authored "PropLane Assistant" is still that person's
+  thread: the server auto-reply on an SMS notice is recorded as an OUTBOUND turn
+  authored `SMS_AUTO_REPLY_AUTHOR` ("You · Assistant"), so the list previews it
+  "You: ..." and the row keeps the counterparty's name.
+- A Team thread (`team-thread:*`) is named `teamThreadDisplayName(workspaceName)`
+  ("Team · <workspace>"), never its first poster; the poster's name rides on each
+  message.
 
 **Reply check.** `send-inbox-message` refuses (409) a reply whose thread is not
 the recipient's conversation (`replyRecipientsMatchThread`): keyed person thread

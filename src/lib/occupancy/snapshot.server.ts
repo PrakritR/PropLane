@@ -2,7 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { fetchLeasesForManagerUser } from "@/lib/auth/manager-lease-scope";
+import { collectLinkedPropertyPermissionsForUser, fetchLeasesForManagerUser } from "@/lib/auth/manager-lease-scope";
+import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
 import {
   airbnbBookingEntries,
   applicationHoldEntries,
@@ -11,6 +12,7 @@ import {
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
+  withoutResidentFinancials,
   type ApplicationHoldRow,
   type LeaseBookingRow,
   type RoomDateBlock,
@@ -23,6 +25,7 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { leaseIsFullyExecuted } from "@/lib/lease-pipeline-storage";
+import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
 import {
   combineOccupancyEntries,
   dayStayDisplayName,
@@ -49,6 +52,8 @@ export type OccupancySnapshotStay = {
   end: string;
   kind: ReturnType<typeof occupancyStayKind>;
   name: string;
+  /** Resident-backed stays only — what the resident pays per month, when it is on file. */
+  monthlyRent?: number;
 };
 
 function eachDayKey(from: string, to: string): string[] {
@@ -227,6 +232,101 @@ async function occupancyPropertyMeta(
   };
 }
 
+const APPROVED_HOLD_ROW_PAGE = 500;
+const APPROVED_HOLD_ROW_MAX_PAGES = 40;
+const APPROVED_HOLD_ID_CHUNK = 50;
+const APPROVED_HOLD_SCOPE_CONCURRENCY = 6;
+const ROOM_BLOCK_ROW_PAGE = 500;
+const ROOM_BLOCK_ROW_MAX_PAGES = 40;
+const ROOM_BLOCK_ID_CHUNK = 100;
+
+type ApprovedHoldRow = { id: unknown; manager_user_id: unknown; property_id: unknown; assigned_property_id: unknown; row_data: unknown };
+
+/**
+ * Where an approved row can name one of these properties. Scope is by PROPERTY, never by
+ * `manager_user_id`: the workspace is shared, so a resident another co-manager added still holds a
+ * room in these houses (same reach as the calendar export feed). Each source is its own filter
+ * rather than one `or(...)` expression, so a property id is never interpolated into filter grammar
+ * and no id is ever too exotic to narrow on.
+ */
+type ApprovedHoldScope =
+  | { kind: "column"; column: "property_id" | "assigned_property_id"; ids: string[] }
+  | { kind: "roomChoice"; propertyId: string };
+
+/** A property id is matched literally: `%`, `_` and `\` would otherwise widen the room-choice match. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+function approvedHoldScopes(propertyIds: string[]): ApprovedHoldScope[] {
+  const scopes: ApprovedHoldScope[] = [];
+  for (let at = 0; at < propertyIds.length; at += APPROVED_HOLD_ID_CHUNK) {
+    const ids = propertyIds.slice(at, at + APPROVED_HOLD_ID_CHUNK);
+    scopes.push({ kind: "column", column: "property_id", ids });
+    scopes.push({ kind: "column", column: "assigned_property_id", ids });
+  }
+  for (const propertyId of propertyIds) scopes.push({ kind: "roomChoice", propertyId });
+  return scopes;
+}
+
+async function readApprovedHoldScope(db: SupabaseClient, scope: ApprovedHoldScope): Promise<ApprovedHoldRow[]> {
+  const rows: ApprovedHoldRow[] = [];
+  for (let page = 0; page < APPROVED_HOLD_ROW_MAX_PAGES; page += 1) {
+    const base = db
+      .from("manager_application_records")
+      .select("id, manager_user_id, property_id, assigned_property_id, row_data")
+      .eq("row_data->>bucket", "approved");
+    const scoped =
+      scope.kind === "column"
+        ? base.in(scope.column, scope.ids)
+        : base.like("row_data->>assignedRoomChoice", `${escapeLikePattern(scope.propertyId)}::%`);
+    // One row past the page, so "is there more?" is answered by the same read: a scope whose row
+    // count lands exactly on a page boundary must not be mistaken for a truncated one.
+    const { data, error } = await scoped
+      .order("id", { ascending: true })
+      .range(page * APPROVED_HOLD_ROW_PAGE, page * APPROVED_HOLD_ROW_PAGE + APPROVED_HOLD_ROW_PAGE);
+    if (error) throw new Error(error.message);
+    const batch = (data ?? []) as unknown as ApprovedHoldRow[];
+    const hasMore = batch.length > APPROVED_HOLD_ROW_PAGE;
+    for (const row of hasMore ? batch.slice(0, APPROVED_HOLD_ROW_PAGE) : batch) rows.push(row);
+    if (!hasMore) return rows;
+  }
+  // Rows beyond the bound are occupancy this snapshot never read. Drawing the calendar anyway
+  // would show an occupied room as free, so refuse the snapshot rather than truncate it.
+  throw new Error("Approved-application read for this occupancy snapshot exceeded its page bound.");
+}
+
+/**
+ * Every scope is an independent read of the same table, so they run together rather than one after
+ * the other: a portfolio of 50 houses asks for one room-choice scope per house, and serialized that
+ * is ~52 round trips the Bookings calendar and the export feed both wait on. Concurrency is capped
+ * so a large portfolio cannot open an unbounded number of connections at once.
+ */
+async function readApprovedHoldRows(db: SupabaseClient, propertyIds: string[]): Promise<ApprovedHoldRow[]> {
+  const scopes = approvedHoldScopes(propertyIds);
+  const batches: ApprovedHoldRow[][] = [];
+  for (let at = 0; at < scopes.length; at += APPROVED_HOLD_SCOPE_CONCURRENCY) {
+    batches.push(
+      ...(await Promise.all(
+        scopes.slice(at, at + APPROVED_HOLD_SCOPE_CONCURRENCY).map((scope) => readApprovedHoldScope(db, scope)),
+      )),
+    );
+  }
+  const rows: ApprovedHoldRow[] = [];
+  const seen = new Set<string>();
+  for (const batch of batches) {
+    for (const row of batch) {
+      const id = typeof row.id === "string" ? row.id.trim() : "";
+      if (id) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
 export async function occupancyHoldEntries(
   db: SupabaseClient,
   propertyIds: string[],
@@ -234,17 +334,7 @@ export async function occupancyHoldEntries(
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
   if (propertyIds.length === 0) return [];
-  // Scope by property, not owner: the workspace is shared, so a resident another co-manager added
-  // still holds a room in these houses (same reach as the calendar export feed).
-  const quoted = propertyIds.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
-  const choiceFilters = propertyIds.map((id) => `row_data->>assignedRoomChoice.like.${id.replace(/[,()"]/g, "")}::%`);
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id, property_id, assigned_property_id, row_data")
-    .eq("row_data->>bucket", "approved")
-    .or([`property_id.in.(${quoted})`, `assigned_property_id.in.(${quoted})`, ...choiceFilters].join(","))
-    .limit(2000);
-  if (error) throw new Error(error.message);
+  const [data, authors] = await Promise.all([readApprovedHoldRows(db, propertyIds), loadOccupancyAuthors(db, propertyIds)]);
   const scoped = new Set(propertyIds);
   const leasedIds = new Set<string>();
   const leasedPeople = new Set<string>();
@@ -255,9 +345,12 @@ export async function occupancyHoldEntries(
     const email = row.residentEmail?.trim().toLowerCase();
     if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
   }
-  const holds = (data ?? [])
-    .map(holdRowFromApplication)
-    .filter((row) => scoped.has((row.assignedPropertyId || row.propertyId || "").trim()));
+  // A row holds a house's room only when its author is the owner or a teammate linked to that house.
+  const holds = (data ?? []).flatMap((row) => {
+    const hold = holdRowFromApplication(row);
+    const propertyId = (hold.assignedPropertyId || hold.propertyId || "").trim();
+    return scoped.has(propertyId) && occupancyAuthorTrusted(authors, propertyId, row.manager_user_id) ? [hold] : [];
+  });
   return applicationHoldEntries(holds, {
     properties: meta.properties,
     roomLabelForId: meta.roomLabelForId,
@@ -271,19 +364,59 @@ export async function occupancyHoldEntries(
   });
 }
 
+type RoomDateBlockRow = { id: unknown; property_id: unknown; row_data: unknown };
+
+/**
+ * Every `room_date_block` row of these houses, paged and ordered by primary key.
+ *
+ * PostgREST leaves row order unspecified without an `order`, so a bare `limit` returned an
+ * arbitrary slice past the cap and the closed dates it dropped drew as free on the Bookings
+ * calendar and in the export feed. Refuse the snapshot past the bound rather than truncate it,
+ * exactly as the approved-hold read does.
+ */
+async function readRoomDateBlockRows(db: SupabaseClient, propertyIds: string[]): Promise<RoomDateBlockRow[]> {
+  const rows: RoomDateBlockRow[] = [];
+  const seen = new Set<string>();
+  for (let at = 0; at < propertyIds.length; at += ROOM_BLOCK_ID_CHUNK) {
+    const ids = propertyIds.slice(at, at + ROOM_BLOCK_ID_CHUNK);
+    let exhausted = false;
+    for (let page = 0; page < ROOM_BLOCK_ROW_MAX_PAGES; page += 1) {
+      // One row past the page answers "is there more?" from the same read.
+      const { data, error } = await db
+        .from("portal_schedule_records")
+        .select("id, property_id, row_data")
+        .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+        .in("property_id", ids)
+        .order("id", { ascending: true })
+        .range(page * ROOM_BLOCK_ROW_PAGE, page * ROOM_BLOCK_ROW_PAGE + ROOM_BLOCK_ROW_PAGE);
+      if (error) throw new Error(error.message);
+      const batch = (data ?? []) as unknown as RoomDateBlockRow[];
+      const hasMore = batch.length > ROOM_BLOCK_ROW_PAGE;
+      for (const row of hasMore ? batch.slice(0, ROOM_BLOCK_ROW_PAGE) : batch) {
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        rows.push(row);
+      }
+      if (!hasMore) {
+        exhausted = true;
+        break;
+      }
+    }
+    if (!exhausted) throw new Error("Room-block read for this occupancy snapshot exceeded its page bound.");
+  }
+  return rows;
+}
+
 async function occupancyBlockEntries(
   db: SupabaseClient,
   propertyIds: string[],
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
   if (propertyIds.length === 0) return { imported: [], typed: [] };
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("id, property_id, row_data")
-    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
-    .in("property_id", propertyIds)
-    .limit(1000);
-  if (error) throw new Error(error.message);
+  const data = await readRoomDateBlockRows(db, propertyIds);
   const blocks = (data ?? [])
     .map(roomDateBlockFromRecord)
     .filter((block): block is RoomDateBlock => Boolean(block));
@@ -299,6 +432,28 @@ async function occupancyBlockEntries(
       opts,
     ),
   };
+}
+
+/**
+ * Houses whose residents' money and phone numbers this viewer may read: the ones they own, and the
+ * ones a teammate link grants them Residents view on. Calendar access alone shows who is where and
+ * when, never what they pay.
+ */
+async function residentFinancialPropertyIds(db: SupabaseClient, userId: string, propertyIds: string[]): Promise<Set<string>> {
+  const allowed = new Set<string>();
+  if (propertyIds.length === 0) return allowed;
+  const [owned, linked] = await Promise.all([
+    db.from("manager_property_records").select("id").eq("manager_user_id", userId).in("id", propertyIds),
+    collectLinkedPropertyPermissionsForUser(db as Parameters<typeof collectLinkedPropertyPermissionsForUser>[0], userId),
+  ]);
+  for (const row of (owned.data ?? []) as Array<{ id?: unknown }>) {
+    const id = String(row.id ?? "").trim();
+    if (id) allowed.add(id);
+  }
+  for (const id of propertyIds) {
+    if (!allowed.has(id) && hasCoManagerPermissionLevelForProperty(linked.get(id), id, "residents", "read")) allowed.add(id);
+  }
+  return allowed;
 }
 
 export async function occupancySnapshotForManager(
@@ -320,9 +475,10 @@ export async function occupancySnapshotForManager(
     roomLabelForId: meta.roomLabelForId,
     openEndedHorizonKey: openEndedBookingHorizonKey(),
   });
-  const [holdEntries, blockEntries] = await Promise.all([
+  const [holdEntries, blockEntries, financialHouses] = await Promise.all([
     occupancyHoldEntries(db, propertyIds, leaseRows, meta),
     occupancyBlockEntries(db, propertyIds, meta),
+    residentFinancialPropertyIds(db, userId, propertyIds),
   ]);
   const entries = combineOccupancyEntries(
     airbnbBookingEntries(bookings),
@@ -330,7 +486,7 @@ export async function occupancySnapshotForManager(
     leaseEntries,
     holdEntries,
     blockEntries.typed,
-  );
+  ).map((entry) => (financialHouses.has(entry.propertyId) ? entry : withoutResidentFinancials(entry)));
   const days: OccupancySnapshotDay[] = eachDayKey(input.from, input.to).map((dayKey) => ({
     dayKey,
     ...occupancyForDay(entries, dayKey, propertyIds, capacities),
@@ -348,6 +504,9 @@ export async function occupancySnapshotForManager(
     end: entry.end,
     kind: occupancyStayKind(entry),
     name: dayStayDisplayName(entry),
+    ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
+      ? { monthlyRent: entry.monthlyRent }
+      : {}),
   }));
   return {
     days,

@@ -41,7 +41,7 @@ describe("public occupancy reader scope", () => {
           then(resolve: (value: unknown) => unknown) {
             const data = table === "manager_property_records"
               ? [{ id: "home-1", manager_user_id: "manager-1", property_data: { listingSubmission: submission } }]
-              : table === "external_calendar_connections" ? [] : null;
+              : table === "external_calendar_connections" || table === "account_link_invites" ? [] : null;
             if (data === null) throw new Error(`Unexpected table: ${table}`);
             return Promise.resolve({ data, error: null }).then(resolve);
           },

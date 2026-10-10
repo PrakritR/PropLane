@@ -26,7 +26,7 @@ function find(node: ReactNode, type: unknown): ReactElement | null {
 }
 
 async function render(t: string | undefined) {
-  return McpConnectedPage({ searchParams: Promise.resolve(t === undefined ? {} : { t }) });
+  return McpConnectedPage({ searchParams: Promise.resolve(t === undefined ? {} : { token: t }) });
 }
 
 describe("/mcp/connected", () => {

@@ -32,6 +32,7 @@ import {
 } from "@/lib/rental-application/room-occupancy";
 import type { RoomPricingLike, RoomResidentPrice } from "@/lib/room-pricing";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/property-pipeline-events";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 export { MANAGER_APPLICATIONS_EVENT };
 const MANAGER_APPLICATIONS_SESSION_KEY_PREFIX = "axis:manager-applications:v2";
@@ -47,6 +48,13 @@ let memoryRows: DemoApplicantRow[] = [];
  * the demo this store is never persisted, so a reload starts from the server's list.
  */
 let confirmedApplicationIds = new Set<string>();
+/**
+ * The workspace the confirmed set was gathered under. The route narrows the list to the
+ * ACTIVE workspace's houses, so a row confirmed under one workspace is legitimately absent
+ * from another workspace's read — absence there is a scope change, never a deletion. The set
+ * is evidence about one scope only, so switching workspaces discards it.
+ */
+let confirmedApplicationsWorkspaceId: string | null = null;
 /** The route reads at most this many rows per query; a list this long may be truncated, so absence proves nothing. */
 const MANAGER_APPLICATIONS_READ_CAP = 500;
 let activeApplicationsScopeUserId: string | undefined;
@@ -79,6 +87,7 @@ function clearSensitiveApplicationCache() {
   applicationsReadGeneration++;
   memoryRows = [];
   confirmedApplicationIds = new Set();
+  confirmedApplicationsWorkspaceId = null;
   applicationsScopeGeneration++;
   managerApplicationsLastSyncedAt = 0;
   managerApplicationsSuccessfulServerSyncAt = 0;
@@ -100,6 +109,17 @@ if (typeof window !== "undefined") {
       activeApplicationsScopeUserId = nextScope;
       clearSensitiveApplicationCache();
     }
+  });
+  // A workspace switch re-slices the server list without deleting anything, so the
+  // confirmed-id evidence from the previous workspace is dropped rather than letting
+  // the narrower read look like a deletion. The rows themselves stay: the next read
+  // merges them back, and an unconfirmed row is never evicted.
+  window.addEventListener(WORKSPACE_SELECTION_EVENT, () => {
+    if (isDemoModeActive()) return;
+    const nextWorkspaceId = selectedWorkspaceId();
+    if (nextWorkspaceId === confirmedApplicationsWorkspaceId) return;
+    confirmedApplicationIds = new Set();
+    confirmedApplicationsWorkspaceId = null;
   });
 }
 
@@ -880,6 +900,11 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   const generation = applicationsScopeGeneration;
   const readGeneration = ++applicationsReadGeneration;
   const isCurrentRead = () => generation === applicationsScopeGeneration && readGeneration === applicationsReadGeneration;
+  // The scope this answer will describe. The route narrows the list to the ACTIVE
+  // workspace server-side, so the workspace in force when the request went out is
+  // part of the read's identity — an answer for a workspace that is no longer
+  // selected says nothing about what the current one holds.
+  const readWorkspaceId = selectedWorkspaceId();
   let currentRequest: Promise<ManagerApplicationsSyncResult> | null = null;
   try {
     currentRequest = (async (): Promise<ManagerApplicationsSyncResult> => {
@@ -904,14 +929,14 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // that throw never masquerades as a network failure, then retry the GET
       // once immediately (C200): a transient empty response must not fall
       // straight back to a possibly-stale cache with no further attempt.
-      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(res);
+      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(res);
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         const retryRes = await fetchWithTimeout(url, { credentials: "include" }, MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS).catch(() => null);
         if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
         if (retryRes) {
           notePortalResponse(retryRes.status);
-          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[] }>(retryRes);
+          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(retryRes);
         }
       }
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
@@ -924,13 +949,33 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // upsert POST hasn't landed yet must survive this force refetch (see
       // `mergeApplicationRows`'s doc comment).
       // A complete manager-scope list is authoritative about deletions: drop a row the server
-      // confirmed earlier and now omits. The self slice and a list at the read cap are partial.
+      // confirmed earlier and now omits. The self slice is partial, and so is any read the
+      // server marks `truncated` — it builds the list from several capped queries and then
+      // de-duplicates and workspace-filters them, so a partial answer can be well under the
+      // cap. The length check stays as the floor for a server that predates the flag.
+      // Absence also only proves a deletion WITHIN one scope: the list is narrowed to the
+      // active workspace, so the confirmed set must have been gathered under the same
+      // workspace this answer describes, and that workspace must still be the selected one.
       const serverIds = new Set(body.rows.map((row) => normalizeApplicationRow(row).id));
-      const absenceIsDeletion = !opts?.selfScope && body.rows.length < MANAGER_APPLICATIONS_READ_CAP;
+      const workspaceStillActive = readWorkspaceId === selectedWorkspaceId();
+      // Only a manager-scope read can confirm that a row exists for the LIST. A
+      // `?scope=self` read returns the viewer's own applicant row, which the
+      // property-scoped manager read never includes — confirming it there made the
+      // next manager sync treat it as deleted and drop it from the store.
+      const confirmable = !opts?.selfScope && workspaceStillActive;
+      const absenceIsDeletion =
+        !opts?.selfScope
+        && body.truncated !== true
+        && body.rows.length < MANAGER_APPLICATIONS_READ_CAP
+        && workspaceStillActive
+        && confirmedApplicationsWorkspaceId === readWorkspaceId;
       const retained = absenceIsDeletion
         ? memoryRows.filter((row) => serverIds.has(row.id) || !confirmedApplicationIds.has(row.id))
         : memoryRows;
-      confirmedApplicationIds = new Set([...(absenceIsDeletion ? [] : confirmedApplicationIds), ...serverIds]);
+      if (confirmable) {
+        confirmedApplicationIds = new Set([...(absenceIsDeletion ? [] : confirmedApplicationIds), ...serverIds]);
+        confirmedApplicationsWorkspaceId = readWorkspaceId;
+      }
       const rows = mergeApplicationRows(retained, body.rows);
       const changed = applicationRowsChanged(memoryRows, rows);
       memoryRows = rows;

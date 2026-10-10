@@ -94,7 +94,7 @@ import {
   moneyLabel,
 } from "@/lib/bundle-group/bundle-cost-split";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
-import { selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
 
@@ -132,6 +132,14 @@ const HOUSEHOLD_RENT_PROFILE_READ_CAP = 500;
 let confirmedChargeIds = new Set<string>();
 let confirmedProfileIds = new Set<string>();
 let confirmedIdsHydrated = false;
+/**
+ * The workspace the confirmed sets were gathered under. The route narrows a manager's charges
+ * and rent profiles to the ACTIVE workspace, so a row confirmed under one workspace is
+ * legitimately absent from another workspace's read — that absence is a scope change, never a
+ * deletion. The sets are evidence about one scope only, so a workspace switch discards them.
+ */
+let confirmedIdsWorkspaceId: string | null = null;
+let confirmedIdsWorkspaceListenerRegistered = false;
 
 /**
  * Incremental resync (`?updatedSince=`) — plan load-followups-1007, item 3.
@@ -412,6 +420,23 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
+function registerConfirmedIdsWorkspaceListener() {
+  if (confirmedIdsWorkspaceListenerRegistered || !isBrowser()) return;
+  confirmedIdsWorkspaceListenerRegistered = true;
+  // A workspace switch re-slices the server list without deleting anything, so the evidence
+  // gathered under the previous workspace is dropped rather than letting the narrower read look
+  // like a deletion. The cached rows themselves stay: the next read merges them back, and a row
+  // the server never confirmed is never evicted.
+  window.addEventListener(WORKSPACE_SELECTION_EVENT, () => {
+    const next = selectedWorkspaceId();
+    if (next === confirmedIdsWorkspaceId) return;
+    confirmedChargeIds = new Set();
+    confirmedProfileIds = new Set();
+    confirmedIdsWorkspaceId = null;
+    persistHouseholdStateToSession();
+  });
+}
+
 /**
  * Load the confirmed-id sets once per page. A session cache written before this bookkeeping existed
  * has no confirmed key: every row in it is treated as server-confirmed, so a legacy cache can never
@@ -420,13 +445,15 @@ function isBrowser() {
 function hydrateConfirmedIdsFromSession() {
   if (confirmedIdsHydrated || !isBrowser()) return;
   confirmedIdsHydrated = true;
+  registerConfirmedIdsWorkspaceListener();
   try {
     const raw = window.sessionStorage.getItem(HOUSEHOLD_CONFIRMED_IDS_SESSION_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as { charges?: unknown; profiles?: unknown } | null;
+      const parsed = JSON.parse(raw) as { charges?: unknown; profiles?: unknown; workspaceId?: unknown } | null;
       if (parsed && Array.isArray(parsed.charges) && Array.isArray(parsed.profiles)) {
         confirmedChargeIds = new Set(parsed.charges.filter((id): id is string => typeof id === "string"));
         confirmedProfileIds = new Set(parsed.profiles.filter((id): id is string => typeof id === "string"));
+        confirmedIdsWorkspaceId = typeof parsed.workspaceId === "string" ? parsed.workspaceId : null;
         return;
       }
     }
@@ -479,7 +506,11 @@ function persistHouseholdStateToSession() {
     window.sessionStorage.setItem(HOUSEHOLD_RENT_PROFILES_SESSION_KEY, JSON.stringify(memoryRentProfiles));
     window.sessionStorage.setItem(
       HOUSEHOLD_CONFIRMED_IDS_SESSION_KEY,
-      JSON.stringify({ charges: [...confirmedChargeIds], profiles: [...confirmedProfileIds] }),
+      JSON.stringify({
+        charges: [...confirmedChargeIds],
+        profiles: [...confirmedProfileIds],
+        workspaceId: confirmedIdsWorkspaceId,
+      }),
     );
   } catch {
     /* ignore */
@@ -781,6 +812,8 @@ async function runHouseholdChargesSync({
         viewerRole?: string;
         syncedAt?: string;
         incremental?: boolean;
+        chargesTruncated?: boolean;
+        rentProfilesTruncated?: boolean;
       };
       if (!Array.isArray(body.charges)) throw new Error("household charges read returned no charge list");
       if (body.viewerRole === "resident" || body.viewerRole === "manager" || body.viewerRole === "admin") {
@@ -792,6 +825,10 @@ async function runHouseholdChargesSync({
       // The server may answer a delta request with a full read (invalid watermark, truncated
       // window, older server): only an explicit `incremental: true` is treated as a delta.
       const incrementalResponse = requestedIncremental && body.incremental === true;
+      // The confirmed sets describe one workspace. They may only decide a deletion when this
+      // answer describes that same workspace AND it is still the selected one.
+      const workspaceStillActive = requestWorkspaceId === selectedWorkspaceId();
+      const sameConfirmedScope = workspaceStillActive && confirmedIdsWorkspaceId === requestWorkspaceId;
       let mergedCharges: HouseholdCharge[];
       let hasUpdatedCharges = false;
       let mergedProfiles: RecurringRentProfile[];
@@ -826,10 +863,19 @@ async function runHouseholdChargesSync({
         mergedProfiles = dedupeRecurringRentProfiles(serverProfiles);
       } else {
         // FULL read: a row the server confirmed earlier and now omits was deleted there. Drop it and
-        // never upload it. A read at the row cap may be truncated, so it proves nothing about absence.
-        const chargeAbsenceIsDeletion = serverCharges.length < HOUSEHOLD_CHARGE_READ_CAP;
+        // never upload it. The server says so itself when any of its capped queries may have cut
+        // rows (`chargesTruncated` / `rentProfilesTruncated`) — the response length is only the
+        // floor for a server that predates those flags, since de-duplication and workspace scoping
+        // shrink it below the cap. Absence also only proves a deletion within one scope.
+        const chargeAbsenceIsDeletion =
+          body.chargesTruncated !== true
+          && serverCharges.length < HOUSEHOLD_CHARGE_READ_CAP
+          && sameConfirmedScope;
         const profileAbsenceIsDeletion =
-          Array.isArray(body.rentProfiles) && serverProfiles.length < HOUSEHOLD_RENT_PROFILE_READ_CAP;
+          Array.isArray(body.rentProfiles)
+          && body.rentProfilesTruncated !== true
+          && serverProfiles.length < HOUSEHOLD_RENT_PROFILE_READ_CAP
+          && sameConfirmedScope;
         const result = mergeHouseholdChargesWithServer(
           serverCharges,
           memoryCharges,
@@ -867,17 +913,28 @@ async function runHouseholdChargesSync({
           }
         }
       }
-      // Remember what this read confirmed. A full, complete read REPLACES the sets (an id it omits is
-      // no longer confirmed); a delta or a possibly-truncated read can only add.
+      // Remember what this read confirmed. A full, complete read of the SAME workspace REPLACES the
+      // sets (an id it omits is no longer confirmed); a delta, a truncated read, or a read whose
+      // workspace has since changed can only add.
       // The resident view is a narrower slice of the same cache, so it only ever adds.
-      const fullChargeRead = !incrementalResponse && !skipReconcile && serverCharges.length < HOUSEHOLD_CHARGE_READ_CAP;
+      const fullChargeRead =
+        !incrementalResponse
+        && !skipReconcile
+        && body.chargesTruncated !== true
+        && serverCharges.length < HOUSEHOLD_CHARGE_READ_CAP
+        && sameConfirmedScope;
       const fullProfileRead =
         !incrementalResponse &&
         !skipReconcile &&
         Array.isArray(body.rentProfiles) &&
-        serverProfiles.length < HOUSEHOLD_RENT_PROFILE_READ_CAP;
-      confirmedChargeIds = new Set([...(fullChargeRead ? [] : confirmedChargeIds), ...serverCharges.map((c) => c.id)]);
-      confirmedProfileIds = new Set([...(fullProfileRead ? [] : confirmedProfileIds), ...serverProfiles.map((p) => p.id)]);
+        body.rentProfilesTruncated !== true &&
+        serverProfiles.length < HOUSEHOLD_RENT_PROFILE_READ_CAP &&
+        sameConfirmedScope;
+      if (workspaceStillActive) {
+        confirmedChargeIds = new Set([...(fullChargeRead ? [] : confirmedChargeIds), ...serverCharges.map((c) => c.id)]);
+        confirmedProfileIds = new Set([...(fullProfileRead ? [] : confirmedProfileIds), ...serverProfiles.map((p) => p.id)]);
+        confirmedIdsWorkspaceId = requestWorkspaceId;
+      }
       mergedCharges = advanceStaleProcessingChargesForDev(mergedCharges);
       const hasLocalOnlyCharges = !incrementalResponse && mergedCharges.length > serverCharges.length;
       const hasLocalOnlyProfiles =
@@ -1567,6 +1624,10 @@ export function isHouseholdChargeOverdue(charge: HouseholdCharge, now = new Date
 /** True when a charge still has an outstanding balance and should receive payment reminders. */
 export function isUnpaidHouseholdCharge(charge: HouseholdCharge): boolean {
   if (charge.status === "paid") return false;
+  // A waived (cancelled) or refunded charge keeps its balance label — it is what
+  // the resident WAS asked for, not what they owe. Settled everywhere else that
+  // classifies a charge, so it is never unpaid, overdue, or reminder-worthy here.
+  if (charge.status === "cancelled" || charge.status === "refunded") return false;
   if (charge.paidAt) return false;
   if (parseMoneyAmount(charge.balanceLabel) <= 0) return false;
   return true;

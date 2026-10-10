@@ -21,9 +21,9 @@ import "server-only";
  *   it (`aiDraftQueue`, promoted by `advanceInboxAiDraft` once the head is
  *   approved or discarded), so no draft is lost silently.
  *
- * `automationSendMode.team === "draft"` routes a TEAM notice the same way,
- * onto the team thread itself (`queueTeamThreadDraftForReview`); approving it
- * posts through the team-thread reply path.
+ * Team notices no longer have a draft path: automated notices go to each
+ * person's PropLane Assistant, not the Team chat, so there is nothing to review
+ * on the team thread (`automationSendMode.team` is stored but no longer read).
  *
  * Integration note: the existing Approve & Send flow was built for drafting
  * a REPLY to an inbound message on an already-open thread. These functions
@@ -36,7 +36,6 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MANAGER_INBOX_STORAGE_KEY, type InboxAiDraft } from "@/lib/portal-inbox-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
-import { teamThreadId } from "@/lib/team-comms.server";
 
 const DRAFT_ATTACH_ATTEMPTS = 4;
 
@@ -172,64 +171,4 @@ export async function queueActionEventDraftForReview(
   const attached = await attachDraftToThread(db, threadId, aiDraft);
   if (!attached.ok) return attached;
   return attached.attached ? { ok: true } : { ok: false, error: "Could not queue the draft for review." };
-}
-
-/**
- * A team notice under `automationSendMode.team === "draft"`: queued on the
- * owner's team thread for the house (or the house-less one) instead of
- * posted. Approving it goes through the team-thread reply path, which posts
- * and mirrors to SMS exactly as an auto-sent notice would have.
- */
-export async function queueTeamThreadDraftForReview(
-  db: SupabaseClient,
-  input: {
-    ownerManagerUserId: string;
-    propertyId?: string | null;
-    subject: string;
-    text: string;
-    origin: string;
-  },
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const ownerId = input.ownerManagerUserId.trim();
-  if (!ownerId) return { ok: false, error: "Team draft requires an owning manager." };
-  const propertyId = input.propertyId?.trim() || null;
-  const threadId = teamThreadId(ownerId, propertyId);
-  const now = new Date();
-  const generatedAt = now.toISOString();
-  const aiDraft = reviewDraft({ text: input.text, origin: input.origin, generatedAt });
-
-  const attached = await attachDraftToThread(db, threadId, aiDraft);
-  if (!attached.ok) return attached;
-  if (attached.attached) return { ok: true };
-
-  const when = formatPacificDateTime(now);
-  const { error: insertError } = await db.from("portal_inbox_thread_records").insert({
-    id: threadId,
-    scope: MANAGER_INBOX_STORAGE_KEY,
-    owner_user_id: ownerId,
-    participant_email: null,
-    thread_type: "team",
-    row_data: {
-      id: threadId,
-      folder: "inbox",
-      from: "Team",
-      email: "",
-      subject: "Team",
-      preview: "",
-      body: "",
-      time: when,
-      rootAt: when,
-      rootOutbound: true,
-      unread: false,
-      scope: MANAGER_INBOX_STORAGE_KEY,
-      ...(propertyId ? { propertyId } : {}),
-      messages: [],
-      aiDraft,
-    },
-    updated_at: generatedAt,
-  });
-  if (!insertError) return { ok: true };
-  const retried = await attachDraftToThread(db, threadId, aiDraft);
-  if (!retried.ok) return retried;
-  return retried.attached ? { ok: true } : { ok: false, error: "Could not queue the team draft for review." };
 }

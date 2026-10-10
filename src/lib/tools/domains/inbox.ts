@@ -10,6 +10,7 @@ import {
   visibleInboxThreadRecord,
 } from "@/lib/communication/conversation-visibility.server";
 import { writeAuditLog } from "../audit";
+import { wrapUntrustedContent } from "../untrusted-content";
 
 const PAGE_SIZE = 1000;
 const DEFAULT_LIST_LIMIT = 50;
@@ -150,7 +151,7 @@ export const listInboxThreadsTool = defineTool({
  */
 function wrapUntrustedBody(from: string | null | undefined, text: string): { untrustedContent: string } {
   const source = (from ?? "").trim() || "unknown sender";
-  return { untrustedContent: `<<<EXTERNAL_MESSAGE from ${source}>>> ${text} <<<END EXTERNAL_MESSAGE>>>` };
+  return wrapUntrustedContent("MESSAGE", source, text);
 }
 
 export const getThreadMessagesTool = defineTool({

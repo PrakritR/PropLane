@@ -56,7 +56,7 @@ describe("photos route", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("streams a zip for allowed photos", async () => {
+  it("streams a zip for allowed photos, labelled partial because the foreign-host photo is missing", async () => {
     h.ctx = { db: {}, userId: "u", workspace: { id: "w", ownerUserId: "u", propertyIds: ["p1"] } };
     h.owned = { id: "p1", live: true };
     h.photos = ["https://proj.supabase.co/storage/v1/object/public/x/a.jpg", "https://evil.example/b.jpg"];
@@ -64,7 +64,9 @@ describe("photos route", () => {
     const res = await GET(req());
     expect(res.status).toBe(200);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="maple-house-photos.zip"');
+    // 1 of the listing's 2 photos: a host this route will not read is still a photo the ad is missing.
+    expect(res.headers.get("x-photos-partial")).toBe("1/2");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="maple-house-photos-partial.zip"');
     expect(res.headers.get("content-type")).toBe("application/zip");
   });
 

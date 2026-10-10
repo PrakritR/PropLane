@@ -136,6 +136,10 @@ export async function sendPropLaneSms(args: {
   prospectTourBookingConfirmationId?: string | null;
   /** Authorize and deliver normally, but omit the duplicate Communication projection. */
   suppressConversationLog?: boolean;
+  /** The workspace line this send is pinned to (`manager_sms_numbers.id`); the dispatcher re-checks it at the provider boundary. */
+  selectedWorkLineId?: string | null;
+  /** The account the text goes to when it is a PropLane user (a teammate's notice), so consent reads that profile. */
+  recipientUserId?: string | null;
   /**
    * When set, logs outbound SMS for the Communication → SMS → Sent tab.
    * Pass `null` to skip (e.g. manager carbon-copy mirrors).
@@ -236,8 +240,9 @@ export async function sendPropLaneSms(args: {
   const enqueued = await enqueueOwnerSms({
     managerUserId,
     actorUserId: args.actorUserId?.trim() || managerUserId,
+    selectedWorkLineId: args.selectedWorkLineId?.trim() || null,
     recipientPhone: to,
-    recipientUserId: args.log?.residentUserId ?? null,
+    recipientUserId: args.recipientUserId ?? args.log?.residentUserId ?? null,
     recipientEmail: args.log?.residentEmail ?? null,
     body: text,
     sendClass,

@@ -10,6 +10,7 @@ import {
   FileText,
   Wallet,
   Download,
+  ExternalLink,
   FileSignature,
   Lock,
   Shield,
@@ -30,6 +31,7 @@ import {
   documentRecordHref,
   inspectionDetailHref,
   leaseDetailHref,
+  listingSiteDetailHref,
   managerTaskDetailHref,
   managerTourDetailHref,
   outgoingPaymentRecordHref,
@@ -54,6 +56,7 @@ import {
   type DocumentDetailTabId,
   type LeaseDetailTabId,
   type LeasePipelineTabId,
+  type ListingSiteTabId,
   type ManagerTourBucketId,
   type PaymentBucketId,
   type PaymentDirectionId,
@@ -106,7 +109,8 @@ export type ManagerRecordKind =
   | "vendorCatalog"
   | "tour"
   | "booking"
-  | "document";
+  | "document"
+  | "listingSite";
 
 export type ResidentRecordKind = "payment" | "lease" | "service" | "inspection" | "document" | "application";
 
@@ -666,6 +670,38 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       return (recordId, tab) => bookingRecordHref(basePath, recordId, tab as BookingDetailTabId);
+    },
+  },
+  listingSite: {
+    basePathDefault: "/portal",
+    // Studio plan listing-site-record-1009: a listing site is a record, not a pop-up. Overview (how it
+    // works, the rules, the cost) · Listings (one row per listing and where it stands) · Post (the
+    // copy-ready ad) · Leads (tours and applications that arrived through this site's tagged link).
+    ownGroups: [{ label: "Listing site", ids: [
+      { id: "overview", label: "Overview" },
+      { id: "listings", label: "Listings" },
+      { id: "post", label: "Post" },
+      { id: "leads", label: "Leads" },
+    ] }],
+    // Only actions with a real handler on the page: the site itself, and the photos zip. Copy post is
+    // the filled primary on Post (the page adds it there); an id with no handler would render "Coming soon".
+    headerActions: [{ id: "open-site", label: "Open site", icon: ExternalLink }],
+    sectionActions: {
+      overview: [{ id: "open-site", label: "Open site", icon: ExternalLink }],
+      listings: [{ id: "open-site", label: "Open site", icon: ExternalLink }],
+      leads: [{ id: "open-site", label: "Open site", icon: ExternalLink }],
+      post: [
+        { id: "copy", label: "Copy post", icon: Copy, tone: "primary" },
+        { id: "download", label: "Download photos", icon: Download },
+        { id: "open-site", label: "Open site", icon: ExternalLink },
+      ],
+    },
+    hasCommunication: false,
+    hasDocuments: false,
+    hasActivity: false,
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      return (recordId, tab) => listingSiteDetailHref(basePath, recordId, tab as ListingSiteTabId);
     },
   },
   document: {

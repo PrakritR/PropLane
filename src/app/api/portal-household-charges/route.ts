@@ -193,6 +193,11 @@ export async function GET(req?: Request) {
 
     type ChargeRecordRow = { id: string; row_data: unknown; manager_user_id?: string | null; updated_at: string | null };
     let chargeRows = (chargeResult.data ?? []) as ChargeRecordRow[];
+    // A query that came back AT its cap may be missing rows. The client treats a row's absence
+    // from a full read as a server-side delete, so it must be told rather than left to infer
+    // completeness from a length that de-duplication and workspace scoping have already shrunk.
+    let chargesTruncated = chargeRows.length >= CHARGE_READ_LIMIT;
+    const rentProfilesTruncated = (profileResult.data ?? []).length >= RENT_PROFILE_READ_LIMIT;
     if (user.role === "manager") {
       // Co-managers with "payments" access on linked properties also see those charges —
       // narrowed to the active workspace's houses the same way as the owned branch above,
@@ -204,7 +209,13 @@ export async function GET(req?: Request) {
           "portal_household_charge_records",
           user.id,
           linkedPropertyIds,
-          { propertyColumns: ["property_id"], workspaceScope },
+          {
+            propertyColumns: ["property_id"],
+            workspaceScope,
+            onTruncated: () => {
+              chargesTruncated = true;
+            },
+          },
         );
         const seen = new Set(chargeRows.map((row) => row.id));
         // The shared loader has no time window, so an incremental read narrows its rows here.
@@ -261,6 +272,8 @@ export async function GET(req?: Request) {
       viewerRole: user.role,
       syncedAt,
       ...(incremental ? { incremental: true } : {}),
+      ...(chargesTruncated ? { chargesTruncated: true } : {}),
+      ...(rentProfilesTruncated ? { rentProfilesTruncated: true } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load charges.";

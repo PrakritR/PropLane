@@ -18,8 +18,13 @@ export async function POST(request: Request) {
   if (!ctx.workspace.owned) return NextResponse.json({ error: "Only the workspace owner can change where listings post." }, { status: 403 });
 
   const def = isListingChannelId(body.channel) ? listingChannelDef(body.channel) : null;
-  const byHand = def && (def.posting === "manual" || def.posting === "feed" || (def.posting === "api" && !metaChannelsLive()));
-  if (!def || !byHand || typeof body.posted !== "boolean") {
+  // A channel that can carry a hand-post marker. An `api` channel is markable only while Meta is
+  // not live (the guide shows the by-hand steps then); a marker already on one stays undoable
+  // afterwards, so no marker is ever left that nothing can clear.
+  const posting = def?.posting ?? null;
+  const markable = posting === "manual" || posting === "feed" || posting === "api";
+  const canMark = markable && (posting !== "api" || !metaChannelsLive());
+  if (!def || !markable || typeof body.posted !== "boolean" || (body.posted && !canMark)) {
     return NextResponse.json({ error: "Unknown channel." }, { status: 400 });
   }
   const urlCheck = postedUrlSchema.safeParse(typeof body.postedUrl === "string" && body.postedUrl.trim() === "" ? undefined : (body.postedUrl ?? undefined));
@@ -29,12 +34,13 @@ export async function POST(request: Request) {
   if (!owned) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
   const now = new Date().toISOString();
+  // `enabled` belongs to the auto-post toggle alone: a hand-post marker never decides whether
+  // PropLane posts this listing for the manager.
   const base = {
     manager_user_id: ctx.workspace.ownerUserId,
     workspace_id: ctx.workspace.id,
     property_id: owned.id,
     channel: def.id,
-    enabled: body.posted,
     state: body.posted ? "posted_by_me" : "off",
     pending_action: null,
     posted_at: body.posted ? now : null,

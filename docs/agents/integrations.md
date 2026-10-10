@@ -49,6 +49,10 @@ surface here. The channels themselves are owned by
 
 ## Bookings: one popup connects a channel
 
+This tab owns the **connection**. The Bookings screen the connection feeds —
+what the calendar and the booking record draw, its five reads and its status
+vocabulary — is owned by [`bookings.md`](bookings.md).
+
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
@@ -112,6 +116,20 @@ Airbnb has no public write API, so the two directions are not equally fast:
   never for a host block, never for a stay that already ended, and idempotent on
   connection + stay (`eventId`), so a re-run does not notify twice. Copy carries no guest
   name; the payload keeps only what the feed exposes ("Reserved" when it hides the guest).
+- **Who booked.** The feed never carries the guest's name, so a stay is identified from
+  three things. Two are read off the event DESCRIPTION
+  (`parseReservationDescription`, `reservation-details.ts`): the **reservation code**
+  (`HM…`, taken only from a `https://www.airbnb.com/hosting/reservations/details/<code>`
+  URL, and the Open-in-Airbnb link is rebuilt from the code — never the raw feed URL) and
+  the guest's **phone ending** (last 4). Both show as fact rows on the booking record page;
+  the raw description is never stored. The third is the **name the manager types**
+  (`channel_stay_details`, keyed connection + `source_uid`, `20261009190000_channel_stay_details.sql`):
+  RLS on with no client policy or grant, so `GET/PUT
+  /api/portal/channel-calendar/stay-details` is the only door. It needs Calendar `read` / `edit` on
+  the connection's OWN house (a house id in the body is never read), only names a stay the
+  connection still carries, and clearing both fields deletes the row. One label rule
+  everywhere a guest is drawn (`bookingEntryGuestLabel`): the typed name, else
+  "Airbnb guest · HM…", else the feed summary — host blocks keep their own label.
 - **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
   available)". `isHostBlockRange` keeps that out of the alert diff, and
   `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when it sits inside a
@@ -128,7 +146,21 @@ path counts as a write too**: `GET …/connections?roomId=` mints a connection r
 with its secret public export token, so it is gated at `edit` like the rest.
 `GET …/connections?writableFor=<ids>` is how the popup lists only writable
 houses (and scopes "Entire workspace" to them) — that is a **hint for the UI**;
-every write re-checks on the server. Co-manager levels themselves are owned by
+every write re-checks on the server. **Blocking a room is the same write**: a
+`room_date_block` belongs to the HOUSE, and the capacity trigger only accepts a
+row stamped with the property owner, so `/api/portal-schedule-records` (and MCP
+`block_room_dates`) stamps `manager_user_id` with the owner and keeps the author
+in `row_data.createdByUserId` whenever a teammate holding Calendar at `edit`
+blocks dates; anyone else is refused 403 rather than stamped. The stamp then
+stays put for the row's whole life: an update restores the stored owner, and
+changing or REMOVING a block (the cancelled-block write and the delete path)
+re-checks Calendar `edit` on the block's own house, so a revoked grant stops
+reaching a block it once created. Because the owner column is not the author, a
+teammate's own blocks are listed by the writer's id in the record id
+(`roomDateBlockRecordIdPrefix`, `portal-schedule-record-scope.ts`) — an insert
+cannot claim another user's prefix — so they can still Remove what they just
+blocked. Co-manager levels
+themselves are owned by
 [`co-manager-access.md`](co-manager-access.md); shared availability by
 [`tours-scheduling.md`](tours-scheduling.md).
 

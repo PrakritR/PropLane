@@ -280,9 +280,11 @@ logging and data-discount sharing in its dashboard. Never expose the key in a
 - **Confirmed-by-human is the backstop.** The model can only produce a
   pending row; nothing in a tool result can execute anything. `runReadTool`
   refuses write tools even if one reaches it (defense in depth).
-- **Prompt injection:** tenant/applicant/vendor/message text returned by
-  read tools is wrapped as
-  `{ untrustedContent: "<<<EXTERNAL_MESSAGE …>>> … <<<END…>>>" }` and every
+- **Prompt injection:** tenant/applicant/vendor/message text and linked-sheet
+  cells returned by read tools are wrapped as
+  `{ untrustedContent: "<<<EXTERNAL_MESSAGE …>>> … <<<END…>>>" }` (delimiter
+  look-alikes inside the text are defused, so a cell cannot close the envelope
+  early) and every
   system prompt forbids following instructions found in tool results or
   proposing actions because tool-result text asked.
 - **Cross-tenant isolation** is enforced three times: context resolution,
@@ -356,8 +358,10 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 (`get_manager_profile` R, `get_dashboard_summary` R), promotions
 (`list_promotions` R, `create_promotion` W, `update_promotion` W,
 `delete_promotion` W destructive), spreadsheets (`list_spreadsheets` R,
-`read_spreadsheet` R — clipped to a column/cell/total-character budget, never a
-whole sheet, `sync_spreadsheet` W; see
+`read_spreadsheet` R — 200 rows a call and clipped to a column/cell/total-character
+budget, never a whole sheet, and the cells come back inside one `untrustedContent`
+envelope (external clients: [`docs/agents/mcp-api.md`](agents/mcp-api.md)),
+`sync_spreadsheet` W; see
 [`docs/agents/integrations.md`](agents/integrations.md) § Spreadsheets),
 team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
@@ -410,7 +414,12 @@ Deliberately NOT tools: lease signing (legal ceremony — deep-link to
 
 The manager catalog above MINUS every tool flagged `destructive`, for a manager
 texting their own work number from their verified cell. Derived from the flag,
-never a name list. Reasoning and the upgrade path:
+never a name list. A plain text from a member of a workspace with two or more
+people now goes to that workspace's Team chat instead; the agent answers when the
+text is addressed to it (`@assistant` / `assistant,` / `@ai`), for a
+one-member workspace, a Viewer, or a sender who is not a member of that number's
+workspace, and for a bare YES/NO answering a proposal that is actually open on
+that member's Assistant session. Routing, consent and the upgrade path:
 [`docs/agents/sms-system.md`](agents/sms-system.md).
 
 ### Prospect leasing SMS (`leasingSmsAgentRegistry`)
@@ -519,7 +528,11 @@ portal or vendor registry, and it has no route of its own (SMS only).
 - **Number.** `provisionResidentAgentNumber` (`src/lib/resident-agent-number/number.server.ts`) on
   subscription activation (Stripe webhook, flag-independent) and from Settings > PropLane agent
   (`POST /api/number-subscription/resident-number`). Same provider adapter, runtime switch and release
-  worker as the vendor number, its own table; the row insert is the purchase claim.
+  worker as the vendor number, its own table; the row insert is the purchase claim. A subscription is
+  never sold when no number can be provisioned (the row reads **Unavailable**), the page shows
+  **Activating** while it polls back from Checkout, and the Settings action says why a number did not
+  arrive instead of doing nothing — [`docs/agents/vendor-portal.md`](agents/vendor-portal.md)
+  § PropLane Number owns those conditions.
 - Tests: `resident-personal-agent`, `resident-agent-listing-search`, `resident-agent-number-provisioning`.
 
 ## Links first (every conversational surface)

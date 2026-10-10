@@ -97,6 +97,33 @@ export function residentFactsFromApplication(row: ApplicationHoldRow | undefined
   };
 }
 
+/**
+ * What a viewer without Residents access may not read off a resident-backed entry: what the
+ * resident pays, the deposit, the lease term, the room's rate and their phone. The stay itself
+ * (who, where, when) stays: that is the calendar.
+ *
+ * Resident-backed covers a manager's block held for a named resident too — the same entry
+ * `bookingVisualSource` already draws as a hold — not only applications and leases. A channel
+ * stay's own nightly rate is not a resident's money, so it is left alone.
+ */
+export function withoutResidentFinancials<T extends Partial<PropertyBookingEntry>>(entry: T): T {
+  if (entry.source !== "hold" && entry.source !== "proplane" && !isResidentBackedBlock(entry)) return entry;
+  const rest: Partial<PropertyBookingEntry> = { ...entry };
+  delete rest.monthlyRent;
+  delete rest.securityDeposit;
+  delete rest.leaseTerm;
+  delete rest.residentPhone;
+  delete rest.rate;
+  delete rest.rateBasis;
+  return rest as T;
+}
+
+/** A manager's block that holds the room for a person: a resident's stay, drawn as a hold. */
+function isResidentBackedBlock(entry: Partial<PropertyBookingEntry>): boolean {
+  if (entry.source !== "block") return false;
+  return Boolean(entry.residentName?.trim() || entry.residentEmail?.trim() || entry.isBookingResidency);
+}
+
 /** Stored terms are ids (`long_term`); people read "Long-term". Free text passes through. */
 function bookingLeaseTermLabel(value: string): string {
   const term = value.trim();

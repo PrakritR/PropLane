@@ -16,7 +16,7 @@ import { fillReminderTemplate } from "@/lib/reminders/subject-settings-meta";
 
 /**
  * `team` is a workspace-wide audience (WS5, PLAN-0915 phase 5): one rendered
- * copy posted once into the manager's Team thread (`team-comms.server.ts`),
+ * copy fanned out to the owner and teammates' PropLane Assistants (never the Team chat),
  * never fanned out per co-manager the way `resident`/`vendor`/`manager` are.
  */
 export type AutomatedMessageAudience = "manager" | "resident" | "vendor" | "team";
@@ -77,7 +77,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "service_request", event: "service_request_returned", area: "services", label: "Add-on returned", audiences: ["resident", "manager"], placeholders: ["residentName", "offerName"] },
   // ---- Leases ----
   { domain: "lease", event: "lease_created", area: "lease", label: "Lease created", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
-  { domain: "lease", event: "lease_sent", area: "lease", label: "Lease sent for signature", audiences: ["resident", "manager", "team"], placeholders: ["residentName", "propertyTitle", "url"] },
+  { domain: "lease", event: "lease_sent", area: "lease", label: "Lease sent for signature", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_signed_by_resident", area: "lease", label: "Signed by resident", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_countersigned", area: "lease", label: "Countersigned", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_signed", area: "lease", label: "Fully signed", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
@@ -87,7 +87,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // ---- Payments ----
   { domain: "payment", event: "charge_created", area: "payments", label: "Charge created", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "propertyTitle"] },
   { domain: "payment", event: "payment_processing", area: "payments", label: "Payment processing", audiences: ["resident"], placeholders: ["title", "amountLabel"] },
-  { domain: "payment", event: "payment_received", area: "payments", label: "Payment received", audiences: ["resident", "manager", "team"], placeholders: ["title", "amountLabel", "propertyTitle"] },
+  { domain: "payment", event: "payment_received", area: "payments", label: "Payment received", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "propertyTitle"] },
   { domain: "payment", event: "partial_received", area: "payments", label: "Partial payment", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "balanceLabel", "dueDateLabel"] },
   { domain: "payment", event: "payment_failed", area: "payments", label: "Payment failed", audiences: ["resident", "manager"], placeholders: ["title", "propertyTitle"] },
   { domain: "payment", event: "payment_refunded", area: "payments", label: "Refunded", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel"] },
@@ -95,8 +95,8 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "payment", event: "deposit_received", area: "payments", label: "Deposit received", audiences: ["resident", "manager"], placeholders: ["amountLabel", "propertyTitle"] },
   // ---- Applications ----
   { domain: "application", event: "application_submitted", area: "applications", label: "Submitted", audiences: ["resident"], placeholders: ["applicantName", "propertyTitle", "responsePromise"] },
-  { domain: "application", event: "application_approved", area: "applications", label: "Approved", audiences: ["resident", "manager", "team"], placeholders: ["applicantName", "propertyTitle"] },
-  { domain: "application", event: "application_declined", area: "applications", label: "Declined", audiences: ["resident", "manager", "team"], placeholders: ["applicantName", "propertyTitle"] },
+  { domain: "application", event: "application_approved", area: "applications", label: "Approved", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
+  { domain: "application", event: "application_declined", area: "applications", label: "Declined", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
   { domain: "application", event: "application_withdrawn", area: "applications", label: "Withdrawn", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
   // ---- Tours ----
   { domain: "tour", event: "confirmed", area: "tours", label: "Tour confirmed", audiences: ["manager", "team"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },

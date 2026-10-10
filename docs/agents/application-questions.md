@@ -15,8 +15,14 @@ share Where you live, consent and review share the last step. A step the templat
 (`activeApplicationWizardSteps`).
 
 - **Your lease** asks the property, a Long-term / Short-term toggle (only when the property offers both), then the
-  dates that type needs (`lease-choice.ts`). Long-term: Move-in + Length (fixed lengths, Custom dates, Month-to-month
-  only when offered). Short-term: check-in, check-out, times, house rules. Stored values never change
+  dates that type needs (`lease-choice.ts`). Long-term: Move-in, then the property's fixed lengths in a
+  Length select with **Custom dates** and **Month-to-month** as indented checkboxes under it — each offered
+  only when the property ticked it (`applicantLongTermChildren`, the same two children the manager's picker
+  shows; [`lease-generation.md`](lease-generation.md) § The four lease types). The one exception:
+  Long-term with no fixed lengths and no Custom dates asks for the move-out date directly
+  (`longTermHasImplicitMoveOut`), because the stay still needs an end. When Long-term leaves exactly one
+  choice it is preselected and no Length control is drawn at all.
+  Short-term: check-in, check-out, times, house rules. Stored values never change
   ("Long-term", "Short-Term Stay", "Custom", "Month-to-Month"), and `validate.ts` still refuses a term the property
   does not offer. Custom dates stores "Custom" only when the property offers it.
 - **Where you live** asks the previous address only under two years at the current one (`previous-address.ts`).

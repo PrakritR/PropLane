@@ -14,8 +14,18 @@ vi.mock("@/lib/manager-notification-routing.server", () => ({
   sendManagerNotificationSms: vi.fn(async () => undefined),
 }));
 
-type Row = { id: string; row_data: { messages?: { id: string; body: string }[] } };
+type Row = {
+  id: string;
+  updated_at?: string;
+  row_data: { messages?: { id: string; body: string }[] };
+};
 
+/**
+ * The thread row is shared with the SMS mirror, so the notice write is a guarded
+ * read-modify-write: read `row_data` + `updated_at`, then insert (new thread) or
+ * update with that `updated_at` as the compare-and-set (two notices inside one
+ * read window must not lose a turn).
+ */
 function makeDb(rows: Map<string, Row>) {
   return {
     from: () => ({
@@ -23,13 +33,33 @@ function makeDb(rows: Map<string, Row>) {
         eq: () => ({
           maybeSingle: async () => {
             const first = [...rows.values()][0];
-            return { data: first ? { row_data: first.row_data } : null };
+            return { data: first ? { row_data: first.row_data, updated_at: first.updated_at ?? null } : null, error: null };
           },
         }),
       }),
-      upsert: async (payload: Row) => {
+      insert: async (payload: Row) => {
         rows.set(payload.id, payload);
         return { error: null };
+      },
+      update: (payload: Partial<Row>) => {
+        const filters: Record<string, unknown> = {};
+        const chain = {
+          eq: (column: string, value: unknown) => {
+            filters[column] = value;
+            return chain;
+          },
+          select: async () => {
+            const id = String(filters.id ?? "");
+            const row = rows.get(id);
+            if (!row) return { data: [], error: null };
+            if (filters.updated_at !== undefined && row.updated_at !== filters.updated_at) {
+              return { data: [], error: null };
+            }
+            rows.set(id, { ...row, ...payload } as Row);
+            return { data: [{ id }], error: null };
+          },
+        };
+        return chain;
       },
     }),
   } as never;

@@ -129,6 +129,9 @@ reply, not a draft. One responder per inbound message:
 - **No second responder.** `threadEligibleForAiDraft` and `/api/portal/inbox-draft-reply` skip
   `claw_leasing_sms` / `claw_resident_sms` threads; for email a server reply is an outbound turn, so
   `inboxThreadManagerReplyPending` is false and the route answers `already-replied`.
+- **Never the Team chat.** A `team-thread:*` conversation is teammates talking to each other, not a
+  message to answer: it is skipped in the browser and the route answers `team-thread`
+  (owner: [communication-inbox.md](communication-inbox.md)).
 - **A refused browser auto-send never loops** and In-app is never selected for someone who cannot read it:
   see [communication-inbox.md](communication-inbox.md) § The composer's channel.
 - Coverage: `tests/unit/manager-assistant-email-inbound.test.ts` (credit denied -> no model, no send;

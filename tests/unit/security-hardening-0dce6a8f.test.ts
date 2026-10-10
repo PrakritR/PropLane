@@ -122,9 +122,14 @@ describe("work-number backfill cron fails closed in production", () => {
 
   it("uses the same absent-secret fallback as every other cron route", () => {
     // The vulnerable shape was `if (cronSecret && …)`, which skipped the check
-    // entirely when the secret was unset — in production too.
-    expect(source).toContain("if (!cronSecret) return !isProductionRuntime();");
+    // entirely when the secret was unset — in production too. The rule now lives
+    // in one place and is STRICTER: with no secret configured, a deployment
+    // (preview included) is refused, not just production.
+    expect(source).toContain("requireCronSecret(req)");
     expect(source).not.toMatch(/if\s*\(\s*cronSecret\s*&&/);
+    expect(read("src/lib/cron-auth.server.ts")).toContain(
+      "if (!cronSecret) return !process.env.VERCEL_ENV && !isProductionRuntime();",
+    );
   });
 
   it("does not return provisioned numbers in the response body", () => {

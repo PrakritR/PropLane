@@ -18,6 +18,13 @@ export const REDDIT_MAX_AGE_DAYS = 7;
 export const REDDIT_MIN_UPS = 3;
 const USER_AGENT = "PropLane growth/1.0 (by /u/proplane)";
 const TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+/**
+ * Every call out carries a deadline. The cron's own `maxDuration` is 300 s and
+ * undici's defaults are far longer, so one slow subreddit could eat the whole
+ * invocation and the day's engage list would never be drafted.
+ */
+const TOKEN_TIMEOUT_MS = 10_000;
+const SEARCH_TIMEOUT_MS = 15_000;
 
 let cachedToken: { value: string; expiresAtMs: number } | null = null;
 
@@ -41,6 +48,7 @@ async function getRedditToken(fetchImpl: typeof fetch, nowMs: number, forceRefre
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: "grant_type=client_credentials",
+      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
     });
     if (!res.ok) {
       console.warn(`growth-engage: reddit token request responded ${res.status}`);
@@ -108,7 +116,13 @@ export async function fetchRedditThreads(
         const host = token ? "https://oauth.reddit.com" : "https://www.reddit.com";
         const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: "application/json" };
         if (token) headers.Authorization = `Bearer ${token}`;
-        return { res: await fetchImpl(`${host}/r/${sub}/search.json?${qs}`, { headers }), authed: Boolean(token) };
+        return {
+          res: await fetchImpl(`${host}/r/${sub}/search.json?${qs}`, {
+            headers,
+            signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+          }),
+          authed: Boolean(token),
+        };
       };
       const first = await call(false);
       const res = first.res.status === 401 && first.authed ? (await call(true)).res : first.res;

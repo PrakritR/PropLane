@@ -1,5 +1,5 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
-import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { DOCUMENT_SELECT_COLUMNS, mapDocumentRow, type ManagerDocumentRow } from "@/lib/documents/manager-documents";
@@ -7,15 +7,9 @@ import { daysUntilExpiry } from "@/lib/documents/document-expiration";
 
 export const runtime = "nodejs";
 
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
-
 /** Daily cron: inbox reminder to each manager for library docs expiring within 30 days. */
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

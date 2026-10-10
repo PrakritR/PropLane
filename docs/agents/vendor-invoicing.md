@@ -70,9 +70,12 @@ and the `submit_vendor_invoice` tool refuse (409 / tool error) rather than
 silently billing the first link — the submit modal sends no `managerUserId`
 and surfaces that error verbatim. A manager picker is deferred to Phase 5.
 
-**UI.** Invoices are an `invoices` TAB added to the existing vendor `financials`
-section (not a new portal section) — `VendorFinancesPanel` (`tabId === "invoices"`)
-renders the list + `ManagerPortalStatusPills` status filter + a submit modal.
+**UI.** Invoices are not a portal section or a Finances tab of their own. The list +
+`ManagerPortalStatusPills` status filter + submit modal are `VendorFinancesPanel`
+under **Incoming payments** (`tabId="income"`, `/vendor/payments/<segment>`);
+`tabId="invoices"` is left for one invoice's own record page
+(`/vendor/financials/invoices/<id>`), a detail-only id. The vendor money IA is owned
+by [`vendor-portal.md`](vendor-portal.md) § Finances.
 Vendor portal already defaults light (`SurfaceThemeDefault theme="light"` in
 `src/app/vendor/layout.tsx`).
 

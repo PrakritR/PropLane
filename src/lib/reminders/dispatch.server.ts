@@ -204,11 +204,15 @@ export async function dispatchReminderRow(
       const category = managerNotificationCategoryForEvent(
         String(row.payload.notificationCategory ?? CATEGORY_BY_KIND[row.kind]),
       );
+      const reminderRecipientId =
+        typeof row.payload.recipientUserId === "string" && row.payload.recipientUserId.trim()
+          ? row.payload.recipientUserId.trim()
+          : row.managerUserId;
       await notifyManagerFromAgent(db, {
-        landlordId:
-          typeof row.payload.recipientUserId === "string" && row.payload.recipientUserId.trim()
-            ? row.payload.recipientUserId.trim()
-            : row.managerUserId,
+        landlordId: reminderRecipientId,
+        // A teammate's reminder is texted from the OWNER's work number, billed to the owner.
+        senderOwnerId: row.managerUserId,
+        propertyId: typeof row.payload.propertyId === "string" && row.payload.propertyId.trim() ? row.payload.propertyId.trim() : null,
         subject,
         text: body,
         externalText: "Open PropLane to review this reminder.",

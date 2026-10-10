@@ -15,12 +15,10 @@ describe("automatedMessageDefaults: WS5 team rows have real preview copy", () =>
       expect(rendered!.body.trim().length).toBeGreaterThan(0);
     }
     expect(teamRows.map((e) => `${e.domain}:${e.event}`).sort()).toEqual(
+      // Payment / lease / application notices reach teammates through the
+      // `manager` copy now, so they have no team row of their own.
       [
-        "application:application_approved",
-        "application:application_declined",
         "availability:changed",
-        "lease:lease_sent",
-        "payment:payment_received",
         "tour:claimed",
         "tour:confirmed",
         "work_order:accepted",

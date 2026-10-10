@@ -6,6 +6,7 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { canonicalRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX } from "@/lib/channel-calendar/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { loadOccupancyAuthors, occupancyAuthorTrusted, type OccupancyAuthors } from "@/lib/occupancy/row-authorship.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 type Listing = { id: string; listingSubmission?: ManagerListingSubmissionV1 | null };
@@ -20,33 +21,44 @@ function day(raw: unknown): string | null {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === normalized ? normalized : null;
 }
 
-async function executedApplicationIdsByOwner(
+/**
+ * Every application id a fully executed lease names, for these listings.
+ *
+ * Scoped by OWNER **and** by PROPERTY, because a lease carries the stamp of
+ * whoever generated it: a co-manager holding the grant executes it under their
+ * own `manager_user_id`, so an owner-only read missed that lease and the room's
+ * occupied nights published as free. Ids are globally unique, so one flat set.
+ */
+async function executedApplicationIds(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   owners: string[],
-): Promise<Map<string, Set<string>>> {
-  const byOwner = new Map<string, Set<string>>();
-  for (const ownerId of owners) byOwner.set(ownerId, new Set());
-  for (let chunk = 0; chunk < owners.length; chunk += 100) {
-    const slice = owners.slice(chunk, chunk + 100);
-    for (let offset = 0; ; offset += 500) {
-      const { data, error } = await db
-        .from("portal_lease_pipeline_records")
-        .select("manager_user_id, row_data")
-        .in("manager_user_id", slice)
-        .order("id")
-        .range(offset, offset + 499);
-      if (error) throw error;
-      for (const row of data ?? []) {
-        const ownerId = String(row.manager_user_id ?? "").trim();
-        if (!ownerId) continue;
-        const bucket = byOwner.get(ownerId) ?? new Set<string>();
-        for (const id of executedApplicationIdsFromLeaseRecords([row])) bucket.add(id);
-        byOwner.set(ownerId, bucket);
+  listingIds: string[],
+  authors: OccupancyAuthors,
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const pages = async (column: "manager_user_id" | "property_id", values: string[]) => {
+    for (let chunk = 0; chunk < values.length; chunk += 100) {
+      const slice = values.slice(chunk, chunk + 100);
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await db
+          .from("portal_lease_pipeline_records")
+          .select("row_data, manager_user_id, property_id")
+          .in(column, slice)
+          .order("id")
+          .range(offset, offset + 499);
+        if (error) throw error;
+        for (const row of data ?? []) {
+          // A lease filed under a house by someone who does not manage it proves nothing about that house.
+          if (column === "property_id" && !occupancyAuthorTrusted(authors, String(row.property_id ?? ""), row.manager_user_id)) continue;
+          for (const id of executedApplicationIdsFromLeaseRecords([row])) ids.add(id);
+        }
+        if ((data ?? []).length < 500) break;
       }
-      if ((data ?? []).length < 500) break;
     }
-  }
-  return byOwner;
+  };
+  await pages("manager_user_id", owners);
+  await pages("property_id", listingIds);
+  return ids;
 }
 
 /** One source for the anonymous public occupancy route and scoped SMS reads. */
@@ -89,6 +101,8 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       throw new Error("Listing owner could not be verified.");
     }
     const owners = [...new Set(ownerByListing.values())];
+    // A row counts for a house only when its author is the owner or a teammate linked to that house.
+    const authors = await loadOccupancyAuthors(db, listingIds);
     // Scope by PROPERTY, never by `manager_user_id`: a row's manager stamp is whoever authored it
     // (a co-manager of the workspace, a previous owner), so filtering on the owner dropped every
     // resident the owner did not personally add and showed their room as free. Same reach as the
@@ -164,18 +178,15 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       }
       return all;
     };
-    // The three reads are independent of one another (all key off the owner and
+    // The four reads are independent of one another (all key off the owner and
     // listing ids resolved above), so they run together. Results are applied in
     // the original order below, so the output is unchanged.
-    const [executedByOwner, applicationRows, calendarRows, blockRows] = await Promise.all([
-      executedApplicationIdsByOwner(db, owners),
+    const [executedIds, applicationRows, calendarRows, blockRows] = await Promise.all([
+      executedApplicationIds(db, owners, listingIds, authors),
       fetchApplicationRows(),
       fetchCalendarRows(),
       fetchBlockRows(),
     ]);
-    // Application ids are globally unique, so a lease any teammate executed counts for the application.
-    const executedIds = new Set<string>();
-    for (const ids of executedByOwner.values()) for (const id of ids) executedIds.add(id);
     const listingById = new Map(listings.map((p) => [p.id, p] as const));
 
     for (const row of applicationRows) {
@@ -191,6 +202,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
         listingById.get(String(row.assigned || row.assigned_property_id || row.property || row.property_id || row.application_property)) ??
         listingById.get(choice.split("::")[0] ?? "");
       if (!property) continue;
+      if (!occupancyAuthorTrusted(authors, property.id, row.manager_user_id)) continue;
       const canonicalChoice = canonicalRoomChoiceValue(choice);
       const candidates = property.listingSubmission?.rooms ?? [];
       const matched = candidates.filter(

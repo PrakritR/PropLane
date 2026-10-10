@@ -795,6 +795,33 @@ export async function resolveActiveManagerSendNumber(
   return record?.phoneNumber ?? null;
 }
 
+/**
+ * The line a message about a WORKSPACE leaves on, with the id the outbox pins
+ * (`sms_outbox.selected_work_line_id`) so the dispatcher re-checks the same
+ * line at the provider boundary. Null when the workspace cannot send right now
+ * (no number, registration not approved): callers send no text, never borrow
+ * another workspace's line. `numberId` is null only when the row id cannot be
+ * read, in which case the dispatcher resolves the owner's default line itself.
+ */
+export async function resolveWorkspaceSendLine(
+  db: SupabaseClient,
+  managerUserId: string,
+  workspaceId?: string | null,
+): Promise<{ phoneNumber: string; numberId: string | null } | null> {
+  const phoneNumber = await resolveActiveManagerSendNumber(db, managerUserId, workspaceId ?? null);
+  if (!phoneNumber) return null;
+  let numberId: string | null = null;
+  try {
+    let query = db.from(TABLE).select("id").eq("manager_user_id", managerUserId.trim()).eq("phone_number", phoneNumber);
+    if (workspaceId?.trim()) query = query.eq("workspace_id", workspaceId.trim());
+    const { data } = await query.limit(1).maybeSingle();
+    numberId = String((data as { id?: unknown } | null)?.id ?? "").trim() || null;
+  } catch {
+    numberId = null;
+  }
+  return { phoneNumber, numberId };
+}
+
 export {
   effectiveRegistrationState,
   managerCanSendFromOwnNumber,

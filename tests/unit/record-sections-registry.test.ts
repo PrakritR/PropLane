@@ -27,6 +27,7 @@ describe("record-sections registry", () => {
         "manager/tour",
         "manager/booking",
         "manager/document",
+        "manager/listingSite",
         "resident/payment",
         "resident/lease",
         "resident/application",
@@ -43,7 +44,7 @@ describe("record-sections registry", () => {
   // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
   // Documents rail items are removed — conversations and files live only on
   // the portal-wide Communication/Documents pages now.
-  const KINDS_WITHOUT_COMMUNICATION = new Set(["manager/property"]);
+  const KINDS_WITHOUT_COMMUNICATION = new Set(["manager/property", "manager/listingSite"]);
 
   it.each(ALL_RECORD_KINDS)("$role/$kind ends with the trio, communication present unless explicitly opted out", ({ role, kind }) => {
     const sections = recordSections(role, kind, { basePath: `/${role === "manager" ? "portal" : role}` });

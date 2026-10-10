@@ -1,6 +1,6 @@
+import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
 
-import { isProductionRuntime } from "@/lib/server-env";
 import { listManagersWithSheetLinks, sheetLinkDueForSync } from "@/lib/manager-sheet-link";
 import { syncManagerLinkedSheet } from "@/lib/sheet-sync/apply.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -8,14 +8,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
-  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
-}
-
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!requireCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -8,6 +8,10 @@ import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 const grants = vi.hoisted(() => ({ read: new Set<string>() }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCalendarAccessForProperty: vi.fn(async (_db: unknown, _user: string, id: string) => grants.read.has(id)),
+  // The read scope is resolved for the whole portfolio in one call, not per house.
+  managerCalendarReadableProperties: vi.fn(async (_db: unknown, _user: string, propertyIds: readonly string[]) =>
+    new Set(propertyIds.filter((id) => grants.read.has(id))),
+  ),
   managerCanWriteCalendarForProperty: vi.fn(async () => false),
 }));
 vi.mock("@/lib/occupancy/snapshot.server", () => ({ occupancySnapshotForManager: vi.fn() }));
@@ -163,6 +167,7 @@ function installDb(submission: ReturnType<typeof buildListing>) {
         then(resolve: (value: unknown) => unknown) {
           const data = table === "manager_property_records"
             ? [{ id: "home-1", manager_user_id: "manager-1", property_data: { listingSubmission: submission } }]
+            : table === "account_link_invites" ? []
             : table === "external_calendar_connections" ? calendar : null;
           if (data === null) throw new Error(`Unexpected table: ${table}`);
           return Promise.resolve({ data, error: null }).then(resolve);

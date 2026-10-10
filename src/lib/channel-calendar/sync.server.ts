@@ -26,6 +26,7 @@ import { parseReservationDescription } from "@/lib/channel-calendar/reservation-
 import { diffChannelReservations } from "@/lib/channel-calendar/channel-booking-diff";
 import { emitChannelBookingEvent } from "@/lib/channel-booking-events.server";
 import { parseIcsCalendar } from "@/lib/ical/parse";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
@@ -224,6 +225,12 @@ export async function upsertChannelCalendarConnection(
 
   const exportToken = await resolveRoomExportToken(db, input.propertyId, input.roomId, provider);
   const now = new Date().toISOString();
+  const unlinking = importUrlProvided && importUrl === null;
+  // Read the stays this feed had imported BEFORE the row is rewritten: unlinking
+  // has to take their listing blocks and placeholder residents with them.
+  const priorRanges = unlinking
+    ? await loadConnectionImportedRanges(db, input.propertyId, input.roomId, provider)
+    : [];
 
   const payload = {
     manager_user_id: ownerUserId,
@@ -234,9 +241,7 @@ export async function upsertChannelCalendarConnection(
     ...(importUrlProvided ? { import_url: importUrl } : {}),
     // Unlinking leaves nothing to re-sync, so the stays this feed imported go with the link —
     // otherwise they keep drawing on the calendar and blocking beds with no source to refresh them.
-    ...(importUrlProvided && importUrl === null
-      ? { imported_ranges: [], last_synced_at: null, last_error: null }
-      : {}),
+    ...(unlinking ? { imported_ranges: [], last_synced_at: null, last_error: null } : {}),
     export_token: exportToken,
     updated_at: now,
   };
@@ -247,7 +252,68 @@ export async function upsertChannelCalendarConnection(
     .select("*")
     .single();
   if (error) throw new Error(error.message);
-  return toPublicConnection(parseConnectionRow(data as Record<string, unknown>), browserOrigin);
+  const saved = parseConnectionRow(data as Record<string, unknown>);
+  if (unlinking) {
+    await releaseConnectionImportedStays(db, saved, priorRanges);
+  }
+  return toPublicConnection(saved, browserOrigin);
+}
+
+/** The ranges a connection currently holds, read by its natural key (the row may not exist yet). */
+async function loadConnectionImportedRanges(
+  db: SupabaseClient,
+  propertyId: string,
+  roomId: string,
+  provider: ChannelCalendarProvider,
+): Promise<ChannelCalendarImportedRange[]> {
+  const { data } = await db
+    .from("external_calendar_connections")
+    .select("imported_ranges")
+    .eq("property_id", propertyId)
+    .eq("room_id", roomId)
+    .eq("provider", provider)
+    .maybeSingle();
+  const ranges = (data as { imported_ranges?: unknown } | null)?.imported_ranges;
+  return Array.isArray(ranges) ? (ranges as ChannelCalendarImportedRange[]) : [];
+}
+
+/**
+ * Give back everything a feed's imported stays were holding: the room's
+ * `channel-import-<id>-*` blocks on the listing and the `@import.proplane.local`
+ * placeholder residents the sync filed. Used when the link is removed (unlinked
+ * or deleted) — nothing is left to refresh them, so nothing may keep the bed.
+ */
+async function releaseConnectionImportedStays(
+  db: SupabaseClient,
+  connection: ChannelCalendarConnectionRow,
+  priorRanges: readonly ChannelCalendarImportedRange[],
+): Promise<void> {
+  const record = await loadPropertyRecord(db, connection.property_id);
+  const submission = record?.property?.listingSubmission;
+  if (record && submission) {
+    await persistListingSubmission(
+      db,
+      connection.property_id,
+      record.property,
+      applyImportedRangesToSubmission(submission, connection.room_id, connection.id, []),
+    );
+  }
+  const uids = [
+    ...new Set(
+      priorRanges
+        .map((range) => String(range.sourceUid ?? range.id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  for (const uid of uids) {
+    await db
+      .from("manager_application_records")
+      .delete()
+      .eq("manager_user_id", connection.manager_user_id)
+      .eq("row_data->>icalConnectionId", connection.id)
+      .eq("row_data->>icalSourceUid", uid)
+      .like("resident_email", "%@import.proplane.local");
+  }
 }
 
 export async function deleteChannelCalendarConnection(
@@ -256,20 +322,16 @@ export async function deleteChannelCalendarConnection(
 ): Promise<void> {
   const { data: row } = await db
     .from("external_calendar_connections")
-    .select("id, property_id, room_id")
+    .select("*")
     .eq("id", connectionId)
     .maybeSingle();
   if (!row) throw new Error("Connection not found.");
+  const connection = parseConnectionRow(row as Record<string, unknown>);
 
   const { error } = await db.from("external_calendar_connections").delete().eq("id", connectionId);
   if (error) throw new Error(error.message);
 
-  const record = await loadPropertyRecord(db, String(row.property_id));
-  const submission = record?.property?.listingSubmission;
-  if (submission) {
-    const updated = applyImportedRangesToSubmission(submission, String(row.room_id), connectionId, []);
-    await persistListingSubmission(db, String(row.property_id), record.property, updated);
-  }
+  await releaseConnectionImportedStays(db, connection, connection.imported_ranges ?? []);
 }
 
 async function persistListingSubmission(
@@ -444,7 +506,9 @@ export async function syncChannelCalendarConnection(
         next: recheck.kept,
         // Never synced = the first read of this channel: record what is there, announce nothing.
         baseline: !connection.last_synced_at,
-        today: now.slice(0, 10),
+        // The Pacific wall date, like every other date key here: a UTC date is
+        // already tomorrow after 17:00 PT, which filed today's stays as history.
+        today: pacificCalendarDateYmd(new Date(now)),
       });
       const base = {
         connectionId: connection.id,

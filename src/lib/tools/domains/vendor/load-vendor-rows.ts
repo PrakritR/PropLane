@@ -1,6 +1,7 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActor } from "@/lib/work-order-bids.server";
 import type { VendorAgentContext } from "../../vendor-context";
+import { wrapUntrustedContent } from "../../untrusted-content";
 
 /**
  * A work order the vendor may see: one they're currently assigned to
@@ -228,9 +229,7 @@ export function contentHash(input: string): string {
 export function untrustedText(source: string, text: string | null | undefined): { untrustedContent: string } | null {
   const trimmed = text?.trim();
   if (!trimmed) return null;
-  return {
-    untrustedContent: `<<<EXTERNAL_MESSAGE from ${source}>>> ${trimmed} <<<END EXTERNAL_MESSAGE>>>`,
-  };
+  return wrapUntrustedContent("MESSAGE", source, trimmed);
 }
 
 /** Cents → "$123.45" label for previews and replies. */

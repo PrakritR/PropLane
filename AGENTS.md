@@ -326,6 +326,13 @@ Classify every new `public` table in `account-purge-manifest.ts` (or
 (legacy `profiles.role` included). On success only, clear localStorage via
 `clearPortalBrowserCache()`. Coverage: `tests/unit/account-purge-coverage.test.ts`.
 
+A manager's **Delete resident** may take a resident-only login with it, through
+that same purge — never a login with a life outside the workspace. Every
+condition is re-derived server-side and owned by
+`src/lib/auth/resident-account-deletion.ts` (+
+`tests/unit/resident-account-deletion.test.ts`); a read that fails keeps the
+account. Do not restate the conditions elsewhere.
+
 # The PostgREST surface is public — RLS row predicates are not a column gate
 
 `anon` / `authenticated` privileges are reachable with the public anon key.
@@ -434,6 +441,7 @@ answer. Fail closed to `true`.
 | Documents | `docs/agents/documents-module.md` | Private bucket; bytes only via server-minted signed URLs |
 | Public listing payload | `docs/agents/lease-generation.md` | Explicit allowlist (`publicListingProjection`) for both anonymous readers |
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
+| Admin Accounts | `docs/agents/admin-accounts.md` | Disabling or enabling an account goes through `setAdminAccountActive` only, refuses without a reason before the flag moves, and writes one `admin_account_active` audit row; the insert is best-effort, so `auditRecorded: false` is reported, never hidden |
 | View as | `docs/agents/view-as.md` | Read-only, 30 minutes, reason required, allowlisted operators only; audit row BEFORE the cookie; the cookie is signed and bound to the signed-in operator; the middleware refuses every non-read request; a GET that heals on read checks `isViewAsSessionOpen()` |
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
@@ -446,7 +454,7 @@ answer. Fail closed to `true`.
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
 | Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |
-| Communication | `docs/agents/communication-inbox.md` | One inbox; one conversation per person per workspace (conversation key, created only by `resolve_or_create_conversation`); authorize then append; `formatInboxStamp`; never `inline` |
+| Communication | `docs/agents/communication-inbox.md` | One inbox; one conversation per person per workspace (conversation key, created only by `resolve_or_create_conversation`); authorize then append; `formatInboxStamp`; never `inline`; one Assistant per person per workspace and one human Team chat per workspace (`team-thread:<owner>:ws:<workspace>`, relayed by text, never an automated notice) |
 | Record pages | docs/agents/record-page.md | Residents standard; header icons per section; no footer or toolbar; picker on phone |
 | Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |
 | Plan entitlements | `docs/agents/plan-entitlements.md` | `resolveEffectiveManagerSkuTier` is the only plan a quota may read |
@@ -455,6 +463,7 @@ answer. Fail closed to `true`.
 | Tours | `docs/agents/tours-scheduling.md` | `slotKey` is Pacific wall time; `listOpenTourSlots` is the one "what's open" |
 | Inspections | `docs/agents/inspections.md` | Residency-scoped; a completed report is permanently locked |
 | Shared-room capacity | `docs/agents/shared-room-capacity.md` | One bed unless set; last bed is arbitrated in the database (409) |
+| Bookings surface | `docs/agents/bookings.md` | One `PropertyBookingEntry` shape for every source; five reads at a 12s cap and a failed one only costs its own rows, never the calendar; status is derived from the dates |
 | Group applications | `docs/agents/group-applications.md` | Several independent apps + shared `AXISGRP-…` id; a group never blocks |
 | Rent basis | `docs/agents/rent-basis.md` | `rentBasis` alone; daily never wins unless the manager set it |
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
@@ -463,7 +472,7 @@ answer. Fail closed to `true`.
 | Listing wizard defaults | `docs/agents/listing-wizard-defaults.md` | A record follows the Default card per field; the card is saved on the submission, never resolved downstream; counts make the cards |
 | Property import | `docs/agents/portfolio-import.md` | The drafts are the import; the model answers only through the tool and cites rows; rent is what the tenant pays, never market rent |
 | Address prefill | `docs/agents/listing-prefill.md` | Facts from RentCast only; never fetch a listing page — ad text arrives by paste; default-only fill with marks and undo; nothing sets the rent |
-| Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice; cross-party copies send as the manager; nothing automates a regulated notice |
+| Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice that reaches the owner and every teammate with the house (text from the owner's work number, billed to the owner; email from the work email), never a Team chat line; cross-party copies send as the manager; nothing automates a regulated notice |
 | Listing syndication | `docs/agents/listing-syndication.md` | Official APIs and feeds only, never scraping or headless posting; every post is one builder over `publicListingProjection` facts plus the workspace work number and work email (no work number = nothing posts); a listing missing a street address or a real photo is held with a reason, never given a placeholder; Facebook Page/Instagram stay "Coming soon" until `META_APP_LIVE=1` |
 | Vendor services | `docs/agents/vendor-marketplaces.md` | Outside marketplaces are plain public links the manager opens, never scraped or API-called; every URL curl-verified; an account row is a label plus an https link, never a credential, and only the service-role route reads it |
 | Integrations page | `docs/agents/integrations.md` | One page (Messages · Bookings · Posting · Google), a new channel is a row on it; linking/unlinking/syncing a channel calendar needs Calendar at `edit`; the export feed URL is built on the canonical server origin (request origin only for localhost outside production); Facebook Marketplace stays Copy post only (the post now carries the work number and email), Facebook Page auto-post connects once per workspace in Posting and stays Coming soon until the Meta app is approved |

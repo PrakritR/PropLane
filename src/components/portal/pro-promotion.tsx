@@ -3,7 +3,8 @@ import { ManagerIntegrationsAction } from "@/components/portal/manager-integrati
 import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
-import { listingChannelsOrdered } from "@/lib/listing-channels/registry";
+import { listingChannelsOrdered, type ListingChannelId } from "@/lib/listing-channels/registry";
+import { ListingSiteRecord } from "@/components/portal/listing-site-record";
 import { WorkspaceListingSitesPanel } from "@/components/portal/listing-sites-panel";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
@@ -104,6 +105,7 @@ import {
 import {
   parsePromotionKindSection,
   promotionDetailHref,
+  type ListingSiteTabId,
   promotionListHref,
 } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -161,11 +163,25 @@ function flyerEntryToDraft(
 
 export function ManagerPromotion({
   basePath = "/portal",
+  assetId,
+  listingSite,
+}: {
+  basePath?: string;
+  assetId?: string;
+  /** `/promotion/listing-sites/<channelId>/<tab>`: one listing site as a record page. */
+  listingSite?: { channelId: ListingChannelId; tab: ListingSiteTabId };
+} = {}) {
+  if (listingSite) return <ListingSiteRecord basePath={basePath} channelId={listingSite.channelId} tab={listingSite.tab} />;
+  return <ManagerPromotionBody basePath={basePath} assetId={assetId} />;
+}
+
+function ManagerPromotionBody({
+  basePath = "/portal",
   assetId: assetIdProp,
 }: {
   basePath?: string;
   assetId?: string;
-} = {}) {
+}) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const navigate = usePortalNavigate();
@@ -1012,7 +1028,7 @@ export function ManagerPromotion({
             </Button>
           </div>
         </>
-      ) : null}>{showSites ? <WorkspaceListingSitesPanel /> : <div data-attr="promotion-content-direct">
+      ) : null}>{showSites ? <WorkspaceListingSitesPanel basePath={basePath} /> : <div data-attr="promotion-content-direct">
         {visibleAssets.length === 0 ? (
           propertyScopedAssets.length === 0 && assets.length > 0 ? (
             <PortalListEmptyCard

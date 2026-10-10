@@ -10,8 +10,15 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_PHOTOS = 20;
-const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
+/**
+ * The whole zip is ONE serverless response body, and that is capped at ~4.5 MB:
+ * past it the download fails outright instead of arriving short. So the budget is
+ * under the platform's limit (zip overhead included) and a listing that does not
+ * fit ships as a labelled partial — `-partial` in the name and `X-Photos-Partial`
+ * — rather than as a download that never completes.
+ */
+const MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 8_000;
 /** Inside `maxDuration`: past this the zip ships with whatever was fetched rather than being killed. */
 const FETCH_DEADLINE_MS = 40_000;
@@ -24,8 +31,9 @@ function slugify(value: string): string {
 /**
  * One photo, read through a size-capped stream: the cap is enforced chunk by chunk, so a response
  * that declares no `Content-Length` can never buffer more than `cap` bytes. `cap` is also what is
- * left of the whole-zip budget, which keeps peak memory at `MAX_TOTAL_BYTES`, not
- * `MAX_PHOTOS * MAX_PHOTO_BYTES`.
+ * left of the whole-zip budget, so the fetched bytes never exceed `MAX_TOTAL_BYTES` rather than
+ * `MAX_PHOTOS * MAX_PHOTO_BYTES`. The zip is then built from a second copy of those bytes
+ * (`buildStoreZip`), so peak memory is about twice the budget.
  */
 async function fetchPhoto(url: string, cap: number, timeoutMs: number): Promise<Uint8Array | null> {
   if (cap <= 0 || timeoutMs <= 0) return null;
@@ -81,7 +89,10 @@ export async function GET(request: Request) {
   if (!listing) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
   const hosts = allowedPhotoHosts();
-  const allowed = listingPostPhotoUrls(listing.projected).filter((u) => isAllowedPhotoUrl(u, hosts));
+  // The denominator is every photo the listing has, not just the fetchable ones: a photo on a
+  // host this route will not read is still missing from the zip the manager posts.
+  const listed = listingPostPhotoUrls(listing.projected);
+  const allowed = listed.filter((u) => isAllowedPhotoUrl(u, hosts));
   const urls = allowed.slice(0, MAX_PHOTOS);
   if (urls.length === 0) return NextResponse.json({ error: "This listing has no photos to download." }, { status: 404 });
 
@@ -108,7 +119,7 @@ export async function GET(request: Request) {
 
   // A zip short of the listing's photos says so in its name and a header: 2 of 12 photos must
   // never look like a complete 2-photo listing, or the manager posts an under-photographed ad.
-  const partial = entries.length < allowed.length;
+  const partial = entries.length < listed.length;
   const zip = buildStoreZip(entries);
   return new NextResponse(zip as unknown as BodyInit, {
     status: 200,
@@ -117,7 +128,7 @@ export async function GET(request: Request) {
       "Content-Length": String(zip.length),
       "Content-Disposition": `attachment; filename="${slugify(listing.projected.title || propertyId)}-photos${partial ? "-partial" : ""}.zip"`,
       "Cache-Control": "private, no-store",
-      ...(partial ? { "X-Photos-Partial": `${entries.length}/${allowed.length}` } : {}),
+      ...(partial ? { "X-Photos-Partial": `${entries.length}/${listed.length}` } : {}),
     },
   });
 }

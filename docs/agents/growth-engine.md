@@ -35,8 +35,9 @@ value overrides the default per account.
 
 ## Security
 
-- Every `/api/admin/growth/*` route calls `requireAdminRoute()` first; crons use the same
-  `CRON_SECRET` bearer check as `dispatch-reminders`.
+- Every `/api/admin/growth/*` route calls `requireAdminRoute()` first; every growth cron gates on
+  the shared `requireCronSecret` (`src/lib/cron-auth.server.ts`, also used by
+  `dispatch-reminders`) — never a local copy of the bearer check.
 - `growth_*` tables: RLS enabled, **no** policies for `anon`/`authenticated` (deny all); server code
   uses the service-role client after the admin check. The PostgREST surface is public, so this is a
   hard requirement, not a default.
@@ -80,14 +81,16 @@ cards, not a table. Empty, loading and error states as drawn in the plan.
 ## Env
 
 `GROWTH_PUBLISHER`, `GROWTH_LATE_API_KEY`, `GROWTH_UPLOAD_POST_API_KEY`, `GROWTH_DIGEST_TO`
-(comma list; defaults to admin emails), `ANTHROPIC_API_KEY` (existing), `CRON_SECRET` (existing).
+(comma list; defaults to admin emails), `ANTHROPIC_API_KEY` (existing), `CRON_SECRET` (existing),
+`REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` (app-only OAuth for the Engage list's Reddit source;
+§ Phase 3 contract).
 
 ## Phases
 
-Phase 1 (this): tables, ideas, draft, review UI, publish (log/late/meta-image), digest, insights
-shell. Phase 2: reel studio (Veo/Kling, ElevenLabs, Playwright shots, Remotion, Meta Reels
-container flow). Phase 3: learn loop + engage list. Auto-follow/auto-like/auto-DM are out of scope
-permanently (platform terms).
+Phase 1 (landed): tables, ideas, draft, review UI, publish (log/late/meta-image), digest, insights
+shell. Phase 2 (landed): reel studio (Veo/Kling, ElevenLabs, Playwright shots, Remotion, Meta Reels
+container flow). Phase 3: engage list (landed — § Phase 3 contract) plus the learn loop (still to
+come). Auto-follow/auto-like/auto-DM are out of scope permanently (platform terms).
 
 ## Phase 2 contract: reel studio
 
@@ -150,7 +153,10 @@ permanently (platform terms).
 
 The engine **never follows, likes, DMs or posts on the admin's behalf** (auto-follow/like bots violate
 Instagram, TikTok and LinkedIn terms and get brand accounts restricted). It builds a ~10-minute daily list
-with a drafted comment per target; the admin edits it, taps Open, and posts by hand. The UI only opens links.
+with a drafted comment per target; the admin edits it, taps Open, and posts by hand. The UI only opens
+links, and only **https** ones: an engage item's or watchlist row's stored URL is parsed before
+`window.open`, so a `javascript:` / `data:` value does nothing (the write routes already refuse
+anything but `https://`).
 
 Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-only OAuth (`client_credentials`, token cached in module scope, one refresh on 401) when `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` are set (a "script" app at reddit.com/prefs/apps); with them unset it falls back to the anonymous `www.reddit.com` call.
 
@@ -180,8 +186,8 @@ Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-onl
   altogether once `ENGAGE_DRAFT_BUDGET_MS` (200 s) has elapsed, inside the routes' `maxDuration = 300`, and the
   result carries `stoppedEarly` so a build that ran out of time never looks like a complete one — Build now
   toasts `Added N · skipped M`, plus `stopped early, run again`.
-- **Cron** `growth-engage` (`0 12 * * *`, 04:00 PT) builds tomorrow's list (Pacific date). Its CRON_SECRET
-  bearer check is the shared `requireCronSecret` (`src/lib/cron-auth.server.ts`), not a local copy.
+- **Cron** `growth-engage` (`0 12 * * *`, 04:00 PT) builds tomorrow's list (Pacific date), gated like
+  every other growth cron (§ Security).
 - **Routes** (admin session): `GET /api/admin/growth/engage?date=`, `PATCH /engage/[id]` (`status`, `draft`),
   `POST /engage/build-now`, `GET/POST /watchlist`, `PATCH/DELETE /watchlist/[id]`, `GET/POST/DELETE /keywords`
   (`DELETE ?id=`).

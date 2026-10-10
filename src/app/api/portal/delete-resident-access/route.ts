@@ -37,6 +37,7 @@ export async function POST(req: Request) {
       purgeData?: unknown;
       applicationId?: unknown;
       mode?: unknown;
+      accountFate?: unknown;
     } | null;
     const emailInput = normalizeEmail(body?.email);
     const applicationId = typeof body?.applicationId === "string" ? body.applicationId.trim() : "";
@@ -48,6 +49,10 @@ export async function POST(req: Request) {
     // confirm dialog reads it, so the numbers a manager agrees to are the
     // server's, never the browser's own guess at what it can see.
     const preview = body?.mode === "preview";
+    // A confirm covering several residents asks for the counts alone: deciding each
+    // login's fate costs a query per relationship table, and the delete re-derives
+    // it per resident anyway. Display only — it gates nothing.
+    const previewAccountFate = body?.accountFate !== false;
 
     const svc = createSupabaseServiceRoleClient();
     if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
@@ -73,10 +78,15 @@ export async function POST(req: Request) {
       if (!applicationId) {
         return NextResponse.json({ error: "Choose the resident to preview." }, { status: 400 });
       }
-      const counted = await previewResidentApplicationRemoval(svc, { userId: user.id, isAdmin }, { applicationId, email });
+      const counted = await previewResidentApplicationRemoval(
+        svc,
+        { userId: user.id, isAdmin },
+        { applicationId, email },
+        { accountFate: previewAccountFate },
+      );
       // An admin's delete (below) removes the login whenever it holds no protected
       // role, so their preview must say that, not the manager rule.
-      if (isAdmin && counted.ok && counted.account !== "none") {
+      if (isAdmin && counted.ok && counted.account !== null && counted.account !== "none") {
         counted.account = (await canHardDeleteResident(svc, counted.email)).ok ? "deleted" : "kept";
       }
       return NextResponse.json(counted, { status: counted.ok ? 200 : counted.status });

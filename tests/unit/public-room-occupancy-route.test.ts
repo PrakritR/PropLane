@@ -36,8 +36,20 @@ describe("public occupancy refresh", () => {
   it("retains CDN caching for the background snapshot", async () => {
     const res = await GET(request(""));
     expect(res.headers.get("cache-control")).toContain("s-maxage=60");
-    expect(mocks.rate).not.toHaveBeenCalled();
     expect(mocks.load).toHaveBeenCalledWith(mocks.db, [{ id: "home" }, { id: "other" }]);
+  });
+  it("rate-limits the cached snapshot read too", async () => {
+    await GET(request(""));
+    expect(mocks.rate).toHaveBeenCalledWith("room-availability-snapshot:test-ip", 30, 60_000);
+    mocks.rate.mockResolvedValue({ ok: false });
+    expect((await GET(request(""))).status).toBe(429);
+  });
+  it("sends a snapshot read with any query string to the one cacheable URL, without touching the database", async () => {
+    const res = await GET(request("?x=random-1"));
+    expect(res.status).toBe(308);
+    expect(new URL(res.headers.get("location")!).search).toBe("");
+    expect(mocks.listings).not.toHaveBeenCalled();
+    expect(mocks.load).not.toHaveBeenCalled();
   });
   it("fails closed if availability cannot be loaded", async () => {
     mocks.load.mockRejectedValue(new Error("database unavailable"));

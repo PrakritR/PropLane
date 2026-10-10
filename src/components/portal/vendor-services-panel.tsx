@@ -49,7 +49,9 @@ export function VendorServicesPanel() {
   const workspaceCtx = useWorkspaces();
   const { showToast } = useAppUi();
   const confirm = useConfirm();
-  const { accountFor, workspaceId, refresh } = useVendorMarketplaceAccounts();
+  // Only the workspace OWNER may change these rows; the route refuses anyone else,
+  // so the actions are not offered to a co-manager rather than failing after the fact.
+  const { accountFor, canManage, workspaceId, refresh } = useVendorMarketplaceAccounts();
   const propertyIds = useMemo(() => workspaceCtx?.active?.propertyIds ?? [], [workspaceCtx?.active?.propertyIds]);
   const labels = workspaceCtx?.active?.propertyLabels;
   const [service, setService] = useState<ServiceKind>(DEFAULT_SERVICE);
@@ -159,10 +161,12 @@ export function VendorServicesPanel() {
                           <Button data-attr={`vendor-marketplace-menu-post-${def.id}`} onClick={() => openGuide(def)}>
                             Post a job
                           </Button>
-                          <Button data-attr={`vendor-marketplace-menu-account-${def.id}`} onClick={() => setAccountModalId(def.id)}>
-                            {account ? "Edit account" : "Add account"}
-                          </Button>
-                          {account ? (
+                          {canManage ? (
+                            <Button data-attr={`vendor-marketplace-menu-account-${def.id}`} onClick={() => setAccountModalId(def.id)}>
+                              {account ? "Edit account" : "Add account"}
+                            </Button>
+                          ) : null}
+                          {canManage && account ? (
                             <Button variant="danger" data-attr={`vendor-marketplace-menu-remove-${def.id}`} onClick={() => removeAccount(def)}>
                               Remove account
                             </Button>
@@ -186,6 +190,7 @@ export function VendorServicesPanel() {
           service={service}
           location={location}
           account={accountFor(guideDef.id)}
+          canManage={canManage}
           workspaceId={workspaceId}
           open
           onClose={() => setGuideId(null)}

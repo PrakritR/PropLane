@@ -61,13 +61,16 @@ afterEach(() => {
 });
 
 const guide = (id: string, extra: Record<string, unknown> = {}) =>
-  render(<ListingSiteGuide channelId={id as never} open onClose={() => {}} listings={[{ id: "p1", label: "Alder House" }, { id: "p2", label: "Birch Flats" }]} {...extra} />);
+  render(<ListingSiteGuide channelId={id as never} open onClose={() => {}} propertyId="p2" listingLabel="Birch Flats · 9 rooms" {...extra} />);
 
 describe("ListingSiteGuide", () => {
   for (const def of listingChannelsOrdered()) {
     it(`${def.id}: renders its own guide, never a Coming soon-only dead end`, async () => {
       guide(def.id);
-      expect(await screen.findByText(def.guide.how)).toBeTruthy();
+      await screen.findByText(listingGuideModeLine(def.posting, false, false));
+      // How it works and the rules live on the site's record page, not in this pop-up.
+      expect(screen.queryByText(def.guide.how)).toBeNull();
+      expect(document.querySelector('[data-attr="listing-site-guide-rules"]')).toBeNull();
       const dialog = document.querySelector('[data-attr="listing-site-guide"]') as HTMLElement;
       expect(dialog.textContent).not.toBe("Coming soon");
       if (def.posting === "partner_only") {
@@ -83,15 +86,13 @@ describe("ListingSiteGuide", () => {
       expect(signup.getAttribute("rel")).toBe("noopener noreferrer");
       expect((document.querySelector(`[data-attr="listing-site-create-${def.id}"]`) as HTMLAnchorElement).getAttribute("href")).toBe(def.guide.createUrl);
       expect(screen.getByText(def.guide.createNote)).toBeTruthy();
-      for (const rule of def.guide.rules) expect(screen.getByText(rule)).toBeTruthy();
-      expect(screen.getByText("Keep the account safe")).toBeTruthy();
     });
   }
 
-  it("workspace mode defaults the picker to the newest listing and shows its post, photos link and lead count", async () => {
+  it("is bound to its one listing (no picker) and shows its post, photos link and lead count", async () => {
     guide("craigslist");
     await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-post"]')?.textContent).toBe("POST for craigslist"));
-    expect(document.querySelector('[data-attr="listing-site-guide-picker"]')?.textContent).toContain("Birch Flats");
+    expect(document.querySelector('[data-attr="listing-site-guide-picker"]')).toBeNull();
     expect(screen.getByText("2 leads from this site")).toBeTruthy();
     const photos = document.querySelector('[data-attr="listing-site-photos-craigslist"]') as HTMLAnchorElement;
     expect(photos.getAttribute("href")).toBe("/api/manager/listing-channels/photos?propertyId=p2");
@@ -176,8 +177,8 @@ describe("ListingSiteGuide", () => {
     await waitFor(() => expect(document.querySelector('[data-attr="listing-site-guide-held"]')).not.toBeNull());
     expect(document.querySelectorAll('[data-attr="listing-site-guide-held"]')).toHaveLength(1);
     const table = document.querySelector('[data-attr="listing-site-guide-status-table"]') as HTMLElement;
-    expect(table.textContent).toContain("Alder House");
-    expect(table.textContent).toContain("Posting");
+    expect(table.textContent).toContain("Birch Flats · 9 rooms");
+    expect(table.textContent).toContain("Held: no photo");
   });
 
   it("Zillow with the feed approved hides the by-hand steps and keeps the status table", async () => {
@@ -187,7 +188,7 @@ describe("ListingSiteGuide", () => {
     expect(document.querySelector('[data-attr="listing-site-guide-steps"]')).toBeNull();
     expect(document.querySelector('[data-attr="listing-site-guide-step-1"]')).toBeNull();
     const zillowDef = LISTING_CHANNEL_DEFS.find((d) => d.id === "zillow")!;
-    expect(screen.getByText(zillowDef.guide.howApproved!)).toBeTruthy();
+    expect(screen.queryByText(zillowDef.guide.howApproved!)).toBeNull();
   });
 
   it("Zillow with the feed not approved still shows the by-hand steps", async () => {

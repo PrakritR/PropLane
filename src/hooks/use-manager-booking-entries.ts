@@ -149,7 +149,8 @@ export function useManagerBookingEntries({
         })
         .catch(() => {
           if (cancelled) return;
-          setBlocks([]);
+          // Keep the blocks already on screen: redrawing a held night as free invites a manager
+          // to reserve a room a channel or a resident already has. The Retry band says it is stale.
           markSource("blocks", "failed");
         });
     void load();
@@ -340,11 +341,9 @@ export function useManagerBookingEntries({
         setChannelLinks(channelLinksFromBookings(bookings));
         markSource("channel", "ok");
       },
-      () => {
-        setAirbnbEntries([]);
-        setChannelLinks([]);
-        markSource("channel", "failed");
-      },
+      // Same rule as the blocks read: a failed refresh keeps the last good channel stays rather
+      // than drawing their nights free.
+      () => markSource("channel", "failed"),
     );
     const occupancy = withTimeout(
       fetchOccupancySnapshot({ propertyIds: ids, from: occupancyWindow.from, to: occupancyWindow.to }),

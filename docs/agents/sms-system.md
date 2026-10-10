@@ -684,17 +684,62 @@ proved it controls via the verification code, honours
 `profiles.sms_forward_inbound`, and dedupes on the inbound MessageSid so a
 webhook retry cannot text twice.
 
-Team notices (WS5/WS6 — the manager↔manager Team thread's SMS mirror,
-`mirrorTeamThreadMessageToSms` in `team-comms.server.ts`) are in the slice
-with their own scope: purpose `team_notice`, `automated` class (`transactional`
-when urgent), sent from the
-OWNER's registered workspace number to the property + module roster minus
-the actor, consent materialized from the recipient manager's own verified
-work phone (`sms/team-notice-consent.server.ts` — an applicant's stamp never
-vouches for a co-manager; unverified, missing, mismatched or
-`sms_forward_inbound = false` grants nothing, a STOP is never overwritten).
-Quiet hours defer them like any automated send. Owner of what fires them:
-[automated-communication.md](automated-communication.md).
+Texts to a MANAGER on the workspace (the owner or a teammate), all from the
+workspace's OWN work number and billed to the workspace OWNER's credit
+(reserved before the provider call; a teammate is never billed and has no
+line of their own). Four purposes share one consent rule
+(`isManagerRecipientSmsPurpose` in `sms/team-notice-consent.server.ts`, used by
+`loadSendPolicy`): consent is the recipient's own verified work phone
+(`ensureTeamNoticeScopedSmsConsent`: verified, matching, `sms_forward_inbound`
+not false; a STOP or scoped revoke always wins), never a rental application. Three
+are below; the fourth, `team_inbound_forward`, is the resident forward further down.
+- **Assistant notices** (`manager_agent_notification_<category>`, body
+  `PropLane: …`, dedupe `notice:<idempotencyKey>:<memberId>`), sent by
+  `notifyManagerFromAgent` with `sendFrom: { ownerUserId, workspaceId }` and pinned
+  to the workspace line (`selected_work_line_id`, re-checked at dispatch). No
+  sendable number, no credit, unverified, STOP or forwarding off = no text, and
+  the in-app notice and email still go.
+- **Team chat relay** (`team_chat_relay`, `transactional`, body
+  `<FirstName>: <text>`, dedupe `team-chat:<messageId>:<memberId>`): a line typed
+  in the app or texted to the work number is relayed to every OTHER member, never
+  back to the sender, at most 60 relayed texts per workspace per hour (counted
+  from `sms_outbox`, blocked rows excluded; the chat keeps working and a text over
+  the cap is dropped, reported `hourly_cap`, never queued for later). The cap is
+  read before the fan-out, so it is **re-counted after each insert**
+  (`withdrawTeamRelayIfOverCap`): the loser of a race between two fan-outs is set
+  to `blocked` / `blocked_reason: "hourly_cap"` while still `queued`, and an
+  update that matches no row means the dispatcher already sent it — that text is
+  reported as sent, never as withheld. A member the relay could not text is
+  logged by reason (never a phone or a body); the inbound text still completes,
+  because a terminal reason would otherwise retry forever.
+- **Legacy `team_notice`** keeps the same consent rule (no producer remains).
+
+**A member texting the work number** (`routeManagerInboundText`,
+`sms/team-chat-inbound.server.ts`, after STOP/HELP and the unchanged
+"exactly one verified match" identity gate): a plain text from a member of THAT
+number's workspace, when the workspace has two or more people, is appended to the
+workspace Team chat as that member (`channel: "sms"`, idempotent on the
+MessageSid) and relayed. Text that starts `@assistant`, `assistant,` /
+`assistant:` or `@ai` (any case) goes to the Manager SMS agent with the address
+stripped and the answer goes only to the asker; a one-member workspace, a Viewer,
+or a sender who is not a member of that workspace keeps the agent route. A bare
+YES/NO (`classifySmsConfirmationReply`) also keeps the agent route when that
+member really has an open proposal on their own Assistant session: a
+confirmation is an authorization, and posted to the Team chat it would claim
+nothing and broadcast their private approval to every teammate. The check fails
+closed to the chat, so an unreadable session or proposal read is never read as
+an open proposal. Never log a raw phone or body.
+- **Resident inbound forward to teammates** (`team_inbound_forward`,
+  `inbound-forward-team.server.ts`): beside the owner's own forward
+  (`forwardResidentInboundToManagerCell`, unchanged), a resident's text is also
+  forwarded to accepted teammates of the number's workspace who hold
+  Communication notification on the resident's house, from the work number,
+  billed to the owner, dedupe `fwd:<MessageSid>:<memberId>`, same consent gate
+  and the same 60/hour workspace cap as the relay. The house is the one every
+  non-voided lease of the resident names; unresolved (none, several, unreadable),
+  prospects and unknown texters forward to the owner alone. Vendors have no
+  inbound forward.
+Owner of what fires notices: [automated-communication.md](automated-communication.md).
 
 Every other manager-directed ALERT SMS (tour alerts, work-order alerts, manager
 assistant introductions, and other platform-to-manager notices) is still
@@ -820,8 +865,30 @@ catalog, over text, with proposals confirmed by a `YES` reply. A self-SMS turn
 continues the authenticated actor's newest manager `portal_chat`, so the text
 and its assistant reply appear in PropLane Assistant with the same persisted
 timestamps and context as in-site turns. In-site turns append to that transcript
-but never send an SMS. Neither transport leg is copied into Communication, so a
-manager-to-self thread cannot reappear there. Proposals remain ordinary manager
+but never send an SMS.
+
+**One PropLane Assistant conversation across SMS and the app (captain, Oct 8).**
+Every text the work number exchanges with the manager's OWN phone is mirrored
+into their existing `agent_notice_<uid>` Assistant thread, stamped
+`channel: "sms"` — their inbound text (id `sms_in_<MessageSid>`, appended before
+the agent answers), the agent's reply, and a notice or reminder sent to their
+phone (`manager-assistant-thread-mirror.server.ts`; the thread id comes from
+`managerAgentNoticeThreadId`, the same function the in-app notices use, so there
+is never a second assistant conversation). The mirror is idempotent on the
+outbox id / MessageSid, so a webhook or repair-queue retry appends nothing. An
+outbound copy is written only once the carrier has accepted the text, and a
+failed append retries through that outbound's own `sms_outbox`
+conversation-log queue; nothing here ever sends or blocks a text.
+`notifyManagerFromAgent` writes the in-app copy under an `updated_at`
+compare-and-retry because the mirror appends to the same row, and pushes only a
+notice a row actually holds. Still **no second manager-to-self conversation** is
+projected into Communication: those sends carry
+`suppressConversationLog`, and a reply typed in the app thread stays in-app
+(`runManagerInboxAgentTurn`). Coverage:
+`tests/unit/manager-assistant-sms-thread.test.ts`,
+`tests/unit/agent-notice-single-thread.test.ts`.
+
+Proposals remain ordinary manager
 `agent_pending_actions` rows executed by the shared confirm gate. Migration
 `20260920120000_merge_manager_sms_into_portal_assistant.sql` folds existing
 `manager_sms` sessions into the actor's matching workspace archive and removes
@@ -1026,8 +1093,9 @@ Twilio Verify remains a separate transport; the pooled proxy relay is retired.
 number and is idempotent per owner/resident/ISO week through the durable outbox
 unique key. Purpose-specific consent is materialized only from server-owned
 evidence and a matching phone — the rental application's consent timestamp,
-or for the manager-directed `manager_inbound_forward` / `team_notice` purposes
-that manager's own phone verification; a later scoped revoke always wins.
+or for the manager-directed `manager_inbound_forward` / `team_notice` /
+`team_chat_relay` / `team_inbound_forward` / `manager_agent_notification_*`
+purposes that manager's own phone verification; a later scoped revoke always wins.
 
 STOP/START/HELP are authenticated and applied by one transactional RPC. A
 MessageSid-unique control receipt plus Twilio's immutable Message `dateCreated`
@@ -1293,7 +1361,10 @@ delivery path as other PropLane Assistant notices. Preferences → Manager alert
 is authoritative: `none` sends nothing, `assistant` writes the in-app Assistant
 notice and push, `personal_number` sends the grounded reminder from the
 manager's active work number to their personal phone (falling back to Assistant
-until both phone legs are ready), and `both` sends both copies.
+until both phone legs are ready), and `both` sends both copies. A copy that goes
+to their phone also lands in the one Assistant thread marked SMS — see § A
+manager texting a work number gets the AI; `personal_number` is where it is
+delivered, never whether the thread keeps it.
 
 `/api/cron/dispatch-reminders` runs every five minutes. Tour, manager-assigned
 task, service-order, work-order, and inspection sweeps enqueue manager-role

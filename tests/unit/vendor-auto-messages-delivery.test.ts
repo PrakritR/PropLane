@@ -81,6 +81,13 @@ function makeDb(profiles: Row[]) {
         mutation = p;
         return q;
       },
+      insert: (payload: Row) => {
+        if (rows().some((r) => r.id === payload.id)) {
+          return Promise.resolve({ error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+        }
+        rows().push({ ...payload });
+        return Promise.resolve({ error: null });
+      },
       upsert: (payload: Row, o?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
         const keys = (o?.onConflict ?? "id").split(",");
         const existing = rows().find((r) => keys.every((k) => r[k] === payload[k]));

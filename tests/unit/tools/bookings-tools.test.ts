@@ -6,6 +6,10 @@ import { executeWrite, previewWrite } from "./fake-agent-ctx";
 const grants = vi.hoisted(() => ({ read: new Set<string>(), edit: new Set<string>() }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCalendarAccessForProperty: vi.fn(async (_db: unknown, _user: string, propertyId: string) => grants.read.has(propertyId)),
+  // The read scope is resolved for the whole portfolio in one call, not per house.
+  managerCalendarReadableProperties: vi.fn(async (_db: unknown, _user: string, propertyIds: readonly string[]) =>
+    new Set(propertyIds.filter((id) => grants.read.has(id))),
+  ),
   managerCanWriteCalendarForProperty: vi.fn(async (_db: unknown, _user: string, propertyId: string) => grants.edit.has(propertyId)),
 }));
 
@@ -136,7 +140,12 @@ describe("list_bookings", () => {
     expect(out.count).toBe(3);
     expect(entries.find((e) => e.name === "Ana Resident")).toMatchObject({ kind: "lease", rent: { amount: 1500, basis: "monthly" }, source: "PropLane lease" });
     expect(entries.find((e) => e.name === "Jo Hold")).toMatchObject({ blockId: "axis_room_block_manager_a_1", rent: { amount: 900, basis: "monthly" } });
-    expect(entries.find((e) => e.name === "Reserved")).toMatchObject({ source: "Airbnb booking" });
+    // A channel stay's label is the feed's own text, so it arrives fenced as
+    // untrusted data rather than as a bare string the model could read as an instruction.
+    const guest = entries.find((e) => e.source === "Airbnb booking")!;
+    expect(guest.name).toEqual({
+      untrustedContent: "<<<EXTERNAL_CHANNEL_BOOKING from Airbnb>>> Reserved <<<END EXTERNAL_CHANNEL_BOOKING>>>",
+    });
   });
 
   it("never hands the snapshot a property the manager cannot read the calendar for", async () => {

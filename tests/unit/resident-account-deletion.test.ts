@@ -308,7 +308,17 @@ describe("deleting a resident deletes their PropLane account only when nothing e
     deleteOwnPortalAccount.mockRejectedValueOnce(new Error("Stripe offline"));
     const { db, rows } = database(baseSeed());
     const result = await removeResidentApplication(db as never, actor, input);
-    expect(result).toMatchObject({ ok: true, account: "failed", accountError: "Stripe offline" });
+    // A manager learns nothing about the login: "failed" would say one existed, and
+    // the provider's own message is operator detail. Both are kept for an admin.
+    expect(result).toMatchObject({ ok: true, account: "kept" });
+    expect(result).not.toHaveProperty("accountError");
+    deleteOwnPortalAccount.mockRejectedValueOnce(new Error("Stripe offline"));
+    const asAdmin = await removeResidentApplication(
+      database(baseSeed()).db as never,
+      { userId: "admin-1", isAdmin: true },
+      input,
+    );
+    expect(asAdmin).toMatchObject({ ok: true, account: "failed", accountError: "Stripe offline" });
     expect(rows.manager_application_records).toEqual([]);
     // The login (and so the resident's own threads) is still there; the response does not claim otherwise.
     expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["thread-own"]);
