@@ -23,6 +23,7 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { leaseIsFullyExecuted } from "@/lib/lease-pipeline-storage";
+import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
 import {
   combineOccupancyEntries,
   dayStayDisplayName,
@@ -237,7 +238,7 @@ const ROOM_BLOCK_ROW_PAGE = 500;
 const ROOM_BLOCK_ROW_MAX_PAGES = 40;
 const ROOM_BLOCK_ID_CHUNK = 100;
 
-type ApprovedHoldRow = { id: unknown; property_id: unknown; assigned_property_id: unknown; row_data: unknown };
+type ApprovedHoldRow = { id: unknown; manager_user_id: unknown; property_id: unknown; assigned_property_id: unknown; row_data: unknown };
 
 /**
  * Where an approved row can name one of these properties. Scope is by PROPERTY, never by
@@ -271,7 +272,7 @@ async function readApprovedHoldScope(db: SupabaseClient, scope: ApprovedHoldScop
   for (let page = 0; page < APPROVED_HOLD_ROW_MAX_PAGES; page += 1) {
     const base = db
       .from("manager_application_records")
-      .select("id, property_id, assigned_property_id, row_data")
+      .select("id, manager_user_id, property_id, assigned_property_id, row_data")
       .eq("row_data->>bucket", "approved");
     const scoped =
       scope.kind === "column"
@@ -331,7 +332,7 @@ export async function occupancyHoldEntries(
   meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
 ) {
   if (propertyIds.length === 0) return [];
-  const data = await readApprovedHoldRows(db, propertyIds);
+  const [data, authors] = await Promise.all([readApprovedHoldRows(db, propertyIds), loadOccupancyAuthors(db, propertyIds)]);
   const scoped = new Set(propertyIds);
   const leasedIds = new Set<string>();
   const leasedPeople = new Set<string>();
@@ -342,9 +343,12 @@ export async function occupancyHoldEntries(
     const email = row.residentEmail?.trim().toLowerCase();
     if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
   }
-  const holds = (data ?? [])
-    .map(holdRowFromApplication)
-    .filter((row) => scoped.has((row.assignedPropertyId || row.propertyId || "").trim()));
+  // A row holds a house's room only when its author is the owner or a teammate linked to that house.
+  const holds = (data ?? []).flatMap((row) => {
+    const hold = holdRowFromApplication(row);
+    const propertyId = (hold.assignedPropertyId || hold.propertyId || "").trim();
+    return scoped.has(propertyId) && occupancyAuthorTrusted(authors, propertyId, row.manager_user_id) ? [hold] : [];
+  });
   return applicationHoldEntries(holds, {
     properties: meta.properties,
     roomLabelForId: meta.roomLabelForId,

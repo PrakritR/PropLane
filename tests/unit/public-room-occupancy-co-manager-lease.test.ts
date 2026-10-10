@@ -77,7 +77,9 @@ function fakeDb(
           const data =
             table === "manager_property_records"
               ? [{ id: HOUSE, manager_user_id: OWNER, property_data: { listingSubmission: submission } }]
-              : [];
+              : table === "account_link_invites"
+                ? [{ inviter_user_id: OWNER, invitee_user_id: CO_MANAGER, assigned_property_ids: [HOUSE], team_role: "leasing" }]
+                : [];
           return Promise.resolve({ data, error: null }).then(resolve);
         },
       };

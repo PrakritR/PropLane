@@ -654,6 +654,24 @@ async function assertPropertyInActiveWorkspace(
   return scope.includes(propertyId);
 }
 
+/** Every property id a row names: its property columns and the property part of each room-choice value. */
+function applicationReferencedPropertyIds(row: Partial<DemoApplicantRow> | null | undefined): Set<string> {
+  const out = new Set<string>();
+  const add = (value: unknown) => {
+    const id = typeof value === "string" ? value.trim() : "";
+    if (id) out.add(id);
+  };
+  const application = (row?.application ?? {}) as Record<string, unknown>;
+  add(row?.propertyId);
+  add(application.propertyId);
+  add(row?.assignedPropertyId);
+  add(parseRoomChoiceValue(String(row?.assignedRoomChoice ?? "")).propertyId);
+  for (const [key, value] of Object.entries(application)) {
+    if (/^roomChoice\d*$/.test(key)) add(parseRoomChoiceValue(String(value ?? "")).propertyId);
+  }
+  return out;
+}
+
 async function resolveApplicationWriteOwner(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   callerId: string,
@@ -683,6 +701,30 @@ async function resolveApplicationWriteOwner(
     Boolean(pid) &&
     ((await managerHasCoManagerPermissionForProperty(db, callerId, pid, "applications", "edit")) ||
       (await managerHasCoManagerPermissionForProperty(db, callerId, pid, "residents", "edit")));
+
+  // Every house the row NAMES must be one the writer runs. Readers count an approved row toward
+  // each property it names (assigned / room-choice values included), so a row filed under the
+  // caller's own house but pointing a room at someone else's would show that room occupied.
+  // References the stored row already carried are not re-checked (a house that changed hands
+  // must not lock an old row), and a house that does not exist has no occupancy to plant on.
+  const alreadyNamed = applicationReferencedPropertyIds({
+    ...(existing?.row_data ?? {}),
+    propertyId: existing?.property_id ?? undefined,
+    assignedPropertyId: existing?.assigned_property_id ?? undefined,
+  } as DemoApplicantRow);
+  const newlyNamed = [...applicationReferencedPropertyIds(row)].filter((id) => !alreadyNamed.has(id));
+  if (newlyNamed.length > 0) {
+    const { data: namedRows, error: namedErr } = await db
+      .from("manager_property_records")
+      .select("id, manager_user_id")
+      .in("id", newlyNamed);
+    if (namedErr) return { ok: false, owner: existingOwner };
+    for (const named of namedRows ?? []) {
+      if (!newlyNamed.includes(String(named.id))) continue;
+      if (String(named.manager_user_id ?? "") === callerId) continue;
+      if (!(await canEditProperty(String(named.id)))) return { ok: false, owner: existingOwner };
+    }
+  }
 
   if (existingOwner) {
     if (existingOwner === callerId) {

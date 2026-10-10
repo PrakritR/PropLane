@@ -6,6 +6,7 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { canonicalRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX } from "@/lib/channel-calendar/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { loadOccupancyAuthors, occupancyAuthorTrusted, type OccupancyAuthors } from "@/lib/occupancy/row-authorship.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 type Listing = { id: string; listingSubmission?: ManagerListingSubmissionV1 | null };
@@ -32,6 +33,7 @@ async function executedApplicationIds(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   owners: string[],
   listingIds: string[],
+  authors: OccupancyAuthors,
 ): Promise<Set<string>> {
   const ids = new Set<string>();
   const pages = async (column: "manager_user_id" | "property_id", values: string[]) => {
@@ -40,12 +42,14 @@ async function executedApplicationIds(
       for (let offset = 0; ; offset += 500) {
         const { data, error } = await db
           .from("portal_lease_pipeline_records")
-          .select("row_data")
+          .select("row_data, manager_user_id, property_id")
           .in(column, slice)
           .order("id")
           .range(offset, offset + 499);
         if (error) throw error;
         for (const row of data ?? []) {
+          // A lease filed under a house by someone who does not manage it proves nothing about that house.
+          if (column === "property_id" && !occupancyAuthorTrusted(authors, String(row.property_id ?? ""), row.manager_user_id)) continue;
           for (const id of executedApplicationIdsFromLeaseRecords([row])) ids.add(id);
         }
         if ((data ?? []).length < 500) break;
@@ -97,6 +101,8 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       throw new Error("Listing owner could not be verified.");
     }
     const owners = [...new Set(ownerByListing.values())];
+    // A row counts for a house only when its author is the owner or a teammate linked to that house.
+    const authors = await loadOccupancyAuthors(db, listingIds);
     // Scope by PROPERTY, never by `manager_user_id`: a row's manager stamp is whoever authored it
     // (a co-manager of the workspace, a previous owner), so filtering on the owner dropped every
     // resident the owner did not personally add and showed their room as free. Same reach as the
@@ -176,7 +182,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
     // listing ids resolved above), so they run together. Results are applied in
     // the original order below, so the output is unchanged.
     const [executedIds, applicationRows, calendarRows, blockRows] = await Promise.all([
-      executedApplicationIds(db, owners, listingIds),
+      executedApplicationIds(db, owners, listingIds, authors),
       fetchApplicationRows(),
       fetchCalendarRows(),
       fetchBlockRows(),
@@ -196,6 +202,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
         listingById.get(String(row.assigned || row.assigned_property_id || row.property || row.property_id || row.application_property)) ??
         listingById.get(choice.split("::")[0] ?? "");
       if (!property) continue;
+      if (!occupancyAuthorTrusted(authors, property.id, row.manager_user_id)) continue;
       const canonicalChoice = canonicalRoomChoiceValue(choice);
       const candidates = property.listingSubmission?.rooms ?? [];
       const matched = candidates.filter(

@@ -56,6 +56,10 @@ function builder(rows: Row[]) {
       });
       return api;
     },
+    in: (column: string, values: unknown[]) => {
+      current = current.filter((row) => values.includes(row[column]));
+      return api;
+    },
     or: (expr: string) => {
       current = current.filter(orMatcher(expr));
       return api;
@@ -112,6 +116,7 @@ const LEASE = { start: "2027-03-01", end: "2027-03-31" };
 
 function seed() {
   tables.data = {
+    manager_property_records: [{ id: "p1", manager_user_id: "m1" }],
     external_calendar_connections: [
       conn("c-air", "airbnb", "tok-air", [AIRBNB]),
       conn("c-bdc", "booking_com", "tok-bdc", [BOOKING]),
