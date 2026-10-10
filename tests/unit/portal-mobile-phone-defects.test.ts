@@ -33,10 +33,10 @@ describe("phone tap targets (B-G)", () => {
 });
 
 describe("grouped list toggle (I) and KPI copy (K)", () => {
-  it("floats the expand/collapse-all control instead of giving it a row on phones", () => {
+  it("has no expand/collapse-all control, so it never takes a row on phones (groups start open)", () => {
     const src = read("src/components/portal/portal-grouped-record-list.tsx");
-    expect(src).toContain("max-lg:absolute");
-    expect(src).toContain("max-lg:[&>:nth-child(2)>button]:!pr-12");
+    expect(src).not.toContain("Expand all");
+    expect(src).not.toContain("Collapse all");
   });
   it("lets dashboard KPI copy take two lines on phones", () => {
     const src = read("src/components/portal/pro-dashboard-kpis.tsx");

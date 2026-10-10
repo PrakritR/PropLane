@@ -1676,13 +1676,13 @@ export function residentServiceDetailHref(
 // compatibility redirects from /teams/vendors and /services/vendors — a link that redirects on
 // every click costs a round trip and briefly shows the wrong section as active.
 export function vendorListHref(basePath: string, tab: VendorDirectoryTab = "yours"): string {
-  return tab === "catalog" ? `${basePath}/vendors?tab=catalog` : `${basePath}/vendors`;
+  return tab === "yours" ? `${basePath}/vendors` : `${basePath}/vendors?tab=${tab}`;
 }
 
-export type VendorDirectoryTab = "yours" | "catalog";
+export type VendorDirectoryTab = "yours" | "catalog" | "services";
 
 export function parseVendorDirectoryTab(raw: string | null | undefined): VendorDirectoryTab {
-  return raw === "catalog" ? "catalog" : "yours";
+  return raw === "catalog" || raw === "services" ? raw : "yours";
 }
 
 export function vendorCatalogDetailHref(
