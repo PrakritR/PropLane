@@ -246,7 +246,18 @@ export async function loadCoManagerNotificationRecipients(
   return out;
 }
 
-/** Fan out a PropLane Assistant notice to the owner and permitted co-managers. */
+/**
+ * Fan out a PropLane Assistant notice to the owner and every teammate with
+ * notification access to the house. Each person gets it in their OWN Assistant
+ * thread for the house's workspace, by text to their verified phone and by
+ * email to their account address. Teammate texts leave from the WORKSPACE
+ * OWNER's work number and are billed to the owner (`senderOwnerId`); a
+ * teammate is never charged and never has a line of their own.
+ *
+ * The owner's leg runs first and its failure propagates (the caller retries,
+ * every leg is idempotent per `idempotencyKey` + member). A teammate's failure
+ * never blocks the owner or the other teammates.
+ */
 export async function notifyPropertyScopedManagersFromAgent(
   db: ServiceClient,
   input: {
@@ -256,27 +267,50 @@ export async function notifyPropertyScopedManagersFromAgent(
     subject: string;
     text: string;
     externalText?: string;
+    /** What a teammate (not the owner) reads, when the owner's copy is addressed to the owner ("You ..."). */
+    teammateText?: string;
+    teammateExternalText?: string;
     threadType?: string;
     url?: string;
     category?: ManagerNotificationCategory;
     idempotencyKey?: string;
+    /** People already served another way (the actor who did the thing). */
+    excludeUserIds?: readonly string[];
   },
 ): Promise<void> {
-  const recipientIds = await resolvePropertyScopedManagerRecipientIds(db, {
-    ownerManagerUserId: input.ownerManagerUserId,
-    propertyId: input.propertyId,
-    channel: input.module,
-  });
+  const ownerId = input.ownerManagerUserId.trim();
+  const excluded = new Set((input.excludeUserIds ?? []).map((id) => id.trim()));
+  const recipientIds = (
+    await resolvePropertyScopedManagerRecipientIds(db, {
+      ownerManagerUserId: ownerId,
+      propertyId: input.propertyId,
+      channel: input.module,
+    })
+  ).filter((id) => !excluded.has(id));
   for (const userId of recipientIds) {
-    await notifyManagerFromAgent(db, {
-      landlordId: userId,
-      subject: input.subject,
-      text: input.text,
-      externalText: input.externalText,
-      threadType: input.threadType,
-      url: input.url,
-      category: input.category,
-      idempotencyKey: input.idempotencyKey ? `${input.idempotencyKey}:${userId}` : undefined,
-    });
+    const isOwner = userId === ownerId;
+    const deliver = () =>
+      notifyManagerFromAgent(db, {
+        landlordId: userId,
+        subject: input.subject,
+        text: isOwner ? input.text : (input.teammateText ?? input.text),
+        externalText: isOwner ? input.externalText : (input.teammateExternalText ?? input.externalText),
+        threadType: input.threadType,
+        url: input.url,
+        category: input.category,
+        idempotencyKey: input.idempotencyKey,
+        propertyId: input.propertyId ?? null,
+        senderOwnerId: ownerId,
+      });
+    if (isOwner) {
+      await deliver();
+      continue;
+    }
+    try {
+      await deliver();
+    } catch (error) {
+      // Masked: the teammate id and the notice body never reach a log.
+      console.error("teammate notice failed", error instanceof Error ? error.name : "unknown");
+    }
   }
 }

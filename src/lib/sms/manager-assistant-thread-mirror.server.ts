@@ -26,7 +26,9 @@ const MAX_APPEND_ATTEMPTS = 4;
 
 /** Purposes whose in-app copy is written by `notifyManagerFromAgent` itself. */
 export function outboxPurposeMirroredByNotice(purpose: string | null | undefined): boolean {
-  return String(purpose ?? "").startsWith("manager_agent_notification_");
+  const value = String(purpose ?? "");
+  // A Team chat relay lives in the Team chat, never in anyone's Assistant thread.
+  return value.startsWith("manager_agent_notification_") || value === "team_chat_relay";
 }
 
 /** The workspace a work number belongs to, from the number the text went out on. */

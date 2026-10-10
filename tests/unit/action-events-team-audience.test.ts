@@ -6,11 +6,14 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({
   deliverPortalInboxMessage: (...args: unknown[]) => deliver(...(args as [])),
 }));
 
+// Automated notices go to each person's PropLane Assistant, never into the Team chat.
+const notifyScoped = vi.fn(async (..._args: unknown[]) => undefined);
+vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
+  notifyPropertyScopedManagersFromAgent: (...args: unknown[]) => notifyScoped(...args),
+}));
 const postTeamThreadMessage = vi.fn(async () => ({ ok: true as const, posted: true }));
-const mirrorTeamThreadMessageToSms = vi.fn(async () => []);
 vi.mock("@/lib/team-comms.server", () => ({
   postTeamThreadMessage: (...args: unknown[]) => postTeamThreadMessage(...(args as [])),
-  mirrorTeamThreadMessageToSms: (...args: unknown[]) => mirrorTeamThreadMessageToSms(...(args as [])),
 }));
 
 const queueActionEventDraftForReview = vi.fn(async () => ({ ok: true as const }));
@@ -18,7 +21,7 @@ vi.mock("@/lib/action-event-draft-review.server", () => ({
   queueActionEventDraftForReview: (...args: unknown[]) => queueActionEventDraftForReview(...(args as [])),
 }));
 
-import { emitActionEvent } from "@/lib/action-events.server";
+import { emitActionEvent, teammateNoticeText } from "@/lib/action-events.server";
 
 type Row = Record<string, unknown> & { id: string };
 
@@ -73,10 +76,11 @@ function fakeDb() {
   return { db: { from } as unknown as SupabaseClient, tables };
 }
 
-describe("action-events: team audience (WS5)", () => {
+describe("action-events: notices reach the team through each person's Assistant", () => {
   beforeEach(() => {
+    notifyScoped.mockClear();
+    notifyScoped.mockResolvedValue(undefined);
     postTeamThreadMessage.mockClear();
-    mirrorTeamThreadMessageToSms.mockClear();
     deliver.mockClear();
     queueActionEventDraftForReview.mockClear();
   });
@@ -91,58 +95,109 @@ describe("action-events: team audience (WS5)", () => {
     senderUserId: "owner-1",
     senderEmail: "owner@example.com",
     senderName: "Owner",
+    payload: { propertyId: "house-1" },
     now: new Date("2026-09-16T20:00:00.000Z"),
   };
 
-  it("posts once to the team thread and mirrors to SMS, and finalizes the delivery as delivered", async () => {
+  it("a manager's own copy fans out to the owner AND the teammates with the house (module from the domain), with a teammate-voiced line, and posts nothing to the Team chat", async () => {
     const { db, tables } = fakeDb();
     const result = await emitActionEvent(db, {
       ...baseInput,
       recipients: [
-        { audience: "team", userId: "owner-1", rendered: { subject: "Approved", text: "I approved Alex's application." } },
+        { audience: "manager", userId: "owner-1", rendered: { subject: "Approved", text: "You approved Alex's application." } },
       ],
     });
     expect(result.delivered).toBe(1);
-    expect(postTeamThreadMessage).toHaveBeenCalledTimes(1);
-    expect(postTeamThreadMessage).toHaveBeenCalledWith(
-      db,
-      expect.objectContaining({
-        ownerManagerUserId: "owner-1",
-        actorUserId: "owner-1",
-        actorName: "Owner",
-        messageId: "action-event:app-1:application_approved:approved:team:owner-1",
-      }),
-    );
-    expect(mirrorTeamThreadMessageToSms).toHaveBeenCalledTimes(1);
+    expect(notifyScoped).toHaveBeenCalledTimes(1);
+    expect(notifyScoped.mock.calls[0]![1]).toMatchObject({
+      ownerManagerUserId: "owner-1",
+      propertyId: "house-1",
+      module: "applications",
+      subject: "Approved",
+      text: "You approved Alex's application.",
+      teammateText: "Owner approved Alex's application.",
+      threadType: "action_event",
+      idempotencyKey: "action-event:app-1:application_approved:approved:manager",
+    });
+    expect(postTeamThreadMessage).not.toHaveBeenCalled();
     expect(tables.action_event_deliveries[0]!.status).toBe("delivered");
-    expect(deliver).not.toHaveBeenCalled(); // team never goes through the person-inbox delivery path
+    expect(deliver).not.toHaveBeenCalled();
   });
 
-  it("marks the delivery failed and retryable when the team-thread post fails", async () => {
-    postTeamThreadMessage.mockResolvedValueOnce({ ok: false, error: "Could not post to the team thread." });
+  it("marks the delivery failed and retryable when the owner's notice fails", async () => {
+    notifyScoped.mockRejectedValueOnce(new Error("Manager SMS was not accepted for delivery."));
     const { db, tables } = fakeDb();
     const result = await emitActionEvent(db, {
       ...baseInput,
-      recipients: [
-        { audience: "team", userId: "owner-1", rendered: { subject: "Approved", text: "I approved Alex's application." } },
-      ],
+      recipients: [{ audience: "manager", userId: "owner-1", rendered: { subject: "Approved", text: "You approved Alex's application." } }],
     });
     expect(result.failed).toBe(1);
     expect(tables.action_event_deliveries[0]!.status).toBe("failed");
     expect(tables.action_event_deliveries[0]!.next_attempt_at).toBeTruthy();
   });
 
-  it("a failed SMS mirror never fails the team-thread post itself", async () => {
-    mirrorTeamThreadMessageToSms.mockRejectedValueOnce(new Error("sms down"));
+  it("a team-only event (tour claimed) is the same fan-out, minus the person who acted, and still never a Team chat line", async () => {
+    const { db, tables } = fakeDb();
+    const result = await emitActionEvent(db, {
+      ...baseInput,
+      eventId: "tour-1:claimed",
+      domain: "tour" as const,
+      event: "claimed",
+      category: "leases" as const,
+      senderUserId: "host-1",
+      recipients: [{ audience: "team", userId: "owner-1", rendered: { subject: "Tour claimed", text: "Host claimed the tour." } }],
+    });
+    expect(result.delivered).toBe(1);
+    expect(notifyScoped.mock.calls[0]![1]).toMatchObject({
+      ownerManagerUserId: "owner-1",
+      propertyId: "house-1",
+      module: "calendar",
+      idempotencyKey: "action-event:tour-1:claimed:team",
+      excludeUserIds: ["host-1"],
+    });
+    expect(postTeamThreadMessage).not.toHaveBeenCalled();
+    expect(tables.action_event_deliveries[0]!.status).toBe("delivered");
+  });
+
+  it("a team copy for a person who also has a manager copy is the same notice twice: only one fan-out", async () => {
     const { db, tables } = fakeDb();
     const result = await emitActionEvent(db, {
       ...baseInput,
       recipients: [
+        { audience: "manager", userId: "owner-1", rendered: { subject: "Approved", text: "You approved Alex's application." } },
         { audience: "team", userId: "owner-1", rendered: { subject: "Approved", text: "I approved Alex's application." } },
       ],
     });
     expect(result.delivered).toBe(1);
-    expect(tables.action_event_deliveries[0]!.status).toBe("delivered");
+    expect(notifyScoped).toHaveBeenCalledTimes(1);
+    expect(tables.action_event_deliveries).toHaveLength(1);
+  });
+
+  it("when a TEAMMATE acted, the owner gets the normal message and the other teammates hear it, never the actor", async () => {
+    const { db } = fakeDb();
+    await emitActionEvent(db, {
+      ...baseInput,
+      senderUserId: "mate-1",
+      senderName: "Prakrit",
+      recipients: [{ audience: "manager", userId: "owner-1", rendered: { subject: "Approved", text: "You approved Alex's application." } }],
+    });
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(notifyScoped).toHaveBeenCalledTimes(1);
+    expect(notifyScoped.mock.calls[0]![1]).toMatchObject({
+      ownerManagerUserId: "owner-1",
+      text: "Prakrit approved Alex's application.",
+      excludeUserIds: ["owner-1", "mate-1"],
+    });
+  });
+
+  it("teammateNoticeText turns the owner's second person into the actor's name and nothing else", () => {
+    expect(teammateNoticeText("You signed the lease. It is waiting on Jo.", "Ambika")).toBe("Ambika signed the lease. It is waiting on Jo.");
+    expect(teammateNoticeText("Jo signed the lease. It is waiting on your countersignature.", "Ambika")).toBe(
+      "Jo signed the lease. It is waiting on the countersignature.",
+    );
+    expect(teammateNoticeText("You approved it", undefined)).toBe("A teammate approved it");
+    expect(teammateNoticeText("$1,000.00 was received.", "Ambika")).toBe("$1,000.00 was received.");
+    expect(teammateNoticeText("Your payment arrived", "Ambika")).toBe("Your payment arrived");
   });
 
   it("draft-for-review queues a resident recipient as a pending draft instead of sending, and never retries into a real send", async () => {
