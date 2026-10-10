@@ -6,9 +6,10 @@ import "server-only";
  * Emitted by the channel calendar sync (`syncChannelCalendarConnection`) when
  * the diff of the connection's stored ranges finds a reservation that is new
  * or gone. Delivery is the bus's own manager path - the same one a confirmed
- * tour takes: `emitActionEvent` -> `deliverProjection` -> `notifyManagerFromAgent`
- * (the PropLane Assistant notice, which follows the manager's alert destination
- * and so reaches the work number's SMS). Nothing here changes delivery.
+ * tour takes: `emitActionEvent` -> `deliverProjection` ->
+ * `notifyPropertyScopedManagersFromAgent` (the PropLane Assistant notice for the
+ * owner and every teammate with the house, which follows each recipient's alert
+ * destination and so reaches the work number's SMS). Nothing here changes delivery.
  *
  * Idempotent: the event id is the connection + the stay, so a re-run sync (or a
  * retry after a failed save) never notifies twice.

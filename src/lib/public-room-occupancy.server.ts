@@ -172,7 +172,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       }
       return all;
     };
-    // The three reads are independent of one another (all key off the owner and
+    // The four reads are independent of one another (all key off the owner and
     // listing ids resolved above), so they run together. Results are applied in
     // the original order below, so the output is unchanged.
     const [executedIds, applicationRows, calendarRows, blockRows] = await Promise.all([

@@ -25,8 +25,12 @@ idempotency, deferral, and retry.
 - Put only ids, enums, and non-sensitive routing facts in `payload`. Audience
   copy is rendered before it reaches the bus.
 
-Team-only additions outside that constant: `tour.claimed` and
-`availability.changed` (`tour-events.server.ts`). The `team` audience and the
+Domains outside that constant: the team-only `tour.claimed` and
+`availability.changed` (`tour-events.server.ts`), and `channel_booking`
+(`channel_booking_created` / `channel_booking_cancelled`, manager audience,
+`channel-booking-events.server.ts` — owned by
+[`docs/agents/integrations.md`](agents/integrations.md) § Two-way with Airbnb).
+The `team` audience and the
 auto-send / draft-for-review gate are described in
 [`docs/agents/automated-communication.md`](agents/automated-communication.md).
 
@@ -41,8 +45,11 @@ Replays cannot create another consumer row. The same event-derived `messageId`
 is passed through `deliverPortalInboxMessage`, so a retry cannot append the same
 turn twice even if delivery succeeded before the outbox status was committed.
 
-Delivery (for every audience but `team`, which posts once into the owner's
-Team thread) continues to use one person-pair conversation, Pacific timestamps,
+Delivery (for every audience but `team`, and but a `manager` copy of what that
+manager themself did — both are PropLane Assistant notices fanned out to the
+owner and every teammate with the house, never a Team chat post, see
+[`docs/agents/automated-communication.md`](agents/automated-communication.md))
+continues to use one person-pair conversation, Pacific timestamps,
 server-side recipient authorization, and the durable inbox rules in
 `docs/agents/communication-inbox.md`. Email and SMS follow the recipient's
 category preferences. Deferred and failed rows are retried by

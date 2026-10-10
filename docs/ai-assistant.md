@@ -410,7 +410,11 @@ Deliberately NOT tools: lease signing (legal ceremony — deep-link to
 
 The manager catalog above MINUS every tool flagged `destructive`, for a manager
 texting their own work number from their verified cell. Derived from the flag,
-never a name list. Reasoning and the upgrade path:
+never a name list. A plain text from a member of a workspace with two or more
+people now goes to that workspace's Team chat instead; the agent answers when the
+text is addressed to it (`@assistant` / `assistant,` / `@ai`), and for a
+one-member workspace, a Viewer, or a sender who is not a member of that number's
+workspace. Routing, consent and the upgrade path:
 [`docs/agents/sms-system.md`](agents/sms-system.md).
 
 ### Prospect leasing SMS (`leasingSmsAgentRegistry`)

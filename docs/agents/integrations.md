@@ -112,6 +112,20 @@ Airbnb has no public write API, so the two directions are not equally fast:
   never for a host block, never for a stay that already ended, and idempotent on
   connection + stay (`eventId`), so a re-run does not notify twice. Copy carries no guest
   name; the payload keeps only what the feed exposes ("Reserved" when it hides the guest).
+- **Who booked.** The feed never carries the guest's name, so a stay is identified from
+  three things. Two are read off the event DESCRIPTION
+  (`parseReservationDescription`, `reservation-details.ts`): the **reservation code**
+  (`HM…`, taken only from a `https://www.airbnb.com/hosting/reservations/details/<code>`
+  URL, and the Open-in-Airbnb link is rebuilt from the code — never the raw feed URL) and
+  the guest's **phone ending** (last 4). Both show as fact rows on the booking record page;
+  the raw description is never stored. The third is the **name the manager types**
+  (`channel_stay_details`, keyed connection + `source_uid`, `20261009190000_channel_stay_details.sql`):
+  RLS on with no client policy or grant, so `GET/PUT
+  /api/portal/channel-calendar/stay-details` is the only door. It needs Calendar `read` / `edit` on
+  the connection's OWN house (a house id in the body is never read), only names a stay the
+  connection still carries, and clearing both fields deletes the row. One label rule
+  everywhere a guest is drawn (`bookingEntryGuestLabel`): the typed name, else
+  "Airbnb guest · HM…", else the feed summary — host blocks keep their own label.
 - **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
   available)". `isHostBlockRange` keeps that out of the alert diff, and
   `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when it sits inside a
