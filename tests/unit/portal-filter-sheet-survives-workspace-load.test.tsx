@@ -71,7 +71,11 @@ let refreshWorkspaces: (() => Promise<void>) | null = null;
 /** Names the active workspace, and counts how often the keyed subtree was rebuilt. */
 function WorkspaceProbe() {
   const ctx = useWorkspaces();
-  refreshWorkspaces = ctx?.refresh ?? null;
+  const refresh = ctx?.refresh ?? null;
+  // Published from an effect, not the render body: the test calls it after mount.
+  useEffect(() => {
+    refreshWorkspaces = refresh;
+  }, [refresh]);
   useEffect(() => {
     mounts += 1;
   }, []);
