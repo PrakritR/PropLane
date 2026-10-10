@@ -84,6 +84,12 @@ test.describe("Anchored mobile row-action menu", () => {
  * Properties tabs render no `PortalFilterSortSheet`.
  */
 test.describe("Phone Filter bottom sheet", () => {
+  // The sheet-vs-popover decision reads `(pointer: fine)`, not the width alone: a
+  // narrow window on a Mac deliberately keeps the anchored popover. Running this
+  // block on the default desktop profile therefore asserts the sheet in the one
+  // configuration the product does not promise it, and the drawer it did mount
+  // settled off-screen. Emulate a touch phone so the case matches its own premise.
+  test.use({ hasTouch: true, isMobile: true });
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test manager");
   test.beforeEach(async ({ page }) => {
     await signInAsManager(page);
@@ -104,9 +110,19 @@ test.describe("Phone Filter bottom sheet", () => {
       await expect(sheet).toBeVisible({ timeout: 10_000 });
       await expect(page.locator('[data-attr="portal-filter-dropdown-panel"]')).toHaveCount(0);
 
+      // The sheet slides up from off-screen, so it is `visible` for the whole
+      // ~300ms of that transform. Measuring the box the instant it appears reads
+      // the START of the animation (y = viewport height) and fails a geometry
+      // assertion that the settled sheet passes — poll until it comes to rest.
+      await expect
+        .poll(async () => {
+          const box = await sheet.boundingBox();
+          return box ? Math.round(box.y + box.height) : Number.POSITIVE_INFINITY;
+        }, { timeout: 10_000 })
+        .toBeLessThanOrEqual(height + 1);
+
       const sheetBox = (await sheet.boundingBox())!;
       expect(sheetBox.width).toBeGreaterThanOrEqual(width - 1);
-      expect(sheetBox.y + sheetBox.height).toBeLessThanOrEqual(height + 1);
       const save = sheet.locator('[data-attr="portal-filter-save"]');
       await expect(save).toBeVisible();
       const saveBox = (await save.boundingBox())!;
