@@ -49,6 +49,8 @@ export type OccupancySnapshotStay = {
   end: string;
   kind: ReturnType<typeof occupancyStayKind>;
   name: string;
+  /** Resident-backed stays only — what the resident pays per month, when it is on file. */
+  monthlyRent?: number;
 };
 
 function eachDayKey(from: string, to: string): string[] {
@@ -107,6 +109,11 @@ function leaseBookingRowFromScope(record: {
   } as LeaseBookingRow & { residentEmail?: string };
 }
 
+function positiveNumber(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export function holdRowFromApplication(row: {
   id: unknown;
   property_id?: unknown;
@@ -129,9 +136,14 @@ export function holdRowFromApplication(row: {
       leaseEnd: str(application.leaseEnd) || undefined,
       roomChoice1: str(application.roomChoice1) || undefined,
     },
+    signedMonthlyRent: positiveNumber(data.signedMonthlyRent),
     manualResidentDetails: {
       moveInDate: str(manual.moveInDate) || undefined,
       moveOutDate: str(manual.moveOutDate) || undefined,
+      phone: str(manual.phone) || undefined,
+      monthlyRent: positiveNumber(manual.monthlyRent),
+      securityDeposit: typeof manual.securityDeposit === "number" && Number.isFinite(manual.securityDeposit) ? manual.securityDeposit : undefined,
+      leaseTerm: str(manual.leaseTerm) || undefined,
     },
   };
 }
@@ -310,7 +322,7 @@ export async function occupancyHoldEntries(
     const email = row.residentEmail?.trim().toLowerCase();
     if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
   }
-  const holds = data
+  const holds = (data ?? [])
     .map(holdRowFromApplication)
     .filter((row) => scoped.has((row.assignedPropertyId || row.propertyId || "").trim()));
   return applicationHoldEntries(holds, {
@@ -403,6 +415,9 @@ export async function occupancySnapshotForManager(
     end: entry.end,
     kind: occupancyStayKind(entry),
     name: dayStayDisplayName(entry),
+    ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
+      ? { monthlyRent: entry.monthlyRent }
+      : {}),
   }));
   return {
     days,

@@ -8,6 +8,10 @@ import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 const grants = vi.hoisted(() => ({ read: new Set<string>() }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCalendarAccessForProperty: vi.fn(async (_db: unknown, _user: string, id: string) => grants.read.has(id)),
+  // The read scope is resolved for the whole portfolio in one call, not per house.
+  managerCalendarReadableProperties: vi.fn(async (_db: unknown, _user: string, propertyIds: readonly string[]) =>
+    new Set(propertyIds.filter((id) => grants.read.has(id))),
+  ),
   managerCanWriteCalendarForProperty: vi.fn(async () => false),
 }));
 vi.mock("@/lib/occupancy/snapshot.server", () => ({ occupancySnapshotForManager: vi.fn() }));
