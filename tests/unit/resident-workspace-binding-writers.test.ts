@@ -43,7 +43,10 @@ describe("resident_workspace_bindings writers", () => {
     const gate = route.lastIndexOf("if (residentSelfWrite && !isDraftShapedApplicationRow(row)) {", call);
     expect(gate).toBeGreaterThan(-1);
     // Written only after the row itself is stored, so the proof never outlives a failed save.
-    const save = route.lastIndexOf("row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);", call);
+    const save = [...route.matchAll(/row = await persistNormalizedRow\(\s*db, authorizedWriteRecord\?\.id \?\? row\.id, row, authorizedWriteRecord,/g)]
+      .map((match) => match.index)
+      .filter((index) => index < call)
+      .at(-1) ?? -1;
     expect(save).toBeGreaterThan(-1);
     expect(save).toBeLessThan(gate);
     // The id is the session's, never the body's.
