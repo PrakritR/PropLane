@@ -200,7 +200,6 @@ async function renderBookings() {
     </AppUiProvider>,
   );
   for (let i = 0; i < 6; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
     await act(async () => { await Promise.resolve(); });
   }
   return view;
@@ -235,7 +234,11 @@ describe("evidence · Bookings draws every resident from the occupancy snapshot"
     // the only way a resident reached the calendar was the ~30s applications read.
     occupancyFetch.mockResolvedValue({
       ...snapshot,
-      stays: snapshot.stays.map(({ resident: _drop, ...rest }) => rest),
+      stays: snapshot.stays.map((stay) => {
+        const withoutResident = { ...stay };
+        delete withoutResident.resident;
+        return withoutResident;
+      }),
     });
     const view = await renderBookings();
     const text = view.container.textContent ?? "";
