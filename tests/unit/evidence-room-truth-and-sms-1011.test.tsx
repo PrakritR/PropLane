@@ -295,6 +295,7 @@ const PROPERTY_ROW = {
  * Both shapes come from the SAME fixture row, so the two readers cannot be fed different facts.
  */
 function flatApplication(app: (typeof APPLICATIONS)[number]) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = app.row_data as Record<string, any>;
   return {
     id: app.id,
