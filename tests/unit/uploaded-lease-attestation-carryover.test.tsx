@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import { buildUploadedLeaseParse, type UploadedLeaseParse } from "@/lib/uploaded-lease-extraction";
@@ -56,8 +56,20 @@ const confirmBtn = () => document.body.querySelector<HTMLButtonElement>('[data-a
 const fieldInput = (key: string) =>
   document.body.querySelector<HTMLInputElement>(`[data-attr="uploaded-lease-field-${key}"]`);
 
-afterEach(() => {
+// The review modal is a Radix dialog. Its focus scope schedules a 0 ms timer on unmount that
+// dispatches an event on the (by then removed) container. Under a loaded full run that timer fired
+// after the test environment was torn down: an unhandled "dispatchEvent" TypeError that made the
+// whole run exit 1. Same fix as `approve-application-owed-forms-confirm.test.tsx` — fake timers
+// (still advancing with the clock, so waitFor keeps working) let the test unmount first and run
+// every pending timer while the document still exists.
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+afterEach(async () => {
   cleanup();
+  await vi.runAllTimersAsync();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
