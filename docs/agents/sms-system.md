@@ -441,7 +441,7 @@ classified by `routeUnrecognizedInboundText`
 - any other unknown number becomes **one** Potential resident: a
   `manager_application_records` row (`smsLead: true`, stage "In progress", the
   `@import.proplane.local` placeholder email every phone-only resident uses, the
-  name from "this is <Name>" else the formatted phone), listed under Residents >
+  name from an explicit self-introduction ("my name is / this is / I'm <Name>", `contact-name.ts`; never a phrase like "looking for") else the formatted phone), listed under Residents >
   Potential. It is stamped with the workspace whose line was texted
   (`smsLeadWorkspaceId`) because it names no house;
 - STOP/START/HELP create nothing; a phone that already has an application row

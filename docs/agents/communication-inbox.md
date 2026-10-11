@@ -143,6 +143,10 @@ admin:
 A new Communication surface is an adapter, not a copy of the inbox. Both adapters
 are held to one contract in `tests/unit/communication-inbox-adapter-contract.test.tsx`.
 
+## Text conversations: one row, titled by the person or their number
+
+A text conversation is ONE list row and is titled contact record name, then a validated saved contact name, then the formatted phone; "PropLane Assistant" titles only `agent_notice` / `resident_agent` / `vendor_agent` rows (never a turn's author), a name is saved only from an explicit self-introduction ("my name is", "this is", "I'm" + a name-like token, `src/lib/sms/contact-name.ts`) or a real record and never overwrites a manager-entered one, and a stored SMS notice whose original is projected keeps no row of its own (`reduceSmsNoticeRow` drops the server's `auto_reply_*` echo; folded rows count unread once). Tests: `sms-contact-name`, `sms-conversation-single-row`; repair: `scripts/repair-sms-contact-display-names.mjs`.
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
