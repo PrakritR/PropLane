@@ -60,10 +60,22 @@ describe("isPlausibleContactName", () => {
 describe("contactNameRepairVerdict", () => {
   it("clears guessed phrases and phone labels, keeps names and blanks", () => {
     expect(contactNameRepairVerdict("looking for")).toMatchObject({ keep: false });
+    expect(contactNameRepairVerdict("interested in the room")).toMatchObject({ keep: false });
+    expect(contactNameRepairVerdict("a student")).toMatchObject({ keep: false });
     expect(contactNameRepairVerdict("(425) 984-9697")).toMatchObject({ keep: false });
+    expect(contactNameRepairVerdict("+14259849697")).toMatchObject({ keep: false });
     expect(contactNameRepairVerdict("Plumber · (425) 984-9697")).toMatchObject({ keep: false });
     expect(contactNameRepairVerdict("Maya Chen")).toEqual({ keep: true });
     expect(contactNameRepairVerdict("maya")).toEqual({ keep: true });
     expect(contactNameRepairVerdict(null)).toEqual({ keep: true });
+  });
+
+  // The repair deletes data, so it is narrower than the rule that gates a NEW guess: every one of
+  // these fails `isPlausibleContactName` and is still something a manager may have typed.
+  it("never clears a name or label a manager could have typed", () => {
+    for (const name of ["Maya West", "Guy Fieri", "Joe's Plumbing 24/7", "Unit 4", "Rico North", "Dana Place", "5257 Brooklyn"]) {
+      expect(isPlausibleContactName(name)).toBe(false);
+      expect(contactNameRepairVerdict(name)).toEqual({ keep: true });
+    }
   });
 });

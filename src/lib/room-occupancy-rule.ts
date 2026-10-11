@@ -56,10 +56,20 @@ function uncovered(span: Interval, covering: readonly Interval[]): Interval[] {
   return out;
 }
 
+/**
+ * A span only occupies days when it has a first day and does not end before it. An End typed
+ * before its Start is the one thing a manager can get wrong, and it must never SUBTRACT a bed:
+ * aggregated, it would net out a real occupant and publish an occupied room as free.
+ */
+function occupies(span: RoomBedSpan): boolean {
+  return Boolean(span.start) && (span.end === null || span.end === undefined || span.end >= span.start) && (span.count ?? 1) > 0;
+}
+
 /** Anonymous capacity spans for one room: every occupant, minus channel closures echoing another occupant. */
 export function occupiedBedSpans(spans: readonly RoomBedSpan[]): PublicRoomOccupancy["spans"] {
-  const real = spans.filter((span) => !span.echoable && span.start);
-  const echoes = spans.filter((span) => span.echoable && span.start);
+  const usable = spans.filter(occupies);
+  const real = usable.filter((span) => !span.echoable);
+  const echoes = usable.filter((span) => span.echoable);
   if (echoes.length === 0) return aggregateRoomOccupancy(real);
   const covering = aggregateRoomOccupancy(real).map(({ start, end }) => ({ start, end }));
   const kept = echoes.flatMap((span) =>

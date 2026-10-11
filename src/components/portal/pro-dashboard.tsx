@@ -883,13 +883,24 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     };
   }, [tick, userId, nowMs]);
 
-  // Today's occupancy per house: one read of the room occupancy snapshot, shared with every other reader.
+  // Today's occupancy per house: one read of the room occupancy snapshot, shared with every other
+  // reader. The periods the KPI card will draw are part of the ask, so the snapshot answers for
+  // those nine days only.
   const occupancyPropertyIds = useMemo(
     () => (data?.portfolio.cards ?? []).filter((card) => card.stage !== "drafts").map((card) => card.key),
     [data],
   );
+  const periods = useMemo(() => dashboardPeriods(periodKind, nowMs, 8), [periodKind, nowMs]);
   const occupancyIsLive = authReady && !isDemoModeActive();
-  const portfolioOccupancy = usePortfolioOccupancy(occupancyPropertyIds, occupancyIsLive);
+  const portfolioOccupancy = usePortfolioOccupancy(occupancyPropertyIds, occupancyIsLive, periods);
+  // Shaped once per answer: the KPI series and every property card read this same map.
+  const liveOccupancy = useMemo(
+    () =>
+      occupancyIsLive
+        ? dashboardOccupancyFromSnapshot(portfolioOccupancy.snapshot, portfolioOccupancy.today, periods)
+        : null,
+    [occupancyIsLive, portfolioOccupancy, periods],
+  );
 
   /*
    * The four headline numbers with a direction and eight periods of history,
@@ -898,7 +909,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
    */
   const kpis = useMemo(() => {
     if (!data) return null;
-    const periods = dashboardPeriods(periodKind, nowMs, 8);
     const labels = periods.map((p) => p.label);
     const previous = DASHBOARD_PERIOD_LABELS[periodKind].previous;
     const current = periods[periods.length - 1]!;
@@ -906,9 +916,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     // Occupancy is a stock, and the room occupancy snapshot is its one source: a resident stay
     // (hand-added, approved or signed), an Airbnb / channel stay and a room block all take a room,
     // so "signed leases" undercounts. Demo mode has no server to ask and keeps the local lease mirror.
-    const liveOccupancy = occupancyIsLive
-      ? dashboardOccupancyFromSnapshot(portfolioOccupancy.snapshot, portfolioOccupancy.today, periods)
-      : null;
     const signed = data.leases.filter((l) => l.status === "Fully Signed");
     const occupiedSeries = liveOccupancy
       ? liveOccupancy.occupiedByPeriod
@@ -976,7 +983,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         delta: kpiDelta(openedSeries, String, previous, true),
       },
     };
-  }, [data, periodKind, nowMs, occupancyIsLive, portfolioOccupancy]);
+  }, [data, periodKind, nowMs, periods, occupancyIsLive, liveOccupancy, portfolioOccupancy.status]);
 
   // A slow session read (common on a first phone load) used to `return null`
   // here, blanking the whole page below the header with no feedback at all.
@@ -1096,8 +1103,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   // snapshot (a house it did not answer for is absent, so the card says unknown, not 0). Demo: signed leases.
   const occupiedByProperty = new Map<string, number>();
   if (occupancyIsLive) {
-    const live = dashboardOccupancyFromSnapshot(portfolioOccupancy.snapshot, portfolioOccupancy.today, []);
-    for (const [key, occupied] of live?.byProperty ?? []) occupiedByProperty.set(key, occupied);
+    for (const [key, occupied] of liveOccupancy?.byProperty ?? []) occupiedByProperty.set(key, occupied);
   } else {
     for (const card of portfolio.cards) occupiedByProperty.set(card.key, 0);
     for (const lease of activeResidents) {
@@ -1400,7 +1406,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             label="Occupancy"
             value={kpis?.occupancy.value ?? "0%"}
             unit={kpis?.occupancy.unit}
-            detail="Signed leases over rentable spaces"
+            detail="Rooms occupied over rentable spaces"
             delta={kpis?.occupancy.delta ?? null}
             series={kpis?.occupancy.series}
             seriesLabels={kpis?.labels}

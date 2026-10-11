@@ -5,24 +5,38 @@
  * Occupied is NOT "fully signed leases": a hand-added resident whose lease is manager-attested,
  * an approved applicant waiting on a signature, an Airbnb stay and a room block all take a room
  * today. Pure, so the shaping is unit-tested without a store.
+ *
+ * The card reads exactly nine days — today and each period's cut — so that is all the snapshot is
+ * asked for (`days=`). Asking for eight months of day cells per house made the landing page the
+ * heaviest read in the app for numbers it never looked at, and Supabase egress is a constraint.
  */
-import { shiftDateKey } from "@/lib/room-availability-timeline";
 import type { OccupancySnapshotResponse } from "@/lib/channel-calendar/client";
 import type { DashboardPeriod } from "@/lib/dashboard-kpis";
 
-/** The longest period history the KPI card draws: eight months or eight 30-day windows. */
-export const DASHBOARD_OCCUPANCY_HISTORY_DAYS = 250;
-
-export function dashboardOccupancyWindow(today: string): { from: string; to: string } {
-  return { from: shiftDateKey(today, -DASHBOARD_OCCUPANCY_HISTORY_DAYS), to: today };
+/** The day a period's figure is read from: its last day, never past today. */
+export function dashboardOccupancyPeriodDayKey(period: DashboardPeriod, today: string): string {
+  // Period `end` is exclusive; the current period has not ended, so its cut is today.
+  const last = new Date(period.end - 1);
+  const lastKey = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+  return lastKey > today ? today : lastKey;
 }
 
-export function dashboardOccupancyUrl(propertyIds: readonly string[], today: string): string {
-  const { from, to } = dashboardOccupancyWindow(today);
+/** Every day the card reads, ascending: today plus each period's cut. One source, so the ask and the read cannot drift. */
+export function dashboardOccupancyDayKeys(today: string, periods: readonly DashboardPeriod[]): string[] {
+  return [...new Set([today, ...periods.map((period) => dashboardOccupancyPeriodDayKey(period, today))])].sort();
+}
+
+export function dashboardOccupancyUrl(
+  propertyIds: readonly string[],
+  today: string,
+  periods: readonly DashboardPeriod[] = [],
+): string {
+  const days = dashboardOccupancyDayKeys(today, periods);
   const params = new URLSearchParams({
     propertyIds: [...new Set(propertyIds)].sort().join(","),
-    from,
-    to,
+    from: days[0]!,
+    to: days[days.length - 1]!,
+    days: days.join(","),
   });
   return `/api/portal/occupancy?${params}`;
 }
@@ -36,7 +50,10 @@ export type DashboardOccupancy = {
   occupiedByPeriod: number[];
 };
 
-/** Null when the response is not a snapshot (a malformed answer is unknown, never zero). */
+/**
+ * Null when the response is not a snapshot, or does not carry every day the card reads: a day the
+ * server did not answer for is unknown, never a zero that would draw a dip that did not happen.
+ */
 export function dashboardOccupancyFromSnapshot(
   snapshot: unknown,
   today: string,
@@ -49,12 +66,23 @@ export function dashboardOccupancyFromSnapshot(
   if (!todayCell) return null;
   const byProperty = new Map<string, number>();
   for (const house of todayCell.houses ?? []) byProperty.set(house.propertyId, house.occupied);
-  const occupiedByPeriod = periods.map((period) => {
-    // Period `end` is exclusive; the current period has not ended, so its cut is today.
-    const last = new Date(period.end - 1);
-    const lastKey = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
-    const key = lastKey > today ? today : lastKey;
-    return byDay.get(key)?.occupied ?? 0;
-  });
+  const occupiedByPeriod: number[] = [];
+  for (const period of periods) {
+    const cell = byDay.get(dashboardOccupancyPeriodDayKey(period, today));
+    if (!cell) return null;
+    occupiedByPeriod.push(cell.occupied);
+  }
   return { byProperty, occupiedToday: todayCell.occupied, occupiedByPeriod };
+}
+
+/**
+ * An answered portfolio with nothing in it: every day the card reads, zero occupied, no houses.
+ * A manager whose first house is not added yet gets "0%", not a read that never comes back.
+ */
+export function emptyDashboardOccupancySnapshot(days: readonly string[]): OccupancySnapshotResponse {
+  return {
+    days: days.map((dayKey) => ({ dayKey, occupied: 0, total: 0, checkIns: 0, checkOuts: 0, houses: [] })),
+    stays: [],
+    version: "empty",
+  };
 }

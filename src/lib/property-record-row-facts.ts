@@ -1,10 +1,8 @@
 import type { ManagerRoomSubmission } from "@/lib/manager-listing-submission";
-import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { occupiedBedSpans, occupiedBedsOn, nextDayKey, previousDayKey, type RoomBedSpan } from "@/lib/room-occupancy-rule";
 import {
   deriveRoomAvailability,
-  isChannelImportedRangeId,
   legacyMoveInDateAsSpan,
   formatDateKeyShort,
   manualRangesToSpans,
@@ -64,8 +62,10 @@ const ROOM_TEXT_HORIZON_DAYS = 800;
 
 /**
  * The room row's availability from the SAME occupancy rule the public picker, the apply wizard
- * and the bots use: the snapshot's resident / channel / block stays on this room (a whole-home
- * stay takes every bed), plus the listing's own blocked dates, up to the room's capacity.
+ * and the bots use: the snapshot's stays on this room, up to the room's capacity. `stays` is the
+ * whole truth — the snapshot already carries residents, channel stays, typed blocks AND the
+ * listing's own blocked dates, so reading `manualUnavailableRanges` here too would count one
+ * typed block twice and close a shared room that still has a free bed.
  *
  *   occupied now, ends E        -> "Occupied until <E>"
  *   occupied now, no end        -> "Occupied"
@@ -74,17 +74,12 @@ const ROOM_TEXT_HORIZON_DAYS = 800;
  *   otherwise                   -> "Available now"
  */
 export function roomAvailabilityTextFromOccupancy(
-  room: Pick<ManagerRoomSubmission, "id" | "manualUnavailableRanges" | "moveInAvailableDate" | "occupancyCapacity">,
+  room: Pick<ManagerRoomSubmission, "id" | "moveInAvailableDate" | "occupancyCapacity">,
   stays: readonly RoomOccupancyStay[],
   today: string = todayDateKey(),
 ): string {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const ranges: RoomBedSpan[] = [];
-  // The listing's own typed dates. A channel import / host block stored beside them is already a stay.
-  for (const range of room.manualUnavailableRanges ?? []) {
-    if (isChannelImportedRangeId(String(range.id ?? "")) || isHostBlockRange(range) || !range.start) continue;
-    ranges.push({ start: range.start, end: range.end || null });
-  }
   for (const stay of stays) {
     if (stay.roomId && stay.roomId !== room.id) continue;
     ranges.push({

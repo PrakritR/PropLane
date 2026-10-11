@@ -33,17 +33,6 @@ vi.mock("@/lib/channel-calendar/bookings.server", () => ({ listManagerChannelCal
 const fake = vi.hoisted(() => ({ db: null as unknown, catalog: [] as Array<Record<string, unknown> & { id: string }> }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => fake.db }));
 vi.mock("@/lib/public-listings.server", () => ({ getPublicListings: async () => fake.catalog }));
-vi.mock("@/lib/rental-application/room-public-occupancy-eligibility", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/rental-application/room-public-occupancy-eligibility")>()),
-  executedApplicationIdsFromLeaseRecords: (rows: Array<{ row_data?: { executedApplicationId?: string } }>) =>
-    new Set(
-      rows.flatMap((r) =>
-        r.row_data?.executedApplicationId ? [normalizeApplicationAxisId(r.row_data.executedApplicationId)] : [],
-      ),
-    ),
-}));
-
-import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import {
   checkRoomAvailabilityTool,
   __resetLeasingCatalogCache,

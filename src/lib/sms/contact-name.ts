@@ -163,11 +163,14 @@ export function parseNameFromInboundText(body: string): string {
 }
 
 /**
- * Does a STORED contact name still look like a person's name? Used before a
- * guessed name is written and by the repair that clears earlier guesses. Lenient
- * on case (a manager may type "maya chen"), strict on phrases: no digits or
- * symbols, no stop-word, at most four tokens, and a multi-word name cannot be
- * all lowercase.
+ * Would this pass as a name GUESSED from a text? The gate before a guessed name
+ * is written, and nothing else: lenient on case (a manager may type "maya
+ * chen"), strict on phrases — no digits or symbols, no stop-word, at most four
+ * tokens, and a multi-word name cannot be all lowercase.
+ *
+ * Not a test of a manager-typed name. "Maya West", "Guy Fieri" and "Unit 4"
+ * fail here and are all perfectly good labels; only `contactNameRepairVerdict`
+ * decides what a repair may delete.
  */
 export function isPlausibleContactName(value: string | null | undefined): boolean {
   const name = String(value ?? "").trim();
@@ -184,12 +187,29 @@ export function isPlausibleContactName(value: string | null | undefined): boolea
 
 export type ContactNameVerdict = { keep: true } | { keep: false; reason: string };
 
-/** Pure core of `scripts/repair-sms-contact-display-names.mjs` (mirrored there). */
+/** Nothing but a phone number: digits and phone punctuation, at least seven digits. */
+function isPhoneLabel(value: string): boolean {
+  const name = value.trim();
+  return /^[+()\-.\s\d]+$/.test(name) && (name.match(/\d/g)?.length ?? 0) >= 7;
+}
+
+/**
+ * Pure core of `scripts/repair-sms-contact-display-names.mjs` (mirrored there).
+ *
+ * The repair DELETES stored data, so it clears only what the old guess could have written and a
+ * manager could not plausibly have typed: a bare phone number, the generated "<trade> · <number>"
+ * lead label, and a run of nothing but stop-words ("looking for", "a student"). It is NOT the
+ * strict rule that gates a *new* guess (`isPlausibleContactName`) — that one rejects real names
+ * ("Maya West", "Guy Fieri") and real labels ("Joe's Plumbing 24/7", "Unit 4"), which a manager is
+ * free to type and the repair must never touch.
+ */
 export function contactNameRepairVerdict(value: string | null | undefined): ContactNameVerdict {
   const name = String(value ?? "").trim();
   if (!name) return { keep: true };
-  if (/\d/.test(name)) return { keep: false, reason: "contains digits (a phone label or number)" };
-  if (!isPlausibleContactName(name)) return { keep: false, reason: "not a person's name (phrase or stop-word)" };
+  if (isPhoneLabel(name)) return { keep: false, reason: "a phone number, not a name" };
+  const parts = name.split("·").map((part) => part.trim()).filter(Boolean);
+  if (parts.length > 1 && parts.some(isPhoneLabel)) return { keep: false, reason: "a generated \"trade · number\" label" };
+  if (isStopWordPhrase(name)) return { keep: false, reason: "a phrase an old name guess stored" };
   return { keep: true };
 }
 

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /**
- * Clear the junk names an old text-name guess stored in
- * `manager_sms_contacts.display_name` (sms-contact-names-1011).
+ * Clear the junk names an old text-name guess stored, in both places it landed
+ * (sms-contact-names-1011):
+ *
+ *   * `manager_sms_contacts.display_name` - the Communication list title;
+ *   * an SMS lead's own `row_data.name` on `manager_application_records`
+ *     (Residents > Potential), which is reset to the formatted phone number
+ *     because that row must carry some name.
  *
  *   npx tsx --conditions=react-server --env-file=.env.local \
  *     scripts/repair-sms-contact-display-names.mjs --project-ref <ref> \
@@ -10,13 +15,15 @@
  * "Hi I'm looking for a room" saved the phrase "looking for" as a prospect's
  * name, and a first text from an unknown number saved its own formatted phone
  * as a name. A name now comes only from an explicit self-introduction or a real
- * record; this clears every stored name that is a phrase, a stop-word run or a
- * phone label (`contactNameRepairVerdict`). The list then shows the formatted
- * number until the person (or a record) supplies a name.
+ * record; this clears a stored name that is a bare phone number, a generated
+ * "<trade> · <number>" label, or nothing but stop-words
+ * (`contactNameRepairVerdict`). The list then shows the formatted number until
+ * the person (or a record) supplies a name.
  *
- * Kept: any name that passes the rule, a blank, and a name that matches an
- * active row on the same manager's Vendors list (a record-sourced label such
- * as "Joe's Plumbing 24/7" is not a guess).
+ * Deliberately narrow, because it DELETES manager-visible data: anything a
+ * manager could plausibly have typed is kept ("Maya West", "Joe's Plumbing
+ * 24/7", "Unit 4"), as is a blank and a name that matches an active row on the
+ * same manager's Vendors list.
  *
  * Safety (same pattern as merge-assistant-team-threads.mjs):
  *   - DRY RUN is the default: prints every row it would clear, writes nothing.
@@ -30,6 +37,7 @@ import { createClient } from "@supabase/supabase-js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { contactNameRepairVerdict } from "../src/lib/sms/contact-name.ts";
+import { formatSmsPhoneLabel } from "../src/lib/phone-e164.ts";
 
 const DEV_PROJECT_REF = "emstjswhotsnyksqhqyf";
 const PAGE = 500;
@@ -97,6 +105,40 @@ export function planDisplayNameRepair(rows, vendorNamesByManager = new Map()) {
   return { clear, kept, blank };
 }
 
+/**
+ * Pure planner: which SMS-lead rows lose their guessed `row_data.name`.
+ *
+ * A Potential-resident row has to carry a name, so the guess is replaced with the formatted phone
+ * number - exactly what a lead created today is named. A row with no usable phone is left alone
+ * rather than given a blank name.
+ */
+export function planLeadNameRepair(rows) {
+  const rename = [];
+  let kept = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const data = row.row_data && typeof row.row_data === "object" ? row.row_data : null;
+    const name = String(data?.name ?? "").trim();
+    if (!name) {
+      kept += 1;
+      continue;
+    }
+    const verdict = contactNameRepairVerdict(name);
+    if (verdict.keep) {
+      kept += 1;
+      continue;
+    }
+    const phone = String(data?.phone ?? "").trim();
+    const replacement = (phone && (formatSmsPhoneLabel(phone) || phone)) || "";
+    if (!replacement || replacement === name) {
+      skipped += 1;
+      continue;
+    }
+    rename.push({ row, name, replacement, reason: verdict.reason });
+  }
+  return { rename, kept, skipped };
+}
+
 async function withRetry(run, label) {
   let last = null;
   for (let attempt = 1; attempt <= 6; attempt += 1) {
@@ -122,6 +164,29 @@ async function loadContacts(db) {
       if (lastId) query = query.gt("id", lastId);
       return query;
     }, "manager_sms_contacts");
+    if (!data.length) break;
+    rows.push(...data);
+    lastId = data[data.length - 1].id;
+    if (data.length < PAGE) break;
+  }
+  return rows;
+}
+
+/** Every SMS-lead application row (`row_data.smsLead === true`), the Potential-resident plumbing row. */
+async function loadSmsLeadRows(db) {
+  const rows = [];
+  let lastId = "";
+  for (;;) {
+    const data = await withRetry(() => {
+      let query = db
+        .from("manager_application_records")
+        .select("id, manager_user_id, row_data, updated_at")
+        .eq("row_data->>smsLead", "true")
+        .order("id", { ascending: true })
+        .limit(PAGE);
+      if (lastId) query = query.gt("id", lastId);
+      return query;
+    }, "manager_application_records");
     if (!data.length) break;
     rows.push(...data);
     lastId = data[data.length - 1].id;
@@ -176,19 +241,45 @@ async function main() {
   }
   for (const [reason, count] of byReason) console.log(`   ${count} x ${reason}`);
 
+  const leadRows = await loadSmsLeadRows(db);
+  const leadPlan = planLeadNameRepair(leadRows);
+  console.log(`\nsms lead rows scanned: ${leadRows.length}; kept: ${leadPlan.kept}; no phone to fall back to: ${leadPlan.skipped}; to rename: ${leadPlan.rename.length}`);
+  for (const { row, name, replacement, reason } of leadPlan.rename) {
+    console.log(`   rename ${String(row.manager_user_id).slice(0, 8)} ${row.id}: ${JSON.stringify(name)} -> ${JSON.stringify(replacement)} (${reason})`);
+  }
+
   if (!args.apply) {
     console.log("\nDry run only: no row was changed. Re-run with --apply --backup-dir <dir> to write.");
     return 0;
   }
-  if (plan.clear.length === 0) {
+  if (plan.clear.length === 0 && leadPlan.rename.length === 0) {
     console.log("\nNothing to apply.");
     return 0;
   }
   mkdirSync(args.backupDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const file = join(args.backupDir, `sms-contact-display-names-${ref}-${stamp}.json`);
-  writeFileSync(file, JSON.stringify({ projectRef: ref, createdAt: new Date().toISOString(), rows: plan.clear.map((entry) => entry.row) }, null, 2));
-  console.log(`\nbackup: ${plan.clear.length} row(s) -> ${file}`);
+  writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        projectRef: ref,
+        createdAt: new Date().toISOString(),
+        rows: plan.clear.map((entry) => entry.row),
+        // Only the one field each lead row loses, never its sealed row_data.
+        leadRows: leadPlan.rename.map(({ row, name, replacement }) => ({
+          id: row.id,
+          managerUserId: row.manager_user_id,
+          name,
+          replacement,
+          updatedAt: row.updated_at,
+        })),
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`\nbackup: ${plan.clear.length} contact row(s) + ${leadPlan.rename.length} lead row(s) -> ${file}`);
 
   let raced = 0;
   for (const { row } of plan.clear) {
@@ -204,7 +295,24 @@ async function main() {
       console.log(`   RACED ${row.id} (changed mid-run; run again to pick it up)`);
     }
   }
-  console.log(`\ncleared ${plan.clear.length - raced} of ${plan.clear.length} row(s); raced ${raced}`);
+  console.log(`\ncleared ${plan.clear.length - raced} of ${plan.clear.length} contact row(s); raced ${raced}`);
+
+  let leadRaced = 0;
+  for (const { row, replacement } of leadPlan.rename) {
+    // Only `name` moves: the rest of row_data (including the sealed applicant identity) is written back as read.
+    const { data, error } = await db
+      .from("manager_application_records")
+      .update({ row_data: { ...row.row_data, name: replacement }, updated_at: new Date().toISOString() })
+      .eq("id", row.id)
+      .eq("updated_at", row.updated_at)
+      .select("id");
+    if (error) throw new Error(`update lead ${row.id}: ${error.message}`);
+    if (!data?.length) {
+      leadRaced += 1;
+      console.log(`   RACED lead ${row.id} (changed mid-run; run again to pick it up)`);
+    }
+  }
+  console.log(`renamed ${leadPlan.rename.length - leadRaced} of ${leadPlan.rename.length} lead row(s); raced ${leadRaced}`);
   return 0;
 }
 

@@ -12,9 +12,9 @@ import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
 import { occupancyHoldEntries } from "@/lib/occupancy/snapshot.server";
 import { occupancyForDay } from "@/lib/occupancy/snapshot";
 import { roomAvailabilityTextFromOccupancy } from "@/lib/property-record-row-facts";
-import { dashboardOccupancyFromSnapshot, dashboardOccupancyUrl } from "@/lib/dashboard-occupancy";
+import { dashboardOccupancyDayKeys, dashboardOccupancyFromSnapshot, dashboardOccupancyUrl } from "@/lib/dashboard-occupancy";
 import { dashboardPeriods } from "@/lib/dashboard-kpis";
-import { occupiedBedSpans } from "@/lib/room-occupancy-rule";
+import { occupiedBedSpans, occupiedBedsOn } from "@/lib/room-occupancy-rule";
 
 const OWNER = "owner-1";
 const CO = "co-manager-9";
@@ -308,6 +308,34 @@ describe("the room row text", () => {
   it("a room's own earliest move-in date still reads Available from", () => {
     expect(roomAvailabilityTextFromOccupancy({ ...room, moveInAvailableDate: "2026-11-01" }, [], TODAY)).toBe("Available from Nov 1, 2026");
   });
+  it("the listing's own blocked dates arrive as a stay and are counted once, not twice", () => {
+    // The snapshot turns a typed occupied-dates range into a block stay; a shared room with one
+    // block still has a free bed, so counting the stored range again would wrongly close it.
+    const shared = { id: "room-a", manualUnavailableRanges: [{ id: "unavail-1", start: "2026-10-01", end: "2026-10-20", hostBlock: false }], moveInAvailableDate: "", occupancyCapacity: 2 };
+    expect(roomAvailabilityTextFromOccupancy(shared, [{ roomId: "room-a", start: "2026-10-01", end: "2026-10-20" }], TODAY)).toBe("Available now");
+    expect(
+      roomAvailabilityTextFromOccupancy(
+        shared,
+        [
+          { roomId: "room-a", start: "2026-10-01", end: "2026-10-20" },
+          { roomId: "room-a", start: "2026-09-24", end: "2026-11-08" },
+        ],
+        TODAY,
+      ),
+    ).toBe("Occupied until Oct 20, 2026");
+  });
+  it("a stored range that ends before it starts never frees an occupied room", () => {
+    expect(
+      roomAvailabilityTextFromOccupancy(
+        room,
+        [
+          { roomId: "room-a", start: "2026-09-24", end: "2026-11-08" },
+          { roomId: "room-a", start: "2026-05-10", end: "2026-05-01" },
+        ],
+        TODAY,
+      ),
+    ).toBe("Occupied until Nov 8, 2026");
+  });
 });
 
 describe("occupiedBedSpans", () => {
@@ -322,6 +350,16 @@ describe("occupiedBedSpans", () => {
   });
   it("an open-ended echo under an open-ended resident adds nothing", () => {
     expect(occupiedBedSpans([{ start: "2026-10-01", end: null }, { start: "2026-10-05", end: null, echoable: true }])).toEqual([{ start: "2026-10-01", end: null, count: 1 }]);
+  });
+  it("drops a span whose end precedes its start rather than subtracting a bed", () => {
+    expect(occupiedBedSpans([{ start: "2026-05-10", end: "2026-05-01" }])).toEqual([]);
+    expect(
+      occupiedBedSpans([
+        { start: "2026-10-01", end: "2026-10-31" },
+        { start: "2026-05-10", end: "2026-05-01" },
+      ]),
+    ).toEqual([{ start: "2026-10-01", end: "2026-10-31", count: 1 }]);
+    expect(occupiedBedsOn(occupiedBedSpans([{ start: "2026-10-01", end: "2026-10-31" }, { start: "2026-05-10", end: "2026-05-01" }]), "2026-10-11")).toBe(1);
   });
 });
 
@@ -341,7 +379,17 @@ describe("dashboard occupancy from the snapshot", () => {
     expect(dashboardOccupancyFromSnapshot(null, TODAY, [])).toBeNull();
     expect(dashboardOccupancyFromSnapshot({ days: [] }, TODAY, [])).toBeNull();
   });
-  it("asks once per house set, sorted", () => {
-    expect(dashboardOccupancyUrl(["b", "a", "a"], TODAY)).toContain("propertyIds=a%2Cb");
+  it("asks once per house set, sorted, for only the days the card reads", () => {
+    const periods = dashboardPeriods("month", new Date(2026, 9, 11, 12).getTime(), 8);
+    const url = dashboardOccupancyUrl(["b", "a", "a"], TODAY, periods);
+    expect(url).toContain("propertyIds=a%2Cb");
+    const requested = new URLSearchParams(url.split("?")[1]).get("days")!.split(",");
+    expect(requested).toHaveLength(8);
+    expect(requested[requested.length - 1]).toBe(TODAY);
+    expect(dashboardOccupancyDayKeys(TODAY, periods)).toEqual(requested);
+  });
+  it("a day the snapshot did not answer for is unknown, never zero", () => {
+    const periods = dashboardPeriods("month", new Date(2026, 9, 11, 12).getTime(), 3);
+    expect(dashboardOccupancyFromSnapshot({ days: [days[1]] }, TODAY, periods)).toBeNull();
   });
 });

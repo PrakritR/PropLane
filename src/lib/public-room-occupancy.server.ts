@@ -125,8 +125,10 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
             if (String(range.id ?? "").startsWith(`${CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX}-`)) continue;
             const start = day(range.start);
             if (!start) continue;
-            const end = day(range.end) || start;
-            const id = String(range.id || `${start}:${end}`).trim() || `${start}:${end}`;
+            // No end date means the manager has not said when the room reopens: open-ended, exactly
+            // as the manager snapshot and the room row read it — never a single day.
+            const end = day(range.end);
+            const id = String(range.id || `${start}:${end ?? ""}`).trim() || `${start}:${end ?? ""}`;
             // The listing's own blocked dates. A host block a channel wrote here is an echo candidate.
             bucket.set(id, { start, end, count: 1, echoable: isHostBlockRange(range) });
           }

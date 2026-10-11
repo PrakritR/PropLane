@@ -515,7 +515,15 @@ async function residentFinancialPropertyIds(db: SupabaseClient, userId: string, 
 export async function occupancySnapshotForManager(
   db: SupabaseClient,
   userId: string,
-  input: { propertyIds: string[]; from: string; to: string; browserOrigin?: string },
+  input: {
+    propertyIds: string[];
+    from: string;
+    to: string;
+    /** Only these days, instead of every day in [from, to] — a caller that draws a handful of
+     * figures should not pay for a cell per house per day it never reads. */
+    days?: readonly string[];
+    browserOrigin?: string;
+  },
 ) {
   const propertyIds = [...new Set(input.propertyIds.map((id) => id.trim()).filter(Boolean))];
   const [bookings, capacities, meta] = await Promise.all([
@@ -544,7 +552,8 @@ export async function occupancySnapshotForManager(
     blockEntries.typed,
     meta.listingBlockEntries ?? [],
   ).map((entry) => (financialHouses.has(entry.propertyId) ? entry : withoutResidentFinancials(entry)));
-  const days: OccupancySnapshotDay[] = eachDayKey(input.from, input.to).map((dayKey) => ({
+  const dayKeys = input.days?.length ? [...input.days] : eachDayKey(input.from, input.to);
+  const days: OccupancySnapshotDay[] = dayKeys.map((dayKey) => ({
     dayKey,
     ...occupancyForDay(entries, dayKey, propertyIds, capacities),
     houses: propertyIds.map((propertyId) => ({

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-// @ts-expect-error - a plain .mjs script; its parser, guard and planner are the units under test
-import { assertProjectAllowed, parseArgs, planDisplayNameRepair } from "../../scripts/repair-sms-contact-display-names.mjs";
+// @ts-expect-error - a plain .mjs script; its parser, guard and planners are the units under test
+import { assertProjectAllowed, parseArgs, planDisplayNameRepair, planLeadNameRepair } from "../../scripts/repair-sms-contact-display-names.mjs";
 
 const DEV = "emstjswhotsnyksqhqyf";
 const row = (display_name: string | null, manager = "m1") => ({
@@ -8,17 +8,45 @@ const row = (display_name: string | null, manager = "m1") => ({
 });
 
 describe("repair-sms-contact-display-names planner", () => {
-  it("clears phrases and phone labels, keeps names, blanks and vendor-record labels", () => {
+  it("clears phrases and phone labels, keeps names, blanks and manager-typed labels", () => {
     const vendors = new Map([["m1", new Set(["joe's plumbing 24/7"])]]);
     const plan = planDisplayNameRepair(
-      [row("looking for"), row("(425) 984-9697"), row("interested in the room"), row("Maya Chen"), row("maya"), row(null), row("Joe's Plumbing 24/7"), row("Joe's Plumbing 24/7", "m2")],
+      [row("looking for"), row("(425) 984-9697"), row("interested in the room"), row("Maya Chen"), row("maya"), row(null), row("Joe's Plumbing 24/7"), row("Maya West", "m2")],
       vendors,
     );
     expect(plan.clear.map((entry: { row: { display_name: string } }) => entry.row.display_name)).toEqual([
-      "looking for", "(425) 984-9697", "interested in the room", "Joe's Plumbing 24/7",
+      "looking for", "(425) 984-9697", "interested in the room",
     ]);
-    expect(plan.kept).toBe(3);
+    // "Joe's Plumbing 24/7" and "Maya West" are kept whether or not a Vendors row backs them: the
+    // repair only deletes what the old guess could have written.
+    expect(plan.kept).toBe(4);
     expect(plan.blank).toBe(1);
+  });
+});
+
+describe("repair-sms-contact-display-names lead planner", () => {
+  const lead = (name: string | null, phone = "+14259849697") => ({
+    id: `lead-${name}`, manager_user_id: "m1", updated_at: "t",
+    row_data: { id: `lead-${name}`, name, phone, smsLead: true, _applicantIdentity: { version: 1 } },
+  });
+
+  it("renames a guessed lead name to the formatted phone and leaves real names alone", () => {
+    const plan = planLeadNameRepair([lead("looking for"), lead("Maya Chen"), lead("Maya West"), lead(null)]);
+    expect(plan.rename.map((entry: { row: { id: string }; replacement: string }) => entry.replacement)).toEqual(["+1 (425) 984-9697"]);
+    expect(plan.rename[0].row.id).toBe("lead-looking for");
+    expect(plan.kept).toBe(3);
+  });
+
+  it("leaves a row with no phone to fall back to rather than blanking its name", () => {
+    const plan = planLeadNameRepair([lead("looking for", "")]);
+    expect(plan.rename).toHaveLength(0);
+    expect(plan.skipped).toBe(1);
+  });
+
+  it("does not rename a row already named by its own number", () => {
+    const plan = planLeadNameRepair([lead("+1 (425) 984-9697")]);
+    expect(plan.rename).toHaveLength(0);
+    expect(plan.skipped).toBe(1);
   });
 });
 
