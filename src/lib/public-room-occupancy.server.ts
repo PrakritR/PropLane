@@ -1,7 +1,10 @@
 import "server-only";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { aggregateRoomOccupancy, type PublicRoomOccupancy } from "@/lib/public-room-occupancy";
-import { applicationHoldsRoomPublicly, executedApplicationIdsFromLeaseRecords } from "@/lib/rental-application/room-public-occupancy-eligibility";
+import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
+import { occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
+import { isIcalAvailabilityBlock } from "@/lib/occupancy/snapshot";
+import { leaseIsFullyExecuted, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { canonicalRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX } from "@/lib/channel-calendar/types";
@@ -21,36 +24,68 @@ function day(raw: unknown): string | null {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === normalized ? normalized : null;
 }
 
+type ExecutedLease = {
+  /** Every application id the lease names (its own axis id and each joint member's), normalized. */
+  applicationIds: string[];
+  leaseId: string;
+  propertyId: string;
+  roomChoice: string;
+  start: string | null;
+  end: string | null;
+};
+
 /**
- * Every application id a fully executed lease names, for these listings.
+ * Every fully executed lease for these listings.
  *
  * Scoped by OWNER **and** by PROPERTY, because a lease carries the stamp of
  * whoever generated it: a co-manager holding the grant executes it under their
  * own `manager_user_id`, so an owner-only read missed that lease and the room's
- * occupied nights published as free. Ids are globally unique, so one flat set.
+ * occupied nights published as free. A lease filed under a house by an author who does not
+ * speak for it proves nothing about that house.
  */
-async function executedApplicationIds(
+async function executedLeases(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   owners: string[],
   listingIds: string[],
   authors: OccupancyAuthors,
-): Promise<Set<string>> {
-  const ids = new Set<string>();
+): Promise<ExecutedLease[]> {
+  const found = new Map<string, ExecutedLease>();
+  const listed = new Set(listingIds);
   const pages = async (column: "manager_user_id" | "property_id", values: string[]) => {
     for (let chunk = 0; chunk < values.length; chunk += 100) {
       const slice = values.slice(chunk, chunk + 100);
       for (let offset = 0; ; offset += 500) {
         const { data, error } = await db
           .from("portal_lease_pipeline_records")
-          .select("row_data, manager_user_id, property_id")
+          .select("id, row_data, manager_user_id, property_id")
           .in(column, slice)
           .order("id")
           .range(offset, offset + 499);
         if (error) throw error;
         for (const row of data ?? []) {
-          // A lease filed under a house by someone who does not manage it proves nothing about that house.
-          if (column === "property_id" && !occupancyAuthorTrusted(authors, String(row.property_id ?? ""), row.manager_user_id)) continue;
-          for (const id of executedApplicationIdsFromLeaseRecords([row])) ids.add(id);
+          const propertyId = String(row.property_id ?? "").trim();
+          if (column === "property_id" && !occupancyAuthorTrusted(authors, propertyId, row.manager_user_id)) continue;
+          if (!row.row_data || typeof row.row_data !== "object") continue;
+          const lease = normalizeLeasePipelineRow(row.row_data as LeasePipelineRow);
+          if (!leaseIsFullyExecuted(lease)) continue;
+          const applicationIds = new Set<string>();
+          if (lease.axisId?.trim()) applicationIds.add(normalizeApplicationAxisId(lease.axisId.trim()));
+          for (const member of lease.jointLeaseMembers ?? []) {
+            const memberId = member.applicationId?.trim();
+            if (memberId) applicationIds.add(normalizeApplicationAxisId(memberId));
+          }
+          const leaseId = String(row.id ?? lease.id ?? "").trim() || [...applicationIds].join("|");
+          if (found.has(leaseId)) continue;
+          const dataRow = row.row_data as { roomChoice?: unknown; application?: { leaseStart?: unknown; leaseEnd?: unknown } };
+          found.set(leaseId, {
+            applicationIds: [...applicationIds],
+            leaseId,
+            // Only a lease filed under a listed house, by someone who speaks for it, can hold one of its rooms.
+            propertyId: listed.has(propertyId) && occupancyAuthorTrusted(authors, propertyId, row.manager_user_id) ? propertyId : "",
+            roomChoice: typeof dataRow.roomChoice === "string" ? dataRow.roomChoice.trim() : "",
+            start: day(dataRow.application?.leaseStart),
+            end: day(dataRow.application?.leaseEnd),
+          });
         }
         if ((data ?? []).length < 500) break;
       }
@@ -58,13 +93,13 @@ async function executedApplicationIds(
   };
   await pages("manager_user_id", owners);
   await pages("property_id", listingIds);
-  return ids;
+  return [...found.values()];
 }
 
 /** One source for the anonymous public occupancy route and scoped SMS reads. */
 export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expectedOwnerId?: string): Promise<PublicRoomOccupancy[]> {
   if (!listings.length) return [];
-    const placements = new Map<string, Map<string, { start: string; end: string | null; count?: number }>>();
+    const placements = new Map<string, Map<string, RoomBedSpan>>();
     for (const listing of listings) {
       for (const room of listing.listingSubmission?.rooms ?? []) {
         placements.set(`${listing.id}::${room.id}`, new Map());
@@ -92,7 +127,8 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
             if (!start) continue;
             const end = day(range.end) || start;
             const id = String(range.id || `${start}:${end}`).trim() || `${start}:${end}`;
-            bucket.set(id, { start, end, count: 1 });
+            // The listing's own blocked dates. A host block a channel wrote here is an echo candidate.
+            bucket.set(id, { start, end, count: 1, echoable: isHostBlockRange(range) });
           }
         }
       }
@@ -181,21 +217,30 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
     // The four reads are independent of one another (all key off the owner and
     // listing ids resolved above), so they run together. Results are applied in
     // the original order below, so the output is unchanged.
-    const [executedIds, applicationRows, calendarRows, blockRows] = await Promise.all([
-      executedApplicationIds(db, owners, listingIds, authors),
+    const [leases, applicationRows, calendarRows, blockRows] = await Promise.all([
+      executedLeases(db, owners, listingIds, authors),
       fetchApplicationRows(),
       fetchCalendarRows(),
       fetchBlockRows(),
     ]);
     const listingById = new Map(listings.map((p) => [p.id, p] as const));
 
+    // Every approved, non-withdrawn application with dates holds its room: hand-added, still
+    // waiting on a signature, or signed. Pending applications reserve nothing (they are not read).
+    const countedApplicationIds = new Set<string>();
+    const roomsForChoice = (property: Listing, choice: string, roomName: string) => {
+      const canonicalChoice = canonicalRoomChoiceValue(choice);
+      const candidates = property.listingSubmission?.rooms ?? [];
+      const matched = candidates.filter(
+        (r) =>
+          `${property.id}::${r.id}` === canonicalChoice ||
+          r.id === choice ||
+          (!String(choice).includes("::") && r.name.trim().toLowerCase() === String(roomName || choice).trim().toLowerCase()),
+      );
+      return choice === property.id ? candidates : matched.length === 1 ? matched : [];
+    };
     for (const row of applicationRows) {
       if (row.withdrawn) continue;
-      const appRow = {
-        id: normalizeApplicationAxisId(String(row.id)),
-        manuallyAdded: String(row.manually_added ?? "") === "true",
-      };
-      if (!applicationHoldsRoomPublicly(appRow, executedIds)) continue;
 
       const choice = String(row.choice || row.preferred || "").trim();
       const property =
@@ -203,16 +248,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
         listingById.get(choice.split("::")[0] ?? "");
       if (!property) continue;
       if (!occupancyAuthorTrusted(authors, property.id, row.manager_user_id)) continue;
-      const canonicalChoice = canonicalRoomChoiceValue(choice);
-      const candidates = property.listingSubmission?.rooms ?? [];
-      const matched = candidates.filter(
-        (r) =>
-          `${property.id}::${r.id}` === canonicalChoice ||
-          r.id === choice ||
-          (!String(choice).includes("::") &&
-            r.name.trim().toLowerCase() === String(row.manual_room || choice).trim().toLowerCase()),
-      );
-      const rooms = choice === property.id ? candidates : matched.length === 1 ? matched : [];
+      const rooms = roomsForChoice(property, choice, String(row.manual_room || ""));
       if (!rooms.length) continue;
 
       const start = day(row.manual_start) || day(row.lease_start);
@@ -220,11 +256,30 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       const occupancyStart = row.occupancy_start && row.occupancy_start < start ? row.occupancy_start : start;
       const end = day(row.manual_end) || day(row.lease_end);
       if (end && end < occupancyStart) continue;
+      countedApplicationIds.add(normalizeApplicationAxisId(String(row.id)));
       for (const room of rooms) {
         placements.get(`${property.id}::${room.id}`)?.set(String(row.id).toUpperCase(), {
           start: occupancyStart,
           end,
           count: choice === property.id ? (room.occupancyCapacity ?? 1) : 1,
+        });
+      }
+    }
+    // A fully executed lease whose application row never counted (no approved row on file, or one
+    // filed under another house) still holds its room, on the lease's own dates.
+    for (const lease of leases) {
+      if (!lease.propertyId || !lease.start) continue;
+      if (lease.applicationIds.some((id) => countedApplicationIds.has(id))) continue;
+      const property = listingById.get(lease.propertyId);
+      if (!property) continue;
+      const rooms = roomsForChoice(property, lease.roomChoice, "");
+      if (!rooms.length) continue;
+      if (lease.end && lease.end < lease.start) continue;
+      for (const room of rooms) {
+        placements.get(`${property.id}::${room.id}`)?.set(`lease:${lease.leaseId}`, {
+          start: lease.start,
+          end: lease.end,
+          count: lease.roomChoice === property.id ? (room.occupancyCapacity ?? 1) : 1,
         });
       }
     }
@@ -239,7 +294,15 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
         if (!start) continue;
         const end = day((range as { end?: unknown }).end) || start;
         const id = String((range as { sourceUid?: unknown; id?: unknown }).sourceUid || (range as { id?: unknown }).id || `${start}:${end}`);
-        bucket.set(id, { start, end, count: 1 });
+        const channel = range as { hostBlock?: boolean; summary?: string };
+        // A channel closure that sits on a day another occupant already holds the room is PropLane's own
+        // export echoing back, not a second occupant (same rule as the manager snapshot).
+        bucket.set(id, {
+          start,
+          end,
+          count: 1,
+          echoable: isHostBlockRange(channel) || isIcalAvailabilityBlock(channel.summary),
+        });
       }
     }
     for (const block of blockRows) {
@@ -265,7 +328,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
     }
     const rooms: PublicRoomOccupancy[] = [...placements].map(([roomChoice, rows]) => ({
       roomChoice,
-      spans: aggregateRoomOccupancy([...rows.values()]),
+      spans: occupiedBedSpans([...rows.values()]),
     }));
     return rooms;
 }

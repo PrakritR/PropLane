@@ -50,7 +50,9 @@ import {
 import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { bathAccessOf, bathFactLabel, roomBathroomState, usersOfBath } from "@/lib/listing-room-editor/bathroom-link";
-import { countWord, roomAvailabilityText, roomResidentsBedsText } from "@/lib/property-record-row-facts";
+import { countWord, roomAvailabilityText, roomAvailabilityTextFromOccupancy, roomResidentsBedsText } from "@/lib/property-record-row-facts";
+import { usePropertyRoomStays } from "@/hooks/use-property-room-stays";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { roomFurnitureItems, roomFurnishingLabel } from "@/lib/listing-room-editor";
 import { readHouseDetailsTab, writeHouseDetailsTab, type HouseDetailsTabId } from "@/lib/property-house-details-tab";
 import { sharedSpaceAccessTriggerLabel } from "@/lib/listing-shared-space-access";
@@ -132,6 +134,9 @@ export function PropertyHouseDetailsListPanel({
 
   const wholePlace = isEntireHomeListing(sub);
   const rooms = sub.rooms ?? [];
+  // Residents, channel stays and blocks from the one occupancy snapshot; null until it answers, and
+  // then the row falls back to the listing's own dates rather than guessing a room is free.
+  const roomStays = usePropertyRoomStays(propertyId, !isDemoModeActive());
   const baths = sub.bathrooms ?? [];
   const spaces = sub.sharedSpaces ?? [];
 
@@ -436,6 +441,7 @@ export function PropertyHouseDetailsListPanel({
                 const i = rooms.indexOf(room);
                 const label = room.name.trim() || `Room ${i + 1}`;
                 const bst = roomBathroomState(sub, room.id);
+                const availabilityText = roomStays ? roomAvailabilityTextFromOccupancy(room, roomStays) : roomAvailabilityText(room);
                 return (
                   <PortalPropertyRecordRow
                     key={room.id}
@@ -451,8 +457,8 @@ export function PropertyHouseDetailsListPanel({
                         sr: "Residents",
                       },
                       {
-                        icon: roomAvailabilityText(room) === "Occupied" ? CircleSlash : CircleCheck,
-                        text: roomAvailabilityText(room),
+                        icon: availabilityText.startsWith("Occupied") ? CircleSlash : CircleCheck,
+                        text: availabilityText,
                         sr: "Availability",
                       },
                     ])}

@@ -42,18 +42,13 @@ export function collectExecutedApplicationIdsFromLease(
   }
 }
 
-/**
- * Whether an approved application should reduce public listing availability.
- * Approved-but-unsigned applications do NOT count — only manual residents and
- * fully executed leases hold a bed on the marketing site.
+/*
+ * There is no "does this approved application hold a room publicly" predicate any more: every
+ * approved, non-withdrawn application holds its bed whether or not the lease is signed (a
+ * manager-added resident, an approved applicant awaiting e-sign, a fully executed lease), the same
+ * rule the manager snapshot (`applicationHoldEntries`) and the database capacity guard apply.
+ * Pending applications are the only ones that reserve nothing, and they are never read.
  */
-export function applicationHoldsRoomPublicly(
-  row: PublicOccupancyApplicationRow,
-  executedApplicationIds: Set<string>,
-): boolean {
-  if (applicationIsManualRoomHold(row)) return true;
-  return executedApplicationIds.has(normalizeApplicationAxisId(row.id));
-}
 
 /** Parse lease pipeline DB rows into executed application ids (public occupancy API). */
 export function executedApplicationIdsFromLeaseRecords(

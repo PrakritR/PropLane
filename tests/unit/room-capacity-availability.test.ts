@@ -115,11 +115,11 @@ beforeEach(() => {
   roomCapacity = undefined;
 });
 
-describe("unsigned approvals do not block public availability", () => {
-  it("keeps the room available when approved but not yet signed", () => {
+describe("approved applications hold a bed whether or not the lease is signed (room-occupancy-truth)", () => {
+  it("holds the room when approved but not yet signed", () => {
     rows.push(approved("app-1", "2026-03-01", "2026-06-30"));
-    expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(true);
-    expect(getRoomUnavailabilityWindows(ROOM)).toEqual([]);
+    expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(false);
+    expect(getRoomUnavailabilityWindows(ROOM)).toHaveLength(1);
   });
 
   it("manual residents still block without a signed lease", () => {

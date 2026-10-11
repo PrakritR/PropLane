@@ -5,7 +5,7 @@
  * A lease row is stamped with whoever generated it (`manager_user_id = ctx.user.id`),
  * so a lease a co-manager executed on the owner's house is not in the owner's
  * slice. Scoping the executed-lease read to the owner therefore dropped that
- * application from `executedIds`, `applicationHoldsRoomPublicly` answered false,
+ * application from `executedIds`, the unsigned-hold rule answered false (then),
  * and the anonymous listing calendar published the room's occupied nights as free.
  */
 import { describe, expect, it } from "vitest";
@@ -22,7 +22,7 @@ function listing() {
   return { id: HOUSE, submission };
 }
 
-/** An approved application with no `manuallyAdded`: only an executed lease holds its room. */
+/** An approved application with no `manuallyAdded`: it holds its room signed or not (room-occupancy-truth). */
 const application = {
   id: "AXIS-SIGNED1",
   manager_user_id: CO_MANAGER,
