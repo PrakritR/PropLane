@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { isPlausibleContactName } from "@/lib/sms/contact-name";
 import {
   coerceCounterpartyRole,
   type SmsCounterpartyRole,
@@ -74,6 +75,12 @@ export async function upsertManagerSmsContact(
     phone: string;
     counterpartyRole: SmsCounterpartyRole;
     displayName?: string | null;
+    /**
+     * A name the SYSTEM inferred (a text's self-introduction). Saved only when it
+     * passes `isPlausibleContactName` AND the contact has no name yet - a guess
+     * never overwrites what the manager (or an earlier real record) set.
+     */
+    suggestedDisplayName?: string | null;
     /** `null` clears the saved address; omit it to leave the stored one alone. */
     email?: string | null;
     lastInboundAt?: string | null;
@@ -81,10 +88,21 @@ export async function upsertManagerSmsContact(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const managerUserId = args.managerUserId.trim();
   const phoneE164 = normalizeE164(args.phone);
-  const displayName = args.displayName == null ? undefined : args.displayName.trim();
+  let displayName = args.displayName == null ? undefined : args.displayName.trim();
   const email =
     args.email === undefined ? undefined : (args.email?.trim().toLowerCase() || null);
   if (!managerUserId || !phoneE164) return { ok: false, error: "invalid_contact" };
+  const suggested = String(args.suggestedDisplayName ?? "").trim();
+  if (displayName === undefined && suggested && isPlausibleContactName(suggested)) {
+    const { data: existing } = await db
+      .from("manager_sms_contacts")
+      .select("display_name")
+      .eq("manager_user_id", managerUserId)
+      .eq("phone_e164", phoneE164)
+      .eq("counterparty_role", args.counterpartyRole)
+      .maybeSingle();
+    if (!String(existing?.display_name ?? "").trim()) displayName = suggested.slice(0, 80);
+  }
   if (displayName !== undefined && (displayName.length < 1 || displayName.length > 80)) {
     return { ok: false, error: "invalid_display_name" };
   }

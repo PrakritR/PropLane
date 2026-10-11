@@ -62,6 +62,7 @@ import {
   smsConversationPersonKey,
   smsConversationRowId,
 } from "@/lib/communication-active-rows";
+import { communicationListRowName, isSmsNoticeInboxRow } from "@/lib/communication-list-row-name";
 import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread, isTeamInboxThread } from "@/lib/communication-inbox-assistant";
 import { teamThreadDisplayName } from "@/lib/team-thread-display";
 import {
@@ -118,7 +119,6 @@ import {
 } from "@/lib/manager-sms-messages";
 import { isVoiceCallNoteSid, voiceCallListPreviewPrefix } from "@/lib/voice/voice-call-notes";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
-import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
 import {
   loadManagerSmsArchivedIds,
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
@@ -803,11 +803,9 @@ export function ManagerUnifiedInbox({
       // (PRP-315); the address stays available in the open thread.
       const displayName = isTeamInboxThread(t)
         ? t.from?.trim() || teamThreadDisplayName()
-        : inboxCounterpartyName(
-          t.email,
-          sentSemantics && !adapter.namesSentThreadsByFrom ? null : t.from,
-          filterContacts,
-        ) ||
+        : communicationListRowName(t, filterContacts, {
+          useFrom: !(sentSemantics && !adapter.namesSentThreadsByFrom),
+        }) ||
         (sentSemantics ? "Unknown recipient" : "Unknown sender");
       const lastOutbound = inboxThreadLastTurnDirection(t) === "outbound";
       return {
@@ -826,6 +824,7 @@ export function ManagerUnifiedInbox({
         // whatever channel or thread type each started as.
         joinKeys: emailThreadJoinKeys(t),
         identityFlag: t.identityFlag ? true : undefined,
+        ...(isSmsNoticeInboxRow(t) ? { smsNotice: true } : {}),
         aliasThreadIds: t.aliasIds,
         personEmail: t.email?.trim() || undefined,
         name: displayName,

@@ -2,6 +2,7 @@
 
 import { coercePhoneInput, formatSmsPhoneLabel, normalizeE164 } from "@/lib/phone-e164";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { isStopWordPhrase } from "@/lib/sms/contact-name";
 import { trimmedText } from "@/lib/trimmed-text";
 
 /** Refresh any mounted Communication SMS readers after a contact mutation. */
@@ -160,9 +161,10 @@ export type SmsConversationLabelSource = Pick<
  */
 export function smsConversationDisplayName(resident: SmsConversationLabelSource): string {
   const directoryName = trimmedText(resident.directoryName) || trimmedText(resident.name);
-  if (directoryName && !isPhoneLikeLabel(directoryName)) return directoryName;
+  // A stored phrase ("looking for") is an old name guess, never a person.
+  if (directoryName && !isPhoneLikeLabel(directoryName) && !isStopWordPhrase(directoryName)) return directoryName;
   const savedName = trimmedText(resident.savedContactName);
-  if (savedName) return savedName;
+  if (savedName && !isStopWordPhrase(savedName)) return savedName;
   const property = trimmedText(resident.propertyLabel);
   if (property) return property;
   const email = trimmedText(resident.residentEmail);
