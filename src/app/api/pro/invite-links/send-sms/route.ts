@@ -11,6 +11,7 @@ import { resolveAppOrigin } from "@/lib/app-url";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,17 @@ export async function POST(req: Request) {
     String(linkRow?.workspace_id ?? "").trim() !== standing.workspaceId
   ) {
     return NextResponse.json({ error: "That invite link does not belong to this workspace." }, { status: 403 });
+  }
+
+  // A live signup trial has no Communication until it pays. The plan checked is the workspace
+  // OWNER's, so a teammate texting from a trial owner's workspace is refused; refused before the
+  // work number is read or anything is sent.
+  const access = await assertManagerCommunicationAllowed(standing.ownerUserId);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { error: access.message, code: `communication_${access.reason}` },
+      { status: access.status },
+    );
   }
 
   const workNumber = await resolveManagerWorkNumber(db, user.id);

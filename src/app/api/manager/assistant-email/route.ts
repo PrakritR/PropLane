@@ -373,7 +373,8 @@ export async function POST(req: Request) {
   // A live signup trial has no Communication until it pays, so a work email is never enrolled for
   // one (the work number is refused the same way by `refuseTrialForNumber`). This is checked on
   // its own, ahead of the entitlement read, so it holds whatever that read says about the account.
-  const communication = await assertManagerCommunicationAllowed(actor.userId);
+  // The plan checked is the workspace OWNER's, so a teammate is judged by the owner's plan.
+  const communication = await assertManagerCommunicationAllowed(workspace.ownerUserId);
   if (!communication.allowed) {
     return NextResponse.json(
       { error: communication.message, code: `communication_${communication.reason}` },

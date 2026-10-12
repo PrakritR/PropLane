@@ -470,3 +470,52 @@ describe("a live signup trial gets no work email", () => {
     expect(body.canRequest).toBe(false);
   });
 });
+
+describe("the work email is judged by the workspace owner's plan", () => {
+  const request = () =>
+    new Request("https://prop-lane.test/api/manager/assistant-email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "request_address" }),
+    });
+  const trial = {
+    allowed: false,
+    reason: "trial",
+    status: 402,
+    message: "Communication is available on a paid plan.",
+  } as const;
+
+  afterEach(async () => {
+    mocks.activeWorkspace = null;
+    const assertAllowed = await gate();
+    assertAllowed.mockImplementation(async () => communication.access);
+  });
+
+  async function gate() {
+    const mod = await import("@/lib/manager-communication-access.server");
+    return vi.mocked(mod.assertManagerCommunicationAllowed);
+  }
+
+  it("asks about the owner, so a trial teammate in a paid owner's workspace is allowed", async () => {
+    const assertAllowed = await gate();
+    assertAllowed.mockImplementation(async (owner: string) => (owner === "paid-owner" ? { allowed: true } : trial));
+    // The acting user (MANAGER) is on a trial of their own; the workspace belongs to a paid owner.
+    mocks.activeWorkspace = { ...MY_WS, ownerUserId: "paid-owner" };
+    const response = await POST(request());
+    expect(assertAllowed).toHaveBeenCalledWith("paid-owner");
+    expect(assertAllowed).not.toHaveBeenCalledWith(MANAGER);
+    expect(response.status).not.toBe(402);
+    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalled();
+  });
+
+  it("refuses with 402 when the owner is on a trial, whatever the acting user's own plan", async () => {
+    const assertAllowed = await gate();
+    assertAllowed.mockImplementation(async (owner: string) => (owner === "trial-owner" ? trial : { allowed: true }));
+    mocks.activeWorkspace = { ...MY_WS, ownerUserId: "trial-owner" };
+    const response = await POST(request());
+    expect(assertAllowed).toHaveBeenCalledWith("trial-owner");
+    expect(response.status).toBe(402);
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+});

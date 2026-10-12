@@ -13,6 +13,7 @@ import {
   recordShareSubject,
 } from "@/lib/record-share-message";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
 import {
   fromHeaderAddress,
@@ -82,6 +83,17 @@ export async function POST(req: Request) {
 
     const authz = await authorizePortalRecordShare(db, user.id, kind, recordId, "edit");
     if (!authz.ok) return NextResponse.json({ error: authz.error }, { status: authz.status });
+
+    // A live signup trial has no Communication until it pays. The plan checked is the record's
+    // workspace OWNER's (a teammate is judged by the owner's plan), before any link is minted or
+    // anything is sent.
+    const access = await assertManagerCommunicationAllowed(authz.recordOwnerUserId);
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: access.message, code: `communication_${access.reason}` },
+        { status: access.status },
+      );
+    }
 
     const link = await createPortalRecordShareLink(db, {
       recordKind: kind,
