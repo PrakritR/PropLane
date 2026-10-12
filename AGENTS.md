@@ -468,6 +468,7 @@ answer. Fail closed to `true`.
 | Rent basis | `docs/agents/rent-basis.md` | `rentBasis` alone; daily never wins unless the manager set it |
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
 | Marketing mocks | `docs/agents/marketing-mocks.md` | Depict a real screen; derive counts from the rows drawn |
+| Public blog | `docs/agents/blog.md` | A figure is quoted as its source states it, one source per claim; posts are prerendered and a stat tile always links its source |
 | House printables | `docs/agents/house-printables.md` | The public page and both public printables render only `HOUSE_PUBLIC_SECTIONS`; a code or password never becomes a URL |
 | Listing wizard defaults | `docs/agents/listing-wizard-defaults.md` | A record follows the Default card per field; the card is saved on the submission, never resolved downstream; counts make the cards |
 | Property import | `docs/agents/portfolio-import.md` | The drafts are the import; the model answers only through the tool and cites rows; rent is what the tenant pays, never market rent |
