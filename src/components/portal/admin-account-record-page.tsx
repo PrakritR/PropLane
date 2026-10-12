@@ -94,7 +94,7 @@ export function AdminAccountRecordPage({
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { rows?: ({ id: string } & AdminAccountBillingSummary)[] };
         const row = data.rows?.find((r) => r.id === id);
-        if (!cancelled && row) setBilling({ planLabel: row.planLabel, comms: row.comms });
+        if (!cancelled && row) setBilling({ planLabel: row.planLabel, planSource: row.planSource, comms: row.comms });
       } catch {
         // Overview shows "—" for the plan and credit until a reload succeeds.
       }

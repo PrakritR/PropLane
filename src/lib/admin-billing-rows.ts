@@ -42,6 +42,8 @@ export type AdminBillingPurchaseInput = {
   stripeSubscriptionId: string | null;
   appleOriginalTransactionId: string | null;
   promoCode: string | null;
+  /** `manager_purchases.stripe_checkout_session_id`; an `admin_` id marks a staff-assigned plan. */
+  stripeCheckoutSessionId?: string | null;
 };
 
 export type AdminBillingRowInput = {
@@ -99,6 +101,8 @@ export type AdminBillingRow = {
   tier: ManagerSkuTier | null;
   planUnknown: boolean;
   planLabel: string;
+  /** The plan with how the account got it: "Pro trial · ends Oct 13", "Pro · FREE100", "Pro · Staff grant", "Business · paid", "Free". */
+  planSource: string;
   /** On a signup trial right now. */
   onTrial: boolean;
   /** Was on a signup trial and it has run out — the row still stores pro/business forever. */
@@ -125,6 +129,43 @@ export type AdminBillingRow = {
 };
 
 const PLAN_LABELS: Record<ManagerSkuTier, string> = { free: "Free", pro: "Pro", business: "Business" };
+
+function shortDate(ymd: string): string {
+  const d = new Date(`${ymd.slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? ymd : d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * The one "plan with its source" sentence the Accounts list and the account Overview both show.
+ * It names the enforced plan and how the account holds it: a live trial with its end date, a
+ * waiver code, a staff grant, or a paid subscription. A Stripe Checkout code is display only and
+ * never changes it (see docs/agents/plan-entitlements.md).
+ */
+export function adminPlanSourceLabel(input: {
+  planUnknown: boolean;
+  tier: ManagerSkuTier | null;
+  onTrial: boolean;
+  trialEndsAt: string | null;
+  complimentary: boolean;
+  purchase: AdminBillingPurchaseInput | null;
+}): string {
+  if (input.planUnknown) return "Plan unknown";
+  if (input.tier === null) return "Legacy (uncapped)";
+  const name = PLAN_LABELS[input.tier];
+  if (input.tier === "free") return name;
+  if (input.onTrial) return input.trialEndsAt ? `${name} trial · ends ${shortDate(input.trialEndsAt)}` : `${name} trial`;
+  const purchase = input.purchase;
+  const billing = (purchase?.billing ?? "").trim().toLowerCase();
+  const staffGrant =
+    input.complimentary ||
+    billing === "admin" ||
+    billing === "portal" ||
+    (purchase?.stripeCheckoutSessionId ?? "").trim().startsWith("admin_");
+  const waiver = (purchase?.promoCode ?? "").trim();
+  if (staffGrant) return `${name} · ${waiver ? waiver : "Staff grant"}`;
+  if (waiver) return `${name} · ${waiver}`;
+  return `${name} · paid`;
+}
 
 /**
  * Communication credit as the wallet holds it. Usage alone cannot say whether a manager is
@@ -218,6 +259,14 @@ export function deriveAdminBillingRow(input: AdminBillingRowInput): AdminBilling
     tier,
     planUnknown,
     planLabel: planUnknown ? "Plan unknown" : tier === null ? "Legacy (uncapped)" : PLAN_LABELS[tier],
+    planSource: adminPlanSourceLabel({
+      planUnknown,
+      tier,
+      onTrial: isTrialRow && !trialLapsed,
+      trialEndsAt,
+      complimentary: overrides.complimentary,
+      purchase,
+    }),
     onTrial: isTrialRow && !trialLapsed,
     trialLapsed,
     trialEndsAt,

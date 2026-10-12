@@ -47,9 +47,9 @@ on an account with five listings and no paywall anywhere).
   into `promo_code` would keep a cancelled FREEFIRST customer on paid access for
   free. The code is read ONLY from the discounts Stripe applied to the session
   (`discounts` / `total_details.breakdown.discounts`); `metadata.promo` is customer
-  free text and is never recorded as a redemption. The admin Subscribers Promo bucket, the account record's Promo fact and
-  the admin assistant's `subscriber_counts` read `stripe_promotion_code`; a waiver
-  account stays where it was counted before. Coverage:
+  free text and is never recorded as a redemption. The admin Subscribers list shows
+  a Checkout code as a display-only "Code X" fact on a Paid row (it never moves the
+  account into the Promo code tab); only a waiver (`promo_code`) or a staff grant does. Coverage:
   `tests/unit/manager-purchase-from-session.test.ts`,
   `admin-subscribers.test.ts`.
   Omitting `billing`
@@ -406,19 +406,28 @@ section wiring.
 ## Admin Subscribers (Accounts > Subscribers)
 
 `/admin/subscribers` lists every real (non-sandbox) manager in exactly one of
-**Paid · Trial · Promo · Free · Complimentary**, with counts on the tabs.
+**Paid · Trial · Promo code · Free**, with counts on the tabs.
 `classifySubscriber` (`src/lib/admin/admin-subscribers-model.ts`) runs
 `deriveAdminBillingRow`, so the bucket is the plan the product ENFORCES, not a
 second opinion: a lapsed signup trial is **Free**, a live Stripe or Apple grant
 is **Paid**, and an account whose purchase could not be read is counted
-nowhere (never filed as Free). Order, first match wins: Complimentary (the
-staff `complimentary` override, or a `billing: admin|portal` / `admin_` grant
-with no payment behind it) → Trial (`billing: trial`, unexpired) → Promo (paid
-plan + `stripe_promotion_code`, or a `promo_code` waiver) → Paid → Free. A Stripe subscription still inside its
+nowhere (never filed as Free). Order, first match wins: **Promo code** for a
+staff grant (the `complimentary` override, or a `billing: admin|portal` /
+`admin_` grant with no payment behind it; fact "Staff grant") or a payment-waiver
+code (`promo_code` on a paid plan; fact "Code FREE100") → Trial (`billing: trial`,
+unexpired; the row says "ends <date>") → Paid → Free. "Complimentary" used to be
+its own tab; `?tab=complimentary` now opens Promo code. A Stripe Checkout code
+(`stripe_promotion_code`) on a paid Stripe subscription stays **Paid** with a
+display-only "Code X" fact. A Stripe subscription still inside its
 Checkout trial days is **Paid** here because that is what enforcement says; the
 Trial tab is the no-card signup trial. MRR is the sum of the Paid bucket at
 list price (`RATE_CARD` base plan, annual / 12; per-door overage is not
-included).
+included). `?q=CODE` pre-fills the search (the Promo codes page links a waiver
+row to `/admin/subscribers?tab=promo&q=CODE`).
+
+The Accounts list and the account Overview show the same **plan with its source**
+(`AdminBillingRow.planSource` from `adminPlanSourceLabel`): "Pro trial · ends Oct 13",
+"Pro · FREE100", "Pro · Staff grant", "Business · paid", "Free".
 
 `GET /api/admin/subscribers` reads through paged selects
 (`readAllPages`, stable order, a failed page throws) and id-chunked profile
@@ -440,9 +449,13 @@ charge on a subscription invoice (price ids via `stripe-price-ids.ts`) or from a
 customer holding a PropLane subscription → Subscriptions; the vendor 3% fee
 comes from `platform_revenue_entries` (it is held back from a vendor payment,
 so it is never its own Stripe transaction) → Service fees; payouts; refunds of
-PropLane revenue. **The platform account also carries pass-through money (rent,
-vendor payments): anything not attributable to a PropLane product is `other`,
-listed under All and never added to gross, fees or refunds.** Rows link to the
+PropLane revenue. **Every row lands in exactly one tab and the tab counts add up
+to All** (`revenueTabCounts`, pinned by a unit test): every refund is under
+Refunds (matched to its charge or not); balance / financial-account transfers and
+top-ups are **Transfers**; resident rent and application / screening / linked-form
+charges (checkout `purpose`) are **Rent & resident**; anything still unmatched is
+**Other**, a tab shown only when it has rows. Only the four earning categories
+reach gross and fees; the Refunds card is the sum of the Refunds tab. Rows link to the
 account through `manager_purchases.stripe_customer_id`, the comms billing
 account, or `manager_user_id` metadata. App Store rows are
 `manager_purchases` Apple grants (production environment only), shown "via App
@@ -483,6 +496,16 @@ restricting one to some plans is the coupon's `applies_to` products
   used the code (best-effort: a failed invoice read shows 0, never a guess).
 - Applying an existing code to one account is the account record's popup, not this
   page (§ Admin Billing above).
+- The list also carries every other code in use, each row "code · kind · N accounts":
+  Stripe coupons no promotion code fronts (read-only, Stripe's redemption count),
+  and **waiver codes**, every distinct `manager_purchases.promo_code` with its
+  distinct-account count plus the built-ins (`FREE100`, `WAIVEPROCESS1`) even at
+  zero. Kinds: Stripe promo code, Stripe coupon, Sign-up waiver, Fee waiver, Staff
+  grant. Active = redeemable now (a waiver equal to `getPaymentWaiverCode()`; a
+  Stripe code valid and active), Inactive = not redeemable, Expired = Stripe says
+  so. A waiver row opens `/admin/subscribers?tab=promo&q=CODE`. The `promo_code`
+  waiver column and `stripe_promotion_code` are never conflated; the + button still
+  creates only Stripe promotion codes.
 
 Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
 `admin-promo-codes.test.ts`, `admin-promo-codes-route.test.ts`,

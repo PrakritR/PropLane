@@ -62,10 +62,11 @@ type PurchaseRow = {
   promo_code: string | null;
   stripe_subscription_id: string | null;
   apple_original_transaction_id: string | null;
+  stripe_checkout_session_id: string | null;
 };
 
 const PURCHASE_SELECT =
-  "id, email, user_id, tier, billing, paid_at, promo_code, stripe_subscription_id, apple_original_transaction_id";
+  "id, email, user_id, tier, billing, paid_at, promo_code, stripe_subscription_id, apple_original_transaction_id, stripe_checkout_session_id";
 
 export async function GET() {
   try {
@@ -213,11 +214,11 @@ export async function GET() {
           user_id: row.user_id,
           promo_code: row.promo_code,
           apple_original_transaction_id: row.apple_original_transaction_id,
-          // Not selected — nothing this list derives reads them, and the row picker sorts on
+          // Not selected — nothing this list derives reads it, and the row picker sorts on
           // `paid_at` alone.
           stripe_customer_id: null,
           stripe_subscription_id: row.stripe_subscription_id,
-          stripe_checkout_session_id: null,
+          stripe_checkout_session_id: row.stripe_checkout_session_id,
         });
       }
       const best = pickBestManagerPurchaseRow([...deduped.values()], profile.id);
@@ -238,6 +239,7 @@ export async function GET() {
               stripeSubscriptionId: best.stripe_subscription_id,
               appleOriginalTransactionId: best.apple_original_transaction_id ?? null,
               promoCode: best.promo_code ?? null,
+              stripeCheckoutSessionId: best.stripe_checkout_session_id ?? null,
             }
           : null,
         planReadFailed: planReadFailed.has(profile.id) || (Boolean(email) && emailChunkFailed.has(email)),

@@ -6,12 +6,13 @@
  * with what a manager is actually held to. See docs/agents/plan-entitlements.md.
  *
  * Buckets are mutually exclusive, first match wins:
- *   1. complimentary - the staff "complimentary" override, or an admin/portal grant
- *      that no payment is behind (`billing: admin|portal`, `admin_` checkout id)
- *   2. trial         - a live signup trial (`billing: trial`, not yet expired)
- *   3. promo         - a paid plan reached with a promo code / waiver
- *   4. paid          - a Stripe or Apple subscription (or a paid tier with no committed row)
- *   5. free          - Free, including a lapsed trial
+ *   1. promo - a staff grant (the "complimentary" override, or an admin/portal grant that no
+ *      payment is behind: `billing: admin|portal`, `admin_` checkout id), shown "Staff grant";
+ *      or a payment-waiver code (`manager_purchases.promo_code`) on a paid plan, shown "Code X"
+ *   2. trial - a live signup trial (`billing: trial`, not yet expired)
+ *   3. paid  - a Stripe or Apple subscription (or a paid tier with no committed row). A Stripe
+ *      Checkout code (`stripe_promotion_code`) on it is display only: still Paid, "Code X"
+ *   4. free  - Free, including a lapsed trial
  * An account whose purchase could not be read is `unknown` and is counted nowhere:
  * "no committed SKU" and "read failed" both produce zero rows, and filing the second
  * as Free would be the one wrong guess that matters.
@@ -147,15 +148,16 @@ export function classifySubscriber(input: SubscriberInput): SubscriberRow | null
   const paidTier = derived.tier === "pro" || derived.tier === "business";
   const waiverCode = trimmed(purchase?.promoCode) || null;
   const checkoutCode = trimmed(purchase?.stripePromotionCode) || null;
-  // The Promo bucket reads the redeemed Stripe code; a waiver account (promo_code) stays where it was.
-  const promoCode = checkoutCode ?? waiverCode;
+  // Only a waiver (promo_code) makes the Promo code bucket; a Checkout code on a paid sub is display only.
+  const promoCode = waiverCode ?? checkoutCode;
   const grant = isAdminGrant(purchase);
   const source = subscriberSource(purchase);
 
   let bucket: SubscriberBucket;
-  if (input.overrides.complimentary || (grant && (paidTier || derived.tier === null))) bucket = "complimentary";
+  const staffGrant = input.overrides.complimentary || (grant && (paidTier || derived.tier === null));
+  if (staffGrant) bucket = "promo";
   else if (derived.onTrial) bucket = "trial";
-  else if (promoCode && paidTier) bucket = "promo";
+  else if (waiverCode && paidTier) bucket = "promo";
   else if (paidTier || derived.tier === null) bucket = "paid";
   else bucket = "free";
 
@@ -173,6 +175,7 @@ export function classifySubscriber(input: SubscriberInput): SubscriberRow | null
     trialEndsAt,
     trialDaysLeft: trialEndsAt ? trialDaysLeft(trialEndsAt, input.nowMs) : null,
     promoCode,
+    codeFact: bucket === "promo" ? (waiverCode ? `Code ${waiverCode}` : "Staff grant") : bucket === "paid" && checkoutCode ? `Code ${checkoutCode}` : null,
     monthlyCents: bucket === "paid" || bucket === "promo" ? monthlyCentsForPlan(derived.tier, purchase?.billing ?? null) : null,
     stripeSubscriptionId: trimmed(purchase?.stripeSubscriptionId) || null,
     stripeCustomerId: trimmed(purchase?.stripeCustomerId) || null,
@@ -181,7 +184,7 @@ export function classifySubscriber(input: SubscriberInput): SubscriberRow | null
 }
 
 export function subscriberCounts(rows: readonly SubscriberRow[]): SubscriberCounts {
-  const counts: SubscriberCounts = { paid: 0, trial: 0, promo: 0, free: 0, complimentary: 0 };
+  const counts: SubscriberCounts = { paid: 0, trial: 0, promo: 0, free: 0 };
   for (const row of rows) counts[row.bucket] += 1;
   return counts;
 }

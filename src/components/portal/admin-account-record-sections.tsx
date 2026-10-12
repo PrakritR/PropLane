@@ -13,6 +13,8 @@ import type { AdminAccountDetail } from "@/lib/admin/admin-account-detail.server
 /** The wallet facts `/api/admin/manager-billing` derives for one manager (read-only). */
 export type AdminAccountBillingSummary = {
   planLabel: string;
+  /** The plan with how the account got it ("Pro trial · ends Oct 13", "Pro · FREE100"). */
+  planSource?: string;
   comms: { allowanceCents: number | null; remainingCents: number | null; exhausted: boolean } | null;
 };
 
@@ -55,7 +57,7 @@ export function AccountOverviewSection({
   return (
     <RecordFactCard title="Account" dataAttr="admin-account-overview">
       <RecordFactRow label="Role" value={ADMIN_ACCOUNT_ROLE_LABEL[kind]} />
-      {kind === "manager" ? <RecordFactRow label="Plan" value={billing?.planLabel ?? "—"} /> : null}
+      {kind === "manager" ? <RecordFactRow label="Plan" value={billing?.planSource ?? billing?.planLabel ?? "—"} /> : null}
       <RecordFactRow
         label="Status"
         value={detail.status === "active" ? "Active" : "Disabled"}

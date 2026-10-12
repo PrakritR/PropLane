@@ -9,15 +9,16 @@ import type { ManagerSkuTier } from "@/lib/manager-access";
 export const SUBSCRIBER_TABS = [
   { id: "paid", label: "Paid" },
   { id: "trial", label: "Trial" },
-  { id: "promo", label: "Promo" },
+  { id: "promo", label: "Promo code" },
   { id: "free", label: "Free" },
-  { id: "complimentary", label: "Complimentary" },
 ] as const;
 
 export type SubscriberBucket = (typeof SUBSCRIBER_TABS)[number]["id"];
 
 export function subscriberTabFromParam(raw: string | null | undefined): SubscriberBucket {
   const value = String(raw ?? "").trim().toLowerCase();
+  // "Complimentary" was folded into Promo code (a staff grant is a promo code row).
+  if (value === "complimentary") return "promo";
   return SUBSCRIBER_TABS.some((tab) => tab.id === value) ? (value as SubscriberBucket) : "paid";
 }
 
@@ -40,7 +41,10 @@ export type SubscriberRow = {
   trialEndsAt: string | null;
   /** Calendar days from today until the trial ends (0 = today); null outside a trial. */
   trialDaysLeft: number | null;
+  /** The waiver code, else the Stripe Checkout code. Searchable; shown via {@link SubscriberRow.codeFact}. */
   promoCode: string | null;
+  /** The fact the row shows: "Code FREE100", "Staff grant", or null. A Stripe Checkout code on a paid sub is "Code X" in Paid. */
+  codeFact: string | null;
   /** Monthly figure in cents at list price. Null when the account pays nothing. */
   monthlyCents: number | null;
   stripeSubscriptionId: string | null;

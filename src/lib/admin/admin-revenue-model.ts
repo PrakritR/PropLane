@@ -26,6 +26,8 @@ export type RevenueCategory =
   | "service_fees"
   | "payouts"
   | "refunds"
+  | "rent"
+  | "transfers"
   | "other";
 
 /** The tabs, in the order the page draws them. `all` is not a category. */
@@ -35,9 +37,15 @@ export const REVENUE_TABS = [
   { id: "credits", label: "Credits" },
   { id: "numbers", label: "Numbers" },
   { id: "service_fees", label: "Service fees" },
+  { id: "rent", label: "Rent & resident" },
+  { id: "transfers", label: "Transfers" },
   { id: "payouts", label: "Payouts" },
   { id: "refunds", label: "Refunds" },
+  { id: "other", label: "Other" },
 ] as const;
+
+/** Tabs the page hides while they hold no rows (the catch-all stays out of the way until it is needed). */
+export const REVENUE_TABS_HIDDEN_WHEN_EMPTY: readonly RevenueTabId[] = ["other"];
 
 export type RevenueTabId = (typeof REVENUE_TABS)[number]["id"];
 
@@ -143,8 +151,26 @@ export const EMPTY_CLASSIFY_CONTEXT: ClassifyContext = {
 };
 
 const PAYOUT_TYPES = new Set(["payout", "payout_cancel", "payout_failure"]);
-const REFUND_TYPES = new Set(["refund", "payment_refund", "payment_failure_refund"]);
+const REFUND_TYPES = new Set(["refund", "payment_refund", "payment_failure_refund", "application_fee_refund"]);
 const CHARGE_TYPES = new Set(["charge", "payment"]);
+
+/**
+ * Money that moved between balances rather than being earned: Connect / financial-account / balance
+ * transfers and top-ups. Matched on the balance transaction's type or reporting category, never on a
+ * charge's text.
+ */
+function isTransferLike(bt: NormalizedBalanceTransaction): boolean {
+  const type = bt.type.toLowerCase();
+  const reporting = bt.reportingCategory.toLowerCase();
+  return (
+    /transfer|topup|top_up/.test(type) ||
+    /transfer|topup|top_up/.test(reporting) ||
+    (bt.sourceKind === "other" && /\btransfer\b/i.test(bt.description ?? ""))
+  );
+}
+
+/** Checkout purposes of money a resident or applicant paid (rent, fees, deposits), not PropLane revenue. */
+const RENT_PURPOSES = new Set(["household_charge", "rental_application_fee", "application_screening", "linked_form_fee"]);
 
 const TIER_LABEL: Record<string, string> = { pro: "Pro", business: "Business" };
 
@@ -199,6 +225,9 @@ export function classifyCharge(
   if (!purpose && bt.customerId && ctx.subscriptionCustomerIds.has(bt.customerId)) {
     return { category: "subscriptions", title: `Subscription${accountLabel}`, invoice };
   }
+  if (RENT_PURPOSES.has(purpose)) {
+    return { category: "rent", title: `${bt.description?.trim() || "Resident payment"}${accountLabel}`, invoice };
+  }
   return {
     category: "other",
     title: `${bt.description?.trim() || "Payment"}${accountLabel}`,
@@ -250,17 +279,28 @@ export function classifyBalanceTransaction(bt: NormalizedBalanceTransaction, ctx
 
   if (REFUND_TYPES.has(bt.type) || bt.reportingCategory === "refund") {
     const original = bt.chargeId ? ctx.chargeCategory.get(bt.chargeId) : undefined;
-    // A refund of money that was never PropLane's (a resident's rent) is not a PropLane refund.
-    const ours = original ? original.category !== "other" : false;
+    // Every refund lands under Refunds, matched to its charge or not. The summary card's Refunds
+    // figure is the sum of this tab.
     return {
       ...base,
-      category: ours ? "refunds" : "other",
+      category: "refunds",
       title: original ? `Refund - ${original.title}` : `Refund${accountLabel}`,
       grossCents: bt.amount,
       feeCents: Math.max(0, bt.fee),
       netCents: bt.net,
       chargeId: bt.chargeId,
       stripePath: bt.chargeId ? `payments/${bt.chargeId}` : null,
+    };
+  }
+
+  if (isTransferLike(bt) && !(CHARGE_TYPES.has(bt.type) || bt.reportingCategory === "charge")) {
+    return {
+      ...base,
+      category: "transfers",
+      title: bt.description?.trim() || bt.type.replace(/_/g, " "),
+      grossCents: bt.amount,
+      feeCents: Math.max(0, bt.fee),
+      netCents: bt.net,
     };
   }
 
@@ -331,6 +371,7 @@ export function summarizeRevenue(rows: readonly RevenueRow[]): RevenueSummary {
   };
 }
 
+/** Every row is in exactly one category tab, so the tab counts add up to `all`. */
 export function revenueTabCounts(rows: readonly RevenueRow[]): Record<RevenueTabId, number> {
   const counts: Record<RevenueTabId, number> = {
     all: rows.length,
@@ -338,12 +379,13 @@ export function revenueTabCounts(rows: readonly RevenueRow[]): Record<RevenueTab
     credits: 0,
     numbers: 0,
     service_fees: 0,
+    rent: 0,
+    transfers: 0,
     payouts: 0,
     refunds: 0,
+    other: 0,
   };
-  for (const row of rows) {
-    if (row.category !== "other") counts[row.category] += 1;
-  }
+  for (const row of rows) counts[row.category] += 1;
   return counts;
 }
 
@@ -391,6 +433,8 @@ const CATEGORY_LABEL: Record<RevenueCategory, string> = {
   service_fees: "Service fee",
   payouts: "Payout",
   refunds: "Refund",
+  rent: "Rent & resident",
+  transfers: "Transfer",
   other: "Other",
 };
 

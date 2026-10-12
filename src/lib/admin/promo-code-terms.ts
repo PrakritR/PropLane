@@ -7,6 +7,22 @@ import { PROMO_PLAN_LABELS, type PromoPlanId } from "@/lib/stripe-promos";
 export type PromoDiscountType = "percent" | "amount" | "free_months";
 export type PromoDuration = "once" | "repeating" | "forever";
 
+/**
+ * What a row is. Only `stripe_promo_code` is a Stripe Checkout code; the rest are other ways an account
+ * got paid access or a discount, listed so every code in use is on one page. A waiver is the
+ * `manager_purchases.promo_code` column and a Checkout code is `stripe_promotion_code`: never conflated.
+ */
+export type PromoKind = "stripe_promo_code" | "stripe_coupon" | "waiver" | "fee_waiver" | "staff_grant";
+
+export const PROMO_KIND_LABEL: Record<PromoKind, string> = {
+  stripe_promo_code: "Stripe promo code",
+  stripe_coupon: "Stripe coupon",
+  waiver: "Sign-up waiver",
+  fee_waiver: "Fee waiver",
+  staff_grant: "Staff grant",
+};
+
+
 export type PromoTermsInput = {
   discountType: PromoDiscountType;
   /** Percent (1-100), dollars, or a number of months, by `discountType`. */

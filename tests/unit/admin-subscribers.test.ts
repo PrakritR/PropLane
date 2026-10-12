@@ -18,7 +18,7 @@ import {
   type SubscriberInput,
   type SubscriberPurchase,
 } from "@/lib/admin/admin-subscribers-model";
-import { trialEndsSoon } from "@/lib/admin/admin-subscribers-shared";
+import { SUBSCRIBER_TABS, subscriberTabFromParam, trialEndsSoon } from "@/lib/admin/admin-subscribers-shared";
 import {
   enrichRenewals,
   loadAdminSubscriberFigures,
@@ -90,9 +90,11 @@ describe("classifySubscriber buckets", () => {
     expect(byId["apple"]!.bucket).toBe("paid");
     expect(byId["trial-live"]!.bucket).toBe("trial");
     expect(byId["promo"]!.bucket).toBe("promo");
-    expect(byId["checkout-promo"]!.bucket).toBe("promo");
-    expect(byId["comp-flag"]!.bucket).toBe("complimentary");
-    expect(byId["admin-grant"]!.bucket).toBe("complimentary");
+    // A Stripe Checkout code on a paid Stripe sub is display only: still Paid.
+    expect(byId["checkout-promo"]!.bucket).toBe("paid");
+    // Complimentary (staff override, admin grant) folds into Promo code as a "Staff grant".
+    expect(byId["comp-flag"]!.bucket).toBe("promo");
+    expect(byId["admin-grant"]!.bucket).toBe("promo");
     expect(byId["free"]!.bucket).toBe("free");
     expect(byId["never-bought"]!.bucket).toBe("free");
   });
@@ -127,9 +129,9 @@ describe("classifySubscriber buckets", () => {
 
   it("counts the buckets and computes MRR from Paid only, at list price", () => {
     const list = rows.filter((r): r is NonNullable<typeof r> => r !== null);
-    expect(subscriberCounts(list)).toEqual({ paid: 3, trial: 1, promo: 2, free: 3, complimentary: 2 });
-    // Pro monthly $49 x2 (Stripe + Apple) + Business annual $2,490 / 12 = $207.50.
-    expect(subscriberMrrCents(list)).toBe(4900 * 2 + Math.round(249_000 / 12));
+    expect(subscriberCounts(list)).toEqual({ paid: 4, trial: 1, promo: 3, free: 3 });
+    // Pro monthly $49 x3 (Stripe + Apple + Stripe with a Checkout code) + Business annual $2,490 / 12 = $207.50.
+    expect(subscriberMrrCents(list)).toBe(4900 * 3 + Math.round(249_000 / 12));
   });
 
   it("monthly equivalent: annual divides by twelve, Free pays nothing", () => {
@@ -148,13 +150,28 @@ describe("classifySubscriber buckets", () => {
   });
 });
 
-describe("the Promo bucket reads stripe_promotion_code", () => {
-  it("a Stripe-billed account with a redeemed checkout code is Promo and shows that code", () => {
+describe("the Promo code bucket", () => {
+  it("a Stripe-billed account with a redeemed checkout code stays Paid and shows that code", () => {
     const row = classifySubscriber(
       input("m", purchase({ stripeSubscriptionId: "sub_9", stripePromotionCode: "FREEFIRST" })),
     )!;
-    expect(row.bucket).toBe("promo");
+    expect(row.bucket).toBe("paid");
     expect(row.promoCode).toBe("FREEFIRST");
+    expect(row.codeFact).toBe("Code FREEFIRST");
+  });
+
+  it("a waiver code is Promo code with the code as its fact; a staff grant says so", () => {
+    const rows = fixtures.map(classifySubscriber);
+    const byId = Object.fromEntries(rows.filter(Boolean).map((r) => [r!.id, r!]));
+    expect(byId["promo"]).toMatchObject({ bucket: "promo", codeFact: "Code FREE100" });
+    expect(byId["comp-flag"]).toMatchObject({ bucket: "promo", codeFact: "Staff grant" });
+    expect(byId["admin-grant"]).toMatchObject({ bucket: "promo", codeFact: "Staff grant" });
+    expect(byId["trial-live"]!.codeFact).toBeNull();
+  });
+
+  it("an old ?tab=complimentary link opens the Promo code tab", () => {
+    expect(subscriberTabFromParam("complimentary")).toBe("promo");
+    expect(SUBSCRIBER_TABS.map((t) => t.label)).toEqual(["Paid", "Trial", "Promo code", "Free"]);
   });
 
   it("a plain paid account with no redeemed code stays Paid", () => {
@@ -189,7 +206,7 @@ describe("filters and CSV", () => {
 
   it("filters the Paid tab by plan, source and text", () => {
     const f = { tab: "paid" as const, q: "", plan: "all" as const, source: "all" as const, signup: "" };
-    expect(filterSubscribers(list, f)).toHaveLength(3);
+    expect(filterSubscribers(list, f)).toHaveLength(4);
     expect(filterSubscribers(list, { ...f, plan: "business" }).map((r) => r.id)).toEqual(["stripe-biz-annual"]);
     expect(filterSubscribers(list, { ...f, source: "app_store" }).map((r) => r.id)).toEqual(["apple"]);
     expect(filterSubscribers(list, { ...f, q: "STRIPE-PRO" })).toHaveLength(1);
@@ -234,16 +251,16 @@ describe("loadSubscriberPopulation (paged reads, resolvers, sandbox excluded)", 
   it("buckets real accounts, applies the complimentary override and leaves the sandbox out", async () => {
     const pop = await loadSubscriberPopulation(db(), NOW);
     const bucket = Object.fromEntries(pop.rows.map((r) => [r.id, r.bucket]));
-    expect(bucket).toEqual({ "m-paid": "paid", "m-trial": "trial", "m-free": "free", "m-comp": "complimentary" });
+    expect(bucket).toEqual({ "m-paid": "paid", "m-trial": "trial", "m-free": "free", "m-comp": "promo" });
     expect(pop.unreadable).toBe(0);
     const p = pageSubscribers(pop, { tab: "paid", q: "", plan: "all", source: "all", signup: "" }, 1, 50);
-    expect(p).toMatchObject({ total: 1, counts: { paid: 1, trial: 1, promo: 0, free: 1, complimentary: 1 }, mrrCents: 24_900 });
+    expect(p).toMatchObject({ total: 1, counts: { paid: 1, trial: 1, promo: 1, free: 1 }, mrrCents: 24_900 });
   });
 
-  it("loads stripe_promotion_code from manager_purchases into the Promo bucket", async () => {
+  it("loads stripe_promotion_code from manager_purchases as a display-only code on a Paid account", async () => {
     const pop = await loadSubscriberPopulation(db({ stripe_promotion_code: "FREEFIRST" }), NOW);
     const paid = pop.rows.find((r) => r.id === "m-paid")!;
-    expect(paid.bucket).toBe("promo");
+    expect(paid.bucket).toBe("paid");
     expect(paid.promoCode).toBe("FREEFIRST");
   });
 
