@@ -451,7 +451,7 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
     tier: resolveEffectiveManagerSkuTier({
       tier: row.tier,
       stripeSubscriptionId: row.stripeSubscriptionId,
-      appleManaged: isAppleBilledManagerPurchase(row.billing, row.appleOriginalTransactionId),
+      appleManaged,
       // A lapsed 14-day signup trial must read Free to every quota, not just to
       // the sidebar. Without these the row's frozen `tier: pro` kept the Pro
       // property cap and the Pro communication allowance forever.

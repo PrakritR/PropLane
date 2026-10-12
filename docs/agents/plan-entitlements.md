@@ -461,6 +461,11 @@ list price (`RATE_CARD` base plan, annual / 12; per-door overage is not
 included). `?q=CODE` pre-fills the search (the Promo codes page links a waiver
 row to `/admin/subscribers?tab=promo&q=CODE`).
 
+`classifySubscriber` is the ONLY bucket rule: the admin assistant's
+`subscriber_counts` / `trials_ending` (`src/lib/tools/admin/subscribers.ts`) call it
+too, so what staff are told and what the page shows cannot diverge. Rebucketing is a
+change to `admin-subscribers-model.ts`, never a second opinion in the tool.
+
 The Accounts list and the account Overview show the same **plan with its source**
 (`AdminBillingRow.planSource` from `adminPlanSourceLabel`): "Pro trial · ends Oct 13",
 "Pro · FREE100", "Pro · Staff grant", "Business · paid", "Free".

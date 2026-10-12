@@ -609,7 +609,11 @@ async function loadWaiverPurchases(db: ReturnType<typeof createSupabaseServiceRo
   }
 }
 
-/** Every promotion code with its usage. Usage is best-effort: a failed invoice read shows 0 given. */
+/**
+ * Every promotion code with its usage. Both database/invoice reads are best-effort: a failed
+ * invoice read shows 0 given, and a failed waiver read lists the built-in waiver codes at zero
+ * accounts. Neither may hide the Stripe promotion codes and coupons behind an error.
+ */
 export async function listPromoCodes(
   deps: { stripe?: Stripe; db?: ReturnType<typeof createSupabaseServiceRoleClient> } = {},
 ): Promise<AdminPromoCodeList> {
@@ -631,10 +635,13 @@ export async function listPromoCodes(
   const coupons = (await stripe.coupons.list({ limit: 100 }).autoPagingToArray({ limit: 500 }))
     .filter((coupon) => !fronted.has(coupon.id))
     .map((coupon) => projectCoupon(coupon));
-  const waivers = buildWaiverCodeRows(
-    await loadWaiverPurchases(deps.db ?? createSupabaseServiceRoleClient()),
-    getPaymentWaiverCode(),
-  );
+  let waiverPurchases: WaiverPurchaseRow[] = [];
+  try {
+    waiverPurchases = await loadWaiverPurchases(deps.db ?? createSupabaseServiceRoleClient());
+  } catch (error) {
+    console.error("waiver code read failed", error);
+  }
+  const waivers = buildWaiverCodeRows(waiverPurchases, getPaymentWaiverCode());
 
   const codes = [...promos.map((promo) => projectPromoCode(promo, usage.get(promo.id), products)), ...coupons, ...waivers].sort(
     (a, b) => b.accounts - a.accounts || b.createdAt.localeCompare(a.createdAt),

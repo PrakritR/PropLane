@@ -14,7 +14,10 @@ const h = vi.hoisted(() => ({
   forOwner: vi.fn(),
 }));
 
-vi.mock("@/lib/manager-communication-access.server", () => ({
+// The real constants come through (`importOriginal`); only the two asserts are stubbed, so a test
+// asserting the refusal copy is asserting the shipped string.
+vi.mock("@/lib/manager-communication-access.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-communication-access.server")>()),
   assertManagerCommunicationAllowedForWorkspace: (...args: unknown[]) => {
     h.forWorkspace(...args);
     return Promise.resolve(h.access);
@@ -25,6 +28,8 @@ vi.mock("@/lib/manager-communication-access.server", () => ({
   },
 }));
 
+import { UNRESOLVED_AGENT_WORKSPACE_SCOPE } from "@/lib/agent/manager-workspace-scope";
+import { MANAGER_COMMUNICATION_UNREADABLE_MESSAGE } from "@/lib/manager-communication-access.server";
 import { COMMUNICATION_SENDING_TOOLS, scopeManagerTool } from "@/lib/tools/manager-co-manager-tool-scope";
 import { defineTool, defineWriteTool } from "@/lib/tools/registry";
 import { resolvePaymentReminderCapability } from "@/lib/payment-reminder-capability.server";
@@ -82,6 +87,22 @@ describe("assistant tools that message people", () => {
     const scoped = scopeManagerTool(tool);
     await expect(scoped.handler(ctx, {})).rejects.toThrow("We could not verify your plan.");
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("refuses on the unresolved-workspace sentinel instead of judging the teammate's own plan", async () => {
+    // `UNRESOLVED_AGENT_WORKSPACE_SCOPE` is a PRESENT scope with an empty id. Collapsing it to
+    // "no workspace named" would make the acting teammate their own owner, so a co-manager on a
+    // paid personal plan could send inside a trial owner's workspace during a workspace-read blip.
+    const unresolved = { ...ctx, workspace: UNRESOLVED_AGENT_WORKSPACE_SCOPE } as unknown as AgentContext;
+    const { tool, handler, preview } = writeTool("send_message");
+    const scoped = scopeManagerTool(tool);
+    if (scoped.kind !== "write") throw new Error("expected a write tool");
+    await expect(scoped.preview(unresolved, {})).rejects.toThrow(MANAGER_COMMUNICATION_UNREADABLE_MESSAGE);
+    await expect(scoped.handler(unresolved, {})).rejects.toThrow(MANAGER_COMMUNICATION_UNREADABLE_MESSAGE);
+    // It never reaches the plan read at all: there is no owner it could be asked about.
+    expect(h.forWorkspace).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(preview).not.toHaveBeenCalled();
   });
 
   it("runs normally for a paid owner", async () => {

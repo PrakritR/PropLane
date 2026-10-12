@@ -1,6 +1,10 @@
 import type { AgentContext } from "./context";
 import type { ToolDefinition } from "./registry";
-import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
+import { agentWorkspaceScopeUnresolved } from "@/lib/agent/manager-workspace-scope";
+import {
+  MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
+  assertManagerCommunicationAllowedForWorkspace,
+} from "@/lib/manager-communication-access.server";
 
 /**
  * Tools whose whole purpose is to message someone on the manager's behalf (inbox, text, email,
@@ -24,6 +28,12 @@ export const COMMUNICATION_SENDING_TOOLS = new Set([
 ]);
 
 async function assertToolMayCommunicate(ctx: AgentContext): Promise<void> {
+  // A workspace that could not be resolved carries the unresolved sentinel (an empty id). Passing
+  // that through as "no workspace" would mean "the actor is their own owner", so a co-manager on a
+  // paid plan would be judged by their OWN plan inside a trial owner's workspace. Fail closed.
+  if (agentWorkspaceScopeUnresolved(ctx.workspace)) {
+    throw new Error(MANAGER_COMMUNICATION_UNREADABLE_MESSAGE);
+  }
   const access = await assertManagerCommunicationAllowedForWorkspace(
     ctx.db,
     ctx.landlordId,
