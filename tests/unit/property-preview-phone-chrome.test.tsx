@@ -16,6 +16,9 @@ import { PortalRecordPhoneTabs } from "@/components/portal/portal-record-section
 import type { MockProperty } from "@/data/types";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 
+vi.mock("@/hooks/use-listing-public-occupancy", () => ({
+  useListingPublicOccupancy: () => ({ rooms: [], loading: false }),
+}));
 vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
   useProspectContactAutofill: () => ({ contact: null, loading: false }),
 }));
