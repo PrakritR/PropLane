@@ -7,9 +7,12 @@
  * unit-tested with Stripe mocked.
  *
  * Revenue is what PropLane itself earns, and the platform Stripe account also
- * carries pass-through money (resident rent, vendor payments). A charge that
- * cannot be attributed to a PropLane product is `other`: it is listed under All
- * so staff can see it, and never added to gross, fees or refunds.
+ * carries pass-through money (resident rent, vendor payments). Every row lands in
+ * exactly ONE category, so the tab counts add up to All: pass-through resident
+ * money is `rent`, money that only moved between balances is `transfers`, every
+ * refund is `refunds`, and a charge that still cannot be attributed is `other`
+ * (its tab is drawn only when it holds rows). Only the earning categories reach
+ * gross and fees, and only a refund OF those earnings reduces earned and net.
  */
 import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
 import {

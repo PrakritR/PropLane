@@ -477,8 +477,9 @@ context carries no `landlordId`. A non-admin is a 401.
 in `tests/unit/agent/admin-agent.test.ts`). Each tool calls the function the
 admin UI already uses: `find_account` (name, email or PropLane ID), `account_summary`
 (`loadAdminAccountDetail`, projected to non-secret fields), `subscriber_counts`
-and `trials_ending` (Paid / Trial / Promo / Free / Complimentary, derived with
-`deriveAdminBillingRow` so they equal the plan the product enforces),
+and `trials_ending` (Paid / Trial / Promo code / Free, through the same
+`classifySubscriber` the Subscribers page renders, so the counts staff are told
+cannot disagree with the page or with the plan the product enforces),
 `earnings_summary` (Stripe balance transactions via `getStripe`, month window
 in UTC, reports `complete: false` if truncated), `promo_codes_summary` (Stripe
 promotion codes, most redeemed first), `health_summary` (`loadAdminHealth`) and

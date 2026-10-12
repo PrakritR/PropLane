@@ -32,7 +32,8 @@ on an account with five listings and no paywall anywhere).
   DISPLAYS. Only the signup trial is expired here: a live Stripe subscription or
   Apple grant is authoritative and is never run through date math, and waiver /
   admin / portal grants have their own authorization rules. **A live signup trial
-  is not a paid account** (`billing: trial`); it cannot provision a work number.
+  is not a paid account** (`billing: trial`); it cannot provision a work number
+  and has no Communication at all (§ Communication on a trial).
   A validated promo waiver (FREE100 / `promo_code` on the purchase row) **is
   paid**, same as Stripe or Apple. Managers enter promo codes on checkout (and
   signup), never on the Billing & plan page.
@@ -152,7 +153,8 @@ on an account with five listings and no paywall anywhere).
 The tiers differ on TWO axes: what a plan unlocks (properties, co-managers,
 sections — above) and how much texting, calling and assistant use is included
 each month. The second axis is owned by [comms-billing.md](comms-billing.md):
-every plan includes Communication and a work number; the monthly retail credit
+every PAID plan includes Communication and a work number (a live signup trial
+does not — § Communication on a trial below); the monthly retail credit
 per plan is `COMMS_INCLUDED_ALLOWANCE_CENTS` (`src/lib/comms-billing/allowances.ts`),
 manual top-ups carry forward, and a saved card never authorizes an automatic
 charge. Quotas read only the effective SKU (`getEffectiveManagerSkuTier`).
@@ -265,10 +267,10 @@ for the extra-workspace, extra-work-number and extra-seat add-ons and how
 
 There is no `/admin/billing` page (it 404s on purpose; see the end of this
 section). What used to be that lens is now two things: **Accounts > Subscribers**
-(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code, free
-or complimentary, and the account record's Billing section for one account's
-plan and overrides. What PropLane itself EARNS is a third, separate thing:
-**Money > Payments** (below). The row derivation described next
+(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code
+(staff grants included) or free, and the account record's Billing section for
+one account's plan and overrides. What PropLane itself EARNS is a third,
+separate thing: **Money > Payments** (below). The row derivation described next
 (`deriveAdminBillingRow`) is shared by all of them.
 
 The original Billing list was a LENS on the accounts already in `/admin/axis-users`,
@@ -502,9 +504,13 @@ account, or `manager_user_id` metadata. App Store rows are
 `manager_purchases` Apple grants (production environment only), shown "via App
 Store"; Apple's commission is not in our data, so they carry no fee.
 
-Stat strip: Gross (earning categories) · Stripe fees · Net (gross − refunds −
-fees) · Refunds · Next payout. The Dashboard's **Earned this month** is gross −
-refunds; **Profit** is earned − Stripe fees − that month's `platform_expenses`.
+Stat strip: Gross (earning categories) · Stripe fees · Net (gross − own
+refunds − fees) · Refunds (every refund row) · Next payout. "Own refunds"
+(`RevenueSummary.ownRefundsCents`) is the part of the Refunds tab whose original
+charge resolved to an earning category: a refund of pass-through money, and one
+whose charge could not be read, never reduces what PropLane earned. The
+Dashboard's **Earned this month** is gross − own refunds; **Profit** is earned −
+Stripe fees − that month's `platform_expenses`.
 A Stripe failure, a missing `platform_expenses` table or an unreadable
 population is `null` and the Dashboard card is **omitted, never $0**
 (`buildAdminMoneyOverview`). A test-mode key (`sk_test_`) shows the banner. A
@@ -512,10 +518,10 @@ month past 1,500 balance transactions is flagged `truncated` on the page.
 
 ## Admin Money > Promo codes
 
-`/admin/promo-codes` is **Stripe-native: nothing is stored in our database**. A code
-is a Stripe coupon (the discount) plus a Stripe promotion code (the text a customer
-types, its redemption cap, expiry and first-time-only restriction), and the list
-reads both back (`src/lib/admin/admin-promo-codes.server.ts`,
+`/admin/promo-codes` **creates nothing in our database: a code it writes is
+Stripe-native**. A code is a Stripe coupon (the discount) plus a Stripe promotion
+code (the text a customer types, its redemption cap, expiry and first-time-only
+restriction), and the list reads both back (`src/lib/admin/admin-promo-codes.server.ts`,
 `GET/POST/PATCH /api/admin/promo-codes`, each behind `requireAdminRoute()`; a Stripe
 error names request ids and parameters, so it is logged and answered as one generic
 sentence). Checkout accepts the code on every plan through `allow_promotion_codes`;

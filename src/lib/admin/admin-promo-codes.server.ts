@@ -27,10 +27,15 @@ import {
  * Money > Promo codes (decision D1: Stripe-native).
  *
  * A promo code is a Stripe coupon (the discount) plus a Stripe promotion code (the text a customer
- * types, its redemption cap, expiry and first-time-customer restriction). Nothing is stored in our
- * database: Stripe is the source of truth, Checkout accepts the code on every plan, and the admin
- * list reads both back. "Given" is the sum of the discounts Stripe applied on invoices that used the
- * code.
+ * types, its redemption cap, expiry and first-time-customer restriction). Nothing is created in our
+ * database: Stripe is the source of truth for every code this page writes, Checkout accepts the code
+ * on every plan, and the admin list reads both back. "Given" is the sum of the discounts Stripe
+ * applied on invoices that used the code.
+ *
+ * The list also REPORTS codes it cannot create, so staff see every code in use in one place: Stripe
+ * coupons that no promotion code fronts, and the payment-waiver codes recorded on
+ * `manager_purchases.promo_code` (read-only, counted by distinct account - `buildWaiverCodeRows`).
+ * The waiver column and `stripe_promotion_code` stay separate; see docs/agents/plan-entitlements.md.
  */
 
 export type { PromoDiscountType, PromoDuration, PromoKind } from "@/lib/admin/promo-code-terms";
