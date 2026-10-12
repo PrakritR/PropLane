@@ -12,7 +12,10 @@ const route = createJsonRecordRoute({
   deleteRowSelect: "id, manager_user_id, row_data",
   scope: (query, user) => {
     const q = query as { or: (expr: string) => unknown };
-    if (user.role === "admin") return query;
+    // Everyone, platform admins included, reads only the links THEY are a party to. An admin's own
+    // manager portal builds its Communication co-manager contacts from this list, so an
+    // all-owners read put every other owner's team in an admin's contact picker. No admin page
+    // reads this route.
     const scope = orFilterForIdentity([
       ["manager_user_id", user.id],
       ["related_user_id", user.id],

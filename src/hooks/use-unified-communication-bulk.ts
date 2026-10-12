@@ -22,6 +22,7 @@ import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { InboxEmailMutations } from "@/lib/communication/inbox-adapter";
 import { useInboxRowSelection } from "@/components/portal/portal-inbox-selection";
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
+import { CONTACT_ARCHIVE_THREAD_PREFIX, isContactInboxThreadId } from "@/lib/communication-resident-placeholders";
 import type { InboxListSegment } from "@/components/portal/portal-inbox-ui";
 import type { PortalContactDetailsValues } from "@/components/portal/portal-contact-details-modal";
 import { useConfirm, type ToastOptions } from "@/components/providers/app-ui-provider";
@@ -52,6 +53,7 @@ export function useUnifiedCommunicationBulk({
   onSmsMutationStart,
   showToast = () => {},
   assistantPlaceholder,
+  onDismissContacts,
 }: {
   mergedRows: UnifiedInboxListItem[];
   listSegment: InboxListSegment;
@@ -72,6 +74,13 @@ export function useUnifiedCommunicationBulk({
   showToast?: (message: string, options?: ToastOptions) => void;
   /** Preview/from/subject restored after Clear PropLane Assistant. */
   assistantPlaceholder?: Pick<PersistedInboxThread, "from" | "subject" | "preview">;
+  /**
+   * Make deleting an EMPTY chat permanent. Deleting a "No messages yet" row (or the archived
+   * thread a placeholder became) has nothing stored to remove, so the person is dismissed for
+   * this workspace instead; without it the row is rebuilt from the resident directory on the
+   * next load. Resolve false to keep the rows and report the failure.
+   */
+  onDismissContacts?: (emails: string[]) => Promise<boolean>;
 }) {
   const toast = showToast;
   const pendingClearTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -328,14 +337,25 @@ export function useUnifiedCommunicationBulk({
     confirmCount: number,
     mode: "selection" | "archived-all" = "selection",
   ) => {
+    // A "No messages yet" placeholder has no stored thread; the thread an archived placeholder
+    // became holds no message either. Both are removed by dismissing the person.
+    const dismissEmails = [...new Set(rows.flatMap((row) => {
+      if (row.channel !== "email") return [];
+      const isPlaceholder = isContactInboxThreadId(row.threadId);
+      if (!isPlaceholder && !row.threadId.startsWith(CONTACT_ARCHIVE_THREAD_PREFIX)) return [];
+      const listed = mergedRows.find((entry) => entry.threadId === row.threadId || entry.key === row.key || (entry.memberKeys ?? []).includes(row.key));
+      const stored = emailThreads.find((thread) => thread.id === row.threadId);
+      const email = (listed?.personEmail ?? stored?.email ?? "").trim().toLowerCase();
+      return email ? [email] : [];
+    }))];
     const emailIds = [...new Set(
       rows
-        .filter((row) => row.channel === "email" && !row.threadId.startsWith("agent_notice_") && !row.threadId.startsWith("resident-agent-"))
+        .filter((row) => row.channel === "email" && !isContactInboxThreadId(row.threadId) && !row.threadId.startsWith("agent_notice_") && !row.threadId.startsWith("resident-agent-"))
         .map((row) => row.threadId),
     )];
     const smsIds = [...new Set(rows.filter((row) => row.channel === "sms").map((row) => row.threadId))];
     const reportSmsMutation = smsIds.length ? onSmsMutationStart?.() : undefined;
-    if (emailIds.length === 0 && smsIds.length === 0) return false;
+    if (emailIds.length === 0 && smsIds.length === 0 && dismissEmails.length === 0) return false;
     const failToast = mode === "archived-all"
       ? "Couldn't delete archived conversations."
       : "Could not delete conversations.";
@@ -345,6 +365,18 @@ export function useUnifiedCommunicationBulk({
         : `Delete ${confirmCount} conversation${confirmCount === 1 ? "" : "s"} forever?`,
     }))) {
       return false;
+    }
+
+    // Before the stored threads go: if the dismissal cannot be saved, nothing is removed and
+    // the row does not come back looking deleted.
+    let dismissed = 0;
+    if (dismissEmails.length > 0 && onDismissContacts) {
+      const saved = await onDismissContacts(dismissEmails).catch(() => false);
+      if (!saved) {
+        showToast(failToast);
+        return false;
+      }
+      dismissed = dismissEmails.length;
     }
 
     let emailDeleted = 0;
@@ -393,7 +425,7 @@ export function useUnifiedCommunicationBulk({
       updated: [], deleted: deletedProjectionIds, reconcile: reconcileProjectionIds,
     });
     if (smsIds.length > 0) onSmsDeleted?.();
-    const deletedCount = emailDeleted + smsDeleted;
+    const deletedCount = emailDeleted + smsDeleted + dismissed;
     if (smsFailed > 0) {
       showToast(
         deletedCount > 0
@@ -411,7 +443,9 @@ export function useUnifiedCommunicationBulk({
     clearAfterBulk,
     confirm,
     emailMutations,
+    emailThreads,
     mergedRows,
+    onDismissContacts,
     onEmailThreadsChange,
     onSmsDeleted,
     onSmsMutationStart,

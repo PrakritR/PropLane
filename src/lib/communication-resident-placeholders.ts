@@ -47,6 +47,12 @@ export function buildResidentPlaceholderInboxItems(args: {
   occupiedEmails: ReadonlySet<string>;
   searchQuery?: string;
   listSegment?: "active" | "unread" | "archived";
+  /**
+   * People whose empty chat this manager deleted for good (lower-cased emails). A dismissal
+   * hides only THIS "No messages yet" row: a person with a live conversation is already in
+   * `occupiedEmails` and is never listed from here either way.
+   */
+  dismissedKeys?: ReadonlySet<string>;
 }): UnifiedInboxListItem[] {
   if (args.listSegment === "archived" || args.listSegment === "unread") return [];
 
@@ -57,6 +63,7 @@ export function buildResidentPlaceholderInboxItems(args: {
     .filter((contact) => {
       const email = contact.email.trim().toLowerCase();
       if (args.occupiedEmails.has(email)) return false;
+      if (args.dismissedKeys?.has(email)) return false;
       if (
         !threadPassesCommunicationFilters({
           filters: args.filters,

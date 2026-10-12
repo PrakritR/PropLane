@@ -1167,6 +1167,18 @@ export async function GET(req: Request) {
     } catch {
       selfScope = false;
     }
+    // The all-owners read is a different product surface (admin oversight), so it is
+    // served only when the request ASKS for it (`?oversight=admin`) AND the server
+    // confirms the admin role. The manager portal never sends it, so a platform admin
+    // using their own workspace reads exactly what a manager does: their own and
+    // granted houses, narrowed to the active workspace.
+    let oversightRequested = false;
+    try {
+      oversightRequested = new URL(req.url).searchParams.get("oversight") === "admin";
+    } catch {
+      oversightRequested = false;
+    }
+    const adminOversight = admin && oversightRequested && !selfScope;
     if (!email && (selfScope || (!admin && role === "resident"))) {
       return NextResponse.json({ rows: [] });
     }
@@ -1188,7 +1200,7 @@ export async function GET(req: Request) {
       data = result.data;
       error = result.error;
       truncated = (result.data ?? []).length >= APPLICATIONS_READ_LIMIT;
-    } else if (!admin && (role === "manager" || role === "owner" || role === "pro")) {
+    } else if (!adminOversight && (admin || role === "manager" || role === "owner" || role === "pro")) {
       try {
         const loaded = await fetchApplicationsForManagerUser(db, user.id, timer);
         data = loaded.rows;
@@ -1197,7 +1209,7 @@ export async function GET(req: Request) {
       } catch (e) {
         error = { message: e instanceof Error ? e.message : "Failed to load applications." };
       }
-    } else if (admin) {
+    } else if (adminOversight) {
       const result = await db
         .from("manager_application_records")
         .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")

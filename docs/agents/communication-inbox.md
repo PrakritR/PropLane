@@ -586,6 +586,49 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   which `residentLeaseAuthorized` compares against `row.axisId` and which hides
   a lease just as effectively as a stale email.
 
+## Workspace isolation and "No messages yet" rows (Oct 12)
+
+A workspace's Communication lists only its own people. Root cause of the leak:
+`GET /api/manager-applications` had an admin branch that read every owner's
+applications, and the manager portal uses that same route, so a platform admin's
+Communication built "No messages yet" rows for another owner's residents.
+
+- **The manager portal always reads as the manager.** `/api/manager-applications`
+  runs the scoped, workspace-narrowed read (`fetchApplicationsForManagerUser`)
+  for every caller, admins included. The all-owners read needs
+  `?oversight=admin` AND a server-confirmed admin role; a manager page never
+  sends it. `/api/portal-pro-relationships` (co-manager contacts) has no admin
+  all-owners branch either. Other manager GETs that still have an admin
+  all-rows branch (service requests, work orders, vendors, property records,
+  household charges, lease pipeline, schedule records, promotions) are not
+  changed by this pass.
+- **Second check where the list is built.** `buildManagerInboxLiveContacts`
+  keeps a resident / applicant only when its house is in the active workspace
+  (`workspaceContainsProperty`) AND the viewer owns the row or holds
+  Communication on that house (`applicationVisibleToPortalUser(..., "inbox")`).
+  A cancelled grant, or a grant without Communication, lists nobody.
+- **A stamped thread belongs to its workspace.** In
+  `conversation-visibility.server.ts` a thread whose `workspace_id` is set and
+  differs from the active workspace is never visible; an unstamped one keeps
+  following its house / work line.
+- **Deleting an empty chat is permanent.** A placeholder has nothing stored, so
+  Delete / Delete all archived (on a placeholder or the `contact_thread_<id>`
+  an archived placeholder became) saves a row in
+  `communication_dismissed_contacts` (viewer, workspace, lower-cased email) via
+  `POST /api/portal-inbox-threads` `{ action: "dismissContacts", contactKeys }`.
+  The viewer and workspace are the session's and the workspace cookie's, never
+  the body's. The inbox reads the set through a `sharedGet`
+  (`GET ...?view=dismissed`) and `buildResidentPlaceholderInboxItems` drops
+  those people. A dismissal hides only the placeholder: a person with a live
+  conversation is never hidden by it. New message to the person sends
+  `clearDismissedContacts`. Archive on a placeholder already persists a real
+  archived thread (`archivePlaceholderContactThread`), so it needs no dismissal.
+  Account purge: `viewer_user_id` in `account-purge-manifest.ts`. Test:
+  `tests/unit/communication-workspace-isolation.test.ts`,
+  `communication-dismissed-contacts-route.test.ts`,
+  `communication-delete-empty-chat.test.tsx`,
+  `manager-applications-admin-oversight.test.ts`.
+
 ## One conversation per person per workspace — the conversation key
 
 **Captain-approved (comms-safety-0929, D1 + D2).** A person is ONE conversation
