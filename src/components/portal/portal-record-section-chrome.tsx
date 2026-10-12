@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { PortalRecordRail } from "@/components/portal/portal-property-rail";
 import {
@@ -15,6 +15,22 @@ import { PortalRecordDecisionPair, splitRecordDecisionActions } from "@/componen
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { RecordSections } from "@/lib/portals/record-sections";
 
+const LG_UP = "(min-width: 1024px)";
+
+/** True at Tailwind's `lg` and wider; counts as wide without matchMedia (SSR). */
+function useLgUp(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window === "undefined" || !window.matchMedia) return () => {};
+      const list = window.matchMedia(LG_UP);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
+    },
+    () => (typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia(LG_UP).matches),
+    () => true,
+  );
+}
+
 /**
  * A record's own header icons (Record payment · Send reminder · Edit ·
  * Delete, …) — published into the title row's icon slot
@@ -26,12 +42,20 @@ export function PortalRecordHeaderIconActions({
   actions: allActions,
   onAction,
   primaryId,
+  keepInlineOnDesktop = false,
 }: {
   actions: RecordSections["headerActions"];
   onAction?: (actionId: string) => void;
   /** The one filled action, when it is not the first icon (a vendor leads with Edit but fills Message). */
   primaryId?: string;
+  /**
+   * At `lg` and wider show every icon inline, never folding into ⋯. The title slot is content-sized, so the
+   * measured row reads its own (folded) width back as the space available and keeps itself folded; a record
+   * with a short, fixed action set opts out of that measurement on desktop. Below `lg` the measured row stays.
+   */
+  keepInlineOnDesktop?: boolean;
 }) {
+  const lgUp = useLgUp();
   if (allActions.length === 0) return null;
   // Approve / Decline are the one labelled pair, at the right behind a hairline; the rest stay icons.
   const { rest, positive, negative } = splitRecordDecisionActions(allActions);
@@ -42,6 +66,7 @@ export function PortalRecordHeaderIconActions({
     <PortalAdaptiveActionRow
       align="end"
       gapPx={6}
+      maxVisible={keepInlineOnDesktop && lgUp ? actions.length : undefined}
       actions={actions.map((action, index) => ({
         id: action.id,
         tone: index === filledIndex && action.tone !== "danger" ? "primary" : action.tone,

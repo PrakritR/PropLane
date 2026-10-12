@@ -209,7 +209,8 @@ describe("demo Calendar tab matches the real Calendar page", () => {
     expect(railLabels(recordSections("manager", "tour"))).toEqual(["Tour", "Communication"]);
     fireEvent.click(within(record).getByRole("button", { name: /Back/ }));
     record = await open("Countersign Jamie P.'s lease");
-    expect(within(record).getAllByText("Linked").length).toBeGreaterThan(0);
+    expect(within(record).queryByText("Linked")).toBeNull();
+    expect(railLabels(recordSections("manager", "task"))).toEqual(["Task", "Communication"]);
     expect(within(record).getByRole("button", { name: "Complete" })).toBeInTheDocument();
     fireEvent.click(within(record).getByRole("button", { name: /Back/ }));
     record = await open("Cascade Locksmiths");

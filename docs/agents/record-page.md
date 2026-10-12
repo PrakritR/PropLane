@@ -7,9 +7,11 @@ its own shell.
 
 1. Header: back chevron · initials tile · title · subtitle. Actions are icons
    only (`PortalIconAction`): one filled primary — the section's next step —
-   plus at most three outline icons (the one exception is an open, unassigned
-   maintenance service, which shows four: Edit · Send to phone · Publish to vendors ·
-   trash, see `services-system.md`). The word is the tooltip and aria-label.
+   plus at most three outline icons (two exceptions: an open, unassigned
+   maintenance service shows four — Edit · Send to phone · Publish to vendors ·
+   trash, see `services-system.md`; and a manager task shows its whole fixed set
+   inline from `lg` up, see § The manager task record). The word is the tooltip
+   and aria-label.
    The set is per (role, kind, SECTION): the icons change as you move between
    a record's sections, because the action you want changes with them.
    **Decisions (redesign 1007).** A tab waiting on a yes/no draws it as the one labelled pair at the right of
@@ -157,6 +159,22 @@ manager sees no more than the resident does. A failed read is an error whose ret
 forced read, hands its promise to the Button, and is dropped if the manager moved to another record
 before it landed — never "no residents", and never a dead-end "loading".
 
+## The manager task record (2026-10-11)
+
+Rail: **Task · Communication**, and nothing else. The Linked section is retired: the
+Task section's own cards carry the property (with a link to it) and, only when one is
+assigned, the vendor; the rows for a linked service or tour are gone. An old
+`…/linked` URL opens Task (`ManagerTaskList`).
+
+The header carries every action inline on desktop, with no ⋯: Edit · Assign ·
+Schedule · Complete (the filled primary, "Reopen" once the task is done) · Delete
+(red, last), via `keepInlineOnDesktop`
+(§ Header actions are per (role, kind, section)).
+Communication is the thread with the person the task
+is about, with a dropdown to the workspace Team chat —
+[`communication-inbox.md`](communication-inbox.md) § recordRef owns that contract,
+and `src/lib/task-communication-party.ts` owns which party a task template maps to.
+
 ## Header actions are per (role, kind, section)
 
 `recordSections(role, kind, ctx, activeSectionId?)` resolves `headerActions`
@@ -168,6 +186,13 @@ the per-section set. `headerActions` render as `PortalIconAction ring`
 (40px circle, first one filled) via `PortalRecordHeaderIconActions`, published through the
 existing `PortalRecordDetailPage iconTitleActions` slot, hidden below `lg`
 exactly as before.
+
+The row measures the space it has and folds the overflow into ⋯
+(`PortalAdaptiveActionRow`). The title slot is content-sized, so a folded row reads
+its own narrow width back as the space available and stays folded; a kind whose set
+is short and fixed therefore opts out of that measurement on desktop with
+`keepInlineOnDesktop` on `PortalRecordHeaderIconActions` and keeps every icon inline
+from `lg` up. Below `lg` the measured row stays.
 
 ## Known gap
 

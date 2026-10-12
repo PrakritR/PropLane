@@ -85,6 +85,8 @@ export type RecordSectionRendererProps = {
   /** Who the Communication pane is with, by name. */
   contactName?: string;
   contactPhone?: string;
+  /** The workspace Team chat, offered beside the contact (see `RecordCommunicationSectionProps.teamChat`). */
+  teamChat?: { threadId: string; label: string };
   /** Fill the record page (the full-page pane the vendor record uses). */
   fill?: boolean;
   /** Open the record's compose immediately — the "Message" header/phone action lands here with compose already up. */
@@ -166,7 +168,7 @@ function ActivitySection({ activity }: RecordSectionRendererProps) {
  * A panel whose kind is not a `RecordKind` gets the titled empty card so the
  * rail never renders a blank section.
  */
-function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds, contactName, contactPhone, fill, autoOpenCompose }: RecordSectionRendererProps) {
+function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds, contactName, contactPhone, teamChat, fill, autoOpenCompose }: RecordSectionRendererProps) {
   if (!isRecordKind(kind)) {
     return (
       <PortalListEmptyCard
@@ -184,6 +186,7 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
       contactIds={contactIds}
       contactName={contactName}
       contactPhone={contactPhone}
+      teamChat={teamChat}
       // Every manager record's Communication fills the page and carries the main composer (schedule clock included).
       fill={fill ?? role === "manager"}
       autoOpenCompose={autoOpenCompose}

@@ -71,6 +71,8 @@ function rentPeriodLabel(rich: Pick<ListingRichContent, "priceRangeLabel" | "sta
 export function deriveListingKeyFacts(
   rich: ListingRichContent,
   property: Pick<MockProperty, "beds" | "baths" | "petFriendly">,
+  /** Rooms open today once real occupancy is applied: a number to show, `null` while it loads (sublabel omitted), `undefined` for the static count. */
+  availableNowOverride?: number | null,
 ): ListingKeyFact[] {
   const facts: ListingKeyFact[] = [];
 
@@ -80,11 +82,14 @@ export function deriveListingKeyFacts(
   const rooms = rich.floorPlans.flatMap((f) => f.rooms);
   const roomCount = rooms.length > 0 ? rooms.length : property.beds > 0 ? property.beds : 0;
   if (roomCount > 0) {
-    const availableNow = rooms.filter((r) => classifyRoomOpening(r.availability).kind === "now").length;
+    const availableNow =
+      availableNowOverride === undefined
+        ? rooms.filter((r) => classifyRoomOpening(r.availability).kind === "now").length
+        : availableNowOverride;
     facts.push({
       id: "rooms",
       value: `${roomCount} room${roomCount === 1 ? "" : "s"}`,
-      label: rooms.length > 0 ? `${availableNow} available now` : undefined,
+      label: rooms.length > 0 && availableNow !== null ? `${availableNow} available now` : undefined,
     });
   }
 

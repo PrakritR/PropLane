@@ -90,15 +90,23 @@ describe("managerTaskStage", () => {
 });
 
 describe("task record rail and header", () => {
-  it("the rail is TASK: Task · Linked, then Communication; the header ends Complete (primary) then Delete", async () => {
+  it("the rail is TASK: Task, then Communication (no Linked); the header ends Complete (primary) then Delete", async () => {
     const { recordSections } = await import("@/lib/portals/record-sections");
     const sections = recordSections("manager", "task", { basePath: "/portal", taskListTab: "open" });
     expect(sections.groups.map((g) => [g.label, g.items.map((i) => i.label)])).toEqual([
-      ["Task", ["Task", "Linked"]],
+      ["Task", ["Task"]],
       ["", ["Communication"]],
     ]);
     expect(sections.headerActions.map((a) => a.id)).toEqual(["edit", "assign", "schedule", "complete", "delete"]);
-    expect(sections.groups[0]!.items[1]!.href("t1")).toBe("/portal/tasks/open/t1/linked");
+    expect(sections.groups[1]!.items[0]!.href("t1")).toBe("/portal/tasks/open/t1/communication");
+  });
+
+  it("the retired Linked URL opens the Task section, and desktop keeps every header icon inline", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("src/components/portal/pro-task-list.tsx", "utf8");
+    expect(source).toContain('parsedTab === "linked" ? "overview"');
+    expect(source).toContain("keepInlineOnDesktop");
+    expect(source).not.toContain("taskLinkedRows");
   });
 
   it("Assign is real: no Coming soon toast left in the task page", async () => {

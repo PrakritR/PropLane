@@ -68,21 +68,16 @@ import {
   MANAGER_TASK_LIST_TABS,
   managerTaskDetailHref,
   managerTaskListHref,
-  managerTourDetailHref,
   parseServiceRecordTab,
-  parseWorkOrderBucket,
   propertyDetailHref,
   serviceRequestDetailHref,
   vendorDetailHref,
-  workOrderDetailHref,
   type ManagerTaskListTabId,
 } from "@/lib/portal-detail-routes";
 import { managerTaskStage, serviceRequestTaskStage } from "@/lib/manager-task-stage";
 import { TaskAssignDialog } from "@/components/portal/task-assign-dialog";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
-import { readManagerWorkOrderRows } from "@/lib/manager-work-orders-storage";
-import { readPlannedEvents } from "@/lib/demo-admin-scheduling";
-import type { RecordRowItem } from "@/components/portal/portal-record-overview-kit";
+import { readAllPlannedEvents } from "@/lib/demo-admin-scheduling";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -95,6 +90,19 @@ import {
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import { cn } from "@/lib/utils";
+import { resolveTaskCommunicationParty } from "@/lib/task-communication-party";
+import {
+  MANAGER_APPLICATIONS_EVENT,
+  readManagerApplicationRows,
+  syncManagerApplicationsFromServer,
+} from "@/lib/manager-applications-storage";
+import { MANAGER_WORK_ORDERS_EVENT, readManagerWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
+import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer } from "@/lib/manager-vendors-storage";
+import { readLeasePipeline, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
+import { activeWorkspaceSummary } from "@/lib/workspaces/selection";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
+import { workspaceTeamThreadId } from "@/lib/team-thread-id";
+import { teamThreadDisplayName } from "@/lib/team-thread-display";
 
 type TaskListRow =
   | { kind: "task"; id: string; task: ManagerTask }
@@ -153,46 +161,6 @@ function serviceRequestBucket(req: ServiceRequest): "pending" | "approved" | "de
   if (req.status === "approved") return "approved";
   if (req.status === "denied") return "denied";
   return "pending";
-}
-
-/**
- * The Linked section of a task: its property, the service it was filed for (`linkedWorkOrderId`)
- * and the tour it prepares (`linkedTourId`), each a record row that links out. Only what exists.
- */
-function taskLinkedRows(task: ManagerTask, basePath: string, nowMs: number): RecordRowItem[] {
-  const rows: RecordRowItem[] = [];
-  if (task.propertyId) {
-    rows.push({
-      id: "property",
-      title: compactTaskPropertyLabel(task.propertyId, task.propertyTitle) ?? task.propertyTitle ?? "Property",
-      sub: "Property",
-      href: propertyDetailHref(basePath, "all", task.propertyId, "preview"),
-    });
-  }
-  if (task.linkedWorkOrderId) {
-    const order = readManagerWorkOrderRows().find((row) => row.id === task.linkedWorkOrderId);
-    if (order) {
-      rows.push({
-        id: "service",
-        title: order.title,
-        sub: ["Service", order.propertyName].filter(Boolean).join(" · "),
-        href: workOrderDetailHref(basePath, parseWorkOrderBucket(order.bucket), order.id),
-      });
-    }
-  }
-  if (task.linkedTourId) {
-    const tour = readPlannedEvents().find((event) => event.id === task.linkedTourId);
-    if (tour) {
-      const ended = Date.parse(tour.end) < nowMs;
-      rows.push({
-        id: "tour",
-        title: tour.title,
-        sub: "Tour",
-        href: managerTourDetailHref(basePath, ended ? "past" : "upcoming", tour.id),
-      });
-    }
-  }
-  return rows;
 }
 
 export function ManagerTaskList({
@@ -281,6 +249,47 @@ export function ManagerTaskList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
+  // A task page's Communication is with the person the task is about, found from rows this page does not
+  // otherwise load (applications, services, vendors, leases). They are read from the same client caches the
+  // rest of the portal fills; a tick re-resolves the party when a sync lands. An empty cache is "not read
+  // yet", not "nobody": `partySourcesReady` is what tells the pane the answer is final, so a cold load never
+  // opens the Team chat and then silently repoints the composer at the task's contact.
+  const [partySourceTick, setPartySourceTick] = useState(0);
+  const [partySourcesReady, setPartySourcesReady] = useState(false);
+  const workspaceId = useSelectedWorkspaceId();
+  // Only a countersign task's party comes from the lease pipeline, and nothing else on this page reads it.
+  const needsLeaseSource = Boolean(
+    taskIdProp &&
+      tasks.some((row) => row.id === decodeURIComponent(taskIdProp) && row.templateKey === "countersign_lease"),
+  );
+  useEffect(() => {
+    if (!taskIdProp || !userId) {
+      setPartySourcesReady(false);
+      return;
+    }
+    let active = true;
+    setPartySourcesReady(false);
+    const bump = () => setPartySourceTick((n) => n + 1);
+    void Promise.allSettled([
+      syncManagerApplicationsFromServer({ managerUserId: userId }),
+      syncManagerWorkOrdersFromServer(),
+      syncManagerVendorsFromServer(),
+      ...(needsLeaseSource ? [syncLeasePipelineFromServer(userId)] : []),
+    ]).then(() => {
+      if (!active) return;
+      bump();
+      setPartySourcesReady(true);
+    });
+    window.addEventListener(MANAGER_APPLICATIONS_EVENT, bump);
+    window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
+    window.addEventListener(MANAGER_VENDORS_EVENT, bump);
+    return () => {
+      active = false;
+      window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);
+      window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
+      window.removeEventListener(MANAGER_VENDORS_EVENT, bump);
+    };
+  }, [taskIdProp, userId, needsLeaseSource]);
 
   const matchesProperty = useCallback(
     (propertyId?: string) =>
@@ -653,7 +662,26 @@ export function ManagerTaskList({
     return <PortalListEmptyCard section="tasks" title="Task not found." dataAttr="manager-task-missing" />;
   }
   if (routeTask) {
-    const recordTab = parseServiceRecordTab(taskTabProp);
+    // The Linked section is retired: an old `…/linked` link opens the Task section.
+    const parsedTab = parseServiceRecordTab(taskTabProp);
+    const recordTab = parsedTab === "linked" ? "overview" : parsedTab;
+    const workspace = activeWorkspaceSummary();
+    // Offered only once the party sources have answered: before that an empty cache reads as "no party", and
+    // the pane would force the Team view on a task that does have a contact.
+    const teamChat =
+      partySourcesReady && workspace && workspace.id === workspaceId
+        ? { threadId: workspaceTeamThreadId(workspace.ownerUserId, workspace.id), label: teamThreadDisplayName(workspace.name) }
+        : undefined;
+    void partySourceTick;
+    const party = resolveTaskCommunicationParty(routeTask, {
+      applications: readManagerApplicationRows(),
+      // The full history, not the week grid's: a task about a tour that already happened (or was cancelled)
+      // still names its prospect, and that is who its Communication is with.
+      tours: readAllPlannedEvents(),
+      workOrders: readManagerWorkOrderRows(),
+      vendors,
+      leases: routeTask.templateKey === "countersign_lease" ? readLeasePipeline(userId) : undefined,
+    });
     const sections = recordSections("manager", "task", { basePath, taskListTab: tabId }, recordTab);
     const headerActions = sections.headerActions.map((action) =>
       action.id === "complete" && routeTask.completed ? { ...action, label: "Reopen" } : action,
@@ -722,7 +750,7 @@ export function ManagerTaskList({
           pinScrollBody
         >
           <PortalRecordActions>
-            <PortalRecordHeaderIconActions actions={headerActions} onAction={onTaskHeaderAction} primaryId="complete" />
+            <PortalRecordHeaderIconActions actions={headerActions} onAction={onTaskHeaderAction} primaryId="complete" keepInlineOnDesktop />
           </PortalRecordActions>
           <PortalRecordSectionChrome
             sections={{ ...sections, headerActions }}
@@ -750,24 +778,10 @@ export function ManagerTaskList({
                   kindLabel: "task",
                   recordId: routeTask.id,
                   recordLabel: routeTask.title,
-                });
-              }
-              if (recordTab === "linked") {
-                return renderRecordSection("overview", {
-                  role: "manager",
-                  kind: "task",
-                  kindLabel: "task",
-                  recordId: routeTask.id,
-                  recordLabel: routeTask.title,
-                  overviewCards: [
-                    {
-                      kind: "rows",
-                      id: "linked",
-                      title: "Linked",
-                      rows: taskLinkedRows(routeTask, basePath, nowMs),
-                      emptyLabel: "Nothing is linked to this task.",
-                    },
-                  ],
+                  contactIds: party?.emails,
+                  contactName: party?.name,
+                  contactPhone: party?.phone ?? undefined,
+                  teamChat,
                 });
               }
               return renderRecordSection("overview", {

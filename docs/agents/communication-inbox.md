@@ -88,6 +88,19 @@ intermittently "had no messages" depending on network timing.
 really is nothing" — the empty label only ever reflects the completed sync's
 own answer. See `tests/unit/record-communication-section.test.tsx`.
 
+**A record may also offer the workspace Team chat beside its own contact**, by
+passing `teamChat: { threadId, label }` (the manager task record does; `threadId`
+is `workspaceTeamThreadId`, the label `teamThreadDisplayName`). With a contact the
+pane's header gains a "&lt;name&gt; / Team" pill dropdown; with none the Team chat is
+the whole pane. The Team view shows that one thread, has no Call and no Archive, and
+sends through `sendPropLaneAssistantInboxMessage` — the same route the main inbox
+uses for a team thread, which re-derives membership server-side. It is offered only
+when the synced inbox actually carries the thread: a workspace with fewer than two
+people has no Team row at all (`ensureWorkspaceTeamThread`, below), so an id
+computed from the workspace may name nothing, and a caller must likewise withhold
+`teamChat` until its own party lookup has answered, or a cold load opens Team on a
+record that does have a contact.
+
 ## Admin Communication is the manager's inbox over an adapter
 
 `ManagerUnifiedInbox` takes a `CommunicationInboxAdapter`
