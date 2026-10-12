@@ -109,3 +109,13 @@ describe("payment scheduled Send now workspace authorization", () => {
     expect(deliverPaymentReminder).not.toHaveBeenCalled();
   });
 });
+
+// A live signup trial has no Communication; this file is about the workspace authorization of the
+// send itself, so the charge owner is on a paid plan here. The trial refusal has its own tests
+// (manager-communication-access, manager-trial-outbound-gates).
+vi.mock("@/lib/manager-communication-access.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-communication-access.server")>()),
+  assertManagerCommunicationAllowed: vi.fn(async () => ({ allowed: true })),
+  assertManagerCommunicationAllowedForWorkspace: vi.fn(async () => ({ allowed: true })),
+  assertManagerCommunicationAllowedForActiveWorkspace: vi.fn(async () => ({ allowed: true })),
+}));

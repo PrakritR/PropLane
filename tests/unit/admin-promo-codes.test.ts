@@ -18,6 +18,8 @@ import {
   createPromoCode,
   createPromoCodeSchema,
   expiresAtFromDateKey,
+  buildWaiverCodeRows,
+  projectCoupon,
   projectPromoCode,
   setPromoCodeActive,
   setPromoCodeActiveSchema,
@@ -320,5 +322,58 @@ describe("usage and projection", () => {
     expect(
       describePromoReview({ code: "FREEFIRST", discountType: "free_months", value: 1, duration: "once", plans: ["pro"], maxRedemptions: 50, expiresOn: "2026-12-31" }),
     ).toBe("FREEFIRST: 1 month free on Pro, 50 uses, expires Dec 31, 2026");
+  });
+});
+
+
+describe("the promo code list covers every code in use", () => {
+  const purchase = (over: Partial<Parameters<typeof buildWaiverCodeRows>[0][number]>) => ({
+    user_id: "u1",
+    email: "a@b.co",
+    promo_code: "FREE100",
+    billing: "monthly",
+    stripe_checkout_session_id: null,
+    paid_at: "2026-09-20T00:00:00Z",
+    ...over,
+  });
+
+  it("lists the built-in waiver codes even at zero accounts", () => {
+    const rows = buildWaiverCodeRows([], null);
+    expect(rows.map((r) => r.code).sort()).toEqual(["FREE100", "WAIVEPROCESS1"]);
+    expect(rows.every((r) => r.accounts === 0)).toBe(true);
+  });
+
+  it("counts distinct accounts per code and is Active only while sign-up accepts it", () => {
+    const purchases = [
+      purchase({ user_id: "u1" }),
+      purchase({ user_id: "u1" }),
+      purchase({ user_id: "u2", email: "c@d.co", promo_code: "free100" }),
+    ];
+    const active = buildWaiverCodeRows(purchases, "FREE100").find((r) => r.code === "FREE100")!;
+    expect(active).toMatchObject({ kind: "waiver", accounts: 2, status: "active", accountsHref: "/admin/subscribers?tab=promo&q=FREE100" });
+    const off = buildWaiverCodeRows(purchases, null).find((r) => r.code === "FREE100")!;
+    expect(off).toMatchObject({ accounts: 2, status: "inactive" });
+  });
+
+  it("a code only ever given by staff is a Staff grant, never redeemable", () => {
+    const rows = buildWaiverCodeRows(
+      [purchase({ promo_code: "ONBOARD_FREE_PRO", billing: "admin", stripe_checkout_session_id: "admin_AX1" })],
+      "FREE100",
+    );
+    expect(rows.find((r) => r.code === "ONBOARD_FREE_PRO")).toMatchObject({ kind: "staff_grant", accounts: 1, status: "inactive" });
+  });
+
+  it("projects a Stripe coupon with its redemption count", () => {
+    const row = projectCoupon({
+      id: "AXIS_ONBOARD_20_ONCE",
+      name: "Onboard 20",
+      percent_off: 20,
+      duration: "once",
+      valid: true,
+      times_redeemed: 0,
+      created: 1_790_000_000,
+    } as unknown as Stripe.Coupon);
+    expect(row).toMatchObject({ kind: "stripe_coupon", code: "AXIS_ONBOARD_20_ONCE", status: "active", accounts: 0, summary: "20% off once" });
+    expect(projectCoupon({ id: "X", percent_off: 10, duration: "once", valid: false, times_redeemed: 3, created: 1 } as unknown as Stripe.Coupon).status).toBe("expired");
   });
 });

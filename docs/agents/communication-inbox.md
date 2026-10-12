@@ -9,6 +9,13 @@ Any portal send (invite, reminder, listing share, notice) uses the New message
 field order. Do not invent a second compose. Full rule:
 [`send-message-compose.md`](send-message-compose.md).
 
+A manager on a LIVE signup trial has no outbound Communication, and that includes the welcome /
+invite mail and texts a manager sends to a resident, applicant or vendor: send-only routes refuse
+(402, or 503 when the plan is unreadable) before any side effect, and routes that also write a record
+skip the message and answer `communicationBlocked`. The owner's plan decides. Inbound and
+transactional / auth mail are never gated. See
+[`plan-entitlements.md`](plan-entitlements.md) § Communication on a trial.
+
 ## `recordRef` — a thread can be labeled with the record it is about
 
 A thread's `row_data` may carry `recordRef: { kind, id, label }` (kinds:

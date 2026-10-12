@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  assertManagerCommunicationAllowedForActiveWorkspace,
+  communicationRefusalBody,
+} from "@/lib/manager-communication-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentWelcome } from "@/lib/resident-welcome.server";
@@ -52,6 +56,13 @@ export async function POST(req: Request) {
     const { data: requestor } = await svc.from("profiles").select("role, full_name").eq("id", user.id).maybeSingle();
     if (!canSendResidentWelcome(requestor?.role)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    // A live signup trial has no Communication until it pays (the active workspace OWNER's plan).
+    // This route only invites, so it refuses before the resident identity is written or texted.
+    const communication = await assertManagerCommunicationAllowedForActiveWorkspace(svc, user.id);
+    if (!communication.allowed) {
+      return NextResponse.json(communicationRefusalBody(communication), { status: communication.status });
     }
 
     const result = await sendBookingResidentInvite(

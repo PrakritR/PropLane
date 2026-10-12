@@ -107,7 +107,7 @@ export function subscriberFacts(row: SubscriberRow): PortalEntryRowFact[] {
   } else if (row.renewsAt) {
     facts.push({ icon: CalendarDays, label: `Renews ${day(row.renewsAt)}`, srLabel: "Renews" });
   }
-  if (row.promoCode) facts.push({ icon: Tag, label: `Code ${row.promoCode}`, srLabel: "Promo code" });
+  if (row.codeFact) facts.push({ icon: Tag, label: row.codeFact, srLabel: "Promo code" });
   else if (row.source === "app_store") facts.push({ icon: Smartphone, label: "via App Store", srLabel: "Billing source" });
   return facts;
 }
@@ -119,8 +119,10 @@ export function AdminSubscribersPanel() {
   const [plan, setPlan] = useState<PlanFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
   const [signup, setSignup] = useState("");
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // `?q=CODE` arrives from Promo codes: a code row opens the accounts that used it.
+  const initialQuery = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(initialQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   // The page number belongs to the filters it was chosen under: change any filter and it is page 1 again.
   const filterKey = `${tab}|${plan}|${source}|${signup}|${debouncedQuery}`;
   const [pageState, setPageState] = useState({ key: "", page: 1 });
@@ -207,7 +209,7 @@ export function AdminSubscribersPanel() {
       >
         Open account
       </Button>
-      {selectedRow.bucket !== "complimentary" ? (
+      {!selectedRow.staffGrant ? (
         <Button
           type="button"
           variant="outline"

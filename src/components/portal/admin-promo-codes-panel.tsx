@@ -18,7 +18,7 @@ import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { adminAccountKey } from "@/lib/admin/admin-account-keys";
-import { describePromoPlans, formatPromoDate } from "@/lib/admin/promo-code-terms";
+import { PROMO_KIND_LABEL, describePromoPlans, formatPromoDate } from "@/lib/admin/promo-code-terms";
 import { formatCents } from "@/lib/admin/platform-expense-rules";
 import type { AdminPromoCode, AdminPromoCodeList, PromoStatus } from "@/lib/admin/admin-promo-codes.server";
 
@@ -37,6 +37,16 @@ const EMPTY_COPY: Record<PromoStatus, string> = {
 };
 
 const STATUS_LABEL: Record<PromoStatus, string> = { active: "Active", expired: "Expired", inactive: "Inactive" };
+
+function accountsLabel(code: Pick<AdminPromoCode, "accounts">): string {
+  return `${code.accounts} ${code.accounts === 1 ? "account" : "accounts"}`;
+}
+
+/** Where a row opens: a Stripe promo code to its record, a waiver or grant to the accounts that used it. */
+function openHrefOf(code: AdminPromoCode): string | null {
+  if (code.kind === "stripe_promo_code") return promoCodeHref(code.id);
+  return code.accountsHref;
+}
 
 function usesLabel(code: Pick<AdminPromoCode, "timesRedeemed" | "maxRedemptions">): string {
   return code.maxRedemptions ? `${code.timesRedeemed} of ${code.maxRedemptions} used` : `${code.timesRedeemed} used`;
@@ -153,13 +163,15 @@ function PromoCodeList() {
 
   const bulkActions = selected ? (
     <>
-      <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-open" onClick={() => navigate(promoCodeHref(selected.id))}>
-        Open
-      </Button>
+      {openHrefOf(selected) ? (
+        <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-open" onClick={() => navigate(openHrefOf(selected)!)}>
+          {selected.kind === "stripe_promo_code" ? "Open" : "Show accounts"}
+        </Button>
+      ) : null}
       <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-copy" onClick={() => void copyCode(selected)}>
         Copy code
       </Button>
-      {selected.status === "active" ? (
+      {selected.kind !== "stripe_promo_code" ? null : selected.status === "active" ? (
         <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} disabled={busyId === selected.id} data-attr="admin-promo-deactivate" onClick={() => void setActive(selected, false)}>
           Deactivate
         </Button>
@@ -218,15 +230,30 @@ function PromoCodeList() {
             key={code.id}
             tile={{ kind: "glyph", icon: Tag, label: "Promo code" }}
             title={code.code}
-            place={`${code.summary} · ${describePromoPlans(code.plans)}`}
+            place={code.kind === "stripe_promo_code" ? `${code.summary} · ${describePromoPlans(code.plans)}` : code.summary}
             facts={[
-              { icon: Users, label: usesLabel(code), srLabel: "Uses" },
-              { icon: CalendarClock, label: expiryLabel(code), srLabel: "Expiry" },
+              { icon: Tag, label: PROMO_KIND_LABEL[code.kind], srLabel: "Kind" },
+              code.kind === "stripe_promo_code"
+                ? { icon: Users, label: usesLabel(code), srLabel: "Uses" }
+                : { icon: Users, label: accountsLabel(code), srLabel: "Accounts" },
+              ...(code.kind === "stripe_promo_code" || code.expiresAt
+                ? [{ icon: CalendarClock, label: expiryLabel(code), srLabel: "Expiry" }]
+                : []),
             ]}
-            figure={{ value: code.givenCents > 0 ? `−${formatCents(code.givenCents)}` : formatCents(0), subLabel: "given" }}
+            figure={
+              code.kind === "stripe_promo_code"
+                ? { value: code.givenCents > 0 ? `−${formatCents(code.givenCents)}` : formatCents(0), subLabel: "given" }
+                : undefined
+            }
             checked={selectedId === code.id}
             onSelectedChange={(on) => setSelectedId(on ? code.id : null)}
-            onOpen={() => navigate(promoCodeHref(code.id))}
+            onOpen={
+              code.kind === "stripe_promo_code"
+                ? () => navigate(promoCodeHref(code.id))
+                : code.accountsHref
+                  ? () => navigate(code.accountsHref!)
+                  : undefined
+            }
             dataAttr="admin-promo-row"
           />
         ))}

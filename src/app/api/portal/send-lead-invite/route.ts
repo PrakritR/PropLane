@@ -21,6 +21,11 @@ import { applicationFormIdForLink } from "@/lib/send-forms";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { managerMayFileLeaseUnderProperty } from "@/lib/auth/manager-lease-scope";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
+import {
+  assertManagerCommunicationAllowedForWorkspace,
+  MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
+} from "@/lib/manager-communication-access.server";
+import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
 import {
   fromHeaderAddress,
@@ -288,6 +293,30 @@ export async function POST(req: Request) {
       tourCount,
       managerNote: note || undefined,
     });
+
+    // A live signup trial has no Communication until it pays. The plan checked is the active
+    // workspace OWNER's, so a teammate is judged by the owner's plan. Refused before the work
+    // number is read, anything is emailed or texted.
+    if (viaEmail || viaSms) {
+      let access: Awaited<ReturnType<typeof assertManagerCommunicationAllowedForWorkspace>>;
+      try {
+        const workspace = await resolveActiveWorkspaceFromRequest(svc, user.id);
+        access = await assertManagerCommunicationAllowedForWorkspace(svc, user.id, workspace.id);
+      } catch {
+        access = {
+          allowed: false,
+          reason: "plan_unreadable",
+          status: 503,
+          message: MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
+        };
+      }
+      if (!access.allowed) {
+        return NextResponse.json(
+          { ok: false, error: access.message, code: `communication_${access.reason}`, emailSent: false },
+          { status: access.status },
+        );
+      }
+    }
 
     // Every precondition is resolved BEFORE the first send. A missing work number
     // discovered after the email went out leaves the prospect with a copy the

@@ -3972,7 +3972,13 @@ html[data-theme="light"] .portal-shell .glass-card {
    (overflow-x: clip) and the pane's own scroller still bound everything. */
 @media (min-width: 1024px) {
   html[data-portal-sticky-chrome] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]),
-  html[data-communication-surface] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]) {
+  html[data-communication-surface] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]),
+  /* Admin pages render only an sr-only h1 (the nav provides the title), so there is no
+     page-header to key on. Key the escape on the bleed itself: a shell whose command band
+     bleeds into the column padding must not be clipped by the inner box. (:has() cannot be
+     nested, so the three bleed positions are spelled out against the shell.) */
+  html[data-portal-sticky-chrome] .portal-main-inner:has(> [data-slot="portal-page-shell"] > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > [data-slot="portal-page-shell"] > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > [data-slot="portal-page-shell"] > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])),
+  html[data-communication-surface] .portal-main-inner:has(> [data-slot="portal-page-shell"] > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > [data-slot="portal-page-shell"] > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > [data-slot="portal-page-shell"] > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) {
     overflow: visible;
   }
   /* Communication's panes carry lg:-mx-8 to meet the column edges; the inbox wrapper

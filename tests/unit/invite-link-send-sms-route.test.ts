@@ -7,6 +7,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  access: { allowed: true } as
+    | { allowed: true }
+    | { allowed: false; reason: "trial"; status: 402; message: string },
+  forOwner: vi.fn(),
   send: vi.fn(),
   reveal: vi.fn(),
   standing: vi.fn(),
@@ -46,6 +50,12 @@ vi.mock("@/lib/twilio-provisioning", () => ({
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendFromManagerWorkNumber: mocks.send,
 }));
+vi.mock("@/lib/manager-communication-access.server", () => ({
+  assertManagerCommunicationAllowed: async (...args: unknown[]) => {
+    mocks.forOwner(...args);
+    return mocks.access;
+  },
+}));
 vi.mock("@/lib/app-url", () => ({
   resolveAppOrigin: () => "https://proplane.test",
 }));
@@ -62,6 +72,8 @@ function post(body: unknown) {
 }
 
 beforeEach(() => {
+  mocks.access = { allowed: true };
+  mocks.forOwner.mockReset();
   mocks.send.mockReset().mockResolvedValue({ ok: true });
   mocks.standing.mockReset().mockResolvedValue({
     workspaceId: "ws-1",
@@ -132,6 +144,33 @@ describe("POST /api/pro/invite-links/send-sms", () => {
     });
     const res = await post({ workspaceId: "ws-1", phone: "(206) 555-1212", linkId: "link-1" });
     expect(res.status).toBe(403);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("refuses a trial workspace owner with 402 and sends nothing", async () => {
+    mocks.access = {
+      allowed: false,
+      reason: "trial",
+      status: 402,
+      message: "Communication is available on a paid plan.",
+    };
+    mocks.standing.mockResolvedValue({
+      workspaceId: "ws-1",
+      workspaceName: "Acme Portfolio",
+      ownerUserId: "trial-owner",
+      role: "admin",
+      rights: { members: true, houses: true },
+      linkId: "link-own",
+    });
+    mocks.linkRow = { owner_user_id: "trial-owner", workspace_id: "ws-1", property_labels: [] };
+    const res = await post({ workspaceId: "ws-1", phone: "(206) 555-1212", linkId: "link-1" });
+    expect(res.status).toBe(402);
+    expect(await res.json()).toMatchObject({
+      error: "Communication is available on a paid plan.",
+      code: "communication_trial",
+    });
+    // The owner's plan is asked about, not the acting admin's.
+    expect(mocks.forOwner).toHaveBeenCalledWith("trial-owner");
     expect(mocks.send).not.toHaveBeenCalled();
   });
 });

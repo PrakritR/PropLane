@@ -89,7 +89,10 @@ listing drafts) through the real per-domain creation paths.
   therefore also gets an `unsigned_lease` task.
 - **Invites only on explicit opt-in.** `sendInvites` on the create request is
   the only thing that turns on `runExistingResidentOnboarding`'s welcome
-  email/SMS; the default is off.
+  email/SMS; the default is off. A workspace owner with no Communication (a live
+  signup trial, or a plan that could not be read) still gets the whole import:
+  the create route forces `sendInvites` off and answers `communicationBlocked` —
+  [plan-entitlements.md](plan-entitlements.md) § Communication on a trial.
 - **Money is whole dollars in this module.** `types.ts`'s money fields match
   `src/lib/property-import/types.ts`'s convention; a persisting write (a
   `HouseholdCharge`'s `amountLabel`, the ledger's `amount_cents`) converts at

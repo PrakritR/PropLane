@@ -37,6 +37,19 @@ export const UNRESOLVED_AGENT_WORKSPACE_SCOPE: AgentWorkspaceScope = {
   propertyIds: [],
 };
 
+/**
+ * True when the turn carries a workspace scope that FAILED to resolve
+ * ({@link UNRESOLVED_AGENT_WORKSPACE_SCOPE}: present, but with an empty id).
+ * A caller that needs the workspace OWNER must refuse on this rather than fall
+ * back to "no workspace named", which means "the actor is their own owner" and
+ * would judge a co-manager by their own plan inside someone else's workspace.
+ * An absent scope (`undefined`) is NOT unresolved - that shape is reserved for a
+ * turn where workspace scoping genuinely does not apply.
+ */
+export function agentWorkspaceScopeUnresolved(workspace: AgentWorkspaceScope | undefined): boolean {
+  return workspace !== undefined && workspace.id.trim() === "";
+}
+
 export function propertyInAgentWorkspace(
   workspace: AgentWorkspaceScope | undefined,
   propertyId: string | null | undefined,

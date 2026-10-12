@@ -1,5 +1,6 @@
 "use client";
 
+import type { ManagerPortalNavTier } from "@/lib/manager-access";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import { PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
@@ -133,7 +134,7 @@ export function PortalSidebar({
   smsUiEnabled = false,
 }: {
   definition: PortalDefinition;
-  subscriptionTier?: "free" | "paid" | null;
+  subscriptionTier?: ManagerPortalNavTier;
   /** Header badge under "Axis": manager plan (Free/Pro/Business) or portal role. */
   subtitle?: string;
   initialCollapsed?: boolean;

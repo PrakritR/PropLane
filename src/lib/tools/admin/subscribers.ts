@@ -1,11 +1,13 @@
 /**
  * Admin agent: subscriber counts and trials ending. Read-only.
  *
- * The plan of every manager is derived by `deriveAdminBillingRow`, which wraps
- * `resolveEffectiveManagerSkuTier` (the one answer to "what plan is this
- * account on"), so these numbers cannot drift from what the product enforces.
- * An account whose purchase read fails is left out of every bucket rather than
- * guessed into Free.
+ * Buckets come from `classifySubscriber` - the SAME classifier `/admin/subscribers`
+ * renders - so the assistant's counts can never disagree with the page staff are
+ * looking at. It wraps `deriveAdminBillingRow` / `resolveEffectiveManagerSkuTier`
+ * (the one answer to "what plan is this account on"), so neither can drift from
+ * what the product enforces, and an account whose purchase read fails is left out
+ * of every bucket rather than guessed into Free. Do not add a second bucket rule
+ * here: change `admin-subscribers-model.ts` and both surfaces move together.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -14,7 +16,14 @@ import {
   listSandboxAccountIds,
   loadRealAccountProfiles,
 } from "@/lib/admin/admin-accounts.server";
-import { deriveAdminBillingRow, type AdminBillingRow } from "@/lib/admin-billing-rows";
+import {
+  SUBSCRIBER_TABS,
+  classifySubscriber,
+  subscriberCounts,
+  type SubscriberBucket,
+  type SubscriberCounts,
+  type SubscriberRow,
+} from "@/lib/admin/admin-subscribers-model";
 import { readAllPages } from "@/lib/auth/admin-portal-manager-ids.server";
 import { pickBestManagerPurchaseRow, type ManagerPurchaseRowRecord } from "@/lib/manager-access";
 import {
@@ -24,38 +33,15 @@ import {
 import { defineTool } from "../registry";
 import type { AdminAgentContext } from "./context";
 
-export type SubscriberBucket = "paid" | "trial" | "promo" | "free" | "comp";
-
-export type SubscriberRow = {
-  id: string;
-  name: string;
-  email: string;
-  bucket: SubscriberBucket;
-  planLabel: string;
-  trialEndsAt: string | null;
-};
+export type { SubscriberBucket, SubscriberRow };
 
 type PurchaseRow = ManagerPurchaseRowRecord & {
   email: string | null;
   promo_code: string | null;
   stripe_promotion_code: string | null;
+  stripe_checkout_session_id: string | null;
   apple_original_transaction_id: string | null;
 };
-
-/** Which subscriber bucket a derived billing row belongs to. Exported for the unit test. */
-export function subscriberBucketOf(
-  row: AdminBillingRow,
-  purchase: { billing: string | null; promoCode: string | null; stripePromotionCode?: string | null } | null,
-): SubscriberBucket | null {
-  if (row.planUnknown) return null;
-  const billing = String(purchase?.billing ?? "").trim().toLowerCase();
-  // Staff-granted access (the complimentary flag, or an admin-assigned plan) is not revenue.
-  if (row.complimentary || billing === "admin") return "comp";
-  if (row.onTrial) return "trial";
-  if (row.tier === "free" || row.tier === null) return "free";
-  if (String(purchase?.stripePromotionCode ?? "").trim() || String(purchase?.promoCode ?? "").trim()) return "promo";
-  return "paid";
-}
 
 export async function loadManagerSubscribers(db: SupabaseClient, nowMs = Date.now()): Promise<SubscriberRow[]> {
   const [idsByKind, sandboxIds] = await Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]);
@@ -89,56 +75,41 @@ export async function loadManagerSubscribers(db: SupabaseClient, nowMs = Date.no
   const rows: SubscriberRow[] = [];
   for (const profile of profiles) {
     const best = pickBestManagerPurchaseRow(purchasesByUser.get(profile.id) ?? [], profile.id) as PurchaseRow | null;
-    const derived = deriveAdminBillingRow({
+    const row = classifySubscriber({
       id: profile.id,
       email: profile.email,
       fullName: profile.fullName,
-      managerId: profile.propLaneId,
-      active: profile.active,
       joinedAt: profile.joinedAt,
       purchase: best
         ? {
             tier: best.tier,
             billing: best.billing,
             paidAt: best.paid_at,
-            stripeSubscriptionId: best.stripe_subscription_id,
-            appleOriginalTransactionId: best.apple_original_transaction_id,
             promoCode: best.promo_code,
+            stripePromotionCode: best.stripe_promotion_code,
+            stripeSubscriptionId: best.stripe_subscription_id,
+            stripeCustomerId: best.stripe_customer_id,
+            stripeCheckoutSessionId: best.stripe_checkout_session_id,
+            appleOriginalTransactionId: best.apple_original_transaction_id,
           }
         : null,
       planReadFailed: false,
-      listedCount: null,
       overrides: overrides.get(profile.id) ?? EMPTY_MANAGER_BILLING_OVERRIDES,
-      managerFeeChoice: null,
-      adminFeeOverride: null,
-      commsUsedCents: null,
-      commsWallet: null,
-      commsHasPaymentMethod: false,
       nowMs,
     });
-    const bucket = subscriberBucketOf(derived, best ? { billing: best.billing, promoCode: best.promo_code, stripePromotionCode: best.stripe_promotion_code } : null);
-    if (!bucket) continue;
-    rows.push({
-      id: profile.id,
-      name: profile.fullName || profile.email,
-      email: profile.email,
-      bucket,
-      planLabel: derived.planLabel,
-      trialEndsAt: derived.trialEndsAt,
-    });
+    // An unreadable plan is counted nowhere rather than guessed into a bucket.
+    if (row) rows.push(row);
   }
   return rows;
 }
 
 export const subscriberCountsTool = defineTool({
   name: "subscriber_counts",
-  description:
-    "How many manager accounts are Paid, on a Trial, on a Promo code, Free, or Complimentary right now. Computed from the same plan resolver the product enforces; demo accounts are excluded.",
+  description: `How many manager accounts are ${SUBSCRIBER_TABS.map((tab) => tab.label).join(", ")} right now - the same buckets /admin/subscribers shows, so a staff grant (complimentary or admin-assigned) counts as Promo code and a Stripe Checkout code on a paid subscription stays Paid. Computed from the same plan resolver the product enforces; demo accounts are excluded.`,
   inputSchema: z.object({}),
   async handler(ctx: AdminAgentContext) {
     const rows = await loadManagerSubscribers(ctx.db);
-    const counts: Record<SubscriberBucket, number> = { paid: 0, trial: 0, promo: 0, free: 0, comp: 0 };
-    for (const row of rows) counts[row.bucket] += 1;
+    const counts: SubscriberCounts = subscriberCounts(rows);
     return { ...counts, total: rows.length };
   },
 });
@@ -171,7 +142,7 @@ export const trialsEndingTool = defineTool({
       count: ending.length,
       trials: ending.slice(0, MAX_TRIALS_LISTED).map(({ row, endMs }) => ({
         id: row.id,
-        name: row.name,
+        name: row.name.trim() || row.email,
         email: row.email,
         plan: row.planLabel,
         trialEndsOn: row.trialEndsAt!.slice(0, 10),

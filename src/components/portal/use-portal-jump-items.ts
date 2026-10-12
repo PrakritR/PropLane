@@ -1,5 +1,6 @@
 "use client";
 
+import type { ManagerPortalNavTier } from "@/lib/manager-access";
 import { useMemo } from "react";
 import { buildPortalNavItems } from "@/components/portal/portal-nav-model";
 import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
@@ -31,7 +32,7 @@ export function usePortalJumpItems({
   residentNavStage,
 }: {
   definition: PortalDefinition;
-  subscriptionTier?: "free" | "paid" | null;
+  subscriptionTier?: ManagerPortalNavTier;
   residentNavStage?: ResidentPortalNavStage;
 }): PortalJumpItem[] {
   const session = usePortalSession();

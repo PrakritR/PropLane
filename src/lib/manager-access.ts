@@ -348,6 +348,47 @@ export function isWaiverGrantedManagerPurchase(promoCode: string | null | undefi
   return Boolean(trimmedText(promoCode));
 }
 
+/**
+ * A LIVE signup trial: a no-card Pro/Business trial (`billing: trial`) whose 14 days have not
+ * run out, with no Stripe subscription, Apple grant or payment waiver behind it.
+ *
+ * It is the one fact the Communication lock reads. A lapsed trial is NOT this (it resolves to
+ * Free, which keeps Communication), and a waiver / Stripe / Apple / admin / portal grant is paid.
+ * Pass the same inputs `resolveEffectiveManagerSkuTier` takes so the two can never disagree about
+ * which rows are trials.
+ */
+export function isLiveSignupTrialPurchase(input: {
+  tier: string | null | undefined;
+  billing: string | null | undefined;
+  stripeSubscriptionId?: string | null | undefined;
+  appleManaged?: boolean;
+  promoCode?: string | null | undefined;
+  paidAt?: string | null | undefined;
+  nowMs?: number;
+}): boolean {
+  const tier = normalizeManagerSkuTier(input.tier);
+  if (tier !== "pro" && tier !== "business") return false;
+  if (!isSignupTrialManagerPurchase(input.billing)) return false;
+  if (trimmedText(input.stripeSubscriptionId)) return false;
+  if (input.appleManaged) return false;
+  if (isWaiverGrantedManagerPurchase(input.promoCode)) return false;
+  const effective = resolveEffectiveManagerTier(
+    { tier, billing: input.billing, paid_at: input.paidAt, stripe_subscription_id: null },
+    input.nowMs,
+  );
+  return effective !== "free" && effective !== null;
+}
+
+/**
+ * The tier the manager NAV reads: the usual free | paid | null, plus `"trial"` for a live signup
+ * trial. A trial behaves exactly like `"paid"` everywhere except Communication, which is locked
+ * until the account pays. Never handed to a resident (a resident reads `ManagerSubscriptionTier`).
+ */
+export type ManagerPortalNavTier = ManagerSubscriptionTier | "trial";
+
+/** Sections a live signup trial is locked out of, until it pays or holds a grant. */
+export const TRIAL_LOCKED_SECTIONS = new Set(["communication"]);
+
 /** Resolve subscription access from a purchase row (synced tier state). */
 /**
  * Sidebar locks, section paywalls, and resident manager-tier gates must read the
@@ -380,6 +421,27 @@ export function resolveManagerNavLockTierFromPurchase(input: {
     hasPurchaseRow: true,
     nowMs: input.nowMs,
   });
+}
+
+/**
+ * {@link resolveManagerNavLockTierFromPurchase} with a live signup trial reported as `"trial"`
+ * instead of `"paid"`. Same inputs, same failure behaviour (unreadable -> null).
+ */
+export function resolveManagerPortalNavTierFromPurchase(
+  input: Parameters<typeof resolveManagerNavLockTierFromPurchase>[0],
+): ManagerPortalNavTier {
+  const base = resolveManagerNavLockTierFromPurchase(input);
+  if (base !== "paid") return base;
+  const trial = isLiveSignupTrialPurchase({
+    tier: input.tier,
+    billing: input.billing,
+    stripeSubscriptionId: input.stripeSubscriptionId,
+    appleManaged: isAppleBilledManagerPurchase(input.billing, input.appleOriginalTransactionId),
+    promoCode: input.promoCode,
+    paidAt: input.paidAt,
+    nowMs: input.nowMs,
+  });
+  return trial ? "trial" : base;
 }
 
 export function resolveManagerSubscriptionTierFromPurchase(input: {
@@ -435,14 +497,15 @@ export function resolveManagerSubscriptionTierFromPurchase(input: {
   return "free";
 }
 
-export function isManagerFreePlan(tier: ManagerSubscriptionTier): boolean {
+export function isManagerFreePlan(tier: ManagerPortalNavTier): boolean {
   return tier === "free";
 }
 
 /** Higher rank wins when a pure co-manager inherits a linked owner's plan for nav locks. */
-export function managerNavSubscriptionTierRank(tier: ManagerSubscriptionTier): number {
-  if (tier === "paid") return 2;
-  if (tier === null) return 1;
+export function managerNavSubscriptionTierRank(tier: ManagerPortalNavTier): number {
+  if (tier === "paid") return 3;
+  if (tier === null) return 2;
+  if (tier === "trial") return 1;
   return 0;
 }
 
@@ -453,10 +516,10 @@ export function managerNavSubscriptionTierRank(tier: ManagerSubscriptionTier): n
  * accounts are not padlocked out of the owner's Pro modules.
  */
 export function pickManagerPortalNavSubscriptionTier(
-  ownTier: ManagerSubscriptionTier,
+  ownTier: ManagerPortalNavTier,
   hasOwnedProperties: boolean,
-  linkedOwnerTiers: ManagerSubscriptionTier[],
-): ManagerSubscriptionTier {
+  linkedOwnerTiers: ManagerPortalNavTier[],
+): ManagerPortalNavTier {
   if (hasOwnedProperties || linkedOwnerTiers.length === 0) return ownTier;
   let best = ownTier;
   let bestRank = managerNavSubscriptionTierRank(best);
@@ -475,7 +538,9 @@ export function managerScreeningAllowedForTier(tier: ManagerSubscriptionTier): b
   return !isManagerFreePlan(tier);
 }
 
-export function managerSectionAllowedForTier(section: string, tier: "free" | "paid" | null): boolean {
+export function managerSectionAllowedForTier(section: string, tier: ManagerPortalNavTier | undefined): boolean {
+  // A live signup trial has every section a paid plan has, except Communication.
+  if (tier === "trial") return !TRIAL_LOCKED_SECTIONS.has(section);
   if (tier !== "free") return true;
   // Legacy route id kept for redirects and API checks.
   if (section === "financials" || section === "documents") return false;
@@ -484,9 +549,9 @@ export function managerSectionAllowedForTier(section: string, tier: "free" | "pa
 
 export function managerSectionLockedForTier(
   section: string,
-  tier: "free" | "paid" | null | undefined,
+  tier: ManagerPortalNavTier | undefined,
 ): boolean {
-  return tier === "free" && !managerSectionAllowedForTier(section, "free");
+  return (tier === "free" || tier === "trial") && !managerSectionAllowedForTier(section, tier);
 }
 
 /**

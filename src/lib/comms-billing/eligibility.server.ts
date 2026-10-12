@@ -6,7 +6,9 @@ export type CommsBillingBlockReason =
   | "no_payment_method"
   | "allowance_exhausted"
   | "billing_paused"
-  | "plan_unreadable";
+  | "plan_unreadable"
+  /** A live signup trial: no Communication until the account pays. Refused before any credit math. */
+  | "trial";
 
 export type CommsBillingGateResult =
   | { allowed: true; billingOwnerId: string }
@@ -22,6 +24,8 @@ export async function evaluateManagerCommsBillingGate(
   if (!managerUserId.trim()) return { allowed: false, reason: "plan_unreadable" };
   try {
     const wallet = await loadCommsWallet(db, managerUserId, workspaceId ?? undefined);
+    // Checked first: a trial has no Communication even if it somehow holds purchased credit.
+    if (wallet.liveSignupTrial === true) return { allowed: false, reason: "trial" };
     if (wallet.paused) return { allowed: false, reason: "billing_paused" };
     if (wallet.remainingCents < requiredCents) return { allowed: false, reason: "allowance_exhausted" };
     return { allowed: true, billingOwnerId: managerUserId };
@@ -60,5 +64,7 @@ export function commsBillingBlockMessage(
       return "Communication is paused for billing review. Contact PropLane.";
     case "plan_unreadable":
       return "We could not verify your plan. Try again in a moment or contact support.";
+    case "trial":
+      return "Communication is available on a paid plan.";
   }
 }

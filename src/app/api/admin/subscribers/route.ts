@@ -18,9 +18,9 @@ const SIGNUP_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /**
  * GET /api/admin/subscribers - Accounts > Subscribers: every real manager in one of Paid / Trial /
- * Promo / Free / Complimentary, decided by the resolvers enforcement uses (see
- * `admin-subscribers-model.ts`). Counts and MRR describe the whole population; `rows` is one page of
- * the requested tab. Sandbox accounts are excluded. Admin-only.
+ * Promo code / Free, decided by the resolvers enforcement uses (see
+ * `admin-subscribers-model.ts`; a staff grant is a Promo code row). Counts and MRR describe the
+ * whole population; `rows` is one page of the requested tab. Sandbox accounts are excluded. Admin-only.
  *
  * Query: `tab`, `q`, `plan` (all|pro|business), `source` (all|stripe|app_store|proplane),
  * `signup` (YYYY-MM), `page`, `pageSize`.

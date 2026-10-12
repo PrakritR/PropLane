@@ -32,7 +32,11 @@ import type { TabItem } from "@/components/ui/tabs";
 import type { ReactNode } from "react";
 import { getEffectiveSessionForPortal, getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
-import { managerSectionAllowedForTier, residentSectionAllowedForManagerTier } from "@/lib/manager-access";
+import {
+  managerSectionAllowedForTier,
+  residentSectionAllowedForManagerTier,
+  type ManagerPortalNavTier,
+} from "@/lib/manager-access";
 import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import {
@@ -134,7 +138,7 @@ async function renderManagerFinancesSection(
   tabParts: string[] | undefined,
   basePath: string,
   kind: PortalKind,
-  tier: "free" | "paid" | null,
+  tier: ManagerPortalNavTier,
 ) {
   if (section !== "financials") return null;
   if (!tabParts?.length) {
@@ -173,7 +177,7 @@ async function renderManagerDocumentsSection(
   tabParts: string[] | undefined,
   basePath: string,
   kind: PortalKind,
-  tier: "free" | "paid" | null,
+  tier: ManagerPortalNavTier,
 ) {
   if (section !== "documents") return null;
   if (!tabParts?.length) {
@@ -233,26 +237,27 @@ function subscriptionGated(
   node: ReactNode,
   kind: PortalKind,
   section: string,
-  tier: "free" | "paid" | null,
+  tier: ManagerPortalNavTier,
   featureLabel?: string,
   basePath = "/portal",
 ): ReactNode {
   if (kind !== "manager" && kind !== "pro") return node;
   if (managerSectionAllowedForTier(section, tier)) return node;
-  return <PortalTierPaywall basePath={basePath} featureLabel={featureLabel} />;
+  return <PortalTierPaywall basePath={basePath} featureLabel={featureLabel} trial={tier === "trial"} />;
 }
 
 function managerTierPaywall(
   kind: PortalKind,
   section: string,
-  tier: "free" | "paid" | null,
+  tier: ManagerPortalNavTier,
   featureLabel: string,
   basePath: string,
 ): ReactNode | null {
   if (kind !== "manager" && kind !== "pro") return null;
-  if (tier !== "free") return null;
+  // A live signup trial is locked out of Communication only; every other section is unchanged.
+  if (tier !== "free" && tier !== "trial") return null;
   if (managerSectionAllowedForTier(section, tier)) return null;
-  return <PortalTierPaywall basePath={basePath} featureLabel={featureLabel} />;
+  return <PortalTierPaywall basePath={basePath} featureLabel={featureLabel} trial={tier === "trial"} />;
 }
 
 function residentManagerTierGate(
@@ -643,7 +648,7 @@ export async function renderPortalSectionWith(
   const meta = findSection(def, section);
   if (!meta) notFound();
 
-  let managerOwnerSubscriptionTier: "free" | "paid" | null = null;
+  let managerOwnerSubscriptionTier: ManagerPortalNavTier = null;
   if (kind === "manager" || kind === "pro") {
     if (kind === "pro") {
       const proRender = await getProPortalRenderContext();

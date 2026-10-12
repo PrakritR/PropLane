@@ -4,6 +4,8 @@ import type Stripe from "stripe";
 import { z } from "zod";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { BUILTIN_PAYMENT_WAIVER_CODE, getPaymentWaiverCode, normalizePaymentWaiverCode } from "@/lib/server-env";
+import { LISTING_PROCESSING_FEE_PROMO_CODE } from "@/lib/processing-coverage-codes.server";
 import { resolveStripePriceIdForManagerTier } from "@/lib/stripe/resolve-manager-price";
 import {
   ADMIN_PROMO_CODE_PATTERN,
@@ -18,19 +20,25 @@ import {
   describePromoDiscount,
   type PromoDiscountType,
   type PromoDuration,
+  type PromoKind,
 } from "@/lib/admin/promo-code-terms";
 
 /**
  * Money > Promo codes (decision D1: Stripe-native).
  *
  * A promo code is a Stripe coupon (the discount) plus a Stripe promotion code (the text a customer
- * types, its redemption cap, expiry and first-time-customer restriction). Nothing is stored in our
- * database: Stripe is the source of truth, Checkout accepts the code on every plan, and the admin
- * list reads both back. "Given" is the sum of the discounts Stripe applied on invoices that used the
- * code.
+ * types, its redemption cap, expiry and first-time-customer restriction). Nothing is created in our
+ * database: Stripe is the source of truth for every code this page writes, Checkout accepts the code
+ * on every plan, and the admin list reads both back. "Given" is the sum of the discounts Stripe
+ * applied on invoices that used the code.
+ *
+ * The list also REPORTS codes it cannot create, so staff see every code in use in one place: Stripe
+ * coupons that no promotion code fronts, and the payment-waiver codes recorded on
+ * `manager_purchases.promo_code` (read-only, counted by distinct account - `buildWaiverCodeRows`).
+ * The waiver column and `stripe_promotion_code` stay separate; see docs/agents/plan-entitlements.md.
  */
 
-export type { PromoDiscountType, PromoDuration } from "@/lib/admin/promo-code-terms";
+export type { PromoDiscountType, PromoDuration, PromoKind } from "@/lib/admin/promo-code-terms";
 
 const MAX_FREE_MONTHS = 36;
 const MAX_AMOUNT_DOLLARS = 10_000;
@@ -375,6 +383,11 @@ export type AdminPromoCode = {
   expiresAt: string | null;
   createdAt: string;
   givenCents: number;
+  kind: PromoKind;
+  /** Accounts that used it: distinct manager accounts for a waiver or grant, Stripe's redemption count otherwise. */
+  accounts: number;
+  /** Where the accounts that used it are listed (Subscribers filtered by the code); null when there is no list to open. */
+  accountsHref: string | null;
   /** Set only on the record view. */
   redemptions?: PromoRedemption[];
 };
@@ -448,12 +461,164 @@ export function projectPromoCode(
     expiresAt: expiresMs ? new Date(expiresMs).toISOString() : null,
     createdAt: new Date(promo.created * 1000).toISOString(),
     givenCents: usage?.givenCents ?? 0,
+    kind: "stripe_promo_code",
+    accounts: promo.times_redeemed,
+    accountsHref: null,
   };
+}
+
+/** A Stripe coupon that no promotion code fronts (a coupon applied by hand or from the dashboard). Pure. */
+export function projectCoupon(coupon: Stripe.Coupon, now: number = Date.now()): AdminPromoCode {
+  const percentOff = coupon.percent_off ?? null;
+  const duration = (coupon.duration ?? "once") as PromoDuration;
+  const months = coupon.duration_in_months ?? null;
+  let discountType: PromoDiscountType;
+  let value: number;
+  if (percentOff === 100 && duration !== "forever") {
+    discountType = "free_months";
+    value = duration === "once" ? 1 : months ?? 1;
+  } else if (percentOff !== null) {
+    discountType = "percent";
+    value = percentOff;
+  } else {
+    discountType = "amount";
+    value = (coupon.amount_off ?? 0) / 100;
+  }
+  const expiresMs = coupon.redeem_by ? coupon.redeem_by * 1000 : null;
+  const spent = coupon.max_redemptions != null && coupon.times_redeemed >= coupon.max_redemptions;
+  const expired = coupon.valid === false || spent || (expiresMs !== null && expiresMs <= now);
+  return {
+    id: `coupon:${coupon.id}`,
+    code: coupon.id,
+    name: coupon.name ?? coupon.id,
+    status: expired ? "expired" : "active",
+    summary: describePromoDiscount({ discountType, value, duration, durationMonths: months }),
+    discountType,
+    value,
+    duration,
+    durationMonths: months,
+    plans: [],
+    firstTimeOnly: false,
+    timesRedeemed: coupon.times_redeemed,
+    maxRedemptions: coupon.max_redemptions ?? null,
+    expiresAt: expiresMs ? new Date(expiresMs).toISOString() : null,
+    createdAt: new Date(coupon.created * 1000).toISOString(),
+    givenCents: 0,
+    kind: "stripe_coupon",
+    accounts: coupon.times_redeemed,
+    accountsHref: null,
+  };
+}
+
+/** One `manager_purchases` row, reduced to what a waiver code list needs. */
+export type WaiverPurchaseRow = {
+  user_id: string | null;
+  email: string | null;
+  promo_code: string | null;
+  billing: string | null;
+  stripe_checkout_session_id: string | null;
+  paid_at: string | null;
+};
+
+const SUBSCRIBERS_PATH = "/admin/subscribers";
+const subscribersHref = (code: string) => `${SUBSCRIBERS_PATH}?tab=promo&q=${encodeURIComponent(code)}`;
+
+/**
+ * Every waiver code in use plus the built-ins (listed even at zero accounts), one row each. Pure.
+ *
+ * Active means redeemable now: the sign-up waiver is accepted only while it equals the configured
+ * payment-waiver code (`getPaymentWaiverCode`, which is null in production until the env var is set).
+ * A code with accounts that is not redeemable is Inactive; a staff grant is never redeemable.
+ */
+export function buildWaiverCodeRows(
+  purchases: readonly WaiverPurchaseRow[],
+  activeWaiverCode: string | null,
+): AdminPromoCode[] {
+  type Group = { code: string; accounts: Set<string>; granted: number; total: number; firstAt: string | null };
+  const groups = new Map<string, Group>();
+  const group = (code: string): Group => {
+    let g = groups.get(code);
+    if (!g) {
+      g = { code, accounts: new Set(), granted: 0, total: 0, firstAt: null };
+      groups.set(code, g);
+    }
+    return g;
+  };
+  for (const code of [BUILTIN_PAYMENT_WAIVER_CODE, ...(activeWaiverCode ? [activeWaiverCode] : []), LISTING_PROCESSING_FEE_PROMO_CODE]) {
+    group(normalizePromoCodeInput(code));
+  }
+  for (const row of purchases) {
+    const code = normalizePromoCodeInput(row.promo_code);
+    if (!code) continue;
+    const g = group(code);
+    g.accounts.add(row.user_id || (row.email ?? "").trim().toLowerCase() || `row-${g.total}`);
+    g.total += 1;
+    const billing = (row.billing ?? "").trim().toLowerCase();
+    if (billing === "admin" || billing === "portal" || (row.stripe_checkout_session_id ?? "").startsWith("admin_")) {
+      g.granted += 1;
+    }
+    if (row.paid_at && (!g.firstAt || row.paid_at < g.firstAt)) g.firstAt = row.paid_at;
+  }
+
+  const activeKey = activeWaiverCode ? normalizePaymentWaiverCode(activeWaiverCode) : "";
+  const out: AdminPromoCode[] = [];
+  for (const g of groups.values()) {
+    const isFeeWaiver = g.code === normalizePromoCodeInput(LISTING_PROCESSING_FEE_PROMO_CODE);
+    const redeemableSignup = activeKey !== "" && normalizePaymentWaiverCode(g.code) === activeKey;
+    const staffGrant = g.total > 0 && g.granted === g.total && !redeemableSignup;
+    const kind: PromoKind = isFeeWaiver ? "fee_waiver" : staffGrant ? "staff_grant" : "waiver";
+    const accounts = g.accounts.size;
+    const redeemable = kind === "fee_waiver" || (kind === "waiver" && redeemableSignup);
+    out.push({
+      id: `waiver:${g.code}`,
+      code: g.code,
+      name: g.code,
+      status: redeemable ? "active" : "inactive",
+      summary: kind === "fee_waiver" ? "Listing processing fee waived" : "Free paid plan",
+      discountType: "percent",
+      value: 100,
+      duration: "forever",
+      durationMonths: null,
+      plans: [],
+      firstTimeOnly: false,
+      timesRedeemed: accounts,
+      maxRedemptions: null,
+      expiresAt: null,
+      createdAt: g.firstAt ?? "",
+      givenCents: 0,
+      kind,
+      accounts,
+      accountsHref: accounts > 0 && kind !== "fee_waiver" ? subscribersHref(g.code) : null,
+    });
+  }
+  return out;
 }
 
 export type AdminPromoCodeList = { codes: AdminPromoCode[]; counts: Record<PromoStatus, number> };
 
-/** Every promotion code with its usage. Usage is best-effort: a failed invoice read shows 0 given. */
+async function loadWaiverPurchases(db: ReturnType<typeof createSupabaseServiceRoleClient>): Promise<WaiverPurchaseRow[]> {
+  const out: WaiverPurchaseRow[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("manager_purchases")
+      .select("id, user_id, email, promo_code, billing, stripe_checkout_session_id, paid_at")
+      .not("promo_code", "is", null)
+      .neq("promo_code", "")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`waiver code read failed: ${error.message}`);
+    const rows = (data ?? []) as WaiverPurchaseRow[];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+/**
+ * Every promotion code with its usage. Both database/invoice reads are best-effort: a failed
+ * invoice read shows 0 given, and a failed waiver read lists the built-in waiver codes at zero
+ * accounts. Neither may hide the Stripe promotion codes and coupons behind an error.
+ */
 export async function listPromoCodes(
   deps: { stripe?: Stripe; db?: ReturnType<typeof createSupabaseServiceRoleClient> } = {},
 ): Promise<AdminPromoCodeList> {
@@ -470,9 +635,22 @@ export async function listPromoCodes(
     console.error("promo usage read failed", error);
   }
 
-  const codes = promos
-    .map((promo) => projectPromoCode(promo, usage.get(promo.id), products))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // Coupons nothing fronts, and waiver codes (accounts given paid access with a code, no Stripe).
+  const fronted = new Set(promos.map((promo) => couponOf(promo)?.id).filter((id): id is string => Boolean(id)));
+  const coupons = (await stripe.coupons.list({ limit: 100 }).autoPagingToArray({ limit: 500 }))
+    .filter((coupon) => !fronted.has(coupon.id))
+    .map((coupon) => projectCoupon(coupon));
+  let waiverPurchases: WaiverPurchaseRow[] = [];
+  try {
+    waiverPurchases = await loadWaiverPurchases(deps.db ?? createSupabaseServiceRoleClient());
+  } catch (error) {
+    console.error("waiver code read failed", error);
+  }
+  const waivers = buildWaiverCodeRows(waiverPurchases, getPaymentWaiverCode());
+
+  const codes = [...promos.map((promo) => projectPromoCode(promo, usage.get(promo.id), products)), ...coupons, ...waivers].sort(
+    (a, b) => b.accounts - a.accounts || b.createdAt.localeCompare(a.createdAt),
+  );
   const counts: Record<PromoStatus, number> = { active: 0, expired: 0, inactive: 0 };
   for (const code of codes) counts[code.status] += 1;
   return { codes, counts };

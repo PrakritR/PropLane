@@ -413,3 +413,109 @@ describe("an address the deployment cannot receive at is assigned, not ready", (
     expect(body.canUse).toBe(false);
   });
 });
+
+// A live signup trial has no Communication (the real helper is covered by
+// manager-communication-access.test.ts); here the owner's plan is controllable per test.
+const communication = vi.hoisted(() => ({
+  access: { allowed: true } as
+    | { allowed: true }
+    | { allowed: false; reason: "trial"; status: 402; message: string },
+}));
+vi.mock("@/lib/manager-communication-access.server", () => ({
+  assertManagerCommunicationAllowed: vi.fn(async () => communication.access),
+  assertManagerCommunicationAllowedForWorkspace: vi.fn(async () => communication.access),
+}));
+
+describe("a live signup trial gets no work email", () => {
+  beforeEach(() => {
+    communication.access = { allowed: true };
+  });
+
+  it("POST refuses with 402 before any entitlement work or enrolment", async () => {
+    communication.access = {
+      allowed: false,
+      reason: "trial",
+      status: 402,
+      message: "Communication is available on a paid plan.",
+    };
+    const response = await POST(
+      new Request("https://prop-lane.test/api/manager/assistant-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "request_address" }),
+      }),
+    );
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({
+      error: "Communication is available on a paid plan.",
+      code: "communication_trial",
+    });
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+
+  it("GET neither offers nor allows use, even with an eligible entitlement and an address", async () => {
+    mocks.getManagerPortalNavSubscriptionTier.mockResolvedValue("trial");
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe", trial: true });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({
+      workspaceId: "ws-mine",
+      managerUserId: MANAGER,
+      inboxToken: "tok123456789",
+      address: "assistant+tok123456789@prop-lane.space",
+      provisionState: "active",
+    });
+    const response = await GET(new Request("https://prop-lane.test/api/manager/assistant-email"));
+    const body = await response.json();
+    expect(body.canUse).toBe(false);
+    expect(body.canRequest).toBe(false);
+  });
+});
+
+describe("the work email is judged by the workspace owner's plan", () => {
+  const request = () =>
+    new Request("https://prop-lane.test/api/manager/assistant-email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "request_address" }),
+    });
+  const trial = {
+    allowed: false,
+    reason: "trial",
+    status: 402,
+    message: "Communication is available on a paid plan.",
+  } as const;
+
+  afterEach(async () => {
+    mocks.activeWorkspace = null;
+    const assertAllowed = await gate();
+    assertAllowed.mockImplementation(async () => communication.access);
+  });
+
+  async function gate() {
+    const mod = await import("@/lib/manager-communication-access.server");
+    return vi.mocked(mod.assertManagerCommunicationAllowed);
+  }
+
+  it("asks about the owner, so a trial teammate in a paid owner's workspace is allowed", async () => {
+    const assertAllowed = await gate();
+    assertAllowed.mockImplementation(async (owner: string) => (owner === "paid-owner" ? { allowed: true } : trial));
+    // The acting user (MANAGER) is on a trial of their own; the workspace belongs to a paid owner.
+    mocks.activeWorkspace = { ...MY_WS, ownerUserId: "paid-owner" };
+    const response = await POST(request());
+    expect(assertAllowed).toHaveBeenCalledWith("paid-owner");
+    expect(assertAllowed).not.toHaveBeenCalledWith(MANAGER);
+    expect(response.status).not.toBe(402);
+    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalled();
+  });
+
+  it("refuses with 402 when the owner is on a trial, whatever the acting user's own plan", async () => {
+    const assertAllowed = await gate();
+    assertAllowed.mockImplementation(async (owner: string) => (owner === "trial-owner" ? trial : { allowed: true }));
+    mocks.activeWorkspace = { ...MY_WS, ownerUserId: "trial-owner" };
+    const response = await POST(request());
+    expect(assertAllowed).toHaveBeenCalledWith("trial-owner");
+    expect(response.status).toBe(402);
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+});
