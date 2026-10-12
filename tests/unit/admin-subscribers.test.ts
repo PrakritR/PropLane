@@ -164,9 +164,18 @@ describe("the Promo code bucket", () => {
     const rows = fixtures.map(classifySubscriber);
     const byId = Object.fromEntries(rows.filter(Boolean).map((r) => [r!.id, r!]));
     expect(byId["promo"]).toMatchObject({ bucket: "promo", codeFact: "Code FREE100" });
-    expect(byId["comp-flag"]).toMatchObject({ bucket: "promo", codeFact: "Staff grant" });
-    expect(byId["admin-grant"]).toMatchObject({ bucket: "promo", codeFact: "Staff grant" });
+    expect(byId["comp-flag"]).toMatchObject({ bucket: "promo", codeFact: "Staff grant", staffGrant: true });
+    expect(byId["admin-grant"]).toMatchObject({ bucket: "promo", codeFact: "Staff grant", staffGrant: true });
     expect(byId["trial-live"]!.codeFact).toBeNull();
+    expect(byId["promo"]!.staffGrant).toBe(false);
+  });
+
+  it("a staff grant shows no monthly figure: it pays nothing", () => {
+    const rows = fixtures.map(classifySubscriber);
+    const byId = Object.fromEntries(rows.filter(Boolean).map((r) => [r!.id, r!]));
+    expect(byId["comp-flag"]!.monthlyCents).toBeNull();
+    expect(byId["admin-grant"]!.monthlyCents).toBeNull();
+    expect(byId["stripe-pro"]!.monthlyCents).toBe(4900);
   });
 
   it("an old ?tab=complimentary link opens the Promo code tab", () => {

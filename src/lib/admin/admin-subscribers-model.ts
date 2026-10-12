@@ -175,8 +175,20 @@ export function classifySubscriber(input: SubscriberInput): SubscriberRow | null
     trialEndsAt,
     trialDaysLeft: trialEndsAt ? trialDaysLeft(trialEndsAt, input.nowMs) : null,
     promoCode,
-    codeFact: bucket === "promo" ? (waiverCode ? `Code ${waiverCode}` : "Staff grant") : bucket === "paid" && checkoutCode ? `Code ${checkoutCode}` : null,
-    monthlyCents: bucket === "paid" || bucket === "promo" ? monthlyCentsForPlan(derived.tier, purchase?.billing ?? null) : null,
+    staffGrant,
+    codeFact: waiverCode && bucket === "promo"
+      ? `Code ${waiverCode}`
+      : staffGrant
+        ? "Staff grant"
+        : checkoutCode && bucket === "paid"
+          ? `Code ${checkoutCode}`
+          : null,
+    // A staff grant pays nothing, so it shows no monthly figure - the same as it did before
+    // Complimentary was folded into the Promo code bucket.
+    monthlyCents:
+      !staffGrant && (bucket === "paid" || bucket === "promo")
+        ? monthlyCentsForPlan(derived.tier, purchase?.billing ?? null)
+        : null,
     stripeSubscriptionId: trimmed(purchase?.stripeSubscriptionId) || null,
     stripeCustomerId: trimmed(purchase?.stripeCustomerId) || null,
     renewsAt: null,

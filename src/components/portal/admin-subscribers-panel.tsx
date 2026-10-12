@@ -209,7 +209,7 @@ export function AdminSubscribersPanel() {
       >
         Open account
       </Button>
-      {selectedRow.codeFact !== "Staff grant" ? (
+      {!selectedRow.staffGrant ? (
         <Button
           type="button"
           variant="outline"

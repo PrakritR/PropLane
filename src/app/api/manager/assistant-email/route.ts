@@ -60,10 +60,11 @@ async function buildStatus(
   // Everything below is about the ACTIVE workspace: an owned workspace's own
   // address (none = none, never a neighbour's), a shared workspace's owner
   // address. The switcher decides; co-manager links do not.
-  const [entitlement, planTierResult, row, storageReady, automationSettings, all] =
+  const [entitlement, planTierResult, ownerCommunication, row, storageReady, automationSettings, all] =
     await Promise.all([
       getEffectiveManagerSmsEntitlement(db, userId),
       getManagerPortalNavSubscriptionTier(userId),
+      assertManagerCommunicationAllowed(workspace.ownerUserId),
       workspace.owned ? loadWorkspaceAssistantEmail(db, workspace) : Promise.resolve(null),
       probeAssistantEmailStorageReady(db),
       loadManagerAutomationSettings(db, userId).catch(() => null),
@@ -100,8 +101,10 @@ async function buildStatus(
 
   // Email is unmetered; an empty communication wallet never disables it.
   // A live signup trial has no Communication until it pays: neither offered nor usable, whatever
-  // the entitlement row says (the POST refuses it independently).
-  const trialLocked = planTierResult === "trial";
+  // the entitlement row says. The decision is the SAME helper and the SAME subject the POST uses -
+  // the workspace OWNER's plan - so the card can never offer what the request then refuses, and an
+  // unreadable plan locks here exactly as it 503s there.
+  const trialLocked = !ownerCommunication.allowed;
   const canRequestBilling =
     !trialLocked &&
     managerCommsRequestIsOfferable({

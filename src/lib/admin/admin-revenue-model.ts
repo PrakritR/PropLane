@@ -88,6 +88,12 @@ export type RevenueRow = {
   payout: { arrivalDate: string | null; bankLast4: string | null; status: string | null } | null;
   /** A refund row's original charge id, when known. */
   chargeId: string | null;
+  /**
+   * A refund row's ORIGINAL charge category, once resolved; null on a refund whose charge could
+   * not be read and on every non-refund row. What decides whether the refund gave back PropLane's
+   * own earnings or pass-through money (a resident's rent).
+   */
+  refundOfCategory?: RevenueCategory | null;
   /** Free-form facts the record page shows (plan, invoice, receipt). */
   invoiceId: string | null;
   hostedInvoiceUrl: string | null;
@@ -285,6 +291,7 @@ export function classifyBalanceTransaction(bt: NormalizedBalanceTransaction, ctx
       ...base,
       category: "refunds",
       title: original ? `Refund - ${original.title}` : `Refund${accountLabel}`,
+      refundOfCategory: original?.category ?? null,
       grossCents: bt.amount,
       feeCents: Math.max(0, bt.fee),
       netCents: bt.net,
@@ -335,11 +342,17 @@ export type RevenueSummary = {
   /** Charges in the PropLane revenue categories. */
   grossCents: number;
   stripeFeesCents: number;
-  /** Money handed back, as a positive number. */
+  /** Money handed back, as a positive number: every refund row, which is what the Refunds tab lists. */
   refundsCents: number;
-  /** gross - refunds - Stripe fees. */
+  /**
+   * The part of {@link RevenueSummary.refundsCents} that gave back PropLane's own earnings. A
+   * refund of pass-through money (a resident's rent) and a refund whose original charge could not
+   * be resolved are not in it, so they never reduce what PropLane earned.
+   */
+  ownRefundsCents: number;
+  /** gross - own refunds - Stripe fees. */
   netCents: number;
-  /** gross - refunds: what the Dashboard calls "Earned". */
+  /** gross - own refunds: what the Dashboard calls "Earned". */
   earnedCents: number;
   /** Earned, split by category. */
   byCategory: Record<"subscriptions" | "credits" | "numbers" | "service_fees", number>;
@@ -350,10 +363,17 @@ export function summarizeRevenue(rows: readonly RevenueRow[]): RevenueSummary {
   let gross = 0;
   let fees = 0;
   let refunds = 0;
+  let ownRefunds = 0;
   const byCategory = { subscriptions: 0, credits: 0, numbers: 0, service_fees: 0 };
   for (const row of rows) {
     if (row.category === "refunds") {
-      refunds += Math.abs(row.grossCents);
+      const handedBack = Math.abs(row.grossCents);
+      refunds += handedBack;
+      // Gross is PropLane's own earnings, so only a refund OF those earnings may reduce it. A rent
+      // refund, and a refund whose original charge never resolved, stay out of Earned and Net.
+      if (row.refundOfCategory && REVENUE_EARNING_CATEGORIES.includes(row.refundOfCategory)) {
+        ownRefunds += handedBack;
+      }
       continue;
     }
     if (!REVENUE_EARNING_CATEGORIES.includes(row.category)) continue;
@@ -365,8 +385,9 @@ export function summarizeRevenue(rows: readonly RevenueRow[]): RevenueSummary {
     grossCents: gross,
     stripeFeesCents: fees,
     refundsCents: refunds,
-    netCents: gross - refunds - fees,
-    earnedCents: gross - refunds,
+    ownRefundsCents: ownRefunds,
+    netCents: gross - ownRefunds - fees,
+    earnedCents: gross - ownRefunds,
     byCategory,
   };
 }

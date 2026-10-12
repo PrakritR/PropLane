@@ -216,6 +216,24 @@ describe("summary, tabs, filters", () => {
     expect(s.byCategory).toMatchObject({ subscriptions: 4900, credits: 2000 });
   });
 
+  it("a refund of money that was never PropLane's never reduces Earned", () => {
+    const rentRefund = classifyBalanceTransaction(
+      bt({ id: "txn_rr", type: "refund", reportingCategory: "refund", amount: -200000, fee: 0, net: -200000, sourceKind: "refund", chargeId: "ch_rent", customerId: null }),
+      { ...ctx, chargeCategory: new Map([["ch_rent", { category: "rent", title: "Rent for unit 4" }]]) },
+    );
+    const unmatched = classifyBalanceTransaction(
+      bt({ id: "txn_ur", type: "refund", reportingCategory: "refund", amount: -100, fee: 0, net: -100, sourceKind: "refund", chargeId: "ch_unknown", customerId: null }),
+      ctx,
+    );
+    const s = summarizeRevenue([...rows, rentRefund, unmatched]);
+    // Both are listed under Refunds...
+    expect(s.refundsCents).toBe(900 + 200000 + 100);
+    // ...and only the refund of a PropLane charge comes off what PropLane earned.
+    expect(s.ownRefundsCents).toBe(900);
+    expect(s.earnedCents).toBe(6000);
+    expect(s.netCents).toBe(6000 - 260);
+  });
+
   it("counts tabs without counting other, and All counts every row", () => {
     expect(revenueTabCounts(rows)).toEqual({
       all: 5,

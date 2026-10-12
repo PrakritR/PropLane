@@ -45,6 +45,12 @@ export type SubscriberRow = {
   promoCode: string | null;
   /** The fact the row shows: "Code FREE100", "Staff grant", or null. A Stripe Checkout code on a paid sub is "Code X" in Paid. */
   codeFact: string | null;
+  /**
+   * Staff-assigned access with no payment behind it (the complimentary override, or an
+   * `admin`/`portal` grant). It sits in Promo code and pays nothing, so it carries no monthly
+   * figure and no "Apply promo code" action. Carried as data: never re-derived from `codeFact`.
+   */
+  staffGrant: boolean;
   /** Monthly figure in cents at list price. Null when the account pays nothing. */
   monthlyCents: number | null;
   stripeSubscriptionId: string | null;
