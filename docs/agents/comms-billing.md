@@ -206,6 +206,20 @@ not provider cost. Rates include operational overhead; provider and carrier cost
 vary. Pro's $25 buys at most 833 outbound single-segment texts and Business 5,000 if
 used only for that meter; Free spends only purchased packs. Incoming messages, voice and AI share the same balance.
 
+## A live signup trial has no Communication (Oct 11)
+
+A manager on a LIVE no-card signup trial (`billing: trial`, not lapsed, no Stripe / Apple / waiver
+behind it - `isLiveSignupTrialPurchase`) is held to a $0 monthly allowance: `getEffectiveManagerSkuTier`
+returns `liveSignupTrial`, and `commsBudgetTierForPlan` budgets it under the zero-credit tier in
+`commsPlanBudget`, `poolBudgetTier` and the pool funders. `evaluateManagerCommsBillingGate` refuses
+with the `trial` block reason (`Communication is available on a paid plan.`) BEFORE any credit math,
+so purchased credit does not reopen it, and the SMS dispatcher, voice turns and payment reminders that
+call it inherit the refusal. A LAPSED trial resolves to Free and keeps Free's behaviour. The send paths
+that do not reach the wallet gate (compose, scheduled, assistant tools, work email, payment reminders)
+call `assertManagerCommunicationAllowed*` (`manager-communication-access.server.ts`) on the workspace
+OWNER; see `plan-entitlements.md` § Communication on a trial. Inbound messages are still stored.
+Coverage: `comms-billing-trial.test.ts`, `manager-trial-outbound-gates.test.ts`.
+
 ## Purchases and stops
 
 Credit is bought from **Settings → Billing & plan → Extra usage**: a typed whole-dollar

@@ -4,6 +4,7 @@ import { track } from "@/lib/analytics/posthog";
 import { rateLimit } from "@/lib/rate-limit";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import { assistantEmailEligibilityError } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import {
   checkWorkspaceAssistantMailboxLocal,
@@ -98,12 +99,19 @@ async function buildStatus(
   }
 
   // Email is unmetered; an empty communication wallet never disables it.
-  const canRequestBilling = managerCommsRequestIsOfferable({
-    entitlement,
-  });
-  const commsBillingAllowed = managerCommsUseIsAllowed({
-    entitlement,
-  });
+  // A live signup trial has no Communication until it pays: neither offered nor usable, whatever
+  // the entitlement row says (the POST refuses it independently).
+  const trialLocked = planTierResult === "trial";
+  const canRequestBilling =
+    !trialLocked &&
+    managerCommsRequestIsOfferable({
+      entitlement,
+    });
+  const commsBillingAllowed =
+    !trialLocked &&
+    managerCommsUseIsAllowed({
+      entitlement,
+    });
 
   const canUse = commsBillingAllowed && channelEnabled && Boolean(row);
 
@@ -359,6 +367,17 @@ export async function POST(req: Request) {
           "Work email storage is not ready on this environment yet. Ask your admin to apply the latest database migration.",
       },
       { status: 503 },
+    );
+  }
+
+  // A live signup trial has no Communication until it pays, so a work email is never enrolled for
+  // one (the work number is refused the same way by `refuseTrialForNumber`). This is checked on
+  // its own, ahead of the entitlement read, so it holds whatever that read says about the account.
+  const communication = await assertManagerCommunicationAllowed(actor.userId);
+  if (!communication.allowed) {
+    return NextResponse.json(
+      { error: communication.message, code: `communication_${communication.reason}` },
+      { status: communication.status, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 

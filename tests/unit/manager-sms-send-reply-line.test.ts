@@ -67,3 +67,10 @@ describe("manager reply leaves from the conversation's own line (S6)", () => {
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ selectedWorkLineId: "n-b" }));
   });
 });
+
+// A live signup trial has no Communication; these tests are about the send path itself, so the
+// owner's plan is a paid one here. The trial refusal has its own tests (manager-communication-access).
+vi.mock("@/lib/manager-communication-access.server", () => ({
+  assertManagerCommunicationAllowed: vi.fn(async () => ({ allowed: true })),
+  assertManagerCommunicationAllowedForWorkspace: vi.fn(async () => ({ allowed: true })),
+}));

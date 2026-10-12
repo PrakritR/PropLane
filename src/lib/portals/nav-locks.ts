@@ -1,4 +1,8 @@
-import { managerSectionLockedForTier, residentSectionLockedForManagerTier } from "@/lib/manager-access";
+import {
+  managerSectionLockedForTier,
+  residentSectionLockedForManagerTier,
+  type ManagerPortalNavTier,
+} from "@/lib/manager-access";
 import type { PortalKind } from "@/lib/portal-types";
 import { residentSectionLockedForStage, type ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 
@@ -37,8 +41,12 @@ export const DEFERRED_SECTIONS = new Set<string>([]);
 export function portalNavLockKind(params: {
   kind: PortalKind;
   section: string;
-  /** The viewer's own plan for manager/pro; the linked MANAGER's plan for a resident. */
-  subscriptionTier: "free" | "paid" | null | undefined;
+  /**
+   * The viewer's own plan for manager/pro; the linked MANAGER's plan for a resident.
+   * `"trial"` (manager/pro only) is a live signup trial: everything a paid plan has except
+   * Communication, which stays a live upsell link to the upgrade.
+   */
+  subscriptionTier: ManagerPortalNavTier | undefined;
   residentNavStage?: ResidentPortalNavStage | null;
   /**
    * @deprecated Co-manager module grants no longer lock nav rows — every manager
@@ -60,7 +68,7 @@ export function portalNavLockKind(params: {
     return "none";
   }
 
-  if ((kind === "manager" || kind === "pro") && subscriptionTier === "free") {
+  if ((kind === "manager" || kind === "pro") && (subscriptionTier === "free" || subscriptionTier === "trial")) {
     return managerSectionLockedForTier(section, subscriptionTier) ? "upsell" : "none";
   }
 

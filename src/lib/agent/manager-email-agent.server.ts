@@ -15,6 +15,7 @@ import {
   type SmsAgentTurn,
 } from "@/lib/agent/sms-agent-turn.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 
 type Db = SupabaseClient;
 
@@ -91,6 +92,10 @@ export async function deliverManagerEmailReply(args: {
   fromAddress: string;
   replyTo?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
+  // A live signup trial has no Communication until it pays; an unreadable plan fails closed.
+  const access = await assertManagerCommunicationAllowed(args.managerUserId);
+  if (!access.allowed) return { ok: false, error: access.message };
+
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { ok: false, error: "Email delivery not configured." };
 

@@ -5,9 +5,10 @@ import {
   listAdminPortalManagerUserIds,
   loadProfilesByIdChunks,
 } from "@/lib/auth/admin-portal-manager-ids.server";
-import { pickBestManagerPurchaseRow, type ManagerPurchaseRowRecord } from "@/lib/manager-access";
+import { isLiveSignupTrialPurchase, pickBestManagerPurchaseRow, type ManagerPurchaseRowRecord } from "@/lib/manager-access";
+import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { deriveAdminBillingRow, type AdminBillingRowInput } from "@/lib/admin-billing-rows";
-import { normalizeCommsPlanTier } from "@/lib/comms-billing/allowances";
+import { commsBudgetTierForPlan } from "@/lib/comms-billing/allowances";
 import { loadCommsWalletTotals } from "@/lib/comms-billing/wallet.server";
 import {
   EMPTY_MANAGER_BILLING_OVERRIDES,
@@ -258,9 +259,22 @@ export async function GET() {
     // The wallet's grant depends on the enforced plan, so derive the plan first and ask for every
     // readable owner in one round trip. A row whose wallet could not be read shows "comms —".
     const provisional = inputs.map((input) => deriveAdminBillingRow(input));
-    const walletOwners = provisional.flatMap((row) =>
-      row.planUnknown ? [] : [{ managerUserId: row.id, tier: normalizeCommsPlanTier(row.tier) }],
-    );
+    // A live signup trial has no Communication, so its wallet is read under the zero-credit tier
+    // (the same budget `commsPlanBudget` gives it at send time) and the account page shows $0.
+    const inputById = new Map(inputs.map((input) => [input.id, input]));
+    const walletOwners = provisional.flatMap((row) => {
+      if (row.planUnknown) return [];
+      const purchase = inputById.get(row.id)?.purchase ?? null;
+      const liveSignupTrial = isLiveSignupTrialPurchase({
+        tier: purchase?.tier ?? null,
+        billing: purchase?.billing ?? null,
+        stripeSubscriptionId: purchase?.stripeSubscriptionId ?? null,
+        appleManaged: isAppleBilledManagerPurchase(purchase?.billing ?? null, purchase?.appleOriginalTransactionId ?? null),
+        promoCode: purchase?.promoCode ?? null,
+        paidAt: purchase?.paidAt ?? null,
+      });
+      return [{ managerUserId: row.id, tier: commsBudgetTierForPlan({ tier: row.tier, liveSignupTrial }) }];
+    });
     const wallets = await loadCommsWalletTotals(db, walletOwners);
     const rows = inputs.map((input) =>
       deriveAdminBillingRow({ ...input, commsWallet: wallets.get(input.id) ?? null }),

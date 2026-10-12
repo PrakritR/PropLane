@@ -209,6 +209,24 @@ failed purchase read cannot be treated as Free. Coverage:
 `tests/unit/manager-trial-portal-checkout.test.ts`,
 `tests/unit/pro-plan-adjust-sheet-doors.test.tsx`.
 
+## Communication on a trial (Oct 11)
+
+A LIVE signup trial (`isLiveSignupTrialPurchase`: `billing: trial`, inside its 14 days, no Stripe /
+Apple / waiver `promo_code`) has every Pro/Business section **except Communication** until it pays or
+holds a waiver / admin / portal grant. The manager nav tier gains a `"trial"` value
+(`ManagerPortalNavTier`; `getManagerPortalNavSubscriptionTier` only - a resident still reads the
+manager's plan as free | paid | null): `portalNavLockKind` gives `communication` an `upsell` lock (a
+live link to the upgrade card) and `render-portal-section` renders `PortalTierPaywall` for it, never a
+redirect. Free and a LAPSED trial are untouched and keep Communication. Outbound is refused on the
+server by ONE helper, `assertManagerCommunicationAllowed(ownerUserId)` (402; 503 and a refusal when
+the plan cannot be read), called on the workspace OWNER's plan (a teammate in a trial owner's workspace
+is refused, one in a paid owner's is not): compose (`send-inbox-message`), scheduled messages (create
+and deliver), the assistant's message tools (`COMMUNICATION_SENDING_TOOLS`), manager SMS, payment
+reminders (route, send-now, cron), assistant-email replies, and work-email enrolment. Not gated:
+inbound storage, sign-in / reset / lease e-sign mail, resident- and vendor-originated sends, a message
+to PropLane support. Coverage: `manager-trial-communication-lock.test.ts`,
+`manager-communication-access.test.ts`, `send-inbox-message-trial-refusal.test.ts`.
+
 ## Workspaces, work numbers and seats
 
 `WORKSPACE_PLAN_ENTITLEMENTS` (`src/lib/workspaces/types.ts`) is the third axis:

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import {
   combineScheduledPaymentMessages,
   parseCombinedScheduledMessageListId,
@@ -97,9 +98,23 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const deliverViaEmail = message.deliverViaEmail ?? automationSettings.paymentReminderDeliverViaEmail;
     const deliverViaSms = message.deliverViaSms ?? automationSettings.paymentReminderDeliverViaSms;
     let managerSmsFromNumber = "";
+    // Every channel, inbox included: a live signup trial has no Communication until it pays.
+    const communicationAccess = await assertManagerCommunicationAllowed(ownerUserId);
+    if (!communicationAccess.allowed) {
+      return NextResponse.json(
+        { error: communicationAccess.message, code: `communication_${communicationAccess.reason}` },
+        { status: communicationAccess.status },
+      );
+    }
     if (deliverViaEmail || deliverViaSms) {
       for (const context of contexts) {
         const capability = await resolvePaymentReminderCapability(auth.db, context!);
+        if (capability.blocked) {
+          return NextResponse.json(
+            { error: capability.blocked.message, code: `communication_${capability.blocked.reason}` },
+            { status: capability.blocked.status },
+          );
+        }
         if (deliverViaEmail && !capability.email.available) {
           return NextResponse.json({ error: capability.email.reason ?? "Email is unavailable for this resident." }, { status: 409 });
         }

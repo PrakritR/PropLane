@@ -10,7 +10,7 @@ import {
   assertTestWorkspaceProviderEffectAllowed,
   captureTestWorkspaceEffectForUser,
 } from "@/lib/test-workspaces/effects.server";
-import { normalizeCommsPlanTier, type CommsPlanTier } from "./allowances";
+import { commsBudgetTierForPlan, normalizeCommsPlanTier, type CommsPlanTier } from "./allowances";
 import { isValidCommsCreditAmountCents } from "./credit-packs";
 import { unitPriceCentsForMeter, type CommsBillingMeter } from "./rates";
 import {
@@ -104,7 +104,7 @@ export async function loadOrderedPoolFunders(
     ids.map(async (funderUserId): Promise<PoolFunderCandidate | null> => {
       const result = await getEffectiveManagerSkuTier(funderUserId);
       if (!result.ok) return null;
-      return { funderUserId, tier: normalizeCommsPlanTier(result.tier) };
+      return { funderUserId, tier: commsBudgetTierForPlan(result) };
     }),
   );
   return resolved.filter((row): row is PoolFunderCandidate => row !== null);
@@ -218,7 +218,7 @@ export type CommsPoolSnapshot = {
 async function poolBudgetTier(funderUserId: string): Promise<CommsPlanTier> {
   const result = await getEffectiveManagerSkuTier(funderUserId);
   if (!result.ok) throw new Error("We could not verify your communication plan. Try again.");
-  return normalizeCommsPlanTier(result.tier);
+  return commsBudgetTierForPlan(result);
 }
 
 /** Read-only snapshot of one funder's own account pool (never applies a period). */

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ManagerPortalNavTier } from "@/lib/manager-access";
 import { PanelLeft, PanelRight, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
@@ -84,7 +85,7 @@ export function PortalTopBar({
   kind: PortalKind;
   basePath: string;
   definition: PortalDefinition;
-  subscriptionTier?: "free" | "paid" | null;
+  subscriptionTier?: ManagerPortalNavTier;
   residentNavStage?: ResidentPortalNavStage;
   initialSidebarCollapsed?: boolean;
   /** Retained for call-site compatibility; the account menu now lives in the rail. */

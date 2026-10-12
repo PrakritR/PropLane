@@ -5,6 +5,7 @@ import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dis
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.server";
 import { track } from "@/lib/analytics/posthog";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import { isVendorCategorySettingsRow, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
@@ -130,6 +131,11 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
         { status: 403 },
       );
     }
+  }
+  // A live signup trial has no Communication until it pays (the owner's plan, not the actor's).
+  const communication = await assertManagerCommunicationAllowed(ownerManagerUserId);
+  if (!communication.allowed) {
+    return response({ error: communication.message, code: `communication_${communication.reason}` }, { status: communication.status });
   }
   // The line a reply leaves on is the conversation's own. A projection thread
   // carries its exact line; any other thread is placed by the number it used or
@@ -520,6 +526,10 @@ async function sendRosterVendorText(
   const loaded = await loadRosterVendorForActor(db, args);
   if (!loaded.ok) return loaded.result;
   const { recordId, ownerManagerUserId, vendor, vendorUserId, rosterPhone } = loaded.value;
+  const communication = await assertManagerCommunicationAllowed(ownerManagerUserId);
+  if (!communication.allowed) {
+    return response({ error: communication.message, code: `communication_${communication.reason}` }, { status: communication.status });
+  }
   // The vendor's saved phone is the only destination a roster text may use.
   if (!rosterPhone) {
     return response({ error: "Add a phone number to this vendor before texting them." }, { status: 409 });
