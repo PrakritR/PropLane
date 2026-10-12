@@ -75,6 +75,12 @@ export type UnifiedInboxListItem = {
   houseLabels?: string[];
   /** Ids of threads that were folded into this conversation; a deep link to one still opens it. */
   aliasThreadIds?: string[];
+  /**
+   * A stored SMS notice row (`claw_*_sms` / `sms_notice_*`): a compatibility copy
+   * of a text conversation the SMS projection also lists. Folded together they
+   * are ONE conversation, so its unread count is not added to the projection's.
+   */
+  smsNotice?: boolean;
 };
 
 export function sortUnifiedInboxItems(
@@ -206,7 +212,9 @@ export function mergeUnifiedInboxItems(
       // that is just the address again.
       name: pickDisplayName(ordered),
       subtitle: ordered.find((row) => row.subtitle?.trim())?.subtitle,
-      unread: ordered.some((row) => row.unread),
+      unread: ordered.some((row) =>
+        row.unread &&
+        !(row.smsNotice && ordered.some((other) => other.channel === "sms" && !other.smsNotice))),
       channels,
       memberKeys: dedupe([
         ...(winner.memberKeys ?? [winner.key]),
@@ -229,7 +237,12 @@ export function mergeUnifiedInboxItems(
       aliasThreadIds: dedupe(ordered.flatMap((row) => row.aliasThreadIds ?? [])),
       // A merged row is one conversation, so its unread badge is the total
       // across the channels folded into it.
-      unreadCount: ordered.reduce((sum, row) => sum + (row.unreadCount ?? 0), 0) || undefined,
+      unreadCount: ordered.reduce((sum, row) => {
+        // A stored SMS notice folded with its own projection row is the same
+        // text conversation twice: count it once (the projection's read state).
+        if (row.smsNotice && ordered.some((other) => other.channel === "sms" && !other.smsNotice)) return sum;
+        return sum + (row.unreadCount ?? 0);
+      }, 0) || undefined,
     });
   }
 

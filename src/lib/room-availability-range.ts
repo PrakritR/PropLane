@@ -152,5 +152,5 @@ export const checkRoomAvailabilityInputSchema = z
   .strict();
 
 export const CHECK_ROOM_AVAILABILITY_DESCRIPTION =
-  "Is this room free for these dates? Checks the real booking calendar (leases, residents, manager blocks, Airbnb / Booking.com bookings, the room's own earliest move-in date and its resident capacity) for the nights from moveIn up to, not including, moveOut, and returns per room: available (true, false, or null when it could not be verified), firstConflict dates, freeUntil (open-ended asks), nextAvailableFrom, and rentLabel. Dates only: it never names who is staying. Quote only its result; null means it could not be verified, so say so instead of guessing.";
+  "Is this room free for these dates? Checks the real booking calendar (approved residents whether or not their lease is signed yet, executed leases, manager blocks, the listing's own blocked dates, Airbnb / Booking.com bookings, the room's own earliest move-in date and its resident capacity) for the nights from moveIn up to, not including, moveOut, and returns per room: available (true, false, or null when it could not be verified), firstConflict dates, freeUntil (open-ended asks), nextAvailableFrom, and rentLabel. Dates only: it never names who is staying. Quote only its result; null means it could not be verified, so say so instead of guessing.";
 

@@ -15,6 +15,12 @@ import type { ListingRichContent } from "@/data/listing-rich-content";
 vi.mock("@/components/marketing/listing-location-block", () => ({
   ListingLocationBlock: () => null,
 }));
+const occupancy = vi.hoisted(() => ({
+  state: { rooms: [] as { roomChoice: string; spans: { start: string; end: string | null; count: number }[] }[], loading: false },
+}));
+vi.mock("@/hooks/use-listing-public-occupancy", () => ({
+  useListingPublicOccupancy: () => occupancy.state,
+}));
 vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
   useProspectContactAutofill: () => ({ contact: null, loading: false }),
 }));
@@ -66,6 +72,7 @@ const rich: ListingRichContent = {
 };
 
 beforeEach(() => {
+  occupancy.state = { rooms: [], loading: false };
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -98,6 +105,22 @@ describe("listing sticky bar", () => {
     const priceRow = el.firstElementChild as HTMLElement;
     expect(priceRow.textContent).toContain("$1,050/mo");
     expect(priceRow.querySelector('[data-attr="listing-web-tour"]')).toBeNull();
+  });
+
+  it("drops the available count while occupancy loads and subtracts rooms occupied today once it has", () => {
+    occupancy.state = { rooms: [], loading: true };
+    render(<ListingDetailSections property={property({})} rich={rich} />);
+    expect(bar().textContent).toContain("9 rooms");
+    expect(bar().textContent).not.toContain("available");
+    cleanup();
+    const full = rich.floorPlans.flatMap((f) => f.rooms).map((r) => ({
+      roomChoice: `p1::${r.id}`,
+      spans: [{ start: "2000-01-01", end: null, count: 1 }],
+    }));
+    occupancy.state = { rooms: full, loading: false };
+    render(<ListingDetailSections property={property({})} rich={rich} />);
+    expect(bar().textContent).toContain("9 rooms · 0 available");
+    expect(document.body.textContent).toContain("0 available now");
   });
 
   it("carries the work number and the work email as tappable pills when the listing has them", () => {

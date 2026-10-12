@@ -16,6 +16,9 @@ import {
   LeaseBasicsTableInteractive,
   SpacesInteractive,
 } from "@/components/marketing/listing-detail-tables-client";
+import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { ListingKeyFacts, deriveListingKeyFacts, formatMoneyInLabel } from "@/components/marketing/listing-key-facts";
 import { ListingNoPhotoBand, ListingPhotoMosaic } from "@/components/marketing/listing-photo-mosaic";
 import {
@@ -36,7 +39,6 @@ import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
 import { filterListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
-import { roomAvailabilityTone } from "@/lib/room-availability-style";
 import { residentCreateAccountHref } from "@/lib/resident-public-nav";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
@@ -460,9 +462,16 @@ export function ListingDetailSections({
 }) {
   const rooms = useMemo(() => rich.floorPlans.flatMap((f) => f.rooms), [rich.floorPlans]);
   const roomCount = rooms.length;
-  const availableNow = rooms.filter((r) => roomAvailabilityTone(r.availability) === "available").length;
+  const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(property.id);
+  // Held back while occupancy loads so a static "9 available" never flashes; a failed fetch leaves no rows, i.e. the static count.
+  const availableNow = useMemo(
+    () => (occupancyLoading ? null : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), property.id)),
+    [occupancyLoading, rooms, occupancyRows, property.id],
+  );
   const roomsLine =
-    roomCount > 0 ? `${roomCount} room${roomCount === 1 ? "" : "s"} · ${availableNow} available` : null;
+    roomCount > 0
+      ? `${roomCount} room${roomCount === 1 ? "" : "s"}${availableNow === null ? "" : ` · ${availableNow} available`}`
+      : null;
   const collapseOnMobile = !expandSectionsOnMobile;
   const embeddedPreview = previewModal || portalEmbedded;
   const houseRulesDisplay =
@@ -476,8 +485,8 @@ export function ListingDetailSections({
     typeof rawHouseVideoUrl === "string" && /^https?:\/\//i.test(rawHouseVideoUrl.trim()) ? rawHouseVideoUrl : null;
   const propertyLabel = propertyDisplayLabel(property);
   const facts = useMemo(
-    () => deriveListingKeyFacts(rich, property),
-    [rich, property],
+    () => deriveListingKeyFacts(rich, property, availableNow),
+    [rich, property, availableNow],
   );
   const hasAbout = Boolean(rich.heroTagline?.trim() || rich.heroOverview?.trim());
   // The tiles already say rooms, baths and pets; the ledger keeps only what they do not.

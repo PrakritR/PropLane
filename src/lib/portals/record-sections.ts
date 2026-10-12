@@ -547,12 +547,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   task: {
     basePathDefault: "/portal",
-    // Studio plan services-vendors-1004: TASK: Task · Linked, then Communication. The Task section keeps
-    // the `overview` id so every saved task link still lands.
+    // Task, then Communication. The Task section keeps the `overview` id so every saved task link still
+    // lands; the retired Linked section's URL (`…/linked`) opens it too (`ManagerTaskList`).
     ownGroups: [
       { label: "Task", ids: [
         { id: "overview", label: "Task" },
-        { id: "linked", label: "Linked" },
       ] },
     ],
     // Edit · Assign · Schedule · Complete (the filled primary, `primaryId="complete"`) · Delete (last, red).

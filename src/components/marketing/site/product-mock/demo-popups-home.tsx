@@ -1097,12 +1097,7 @@ export function DemoCalendarRecord({ item, onBack, onToast }: { item: CalendarFi
     back = "Back to calendar";
     aria = "Task sections";
     body =
-      active === "linked" ? (
-        <RecordFactCard title="Linked">
-          <RecordFactRow label="Lease" value={record.linked} />
-          <RecordFactRow label="Property" value={record.property} />
-        </RecordFactCard>
-      ) : active === "communication" ? (
+      active === "communication" ? (
         <DemoRecordThread name={record.assignee} messages={[]} selfName="You" onSent={() => onToast("Sent (sample)")} />
       ) : (
         <RecordFactCard title="Task">

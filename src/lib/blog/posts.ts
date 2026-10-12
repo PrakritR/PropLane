@@ -1,15 +1,9 @@
 /**
  * The PropLane blog: typed posts, one file, no CMS.
  *
- * Source of truth for every number is the fact sheet the posts were written
- * from. Rules the posts keep (and `tests/unit/blog-posts.test.ts` pins):
- *  - a number is quoted as its source states it, and the sentence names the
- *    source; a vendor survey is called a vendor survey;
- *  - one source per claim; every stat tile points at a source with an https URL;
- *  - the 2021 Rental Housing Finance Survey and the 2024 one are never blended
- *    (these posts use 2021 only);
- *  - no figure is attributed to NARPM that NARPM did not publish;
- *  - at most one sentence names PropLane, and it links to `/`.
+ * The editorial and shape contract every post keeps (a figure is quoted as its
+ * source states it, one source per claim, at most one PropLane mention) lives in
+ * `docs/agents/blog.md` and is pinned by `tests/unit/blog-posts.test.ts`.
  *
  * Inline links inside a paragraph use `[label](/path)`; `renderInline`
  * (src/components/marketing/blog/inline-text.tsx) is the only reader.
@@ -116,7 +110,7 @@ const WEEK_OF_A_MANAGER: BlogPost = {
       title: "2025 Performance Ecosystem Report, as reported by Multifamily Executive",
       publisher: "National Apartment Association and AppFolio",
       year: 2025,
-      url: "https://www.multifamilyexecutive.com/index%2Ephp/property-management/report-naa-and-appfolio-flags-operational-strain-and-tech-adoption-challenges",
+      url: "https://www.multifamilyexecutive.com/property-management/report-naa-and-appfolio-flags-operational-strain-and-tech-adoption-challenges",
     },
     {
       title: "AppFolio survey highlights shifts in property management employee productivity and satisfaction (Property Manager Hiring and Retention Report)",

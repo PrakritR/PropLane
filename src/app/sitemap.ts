@@ -36,11 +36,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: path === "" || path === "/pricing" ? "weekly" : "monthly",
     priority: path === "" ? 1 : path === "/pricing" || path === "/about" ? 0.9 : 0.6,
   }));
-  const posts: MetadataRoute.Sitemap = BLOG_POSTS.map((post) => ({
-    url: `${BASE}/blog/${post.slug}`,
-    lastModified: new Date(`${post.date}T00:00:00Z`),
-    changeFrequency: "monthly",
-    priority: 0.6,
-  }));
+  // A post's own date may be ahead of today (the publish calendar is staggered); a `lastmod` in the future is
+  // distrusted by crawlers, so the stamp is never later than now.
+  const posts: MetadataRoute.Sitemap = BLOG_POSTS.map((post) => {
+    const dated = Date.parse(`${post.date}T00:00:00Z`);
+    return {
+      url: `${BASE}/blog/${post.slug}`,
+      lastModified: Number.isNaN(dated) ? lastModified : new Date(Math.min(dated, lastModified.getTime())),
+      changeFrequency: "monthly",
+      priority: 0.6,
+    };
+  });
   return [...pages, ...posts];
 }

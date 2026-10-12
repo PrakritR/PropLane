@@ -286,6 +286,8 @@ export function bookingConflictsFor(
 export type ApplicationHoldRow = {
   id: string;
   bucket: string;
+  /** A withdrawn application holds nothing. */
+  withdrawnAt?: string | null;
   name?: string;
   email?: string;
   propertyId?: string;
@@ -318,7 +320,7 @@ export function applicationHoldEntries(
   const properties = new Map(opts.properties.map((p) => [p.id, p]));
   const out: PropertyBookingEntry[] = [];
   for (const row of rows) {
-    if (row.bucket !== "approved") continue;
+    if (row.bucket !== "approved" || row.withdrawnAt) continue;
     if (opts.isLeased(row)) continue;
     const propertyId = (row.assignedPropertyId || row.propertyId || "").trim();
     const property = properties.get(propertyId);

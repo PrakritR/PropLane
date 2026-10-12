@@ -444,7 +444,7 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
   );
 }
 
-/** A task's record page (rail Task · Linked, Communication; header Edit · Assign · Schedule · Complete · Delete). */
+/** A task's record page (rail Task, Communication; header Edit · Assign · Schedule · Complete · Delete). */
 export function DemoTaskRecord({ row, onBack, toast }: { row: TaskFixtureRow; onBack: () => void; toast: (text: string) => void }) {
   const detail = OPS_TASK_DETAILS[row.id] ?? OPS_NEW_TASK;
   const sections = useMemo(() => recordSections("manager", "task", { taskListTab: row.bucket }), [row.bucket]);
@@ -483,10 +483,6 @@ export function DemoTaskRecord({ row, onBack, toast }: { row: TaskFixtureRow; on
       >
         {active === "communication" ? (
           <RecordCommunication name={vendor} subtitle={row.place} messages={detail.thread} onSent={() => toast("Message sent (sample)")} />
-        ) : active === "linked" ? (
-          <div className="space-y-3">
-            <RecordRowsCard title="Linked" rows={detail.linked.map((l) => ({ id: l.id, title: l.title, sub: l.sub }))} emptyLabel="Nothing linked yet." dataAttr="task-linked-card" />
-          </div>
         ) : (
           <div className="space-y-4" data-attr="task-detail-sections">
             <RecordFactCard title="Task" dataAttr="record-overview-card-task">

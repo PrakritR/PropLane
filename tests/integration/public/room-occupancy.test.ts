@@ -108,7 +108,13 @@ describe("GET /api/public/approved-room-occupancy", () => {
     expect(JSON.stringify(data)).not.toContain("mgr-1");
   });
 
-  it("ignores approved applications whose lease is not fully executed", async () => {
+  /**
+   * One rule for "room occupied on day D" (captain, Oct 11): any approved,
+   * non-withdrawn application holds its bed — hand-added, awaiting a signature
+   * or signed. Waiting for the e-sign published an approved room as free.
+   * See `docs/agents/shared-room-capacity.md` and `tests/unit/room-occupancy-truth.test.ts`.
+   */
+  it("counts an approved application whose lease is not yet executed", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
       fakeDb({
         properties: [{ id: "p1", manager_user_id: "mgr-1" }],
@@ -121,7 +127,9 @@ describe("GET /api/public/approved-room-occupancy", () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.rooms).toEqual([{ roomChoice: "p1::r1", spans: [] }]);
+    expect(data.rooms).toEqual([
+      { roomChoice: "p1::r1", spans: [{ start: "2026-06-01", end: "2026-08-31", count: 1 }] },
+    ]);
   });
 
   it("counts manager-added residents without a signed lease", async () => {

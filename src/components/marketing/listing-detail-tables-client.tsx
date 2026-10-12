@@ -35,6 +35,7 @@ import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/componen
 import { ColumnHelp } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-room-display";
 import { normalizeRoomOccupancyCapacity, type OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
+import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
 import { ListingSharedRoomBeds } from "@/components/marketing/listing-shared-room-beds";
 import {
@@ -547,9 +548,7 @@ export function ListingDetailModal({
               const roomChoiceValue = `${listingPropertyId}${LISTING_ROOM_CHOICE_SEP}${state.room.id}`;
               const roomUnavailableWindows = getRoomUnavailabilityWindows(roomChoiceValue);
               const capacity = roomOccupancyCapacity(state.room);
-              const occ =
-                occupancyRows.find((entry) => entry.roomChoice === roomChoiceValue) ??
-                occupancyRows.find((entry) => entry.roomChoice.endsWith(`::${state.room.id}`));
+              const occ = findPublicRoomOccupancy(occupancyRows, listingPropertyId, state.room.id);
               const openBeds = publicRoomOpenBedCount(capacity, occ?.spans ?? []);
               const bedSlots = publicBedSlotsForRoom(state.room, openBeds);
               return (
@@ -1386,10 +1385,7 @@ export function SpacesInteractive({
   const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
   const openBedsForRoom = useCallback(
     (roomId: string, capacity: number) => {
-      const choice = `${listingPropertyId}${LISTING_ROOM_CHOICE_SEP}${roomId}`;
-      const row =
-        occupancyRows.find((entry) => entry.roomChoice === choice) ??
-        occupancyRows.find((entry) => entry.roomChoice.endsWith(`::${roomId}`));
+      const row = findPublicRoomOccupancy(occupancyRows, listingPropertyId, roomId);
       return publicRoomOpenBedCount(capacity, row?.spans ?? []);
     },
     [listingPropertyId, occupancyRows],

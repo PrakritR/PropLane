@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
+import { SMS_AUTO_REPLY_AUTHOR } from "@/lib/sms-auto-reply";
 import { buildConversationKey, SMS_COUNTERPARTY_ROLES } from "@/lib/sms-conversation-identity";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { resolveSmsConversationRef } from "@/lib/communication/conversation-key.server";
@@ -18,8 +19,7 @@ import { conversationRowData } from "@/lib/communication/conversation-thread.ser
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
-/** Author label of a server-sent auto-reply on a person's text thread. Not the Assistant chat's own name. */
-export const SMS_AUTO_REPLY_AUTHOR = "You · Assistant";
+export { SMS_AUTO_REPLY_AUTHOR };
 
 /** Exact original SMS evidence, attached to each notice message independently.
  * A phone-level notice thread may contain unrelated line/role histories. */

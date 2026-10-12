@@ -17,6 +17,12 @@ export function selectedWorkspaceId(): string | null {
   return selection?.activeWorkspaceId ?? null;
 }
 
+/** The active workspace's owner and name, for naming and addressing its one Team chat. */
+export function activeWorkspaceSummary(): { id: string; name: string; ownerUserId: string } | null {
+  const active = activeWorkspace();
+  return active ? { id: active.id, name: active.name, ownerUserId: active.ownerUserId } : null;
+}
+
 export function activeWorkspaceIdentity(): { id: string; isDefault: boolean } | null {
   const active = activeWorkspace();
   if (!active) return null;

@@ -98,6 +98,7 @@ import {
 } from "@/lib/service-communication-scope";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { sharedGet } from "@/lib/shared-get-cache";
+import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 
 export type RecordCommunicationSectionRole = "manager" | "resident" | "vendor";
 
@@ -139,6 +140,12 @@ export type RecordCommunicationSectionProps = {
     parties: readonly ServiceCommunicationPartyTab[];
     refs: Record<string, RecordRef>;
   };
+  /**
+   * The workspace Team chat, offered beside the record's own contact. With a contact the header carries a
+   * "<name> / Team" dropdown; with none the pane is the Team chat alone. Team view shows that one thread and
+   * posts through the same route the main inbox uses for it (`threadId`), which re-authorizes membership.
+   */
+  teamChat?: { threadId: string; label: string };
   /** The footer link to the main Communication page ("Open the full conversation in Communication"). */
   fullConversationHref?: string;
 };
@@ -261,6 +268,7 @@ export function RecordCommunicationSection({
   fill = false,
   serviceScope,
   serviceEveryone,
+  teamChat,
   fullConversationHref,
 }: RecordCommunicationSectionProps) {
   const appUi = useOptionalAppUi();
@@ -270,6 +278,10 @@ export function RecordCommunicationSection({
   const [toId, setToId] = useState(serviceEveryone?.parties[0]?.id ?? "");
   const toParty = serviceEveryone ? serviceReplyParty(serviceEveryone.parties, toId) : null;
   const contactName = toParty ? toParty.name : contactNameProp;
+  // A task (or any record that opts in with `teamChat`) can switch between its contact and the workspace Team
+  // chat. With no contact the Team chat is the whole pane and there is nothing to switch.
+  const hasParty = Boolean(contactIds?.some((id) => id.trim()) || contactNameProp?.trim() || contactPhoneProp?.trim());
+  const [chatView, setChatView] = useState<"party" | "team">("party");
   const contactPhone = toParty ? toParty.phone : contactPhoneProp;
   const primaryContact = (toParty ? toParty.email : contactIds?.[0])?.trim().toLowerCase() || undefined;
 
@@ -325,6 +337,13 @@ export function RecordCommunicationSection({
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, [scope]);
 
+  // A workspace with fewer than two people deliberately has NO Team chat row (`ensureWorkspaceTeamThread`),
+  // so the id a caller computes from the workspace may name nothing. Offering it anyway gave a solo manager a
+  // pane that listed no messages and whose send 403'd. The chat is real only when the synced inbox — the same
+  // GET that heals the row into existence for a workspace that warrants one — actually carries that thread.
+  const teamChatAvailable = Boolean(teamChat) && threads.some((thread) => thread.id === teamChat?.threadId);
+  const teamView = teamChatAvailable && (!hasParty || chatView === "team");
+
   const threadFilters = useMemo<CommunicationThreadFilters>(
     () => ({
       propertyIds: [],
@@ -355,6 +374,7 @@ export function RecordCommunicationSection({
   // labeled thread.
   const mergedThreads = useMemo(
     () => {
+      if (teamView) return threads.filter((t) => t.id === teamChat?.threadId);
       if (serviceEveryone) {
         // Everyone: the union of every party's threads about this service.
         return serviceThreadsForEveryone(
@@ -387,7 +407,7 @@ export function RecordCommunicationSection({
         return false;
       });
     },
-    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email, serviceScope, serviceEveryone],
+    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email, serviceScope, serviceEveryone, teamView, teamChat?.threadId],
   );
 
   // The record ids this pane is scoped to, when it is a service's.
@@ -530,6 +550,35 @@ export function RecordCommunicationSection({
       setSendError("Wait for attachments to finish uploading.");
       return;
     }
+    if (teamView && teamChat) {
+      // The Team chat is a post into the workspace thread, not a person send: same helper and route the main
+      // inbox uses for it, which re-derives membership server-side and relays to the other members.
+      setSending(true);
+      setSendError(null);
+      try {
+        const result = await sendPropLaneAssistantInboxMessage({
+          threadId: teamChat.threadId,
+          subject: teamChat.label,
+          text,
+          fromName: senderIdentity?.name || "Property manager",
+          senderPortal: "manager",
+          attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+        });
+        if (!result.ok) {
+          setSendError(result.error?.trim() || "Could not send message.");
+          return;
+        }
+        for (const att of attachments) revokeInboxAttachmentPreview(att);
+        setDraft("");
+        setAttachments([]);
+        setThreads(await syncPersistedInboxFromServer(scope, { force: true }));
+      } catch {
+        setSendError("Could not send message.");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
     const to = recipientEmail;
     if (!to) {
       setSendError(`No contact to message about this ${KIND_LABEL[sendRef.kind]} yet.`);
@@ -638,7 +687,7 @@ export function RecordCommunicationSection({
     } finally {
       setSending(false);
     }
-  }, [sendRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms, reloadScheduled]);
+  }, [teamView, teamChat, sendRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms, reloadScheduled]);
 
   const handleArchive = useCallback(async () => {
     if (!primaryThread || archiving) return;
@@ -652,7 +701,9 @@ export function RecordCommunicationSection({
   }, [archiving, primaryThread, scope]);
 
   // Everyone is the whole conversation, not one person's: the picker beside the field names who a reply is for.
-  const counterpartyName = serviceEveryone
+  const counterpartyName = teamView && teamChat
+    ? teamChat.label
+    : serviceEveryone
     ? "Everyone"
     : resolveCounterpartyName({
         contactName,
@@ -662,7 +713,7 @@ export function RecordCommunicationSection({
       });
 
   const kindLabel = KIND_LABEL[activeRef.kind];
-  const archiveButton = primaryThread && !serviceEveryone ? (
+  const archiveButton = primaryThread && !serviceEveryone && !teamView ? (
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
@@ -676,9 +727,24 @@ export function RecordCommunicationSection({
     </button>
   ) : undefined;
 
-  const callPhone = serviceEveryone ? "" : contactPhone?.trim() || "";
+  const callPhone = serviceEveryone || teamView ? "" : contactPhone?.trim() || "";
+  const chatPicker = teamChat && teamChatAvailable && hasParty ? (
+    <FieldSingleSelect
+      label="Conversation"
+      hideLabel
+      variant="pill"
+      value={teamView ? "team" : "party"}
+      onChange={(next) => setChatView(next === "team" ? "team" : "party")}
+      options={[
+        { value: "party", label: contactNameProp?.trim() || recipientEmail || "Contact" },
+        { value: "team", label: teamChat.label },
+      ]}
+      dataAttr="record-communication-chat-select"
+    />
+  ) : null;
   const headerActions = fill ? (
     <>
+      {chatPicker}
       {callPhone ? (
         <a
           href={`tel:${callPhone}`}
@@ -692,9 +758,14 @@ export function RecordCommunicationSection({
       ) : null}
       {archiveButton}
     </>
-  ) : archiveButton;
+  ) : chatPicker || archiveButton ? (
+    <>
+      {chatPicker}
+      {archiveButton}
+    </>
+  ) : undefined;
 
-  const threadSubtitle = fill
+  const threadSubtitle = fill && !teamView
     ? [
         kindLabel.charAt(0).toUpperCase() + kindLabel.slice(1),
         callPhone ? formatTourContactPhoneDisplay(callPhone) : null,
@@ -726,7 +797,7 @@ export function RecordCommunicationSection({
       onChange={setDraft}
       onSubmit={() => void handleSend()}
       sending={sending}
-      disabled={!recipientEmail}
+      disabled={!recipientEmail && !teamView}
       placeholder={serviceEveryone && toParty ? `Write to ${toParty.name}…` : "Write a reply…"}
       channelBar={
         serviceEveryone ? (
@@ -752,7 +823,7 @@ export function RecordCommunicationSection({
       trailingControls={
         <>
           <InboxComposerAiMenu onAsk={() => openAxisAssistant()} />
-          {fill && emailAvailable ? (
+          {fill && emailAvailable && !teamView ? (
             <InboxComposerScheduleMenu
               scheduleLater={scheduleLater}
               onScheduleLaterChange={setScheduleLater}
@@ -764,7 +835,7 @@ export function RecordCommunicationSection({
           {/* In the tools row beside the field (AI · schedule · channel · Send), exactly like the main Communication
               composer. Floating it over the field's right edge covered the text at desktop width, where the menu
               carries its label. */}
-          {channelControl}
+          {teamView ? null : channelControl}
         </>
       }
       attachments={attachments}

@@ -8,7 +8,9 @@ import {
   airbnbBookingEntries,
   applicationHoldEntries,
   importedChannelStayEntries,
+  isChannelBookingSource,
   isImportedChannelBlock,
+  normalizeBookingDateKey,
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
@@ -21,6 +23,9 @@ import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/booki
 import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
 import { listingSubmissionFromProperty } from "@/lib/channel-calendar/connections.server";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
+import { isChannelImportedRangeId } from "@/lib/room-availability-timeline";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -30,6 +35,7 @@ import {
   combineOccupancyEntries,
   dayStayDisplayName,
   exportBlockedRanges,
+  isIcalAvailabilityBlock,
   occupancyForDay,
   occupancyStayKind,
   occupancyStayResident,
@@ -59,6 +65,13 @@ export type OccupancySnapshotStay = {
   monthlyRent?: number;
   /** Resident-backed stays only (hold / executed lease): everything Bookings needs to draw and open the row. */
   resident?: OccupancyStayResident;
+  /**
+   * A channel closure ("Not available") that is only an occupant on days nothing else holds the room:
+   * a reader building per-room spans folds it through `occupiedBedSpans` rather than counting it.
+   */
+  echoable?: boolean;
+  /** No end date: `end` is only the drawing horizon. */
+  openEnded?: boolean;
 };
 
 function eachDayKey(from: string, to: string): string[] {
@@ -137,6 +150,7 @@ export function holdRowFromApplication(row: {
     name: str(data.name) || undefined,
     email: str(data.email) || undefined,
     propertyId: String(row.property_id ?? data.propertyId ?? ""),
+    withdrawnAt: str(data.withdrawnAt) || undefined,
     assignedPropertyId: String(row.assigned_property_id ?? data.assignedPropertyId ?? ""),
     assignedRoomChoice: str(data.assignedRoomChoice) || undefined,
     application: {
@@ -208,23 +222,52 @@ export async function occupancyCapacitiesForProperties(
   };
 }
 
-async function occupancyPropertyMeta(
-  db: SupabaseClient,
-  propertyIds: string[],
-): Promise<{
+export type OccupancyPropertyMeta = {
   properties: { id: string; label: string; entireHomeListing: boolean }[];
   roomLabelForId: (propertyId: string, roomId: string) => string;
-}> {
+  /**
+   * The listing's own blocked dates (a room's manager-typed occupied dates), as block entries: they
+   * close the room exactly as a typed `room_date_block` does. Channel imports and host blocks stored
+   * beside them are NOT repeated here — the channel calendar read already carries those.
+   */
+  listingBlockEntries?: PropertyBookingEntry[];
+};
+
+async function occupancyPropertyMeta(db: SupabaseClient, propertyIds: string[]): Promise<OccupancyPropertyMeta> {
   const properties: { id: string; label: string; entireHomeListing: boolean }[] = [];
   const labels = new Map<string, string>();
+  const listingBlockEntries: PropertyBookingEntry[] = [];
   for (const propertyId of propertyIds) {
     const record = await loadPropertyRecord(db, propertyId);
     const submission = listingSubmissionFromProperty(record?.property ?? null);
     const rooms = submission?.rooms ?? [];
-    rooms.forEach((room, index) => {
-      labels.set(`${propertyId}:${room.id}`, room.name?.trim() || `Room ${index + 1}`);
-    });
     const building = submission?.buildingName?.trim() || record?.property?.buildingName?.trim() || propertyId;
+    rooms.forEach((room, index) => {
+      const roomLabel = room.name?.trim() || `Room ${index + 1}`;
+      labels.set(`${propertyId}:${room.id}`, roomLabel);
+      for (const range of room.manualUnavailableRanges ?? []) {
+        if (isChannelImportedRangeId(String(range.id ?? "")) || isHostBlockRange(range)) continue;
+        const start = normalizeBookingDateKey(range.start);
+        if (!start) continue;
+        const parsedEnd = normalizeBookingDateKey(range.end);
+        const horizon = openEndedBookingHorizonKey();
+        const end = parsedEnd || (horizon > start ? horizon : start);
+        if (end < start) continue;
+        listingBlockEntries.push({
+          source: "block",
+          propertyId,
+          propertyLabel: building,
+          roomId: room.id,
+          roomLabel,
+          summary: "Blocked",
+          start,
+          end,
+          statusLabel: "Blocked",
+          reason: "Occupied dates on the listing",
+          ...(parsedEnd ? {} : { openEnded: true }),
+        });
+      }
+    });
     properties.push({
       id: propertyId,
       label: building,
@@ -234,6 +277,7 @@ async function occupancyPropertyMeta(
   return {
     properties,
     roomLabelForId: (propertyId, roomId) => labels.get(`${propertyId}:${roomId}`) ?? "Room",
+    listingBlockEntries,
   };
 }
 
@@ -256,7 +300,9 @@ type ApprovedHoldRow = { id: unknown; manager_user_id: unknown; property_id: unk
  */
 type ApprovedHoldScope =
   | { kind: "column"; column: "property_id" | "assigned_property_id"; ids: string[] }
-  | { kind: "roomChoice"; propertyId: string };
+  | { kind: "roomChoice"; propertyId: string }
+  /** The applicant's own first choice (`application.roomChoice1`), for a row never given an assigned room. */
+  | { kind: "applicationRoomChoice"; propertyId: string };
 
 /** A property id is matched literally: `%`, `_` and `\` would otherwise widen the room-choice match. */
 function escapeLikePattern(value: string): string {
@@ -270,7 +316,10 @@ function approvedHoldScopes(propertyIds: string[]): ApprovedHoldScope[] {
     scopes.push({ kind: "column", column: "property_id", ids });
     scopes.push({ kind: "column", column: "assigned_property_id", ids });
   }
-  for (const propertyId of propertyIds) scopes.push({ kind: "roomChoice", propertyId });
+  for (const propertyId of propertyIds) {
+    scopes.push({ kind: "roomChoice", propertyId });
+    scopes.push({ kind: "applicationRoomChoice", propertyId });
+  }
   return scopes;
 }
 
@@ -284,7 +333,9 @@ async function readApprovedHoldScope(db: SupabaseClient, scope: ApprovedHoldScop
     const scoped =
       scope.kind === "column"
         ? base.in(scope.column, scope.ids)
-        : base.like("row_data->>assignedRoomChoice", `${escapeLikePattern(scope.propertyId)}::%`);
+        : scope.kind === "roomChoice"
+          ? base.like("row_data->>assignedRoomChoice", `${escapeLikePattern(scope.propertyId)}::%`)
+          : base.like("row_data->application->>roomChoice1", `${escapeLikePattern(scope.propertyId)}::%`);
     // One row past the page, so "is there more?" is answered by the same read: a scope whose row
     // count lands exactly on a page boundary must not be mistaken for a truncated one.
     const { data, error } = await scoped
@@ -336,7 +387,7 @@ export async function occupancyHoldEntries(
   db: SupabaseClient,
   propertyIds: string[],
   leaseRows: Array<LeaseBookingRow & { residentEmail?: string }>,
-  meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
+  meta: OccupancyPropertyMeta,
 ) {
   if (propertyIds.length === 0) return [];
   const [data, authors] = await Promise.all([readApprovedHoldRows(db, propertyIds), loadOccupancyAuthors(db, propertyIds)]);
@@ -418,7 +469,7 @@ async function readRoomDateBlockRows(db: SupabaseClient, propertyIds: string[]):
 async function occupancyBlockEntries(
   db: SupabaseClient,
   propertyIds: string[],
-  meta: Awaited<ReturnType<typeof occupancyPropertyMeta>>,
+  meta: OccupancyPropertyMeta,
 ) {
   if (propertyIds.length === 0) return { imported: [], typed: [] };
   const data = await readRoomDateBlockRows(db, propertyIds);
@@ -464,7 +515,15 @@ async function residentFinancialPropertyIds(db: SupabaseClient, userId: string, 
 export async function occupancySnapshotForManager(
   db: SupabaseClient,
   userId: string,
-  input: { propertyIds: string[]; from: string; to: string; browserOrigin?: string },
+  input: {
+    propertyIds: string[];
+    from: string;
+    to: string;
+    /** Only these days, instead of every day in [from, to] — a caller that draws a handful of
+     * figures should not pay for a cell per house per day it never reads. */
+    days?: readonly string[];
+    browserOrigin?: string;
+  },
 ) {
   const propertyIds = [...new Set(input.propertyIds.map((id) => id.trim()).filter(Boolean))];
   const [bookings, capacities, meta] = await Promise.all([
@@ -491,8 +550,10 @@ export async function occupancySnapshotForManager(
     leaseEntries,
     holdEntries,
     blockEntries.typed,
+    meta.listingBlockEntries ?? [],
   ).map((entry) => (financialHouses.has(entry.propertyId) ? entry : withoutResidentFinancials(entry)));
-  const days: OccupancySnapshotDay[] = eachDayKey(input.from, input.to).map((dayKey) => ({
+  const dayKeys = input.days?.length ? [...input.days] : eachDayKey(input.from, input.to);
+  const days: OccupancySnapshotDay[] = dayKeys.map((dayKey) => ({
     dayKey,
     ...occupancyForDay(entries, dayKey, propertyIds, capacities),
     houses: propertyIds.map((propertyId) => ({
@@ -511,6 +572,8 @@ export async function occupancySnapshotForManager(
       end: entry.end,
       kind: occupancyStayKind(entry),
       name: dayStayDisplayName(entry),
+      ...(isChannelBookingSource(entry.source) && isIcalAvailabilityBlock(entry.summary) ? { echoable: true } : {}),
+      ...(entry.openEnded ? { openEnded: true } : {}),
       ...(typeof entry.monthlyRent === "number" && Number.isFinite(entry.monthlyRent)
         ? { monthlyRent: entry.monthlyRent }
         : {}),

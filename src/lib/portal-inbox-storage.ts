@@ -1,4 +1,5 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
+import { isAssistantAuthoredLabel } from "@/lib/sms-auto-reply";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
 import type { ResidentCounterparty, ResidentPhoneState } from "@/lib/communication/resident-conversation";
 import {
@@ -1450,7 +1451,11 @@ export function collapsePersonInboxThreads(
       rootAutomated: first.automated === true,
       rootHouseId: first.houseId,
       rootHouseLabel: first.houseLabel,
-      from: first.from,
+      // The row is named by its counterparty: a turn the assistant authored
+      // (an auto-reply recorded on a text thread) never becomes the row's `from`.
+      from: isAssistantAuthoredLabel(first.from) && !isPropLaneAssistantInboxThreadRow(canonical)
+        ? canonical.from
+        : first.from,
       time: canonical.time,
       preview: last.body.slice(0, 100).replace(/\n/g, " "),
       messages,

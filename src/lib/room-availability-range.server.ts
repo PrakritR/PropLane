@@ -61,8 +61,8 @@ const NOT_VERIFIED = "Could not verify this room's calendar right now.";
 
 /**
  * The one "is room X free from A to B" answer for prospects, residents and managers.
- * Reads the same occupancy the public listing page uses (executed leases, manual residents,
- * room blocks, imported Airbnb / Booking.com ranges, the manager's own unavailable ranges),
+ * Reads the same occupancy the public listing page uses (every approved resident, signed or not,
+ * executed leases, room blocks, imported Airbnb / Booking.com ranges, the listing's own blocked dates),
  * then applies the room's own move-in date and its resident capacity. Prospect-safe: dates,
  * labels and rent only - never a name, email, reservation code or source. A failed read is
  * `available: null`, never "available".
