@@ -20,12 +20,12 @@ page shows. It deliberately owns nothing else — do not restate these here:
 
 `PropertyBookingEntry` (`src/lib/channel-calendar/property-bookings.ts`) is the
 one row every Bookings screen draws, from six sources: `proplane` (an executed
-lease), `hold` (an approved application, or a manager's block held for a named
-person), `block` (a typed closed range with a reason) and the channel feeds
-`airbnb` / `booking_com` / `vrbo`. The calendar once drew channel ranges only,
-which made it read as an Airbnb widget while a room let through PropLane itself
-looked free; every source lands in the same shape so a day cell can answer "is
-this room taken" whatever took it.
+lease), `hold` (an approved application that has not been withdrawn, or a
+manager's block held for a named person), `block` (a typed closed range with a
+reason) and the channel feeds `airbnb` / `booking_com` / `vrbo`. The calendar
+once drew channel ranges only, which made it read as an Airbnb widget while a
+room let through PropLane itself looked free; every source lands in the same
+shape so a day cell can answer "is this room taken" whatever took it.
 
 A resident-backed entry carries that resident's OWN figures — `monthlyRent`,
 `securityDeposit`, `leaseTerm`, `residentPhone` — and `bookingRateLabel`
