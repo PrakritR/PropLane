@@ -10,6 +10,7 @@ import {
   KeyRound,
   LifeBuoy,
   MessageSquareText,
+  Newspaper,
   Plug,
   ShieldCheck,
   Sparkles,
@@ -142,6 +143,7 @@ export function PublicNavbar() {
       pathname.startsWith("/docs") ||
       pathname.startsWith("/security") ||
       pathname.startsWith("/reviews") ||
+      pathname.startsWith("/blog") ||
       pathname.startsWith("/about"),
     [pathname],
   );
@@ -292,6 +294,14 @@ export function PublicNavbar() {
                   icon: <ShieldCheck strokeWidth={2} aria-hidden />,
                   active: pathname.startsWith("/security"),
                   dataAttr: "nav-resources-security",
+                },
+                {
+                  title: "Blog",
+                  url: "/blog",
+                  description: "Where a manager's time and money go, with sources",
+                  icon: <Newspaper strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/blog"),
+                  dataAttr: "nav-resources-blog",
                 },
               ],
             },
