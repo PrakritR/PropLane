@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
+import { sharedGet } from "@/lib/shared-get-cache";
 
 export function useListingPublicOccupancy(propertyId: string | null | undefined): {
   rooms: PublicRoomOccupancy[];
@@ -19,11 +20,11 @@ export function useListingPublicOccupancy(propertyId: string | null | undefined)
     }
     let cancelled = false;
     setLoading(true);
-    void fetch("/api/public/approved-room-occupancy")
-      .then((res) => (res.ok ? res.json() : { rooms: [] }))
-      .then((payload: { rooms?: PublicRoomOccupancy[] }) => {
+    // The listing hero and the room tables both read this on one page: one request through sharedGet.
+    void sharedGet("/api/public/approved-room-occupancy")
+      .then((read) => {
         if (cancelled) return;
-        const all = payload.rooms ?? [];
+        const all = (read.ok ? (read.data as { rooms?: PublicRoomOccupancy[] } | null)?.rooms : null) ?? [];
         setRooms(all.filter((row) => row.roomChoice.startsWith(`${id}::`) || row.roomChoice.startsWith(`${id}:`)));
       })
       .catch(() => {
