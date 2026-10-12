@@ -323,6 +323,34 @@ describe("admin writes from the manager portal cannot touch another owner's rows
     expect(hoisted.writes.filter((w) => w.op === "delete")).toHaveLength(0);
   });
 
+  it("work orders: an edit of another owner's work order without oversight is refused", async () => {
+    const { POST } = await import("@/app/api/portal-work-orders/route");
+    const res = await POST(post("/api/portal-work-orders", "", { action: "upsert", row: { id: "wo-other", title: "Taken" } }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes).toEqual([]);
+  });
+
+  it("work orders: a delete without oversight cannot remove another owner's row", async () => {
+    const { POST } = await import("@/app/api/portal-work-orders/route");
+    const res = await POST(post("/api/portal-work-orders", "", { action: "delete", id: "wo-other" }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes.filter((w) => w.op === "delete")).toEqual([]);
+  });
+
+  it("service requests: an edit of another owner's request without oversight is refused", async () => {
+    const { POST } = await import("@/app/api/portal-service-requests/route");
+    const res = await POST(post("/api/portal-service-requests", "", { action: "upsert", row: { id: "sr-other", offerName: "Taken" } }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes).toEqual([]);
+  });
+
+  it("service requests: a delete without oversight cannot remove another owner's row", async () => {
+    const { POST } = await import("@/app/api/portal-service-requests/route");
+    const res = await POST(post("/api/portal-service-requests", "", { action: "delete", id: "sr-other" }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes.filter((w) => w.op === "delete")).toEqual([]);
+  });
+
   it("vendors: a non-admin sending the oversight parameter is still refused", async () => {
     hoisted.admin = false;
     const { POST } = await import("@/app/api/portal-vendors/route");

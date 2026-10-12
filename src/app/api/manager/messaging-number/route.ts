@@ -96,6 +96,11 @@ async function buildStatus(
           .from("manager_sms_numbers")
           .select(NUMBER_SELECT)
           .eq("workspace_id", workspace.id)
+          // The workspace's work number is its LIVE row: a released one stays
+          // behind for history (the uniqueness index covers live rows only), so
+          // reading both would error here and show the released number as the
+          // workspace's own, with no way to request a replacement.
+          .is("released_at", null)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     db

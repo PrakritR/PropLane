@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  chunkDismissedContactKeys,
+  normalizeDismissedContactKey,
+} from "@/lib/communication/dismissed-contact-keys";
 import { invalidateSharedGets, sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
 
 /**
@@ -17,7 +21,7 @@ const MANAGER_SCOPE = "axis_portal_inbox_manager_v1";
 
 /** The directory's own key for a person: the trimmed, lower-cased email. */
 export function dismissedContactKey(email: string | null | undefined): string {
-  return (email ?? "").trim().toLowerCase();
+  return normalizeDismissedContactKey(email ?? "");
 }
 
 function dismissedUrl(workspaceId: string | null | undefined): string {
@@ -37,21 +41,28 @@ export async function loadDismissedContactKeys(
 async function post(action: "dismissContacts" | "clearDismissedContacts", emails: readonly string[]): Promise<boolean> {
   const contactKeys = [...new Set(emails.map(dismissedContactKey).filter(Boolean))];
   if (contactKeys.length === 0) return true;
-  try {
-    const res = await writeThroughFetch(
-      THREADS_ROUTE,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, scope: MANAGER_SCOPE, contactKeys }),
-      },
-      { invalidatePrefix: `${THREADS_ROUTE}?scope=${MANAGER_SCOPE}&view=dismissed` },
-    );
-    return res.ok;
-  } catch {
-    return false;
+  // One request per batch: the route refuses more than it will save, and
+  // "Delete all archived" over a big workspace is more than one batch. Every
+  // batch has to land, or the caller is told the delete failed rather than
+  // shown rows that come back on the next load.
+  for (const batch of chunkDismissedContactKeys(contactKeys)) {
+    try {
+      const res = await writeThroughFetch(
+        THREADS_ROUTE,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, scope: MANAGER_SCOPE, contactKeys: batch }),
+        },
+        { invalidatePrefix: `${THREADS_ROUTE}?scope=${MANAGER_SCOPE}&view=dismissed` },
+      );
+      if (!res.ok) return false;
+    } catch {
+      return false;
+    }
   }
+  return true;
 }
 
 /** Delete empty chats for good: the people stay out of Active until a real message exists. */

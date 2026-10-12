@@ -1023,9 +1023,9 @@ export function ManagerUnifiedInbox({
 
   const handleDismissContacts = useCallback(
     async (emails: string[]) => {
-      if (isDemoModeActive()) return true;
-      const ok = await dismissContactsClient(emails);
-      if (!ok) return false;
+      // /demo writes no rows, so the dismissal lives in this session only — the
+      // row still has to leave the list, or Delete reports a delete that never happened.
+      if (!isDemoModeActive() && !(await dismissContactsClient(emails))) return false;
       setDismissed((current) => ({
         scope: dismissedScope,
         keys: new Set([...(current.scope === dismissedScope ? current.keys : []), ...emails.map(dismissedContactKey)]),

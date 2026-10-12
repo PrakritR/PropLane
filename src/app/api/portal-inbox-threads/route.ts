@@ -471,11 +471,19 @@ export async function POST(req: Request) {
 
     if (body.action === "dismissContacts" || body.action === "clearDismissedContacts") {
       if (scopeKey !== MANAGER_INBOX_SCOPE) return NextResponse.json({ error: "Unsupported scope." }, { status: 400 });
-      const { clearDismissedContactKeys, dismissContactKeys, sanitizeDismissedContactKeys } = await import(
+      const { DISMISSED_CONTACT_KEYS_PER_CALL, clearDismissedContactKeys, dismissContactKeys, sanitizeDismissedContactKeys } = await import(
         "@/lib/communication/dismissed-contacts.server"
       );
       const keys = sanitizeDismissedContactKeys(body.contactKeys);
       if (keys.length === 0) return NextResponse.json({ error: "Choose people." }, { status: 400 });
+      // Refuse an oversized batch instead of saving the first page of it: the answer's
+      // `count` is what was written, and the client sends long lists in batches.
+      if (keys.length > DISMISSED_CONTACT_KEYS_PER_CALL) {
+        return NextResponse.json(
+          { error: `Choose up to ${DISMISSED_CONTACT_KEYS_PER_CALL} people.` },
+          { status: 400 },
+        );
+      }
       try {
         // The viewer is the session's and the workspace is the cookie's, checked against the
         // viewer's memberships. Nothing in the body names either.

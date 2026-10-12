@@ -144,7 +144,7 @@ export type WorkspaceWorkNumber = {
   provisionState: string | null;
 };
 
-const NUMBER_SUMMARY = "workspace_id, manager_user_id, phone_number, provision_state";
+const NUMBER_SUMMARY = "workspace_id, manager_user_id, phone_number, provision_state, released_at";
 
 /**
  * The work number of every workspace this account can see, one per workspace.
@@ -185,15 +185,17 @@ async function numbersForWorkspaces(
     db.from("manager_sms_numbers").select(NUMBER_SUMMARY).in("workspace_id", workspaceIds),
     db.from("profiles").select("id, full_name, email").in("id", ownerIds),
   ]);
-  const numberByWorkspace = new Map(
-    (numberRows ?? []).map((r) => [
-      String(r.workspace_id ?? "").trim(),
-      {
-        phoneNumber: typeof r.phone_number === "string" && r.phone_number.trim() ? r.phone_number.trim() : null,
-        provisionState: typeof r.provision_state === "string" ? r.provision_state : null,
-      },
-    ]),
-  );
+  // A workspace may carry a released row beside its live one (the index is over
+  // live rows only); the live one is the workspace's work number.
+  const numberByWorkspace = new Map<string, { phoneNumber: string | null; provisionState: string | null }>();
+  for (const r of [...(numberRows ?? [])].sort((a, b) => Number(Boolean(a.released_at)) - Number(Boolean(b.released_at)))) {
+    const key = String(r.workspace_id ?? "").trim();
+    if (!key || numberByWorkspace.has(key)) continue;
+    numberByWorkspace.set(key, {
+      phoneNumber: typeof r.phone_number === "string" && r.phone_number.trim() ? r.phone_number.trim() : null,
+      provisionState: typeof r.provision_state === "string" ? r.provision_state : null,
+    });
+  }
   const nameByOwner = new Map(
     (profileRows ?? []).map((p) => [
       String(p.id ?? "").trim(),
@@ -237,6 +239,16 @@ export async function resolveViewerWorkNumber(
 }
 
 /**
+ * `columns` with `released_at` guaranteed present. The uniqueness index is per
+ * workspace among LIVE rows only, so a released row can sit beside the live one
+ * and the live-row preference below has to be able to see the difference — a
+ * caller's own column list must not decide whether that guard runs.
+ */
+function withReleasedAt(columns: string): string {
+  return /(^|,)\s*released_at\s*(,|$)/.test(columns) ? columns : `${columns}, released_at`;
+}
+
+/**
  * A number the TARGET workspace holds via `workspace_work_numbers` — its own
  * home number when it has one, else a number shared in from a sibling
  * workspace of the SAME owner (primary hold first). Never a guess at an
@@ -257,11 +269,19 @@ async function resolveHeldNumberRow<T>(
     .eq("workspace_id", id)
     .order("is_primary", { ascending: false });
   const numberIds = [...new Set((holds ?? []).map((h) => String(h.number_id ?? "").trim()).filter(Boolean))];
+  let fallback: T | null = null;
   for (const numberId of numberIds) {
-    const { data: row, error } = await db.from("manager_sms_numbers").select(columns).eq("id", numberId).maybeSingle();
-    if (!error && row) return row as T;
+    const { data: row, error } = await db
+      .from("manager_sms_numbers")
+      .select(withReleasedAt(columns))
+      .eq("id", numberId)
+      .maybeSingle();
+    if (error || !row) continue;
+    // A released hold stays behind for history; the live line wins.
+    if (!(row as { released_at?: string | null }).released_at) return row as T;
+    fallback ??= row as T;
   }
-  return null;
+  return fallback;
 }
 
 /**
@@ -326,7 +346,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   };
   const targetWorkspaceId = houseWorkspaceId || (await loadDefaultWorkspaceId());
 
-  const query = db.from("manager_sms_numbers").select(columns).eq("manager_user_id", ownerUserId);
+  const query = db.from("manager_sms_numbers").select(withReleasedAt(columns)).eq("manager_user_id", ownerUserId);
   // A real builder is thenable and yields every row; a single-row double
   // only answers `maybeSingle`, and its one row is the one candidate.
   const { data, error } =
@@ -350,7 +370,8 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   // default workspace only - never for a house placed in another workspace.
   const forDefaultWorkspace = !houseWorkspaceId || houseWorkspaceId === (await loadDefaultWorkspaceId());
   if (forDefaultWorkspace) {
-    const legacy = rows.find((r) => !String(r.workspace_id ?? "").trim());
+    const unplaced = rows.filter((r) => !String(r.workspace_id ?? "").trim());
+    const legacy = unplaced.find((r) => !r.released_at) ?? unplaced[0];
     if (legacy) return { data: legacy, error: null };
   }
   return noNumber;
