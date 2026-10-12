@@ -1528,19 +1528,6 @@ export const SERVICE_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceReco
   { label: "Money", ids: ["payments"] },
 ];
 
-export const TASK_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
-  overview: "Status, assignment, due",
-  rooms: "Not used by tasks",
-  communication: "Thread for this task",
-  payments: "None yet",
-  linked: "Property, service, tour",
-};
-
-export const TASK_RECORD_RAIL_GROUPS: Array<{ label: string; ids: ServiceRecordTabId[] }> = [
-  { label: "Task", ids: ["overview", "linked"] },
-  { label: "", ids: ["communication"] },
-];
-
 export const INSPECTION_RECORD_TAB_DESCRIPTIONS: Record<ServiceRecordTabId, string> = {
   overview: "Kind, status, date",
   rooms: "Room-by-room checklist",
