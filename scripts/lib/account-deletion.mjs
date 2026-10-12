@@ -307,6 +307,7 @@ export const DELETE_ORDER = [
   "manager_vendor_records",
   "portal_work_order_records",
   "portal_inbox_thread_records",
+  "communication_dismissed_contacts",
   "manager_property_records",
   "portal_workspaces",
 ];
