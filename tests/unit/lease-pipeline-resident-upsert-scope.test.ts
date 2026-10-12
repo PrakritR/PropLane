@@ -189,10 +189,16 @@ function makeDb() {
 
 const SELECTS: string[] = [];
 
-async function post(body: unknown) {
+/** Query string every `post` carries; the admin-oversight describe blocks set `?oversight=admin`. */
+let POST_QUERY = "";
+beforeEach(() => {
+  POST_QUERY = "";
+});
+
+async function post(body: unknown, query = POST_QUERY) {
   const { POST } = await import("@/app/api/portal-lease-pipeline/route");
   return POST(
-    new Request("http://localhost/api/portal-lease-pipeline", { method: "POST", body: JSON.stringify(body) }),
+    new Request(`http://localhost/api/portal-lease-pipeline${query}`, { method: "POST", body: JSON.stringify(body) }),
   );
 }
 
@@ -528,6 +534,7 @@ describe("portal-lease-pipeline — row_data can never decide scope", () => {
 
 describe("portal-lease-pipeline admin — unchanged", () => {
   beforeEach(() => {
+    POST_QUERY = "?oversight=admin";
     PROFILE = { email: "admin@example.com", role: "admin" };
     PROFILE_ROLES = [];
     PORTAL_ROLES = ["admin"];
@@ -540,13 +547,13 @@ describe("portal-lease-pipeline admin — unchanged", () => {
     const written = await post({
       action: "upsert",
       row: { id: LEASE_ID, residentEmail: "anything@example.com", managerUserId: "any-manager" },
-    });
+    }, "?oversight=admin");
     expect(written.status).toBe(200);
     const record = upsert.mock.calls[0]![0] as Record<string, unknown>;
     expect(record.resident_email).toBe("anything@example.com");
     expect(record.manager_user_id).toBe("any-manager");
 
-    const deleted = await post({ action: "delete", id: LEASE_ID });
+    const deleted = await post({ action: "delete", id: LEASE_ID }, "?oversight=admin");
     expect(deleted.status).toBe(200);
     expect(deleteEq).toHaveBeenCalled();
   });
@@ -1286,6 +1293,7 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
   });
 
   it("leaves admin unchanged", async () => {
+    POST_QUERY = "?oversight=admin";
     PROFILE = { email: "admin@example.com", role: "admin" };
     PROFILE_ROLES = [];
     PORTAL_ROLES = ["admin"];

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -34,14 +35,24 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Tours export is unavailable for this account." }, { status: 403 });
     }
 
+    // The all-owners export is admin oversight: asked for with `?oversight=admin` AND confirmed by the
+    // role. An admin in their own manager portal exports exactly what a manager does.
     const admin = await isAdminUser(portalCtx.user.id);
-    const role = admin
+    const oversight = await resolveAdminOversight(req, portalCtx.user.id, admin);
+    let role = oversight
       ? "admin"
       : String(portalCtx.effectiveRole ?? portalCtx.roles[0] ?? portalCtx.profile?.role ?? "").toLowerCase();
+    let roles = portalCtx.roles;
+    if (!oversight) {
+      // Never read as admin by accident; an admin with the manager role exports as that manager.
+      roles = roles.filter((r) => String(r).toLowerCase() !== "admin");
+      if (role === "admin" && admin) role = "manager";
+      if (role === "manager" && !roles.includes("manager")) roles = [...roles, "manager"];
+    }
     if (role !== "admin" && role !== "manager") {
       return NextResponse.json({ error: "Tours export is manager-only." }, { status: 403 });
     }
-    const user: ScheduleRecordUser = { id: portalCtx.user.id, role, roles: portalCtx.roles };
+    const user: ScheduleRecordUser = { id: portalCtx.user.id, role, roles };
 
     const searchParams = new URL(req.url).searchParams;
     const bucket = parseBucket(searchParams.get("bucket"));

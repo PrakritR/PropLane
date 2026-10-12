@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-housing-access";
 import { scheduleListingChannelSync } from "@/lib/listing-channels/sync.server";
 import { NextResponse } from "next/server";
@@ -129,7 +130,7 @@ async function sessionUser() {
   return user;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -147,7 +148,9 @@ export async function GET() {
       .from("manager_property_records")
       .select("id, manager_user_id, status, row_data, property_data, edit_request_note")
       .order("created_at", { ascending: true });
-    if (admin) {
+    // The all-owners inventory is admin oversight: asked for with `?oversight=admin` AND confirmed by
+    // the role. An admin in their own manager portal reads exactly what a manager does.
+    if (await resolveAdminOversight(req, user.id, admin)) {
       const { data, error } = await baseQuery;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       // Admins get the full inventory; client must scope with its own linked ids.
@@ -277,7 +280,10 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Property access is unavailable for this account." }, { status: 403 });
     }
-    const admin = await isAdminUser(user.id);
+    // Admin authority over another owner's row is oversight: it needs the explicit request
+    // (`?oversight=admin`, sent by admin pages) AND the role. An admin writing from their own
+    // manager portal is a manager: they can create and edit their own and granted houses only.
+    const oversight = await resolveAdminOversight(req, user.id);
 
     // Look up the stored row's owner ONCE. All authorization anchors on this
     // server-read value, never on body.managerUserId (which a caller controls).
@@ -357,7 +363,7 @@ export async function POST(req: Request) {
       const bodyWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
       const created = await resolveCreateListingOwner(db, {
         callerUserId: user.id,
-        admin,
+        admin: oversight,
         requestedOwnerId: body.managerUserId?.trim() || null,
         workspaceId: bodyWorkspaceId || readWorkspaceCookie(req.headers.get("cookie")) || null,
         explicitWorkspaceId: bodyWorkspaceId.length > 0,
@@ -368,7 +374,7 @@ export async function POST(req: Request) {
       ownerForWrite = created.ownerUserId;
       createWorkspaceId = created.workspaceId;
       appendCreatedListingToInviteId = created.appendToInviteId;
-    } else if (admin) {
+    } else if (oversight) {
       // Never MOVE a row that still has an owner; an orphaned row (the column is
       // `on delete set null`) may still be re-attributed by an admin.
       ownerForWrite = existingOwnerId || body.managerUserId?.trim() || user.id;

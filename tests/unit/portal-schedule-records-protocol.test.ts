@@ -65,7 +65,7 @@ function query(table: string): Query {
         : source;
       // Scope checks are the only queries carrying an .or() filter. The real
       // route's scope allows own ordinary rows and its shared singleton rows.
-      if (filters.scope === true && !state.admin) {
+      if (filters.scope === true) {
         const viewer = (state.portal.user as { id: string }).id;
         const scoped = ordinary.filter((row) => {
           if (row.id === "axis_admin_planned_events_v1" || row.id === "axis_admin_partner_inquiries_v1") return true;
@@ -329,7 +329,7 @@ describe("portal schedule-records protocol", () => {
     expect((await (await GET()).json() as { rows: Row[] }).rows).toEqual([]);
 
     portal("admin-1", ["admin"]);
-    body = await (await GET()).json() as { rows: Row[] };
+    body = await (await GET(new Request("https://example.test/api/portal-schedule-records?oversight=admin"))).json() as { rows: Row[] };
     expect(JSON.stringify(body)).toContain("ava@example.test");
     expect(JSON.stringify(body)).toContain("bea@example.test");
     expect(JSON.stringify(body)).toContain("Hidden");
@@ -417,5 +417,35 @@ describe("portal schedule-records protocol", () => {
     expect((inquiry!.payload as Row[])[0]).toMatchObject({ eligibleHostUserIds: ["co-a"] });
     expect((inquiry!.payload as Row[])[0]).toMatchObject({ requestedWindows: [{ start: "2030-01-02T18:00:00.000Z", end: "2030-01-02T18:30:00.000Z" }] });
     expect(JSON.stringify(inquiry)).not.toContain("Ava Prospect");
+  });
+});
+
+describe("portal schedule-records — admin oversight is explicit", () => {
+  const ids = async (query = "") => {
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    const body = await (await GET(new Request(`https://example.test/api/portal-schedule-records${query}`))).json() as { rows: Row[] };
+    return body.rows.map((row) => String(row.id)).filter((id) => id.startsWith("ordinary-")).sort();
+  };
+  beforeEach(() => {
+    state.scheduleRows = [
+      { id: "ordinary-mine", manager_user_id: "admin-1", record_type: "event", row_data: { id: "ordinary-mine" } },
+      { id: "ordinary-other", manager_user_id: "owner-other", record_type: "event", row_data: { id: "ordinary-other" } },
+      singleton(plannedId, []),
+    ];
+  });
+
+  it("an admin in their own manager portal reads only their own rows", async () => {
+    portal("admin-1", ["admin", "manager"]);
+    expect(await ids()).toEqual(["ordinary-mine"]);
+  });
+
+  it("an admin page that asks for oversight reads every owner's rows", async () => {
+    portal("admin-1", ["admin", "manager"]);
+    expect(await ids("?oversight=admin")).toEqual(["ordinary-mine", "ordinary-other"]);
+  });
+
+  it("a non-admin sending the oversight parameter is still scoped", async () => {
+    portal("admin-1", ["manager"]);
+    expect(await ids("?oversight=admin")).toEqual(["ordinary-mine"]);
   });
 });

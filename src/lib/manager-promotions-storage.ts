@@ -4,6 +4,7 @@
  * sync through the scoped /api/portal-promotions route, and a change event panels
  * subscribe to. Demo mode never touches the network (seeded locally).
  */
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   composeFallbackFlyerCopy,
@@ -64,7 +65,7 @@ function emit() {
 
 function mirrorRowToServer(row: ManagerPromotionRow) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/portal-promotions", {
+  void fetch(adminOversightUrl("/api/portal-promotions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -74,7 +75,7 @@ function mirrorRowToServer(row: ManagerPromotionRow) {
 
 function deleteFromServer(id: string) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/portal-promotions", {
+  void fetch(adminOversightUrl("/api/portal-promotions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -97,7 +98,7 @@ export async function syncManagerPromotionsFromServer(opts?: { force?: boolean }
   }
   try {
     syncPromise = (async () => {
-      const res = await fetch("/api/portal-promotions", { credentials: "include" });
+      const res = await fetch(adminOversightUrl("/api/portal-promotions"), { credentials: "include" });
       if (!res.ok) return readManagerPromotionRows();
       const body = (await res.json()) as { rows?: ManagerPromotionRow[] };
       const rows = Array.isArray(body.rows) ? body.rows : [];

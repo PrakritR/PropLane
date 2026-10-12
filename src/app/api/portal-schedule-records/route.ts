@@ -176,6 +176,9 @@ function scheduleUserHasRole(user: { role: string; roles?: string[] }, role: str
 
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
+  // An admin in their own manager portal reads and writes like any manager; the all-owners schedule
+  // read is admin oversight (`?oversight=admin`, sent by admin pages).
+  explicitAdminOversight: true,
   // portal_schedule_records actually has these columns (see
   // 20260428201000_portal_backend_records.sql) — keep selecting them for
   // the existing-row check and delete targets, matching what this table's
@@ -591,8 +594,8 @@ const route = createJsonRecordRoute({
   },
 });
 
-export function GET() {
-  return handleTestWorkspaceScheduleGet(() => route.GET());
+export function GET(req?: Request) {
+  return handleTestWorkspaceScheduleGet(() => route.GET(req));
 }
 
 export function POST(req: Request) {

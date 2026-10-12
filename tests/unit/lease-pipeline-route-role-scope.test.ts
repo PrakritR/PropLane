@@ -123,9 +123,9 @@ function makeDb() {
   };
 }
 
-async function loadLeases(): Promise<{ status: number; ids: string[] }> {
+async function loadLeases(query = ""): Promise<{ status: number; ids: string[] }> {
   const { GET } = await import("@/app/api/portal-lease-pipeline/route");
-  const res = await GET(new Request("http://localhost/api/portal-lease-pipeline"));
+  const res = await GET(new Request(`http://localhost/api/portal-lease-pipeline${query}`));
   if (res.status !== 200) return { status: res.status, ids: [] };
   const body = (await res.json()) as { rows: Array<{ id: string }> };
   return { status: res.status, ids: body.rows.map((row) => row.id) };
@@ -205,8 +205,25 @@ describe("portal-lease-pipeline — admin", () => {
     isAdminUser.mockResolvedValue(true);
   });
 
-  it("still reads every lease, unscoped", async () => {
+  it("an admin in their own manager portal reads only the manager pipeline", async () => {
     const { status, ids } = await loadLeases();
+    expect(status).toBe(200);
+    expect(fetchLeasesForManagerUser).toHaveBeenCalledTimes(1);
+    expect(ids).toEqual(MANAGER_PIPELINE.map((lease) => lease.id));
+  });
+
+  it("a non-admin sending the oversight parameter is still scoped", async () => {
+    isAdminUser.mockResolvedValue(false);
+    PROFILE = { email: "mgr@example.com", role: "manager" };
+    PORTAL_ROLES = ["manager"];
+    EFFECTIVE_ROLE = "manager";
+    const { ids } = await loadLeases("?oversight=admin");
+    expect(fetchLeasesForManagerUser).toHaveBeenCalledTimes(1);
+    expect(ids).toEqual(MANAGER_PIPELINE.map((lease) => lease.id));
+  });
+
+  it("still reads every lease, unscoped, when the request asks for oversight", async () => {
+    const { status, ids } = await loadLeases("?oversight=admin");
     expect(status).toBe(200);
     expect(fetchLeasesForManagerUser).not.toHaveBeenCalled();
     expect(ids).toEqual(ALL_LEASES.map((lease) => lease.id));

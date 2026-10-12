@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { vendorCatalogProjection } from "@/lib/vendor-catalog-projection";
 import { NextResponse } from "next/server";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
@@ -85,6 +86,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
     const role = String(profileResult.data?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    // The all-owners read is admin oversight: asked for with `?oversight=admin` AND confirmed by the
+    // role. An admin in their own manager portal reads exactly what a manager does (own rows,
+    // granted owners' rows, shared catalog), narrowed to the active workspace.
+    const oversight = await resolveAdminOversight(req, user.id, admin);
 
     if (!admin && role !== "manager" && role !== "pro") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -117,10 +122,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ rows });
     }
 
-    // Active-workspace narrowing (`null` = not narrowing, admin is never
-    // narrowed): switching workspaces must hide another of the manager's own
+    // Active-workspace narrowing (`null` = not narrowing, admin oversight is
+    // never narrowed): switching workspaces must hide another of the manager's own
     // workspaces' vendors, the same as every other module already does.
-    const workspaceScope: WorkspaceRowScope = admin
+    const workspaceScope: WorkspaceRowScope = oversight
       ? { propertyIds: null, includeUntagged: true }
       : await resolveActiveWorkspaceRowScope(db, userId);
 
@@ -130,7 +135,7 @@ export async function GET(req: Request) {
         .select("row_data, manager_user_id, updated_at")
         .order("updated_at", { ascending: false })
         .limit(500);
-      if (!admin) query = query.eq("manager_user_id", userId);
+      if (!oversight) query = query.eq("manager_user_id", userId);
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       return (data ?? [])
@@ -138,7 +143,7 @@ export async function GET(req: Request) {
           const row = record.row_data as ManagerVendorRow | null;
           if (!row?.id || isVendorCategorySettingsRow(row)) return null;
           const normalized = normalizeRow(row, String(record.manager_user_id ?? userId));
-          if (!admin && !vendorRowInWorkspaceScope(normalized, workspaceScope)) return null;
+          if (!oversight && !vendorRowInWorkspaceScope(normalized, workspaceScope)) return null;
           return normalized;
         })
         .filter((row): row is ManagerVendorRow => row !== null);
@@ -153,7 +158,7 @@ export async function GET(req: Request) {
     // (empty/absent = assigned to every property, same "Every property"
     // sentinel the vendor form uses) is what narrows it to that house.
     async function loadLinkedOwnerRows(): Promise<ManagerVendorRow[]> {
-      if (admin) return [];
+      if (oversight) return [];
       const { ownerIds, propertyIdsByOwner } = await linkedOwnerScopeForModule(db, userId, "services");
       ownerIds.delete(userId);
       if (ownerIds.size === 0) return [];
@@ -186,7 +191,7 @@ export async function GET(req: Request) {
     }
 
     async function loadSharedRows(): Promise<ManagerVendorRow[]> {
-      if (admin) return [];
+      if (oversight) return [];
       const { data: sharedData, error: sharedError } = await db
         .from("manager_vendor_records")
         .select("row_data, manager_user_id")
@@ -244,6 +249,9 @@ export async function POST(req: Request) {
     if (!admin && role !== "manager" && role !== "pro") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+    // An admin's write from their own manager portal is a manager's write: it can never edit or
+    // delete another owner's vendor. Only an explicit oversight request skips the ownership gates.
+    const oversight = await resolveAdminOversight(req, user.id, admin);
     // A Property owner carries the manager role row only to host /portal/owner;
     // the vendor directory (own and shared rows) is not theirs to read or write.
     const ownerRefusal = await refuseOwnerOnly(db, user.id);
@@ -280,7 +288,7 @@ export async function POST(req: Request) {
       const owner = vendorOwnerById.get(row.id);
       // Existing ownerless rows are not unclaimed ids available for takeover.
       if (!owner) return { ok: false, owner: managerUserId };
-      if (admin || owner === managerUserId) return { ok: true, owner };
+      if (oversight || owner === managerUserId) return { ok: true, owner };
       if (!editableOwners.has(owner)) {
         servicesScope ??= await linkedOwnerScopeForModule(db, managerUserId, "services", "edit", { throwOnError: true });
         const propertyIds = [...(servicesScope.propertyIdsByOwner.get(owner) ?? [])];
@@ -300,7 +308,7 @@ export async function POST(req: Request) {
       const id = body.id?.trim();
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       let query = db.from("manager_vendor_records").delete().eq("id", id);
-      if (!admin) query = query.eq("manager_user_id", managerUserId);
+      if (!oversight) query = query.eq("manager_user_id", managerUserId);
       const { error } = await query;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });

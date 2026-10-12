@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { isMissingColumnError } from "@/lib/db-missing-column";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
@@ -1172,13 +1173,7 @@ export async function GET(req: Request) {
     // confirms the admin role. The manager portal never sends it, so a platform admin
     // using their own workspace reads exactly what a manager does: their own and
     // granted houses, narrowed to the active workspace.
-    let oversightRequested = false;
-    try {
-      oversightRequested = new URL(req.url).searchParams.get("oversight") === "admin";
-    } catch {
-      oversightRequested = false;
-    }
-    const adminOversight = admin && oversightRequested && !selfScope;
+    const adminOversight = (await resolveAdminOversight(req, user.id, admin)) && !selfScope;
     if (!email && (selfScope || (!admin && role === "resident"))) {
       return NextResponse.json({ rows: [] });
     }

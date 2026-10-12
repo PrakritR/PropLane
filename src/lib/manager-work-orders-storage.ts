@@ -1,3 +1,4 @@
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { removePendingWorkOrderChargesForWorkOrder } from "@/lib/household-charges";
@@ -53,7 +54,7 @@ function emit() {
 
 function mirrorWorkOrdersToServer(rows: DemoManagerWorkOrderRow[]) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/portal-work-orders", {
+  void fetch(adminOversightUrl("/api/portal-work-orders"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -70,7 +71,7 @@ export async function upsertManagerWorkOrderToServer(
     return { ok: true, row };
   }
   try {
-    const res = await fetch("/api/portal-work-orders", {
+    const res = await fetch(adminOversightUrl("/api/portal-work-orders"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -89,7 +90,7 @@ export async function upsertManagerWorkOrderToServer(
 
 function deleteWorkOrderFromServer(id: string) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/portal-work-orders", {
+  void fetch(adminOversightUrl("/api/portal-work-orders"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -108,7 +109,7 @@ export async function syncManagerWorkOrdersFromServer(opts?: { force?: boolean }
   }
   try {
     managerWorkOrdersSyncPromise = (async () => {
-      const res = await fetch("/api/portal-work-orders", { credentials: "include" });
+      const res = await fetch(adminOversightUrl("/api/portal-work-orders"), { credentials: "include" });
       if (!res.ok) return readManagerWorkOrderRows();
       const body = (await res.json()) as { rows?: DemoManagerWorkOrderRow[] };
       const rows = Array.isArray(body.rows) ? body.rows : [];
