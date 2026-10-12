@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getReportsAuthContext } from "@/lib/reports/auth";
+import { assertManagerCommunicationAllowedForActiveWorkspace } from "@/lib/manager-communication-access.server";
 import { track } from "@/lib/analytics/posthog";
 import { createPortfolioImportRecords, PortfolioImportNotFoundError } from "@/lib/portfolio-import/create.server";
 import type { PortfolioImportCreateRequest } from "@/lib/portfolio-import/types";
@@ -31,6 +32,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ importI
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
+  // A live signup trial has no Communication until it pays (the active workspace OWNER's plan). The
+  // import itself still runs; only the resident invites are skipped, and the answer says why.
+  const requestedInvites = body.sendInvites;
+  let communicationBlocked: "trial" | "plan_unreadable" | undefined;
+  if (requestedInvites) {
+    const communication = await assertManagerCommunicationAllowedForActiveWorkspace(auth.db, auth.userId);
+    if (!communication.allowed) {
+      communicationBlocked = communication.reason;
+      body = { ...body, sendInvites: false };
+    }
+  }
+
   try {
     const result = await createPortfolioImportRecords(
       auth.db,
@@ -47,9 +60,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ importI
       tasks: result.created.tasks,
       invites: result.created.invites,
       failures: result.failures.length,
-      sendInvites: body.sendInvites,
+      sendInvites: requestedInvites,
+      invites_blocked: communicationBlocked ?? "none",
     });
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result, ...(communicationBlocked ? { communicationBlocked } : {}) });
   } catch (err) {
     if (err instanceof PortfolioImportNotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
     console.error("portfolio-import: create failed", err);

@@ -16,6 +16,11 @@ export const COMMUNICATION_SENDING_TOOLS = new Set([
   "reply_to_sms_conversation",
   "send_rent_reminder",
   "send_work_order_reminder",
+  // Welcome and invite mail the manager sends on request: a resident's welcome, a vendor's signup
+  // invite and a prospect's listing / tour invite.
+  "send_resident_welcome",
+  "invite_vendor",
+  "share_property_link",
 ]);
 
 async function assertToolMayCommunicate(ctx: AgentContext): Promise<void> {

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
+import {
+  assertManagerCommunicationAllowedForActiveWorkspace,
+  communicationRefusalBody,
+} from "@/lib/manager-communication-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorInvite } from "@/lib/vendor-invite.server";
@@ -44,6 +48,13 @@ export async function POST(req: Request) {
     const { data: profile } = await db.from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle();
     if (!canSendVendorInvite(profile?.role)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    // A live signup trial has no Communication until it pays (the active workspace OWNER's plan).
+    // Refused before the invite row is written or any email goes out.
+    const communication = await assertManagerCommunicationAllowedForActiveWorkspace(db, user.id);
+    if (!communication.allowed) {
+      return NextResponse.json(communicationRefusalBody(communication), { status: communication.status });
     }
 
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";

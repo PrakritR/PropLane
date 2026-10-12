@@ -19,6 +19,11 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import {
+  assertManagerCommunicationAllowed,
+  assertManagerCommunicationAllowedForActiveWorkspace,
+  communicationRefusalBody,
+} from "@/lib/manager-communication-access.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
@@ -111,6 +116,19 @@ export async function POST(req: Request) {
 
     if (!admin && !applicationVisibleToPortalUser(row, user.id)) {
       return NextResponse.json({ error: "You do not manage this application." }, { status: 403 });
+    }
+
+    // A live signup trial has no Communication until it pays. The plan checked is the application's
+    // owning manager (the workspace owner), not the teammate pressing send. Platform admins act as
+    // staff and are not judged by a customer plan. Refused before anything is rendered or sent.
+    if (!admin) {
+      const recordOwner = String(row.managerUserId ?? "").trim();
+      const communication = recordOwner
+        ? await assertManagerCommunicationAllowed(recordOwner)
+        : await assertManagerCommunicationAllowedForActiveWorkspace(svc, user.id);
+      if (!communication.allowed) {
+        return NextResponse.json(communicationRefusalBody(communication), { status: communication.status });
+      }
     }
 
     const email = (row.email?.trim() || record.resident_email?.trim() || "").toLowerCase();

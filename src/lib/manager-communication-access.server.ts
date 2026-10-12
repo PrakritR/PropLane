@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
+import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
 
 /**
  * The one server rule for "may this workspace's manager COMMUNICATE?" - send an inbox message,
@@ -19,6 +20,12 @@ import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
  * Only OUTBOUND is gated. Inbound storage (a resident, vendor or prospect writing to the
  * workspace) and transactional mail (sign-in, password reset, lease e-sign) never come through
  * here, so nothing a customer sends is lost while the owner is on a trial.
+ *
+ * Manager-initiated welcome and invite mail (resident welcome / booking invite, vendor invite, a
+ * linked-form email, an application completion reminder, the agent's welcome / invite tools) is
+ * outbound too and is gated here. A route whose only job is the send refuses (402 / 503) before any
+ * side effect; a route that also writes a record (adding an existing resident, a portfolio import)
+ * keeps the write, skips the message and answers `communicationBlocked: "trial" | "plan_unreadable"`.
  */
 export type ManagerCommunicationAccess =
   | { allowed: true }
@@ -93,4 +100,33 @@ export async function assertManagerCommunicationAllowedForWorkspace(
     };
   }
   return assertManagerCommunicationAllowed(owner);
+}
+
+/**
+ * Assert for a request-scoped actor: judge the ACTIVE workspace's owner (the switcher's pick, else
+ * the actor's own). A workspace that cannot be resolved fails closed, like an unreadable plan.
+ * Request context only (it reads the workspace cookie); background code passes the owner directly.
+ */
+export async function assertManagerCommunicationAllowedForActiveWorkspace(
+  db: Parameters<typeof resolveActiveWorkspaceFromRequest>[0],
+  actorUserId: string,
+): Promise<ManagerCommunicationAccess> {
+  try {
+    const workspace = await resolveActiveWorkspaceFromRequest(db, actorUserId);
+    return await assertManagerCommunicationAllowedForWorkspace(db, actorUserId, workspace.id);
+  } catch {
+    return {
+      allowed: false,
+      reason: "plan_unreadable",
+      status: 503,
+      message: MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
+    };
+  }
+}
+
+/** The JSON body a send-only route answers a refusal with (same shape every gated route uses). */
+export function communicationRefusalBody(
+  access: Extract<ManagerCommunicationAccess, { allowed: false }>,
+): { ok: false; error: string; code: string } {
+  return { ok: false, error: access.message, code: `communication_${access.reason}` };
 }

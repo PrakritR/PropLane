@@ -222,10 +222,28 @@ server by ONE helper, `assertManagerCommunicationAllowed(ownerUserId)` (402; 503
 the plan cannot be read), called on the workspace OWNER's plan (a teammate in a trial owner's workspace
 is refused, one in a paid owner's is not): compose (`send-inbox-message`), scheduled messages (create
 and deliver), the assistant's message tools (`COMMUNICATION_SENDING_TOOLS`), manager SMS, payment
-reminders (route, send-now, cron), assistant-email replies, and work-email enrolment. Not gated:
-inbound storage, sign-in / reset / lease e-sign mail, resident- and vendor-originated sends, a message
-to PropLane support. Coverage: `manager-trial-communication-lock.test.ts`,
-`manager-communication-access.test.ts`, `send-inbox-message-trial-refusal.test.ts`.
+reminders (route, send-now, cron), assistant-email replies, work-email enrolment, lead invites,
+record-share links and invite-link texts. **Welcome and invite mail is gated too** (the earlier
+exception is closed): a manager-initiated email or text to a resident, applicant or vendor is
+outbound Communication. A route whose only job is the send refuses with the helper's status and
+message (`{ ok:false, error, code: "communication_trial" | "communication_plan_unreadable" }`) BEFORE
+any side effect - `send-resident-welcome`, `send-vendor-invite`, `portal-bookings/invite-resident`
+(`assertManagerCommunicationAllowedForActiveWorkspace`, the active workspace OWNER), the application
+completion reminder and a linked-form `send_email` (the record's owning manager). A route that also
+writes a record keeps the write, skips the message and answers `communicationBlocked: "trial" |
+"plan_unreadable"` - `onboard-existing-resident`, the `existingResidentOnboarding` branch of
+`/api/manager-applications` and the portfolio-import create (`sendInvites` forced off). The assistant
+tools `send_resident_welcome`, `invite_vendor` and `share_property_link` are in
+`COMMUNICATION_SENDING_TOOLS` (refused in preview and handler). Not gated: inbound storage, sign-in /
+reset / magic-link / confirmation mail, lease e-sign signature links and a resident's own signer
+invite, Stripe receipts, admin / system mail, anything the resident, vendor or applicant triggers
+themselves (application started / submitted, cosigner), mail to the manager's own address, and a
+message to PropLane support. Co-manager invites mint a link and send no mail; the invite-link text is
+gated above. Coverage: `manager-trial-communication-lock.test.ts`, `manager-communication-access.test.ts`,
+`send-inbox-message-trial-refusal.test.ts`, `manager-welcome-invite-trial-gate.test.ts`,
+`manager-communication-access-active-workspace.test.ts`, `linked-form-send-email-trial-gate.test.ts`,
+`application-completion-reminder-trial-gate.test.ts`,
+`manager-applications-existing-resident-trial-gate.test.ts`.
 
 ## Workspaces, work numbers and seats
 

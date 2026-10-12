@@ -3,6 +3,7 @@ import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboardin
 import { canSendResidentWelcome } from "@/lib/resident-welcome.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { assertManagerCommunicationAllowedForActiveWorkspace } from "@/lib/manager-communication-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     }
 
     const applicationId = typeof body.applicationId === "string" ? body.applicationId.trim() : "";
-    const sendWelcomeEmail = body.sendWelcomeEmail !== false;
+    const wantsWelcome = body.sendWelcomeEmail !== false;
     const channels = {
       viaEmail: body.viaEmail !== false,
       viaSms: body.viaSms !== false,
@@ -53,6 +54,16 @@ export async function POST(req: Request) {
     if (!canSendResidentWelcome(requestor?.role)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+
+    // A live signup trial has no Communication until it pays (the active workspace OWNER's plan).
+    // Adding the resident is the point of this route, so the record is still written; only the
+    // welcome email / text / inbox copy is skipped, and the answer says why.
+    let communicationBlocked: "trial" | "plan_unreadable" | undefined;
+    if (wantsWelcome) {
+      const communication = await assertManagerCommunicationAllowedForActiveWorkspace(svc, user.id);
+      if (!communication.allowed) communicationBlocked = communication.reason;
+    }
+    const sendWelcomeEmail = wantsWelcome && !communicationBlocked;
 
     const ids = [applicationId, normalizeApplicationAxisId(applicationId)];
     const { data: records } = await svc
@@ -95,6 +106,7 @@ export async function POST(req: Request) {
       axisId: result.axisId,
       leaseId: result.leaseId,
       welcomeEmailSent: result.welcomeEmailSent,
+      ...(communicationBlocked ? { communicationBlocked } : {}),
     });
   } catch (error) {
     return NextResponse.json(

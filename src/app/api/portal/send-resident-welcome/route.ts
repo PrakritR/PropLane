@@ -4,6 +4,10 @@ import {
   canSendResidentWelcome,
   deliverResidentWelcome,
 } from "@/lib/resident-welcome.server";
+import {
+  assertManagerCommunicationAllowedForActiveWorkspace,
+  communicationRefusalBody,
+} from "@/lib/manager-communication-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -60,6 +64,13 @@ export async function POST(req: Request) {
 
     if (!canSendResidentWelcome(requestor.role)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    // A live signup trial has no Communication until it pays (the active workspace OWNER's plan).
+    // This route only sends, so it refuses before a setup token is minted or anything is delivered.
+    const communication = await assertManagerCommunicationAllowedForActiveWorkspace(svc, user.id);
+    if (!communication.allowed) {
+      return NextResponse.json(communicationRefusalBody(communication), { status: communication.status });
     }
 
     const result = await deliverResidentWelcome(

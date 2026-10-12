@@ -56,6 +56,7 @@ import {
   resolveTestWorkspaceClassification,
 } from "@/lib/test-workspaces/index.server";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { assertManagerCommunicationAllowedForActiveWorkspace } from "@/lib/manager-communication-access.server";
 
 export const runtime = "nodejs";
 
@@ -1920,6 +1921,13 @@ export async function POST(req: Request) {
 
     if (row.manuallyAdded && body.existingResidentOnboarding) {
       const { data: profile } = await db.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+      // A live signup trial has no Communication until it pays (the active workspace OWNER's plan):
+      // the resident is still added, the welcome is skipped and the answer says why.
+      let communicationBlocked: "trial" | "plan_unreadable" | undefined;
+      if (body.existingResidentOnboarding.sendWelcomeEmail !== false) {
+        const communication = await assertManagerCommunicationAllowedForActiveWorkspace(db, user.id);
+        if (!communication.allowed) communicationBlocked = communication.reason;
+      }
       const onboarding = await runExistingResidentOnboarding(
         db,
         {
@@ -1928,7 +1936,7 @@ export async function POST(req: Request) {
           managerName: String(profile?.full_name ?? ""),
         },
         row,
-        { sendWelcomeEmail: body.existingResidentOnboarding.sendWelcomeEmail !== false },
+        { sendWelcomeEmail: body.existingResidentOnboarding.sendWelcomeEmail !== false && !communicationBlocked },
       );
       if (!onboarding.ok) {
         return NextResponse.json(
@@ -1947,6 +1955,7 @@ export async function POST(req: Request) {
           leaseId: onboarding.leaseId,
           welcomeEmailSent: onboarding.welcomeEmailSent,
           axisId: onboarding.axisId,
+          ...(communicationBlocked ? { communicationBlocked } : {}),
         },
       });
     }

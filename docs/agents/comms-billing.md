@@ -217,7 +217,8 @@ so purchased credit does not reopen it, and the SMS dispatcher, voice turns and 
 call it inherit the refusal. A LAPSED trial resolves to Free and keeps Free's behaviour. The send paths
 that do not reach the wallet gate (compose, scheduled, assistant tools, work email, payment reminders)
 call `assertManagerCommunicationAllowed*` (`manager-communication-access.server.ts`) on the workspace
-OWNER; see `plan-entitlements.md` § Communication on a trial. Inbound messages are still stored.
+OWNER; see `plan-entitlements.md` § Communication on a trial (it now covers manager-initiated welcome
+and invite mail too). Inbound messages are still stored.
 Coverage: `comms-billing-trial.test.ts`, `manager-trial-outbound-gates.test.ts`.
 
 ## Purchases and stops
