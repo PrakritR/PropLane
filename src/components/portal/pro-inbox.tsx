@@ -8,7 +8,7 @@ import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
 import { clearInboxReplyDraft, readInboxReplyDraft, writeInboxReplyDraft } from "@/lib/inbox-reply-draft-store";
-import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
+import { communicationListRowName } from "@/lib/communication-list-row-name";
 import { inboxRowAddressLabel } from "@/lib/communication-row-meta";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import {
@@ -2316,7 +2316,7 @@ export const ManagerInbox = forwardRef<
   const activeThreadTitle = activeThread
     ? activeIsAssistantThread
       ? activeThread.from || "PropLane Assistant"
-      : inboxCounterpartyName(activeThread.email, activeIsSent ? null : activeThread.from, filterContacts) ||
+      : communicationListRowName(activeThread, filterContacts, { useFrom: !activeIsSent }) ||
         activeThread.email ||
         "Unknown sender"
     : "";

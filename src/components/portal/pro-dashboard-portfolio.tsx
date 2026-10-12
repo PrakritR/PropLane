@@ -108,16 +108,20 @@ export function readPortfolioSnapshot(userId: string | null): {
 export function PortfolioPropertyCard({
   card,
   basePath,
-  occupied = 0,
+  occupied = null,
+  occupancyLoading = false,
 }: {
   card: PortfolioPropertyCardData;
   basePath: string;
-  /** Signed leases on this property right now. */
-  occupied?: number;
+  /** Rooms occupied on this property today, from the occupancy snapshot. Null = not known (loading or the read failed), never zero. */
+  occupied?: number | null;
+  /** The occupancy read is still in flight. */
+  occupancyLoading?: boolean;
 }) {
   const href = propertyDetailHref(basePath, card.stage, card.key, "preview");
-  const spaces = Math.max(card.spaces, occupied, 1);
-  const filled = Math.min(occupied, spaces);
+  const known = occupied !== null;
+  const spaces = Math.max(card.spaces, occupied ?? 0, 1);
+  const filled = Math.min(occupied ?? 0, spaces);
   return (
     <Link
       href={href}
@@ -152,20 +156,30 @@ export function PortfolioPropertyCard({
           <div className="mt-2 border-t border-border pt-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted">
-                <span className="font-semibold tabular-nums text-foreground">{filled}</span> / {spaces} occupied
+                <span className="font-semibold tabular-nums text-foreground">{known ? filled : "—"}</span> / {spaces} occupied
               </span>
               <span className="font-semibold text-foreground">{card.rentLabel}</span>
             </div>
             <div
               className="mt-1.5 flex h-1.5 gap-[2px]"
               role="img"
-              aria-label={`${filled} of ${spaces} spaces occupied`}
+              aria-label={
+                known
+                  ? `${filled} of ${spaces} spaces occupied`
+                  : occupancyLoading
+                    ? "Loading occupancy"
+                    : "Occupancy unavailable"
+              }
               data-attr="dashboard-property-occupancy"
             >
               {Array.from({ length: spaces }, (_, i) => (
                 <span
                   key={i}
-                  className={cn("h-full flex-1 rounded-full", i < filled ? "bg-primary" : "bg-border")}
+                  className={cn(
+                    "h-full flex-1 rounded-full",
+                    known && i < filled ? "bg-primary" : "bg-border",
+                    !known && occupancyLoading && "animate-pulse motion-reduce:animate-none",
+                  )}
                 />
               ))}
             </div>
@@ -180,13 +194,15 @@ export function PortfolioPropertiesSection({
   cards,
   basePath,
   occupiedByProperty,
+  occupancyState = "ok",
   addPropertyAction,
   loading = false,
 }: {
   cards: PortfolioPropertyCardData[];
   basePath: string;
-  /** Signed leases per property key, for the occupancy bar. */
+  /** Rooms occupied today per property key, for the occupancy bar. A key that is absent is unknown, not zero. */
   occupiedByProperty?: ReadonlyMap<string, number>;
+  occupancyState?: "loading" | "failed" | "ok";
   /** Primary add-home control (dashboard moved it off the page hero). */
   addPropertyAction?: ReactNode;
   /**
@@ -237,7 +253,8 @@ export function PortfolioPropertiesSection({
               key={card.key}
               card={card}
               basePath={basePath}
-              occupied={occupiedByProperty?.get(card.key) ?? 0}
+              occupied={occupiedByProperty?.get(card.key) ?? null}
+              occupancyLoading={occupancyState === "loading"}
             />
           ))}
         </div>

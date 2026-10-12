@@ -12,12 +12,7 @@ export type InboundTextClassification =
   | { kind: "potential-new"; label: string }
   | { kind: "thread"; label: string };
 
-export function parseNameFromInboundText(body: string): string {
-  const match = body.match(
-    /(?:this is|it's|i am|i'm|my name is|name is)\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)?)/i,
-  );
-  return match?.[1]?.trim() ?? "";
-}
+export { parseNameFromInboundText } from "@/lib/sms/contact-name";
 
 export function classifyInboundText(input: {
   direction: "in" | "out";

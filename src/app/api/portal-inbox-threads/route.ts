@@ -38,6 +38,7 @@ import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
 import { teamThreadRowForViewer } from "@/lib/team-thread-view";
+import { asNoticeMarker, reduceSmsNoticeRow, type NoticeMarker } from "@/lib/sms-notice-reduction";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import {
@@ -273,12 +274,8 @@ export async function GET(request: Request) {
         row_data: record.row_data as Record<string, unknown> | null,
       }));
       if (cutover?.ready === true && notices.length) {
-        type Marker = { sourceNamespace: string; sourceEventId: string; ownerManagerUserId: string; counterpartyRole: string; workLineId: string; occurredAt: string; bodySha256: string };
-        const asMarker = (value: unknown): Marker | null => {
-          if (!value || typeof value !== "object") return null;
-          const marker = value as Marker;
-          return marker.sourceNamespace && marker.sourceEventId && marker.ownerManagerUserId && marker.counterpartyRole && marker.workLineId && marker.occurredAt && marker.bodySha256 ? marker : null;
-        };
+        type Marker = NoticeMarker;
+        const asMarker = asNoticeMarker;
         const markers = notices.flatMap((record) => {
           const row = record.row_data as Record<string, unknown> | null;
           const root = asMarker(row?.rootOriginalSmsEvent);
@@ -350,20 +347,8 @@ export async function GET(request: Request) {
           if (!notices.includes(record)) return [record];
           const row = record.row_data as Record<string, unknown> | null;
           if (!row) return [record];
-          const remaining = (Array.isArray(row.messages) ? row.messages as Record<string, unknown>[] : [])
-            .filter((message) => !isProjected(asMarker(message.originalSmsEvent)));
-          if (!isProjected(asMarker(row.rootOriginalSmsEvent))) {
-            const latest = remaining.at(-1);
-            return [{ ...record, row_data: { ...row, messages: remaining,
-              preview: String(latest?.body ?? row.body ?? "").slice(0, 100),
-              time: latest?.at ?? row.rootAt ?? row.time } }];
-          }
-          const [first, ...rest] = remaining;
-          if (!first) return [];
-          const latest = rest.at(-1) ?? first;
-          return [{ ...record, row_data: { ...row, rootMessageId: first.id, rootAt: first.at,
-            rootOriginalSmsEvent: first.originalSmsEvent, body: first.body, from: first.from,
-            messages: rest, preview: String(latest.body ?? "").slice(0, 100), time: latest.at ?? first.at } }];
+          const reduced = reduceSmsNoticeRow(row, isProjected);
+          return reduced ? [{ ...record, row_data: reduced }] : [];
         }) : records;
       }
     }

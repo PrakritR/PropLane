@@ -35,6 +35,8 @@ import { loadInspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionResidency } from "@/lib/inspections/model";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortfolioOccupancy } from "@/hooks/use-portfolio-occupancy";
+import { dashboardOccupancyFromSnapshot } from "@/lib/dashboard-occupancy";
 import {
   getPartnerInquiryWindows,
   readPartnerInquiries,
@@ -881,6 +883,25 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     };
   }, [tick, userId, nowMs]);
 
+  // Today's occupancy per house: one read of the room occupancy snapshot, shared with every other
+  // reader. The periods the KPI card will draw are part of the ask, so the snapshot answers for
+  // those nine days only.
+  const occupancyPropertyIds = useMemo(
+    () => (data?.portfolio.cards ?? []).filter((card) => card.stage !== "drafts").map((card) => card.key),
+    [data],
+  );
+  const periods = useMemo(() => dashboardPeriods(periodKind, nowMs, 8), [periodKind, nowMs]);
+  const occupancyIsLive = authReady && !isDemoModeActive();
+  const portfolioOccupancy = usePortfolioOccupancy(occupancyPropertyIds, occupancyIsLive, periods);
+  // Shaped once per answer: the KPI series and every property card read this same map.
+  const liveOccupancy = useMemo(
+    () =>
+      occupancyIsLive
+        ? dashboardOccupancyFromSnapshot(portfolioOccupancy.snapshot, portfolioOccupancy.today, periods)
+        : null,
+    [occupancyIsLive, portfolioOccupancy, periods],
+  );
+
   /*
    * The four headline numbers with a direction and eight periods of history,
    * re-bucketed when the manager changes the baseline. Kept out of `data` so a
@@ -888,25 +909,28 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
    */
   const kpis = useMemo(() => {
     if (!data) return null;
-    const periods = dashboardPeriods(periodKind, nowMs, 8);
     const labels = periods.map((p) => p.label);
     const previous = DASHBOARD_PERIOD_LABELS[periodKind].previous;
     const current = periods[periods.length - 1]!;
 
-    // Occupancy is a stock: leases signed by the end of each period, minus any
-    // that ended. `fullySignedAt` is the truth; older rows fall back to their
-    // last update, which for a signed lease is when it was signed.
+    // Occupancy is a stock, and the room occupancy snapshot is its one source: a resident stay
+    // (hand-added, approved or signed), an Airbnb / channel stay and a room block all take a room,
+    // so "signed leases" undercounts. Demo mode has no server to ask and keeps the local lease mirror.
     const signed = data.leases.filter((l) => l.status === "Fully Signed");
-    const occupiedSeries = stockSeries(
-      signed,
-      periods,
-      (l) => toMs(l.fullySignedAt ?? l.signedAtIso ?? l.updatedAtIso),
-      (l) => toMs(l.application?.leaseEnd) ?? toMs(l.voidedAt),
-      nowMs,
-    );
+    const occupiedSeries = liveOccupancy
+      ? liveOccupancy.occupiedByPeriod
+      : stockSeries(
+          signed,
+          periods,
+          (l) => toMs(l.fullySignedAt ?? l.signedAtIso ?? l.updatedAtIso),
+          (l) => toMs(l.application?.leaseEnd) ?? toMs(l.voidedAt),
+          nowMs,
+        );
     const occupiedNow = occupiedSeries[occupiedSeries.length - 1] ?? 0;
     const spaces = Math.max(data.portfolio.rentableSpaces, occupiedNow, 1);
     const occupancyPct = occupiedSeries.map((n) => Math.round((n / spaces) * 100));
+    // Not yet answered (or the read failed): unknown, never a confident zero.
+    const occupancyUnknown = occupancyIsLive && !liveOccupancy;
 
     // Rent collected: paid charges by the day they were paid; due: every charge
     // whose due date falls in the current period.
@@ -931,7 +955,14 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
 
     return {
       labels,
-      occupancy: {
+      occupancy: occupancyUnknown
+        ? {
+            value: "—",
+            unit: portfolioOccupancy.status === "failed" ? "Unavailable" : "Loading",
+            series: [] as number[],
+            delta: null,
+          }
+        : {
         value: `${occupancyPct[occupancyPct.length - 1] ?? 0}%`,
         // One population for the card: the same series the figure comes from.
         // A portfolio with nothing rentable yet says so, rather than "0 / 1".
@@ -952,7 +983,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         delta: kpiDelta(openedSeries, String, previous, true),
       },
     };
-  }, [data, periodKind, nowMs]);
+  }, [data, periodKind, nowMs, periods, occupancyIsLive, liveOccupancy, portfolioOccupancy.status]);
 
   // A slow session read (common on a first phone load) used to `return null`
   // here, blanking the whole page below the header with no feedback at all.
@@ -1068,13 +1099,20 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   });
   const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
 
-  // Signed leases per property, for the occupancy bar on each card.
+  // Rooms occupied today per property, for the occupancy bar on each card. Live: the occupancy
+  // snapshot (a house it did not answer for is absent, so the card says unknown, not 0). Demo: signed leases.
   const occupiedByProperty = new Map<string, number>();
-  for (const lease of activeResidents) {
-    const key = lease.propertyId?.trim();
-    if (!key) continue;
-    occupiedByProperty.set(key, (occupiedByProperty.get(key) ?? 0) + 1);
+  if (occupancyIsLive) {
+    for (const [key, occupied] of liveOccupancy?.byProperty ?? []) occupiedByProperty.set(key, occupied);
+  } else {
+    for (const card of portfolio.cards) occupiedByProperty.set(card.key, 0);
+    for (const lease of activeResidents) {
+      const key = lease.propertyId?.trim();
+      if (!key) continue;
+      occupiedByProperty.set(key, (occupiedByProperty.get(key) ?? 0) + 1);
+    }
   }
+  const occupancyState: "loading" | "failed" | "ok" = occupancyIsLive ? portfolioOccupancy.status : "ok";
 
   // Upcoming: the next 14 days of tours, move-ins and move-outs.
   const horizonMs = nowTick + 14 * 24 * 60 * 60 * 1000;
@@ -1368,7 +1406,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             label="Occupancy"
             value={kpis?.occupancy.value ?? "0%"}
             unit={kpis?.occupancy.unit}
-            detail="Signed leases over rentable spaces"
+            detail="Rooms occupied over rentable spaces"
             delta={kpis?.occupancy.delta ?? null}
             series={kpis?.occupancy.series}
             seriesLabels={kpis?.labels}
@@ -1426,6 +1464,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           loading={!dashboardSynced && portfolio.cards.length === 0}
           basePath={BASE}
           occupiedByProperty={occupiedByProperty}
+          occupancyState={occupancyState}
           addPropertyAction={
             <PortalPrimaryIconAction
               label="Create"

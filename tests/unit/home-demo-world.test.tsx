@@ -21,6 +21,16 @@ import { PORTAL_META, phoneScriptFor, storyAt } from "@/components/marketing/res
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
+// The Tours / Applications / Leases panels warm the leasing pop-up chunk in a fire-and-forget
+// effect (`prefetchLeasingPopups`), so nothing awaits it. Only the rows those panels draw are
+// under test here, and under full-suite load that import landed after the environment was torn
+// down — an unhandled rejection that exited the whole run 1. Drop the prefetch, keep the
+// `next/dynamic` components (they render their loading fallback and are never clicked here).
+vi.mock("@/components/marketing/site/product-mock/demo-popups-lazy-leasing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/marketing/site/product-mock/demo-popups-lazy-leasing")>()),
+  prefetchLeasingPopups: () => {},
+}));
+
 afterEach(cleanup);
 
 const managerAt = (beat: number) => storyAt("manager", beat);

@@ -196,9 +196,9 @@ describe("buildPropertyBrowseCards", () => {
     expect(rows.length).toBeGreaterThan(0);
   });
 
-  // PRP-398: an approved application does NOT hold a room on the public listing.
-  // Only a manager-added resident (`manuallyAdded`) or a fully executed lease does,
-  // so the fixture below has to be a genuine hold rather than a bare approval.
+  // Room-occupancy-truth (Oct 11) supersedes PRP-398: every approved, non-withdrawn
+  // application holds its room on the public listing, signed or not (manual resident,
+  // approved applicant, executed lease). Only a pending application reserves nothing.
   it("hides rooms occupied during the requested move-in window", () => {
     const property = mockProperty({
       id: "brooklyn",
@@ -246,7 +246,7 @@ describe("buildPropertyBrowseCards", () => {
     expect(available.some((r) => r.roomId === "r3")).toBe(true);
   });
 
-  it("keeps a room browsable while an approved application is still unsigned (PRP-398)", () => {
+  it("holds the room for an approved application that is still unsigned (room-occupancy-truth)", () => {
     const property = mockProperty({
       id: "brooklyn",
       listingSubmission: {
@@ -259,7 +259,7 @@ describe("buildPropertyBrowseCards", () => {
     });
 
     // Same window as above, but a plain approval with no executed lease and no
-    // manager-added resident. Public availability must not move for it.
+    // manager-added resident. It holds the bed like any approved resident.
     writeManagerApplicationRows([
       {
         id: "resident-1",
@@ -281,7 +281,7 @@ describe("buildPropertyBrowseCards", () => {
       bathroom: "any",
       moveIn: "2026-06-01",
     });
-    expect(rows.some((r) => r.roomId === "r3")).toBe(true);
+    expect(rows.some((r) => r.roomId === "r3")).toBe(false);
   });
 });
 

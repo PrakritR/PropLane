@@ -203,9 +203,13 @@ Communication list alike — takes its label from `smsConversationDisplayName` /
 `smsConversationSubtitle` (`src/lib/manager-sms-messages.ts`): name → saved
 contact name → property / unit → email → a readable phone
 (`+1 (510) 648-9423`) → `Unknown contact`, where a `name` that is itself a
-number (`isPhoneLikeLabel`) counts as no name. Phone numbers are not a secret
-on this surface, so they are not masked. This is a LABEL rule only —
-threading, replies and deletes still key on the phone / `conversationKey`, and
+number (`isPhoneLikeLabel`) or nothing but stop-words (`isStopWordPhrase`,
+`src/lib/sms/contact-name.ts` — a phrase an old name guess stored, "looking
+for") counts as no name; the rest of the naming contract, including the one-row
+rule, is [`communication-inbox.md`](communication-inbox.md) § Text
+conversations. Phone numbers are not a secret on this surface, so they are not
+masked. This is a LABEL rule only — threading, replies and deletes still key on
+the phone / `conversationKey`, and
 both search boxes keep the phone in their haystack. When a saved contact name
 is the title, the subtitle still shows the phone so the manager can see both.
 `sortSmsConversationRows` orders Name A–Z and House on that rendered label
@@ -441,9 +445,11 @@ classified by `routeUnrecognizedInboundText`
 - any other unknown number becomes **one** Potential resident: a
   `manager_application_records` row (`smsLead: true`, stage "In progress", the
   `@import.proplane.local` placeholder email every phone-only resident uses, the
-  name from "this is <Name>" else the formatted phone), listed under Residents >
-  Potential. It is stamped with the workspace whose line was texted
-  (`smsLeadWorkspaceId`) because it names no house;
+  name from an explicit self-introduction ("my name is / this is / I'm
+  <Name>", `src/lib/sms/contact-name.ts` — never a phrase like "looking for")
+  else the formatted phone), listed under Residents > Potential. It is stamped
+  with the workspace whose line was texted (`smsLeadWorkspaceId`) because it
+  names no house;
 - STOP/START/HELP create nothing; a phone that already has an application row
   creates nothing.
 

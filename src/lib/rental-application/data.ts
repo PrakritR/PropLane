@@ -1,4 +1,5 @@
-import { withoutHostBlocks } from "@/lib/channel-calendar/host-block";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
+import { occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
@@ -15,10 +16,6 @@ import {
 } from "@/lib/demo-property-pipeline";
 import { effectiveApplicationForRow, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { DEFAULT_OFFERED_LEASE_TERMS, isEntireHomeListing, normalizeLongTermLengths, normalizeManagerListingSubmissionV1, resolveOfferedLeaseTermsOrDefault, roomOffersLeaseTerm } from "@/lib/manager-listing-submission";
-import {
-  applicationHoldsRoomPublicly,
-  executedApplicationIdsForManager,
-} from "@/lib/rental-application/room-public-occupancy-eligibility";
 import { bundleShortTermPriceLabel } from "@/lib/listing-bundle-short-term";
 import {
   LEASE_TERM_CHOICES,
@@ -34,7 +31,7 @@ import {
   roomResidentPriceForSlot,
   type RoomPricingLike,
 } from "@/lib/room-pricing";
-import { manualRangesToSpans } from "@/lib/room-availability-timeline";
+import { dateKeyFromDate, manualRangesToSpans } from "@/lib/room-availability-timeline";
 export {
   canonicalRoomChoiceValue,
   LISTING_ROOM_CHOICE_SEP,
@@ -175,20 +172,22 @@ export type RoomUnavailabilityWindow = {
   source: "resident" | "manual_block";
 };
 
+/** The server's anonymous spans for this room, when they are loaded and nothing is being excluded from them. */
+function publicSpansForChoice(roomChoiceValue: string, excludeApplicationId?: string | null) {
+  return !isDemoModeActive() && !excludeApplicationId
+    ? readPublicRoomOccupancy(canonicalRoomChoiceValue(roomChoiceValue))
+    : undefined;
+}
+
 function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?: string | null): ApprovedRoomOccupancy[] {
-  const publicSpans =
-    !isDemoModeActive() && !excludeApplicationId
-      ? readPublicRoomOccupancy(canonicalRoomChoiceValue(roomChoiceValue))
-      : undefined;
+  const publicSpans = publicSpansForChoice(roomChoiceValue, excludeApplicationId);
   if (publicSpans) return publicSpans.flatMap((span, index) => Array.from({ length: span.count }, (_, bed) => ({
     rowId: `public-capacity-${index}-${bed}`, leaseStart: parseFlexibleLocalDate(span.start)!, leaseEnd: parseFlexibleLocalDate(span.end),
   })));
   const parsedTarget = parseRoomChoiceValue(roomChoiceValue);
   const normalizedTarget = roomChoiceValue.trim();
-  const executedApplicationIds = executedApplicationIdsForManager();
   return readManagerApplicationRows()
     .filter((row) => row.bucket === "approved" && !row.withdrawnAt && row.id !== excludeApplicationId)
-    .filter((row) => applicationHoldsRoomPublicly(row, executedApplicationIds))
     .map((row) => {
       const effective = effectiveApplicationForRow(row);
       const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
@@ -258,20 +257,34 @@ function occupancyToPlacements(occupancies: ApprovedRoomOccupancy[]): RoomOccupa
   return occupancies.map((occ) => ({ id: occ.rowId, start: occ.leaseStart, end: occ.leaseEnd }));
 }
 
-/** Each channel guest stay and typed block occupies one bed — never the whole room. */
-function manualBlockPlacements(roomChoiceValue: string): RoomOccupancyPlacement[] {
+/**
+ * The room's own blocked dates plus its residents, folded through the one occupancy rule
+ * (`occupiedBedSpans`) so a host's Airbnb block that merely echoes a resident is not a second
+ * occupant, while a standalone one still closes the room: exactly what the server publishes.
+ */
+function localPlacementsForRoom(roomChoiceValue: string, excludeApplicationId?: string | null): RoomOccupancyPlacement[] {
   const parsed = parseRoomChoiceValue(roomChoiceValue);
-  if (!parsed.listingRoomId) return [];
-  const prop = getPropertyById(parsed.propertyId);
-  if (prop?.listingSubmission?.v !== 1) return [];
-  const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
-  const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
-  // A host's Airbnb block closes the dates for guests but holds no bed, so it never fills capacity.
-  return manualRangesToSpans(withoutHostBlocks(room?.manualUnavailableRanges ?? [])).flatMap((span, index) => {
+  const ranges: RoomBedSpan[] = approvedOccupancyForRoom(roomChoiceValue, excludeApplicationId).map((occ) => ({
+    start: dateKeyFromDate(occ.leaseStart),
+    end: occ.leaseEnd ? dateKeyFromDate(occ.leaseEnd) : null,
+  }));
+  if (parsed.listingRoomId) {
+    const prop = getPropertyById(parsed.propertyId);
+    if (prop?.listingSubmission?.v === 1) {
+      const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
+      const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
+      const stored = room?.manualUnavailableRanges ?? [];
+      for (const span of manualRangesToSpans(stored)) {
+        const range = stored.find((r) => r.id === span.id);
+        ranges.push({ start: span.start, end: span.end, echoable: range ? isHostBlockRange(range) : false });
+      }
+    }
+  }
+  return occupiedBedSpans(ranges.filter((range) => !range.end || range.end >= range.start)).flatMap((span, index) => {
     const start = parseFlexibleLocalDate(span.start);
     if (!start) return [];
-    const end = span.end ? parseFlexibleLocalDate(span.end) : start;
-    return [{ id: span.id || `block-${index}`, start, end }];
+    const end = span.end ? parseFlexibleLocalDate(span.end) : null;
+    return Array.from({ length: span.count }, (_, bed) => ({ id: `local-capacity-${index}-${bed}`, start, end }));
   });
 }
 
@@ -279,10 +292,11 @@ function occupancyPlacementsForRoom(
   roomChoiceValue: string,
   excludeApplicationId?: string | null,
 ): RoomOccupancyPlacement[] {
-  return [
-    ...occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue, excludeApplicationId)),
-    ...manualBlockPlacements(roomChoiceValue),
-  ];
+  // The server's spans already carry residents, channel stays, blocks and the listing's own dates.
+  if (publicSpansForChoice(roomChoiceValue, excludeApplicationId)) {
+    return occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue, excludeApplicationId));
+  }
+  return localPlacementsForRoom(roomChoiceValue, excludeApplicationId);
 }
 
 /** Earliest day any of these placements begins, used as an unbounded sweep origin. */
@@ -639,12 +653,10 @@ function approvedSlotPlacementsForChoice(
       : undefined;
   if (publicSpans) return [];
   const parsedTarget = parseRoomChoiceValue(roomChoiceValue);
-  const executedApplicationIds = executedApplicationIdsForManager();
   const out: RoomResidentSlotPlacement[] = [];
   for (const row of readManagerApplicationRows()) {
     if (row.bucket !== "approved" || row.withdrawnAt) continue;
     if (row.id === options.excludeApplicationId) continue;
-    if (!applicationHoldsRoomPublicly(row, executedApplicationIds)) continue;
     const effective = effectiveApplicationForRow(row);
     const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
     if (!assignedChoice) continue;

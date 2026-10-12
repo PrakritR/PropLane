@@ -1160,7 +1160,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         managerUserId: managerId,
         phone: fromPhone,
         counterpartyRole: "vendor",
-        ...(routing.created ? { displayName: routing.name.slice(0, 80) } : {}),
+        ...(routing.created ? { suggestedDisplayName: routing.name } : {}),
         lastInboundAt: new Date().toISOString(),
       }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
       await db.from("inbound_sms_log").update({
@@ -1181,7 +1181,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       managerUserId: managerId,
       phone: fromPhone,
       counterpartyRole: "prospect",
-      ...(routing.kind === "potential" && routing.created ? { displayName: routing.name.slice(0, 80) } : {}),
+      ...(routing.kind === "potential" && routing.created ? { suggestedDisplayName: routing.name } : {}),
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
     const originalReceivedAt = await projectClassifiedInbound(db, {

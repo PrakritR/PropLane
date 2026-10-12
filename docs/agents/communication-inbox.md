@@ -143,6 +143,10 @@ admin:
 A new Communication surface is an adapter, not a copy of the inbox. Both adapters
 are held to one contract in `tests/unit/communication-inbox-adapter-contract.test.tsx`.
 
+## Text conversations: one row, titled by the person or their number
+
+A text conversation is ONE list row and is titled contact record name, then a validated saved contact name, then the formatted phone; which rows are titled "PropLane Assistant" instead is one decision, owned by § One PropLane Assistant per person per workspace (never a turn's author), a name is saved only from an explicit self-introduction ("my name is", "this is", "I'm" + a name-like token, `src/lib/sms/contact-name.ts`) or a real record and never overwrites a manager-entered one, and a stored SMS notice whose original is projected keeps no row of its own (`reduceSmsNoticeRow` drops the server's `auto_reply_*` echo; folded rows count unread once). Tests: `sms-contact-name`, `sms-conversation-single-row`; repair: `scripts/repair-sms-contact-display-names.mjs` (dry run by default; it clears a stored `display_name` and renames an SMS lead's own `row_data.name` to the formatted phone ONLY when the value is a bare number, a generated "<trade> · <number>" label or nothing but stop-words — never a label a manager could have typed).
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
@@ -640,14 +644,24 @@ default; `--project-ref` required; backs up every touched row first).
   mirror, the assistant-email mirror, the action-event self-send which now passes
   `propertyId`) NEVER read the browser cookie; only the list GET passes the
   selected workspace in explicitly.
-- **Classification is by type, never by name.** A row is the Assistant only when
-  `threadType === "agent_notice"` / `resident_agent` or its id has the
-  `agent_notice_` / `resident-agent-` prefix (`isPropLaneAssistantInboxThread`,
-  `isPropLaneAssistantInboxThreadRow`, `isResidentAssistantRow`). A text thread
-  whose last turn was authored "PropLane Assistant" is still that person's
-  thread: the server auto-reply on an SMS notice is recorded as an OUTBOUND turn
-  authored `SMS_AUTO_REPLY_AUTHOR` ("You · Assistant"), so the list previews it
-  "You: ..." and the row keeps the counterparty's name.
+- **Classification is by type, never by name** — in both places that ask, with
+  two deliberately different type sets:
+  - **Is this THE one-per-person Assistant chat?** (collapse key, pinning,
+    workspace resolution) — only `threadType === "agent_notice"` /
+    `resident_agent`, or the `agent_notice_` / `resident-agent-` id prefix
+    (`isPropLaneAssistantInboxThread`, `isPropLaneAssistantInboxThreadRow`,
+    `isResidentAssistantRow`). A vendor dispatch thread is excluded on purpose:
+    it is one thread per job (`vendor_agent_<work order>_<vendor>`), so folding
+    those rows together would merge separate jobs.
+  - **Is this row titled by the agent instead of a counterparty?** (list title)
+    — the same two types plus `vendor_agent`
+    (`isAssistantConversationRow`, `src/lib/communication-list-row-name.ts`),
+    because the vendor dispatch thread stores `from: "PropLane Assistant"` and
+    has no phone or address to fall back to.
+  A text thread whose last turn was authored "PropLane Assistant" is still that
+  person's thread: the server auto-reply on an SMS notice is recorded as an
+  OUTBOUND turn authored `SMS_AUTO_REPLY_AUTHOR` ("You · Assistant"), so the
+  list previews it "You: ..." and the row keeps the counterparty's name.
 - A Team thread (`team-thread:*`) is named `teamThreadDisplayName(workspaceName)`
   ("Team · <workspace>"), never its first poster; the poster's name rides on each
   message.
