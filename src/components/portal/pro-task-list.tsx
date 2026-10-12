@@ -77,7 +77,7 @@ import {
 import { managerTaskStage, serviceRequestTaskStage } from "@/lib/manager-task-stage";
 import { TaskAssignDialog } from "@/components/portal/task-assign-dialog";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
-import { readPlannedEvents } from "@/lib/demo-admin-scheduling";
+import { readAllPlannedEvents } from "@/lib/demo-admin-scheduling";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -97,7 +97,8 @@ import {
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
 import { MANAGER_WORK_ORDERS_EVENT, readManagerWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
-import { readLeasePipeline } from "@/lib/lease-pipeline-storage";
+import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer } from "@/lib/manager-vendors-storage";
+import { readLeasePipeline, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
 import { activeWorkspaceSummary } from "@/lib/workspaces/selection";
 import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { workspaceTeamThreadId } from "@/lib/team-thread-id";
@@ -249,24 +250,46 @@ export function ManagerTaskList({
   const [assignOpen, setAssignOpen] = useState(false);
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   // A task page's Communication is with the person the task is about, found from rows this page does not
-  // otherwise load (applications, services). They are read from the same client caches the rest of the portal
-  // fills; a tick re-resolves the party when a sync lands.
+  // otherwise load (applications, services, vendors, leases). They are read from the same client caches the
+  // rest of the portal fills; a tick re-resolves the party when a sync lands. An empty cache is "not read
+  // yet", not "nobody": `partySourcesReady` is what tells the pane the answer is final, so a cold load never
+  // opens the Team chat and then silently repoints the composer at the task's contact.
   const [partySourceTick, setPartySourceTick] = useState(0);
+  const [partySourcesReady, setPartySourcesReady] = useState(false);
   const workspaceId = useSelectedWorkspaceId();
+  // Only a countersign task's party comes from the lease pipeline, and nothing else on this page reads it.
+  const needsLeaseSource = Boolean(
+    taskIdProp &&
+      tasks.some((row) => row.id === decodeURIComponent(taskIdProp) && row.templateKey === "countersign_lease"),
+  );
   useEffect(() => {
-    if (!taskIdProp || !userId) return;
+    if (!taskIdProp || !userId) {
+      setPartySourcesReady(false);
+      return;
+    }
+    let active = true;
+    setPartySourcesReady(false);
     const bump = () => setPartySourceTick((n) => n + 1);
     void Promise.allSettled([
       syncManagerApplicationsFromServer({ managerUserId: userId }),
       syncManagerWorkOrdersFromServer(),
-    ]).then(bump);
+      syncManagerVendorsFromServer(),
+      ...(needsLeaseSource ? [syncLeasePipelineFromServer(userId)] : []),
+    ]).then(() => {
+      if (!active) return;
+      bump();
+      setPartySourcesReady(true);
+    });
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, bump);
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
+    window.addEventListener(MANAGER_VENDORS_EVENT, bump);
     return () => {
+      active = false;
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
+      window.removeEventListener(MANAGER_VENDORS_EVENT, bump);
     };
-  }, [taskIdProp, userId]);
+  }, [taskIdProp, userId, needsLeaseSource]);
 
   const matchesProperty = useCallback(
     (propertyId?: string) =>
@@ -643,14 +666,18 @@ export function ManagerTaskList({
     const parsedTab = parseServiceRecordTab(taskTabProp);
     const recordTab = parsedTab === "linked" ? "overview" : parsedTab;
     const workspace = activeWorkspaceSummary();
+    // Offered only once the party sources have answered: before that an empty cache reads as "no party", and
+    // the pane would force the Team view on a task that does have a contact.
     const teamChat =
-      workspace && workspace.id === workspaceId
+      partySourcesReady && workspace && workspace.id === workspaceId
         ? { threadId: workspaceTeamThreadId(workspace.ownerUserId, workspace.id), label: teamThreadDisplayName(workspace.name) }
         : undefined;
     void partySourceTick;
     const party = resolveTaskCommunicationParty(routeTask, {
       applications: readManagerApplicationRows(),
-      tours: readPlannedEvents(),
+      // The full history, not the week grid's: a task about a tour that already happened (or was cancelled)
+      // still names its prospect, and that is who its Communication is with.
+      tours: readAllPlannedEvents(),
       workOrders: readManagerWorkOrderRows(),
       vendors,
       leases: routeTask.templateKey === "countersign_lease" ? readLeasePipeline(userId) : undefined,

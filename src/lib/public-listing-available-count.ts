@@ -28,7 +28,7 @@ export function countRoomsAvailableNow(
   rooms: readonly Pick<ListingRoomRow, "id" | "availability" | "occupancyCapacity">[],
   occupancyRows: readonly PublicRoomOccupancy[],
   today: string,
-  propertyId = "",
+  propertyId: string,
 ): number {
   return rooms.filter((room) => {
     if (classifyRoomOpening(room.availability).kind !== "now") return false;

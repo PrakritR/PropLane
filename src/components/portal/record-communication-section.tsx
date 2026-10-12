@@ -282,7 +282,6 @@ export function RecordCommunicationSection({
   // chat. With no contact the Team chat is the whole pane and there is nothing to switch.
   const hasParty = Boolean(contactIds?.some((id) => id.trim()) || contactNameProp?.trim() || contactPhoneProp?.trim());
   const [chatView, setChatView] = useState<"party" | "team">("party");
-  const teamView = Boolean(teamChat) && (!hasParty || chatView === "team");
   const contactPhone = toParty ? toParty.phone : contactPhoneProp;
   const primaryContact = (toParty ? toParty.email : contactIds?.[0])?.trim().toLowerCase() || undefined;
 
@@ -337,6 +336,13 @@ export function RecordCommunicationSection({
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, [scope]);
+
+  // A workspace with fewer than two people deliberately has NO Team chat row (`ensureWorkspaceTeamThread`),
+  // so the id a caller computes from the workspace may name nothing. Offering it anyway gave a solo manager a
+  // pane that listed no messages and whose send 403'd. The chat is real only when the synced inbox — the same
+  // GET that heals the row into existence for a workspace that warrants one — actually carries that thread.
+  const teamChatAvailable = Boolean(teamChat) && threads.some((thread) => thread.id === teamChat?.threadId);
+  const teamView = teamChatAvailable && (!hasParty || chatView === "team");
 
   const threadFilters = useMemo<CommunicationThreadFilters>(
     () => ({
@@ -722,7 +728,7 @@ export function RecordCommunicationSection({
   ) : undefined;
 
   const callPhone = serviceEveryone || teamView ? "" : contactPhone?.trim() || "";
-  const chatPicker = teamChat && hasParty ? (
+  const chatPicker = teamChat && teamChatAvailable && hasParty ? (
     <FieldSingleSelect
       label="Conversation"
       hideLabel

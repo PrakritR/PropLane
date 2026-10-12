@@ -116,7 +116,7 @@ const WEEK_OF_A_MANAGER: BlogPost = {
       title: "2025 Performance Ecosystem Report, as reported by Multifamily Executive",
       publisher: "National Apartment Association and AppFolio",
       year: 2025,
-      url: "https://www.multifamilyexecutive.com/index%2Ephp/property-management/report-naa-and-appfolio-flags-operational-strain-and-tech-adoption-challenges",
+      url: "https://www.multifamilyexecutive.com/property-management/report-naa-and-appfolio-flags-operational-strain-and-tech-adoption-challenges",
     },
     {
       title: "AppFolio survey highlights shifts in property management employee productivity and satisfaction (Property Manager Hiring and Retention Report)",
