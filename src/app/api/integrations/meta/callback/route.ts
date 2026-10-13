@@ -7,7 +7,9 @@ import {
   fetchMetaManagedPages,
   metaAppCredentials,
   metaRedirectUri,
+  subscribeMetaPageToApp,
 } from "@/lib/listing-channels/meta/graph.server";
+import { metaAppLive } from "@/lib/listing-channels/registry";
 import { verifyMetaOAuthState } from "@/lib/listing-channels/meta/oauth-state";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { listViewerWorkspaces } from "@/lib/workspaces/active.server";
@@ -46,6 +48,12 @@ export async function GET(request: Request) {
     const page = pages[0];
     if (!page) return fail("That Facebook account does not manage a Page. Create or get access to one, then connect again.");
     await saveMetaConnection(auth.db, { workspaceId: workspace.id, managerUserId: auth.userId, metaUserId: identity.id, page });
+    // Replies: subscribe the Page to the app's Messenger webhook once the app is live. Never blocks connecting.
+    if (metaAppLive()) {
+      await subscribeMetaPageToApp({ pageId: page.id, token: page.accessToken }).catch((e) =>
+        console.warn("meta page subscribe failed", e instanceof Error ? e.message : e),
+      );
+    }
     // New connection: queue this workspace's live listings.
     const { data } = await auth.db.from("manager_property_records").select("id").eq("workspace_id", workspace.id).eq("status", "live");
     for (const row of data ?? []) scheduleListingChannelSync(auth.db, String(row.id));
