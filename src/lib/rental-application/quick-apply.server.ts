@@ -42,6 +42,7 @@ import { addMonthsToDateString } from "@/lib/rental-application/long-term-length
 import { roomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { createInitialRentalWizardState, todayISO } from "@/lib/rental-application/state";
 import {
+  isEntireHomeListing,
   normalizeLongTermLengths,
   resolveOfferedLeaseTermsOrDefault,
 } from "@/lib/manager-listing-submission";
@@ -79,12 +80,29 @@ export type QuickApplyNeedsWizardReason =
   | "short_stay_only"
   | "missing_answers";
 
+/**
+ * Every room choice of this listing the caller already has a live application for, keyed by the same
+ * `roomChoice1` value the rows carry. Returned on a dry run only, so the public card asks ONCE per
+ * listing and answers "you already applied" for any room from the same reply instead of spending
+ * another multi-read round trip on every room pick.
+ */
+export type QuickApplyAppliedRooms = Record<string, string>;
+
 export type QuickApplyOutcome =
   | { status: 200; body: { ok: true; applicationId: string; href: string } }
-  | { status: 200; body: { ready: true } }
-  | { status: 200; body: { needsWizard: true; reason: QuickApplyNeedsWizardReason; missing?: string[]; href: string } }
-  | { status: 200; body: { needsPayment: true; applicationId: string; href: string } }
-  | { status: number; body: { error: string; existingApplicationId?: string } };
+  | { status: 200; body: { ready: true; appliedRooms?: QuickApplyAppliedRooms } }
+  | {
+      status: 200;
+      body: {
+        needsWizard: true;
+        reason: QuickApplyNeedsWizardReason;
+        missing?: string[];
+        href: string;
+        appliedRooms?: QuickApplyAppliedRooms;
+      };
+    }
+  | { status: 200; body: { needsPayment: true; applicationId: string; href: string; appliedRooms?: QuickApplyAppliedRooms } }
+  | { status: number; body: { error: string; existingApplicationId?: string; appliedRooms?: QuickApplyAppliedRooms } };
 
 const text = (value: unknown, max = 200): string => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
@@ -146,14 +164,21 @@ export async function runQuickApply(
       body: { needsWizard: true, reason: "no_profile", href: quickApplyWizardHref(propertyId, requestedRoomId) },
     };
   }
+  /**
+   * The rooms of this listing the caller already holds an application for. Filled once the one listing
+   * scan has run (step 3) and reported on every dry-run verdict, so the card never asks again per room.
+   */
+  let appliedRooms: QuickApplyAppliedRooms = {};
+  const withApplied = <T extends object>(body: T): T & { appliedRooms?: QuickApplyAppliedRooms } =>
+    dryRun && Object.keys(appliedRooms).length > 0 ? { ...body, appliedRooms } : body;
   const wizard = (reason: QuickApplyNeedsWizardReason, roomId = requestedRoomId, missing?: string[]): QuickApplyOutcome => ({
     status: 200,
-    body: {
-      needsWizard: true,
+    body: withApplied({
+      needsWizard: true as const,
       reason,
       ...(missing && missing.length > 0 ? { missing } : {}),
       href: quickApplyWizardHref(propertyId, roomId),
-    },
+    }),
   });
 
   // 2. The listing: live, and the questions it asks as the applicant would be shown them.
@@ -175,7 +200,14 @@ export async function runQuickApply(
 
   // 3. One room. A listing with a single room needs no pick; otherwise the room is named.
   const email = ctx.email.trim().toLowerCase();
-  const rooms = sub.rooms.filter((room) => room.id);
+  /**
+   * An entire-home listing is applied for as the WHOLE place, so the choice it stores is the property id
+   * — exactly what the wizard's own prefill writes. The bedrooms such a listing carries are there to be
+   * read, never picked: a bedroom stored as the unit choice is not the application the applicant made,
+   * and the submit validator cannot catch it (its room-membership check is skipped for a whole home).
+   */
+  const entireHome = isEntireHomeListing(sub);
+  const rooms = entireHome ? [] : sub.rooms.filter((room) => room.id);
   /**
    * One scan of everything this person already has on this listing: which rooms they have applied to,
    * and the live draft (if any) a fresh attempt must resume instead of minting a second row.
@@ -185,13 +217,19 @@ export async function runQuickApply(
    * or Quick apply would disappear behind "View application" while every other room is still open.
    */
   const onListing = await findResidentApplicationsForListing(db, { residentEmail: email, propertyId });
+  appliedRooms = Object.fromEntries([...onListing.byRoom].map(([choice, match]) => [choice, match.id]));
   const probeRoomId =
     dryRun && !requestedRoomId && rooms.length > 1
       ? rooms.find((room) => !onListing.byRoom.has(roomChoiceValue(propertyId, room.id)))?.id
       : undefined;
-  const roomId = requestedRoomId || (rooms.length === 1 || dryRun ? (probeRoomId ?? rooms[0]?.id ?? "") : "");
-  if (!roomId) return wizard("no_room");
-  if (!rooms.some((room) => room.id === roomId)) return { status: 400, body: { error: "Choose a room of this listing." } };
+  const roomId = entireHome
+    ? ""
+    : requestedRoomId || (rooms.length === 1 || dryRun ? (probeRoomId ?? rooms[0]?.id ?? "") : "");
+  if (!entireHome) {
+    if (!roomId) return wizard("no_room");
+    if (!rooms.some((room) => room.id === roomId)) return { status: 400, body: { error: "Choose a room of this listing." } };
+  }
+  const roomChoice = entireHome ? propertyId : roomChoiceValue(propertyId, roomId);
 
   // 4. Lease defaults come from the listing, never from the last application.
   const offered = resolveOfferedLeaseTermsOrDefault(sub);
@@ -236,7 +274,7 @@ export async function runQuickApply(
     groupLeaderAppId: "",
     bundleId: "",
     propertyId,
-    roomChoice1: roomChoiceValue(propertyId, roomId),
+    roomChoice1: roomChoice,
     rentalType: "standard",
     leaseTerm,
     leaseStart,
@@ -259,7 +297,7 @@ export async function runQuickApply(
    * would stack "Incomplete" rows in the manager's list; and because a fee claim is keyed on the
    * application id, it would also orphan a fee the resident had already paid against the draft.
    */
-  const applicationId = onListing.draftsByRoom.get(roomChoiceValue(propertyId, roomId))?.id || newApplicationId();
+  const applicationId = onListing.draftsByRoom.get(roomChoice)?.id || newApplicationId();
   const submittedRow: DemoApplicantRow = {
     id: applicationId,
     name: application.fullLegalName.trim() || signature,
@@ -280,7 +318,10 @@ export async function runQuickApply(
   // 6. The same person never applies to the same room twice.
   const duplicate: DuplicateApplicationMatch | null = onListing.byRoom.get(application.roomChoice1) ?? null;
   if (duplicate) {
-    return { status: 409, body: { error: "You already applied to this room.", existingApplicationId: duplicate.id } };
+    return {
+      status: 409,
+      body: withApplied({ error: "You already applied to this room.", existingApplicationId: duplicate.id }),
+    };
   }
 
   // 7. A fee that is OWED is never skipped: the application is kept as a draft at the last step. A guard
@@ -290,7 +331,10 @@ export async function runQuickApply(
   const feeOwed = !fee.ok;
   if (dryRun) {
     if (feeOwed) {
-      return { status: 200, body: { needsPayment: true, applicationId: "", href: quickApplyWizardHref(propertyId, roomId) } };
+      return {
+        status: 200,
+        body: withApplied({ needsPayment: true as const, applicationId: "", href: quickApplyWizardHref(propertyId, roomId) }),
+      };
     }
     // The SAME validator the submit runs (`prepareResidentSelfWrite`), so the button cannot promise a
     // one-sheet apply the shared write will then refuse for an answer the saved profile never carried.
@@ -300,7 +344,7 @@ export async function runQuickApply(
       if (validation.status === 422 && missing.length > 0) return wizard("missing_answers", roomId, missing);
       return { status: validation.status, body: { error: validation.error } };
     }
-    return { status: 200, body: { ready: true } };
+    return { status: 200, body: withApplied({ ready: true as const }) };
   }
   const row: DemoApplicantRow = feeOwed
     ? {

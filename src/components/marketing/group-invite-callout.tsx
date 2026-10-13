@@ -11,8 +11,6 @@ export function GroupInviteCallout({
   pendingSubmit = false,
 }: {
   leaderAppId: string;
-  groupSize?: string;
-  organizerName?: string;
   propertyId?: string;
   className?: string;
   /** Wizard step: the link is shown early but only works after the organizer submits. */

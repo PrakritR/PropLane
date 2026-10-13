@@ -43,7 +43,6 @@ function SubmittedApplicationCard({
         <GroupShareCallout
           leaderAppId={row.application?.groupRole === "first" ? row.id : undefined}
           groupRole={row.application?.groupRole}
-          groupSize={row.application?.groupSize}
           propertyId={row.propertyId}
           className="mt-4"
           shareable={row.bucket !== "rejected"}

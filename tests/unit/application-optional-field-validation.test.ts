@@ -6,12 +6,27 @@ describe("application optional values", () => {
   const optional = () => false;
   const enabled = () => true;
 
-  it("validates populated lease dates and room choices even when optional", () => {
+  it("validates populated lease dates even when optional", () => {
     const base = { ...createInitialRentalWizardState(), propertyId: "property-a", rentalType: "standard" as const, leaseStart: "2027-12-01", leaseEnd: "2027-11-01", roomChoice1: "room-a", roomChoice2: "room-a" };
     const errors = validateStandardWizardStep(1, base, optional, undefined, enabled);
     expect(errors.leaseEnd).toMatch(/after lease start/);
-    expect(errors.roomChoice2).toMatch(/differ/);
     expect(validateStandardWizardStep(1, { ...base, leaseStart: "2027-02-31" }, optional, undefined, enabled).leaseStart).toMatch(/valid/);
+  });
+
+  it("never refuses a step for a legacy 2nd/3rd room pick nothing renders any more", () => {
+    // The wizard asks for ONE room, so there is no 2nd/3rd picker, no inline error and no scroll
+    // anchor for one. An error on those keys would block step 1 with nothing on screen to fix.
+    const legacy = {
+      ...createInitialRentalWizardState(),
+      propertyId: "property-a",
+      rentalType: "standard" as const,
+      roomChoice1: "room-a",
+      roomChoice2: "room-a",
+      roomChoice3: "room-a",
+    };
+    const errors = validateStandardWizardStep(1, legacy, optional, undefined, enabled);
+    expect(errors.roomChoice2).toBeUndefined();
+    expect(errors.roomChoice3).toBeUndefined();
   });
 
   it("requires Pets only when configured and checks optional address dates when entered", () => {

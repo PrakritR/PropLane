@@ -10,7 +10,6 @@ export function CosignerInviteCallout({
   pendingSubmit = false,
 }: {
   signerAppId: string;
-  signerName?: string;
   className?: string;
   /** Wizard step: the link is shown early but only works after the primary application is submitted. */
   pendingSubmit?: boolean;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
+import { roomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { sharedGet } from "@/lib/shared-get-cache";
 
 /**
@@ -59,15 +60,37 @@ export type QuickApplyReadiness =
   | { kind: "unavailable" };
 
 const READINESS_TTL_MS = 30_000;
-const readinessCache = new Map<string, { at: number; promise: Promise<QuickApplyReadiness> }>();
 
-async function fetchReadiness(propertyId: string, roomId: string): Promise<QuickApplyReadiness> {
+/**
+ * One listing's verdict: what the button says before a room is named, plus every room of the listing the
+ * caller already applied to. The dry run costs a multi-read server round trip, so it is asked once per
+ * listing and the per-room "you already applied" answer is read out of the SAME reply — picking a room,
+ * or switching to Short stay and back, never spends another one.
+ */
+type ListingReadiness = { base: QuickApplyReadiness; appliedRooms: Record<string, string> };
+
+const readinessCache = new Map<string, { at: number; promise: Promise<ListingReadiness> }>();
+
+const appliedHref = (applicationId: string) =>
+  `/resident/applications/pending/${encodeURIComponent(applicationId)}`;
+
+/**
+ * The listing's verdict is asked without a room, so the room the visitor actually picked is added to
+ * the wizard link here — opening the full application on the room they were looking at, exactly as
+ * when the room was part of the request.
+ */
+function withRoom(href: string, roomId: string): string {
+  if (!roomId || href.includes("listingRoomId=")) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}listingRoomId=${encodeURIComponent(roomId)}`;
+}
+
+async function fetchReadiness(propertyId: string): Promise<ListingReadiness> {
   try {
     const res = await fetch("/api/portal/quick-apply", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ propertyId, roomId: roomId || undefined, dryRun: true }),
+      body: JSON.stringify({ propertyId, dryRun: true }),
     });
     const body = (await res.json().catch(() => ({}))) as {
       ready?: boolean;
@@ -75,25 +98,28 @@ async function fetchReadiness(propertyId: string, roomId: string): Promise<Quick
       needsPayment?: boolean;
       href?: string;
       existingApplicationId?: string;
+      appliedRooms?: Record<string, string>;
     };
-    if (body.ready) return { kind: "ready" };
-    if ((body.needsWizard || body.needsPayment) && body.href) return { kind: "continue", href: body.href };
+    const appliedRooms = body.appliedRooms && typeof body.appliedRooms === "object" ? body.appliedRooms : {};
+    if (body.ready) return { base: { kind: "ready" }, appliedRooms };
+    if ((body.needsWizard || body.needsPayment) && body.href) {
+      return { base: { kind: "continue", href: body.href }, appliedRooms };
+    }
     if (res.status === 409 && body.existingApplicationId) {
-      return { kind: "applied", href: `/resident/applications/pending/${encodeURIComponent(body.existingApplicationId)}` };
+      return { base: { kind: "applied", href: appliedHref(body.existingApplicationId) }, appliedRooms };
     }
   } catch {
     /* the plain Apply door stays */
   }
-  return { kind: "unavailable" };
+  return { base: { kind: "unavailable" }, appliedRooms: {} };
 }
 
-/** One request per listing and room per half minute, however many buttons on the page ask. */
-function readinessFor(propertyId: string, roomId: string): Promise<QuickApplyReadiness> {
-  const key = `${propertyId}|${roomId}`;
-  const hit = readinessCache.get(key);
+/** One request per listing per half minute, however many buttons on the page ask and whatever room they hold. */
+function readinessFor(propertyId: string): Promise<ListingReadiness> {
+  const hit = readinessCache.get(propertyId);
   if (hit && Date.now() - hit.at < READINESS_TTL_MS) return hit.promise;
-  const promise = fetchReadiness(propertyId, roomId);
-  readinessCache.set(key, { at: Date.now(), promise });
+  const promise = fetchReadiness(propertyId);
+  readinessCache.set(propertyId, { at: Date.now(), promise });
   return promise;
 }
 
@@ -104,22 +130,27 @@ export function resetQuickApplyReadiness(): void {
 
 /**
  * What the primary button should say for this listing: asks the server for a read-only verdict
- * (`dryRun`), once per listing and room. Nothing is saved by it.
+ * (`dryRun`), once per listing. Nothing is saved by it. A named room is answered from the rooms that
+ * same verdict already listed as applied to, so changing the room costs nothing.
  */
 export function useQuickApplyReadiness(input: { enabled: boolean; propertyId: string; roomId: string }): QuickApplyReadiness {
   const { enabled, propertyId, roomId } = input;
-  const key = enabled && propertyId ? `${propertyId}|${roomId}` : "";
-  const [verdict, setVerdict] = useState<{ key: string; readiness: QuickApplyReadiness } | null>(null);
+  const key = enabled && propertyId ? propertyId : "";
+  const [verdict, setVerdict] = useState<{ key: string; readiness: ListingReadiness } | null>(null);
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    void readinessFor(propertyId, roomId).then((readiness) => {
+    void readinessFor(key).then((readiness) => {
       if (!cancelled) setVerdict({ key, readiness });
     });
     return () => {
       cancelled = true;
     };
-  }, [key, propertyId, roomId]);
+  }, [key]);
   if (!key) return { kind: "unavailable" };
-  return verdict?.key === key ? verdict.readiness : { kind: "checking" };
+  if (verdict?.key !== key) return { kind: "checking" };
+  const applied = roomId ? verdict.readiness.appliedRooms[roomChoiceValue(propertyId, roomId)] : undefined;
+  if (applied) return { kind: "applied", href: appliedHref(applied) };
+  const base = verdict.readiness.base;
+  return base.kind === "continue" ? { kind: "continue", href: withRoom(base.href, roomId) } : base;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
 import { useManagerBookingEntries } from "@/hooks/use-manager-booking-entries";
 import { useSaveBookingBlock } from "@/hooks/use-save-booking-block";
@@ -30,13 +30,13 @@ export function ApplicationQuickBook({
   propertyOptions: ManagerPropertyFilterOption[];
   onClose: () => void;
 }) {
-  const [tick] = useState(0);
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
   const { entries, residentOptions, channelLinks, readsPending } = useManagerBookingEntries({
     userId,
     propertyIds,
     propertyOptions,
-    propertyTick: tick,
+    // The sheet holds the houses it was handed; nothing here re-reads the portfolio.
+    propertyTick: 0,
   });
   const saveBlock = useSaveBookingBlock({ userId, propertyOptions });
   return (

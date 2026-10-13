@@ -97,13 +97,14 @@ describe("listing sticky bar", () => {
   it("prints the price, the rooms line and both actions", () => {
     render(<ListingDetailSections property={property({})} rich={rich} />);
     const el = bar();
-    expect(el.textContent).toContain("$1,050/mo");
+    // The same price line the card prints, from the one derivation both read.
+    expect(el.textContent).toContain("$1,050 / mo");
     expect(el.textContent).toContain("9 rooms · 9 available");
     expect(el.querySelector('[data-attr="listing-web-apply"]')).not.toBeNull();
     expect(el.querySelector('[data-attr="listing-web-tour"]')).not.toBeNull();
     // The price and rooms line share a row with the doors, the actions sit under them.
     const priceRow = el.firstElementChild as HTMLElement;
-    expect(priceRow.textContent).toContain("$1,050/mo");
+    expect(priceRow.textContent).toContain("$1,050 / mo");
     expect(priceRow.querySelector('[data-attr="listing-web-tour"]')).toBeNull();
   });
 
