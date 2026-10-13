@@ -48,8 +48,20 @@ function stripTags(text: string): string {
   return text.replace(/ /g, " ").replace(/[ \t]+/g, " ");
 }
 
+const TRAILING_PUNCTUATION = ".,!:;";
+
+/**
+ * Trailing `.,!:;` dropped by a backwards scan, not a regex: an anchored `[.,!:;]+$`
+ * backtracks quadratically on a long run of punctuation from an inbound mail.
+ */
+function trimTrailingPunctuation(value: string): string {
+  let end = value.length;
+  while (end > 0 && TRAILING_PUNCTUATION.includes(value[end - 1]!)) end -= 1;
+  return value.slice(0, end);
+}
+
 function plausibleName(raw: string | undefined): string | undefined {
-  const name = raw?.trim().replace(/[.,!:;]+$/, "");
+  const name = raw === undefined ? undefined : trimTrailingPunctuation(raw.trim());
   if (!name || name.length > 40 || !/^[\p{L}][\p{L}'’\-]*$/u.test(name)) return undefined;
   if (/^(your|the|a|an|new|guest|reservation|booking|airbnb|we|you|host)$/i.test(name)) return undefined;
   return name;
