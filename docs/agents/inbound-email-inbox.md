@@ -319,3 +319,15 @@ Handling (`handleAirbnbNotification` in `process-assistant-inbound.server.ts`):
 `tests/unit/inbound-email-webhook.test.ts` — signature accept/reject (tamper, wrong
 secret, replay, multi-signature), payload parsing, admin-scope row shape, a valid
 inbound email creating an admin-scope thread, and idempotent re-delivery.
+
+## The whole team hears the work email (Oct 13)
+
+The work email local part is `<workspace>@<domain>`: the workspace name compacted to letters+digits
+(`workspaceMailboxLocalFor`, shared with `scripts/backfill-workspace-mailbox-locals.mjs`); a name under 3 characters or
+reserved appends the owner's first name; collisions take `-2`..`-9`. `node scripts/backfill-workspace-mailbox-locals.mjs`
+is a dry run; `--apply` renames through the Settings semantics and holds each old local as a 30-day alias.
+
+After the owner's inbox mirror, `processManagerAssistantInboundEmail` calls `fanOutWorkspaceNotice` for every non-owner in
+`resolveWorkspaceNoticeRecipients` (module `inbox`, no house): "Work email from <sender> · <subject> · <first 120 chars>",
+keyed `inbound-email:<inbound id>`; the answer the agent actually sent follows as "Replied: ...", keyed
+`inbound-email-reply:<inbound id>`. Each lands in that person's own Assistant thread.

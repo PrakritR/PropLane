@@ -10,6 +10,7 @@ import {
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
+import { resolveWorkspaceNoticeRecipients } from "@/lib/workspace-team-recipients.server";
 import { notifyWorkNumberRecipients } from "@/lib/work-number-recipients.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -285,13 +286,19 @@ export async function notifyPropertyScopedManagersFromAgent(
 ): Promise<void> {
   const ownerId = input.ownerManagerUserId.trim();
   const excluded = new Set((input.excludeUserIds ?? []).map((id) => id.trim()));
+  const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
+    () => null,
+  );
   const recipientIds = (
-    await resolvePropertyScopedManagerRecipientIds(db, {
-      ownerManagerUserId: ownerId,
+    await resolveWorkspaceNoticeRecipients(db, {
+      ownerUserId: ownerId,
+      workspaceId: noticeWorkspace?.workspaceId || null,
+      module: input.module,
       propertyId: input.propertyId,
-      channel: input.module,
     })
-  ).filter((id) => !excluded.has(id));
+  )
+    .map((recipient) => recipient.userId)
+    .filter((id) => !excluded.has(id));
   for (const userId of recipientIds) {
     const isOwner = userId === ownerId;
     const deliver = () =>
@@ -323,10 +330,9 @@ export async function notifyPropertyScopedManagersFromAgent(
   // owner's work number and an email from the work email - never an Assistant thread.
   if (!excluded.has(ownerId)) {
     try {
-      const workspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId });
       await notifyWorkNumberRecipients(db, {
         ownerUserId: ownerId,
-        workspaceId: workspace.workspaceId || null,
+        workspaceId: noticeWorkspace?.workspaceId || null,
         subject: input.subject,
         text: input.externalText ?? input.text,
         url: input.url,

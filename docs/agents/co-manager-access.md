@@ -596,6 +596,25 @@ why it cannot work. Coverage: `tests/unit/manager-stripe-payout-context.test.ts`
 `tests/unit/manager-payment-setup-refusal.test.tsx`,
 `tests/unit/stripe-connect-status-readonly.test.ts`.
 
+## Who hears a workspace notice (role matrix, Oct 13)
+
+`resolveWorkspaceNoticeRecipients` (`src/lib/workspace-team-recipients.server.ts`) is the one answer, built on
+`resolveWorkspaceTeamMembersWithGrants`. Every automated fan-out (`notifyPropertyScopedManagersFromAgent`) and every
+inbound fan-out (work email, prospect text, resident text) reads it. Permissions stay authoritative: a role with the
+module off at notification level hears nothing.
+
+| Role | Events they hear |
+| --- | --- |
+| Owner | all, always |
+| Admin / Full / Custom | every event, every house (module on at notification) |
+| Property manager / Leasing / Viewer (and a legacy teammate with no role) | events on houses they hold, or every house on an "all houses" row; events with NO house (prospect text, work email) too |
+| Bookkeeper | `payments` / `financials` events only |
+| Maintenance | `services` events only |
+| Property owner | never (`withoutOwnerLinks`) |
+
+Channels follow each person's own routing: Assistant thread always, email when they have one, text only with a verified
+phone, no STOP and `sms_forward_inbound` on. Texts leave from the owner's work number and are billed to the owner.
+
 ## Property owner
 
 A **Property owner** is the investor who owns a house the manager runs. It is a
