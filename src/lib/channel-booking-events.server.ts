@@ -21,6 +21,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { channelRangeKey } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
+import { bookingRecordHref } from "@/lib/portal-detail-routes";
 import type { ChannelCalendarImportedRange, ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 
 export type ChannelBookingEvent = "channel_booking_created" | "channel_booking_cancelled";
@@ -35,6 +36,20 @@ function monthDay(key: string): string {
   return new Date(dayMs(key)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+/**
+ * The booking RECORD page for a channel stay. A booking has no stored id; the record route
+ * resolves the legacy key `source:property:room:start:end:summary` (`bookingLegacyEntryKey`).
+ */
+export function channelBookingRecordUrl(input: {
+  provider: ChannelCalendarProvider;
+  propertyId: string;
+  roomId: string;
+  range: Pick<ChannelCalendarImportedRange, "start" | "end" | "summary">;
+}): string {
+  const key = `${input.provider}:${input.propertyId}:${input.roomId}:${input.range.start}:${input.range.end}:${input.range.summary}`;
+  return `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}${bookingRecordHref("/portal", key)}`;
+}
+
 /** The stored range ends on its LAST night; the guest checks out the day after. */
 export function channelBookingStay(start: string, lastNight: string): { label: string; nights: number } {
   const end = lastNight && lastNight >= start ? lastNight : start;
@@ -45,12 +60,13 @@ export function channelBookingStay(start: string, lastNight: string): { label: s
 
 export function renderChannelBookingEvent(
   event: ChannelBookingEvent,
-  facts: { provider: ChannelCalendarProvider; propertyLabel?: string; roomLabel?: string; start: string; end: string },
+  facts: { provider: ChannelCalendarProvider; propertyLabel?: string; roomLabel?: string; start: string; end: string; reservationCode?: string },
 ): { subject: string; text: string; smsText: string } {
   const channel = channelCalendarProviderLabel(facts.provider);
   const lead = event === "channel_booking_created" ? `New ${channel} booking` : `${channel} booking cancelled`;
   const place = [facts.propertyLabel?.trim(), facts.roomLabel?.trim()].filter(Boolean);
-  const text = [lead, ...place, channelBookingStay(facts.start, facts.end).label].join(" · ");
+  const code = facts.reservationCode?.trim();
+  const text = [lead, ...place, channelBookingStay(facts.start, facts.end).label, ...(code ? [code] : [])].join(" · ");
   return { subject: lead, text, smsText: text };
 }
 
@@ -71,8 +87,8 @@ export async function emitChannelBookingEvent(
   const { data: manager } = await db.from("profiles").select("email, full_name").eq("id", input.managerUserId).maybeSingle();
   const senderEmail = String(manager?.email ?? "").trim().toLowerCase();
   if (!senderEmail) return;
-  const rendered = renderChannelBookingEvent(input.event, { ...input, start: input.range.start, end: input.range.end });
-  const url = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/bookings/calendar`;
+  const rendered = renderChannelBookingEvent(input.event, { ...input, start: input.range.start, end: input.range.end, reservationCode: input.range.reservationCode });
+  const url = channelBookingRecordUrl(input);
   const stay = channelBookingStay(input.range.start, input.range.end);
   await emitActionEvent(db, {
     eventId: `${input.connectionId}:${channelRangeKey(input.range)}:${input.range.start}:${input.range.end}:${input.event}`,
