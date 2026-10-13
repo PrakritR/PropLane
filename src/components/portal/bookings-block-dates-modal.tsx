@@ -111,6 +111,9 @@ export function BookingsBlockDatesModal({
   initialPropertyId,
   initialRoomId = "",
   initialDayKey,
+  initialCheckOut,
+  initialResident,
+  initialReason,
   editingBlock = null,
   entries,
   residentOptions = NO_RESIDENTS,
@@ -126,6 +129,12 @@ export function BookingsBlockDatesModal({
   initialRoomId?: string;
   /** Day the manager clicked in the calendar — becomes check-in, with check-out the next day. */
   initialDayKey?: string | null;
+  /** Check-out to open on (Quick book from an application); absent = the day after check-in. */
+  initialCheckOut?: string | null;
+  /** Someone to hold the room for (Quick book): matched to a resident on the books by email, else a new resident. */
+  initialResident?: { name: string; email: string; phone?: string } | null;
+  /** Pre-filled reason, e.g. "Application AXIS-123". */
+  initialReason?: string;
   editingBlock?: PropertyBookingEntry | null;
   /** Everything already on the calendar, for the collision check and the hold list. */
   entries: readonly PropertyBookingEntry[];
@@ -141,6 +150,9 @@ export function BookingsBlockDatesModal({
   /** Rooms linked to a channel, so the review can say Airbnb picks the change up. */
   channelLinks?: readonly ChannelRoomLink[];
 }) {
+  const initialResidentName = initialResident?.name?.trim() ?? "";
+  const initialResidentEmail = initialResident?.email?.trim() ?? "";
+  const initialResidentPhone = initialResident?.phone?.trim() ?? "";
   const [stepIdx, setStepIdx] = useState(0);
   const [propertyId, setPropertyId] = useState("");
   const [roomChoice, setRoomChoice] = useState("");
@@ -164,14 +176,28 @@ export function BookingsBlockDatesModal({
     setPropertyId(property);
     setRoomChoice(initialRoomId && property ? `${property}::${initialRoomId}` : "");
     setCheckIn(initialDayKey ?? "");
-    setCheckOut(initialDayKey ? addDaysToDateKey(initialDayKey, 1) : "");
+    setCheckOut(
+      initialDayKey ? (initialCheckOut && initialCheckOut > initialDayKey ? initialCheckOut : addDaysToDateKey(initialDayKey, 1)) : "",
+    );
     setStepIdx(mode === "reserve" && !editingBlock && property && initialDayKey ? 2 : 0);
-    setReason("");
+    setReason(initialReason ?? "");
     setStayDetails(editingBlock?.stayDetails ?? {});
     setResidentChoice("");
     setNewResidentName("");
     setNewResidentEmail("");
     setNewResidentPhone("");
+    if (initialResidentName || initialResidentEmail) {
+      const email = initialResidentEmail.toLowerCase();
+      const match = email ? residentOptions.find((option) => option.email.toLowerCase() === email) : undefined;
+      if (match) {
+        setResidentChoice(match.key);
+      } else {
+        setResidentChoice(NEW_RESIDENT_CHOICE);
+        setNewResidentName(initialResidentName);
+        setNewResidentEmail(initialResidentEmail);
+        setNewResidentPhone(initialResidentPhone);
+      }
+    }
     setError(null);
     setBusy(false);
     setInviteResult(null);
@@ -188,7 +214,7 @@ export function BookingsBlockDatesModal({
       setEditingBlockId,
       residentOptions,
     );
-  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, editingBlock, propertyOptions, residentOptions]);
+  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, initialCheckOut, initialReason, initialResidentName, initialResidentEmail, initialResidentPhone, editingBlock, propertyOptions, residentOptions]);
 
   const roomOptions = useMemo(
     () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }) : []),

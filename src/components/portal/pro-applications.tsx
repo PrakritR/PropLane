@@ -17,7 +17,9 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Shield, Trash2, Undo2, Upload, Wallet, X } from "lucide-react";
+import { Bell, CalendarDays, CalendarPlus, Check, Clock, Download, Home, Plus, Send, Shield, Trash2, Undo2, Upload, Wallet, X } from "lucide-react";
+import { ApplicationQuickBook } from "@/components/portal/application-quick-book";
+import { applicationRowCanQuickBook, quickBookPrefillForApplication, type QuickBookPrefill } from "@/lib/channel-calendar/quick-book";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListSortField } from "@/components/portal/portal-list-sort-field";
 import { FilterFieldsAccordion } from "@/components/portal/filter-field-lists";
@@ -760,6 +762,8 @@ export function ManagerApplications({
     }
   }, [handleScreeningUpdated, checkrScreeningCosignerId]);
 
+  const [quickBook, setQuickBook] = useState<QuickBookPrefill | null>(null);
+
   const scopeUserId = resolveManagerScopeUserId(userId);
 
   const propertyOptions = buildManagerPropertyFilterOptions(scopeUserId);
@@ -1409,6 +1413,12 @@ export function ManagerApplications({
     ) {
       actions.push(portalIconActionSpec({ id: "send-lease", label: "Send lease", icon: Send, tone: "primary", dataAttr: "application-send-lease", onClick: () => setGenerateLeaseApplicationId(row.id) }));
     }
+    if (applicationRowCanQuickBook(row)) actions.push(portalIconActionSpec({ id: "quick-book", label: "Quick book", icon: CalendarPlus, dataAttr: "application-quick-book",
+      onClick: () => {
+        const prefill = quickBookPrefillForApplication(row);
+        if (prefill) setQuickBook(prefill);
+        else showToast("Add a house, room and move-in date to this application to book it.");
+      } }));
     if (showCompletionReminder) actions.push(portalIconActionSpec({ id: "reminder", label: reminderPreviewBusyId === row.id ? "Loading…" : "Remind", icon: Bell,
       dataAttr: "application-send-reminder", disabled: reminderPreviewBusyId !== null || reminderBusyId !== null, onClick: () => openReminderPreview(row) }));
     actions.push(portalIconActionSpec({ id: "upload-for-resident", label: "Upload for resident", icon: Upload, dataAttr: "application-upload-for-resident", onClick: () => setUploadForResidentFor(row.id) }));
@@ -1644,6 +1654,9 @@ export function ManagerApplications({
         }}
         onSendLease={(applicationId) => setGenerateLeaseApplicationId(applicationId)}
       />
+      {quickBook ? (
+        <ApplicationQuickBook prefill={quickBook} userId={userId} propertyOptions={propertyOptions} onClose={() => setQuickBook(null)} />
+      ) : null}
       <PortalNotificationPreviewModal
         open={reminderPreview !== null}
         title="Send application reminder"

@@ -230,3 +230,66 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(menu.textContent).not.toContain("Blocked");
   });
 });
+
+describe("BookingsBlockDatesModal — Quick book prefill", () => {
+  afterEach(() => {
+    cleanup();
+    clearAllWorkspaceDrafts();
+  });
+
+  function openPrefilled(extra: Partial<React.ComponentProps<typeof BookingsBlockDatesModal>>) {
+    const onSave = vi.fn(() => Promise.resolve());
+    const view = render(
+      <AppUiProvider>
+        <BookingsBlockDatesModal
+          open
+          mode="reserve"
+          onClose={() => {}}
+          propertyOptions={PROPERTY}
+          initialPropertyId="h1"
+          initialRoomId="r1"
+          initialDayKey="2026-11-01"
+          entries={[]}
+          residentOptions={RESIDENTS}
+          onSave={onSave}
+          {...extra}
+        />
+      </AppUiProvider>,
+    );
+    return { view, onSave };
+  }
+
+  async function saveDraft(view: ReturnType<typeof render>, onSave: ReturnType<typeof vi.fn>) {
+    fireEvent.click(attr(view, "bookings-block-dates-save")!);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    return onSave.mock.calls[0]![0];
+  }
+
+  it("honours initialCheckOut, initialReason and a new resident", async () => {
+    const { view, onSave } = openPrefilled({
+      initialCheckOut: "2026-12-01",
+      initialReason: "Application AXIS-1",
+      initialResident: { name: "Pat Lee", email: "pat@example.com", phone: "+18146793694" },
+    });
+    expect(await saveDraft(view, onSave)).toMatchObject({
+      propertyId: "h1",
+      roomId: "r1",
+      checkIn: "2026-11-01",
+      checkOut: "2026-12-01",
+      reason: "Application AXIS-1",
+      residentName: "Pat Lee",
+      residentEmail: "pat@example.com",
+      isNewResident: true,
+    });
+  });
+
+  it("matches an existing resident by email instead of adding a new one", async () => {
+    const { view, onSave } = openPrefilled({ initialResident: { name: "Maya", email: "MAYA@example.com" } });
+    expect(await saveDraft(view, onSave)).toMatchObject({ residentName: "Maya Zuneh", residentEmail: "maya@example.com" });
+  });
+
+  it("keeps the day-after check-out and no resident when the new props are absent", async () => {
+    const { view, onSave } = openPrefilled({});
+    expect(await saveDraft(view, onSave)).toMatchObject({ checkOut: "2026-11-02", reason: "Reserved", residentName: "", residentEmail: "" });
+  });
+});
