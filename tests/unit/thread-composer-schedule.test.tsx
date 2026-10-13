@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
-import { buildSmsThreadScheduleBody } from "@/lib/sms-thread-schedule";
+import { buildSmsThreadScheduleBody, smsThreadCanSchedule } from "@/lib/sms-thread-schedule";
 
 const read = (p: string) => readFileSync(p, "utf8");
 
@@ -37,5 +37,16 @@ describe("Schedule from thread composer posts a scheduled send", () => {
     expect(read("src/components/portal/portal-inbox-ui.tsx")).toContain("`Send at ${sendAtLabel}`");
     expect(read("src/components/portal/pro-inbox.tsx")).toContain('"/api/portal/scheduled-inbox-messages"');
     expect(read("src/components/portal/pro-sms-panel.tsx")).toContain('"/api/portal/scheduled-inbox-messages"');
+  });
+
+  it("the clock appears on a phone-only text thread and its schedule body is a phone-only Text", () => {
+    expect(smsThreadCanSchedule(null, "(726) 248-3085")).toBe(true);
+    expect(smsThreadCanSchedule("", "")).toBe(false);
+    const r = buildSmsThreadScheduleBody({
+      residentEmail: null, phone: "(726) 248-3085", text: "Hi", viaEmail: false, viaSms: true,
+      sendAtLocal: "2030-10-14T09:00", conversationKey: "conv-1",
+    });
+    expect(r.ok && r.body).toMatchObject({ recipientEmail: "", recipientPhone: "+17262483085", deliverViaSms: true, deliverViaEmail: false, conversationKey: "conv-1" });
+    expect(read("src/components/portal/pro-sms-panel.tsx")).toContain("smsThreadCanSchedule(active?.resident.residentEmail, active?.resident.phone)");
   });
 });

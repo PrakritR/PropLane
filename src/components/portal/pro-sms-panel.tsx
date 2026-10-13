@@ -1022,7 +1022,7 @@ export const ManagerSmsPanel = forwardRef<
   }, [active, load, setActiveId, showToast]);
 
   const activeEmailAvailable = Boolean(active?.resident.residentEmail?.trim());
-  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail);
+  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail, active?.resident.phone);
   // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
   const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
     recipientEmail: active?.resident.residentEmail?.trim() ?? "",
@@ -1040,6 +1040,7 @@ export const ManagerSmsPanel = forwardRef<
       viaEmail: replyViaEmail,
       viaSms: replyViaSms,
       sendAtLocal: scheduleSendAt,
+      conversationKey: active?.resident.conversationKey,
     });
     if (!built.ok) {
       showToast(built.error);

@@ -8,6 +8,8 @@ import {
   loadScheduledInboxMessagesForResident,
 } from "@/lib/scheduled-inbox-messages.server";
 import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
+import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
+import { normalizeE164 } from "@/lib/phone-e164";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -159,6 +161,8 @@ export async function POST(req: Request) {
       recipientEmail?: string;
       recipientName?: string;
       recipientUserId?: string;
+      recipientPhone?: string;
+      conversationKey?: string;
       broadcastCategories?: unknown;
       deliverViaInbox?: boolean;
       deliverViaEmail?: boolean;
@@ -238,6 +242,60 @@ export async function POST(req: Request) {
         senderEmail: ctx.email,
       });
 
+      return NextResponse.json({ ok: true, message: record });
+    }
+
+    const recipientPhoneRaw = String(body.recipientPhone ?? "").trim();
+    if (
+      recipientPhoneRaw &&
+      !broadcastCategories.length &&
+      !recipientEmail.includes("@") &&
+      !String(body.recipientUserId ?? "").trim()
+    ) {
+      // Phone-only text: the number must belong to a conversation this manager can edit in this workspace.
+      const phone = normalizeE164(recipientPhoneRaw);
+      if (!phone) return NextResponse.json({ error: "Enter a valid US phone number." }, { status: 400 });
+      if (body.deliverViaSms !== true) {
+        return NextResponse.json({ error: "A phone-only message goes by text." }, { status: 400 });
+      }
+      const conversations = await fetchManagerSmsConversations(ctx.db, ctx.userId, {
+        provisionWorkNumber: false,
+        visibility: "edit",
+      });
+      const conversationKey = String(body.conversationKey ?? "").trim();
+      const owned = conversations.residents.find(
+        (r) =>
+          normalizeE164(String(r.phone ?? "").trim()) === phone &&
+          (!conversationKey || r.conversationKey === conversationKey),
+      );
+      if (!owned) {
+        return NextResponse.json({ error: "That number is not one of your conversations." }, { status: 403 });
+      }
+      const phoneWorkspace = await composingWorkspaceId(ctx);
+      if (!phoneWorkspace.ok) return WORKSPACE_UNRESOLVED;
+      const phoneRefusal = await trialScheduleRefusal(ctx, phoneWorkspace.workspaceId);
+      if (phoneRefusal) return phoneRefusal;
+      const record = await createScheduledInboxMessage(ctx.db, {
+        id: generateScheduledInboxMessageId(),
+        managerUserId: ctx.userId,
+        sendAt: sendAt.toISOString(),
+        status: "scheduled",
+        subject,
+        body: messageBody,
+        recipientEmail: "",
+        recipientPhone: phone,
+        conversationKey: owned.conversationKey ?? null,
+        recipientName: recipientName || phone,
+        recipientUserId: null,
+        deliverViaInbox: false,
+        deliverViaEmail: false,
+        deliverViaSms: true,
+        senderPortal: "manager",
+        senderUserId: ctx.userId,
+        senderName: ctx.name,
+        senderEmail: ctx.email,
+        workspaceId: phoneWorkspace.workspaceId,
+      });
       return NextResponse.json({ ok: true, message: record });
     }
 
