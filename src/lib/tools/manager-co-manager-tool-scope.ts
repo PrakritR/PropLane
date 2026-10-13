@@ -55,6 +55,9 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
   // Public-site URLs for a live listing; the share check runs against the
   // workspace owner's live records and returns nothing private.
   "get_property_links",
+  // Bookings: the three reads need Calendar at notification or edit on the house; block_room_dates
+  // needs Calendar at edit (each tool re-checks both in preview AND handler).
+  "list_bookings", "check_room_availability", "list_room_blocks", "block_room_dates",
 ]);
 
 export function scopeManagerTool<Input, Output>(
