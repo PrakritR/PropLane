@@ -3,18 +3,28 @@
 import { usePathname } from "next/navigation";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
+import { hrefForSection } from "@/components/portal/portal-nav-model";
 import { adminSectionTabsFor } from "@/lib/portals/nav-groups";
 import type { PortalDefinition } from "@/lib/portal-types";
 
 /**
  * The admin section currently shown, only when the URL is the section's own
- * page (`/admin/<section>`): a record under it (`/admin/axis-users/<id>`) keeps
- * the record-page chrome and carries no strip.
+ * page: `/admin/<section>`, or `/admin/<section>/<tab>` for one of the
+ * section's OWN registry tabs — the pages `hrefForSection` links to. A record
+ * under it (`/admin/axis-users/<id>`) keeps the record-page chrome and carries
+ * no strip.
  */
-function adminSectionOnRoot(pathname: string | null): string | null {
+function adminSectionOnRoot(pathname: string | null, definition: PortalDefinition): string | null {
   const parts = (pathname ?? "").split("/").filter(Boolean);
-  if (parts[0] !== "admin" || parts.length !== 2) return null;
-  return parts[1] ?? null;
+  const base = definition.basePath.split("/").filter(Boolean);
+  if (parts.length < base.length + 1 || base.some((seg, i) => parts[i] !== seg)) return null;
+  const rest = parts.slice(base.length);
+  const section = rest[0];
+  if (!section) return null;
+  if (rest.length === 1) return section;
+  if (rest.length > 2) return null;
+  const tabs = definition.sections.find((s) => s.section === section)?.tabs ?? [];
+  return tabs.some((tab) => tab.id === rest[1]) ? section : null;
 }
 
 /** Support carries the Meetings and Feedback to-do counts on their tabs. */
@@ -57,7 +67,7 @@ function AdminTabStrip({ items, activeId, label }: { items: DestinationNavItem[]
  */
 export function AdminSectionTabs({ definition }: { definition: PortalDefinition }) {
   const pathname = usePathname();
-  const section = adminSectionOnRoot(pathname);
+  const section = adminSectionOnRoot(pathname, definition);
   if (!section) return null;
   const group = adminSectionTabsFor(
     section,
@@ -67,7 +77,7 @@ export function AdminSectionTabs({ definition }: { definition: PortalDefinition 
   const items: DestinationNavItem[] = group.sections.map((id) => ({
     id,
     label: definition.sections.find((s) => s.section === id)?.label ?? id,
-    href: `${definition.basePath}/${id}`,
+    href: hrefForSection(definition, id),
     dataAttr: `admin-tab-${id}`,
   }));
   if (group.groupId === "support") {

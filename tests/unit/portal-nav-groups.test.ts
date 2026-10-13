@@ -3,7 +3,6 @@ import { adminPortal } from "@/lib/portals/admin";
 import { proPortal } from "@/lib/portals/pro";
 import { vendorPortal } from "@/lib/portals/vendor";
 import {
-  ADMIN_SECTION_TABS,
   PORTAL_NAV_GROUPS,
   SIDEBAR_EXCLUDED_SECTIONS,
   groupNavItems,
@@ -60,15 +59,10 @@ describe("portal nav groups cover the registry exactly", () => {
 
   for (const { kind, sections, sidebarShowsProfile, sidebarShowsFeedback } of CASES) {
     const groups = PORTAL_NAV_GROUPS[kind];
-    // Admin rows stand for tab groups (Money = Payments · Promo codes · Finances): a row
-    // reaches every section of its group, so cover the registry through the expanded rows.
-    const grouped = groups.flatMap((g) =>
-      g.sections.flatMap((id) => {
-        if (kind !== "admin") return [id];
-        const tabGroup = Object.values(ADMIN_SECTION_TABS).find((t) => t.sections[0] === id);
-        return tabGroup ? [...tabGroup.sections] : [id];
-      }),
-    );
+    // Admin's config lists every section, including the ones its sidebar folds
+    // into a tab group's row (Money = Payments · Promo codes · Finances), so an
+    // unfolded caller (the command palette) buckets them too.
+    const grouped = groups.flatMap((g) => g.sections);
 
     it(`${kind}: every registry section (except excluded) maps to exactly one group`, () => {
       const expected = sections

@@ -103,6 +103,14 @@ export const ADMIN_SECTION_TABS: Record<string, AdminSectionTabGroup> = {
   support: { label: "Support", sections: ["bugs-feedback", "events", "health"] },
 };
 
+/**
+ * The seven sidebar row keys, in row order: a grouped row is keyed on its
+ * group's first section, every other row on its own section.
+ */
+export const ADMIN_NAV_ROW_SECTIONS: readonly string[] = ADMIN_NAV_ROW_ORDER.map(
+  (id) => ADMIN_SECTION_TABS[id]?.sections[0] ?? id,
+);
+
 /** The group a section is a tab of, or null for a section that is a row on its own. */
 export function adminTabGroupIdFor(section: string): string | null {
   for (const [id, group] of Object.entries(ADMIN_SECTION_TABS)) {
@@ -137,10 +145,13 @@ export function adminSectionTabsFor(
 }
 
 /**
- * Fold flat admin nav items into one row per group. The row keeps the first
- * visible tab's item (href, icon key, prefetch), takes the group's label, and
- * remembers every member in `groupSections` so it can be active on any of them.
- * Idempotent: an already-folded row is passed through.
+ * Fold flat admin nav items into one row per group. The row is keyed on
+ * `adminNavRowSection` — the group's first configured section, the one key
+ * `mergeAdminGroupCounts` and `NATIVE_BOTTOM_NAV_ADMIN_PRIMARY` also use, so a
+ * filtered-out first tab can never leave the row's key and its active/count key
+ * disagreeing — while href, icon and prefetch come from the first tab actually
+ * visible. Every member is remembered in `groupSections` so the row is active on
+ * any of them. Idempotent: an already-folded row is passed through.
  */
 export function collapseAdminNavItems<T extends { section: string; label: string }>(
   items: T[],
@@ -168,6 +179,7 @@ export function collapseAdminNavItems<T extends { section: string; label: string
     if (!first) continue;
     out.push({
       ...first,
+      section: group.sections[0]!,
       label: group.label,
       groupSections: group.sections.filter((id) => members.some((m) => m.section === id)),
     });
@@ -201,9 +213,13 @@ export function mergeAdminGroupCounts<C extends { count: number; tone: "muted" |
 
 const ADMIN_GROUPS: NavGroupConfig[] = [
   {
+    // One unheaded group in row order. Members of a folded group are listed
+    // inline after their row key so this config buckets BOTH shapes: the
+    // sidebar's folded rows (`collapseAdminNavItems`, keyed on the group's
+    // first section) and the unfolded sections the command palette jumps to.
     id: "home",
     label: null,
-    sections: ADMIN_NAV_ROW_ORDER.map((id) => ADMIN_SECTION_TABS[id]?.sections[0] ?? id),
+    sections: ADMIN_NAV_ROW_ORDER.flatMap((id) => ADMIN_SECTION_TABS[id]?.sections ?? [id]),
   },
 ];
 
@@ -240,8 +256,6 @@ export function groupNavItems<T extends { section: string }>(
   kind: PortalKind,
   items: T[],
 ): GroupedNav<T>[] {
-  // Admin folds its tab groups into one row each; its items always carry a label.
-  if (kind === "admin") items = collapseAdminNavItems(items as unknown as { section: string; label: string }[]) as unknown as T[];
   const bySection = new Map<string, T[]>();
   for (const item of items) {
     const list = bySection.get(item.section) ?? [];
