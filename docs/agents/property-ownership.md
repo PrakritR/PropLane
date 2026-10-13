@@ -34,10 +34,18 @@ Properties remains the only surface that owns `GET /api/property-records`.
   `transferPropertyOwnership` (requires an accepted co-manager link, audited,
   notifies both sides). Only a MISSING row on an UPSERT is a create, and only
   there does the body's `managerUserId` win (the admin inventory publishes on a
-  manager's behalf; a non-admin naming anyone else gets 403). A **DELETE of a
-  missing row is 404, refused before owner resolution — never a create.** The
-  create branch has no stored owner to authorize against and only 403s a caller
-  who NAMES someone else, so a delete that fell into it was unchecked, and the
+  manager's behalf; a non-admin naming anyone else gets 403). Every admin
+  authority on this route is admin **oversight**, never the role alone: the
+  request must ask for it with `?oversight=admin` (`adminOversightUrl`, sent by
+  the admin pages) AND `resolveAdminOversight` must confirm the role. Without
+  it a platform admin reads and writes here exactly like the manager they are —
+  the all-owners inventory on `GET` is the oversight surface too. See
+  `docs/agents/communication-inbox.md` § Workspace isolation and "No messages
+  yet" rows.
+  A **DELETE of a missing row is 404, refused before owner resolution — never a
+  create.** The create branch has no stored owner to authorize against and only
+  403s a caller who NAMES someone else, so a delete that fell into it was
+  unchecked, and the
   delete branch then ran `clearHousingAccessForDeletedProperty` with the
   SERVICE-ROLE client — a globally scoped helper that strips co-manager grants
   and scrubs residents' housing fields to "Moved out" across EVERY manager. That
@@ -51,7 +59,8 @@ Properties remains the only surface that owns `GET /api/property-records`.
   as success. An EXISTING row whose
   `manager_user_id` is blank — the column is `on delete set null`, so an
   OWNERLESS row is a real production state — is still an edit, not a create: an
-  admin may adopt it onto a manager, and every other caller goes through the
+  admin under oversight may adopt it onto a manager, and every other caller
+  (an admin in their own manager portal included) goes through the
   same co-manager gate as an owned row, so knowing a public listing id never
   adopts an orphan. The co-manager branch preserves that absence as `null` and
   never writes `""` (not a uuid — Postgres rejects the whole upsert, which

@@ -61,6 +61,8 @@ export const EMAIL_COLUMNS = [
   "contact_email",
   "owner_email",
   "sender_email",
+  // `communication_dismissed_contacts.contact_key` is the dismissed person's lower-cased email.
+  "contact_key",
 ];
 
 /**

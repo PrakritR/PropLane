@@ -10,7 +10,10 @@
  * and schedule records carry the same three cases in their own route test files (where their
  * heavier fixtures live).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Row = Record<string, unknown>;
 
@@ -233,12 +236,37 @@ const CASES: Case[] = [
   { name: "portal/work-order-bids", path: "/api/portal/work-order-bids", route: "@/app/api/portal/work-order-bids/route", ids: (b) => idsOf(b.bids), mine: ["bid-mine"], all: ["bid-mine", "bid-other"] },
 ];
 
+/** Real request → real response lines, written out as a reviewer-readable transcript. */
+const transcript: string[] = [];
+
 async function read(c: Case, query: string): Promise<string[]> {
   const { GET } = (await import(/* @vite-ignore */ c.route)) as { GET: (req: Request) => Promise<Response> };
   const res = await GET(get(c.path, query));
   expect(res.status).toBe(200);
-  return c.ids((await res.json()) as Record<string, unknown>);
+  const ids = c.ids((await res.json()) as Record<string, unknown>);
+  transcript.push(
+    `GET ${c.path}${query}`.padEnd(62) +
+      `(viewer: ${hoisted.admin ? "platform admin + manager" : "manager"})\n` +
+      `  ${res.status} rows: ${JSON.stringify(ids)}`,
+  );
+  return ids;
 }
+
+afterAll(() => {
+  const out = process.env.EVIDENCE_DIR ?? join(tmpdir(), "proplane-comms-isolation-evidence");
+  mkdirSync(out, { recursive: true });
+  writeFileSync(
+    join(out, "manager-portal-routes-oversight.txt"),
+    [
+      "Manager-portal GET routes — the all-owners read is served only for ?oversight=admin from a",
+      "server-confirmed admin. Fixture: every table holds one row owned by the viewer (-mine) and",
+      "one owned by a different manager (-other).",
+      "",
+      ...transcript,
+      "",
+    ].join("\n"),
+  );
+});
 
 describe.each(CASES)("GET $name — admin oversight is explicit", (c) => {
   it("an admin in their own manager portal reads only their own rows", async () => {
@@ -321,6 +349,34 @@ describe("admin writes from the manager portal cannot touch another owner's rows
     const { POST } = await import("@/app/api/portal-vendors/route");
     await POST(post("/api/portal-vendors", "", { action: "delete", id: "v-other" }));
     expect(hoisted.writes.filter((w) => w.op === "delete")).toHaveLength(0);
+  });
+
+  it("work orders: an edit of another owner's work order without oversight is refused", async () => {
+    const { POST } = await import("@/app/api/portal-work-orders/route");
+    const res = await POST(post("/api/portal-work-orders", "", { action: "upsert", row: { id: "wo-other", title: "Taken" } }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes).toEqual([]);
+  });
+
+  it("work orders: a delete without oversight cannot remove another owner's row", async () => {
+    const { POST } = await import("@/app/api/portal-work-orders/route");
+    const res = await POST(post("/api/portal-work-orders", "", { action: "delete", id: "wo-other" }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes.filter((w) => w.op === "delete")).toEqual([]);
+  });
+
+  it("service requests: an edit of another owner's request without oversight is refused", async () => {
+    const { POST } = await import("@/app/api/portal-service-requests/route");
+    const res = await POST(post("/api/portal-service-requests", "", { action: "upsert", row: { id: "sr-other", offerName: "Taken" } }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes).toEqual([]);
+  });
+
+  it("service requests: a delete without oversight cannot remove another owner's row", async () => {
+    const { POST } = await import("@/app/api/portal-service-requests/route");
+    const res = await POST(post("/api/portal-service-requests", "", { action: "delete", id: "sr-other" }));
+    expect(res.status).toBe(403);
+    expect(hoisted.writes.filter((w) => w.op === "delete")).toEqual([]);
   });
 
   it("vendors: a non-admin sending the oversight parameter is still refused", async () => {

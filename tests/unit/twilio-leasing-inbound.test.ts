@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendSms = vi.fn();
 const sendFromManager = vi.fn();
@@ -61,6 +61,19 @@ vi.mock("@/lib/supabase/service", () => {
 });
 
 describe("handleClawLeasingInbound via Twilio work number", () => {
+  // Warm the module graph once, here, instead of letting the first `it` pay for
+  // it. Every test imports claw-leasing-bot.server fresh (`vi.resetModules()`
+  // below), and the first `await import(...)` is what transforms that module and
+  // its whole dependency tree. Run alone that is a few seconds, but under the
+  // full suite (3000+ files competing for workers) it has blown past the 20s
+  // testTimeout and failed the first test — a load-dependent flake, not a real
+  // failure. `resetModules()` only drops module instances; Vite's transform
+  // cache survives it, so after this hook each per-test import is milliseconds.
+  // Same reasoning as claw-manager-phone-scoping.test.ts.
+  beforeAll(async () => {
+    await import("@/lib/claw-leasing-bot.server");
+  }, 60_000);
+
   beforeEach(() => {
     sendSms.mockReset();
     sendFromManager.mockReset();

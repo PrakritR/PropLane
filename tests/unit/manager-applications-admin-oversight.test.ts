@@ -4,7 +4,10 @@
  * which put another owner's residents in their Communication. The all-owners read now needs an
  * explicit `?oversight=admin` AND the server-confirmed admin role.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Stored = {
   id: string;
@@ -87,12 +90,35 @@ function resident(id: string, owner: string, house: string): Stored {
   };
 }
 
+/** Real request → real response lines, written out as a reviewer-readable transcript. */
+const transcript: string[] = [];
+
 async function ids(query = "") {
   const { GET } = await import("@/app/api/manager-applications/route");
   const res = await GET(new Request(`https://example.test/api/manager-applications${query}`));
   expect(res.status).toBe(200);
-  return ((await res.json()) as { rows: { id: string }[] }).rows.map((r) => r.id).sort();
+  const body = (await res.json()) as { rows: { id: string; row_data?: { name?: string; propertyId?: string } }[] };
+  transcript.push(
+    `GET /api/manager-applications${query}   (viewer: ${VIEWER_IS_ADMIN ? "platform admin + manager" : "manager"})\n` +
+      `  ${res.status} ${JSON.stringify(body.rows.map((r) => ({ id: r.id, owner: APP_ROWS.find((a) => a.id === r.id)?.manager_user_id })))}`,
+  );
+  return body.rows.map((r) => r.id).sort();
 }
+
+afterAll(() => {
+  const out = process.env.EVIDENCE_DIR ?? join(tmpdir(), "proplane-comms-isolation-evidence");
+  mkdirSync(out, { recursive: true });
+  writeFileSync(
+    join(out, "manager-applications-oversight.txt"),
+    [
+      "GET /api/manager-applications — the manager portal's residents/applications read.",
+      `Fixture: ${ADMIN} (a platform admin who also manages) owns AXIS-MINE; ${AMBIKA} owns AXIS-KHUE.`,
+      "",
+      ...transcript,
+      "",
+    ].join("\n"),
+  );
+});
 
 beforeEach(() => {
   vi.resetModules();

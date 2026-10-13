@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { oversightTranscript } from "./support/oversight-transcript";
 import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-scheduling";
 
 type Row = Record<string, unknown>;
@@ -421,10 +422,19 @@ describe("portal schedule-records protocol", () => {
 });
 
 describe("portal schedule-records — admin oversight is explicit", () => {
-  const ids = async (query = "") => {
+  const transcript = oversightTranscript("oversight-schedule-records.txt", [
+    "GET /api/portal-schedule-records — the manager portal's schedule read.",
+    "Fixture: ordinary-mine is the viewer's (a platform admin who also manages); ordinary-other is another owner's.",
+  ]);
+  afterAll(() => transcript.write());
+
+  const ids = async (query = "", viewer = "platform admin + manager") => {
     const { GET } = await import("@/app/api/portal-schedule-records/route");
-    const body = await (await GET(new Request(`https://example.test/api/portal-schedule-records${query}`))).json() as { rows: Row[] };
-    return body.rows.map((row) => String(row.id)).filter((id) => id.startsWith("ordinary-")).sort();
+    const res = await GET(new Request(`https://example.test/api/portal-schedule-records${query}`));
+    const body = await res.json() as { rows: Row[] };
+    const rows = body.rows.map((row) => String(row.id)).filter((id) => id.startsWith("ordinary-")).sort();
+    transcript.record("/api/portal-schedule-records", query, viewer, res.status, rows);
+    return rows;
   };
   beforeEach(() => {
     state.scheduleRows = [
@@ -446,6 +456,11 @@ describe("portal schedule-records — admin oversight is explicit", () => {
 
   it("a non-admin sending the oversight parameter is still scoped", async () => {
     portal("admin-1", ["manager"]);
-    expect(await ids("?oversight=admin")).toEqual(["ordinary-mine"]);
+    expect(await ids("?oversight=admin", "manager")).toEqual(["ordinary-mine"]);
+  });
+
+  it("a different oversight value is not oversight", async () => {
+    portal("admin-1", ["admin", "manager"]);
+    expect(await ids("?oversight=all")).toEqual(["ordinary-mine"]);
   });
 });

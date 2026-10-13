@@ -318,11 +318,13 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   its caller asks to merge across folders) — the more recently active thread
   wins folder and every message from both merges into one timeline; no
   migration needed. A resident-directory placeholder row
-  (`buildResidentPlaceholderInboxItems`, no stored conversation at all) offers
-  no Archive action — running it used to silently no-op while still toasting
-  "Archived.".
+  (`buildResidentPlaceholderInboxItems`, no stored conversation at all) has its
+  own two actions, both of which persist something: Archive writes the real
+  `contact_thread_<id>` thread, Delete dismisses the person — see § Workspace
+  isolation and "No messages yet" rows.
 - **Archived ⋯ is Restore + Delete** for email and SMS (SMS hard-delete is
-  `DELETE /api/manager/sms-conversations`). Active ⋯ stays Archive only. PropLane
+  `DELETE /api/manager/sms-conversations`). Active ⋯ is Archive only, except a
+  placeholder row, which carries Archive + Delete there too. PropLane
   Assistant cannot be archived or deleted. Archived has a **Delete all archived**
   button (`unified-inbox-delete-all-archived`) that confirms, then deletes every
   non-assistant conversation; it is hidden when only Assistant remains.
@@ -511,11 +513,15 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   conversation only when it is about a house they hold Communication on at the
   level asked for (`read` lists, `edit` replies and sends, `delete` deletes),
   and a conversation about no house is never shared; (3) the active workspace
-  narrows — a conversation shows in the workspace that holds its house; a
+  narrows — a conversation the store STAMPED with a workspace
+  (`workspace_id`, Oct 12) shows in that workspace alone, whatever house it
+  names; an unstamped one shows in the workspace that holds its house; a
   house-less thread follows the work line it used (the owning workspace's SMS
   number or assistant address — shared-in number assignments do not duplicate
   threads), and only when no line places it does it fall back to the owner's
-  default workspace. Manager email inbox sync is server-authoritative on fetch:
+  default workspace. Threads older than the stamp are filled in by
+  `scripts/backfill-thread-workspaces.mjs`.
+  Manager email inbox sync is server-authoritative on fetch:
   rows the API omits are dropped from local storage (local-only ghosts do not
   resurrect). New SMS projection archive/read state is per viewer with a
   compare-and-set version; legacy archive flags still mirror from
@@ -598,19 +604,22 @@ Communication built "No messages yet" rows for another owner's residents.
   for every caller, admins included. The all-owners read needs
   `?oversight=admin` AND a server-confirmed admin role; a manager page never
   sends it. `/api/portal-pro-relationships` (co-manager contacts) has no admin
-  all-owners branch either. Other manager GETs that still have an admin
-  all-rows branch (service requests, work orders, vendors, property records,
-  household charges, lease pipeline, schedule records, promotions) are not
-  changed by this pass.
+  all-owners branch either. The same gate now replaces the bare admin branch on
+  every other manager route this leak could reach: service requests, work
+  orders, vendors, property records, household charges, lease pipeline,
+  schedule records (through `portal-record-api`'s `explicitAdminOversight`),
+  promotions, vendor offers, bids and the tours export (read-only). On every one
+  of those that writes, the gate covers **both halves**: without
+  `?oversight=admin` an admin's WRITE is the manager's too, so `managerUserId` in
+  the body is not trusted and the ownership / workspace gates still run. `resolveAdminOversight` is the only way to the all-owners surface —
+  a new manager route must not read `isAdminUser` on its own.
 - **Second check where the list is built.** `buildManagerInboxLiveContacts`
   keeps a resident / applicant only when its house is in the active workspace
   (`workspaceContainsProperty`) AND the viewer owns the row or holds
   Communication on that house (`applicationVisibleToPortalUser(..., "inbox")`).
   A cancelled grant, or a grant without Communication, lists nobody.
-- **A stamped thread belongs to its workspace.** In
-  `conversation-visibility.server.ts` a thread whose `workspace_id` is set and
-  differs from the active workspace is never visible; an unstamped one keeps
-  following its house / work line.
+- **A stamped thread belongs to its workspace** — rule (3) of
+  `conversationVisible` above, which owns that order.
 - **Deleting an empty chat is permanent.** A placeholder has nothing stored, so
   Delete / Delete all archived (on a placeholder or the `contact_thread_<id>`
   an archived placeholder became) saves a row in
@@ -623,7 +632,12 @@ Communication built "No messages yet" rows for another owner's residents.
   conversation is never hidden by it. New message to the person sends
   `clearDismissedContacts`. Archive on a placeholder already persists a real
   archived thread (`archivePlaceholderContactThread`), so it needs no dismissal.
-  Account purge: `viewer_user_id` in `account-purge-manifest.ts`. Test:
+  A batch is at most `DISMISSED_CONTACT_KEYS_PER_CALL`
+  (`communication/dismissed-contact-keys.ts`): the client sends a long list in
+  batches and the route refuses a bigger one, so the count it answers is what
+  was saved. Account purge: `viewer_user_id` for the manager and `contact_key`
+  for the person dismissed (resident and vendor scopes) in
+  `account-purge-manifest.ts` — a re-registered email is a new contact. Test:
   `tests/unit/communication-workspace-isolation.test.ts`,
   `communication-dismissed-contacts-route.test.ts`,
   `communication-delete-empty-chat.test.tsx`,

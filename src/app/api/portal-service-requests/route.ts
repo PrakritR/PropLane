@@ -240,7 +240,10 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Test workspace access is unavailable." }, { status: 403 });
     }
-    const admin = await isAdminUser(user.id);
+    // Writing with every owner's privileges (trusting the body's `managerUserId`, skipping the
+    // ownership and workspace gates) is admin OVERSIGHT, the same explicit surface the read uses:
+    // an admin writing from their own manager portal is the manager they are.
+    const oversight = await resolveAdminOversight(req, user.id, await isAdminUser(user.id));
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const role = await resolveResidentScopedActorRole(db, {
       userId: user.id,
@@ -249,9 +252,9 @@ export async function POST(req: Request) {
     const actor: Actor = {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
-      admin,
+      admin: oversight,
     };
-    const isManagerActor = !admin && role !== "resident";
+    const isManagerActor = !oversight && role !== "resident";
     // The active workspace refuses a write outside it: a create must land in
     // it, an update/delete must refuse a row outside it. Residents and admins
     // are never narrowed by a manager's workspace.

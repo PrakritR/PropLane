@@ -1,5 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  DISMISSED_CONTACT_KEYS_PER_CALL,
+  normalizeDismissedContactKey,
+  validDismissedContactKey,
+} from "@/lib/communication/dismissed-contact-keys";
 
 /**
  * Deleted empty chats (`communication_dismissed_contacts`).
@@ -12,23 +17,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 
 const TABLE = "communication_dismissed_contacts";
-const MAX_KEYS_PER_CALL = 200;
-const MAX_KEY_LENGTH = 320;
 
-/** The directory's own key for a person: the trimmed, lower-cased email. */
-export function normalizeDismissedContactKey(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
+export { DISMISSED_CONTACT_KEYS_PER_CALL, normalizeDismissedContactKey };
 
-/** Distinct, well-formed keys from untrusted input; anything else is dropped. */
+/**
+ * Distinct, well-formed keys from untrusted input; anything else is dropped.
+ * Collects one key PAST the per-call limit and stops, so the caller can refuse
+ * an oversized batch instead of saving part of it and reporting all of it.
+ */
 export function sanitizeDismissedContactKeys(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const keys = new Set<string>();
   for (const value of input) {
-    const key = normalizeDismissedContactKey(value);
-    if (!key || key.length > MAX_KEY_LENGTH || !key.includes("@")) continue;
+    const key = validDismissedContactKey(value);
+    if (!key) continue;
     keys.add(key);
-    if (keys.size >= MAX_KEYS_PER_CALL) break;
+    if (keys.size > DISMISSED_CONTACT_KEYS_PER_CALL) break;
   }
   return [...keys];
 }

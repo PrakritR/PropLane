@@ -1,3 +1,4 @@
+import { AdminSectionTabs } from "@/components/portal/admin-section-tabs";
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
 import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
@@ -74,6 +75,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   name={profile?.full_name ?? null}
                   email={profile?.email ?? null}
                 />
+                <AdminSectionTabs definition={adminPortal} />
                 {children}
               </div>
             </main>

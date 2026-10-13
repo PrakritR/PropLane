@@ -408,12 +408,15 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
-    const admin = await isAdminUser(user.id);
+    // Writing with every owner's privileges (trusting the body's `managerUserId`, skipping the
+    // ownership and workspace gates) is admin OVERSIGHT, the same explicit surface the read uses:
+    // an admin writing from their own manager portal is the manager they are.
+    const oversight = await resolveAdminOversight(req, user.id, await isAdminUser(user.id));
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const actor: Actor = {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
-      admin,
+      admin: oversight,
       role: await resolveResidentScopedActorRole(db, {
         userId: user.id,
         legacyRole: profile?.role ?? user.user_metadata?.role,
@@ -422,11 +425,11 @@ export async function POST(req: Request) {
 
     // Vendors see their offered/assigned work through GET; the record itself is
     // manager-authored (assignment, scheduling, billing), so vendor writes are rejected.
-    if (!admin && actor.role === "vendor") {
+    if (!oversight && actor.role === "vendor") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const isManagerActor = !admin && actor.role !== "resident";
+    const isManagerActor = !oversight && actor.role !== "resident";
     // The active workspace refuses a write outside it: a create must land in
     // it, an update/delete of an OWNED row must refuse a row outside it. The
     // legacy "claimable, unassigned" bucket in `actorMayWriteRecord` below is

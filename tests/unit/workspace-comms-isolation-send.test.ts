@@ -3,8 +3,9 @@
  * one work number per workspace, no cross-workspace send fallback, a transfer
  * that moves the work identity, and a unique index that ignores released rows.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createWorkspaceMemoryDb } from "./support/workspace-memory-db";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
@@ -139,5 +140,54 @@ describe("migration 20261012121000: transfer moves the work identity, index igno
 
   it("is additive: no table or column drops", () => {
     expect(sql).not.toMatch(/drop (table|column)/i);
+  });
+});
+
+/**
+ * Reviewer-visible evidence: the send-number decision, as the manager experiences it. Writes a
+ * transcript to `$EVIDENCE_DIR` (default: the OS temp dir) showing, per house, which work number a
+ * text goes out from — and the exact words a manager sees when the workspace has none.
+ */
+describe("evidence: what a manager is told when a workspace has no work number", () => {
+  it("writes the send-number decision table", async () => {
+    const lines: string[] = [];
+    const ask = async (label: string, db: unknown, target: { propertyId?: string }) => {
+      const result = await resolveOwnerSendNumberRow<{ phone_number: string }>(db as never, owner, cols, target);
+      lines.push(
+        `  ${label.padEnd(46)} ${result.data ? `sends from ${result.data.phone_number}` : `refused: "${result.error?.message}"`}`,
+      );
+      return result;
+    };
+
+    lines.push("Both workspaces have a number of their own:");
+    const both = seed({ manager_sms_numbers: [numberA, numberB] });
+    expect((await ask("house in workspace A (default)", both, { propertyId: "house-a" })).data?.phone_number).toBe("+12065550001");
+    expect((await ask("house in workspace B", both, { propertyId: "house-b" })).data?.phone_number).toBe("+12065550002");
+    expect((await ask("no house named (the default workspace)", both, {})).data?.phone_number).toBe("+12065550001");
+
+    lines.push("", "Only workspace A has a number — B must not borrow it:");
+    const onlyA = seed({ manager_sms_numbers: [numberA] });
+    expect((await ask("house in workspace A (default)", onlyA, { propertyId: "house-a" })).data?.phone_number).toBe("+12065550001");
+    const refused = await ask("house in workspace B", onlyA, { propertyId: "house-b" });
+    expect(refused.data).toBeNull();
+    expect(refused.error).toEqual({ message: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE });
+
+    lines.push("", "Only workspace B has a number — a house-less send does not fall back to it:");
+    const onlyB = seed({ manager_sms_numbers: [numberB] });
+    expect((await ask("no house named (the default workspace)", onlyB, {})).error?.code).toBe(WORKSPACE_NO_WORK_NUMBER_CODE);
+    expect((await ask("house in workspace B", onlyB, { propertyId: "house-b" })).data?.phone_number).toBe("+12065550002");
+
+    const out = process.env.EVIDENCE_DIR ?? tmpdir();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(
+      join(out, "workspace-send-number.txt"),
+      [
+        "One work number per workspace, no cross-workspace fallback.",
+        "Fixture: owner-1 holds workspace A (default, +1 206 555 0001) and workspace B (+1 206 555 0002).",
+        "",
+        ...lines,
+        "",
+      ].join("\n"),
+    );
   });
 });
