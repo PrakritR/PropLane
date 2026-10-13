@@ -38,7 +38,7 @@ export default defineConfig({
   // that governs it, minus headroom for the job's checkout/npm ci/browser-install
   // steps, so Playwright reports the abort instead of GitHub killing the job with
   // no report at all. This value is sized for the full suite's `e2e-full` job
-  // (50-min timeout-minutes); the far tighter `e2e` smoke job (18 min) cannot use
+  // (50-min timeout-minutes); the far tighter `e2e` smoke job (20 min) cannot use
   // it, so `test:e2e:smoke` passes its own `--global-timeout`.
   // `tests/unit/ci-test-workflow.test.ts` fails if either number drifts.
   globalTimeout: 45 * 60_000,
@@ -57,7 +57,8 @@ export default defineConfig({
         command: "npm run build && npm run start",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
-        timeout: 180_000,
+        // The CI production build (`npm run build`) alone now exceeds 3 minutes, so allow 7.
+        timeout: 420_000,
       },
   projects: [
     ...(portalE2eEnabled

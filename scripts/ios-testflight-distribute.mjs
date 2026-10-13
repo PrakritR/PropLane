@@ -173,6 +173,15 @@ export const REQUEST_ATTEMPTS = 4;
 export const REQUEST_BACKOFF_STEP_MS = 2000;
 export const CONFIRM_ATTEMPTS = 5;
 export const CONFIRM_INTERVAL_MS = 12_000;
+/**
+ * The internal group has automatic distribution, so Apple refuses the assignment
+ * POSTs (HTTP 422) and adds the build itself after a variable delay (instant for
+ * builds 266 and 268, over 50s for 267). That case gets ~5 minutes of re-reads
+ * (15 sleeps) instead of the ~50s window above; every other failure keeps the
+ * short window.
+ */
+export const AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS = 16;
+export const AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS = 20_000;
 const PROCESSING_POLL_INTERVAL_MS = 20_000;
 /** ~60s of re-reads (4 sleeps) before a still-transient beta state fails closed. */
 export const BETA_STATE_ATTEMPTS = 5;
@@ -193,6 +202,17 @@ const REQUEST_LATENCY_BUDGET_MS = 5000;
 const PROCESS_STARTUP_BUDGET_MS = 15_000;
 
 /**
+ * confirmAssignment runs with ONE of the two windows, never both, so the reserve
+ * is built from whichever is longer. Taking the max (not the short default) is
+ * what keeps the auto-distribution wait from running into the step cap.
+ */
+const WORST_CASE_CONFIRM_ATTEMPTS = Math.max(CONFIRM_ATTEMPTS, AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS);
+const WORST_CASE_CONFIRM_SLEEP_MS = Math.max(
+  (CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS,
+  (AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS - 1) * AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
+);
+
+/**
  * Every request that is NOT inside the bounded processing wait, so its retry
  * backoff eats step budget the wait's own timeout does not cover:
  *   2  resolveApp + the betaGroups read, before the wait even starts
@@ -200,11 +220,11 @@ const PROCESS_STARTUP_BUDGET_MS = 15_000;
  *      the deadline, so this is the only work the wait can run past it)
  *   1  the alreadyAssigned pre-check
  *   2  the two assign POST shapes
- *   +  one read per confirmAssignment attempt
+ *   +  one read per confirmAssignment attempt (the longer window)
  *   +  one buildBetaDetail read per beta-state attempt
  */
 export const REQUESTS_OUTSIDE_PROCESSING_WAIT =
-  2 + 1 + 1 + 2 + CONFIRM_ATTEMPTS + BETA_STATE_ATTEMPTS;
+  2 + 1 + 1 + 2 + WORST_CASE_CONFIRM_ATTEMPTS + BETA_STATE_ATTEMPTS;
 
 /**
  * Every sleep that happens outside the bounded processing wait. One term per
@@ -212,8 +232,8 @@ export const REQUESTS_OUTSIDE_PROCESSING_WAIT =
  * automatically.
  */
 const SLEEP_MS_OUTSIDE_PROCESSING_WAIT =
-  // confirmAssignment's sleeps between re-reads.
-  (CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS +
+  // confirmAssignment's sleeps between re-reads (the longer window).
+  WORST_CASE_CONFIRM_SLEEP_MS +
   // resolveInstallableBetaState's sleeps while the state is still transient.
   (BETA_STATE_ATTEMPTS - 1) * BETA_STATE_INTERVAL_MS;
 
@@ -547,7 +567,7 @@ async function isBuildAssignedToGroup(client, buildId, groupId) {
  * not tagged retryable — a 401 from a revoked key, a 403, a permanent 4xx —
  * propagates immediately with its own message.
  */
-async function confirmAssignment(
+export async function confirmAssignment(
   client,
   buildId,
   groupId,
@@ -579,14 +599,44 @@ async function confirmAssignment(
 }
 
 /**
- * POST the relationship. Returns the failure reason instead of throwing, so the
- * verification read — not a status code — decides the outcome.
+ * True only for Apple's refusal of an assignment into a group with automatic
+ * distribution: HTTP 422 AND the "internal group" wording. Any other status, or a
+ * 422 about something else, is an ordinary failure and keeps the short window.
+ */
+export function isAutoDistributionRejection(message) {
+  return (
+    /\bHTTP 422\b/.test(message) &&
+    /cannot add internal group|cannot be assigned to this internal group/i.test(message)
+  );
+}
+
+/**
+ * Window for the confirming reads. Only an assignment that failed EVERYWHERE with
+ * the auto-distribution 422 earns the long one, because only then is Apple
+ * expected to add the build itself; the read stays the sole gate either way.
+ */
+export function confirmationWindow(assignOutcome) {
+  if (!assignOutcome?.autoDistribution) return {};
+  console.log(
+    "  group distributes builds automatically; waiting for Apple to add the build " +
+      `(up to ${AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS} reads, ${AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS / 1000}s apart)`,
+  );
+  return {
+    attempts: AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
+    intervalMs: AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
+  };
+}
+
+/**
+ * POST the relationship. Returns `{ reason, autoDistribution }` on failure (null
+ * on success) instead of throwing, so the verification read — not a status
+ * code — decides the outcome.
  *
  * That matters concretely: a POST retried after a transient 5xx can come back 409
  * "already exists", and throwing there would fail a run whose build is assigned
  * and installable.
  */
-async function assignBuildToGroup(client, buildId, groupId) {
+export async function assignBuildToGroup(client, buildId, groupId) {
   // Apple documents both directions of this relationship. Try the canonical
   // "Add Builds to a Beta Group" first; if Apple rejects the shape, try the
   // inverse before giving up.
@@ -596,6 +646,7 @@ async function assignBuildToGroup(client, buildId, groupId) {
   ];
 
   const failures = [];
+  let autoDistributionRejections = 0;
   for (const attempt of attempts) {
     try {
       await client.post(attempt.path, attempt.body);
@@ -603,10 +654,14 @@ async function assignBuildToGroup(client, buildId, groupId) {
       return null;
     } catch (error) {
       failures.push(`${attempt.path}: ${error.message}`);
+      if (isAutoDistributionRejection(error.message)) autoDistributionRejections += 1;
       console.log(`  ✗ POST ${attempt.path} failed: ${error.message}`);
     }
   }
-  return `Both relationship writes were rejected:\n${failures.join("\n")}`;
+  return {
+    reason: `Both relationship writes were rejected:\n${failures.join("\n")}`,
+    autoDistribution: autoDistributionRejections === attempts.length,
+  };
 }
 
 /**
@@ -793,7 +848,7 @@ async function main() {
         : `  pre-check read failed, proceeding to assign — ${error.message.slice(0, 160)}`,
     );
   }
-  let assignError = null;
+  let assignOutcome = null;
   if (alreadyAssigned) {
     console.log("Build is already assigned to the group; nothing to change.");
   } else if (verifyOnly) {
@@ -805,7 +860,7 @@ async function main() {
     console.log("Assigning build to the internal group…");
     // Deliberately does not throw: the verification read decides, so a 409
     // "already exists" cannot fail a run whose build really is installable.
-    assignError = await assignBuildToGroup(client, build.id, group.id);
+    assignOutcome = await assignBuildToGroup(client, build.id, group.id);
   }
 
   // Verification is a fresh read, not a restatement of the POST's status code.
@@ -820,7 +875,7 @@ async function main() {
       // "Could not confirm group membership" instead of claiming the build is NOT
       // in the group.
       : await confirmAssignment(client, build.id, group.id, { attempts: 1 })
-    : await confirmAssignment(client, build.id, group.id);
+    : await confirmAssignment(client, build.id, group.id, confirmationWindow(assignOutcome));
   console.log(`  build ${buildNumber} (${build.id}) in ${JSON.stringify(group.attributes.name)}: ${assigned}`);
   // --verify-only never polls: it reports the state as it stands right now. An
   // unassigned build is already going to fail below, so it gets the same single
@@ -831,6 +886,7 @@ async function main() {
       ? await reportBetaDetail(client, build.id)
       : await resolveInstallableBetaState(client, build.id);
 
+  const assignError = assignOutcome?.reason ?? null;
   if (!assigned) {
     throw new Error(
       `Build ${buildNumber} is NOT in ${JSON.stringify(group.attributes.name)}. ` +

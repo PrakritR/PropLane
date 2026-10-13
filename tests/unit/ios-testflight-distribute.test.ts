@@ -7,11 +7,16 @@ import {
   ASC_BASE,
   AscClient,
   assertInstallableBetaState,
+  assignBuildToGroup,
+  AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
+  AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
   BETA_STATE_ATTEMPTS,
   BETA_STATE_INTERVAL_MS,
   betaStateIsTransient,
   CONFIRM_ATTEMPTS,
   CONFIRM_INTERVAL_MS,
+  confirmAssignment,
+  confirmationWindow,
   DEFAULT_PROCESSING_TIMEOUT_SECONDS,
   MAX_PROCESSING_TIMEOUT_SECONDS,
   normalizeGroupName,
@@ -143,9 +148,9 @@ describe("beta-state gate fails closed", () => {
   });
 
   it("fails on a state that blocks installation", () => {
-    expect(() => assertInstallableBetaState({ internalBuildState: "MISSING_EXPORT_COMPLIANCE" }, "38")).toThrow(
-      /ITSAppUsesNonExemptEncryption/,
-    );
+    expect(() =>
+      assertInstallableBetaState({ internalBuildState: "MISSING_EXPORT_COMPLIANCE" }, "38"),
+    ).toThrow(/ITSAppUsesNonExemptEncryption/);
     expect(() => assertInstallableBetaState({ internalBuildState: "PROCESSING_EXCEPTION" }, "38")).toThrow();
   });
 
@@ -159,7 +164,9 @@ describe("beta-state gate fails closed", () => {
 
   it("passes an installable state", () => {
     expect(() => assertInstallableBetaState({ internalBuildState: "IN_BETA_TESTING" }, "38")).not.toThrow();
-    expect(() => assertInstallableBetaState({ internalBuildState: "READY_FOR_BETA_TESTING" }, "38")).not.toThrow();
+    expect(() =>
+      assertInstallableBetaState({ internalBuildState: "READY_FOR_BETA_TESTING" }, "38"),
+    ).not.toThrow();
   });
 });
 
@@ -169,7 +176,11 @@ describe("betaStateIsTransient", () => {
   // these two is what keeps the allowlist from producing a false red.
   it("treats only the not-yet-decided states as transient", () => {
     expect(betaStateIsTransient({ internalBuildState: "PROCESSING" })).toBe(true);
-    expect(betaStateIsTransient({ internalBuildState: "IN_EXPORT_COMPLIANCE_REVIEW" })).toBe(true);
+    expect(
+      betaStateIsTransient({
+        internalBuildState: "IN_EXPORT_COMPLIANCE_REVIEW",
+      }),
+    ).toBe(true);
   });
 
   it("never re-polls a decided state, so a real verdict is never softened", () => {
@@ -220,13 +231,17 @@ describe("AscClient credential failures", () => {
       text: async () => JSON.stringify({ errors: [{ title: "NOT_AUTHORIZED" }] }),
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(unauthorized));
-    await expect(new AscClient(() => ({ token: "t", expiresAt: 2 ** 40 })).get("builds")).rejects.toMatchObject({
+    await expect(
+      new AscClient(() => ({ token: "t", expiresAt: 2 ** 40 })).get("builds"),
+    ).rejects.toMatchObject({
       retryable: false,
     });
 
     vi.unstubAllGlobals();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("socket hang up")));
-    await expect(new AscClient(() => ({ token: "t", expiresAt: 2 ** 40 })).get("builds")).rejects.toMatchObject({
+    await expect(
+      new AscClient(() => ({ token: "t", expiresAt: 2 ** 40 })).get("builds"),
+    ).rejects.toMatchObject({
       retryable: true,
     });
   });
@@ -242,7 +257,10 @@ describe("AscClient credential failures", () => {
       });
     vi.stubGlobal("fetch", fetchSpy);
 
-    const client = new AscClient(() => ({ token: "t", expiresAt: Math.floor(Date.now() / 1000) + 1200 }));
+    const client = new AscClient(() => ({
+      token: "t",
+      expiresAt: Math.floor(Date.now() / 1000) + 1200,
+    }));
     await expect(client.get("apps")).resolves.toEqual({ data: [] });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   }, 15_000);
@@ -278,7 +296,10 @@ describe("AscClient credential failures", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    const client = new AscClient(() => ({ token: "t", expiresAt: Math.floor(Date.now() / 1000) + 1200 }));
+    const client = new AscClient(() => ({
+      token: "t",
+      expiresAt: Math.floor(Date.now() / 1000) + 1200,
+    }));
     await expect(client.get("apps")).rejects.toThrow(/HTTP 401/);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
@@ -293,7 +314,12 @@ describe("timeout budget leaves room to verify", () => {
     // Computed from the script's OWN constants, never re-typed as literals: a
     // duplicated copy drifts silently and turns this guard into a tautology that
     // only catches someone hard-coding the maximum.
-    const confirmRePollSleepSeconds = ((CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS) / 1000;
+    // confirmAssignment runs with one of two windows; the reserve takes the longer.
+    const confirmRePollSleepSeconds =
+      Math.max(
+        (CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS,
+        (AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS - 1) * AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
+      ) / 1000;
     const betaStateRePollSleepSeconds = ((BETA_STATE_ATTEMPTS - 1) * BETA_STATE_INTERVAL_MS) / 1000;
     const worstCaseBackoffPerRequestSeconds =
       (((REQUEST_ATTEMPTS * (REQUEST_ATTEMPTS - 1)) / 2) * REQUEST_BACKOFF_STEP_MS) / 1000;
@@ -351,6 +377,90 @@ describe("timeout budget leaves room to verify", () => {
     expect(script).toContain(
       "await sleep(Math.min(PROCESSING_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));",
     );
+  });
+});
+
+describe("assignment into an auto-distributing group", () => {
+  // Run 38432122653: the internal group distributes automatically, so Apple 422s
+  // both assignment POSTs and then adds the build itself after a variable delay
+  // (instant for build 266, over 50s for 267). The short window reded a good build.
+  const AUTO_422 =
+    "POST https://api.appstoreconnect.apple.com/v1/x → HTTP 422: Builds cannot be assigned to this " +
+    "internal group. — Cannot add internal group to a build. — ENTITY_UNPROCESSABLE";
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Mirrors main(): assign, pick the window from the outcome, then confirm.
+  const run = async (postError: string, appearsOnRead: number | null) => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    let reads = 0;
+    const client = {
+      post: vi.fn().mockRejectedValue(new Error(postError)),
+      get: vi.fn(async () => {
+        reads += 1;
+        return {
+          data: appearsOnRead !== null && reads >= appearsOnRead ? [{ id: "b1" }] : [],
+        };
+      }),
+    };
+    const outcome = await assignBuildToGroup(client, "b1", "g1");
+    const confirming = confirmAssignment(client, "b1", "g1", confirmationWindow(outcome));
+    await vi.advanceTimersByTimeAsync(
+      Math.max(
+        CONFIRM_ATTEMPTS * CONFIRM_INTERVAL_MS,
+        AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS * AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
+      ),
+    );
+    return { client, outcome, result: await confirming, reads: () => reads };
+  };
+
+  it("waits past the old window and succeeds once Apple adds the build", async () => {
+    const laterThanOldWindow = CONFIRM_ATTEMPTS + 6;
+    expect(laterThanOldWindow).toBeLessThanOrEqual(AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS);
+    const { client, outcome, result, reads } = await run(AUTO_422, laterThanOldWindow);
+
+    expect(client.post).toHaveBeenCalledTimes(2);
+    expect(outcome?.autoDistribution).toBe(true);
+    expect(result).toBe(true);
+    expect(reads()).toBe(laterThanOldWindow);
+  });
+
+  it("still fails closed when the build never appears", async () => {
+    const { result, reads } = await run(AUTO_422, null);
+
+    expect(result).toBe(false);
+    expect(reads()).toBe(AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS);
+  });
+
+  it("keeps the short window for any other 4xx, or a 422 about something else", async () => {
+    const other403 = await run(
+      "POST x → HTTP 403: Forbidden — cannot be assigned to this internal group",
+      null,
+    );
+    expect(other403.outcome?.autoDistribution).toBe(false);
+    expect(other403.result).toBe(false);
+    expect(other403.reads()).toBe(CONFIRM_ATTEMPTS);
+
+    const other422 = await run("POST x → HTTP 422: Invalid relationship — ENTITY_UNPROCESSABLE", null);
+    expect(other422.outcome?.autoDistribution).toBe(false);
+    expect(other422.reads()).toBe(CONFIRM_ATTEMPTS);
+  });
+
+  it("does not widen the window when only one of the two POSTs hit the auto-distribution 422", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const client = {
+      post: vi
+        .fn()
+        .mockRejectedValueOnce(new Error(AUTO_422))
+        .mockRejectedValueOnce(new Error("POST x → HTTP 409: already exists")),
+    };
+    const outcome = await assignBuildToGroup(client, "b1", "g1");
+    expect(outcome?.autoDistribution).toBe(false);
+    expect(confirmationWindow(outcome)).toEqual({});
   });
 });
 

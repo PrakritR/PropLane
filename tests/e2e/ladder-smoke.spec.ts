@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Ladder smoke", () => {
   test("public home loads", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /^propLane$/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /your ai property management assistant/i })).toBeVisible();
   });
 
   test("sign-in page loads", async ({ page }) => {

@@ -183,8 +183,10 @@ test.describe("Public home", () => {
 
     test("no stage chrome: no portal switcher, stage tabs, guide line or activity row", async ({ page }) => {
       const section = await openDemo(page);
-      // The first beat opens Communication, whose own Active / Archived folders (the real list header) are the only tab strip on screen.
-      await expect(section.getByRole("navigation", { name: "Conversation folders" })).toHaveCount(1);
+      // The first beat opens Communication. The demo window is narrower than 760px, so the real inbox draws its single-column layout (`pickInboxColumns`): the thread alone, with its own header actions, and no Active / Archived list header. No stage tab strip stands in for it.
+      await expect(section.getByRole("heading", { level: 1, name: "Communication" })).toBeVisible();
+      await expect(section.getByRole("button", { name: "Archive conversation" })).toBeVisible();
+      await expect(section.getByRole("tablist")).toHaveCount(0);
       await expect(section.locator(".rlp-stage-tabs, .rlp-portal-switch, .rlp-guide-line, .rlp-activity")).toHaveCount(0);
       for (const gone of ["Sample demo", "Explore freely", "Start the story", "Restart guide", "ACTIVITY"]) {
         await expect(section.getByText(gone, { exact: true })).toHaveCount(0);

@@ -98,7 +98,8 @@ jobs:
   # and resident credentials can authenticate before these public flows run.
   # The complete 158-case suite is intentionally a separate scheduled/manual job:
   # running it serially with CI retries exceeded this job's budget on every push.
-  # `test:e2e:smoke` carries a 12-minute `--global-timeout` because the config's
+  # `test:e2e:smoke` carries a 14-minute `--global-timeout` (the webServer's production build
+  # can take up to 7 of those minutes) because the config's
   # 45-minute default is sized for `e2e-full` and would let GitHub kill this job
   # with no Playwright report at all. The 6 minutes between that cap and
   # `timeout-minutes` are for the steps Playwright does not govern: `npm ci` and
@@ -107,7 +108,7 @@ jobs:
   # Playwright's own cap can abort and report.
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 20
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
