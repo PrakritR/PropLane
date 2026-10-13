@@ -62,7 +62,6 @@ import {
   adminNavRowSection,
   collapseAdminNavItems,
   groupNavItems,
-  isAppNavHiddenInNativeShell,
   isHiddenFromMobileNav,
   mergeAdminGroupCounts,
 } from "@/lib/portals/nav-groups";

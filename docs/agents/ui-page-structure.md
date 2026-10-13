@@ -25,7 +25,9 @@ them; do not invent a variant.
   other actions after, a red destructive action last. If the list surface already gives rows a
   ⋯ (selection via `RowSelectCheckbox` + `bulkActions`), put the row actions there — never a
   second hand-rolled ⋯ next to it.
-- Dates read as "Oct 2, 2026", never ISO; money as "$1,050/mo".
+- Dates read as "Oct 2, 2026", never ISO; money as "$1,050/mo"; a bare `YYYY-MM` month as
+  "Nov 2026" (`formatPortalMonth`); a US phone as "(425) 555-0147" (`formatUsPhoneDisplay`, which
+  leaves a number outside the NANP as it was stored).
 
 **Pop-ups and create/edit flows → Add property** (`ListingEditorV2` / `AddWorkspace`):
 - One header: title, save state, "✦ Ask PropLane", ✕. Left step rail, centre step, right
@@ -94,6 +96,13 @@ They show fewer sections, never a different layout.
   the avatar pill.
 - **Avatar menu:** name, email · Settings · Appearance ☀/☾ · Sign out (red). Settings
   opens from here, never from the sidebar.
+- **Admin's sidebar is seven unheaded rows** (Dashboard, Communication, Accounts, Money,
+  Properties, Support, Growth) instead of one row per section: a grouped row stands for several
+  sections, which appear as a Properties-style tab strip across the top of every page in the group
+  (`ADMIN_SECTION_TABS` in `src/lib/portals/nav-groups.ts`, rendered by `AdminSectionTabs`). Section
+  ids, routes and `adminPortal.sections` are unchanged — adding an admin section means adding a tab
+  to a group, not an eighth row. Its phone bottom tabs are Dashboard · Properties · Accounts ·
+  Support · More.
 - **Phone:** header "WORKSPACE ⌄" in bold uppercase plus the avatar; bottom tabs (manager:
   Properties · Residents · Dashboard · Communication · More). More is active for every other
   section and opens a sheet grouped like the sidebar. A floating ✦ sits above the tabs.
@@ -117,15 +126,22 @@ They show fewer sections, never a different layout.
 - **Header icons** are exactly the real page's: filter, page-specific (share link,
   availability, calendar sync, …), settings gear. No download/export icon in list headers.
 - **Everything in the header is on one line.** Desktop: tabs · search · icons · + in a single row.
-  Phone: tabs on row one (scrolling sideways), search + icons + + on row two. The + never wraps onto
-  a line of its own.
+  Phone: tabs on row one (scrolling sideways, and the row always scrolls the active tab into view),
+  search + icons + + on row two. The + never wraps onto a line of its own.
+- **A URL that names no tab opens the first tab that has rows** (`firstNonEmptyTabToOpen`,
+  `src/lib/portal-default-tab.ts`), so `/portal/tasks` and `/portal/services` never open on an empty
+  Open; the chosen tab replaces the address (`replaceState`, so Back still leaves the page). A URL
+  that names a tab always wins, and so does any tab the manager picks.
 - **Filters always live in the top-right Filter popover**, never as inline dropdown rows:
   an anchored card titled "Filter" with ✕, UPPERCASE field labels, pill selects, then Reset
   (blue text) and Save (blue pill). Active filters show as a dot or count on the icon.
   Captain, Oct 9: phone Filter opens as a bottom sheet (drag handle, scrolling body, Reset and
   Save pinned in the footer); the anchored popover is desktop only.
 - **Rows** (`PortalRecordListSurface`): tile · title · place line · glyph facts · figure · ⋯.
-  No pills or status chips on rows (the tab is the status). The whole row opens the record.
+  No pills or status chips on rows (the tab is the status). The whole row opens the record. A stored
+  id is never shown as a place or room name — `placeNameOrEmpty` / `looksLikeRawRecordId`
+  (`src/lib/room-display-label.ts`) drop the line instead. A fact that only repeats the tab is
+  dropped too (a lease's "Draft" on the Draft tab, `leaseStageFactInTab`).
 - **⋯ menu:** a floating card whose heading is the record's name in grey, followed by the
   record kind's real actions in the real order (`src/lib/portals/record-action-order.ts`).
   Destructive actions are red and last. On phone it's a bottom sheet. Choosing an item closes the menu.
