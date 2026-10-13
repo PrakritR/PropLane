@@ -3,7 +3,7 @@
 import { MoreHorizontal } from "lucide-react";
 import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
-import { RecordActionItems, withRecordActionIcon } from "@/components/ui/record-action-menu";
+import { RecordActionItems, isRecordActionRowShape, withRecordActionIcon } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -200,7 +200,12 @@ export function PortalAdaptiveActionRow({
   // The action's own `menuItem` is the menu shape (glyph + label) the overflow
   // path already uses; `node` is a bare icon button for a header row, which
   // `withRecordActionIcon` cannot re-shape once it is a forwardRef component.
-  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{withRecordActionIcon(action.menuItem ?? action.node)}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
+  // A `menuItem` that is not a shape RecordActionItems can turn into a row
+  // (the type is a bare ReactNode) would land here inert, so fall back to
+  // `node`, which every caller builds from a Button.
+  const recordMenuNode = (action: PortalAdaptiveAction) =>
+    withRecordActionIcon(isRecordActionRowShape(action.menuItem) ? action.menuItem : action.node);
+  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{recordMenuNode(action)}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);

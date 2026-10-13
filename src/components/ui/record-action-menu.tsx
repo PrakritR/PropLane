@@ -108,6 +108,21 @@ function withLeadingIcon(leaf: ReactElement<ActionLeafProps>, tone: RecordAction
   return cloneElement(leaf, extra, <Icon className="size-4 shrink-0" aria-hidden />, <span className="min-w-0 truncate">{leaf.props.children}</span>);
 }
 
+/**
+ * Whether {@link RecordActionItems} can turn this node into a real menu row.
+ *
+ * Only a Button / `button` / DropdownMenuItem becomes a `menuitem`; anything
+ * else is rendered through untouched, so a caller handing over some other
+ * shape would land in the menu as inert, unfocusable markup.
+ */
+export function isRecordActionRowShape(node: ReactNode): boolean {
+  return Children.toArray(node).some((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return false;
+    if (child.type === Fragment || child.type === "div") return isRecordActionRowShape(child.props.children);
+    return child.type === Button || child.type === "button" || child.type === DropdownMenuItem;
+  });
+}
+
 /** A text-only action button inside a menu gets the same leading glyph as a tagged leaf (the adaptive row hands its actions over as opaque nodes). */
 export function withRecordActionIcon(node: ReactNode): ReactNode {
   if (!isValidElement<ActionLeafProps>(node)) return node;

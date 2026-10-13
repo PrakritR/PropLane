@@ -173,10 +173,12 @@ describe("44px phone tap targets", () => {
 });
 
 describe("the Communication header on a phone", () => {
-  it("hides the work number/email boxes below lg and lets the email wrap to its full address", () => {
+  it("hides the work number/email boxes below lg and truncates the work email onto one line", () => {
     const card = read("src/components/portal/pro-work-number-card.tsx");
     expect(card).toContain("max-lg:hidden");
-    expect(card).toContain("wrapValue");
+    // The email box is a one-line identity card like the number beside it: a long
+    // address truncates instead of wrapping the box to two or three lines.
+    expect(card).not.toContain("wrapValue");
   });
 
   it("gives a dismissed setup banner no wrapper slot", () => {
