@@ -12,9 +12,7 @@ import { taggedListingLink } from "@/lib/listing-channels/post-text";
 import { metaAppLive } from "@/lib/listing-channels/registry";
 import { loadMetaConnectionByPageId, markMetaConnectionRevoked, type MetaConnection } from "@/lib/listing-channels/meta/connection.server";
 import { MetaGraphError, sendMetaPageMessage } from "@/lib/listing-channels/meta/graph.server";
-import { PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES } from "@/lib/portal-sandbox-accounts";
-
-const FACEBOOK_LEAD_EMAIL_SUFFIX = PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES[0];
+import { FACEBOOK_LEAD_EMAIL_SUFFIX } from "@/lib/portal-sandbox-accounts";
 
 export const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 

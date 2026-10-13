@@ -9,12 +9,18 @@ export function isPortalSandboxEmail(email: string | null | undefined): boolean 
 }
 
 /**
- * Addresses PropLane mints itself for a channel that carries no email (a Facebook
- * Messenger lead is filed as `facebook-<psid>@facebook.proplane.local`). They are a
+ * The address ending a Facebook Messenger lead is filed under
+ * (`facebook-<psid>@facebook.proplane.local`). It is part of the conversation identity,
+ * so it is named once here and never derived from a list position.
+ */
+export const FACEBOOK_LEAD_EMAIL_SUFFIX = "@facebook.proplane.local";
+
+/**
+ * Addresses PropLane mints itself for a channel that carries no email. They are a
  * thread key, never a mailbox: handing one to Resend is a hard bounce charged to the
  * workspace's own sending domain, so nothing outbound may ever be sent to them.
  */
-export const PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES = ["@facebook.proplane.local"] as const;
+export const PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES = [FACEBOOK_LEAD_EMAIL_SUFFIX] as const;
 
 /** A PropLane-minted stand-in address with no mailbox behind it. */
 export function isUndeliverableEmailAddress(email: string | null | undefined): boolean {

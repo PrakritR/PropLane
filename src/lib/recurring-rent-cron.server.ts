@@ -12,6 +12,13 @@ export const SWEEP_MAX_NEW_CHARGES = 500;
  * it were the same ones skipped every night, and nobody ever billed them.
  */
 const PROFILE_PAGE_SIZE = 1000;
+/**
+ * Wall-clock budget for one run, well inside the route's `maxDuration`. A run that is
+ * killed mid-flight reports nothing at all, so the sweep stops itself first, says how
+ * many profiles it did not reach, and leaves them to the next night (the write is
+ * insert-only, so continuing later costs nothing).
+ */
+export const SWEEP_MAX_MS = 45_000;
 const MANAGER_CHARGE_READ_LIMIT = 5000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -21,6 +28,8 @@ export type RecurringRentCronResult = {
   created: number;
   skippedHeld: number;
   capped: boolean;
+  /** Profiles the run stopped short of, when `capped`. The next run reaches them. */
+  remaining: number;
   errors: string[];
 };
 
@@ -40,11 +49,16 @@ function billableProfile(p: RecurringRentProfile): boolean {
  * already exists is never touched, and a paid row is never rewritten).
  */
 export async function runRecurringRentSweep(db: SupabaseClient, now: Date = new Date()): Promise<RecurringRentCronResult> {
-  const result: RecurringRentCronResult = { managers: 0, profiles: 0, created: 0, skippedHeld: 0, capped: false, errors: [] };
+  const result: RecurringRentCronResult = { managers: 0, profiles: 0, created: 0, skippedHeld: 0, capped: false, remaining: 0, errors: [] };
+  const deadline = Date.now() + SWEEP_MAX_MS;
 
   type ProfileRow = { id?: unknown; manager_user_id?: unknown; row_data?: unknown };
   const profileRows: ProfileRow[] = [];
   for (let from = 0; from < SWEEP_MAX_PROFILES; from += PROFILE_PAGE_SIZE) {
+    if (Date.now() >= deadline) {
+      result.capped = true;
+      break;
+    }
     const to = Math.min(from + PROFILE_PAGE_SIZE, SWEEP_MAX_PROFILES) - 1;
     const { data, error: profileError } = await db
       .from("portal_recurring_rent_profile_records")
@@ -74,9 +88,17 @@ export async function runRecurringRentSweep(db: SupabaseClient, now: Date = new 
     byManager.set(managerId, list);
   }
 
-  for (const [managerId, managerProfiles] of byManager) {
-    if (result.created >= SWEEP_MAX_NEW_CHARGES) {
+  const managerQueue = [...byManager.entries()];
+  for (let index = 0; index < managerQueue.length; index += 1) {
+    const [managerId, managerProfiles] = managerQueue[index]!;
+    if (result.created >= SWEEP_MAX_NEW_CHARGES || Date.now() >= deadline) {
       result.capped = true;
+      result.remaining = managerQueue.slice(index).reduce((total, [, list]) => total + list.length, 0);
+      console.warn("[recurring-rent-cron] sweep capped", {
+        managers: result.managers,
+        created: result.created,
+        remainingProfiles: result.remaining,
+      });
       break;
     }
     result.managers += 1;

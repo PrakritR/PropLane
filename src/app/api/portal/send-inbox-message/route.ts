@@ -55,7 +55,7 @@ import {
   ensureSmsIncludesPortalLink,
   type ResidentSmsLinkKind,
 } from "@/lib/claw-resident-links";
-import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
+import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   NOTIFICATION_CATEGORIES,
@@ -750,17 +750,19 @@ export async function POST(req: Request) {
       deliverViaSms &&
       (eventCategory ? recipients.some((r) => channelByEmail.get(r.email)?.sms === true) : true);
 
-    // All non-sandbox recipient emails — sandbox accounts skip Resend.
+    // Every recipient Resend may actually be handed: sandbox accounts skip it, and so do the
+    // addresses PropLane mints for a channel with no mailbox (a Facebook lead's thread key) —
+    // one rule, `shouldSkipOutboundEmail`.
     // NOTE: endsWith("@axis.local") alone is wrong for "@test.proplane.local".
     const toEmails = recipients
       .map((recipient) => recipient.email)
-      .filter((email) => !isPortalSandboxEmail(email));
+      .filter((email) => !shouldSkipOutboundEmail(email));
     // The actual email SEND list: category mode → recipients whose email channel
     // is on; legacy → all real recipients when deliverViaEmail.
     const emailToSend = recipients
       .filter((recipient) => emailWanted(recipient.email))
       .map((recipient) => recipient.email)
-      .filter((email) => !isPortalSandboxEmail(email));
+      .filter((email) => !shouldSkipOutboundEmail(email));
 
     // Deliver to portal inbox for all recipients (including @axis.local demo emails)
     let propertyThreadId: string | null = null;

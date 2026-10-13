@@ -63,14 +63,6 @@ export function useShortStay(): ShortStayState | null {
 
 export function ShortStayProvider({ property, disabled = false, children }: { property: MockProperty; /** A manager's own preview never books: the card keeps its read-only price line. */ disabled?: boolean; children: ReactNode }) {
   const sub = property.listingSubmission;
-  const offered = !disabled && listingOffersShortStay(sub);
-  const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(offered ? property.id : null);
-  const [checkIn, setCheckInRaw] = useState("");
-  const [checkOut, setCheckOut] = useState("");
-  const [guests, setGuestsRaw] = useState(1);
-  const [roomId, setRoomIdRaw] = useState("");
-  const today = pacificTodayKey();
-
   const rooms = useMemo<StayRoom[]>(
     () =>
       (sub?.rooms ?? [])
@@ -83,6 +75,16 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
         })),
     [sub],
   );
+  // A hold is always on a room, so a listing carrying none has nothing to book: the whole
+  // short-stay block stays off the page and the monthly card stands alone, rather than
+  // drawing dates, a total and a "Request to book" that can never be pressed.
+  const offered = !disabled && listingOffersShortStay(sub) && rooms.length > 0;
+  const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(offered ? property.id : null);
+  const [checkIn, setCheckInRaw] = useState("");
+  const [checkOut, setCheckOut] = useState("");
+  const [guests, setGuestsRaw] = useState(1);
+  const [roomId, setRoomIdRaw] = useState("");
+  const today = pacificTodayKey();
 
   const check = useMemo(() => validateShortStayDates(checkIn, checkOut, today), [checkIn, checkOut, today]);
   const rangeValid = check.ok;
