@@ -1,3 +1,4 @@
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { composePropertyTitle } from "@/lib/property-title";
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
@@ -340,7 +341,7 @@ export async function upsertPropertyRecordToServer(input: {
   // actual save, so this must report success rather than aborting it.
   if (isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/property-records", {
+    const res = await fetch(adminOversightUrl("/api/property-records"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -381,7 +382,7 @@ export async function upsertPropertyRecordToServer(input: {
 export function deleteMirroredPropertyRecord(id: string) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
   discardPropertyRecordWrite(id);
-  void fetch("/api/property-records", {
+  void fetch(adminOversightUrl("/api/property-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "delete", id }),
@@ -406,7 +407,7 @@ export async function deletePropertyRecordFromServer(id: string): Promise<boolea
   if (typeof window === "undefined") return false;
   if (isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/property-records", {
+    const res = await fetch(adminOversightUrl("/api/property-records"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -552,7 +553,7 @@ async function runPropertyPipelineSync(opts?: {
       await flushPropertyRecordOutbox(viewerKey);
       // Bounded: this request sits inside a coalesced refresher, and one that never settles would hold
       // the in-flight slot for good, queueing every later forced sync (and "Try again") behind it.
-      const res = await fetchWithTimeout("/api/property-records", { credentials: "include", cache: "no-store" }, PROPERTY_PIPELINE_FETCH_TIMEOUT_MS);
+      const res = await fetchWithTimeout(adminOversightUrl("/api/property-records"), { credentials: "include", cache: "no-store" }, PROPERTY_PIPELINE_FETCH_TIMEOUT_MS);
       const body = (await res.json()) as {
         snapshot?: PropertyPipelineSnapshot;
         linkedPropertyIds?: string[];
@@ -1435,7 +1436,7 @@ export async function promoteLegacyPendingListingsToLive(): Promise<number> {
           address: created.address,
         },
       });
-      void fetch("/api/property-records", {
+      void fetch(adminOversightUrl("/api/property-records"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", id: pending.id }),

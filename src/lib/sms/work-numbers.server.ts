@@ -236,15 +236,35 @@ export async function provisionNumberForWorkspace(
     return { ok: false, error: "You cannot request a number for that workspace.", state: "failed", code: "not_authorized" };
   }
 
+  // A hold on a RELEASED number is history, not a number the workspace holds:
+  // releasing never removes the join row, so counting it would keep a replacement
+  // out forever — the case the live-rows-only uniqueness index exists for.
   const { data: heldNow } = await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", workspaceId);
-  if ((heldNow?.length ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
+  const heldIds = [...new Set((heldNow ?? []).map((h) => String(h.number_id ?? "").trim()).filter(Boolean))];
+  let releasedHeld = 0;
+  if (heldIds.length > 0) {
+    // Only a hold the database says is released is discounted; an unreadable or
+    // missing row still counts, so the cap fails closed.
+    const { data: releasedHolds } = await db
+      .from("manager_sms_numbers")
+      .select("id")
+      .in("id", heldIds)
+      .not("released_at", "is", null);
+    releasedHeld = (releasedHolds ?? []).length;
+  }
+  if (heldIds.length - releasedHeld >= WORKSPACE_WORK_NUMBER_LIMIT) {
     return { ok: false, error: "A workspace can hold at most 1 work number.", state: "failed", code: "cap_exceeded" };
   }
 
+  // Live rows only: the uniqueness index is partial (`where released_at is null`),
+  // so a released row sits beside the live one for history. A released number is
+  // not this workspace's work number — it must not block or count as one, and a
+  // workspace-keyed `maybeSingle` over both rows would error instead of answering.
   const { data: existingHome } = await db
     .from("manager_sms_numbers")
     .select("id")
     .eq("workspace_id", workspaceId)
+    .is("released_at", null)
     .maybeSingle();
   if (existingHome?.id) {
     return {
@@ -262,7 +282,7 @@ export async function provisionNumberForWorkspace(
     getEffectiveManagerSkuTier(actor),
     loadManagerPlanAddonQuantities(db, actor),
     db.from("portal_workspaces").select("id").eq("owner_user_id", actor),
-    db.from("manager_sms_numbers").select("id").eq("manager_user_id", actor),
+    db.from("manager_sms_numbers").select("id").eq("manager_user_id", actor).is("released_at", null),
   ]);
   if (!tierResult.ok) {
     return { ok: false, error: "Could not verify your plan.", state: "failed", code: "budget_exceeded" };
@@ -295,6 +315,7 @@ export async function provisionNumberForWorkspace(
       .from("manager_sms_numbers")
       .select("id")
       .eq("workspace_id", workspaceId)
+      .is("released_at", null)
       .maybeSingle();
     if (homeRow?.id) {
       await db

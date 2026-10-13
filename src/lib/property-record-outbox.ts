@@ -15,6 +15,7 @@
  * never resurrect what the manager just took down.
  */
 
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import type { PropertyPipelineSnapshot } from "@/lib/persisted-property-records";
 import type { ManagerPendingPropertyRow } from "@/lib/demo-property-pipeline";
 import type { MockProperty } from "@/data/types";
@@ -112,7 +113,7 @@ async function send(entry: PropertyRecordOutboxEntry, fetchImpl: typeof fetch): 
   if (inFlight.has(key)) return;
   inFlight.add(key);
   try {
-    const res = await fetchImpl("/api/property-records", {
+    const res = await fetchImpl(adminOversightUrl("/api/property-records"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",

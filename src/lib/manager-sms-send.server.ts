@@ -4,6 +4,7 @@ import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/m
 import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dispatcher.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.server";
+import { WORKSPACE_NO_WORK_NUMBER_CODE, WORKSPACE_NO_WORK_NUMBER_MESSAGE } from "@/lib/sms/workspace-no-work-number";
 import { track } from "@/lib/analytics/posthog";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
@@ -215,7 +216,9 @@ async function finishEnqueuedSend(
 ): Promise<SendResult> {
   if (!result.ok) {
     const userMessage =
-      result.error === "recipient_opted_out"
+      result.error === WORKSPACE_NO_WORK_NUMBER_CODE
+        ? WORKSPACE_NO_WORK_NUMBER_MESSAGE
+        : result.error === "recipient_opted_out"
         ? "That number has opted out of texts."
         : result.error === "scoped_consent_missing"
           ? "That person must text your work number or opt in before you can reply."
@@ -257,6 +260,9 @@ async function finishEnqueuedSend(
       },
       { status: 409 },
     );
+  }
+  if (outboxStatus === "blocked" && outbox?.blocked_reason === WORKSPACE_NO_WORK_NUMBER_CODE) {
+    return response({ error: WORKSPACE_NO_WORK_NUMBER_MESSAGE, outboxId: result.outboxId }, { status: 409 });
   }
   if (outboxStatus === "blocked" || outboxStatus === "failed") {
     return response(

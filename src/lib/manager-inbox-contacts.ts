@@ -1,6 +1,9 @@
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
+import { isActiveWorkspaceId, workspaceContainsProperty, workspacePropertyIdFromRow } from "@/lib/workspaces/selection";
 import { readOwnActiveManagerVendorRows, isVendorCategorySettingsRow } from "@/lib/manager-vendors-storage";
 import { readProRelationships } from "@/lib/pro-relationships";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
@@ -41,6 +44,26 @@ function todayIsoDate(): string {
   return `${now.getFullYear()}-${m}-${d}`;
 }
 
+/**
+ * A resident / applicant is a contact only when the house is in the ACTIVE workspace AND the
+ * viewer runs it: the row is the viewer's own, or the owner granted the viewer Communication on
+ * that house. The applications cache is already scoped by the server; this is the second check at
+ * the point the list is built, so a read that ever returns too much (an admin's, a stale cache)
+ * cannot put another owner's residents in this workspace's Communication.
+ */
+export function residentContactBelongsToViewer(
+  row: Parameters<typeof applicationVisibleToPortalUser>[0],
+  userId: string | null | undefined,
+): boolean {
+  // /demo has one fictional portfolio and no second owner to leak.
+  if (isDemoModeActive()) return true;
+  if (!userId) return false;
+  if (!applicationVisibleToPortalUser(row, userId, "inbox")) return false;
+  // A lead that texted a work number belongs to the workspace that owns the number.
+  if (row.smsLeadWorkspaceId) return isActiveWorkspaceId(row.smsLeadWorkspaceId);
+  return workspaceContainsProperty(workspacePropertyIdFromRow(row) ?? undefined);
+}
+
 /** Approved residents + pending applicants + linked co-managers + vendors for Communication. */
 export function buildManagerInboxLiveContacts(
   userId: string | null | undefined,
@@ -59,6 +82,7 @@ export function buildManagerInboxLiveContacts(
     const bucket = String(row.bucket ?? "").trim();
     const email = trimmedText(row.email).toLowerCase();
     if ((bucket !== "approved" && bucket !== "pending") || !email) continue;
+    if (!residentContactBelongsToViewer(row, userId)) continue;
     // Skip in-progress drafts that are not real applications yet.
     if (bucket === "pending" && String(row.stage ?? "").trim().toLowerCase() === "in progress") continue;
     if (seen.has(email)) continue;

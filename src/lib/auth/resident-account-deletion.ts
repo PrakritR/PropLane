@@ -186,6 +186,8 @@ export function residentRelationshipSources(): RelationshipSource[] {
   const out = new Map<string, RelationshipSource>();
   for (const rule of ACCOUNT_PURGE_TABLES) {
     if (rule.table === "portal_inbox_thread_records") continue;
+    // A deleted empty chat is the viewer's own list preference, not a tie to the person.
+    if (rule.table === "communication_dismissed_contacts") continue;
     const residentIds = rule.resident?.ids ?? [];
     // A column that is both a manager stamp and a resident key names the resident, not a manager.
     const managerColumns = (rule.manager?.ids ?? []).filter((column) => !residentIds.includes(column));

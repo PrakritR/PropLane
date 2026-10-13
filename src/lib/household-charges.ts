@@ -3,6 +3,7 @@
  * Supabase is the persistence layer; this module keeps only in-memory page-session state.
  */
 
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import type { LeaseRecurringFeeBillingContext } from "@/lib/custom-lease-billing";
@@ -677,7 +678,7 @@ async function postHouseholdPayloadAwait(body: unknown): Promise<boolean> {
   if (!isBrowser() || isDemoModeActive()) return false;
   if (householdWritesForbidden()) return false;
   const signal = householdWriteSignal();
-  const res = await fetch("/api/portal-household-charges", {
+  const res = await fetch(adminOversightUrl("/api/portal-household-charges"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -789,8 +790,8 @@ async function runHouseholdChargesSync({
     Date.now() - priorMark.fullAt < HOUSEHOLD_FULL_SYNC_MAX_AGE_MS &&
     (memoryCharges.length > 0 || memoryRentProfiles.length > 0);
   const url = requestedIncremental
-    ? `/api/portal-household-charges?updatedSince=${encodeURIComponent(priorMark!.syncedAt)}`
-    : "/api/portal-household-charges";
+    ? adminOversightUrl(`/api/portal-household-charges?updatedSince=${encodeURIComponent(priorMark!.syncedAt)}`)
+    : adminOversightUrl("/api/portal-household-charges");
   // Captured with the request: a workspace switched while the read is in flight must not be
   // stamped onto a watermark that describes the old workspace's rows.
   const requestWorkspaceId = selectedWorkspaceId();
@@ -3672,7 +3673,7 @@ export async function recordHouseholdChargeOfflinePayment(
   if (!["Cash", "Check", "Bank transfer", "Other"].includes(details.method)) return false;
   if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return false;
   try {
-    const response = await fetch("/api/portal-household-charges", {
+    const response = await fetch(adminOversightUrl("/api/portal-household-charges"), {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: householdWriteSignal(),
       body: JSON.stringify({ action: "recordOfflinePayment", id: chargeId, paidAt: paidAt.toISOString(), method: details.method, note: details.note.trim().slice(0, 2000) }),
     });

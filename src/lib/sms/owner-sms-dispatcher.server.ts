@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mirrorManagerOwnOutboxToAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
+import { WORKSPACE_NO_WORK_NUMBER_CODE } from "@/lib/sms/workspace-no-work-number";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readScopedSmsConsentState, readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
@@ -153,6 +154,12 @@ async function loadSendPolicy(
       { propertyId: input.propertyId ?? null, workLineId: input.selectedWorkLineId ?? null },
     ),
   ]);
+  // A workspace with no work number of its own is a plain refusal ("This
+  // workspace has no work number."), not an unreadable control plane: it is
+  // never retried and never borrows another workspace's line.
+  if (!runtimeError && runtime && !number && (numberError as { code?: string } | null)?.code === WORKSPACE_NO_WORK_NUMBER_CODE) {
+    return { allowed: false, reason: WORKSPACE_NO_WORK_NUMBER_CODE };
+  }
   if (runtimeError || numberError || !runtime || !number) {
     return { allowed: false, reason: "control_plane_unreadable" };
   }

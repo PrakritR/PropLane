@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { isDeepStrictEqual } from "node:util";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -53,7 +54,12 @@ function toUuid(id: unknown): string | null {
   return null;
 }
 
-async function getUserContext() {
+/**
+ * "admin" here means ADMIN OVERSIGHT: the request asked for it (`?oversight=admin`) and the role holds.
+ * An admin in their own manager portal resolves as the manager they are, so every read AND write below
+ * is scoped like any manager's; with no manager role they fall to the resident scope (their own rows).
+ */
+async function getUserContext(req?: Request) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -68,7 +74,8 @@ async function getUserContext() {
   const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
   const allRoles = roleRows.length > 0 ? roleRows : (legacyRole ? [legacyRole] : []);
   const isManagerOrOwner = allRoles.some((r) => r === "manager" || r === "owner");
-  const resolvedRole = admin ? "admin" : isManagerOrOwner ? "manager" : "resident";
+  const oversight = req ? await resolveAdminOversight(req, user.id, admin) : false;
+  const resolvedRole = oversight ? "admin" : isManagerOrOwner ? "manager" : "resident";
   return {
     db,
     user: {
@@ -109,7 +116,7 @@ function incrementalCutoffFromRequest(req: Request | undefined, nowMs: number): 
 
 export async function GET(req?: Request) {
   try {
-    const ctx = await getUserContext();
+    const ctx = await getUserContext(req);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const { db, user } = ctx;
 
@@ -283,7 +290,7 @@ export async function GET(req?: Request) {
 
 export async function POST(req: Request) {
   try {
-    const ctx = await getUserContext();
+    const ctx = await getUserContext(req);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const { db, user } = ctx;
 

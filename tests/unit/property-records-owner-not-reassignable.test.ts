@@ -103,7 +103,8 @@ const PROPERTY_ID = "mgr-demo-cascade";
 
 function post(body: Record<string, unknown>) {
   return postPropertyRecord(
-    jsonRequest("http://localhost/api/property-records", { method: "POST", body }),
+    // `?oversight=admin` is the explicit admin request; a non-admin sending it is still scoped.
+    jsonRequest("http://localhost/api/property-records?oversight=admin", { method: "POST", body }),
   );
 }
 

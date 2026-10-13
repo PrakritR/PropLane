@@ -94,8 +94,32 @@ through it or through the workspace-keyed helpers in
   `scripts/release-co-manager-work-numbers.ts` (dry-run by default, unplaced
   rows only).
 - **Outbound** goes out from the line of the workspace the message is about:
-  `resolveOwnerSendNumberRow` picks the house's workspace line, else the
-  owner's default (`owner-sms-dispatcher.server.ts`).
+  `resolveOwnerSendNumberRow` picks the house's workspace line, else (no house,
+  or an unplaced one) the owner's DEFAULT workspace's line
+  (`owner-sms-dispatcher.server.ts`). **No cross-workspace fallback** (Oct 12):
+  there is no "the owner has just one line, use it" and no default-workspace
+  guess for a house placed in another workspace. A workspace with no number of
+  its own (home row, or one it holds via `workspace_work_numbers`) gets the
+  refusal `workspace_has_no_work_number` / "This workspace has no work number."
+  (`workspace-no-work-number.ts`): the dispatcher blocks the message with that
+  reason and never retries it, and the manager send route shows the sentence.
+  Only an unplaced legacy row (`workspace_id` null) may answer, and only for
+  the default workspace. Senders that name no house (resident welcome,
+  manager-to-self relay) mean the owner's default workspace's line.
+- **One number and one email per workspace, and the transfer moves them.**
+  `manager_sms_numbers_workspace_uniq` is unique on `workspace_id` among rows
+  with `released_at is null`, so a released row never blocks the next number
+  (`20261012121000_workspace_transfer_moves_work_identity.sql`; the email twin
+  is unique among `active` rows). A partial index cannot back
+  `on conflict (workspace_id)`: `ensureManagerNumberRecord` inserts instead of
+  upserting, and `getWorkspaceNumberRecord` prefers the live row. Transferring
+  a workspace (`transfer_portal_workspace_ownership`) sets `manager_user_id` to
+  the new owner on that workspace's number and email rows, drops holds that
+  would cross owners, and clears the old owner's `profiles.sms_from_number`
+  cache if it named a number that left. `workspace_work_numbers` has no owner
+  column, so nothing there moves. The data pass for threads that predate the
+  workspace stamp is `scripts/backfill-thread-workspaces.mjs` (dry run first;
+  it also prints the one-number/one-email report and changes nothing there).
 - **Placement**: a conversation about no house shows in the workspace whose
   line carried it (`conversation-visibility.server.ts` rule 3, `lines`);
   only when no line places it does the owner's default workspace rule apply.

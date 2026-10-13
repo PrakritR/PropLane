@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isLinkedVendorJob } from "@/lib/add-on-vendor-job";
@@ -112,13 +113,15 @@ function normalizeRow(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
-    const admin = await isAdminUser(user.id);
+    // The all-owners read is admin oversight: asked for with `?oversight=admin` AND confirmed by the
+    // role. An admin in their own manager portal reads exactly what a manager does.
+    const oversight = await resolveAdminOversight(req, user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const role = await resolveResidentScopedActorRole(db, {
       userId: user.id,
@@ -126,12 +129,12 @@ export async function GET() {
     });
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
-    if (!admin && role === "vendor") {
+    if (!oversight && role === "vendor") {
       const rows = await vendorScopedWorkOrderRows(db, user.id);
       return NextResponse.json({ rows });
     }
 
-    if (!admin && role !== "resident") {
+    if (!oversight && role !== "resident") {
       // Heal orphans for this manager's residents before listing. TTL-gated so
       // nav-count polls and repeat page loads don't re-run the sweep.
       // (Skipped while an operator is viewing as this account: a read-only session writes nothing.)
@@ -202,7 +205,7 @@ export async function GET() {
       .order("updated_at", { ascending: false })
       .limit(500);
 
-    if (!admin && role === "resident") {
+    if (!oversight && role === "resident") {
       query = query.eq("resident_email", email);
     }
 
@@ -405,12 +408,15 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
-    const admin = await isAdminUser(user.id);
+    // Writing with every owner's privileges (trusting the body's `managerUserId`, skipping the
+    // ownership and workspace gates) is admin OVERSIGHT, the same explicit surface the read uses:
+    // an admin writing from their own manager portal is the manager they are.
+    const oversight = await resolveAdminOversight(req, user.id, await isAdminUser(user.id));
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const actor: Actor = {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
-      admin,
+      admin: oversight,
       role: await resolveResidentScopedActorRole(db, {
         userId: user.id,
         legacyRole: profile?.role ?? user.user_metadata?.role,
@@ -419,11 +425,11 @@ export async function POST(req: Request) {
 
     // Vendors see their offered/assigned work through GET; the record itself is
     // manager-authored (assignment, scheduling, billing), so vendor writes are rejected.
-    if (!admin && actor.role === "vendor") {
+    if (!oversight && actor.role === "vendor") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const isManagerActor = !admin && actor.role !== "resident";
+    const isManagerActor = !oversight && actor.role !== "resident";
     // The active workspace refuses a write outside it: a create must land in
     // it, an update/delete of an OWNED row must refuse a row outside it. The
     // legacy "claimable, unassigned" bucket in `actorMayWriteRecord` below is

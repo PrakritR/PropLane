@@ -1,9 +1,9 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createHash } from "node:crypto";
 import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchLeasesForManagerUser,
   managerCanAccessLeaseRecord,
@@ -113,7 +113,12 @@ export const maxDuration = 60;
 
 type RecordUser = { id: string; email?: string | null; name?: string | null; role: string };
 
-async function getUserContext() {
+/**
+ * `role: "admin"` here means ADMIN OVERSIGHT: the request asked for it (`?oversight=admin`) AND the
+ * server confirmed the admin role. An admin in their own manager portal resolves as the manager they
+ * are, so every read and write below is scoped like any manager's.
+ */
+async function getUserContext(req: Request) {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -129,7 +134,9 @@ async function getUserContext() {
     userId: user.id,
     legacyRole: profile?.role ?? user.user_metadata?.role,
   });
-  const role = scopedRole === "resident" ? "resident" : (await isAdminUser(user.id)) ? "admin" : scopedRole;
+  const oversight = scopedRole !== "resident" && (await resolveAdminOversight(req, user.id));
+  // A legacy `profiles.role` of "admin" must not read as oversight on its own.
+  const role = scopedRole === "resident" ? "resident" : oversight ? "admin" : scopedRole === "admin" ? "manager" : scopedRole;
   return {
     db,
     user: {
@@ -366,7 +373,7 @@ async function viewerMayReadLeaseRecord(
 
 export async function GET(req: Request) {
   try {
-    const ctx = await getUserContext();
+    const ctx = await getUserContext(req);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const id = req?.url ? new URL(req.url).searchParams.get("id")?.trim() ?? "" : "";
@@ -435,7 +442,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const ctx = await getUserContext();
+    const ctx = await getUserContext(req);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json()) as {

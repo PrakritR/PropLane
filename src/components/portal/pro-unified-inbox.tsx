@@ -24,6 +24,12 @@ import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
 import { pollShouldHaltAfterStatus } from "@/lib/poll-halt";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  dismissContactsClient,
+  dismissedContactKey,
+  loadDismissedContactKeys,
+} from "@/lib/communication-dismissed-contacts.client";
 import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
@@ -209,6 +215,8 @@ function managerInboxSnapshotKey(
     ? `${viewerId}::${workspaceId ?? "default"}`
     : `${adapterKind}:${viewerId}::${workspaceId ?? "default"}`;
 }
+
+const EMPTY_DISMISSED_KEYS: ReadonlySet<string> = new Set();
 
 export function ManagerUnifiedInbox({
   tabId,
@@ -992,6 +1000,41 @@ export function ManagerUnifiedInbox({
     return occupied;
   }, [filteredEmail, smsArchivedIds, smsHiddenIds, smsResidents]);
 
+  // Empty chats this manager deleted for good, for the ACTIVE workspace. One shared read per page
+  // load (not a fetch of this component's own); a failed read leaves the set empty, which only
+  // means a deleted row can reappear, never that a live conversation is hidden.
+  const [dismissed, setDismissed] = useState<{ scope: string; keys: ReadonlySet<string> }>({ scope: "", keys: new Set() });
+  const dismissedScope = `${viewerId}::${workspaceIdentity.id ?? ""}`;
+  const dismissedKeys: ReadonlySet<string> = dismissed.scope === dismissedScope ? dismissed.keys : EMPTY_DISMISSED_KEYS;
+  useEffect(() => {
+    if (!filterContacts || !viewerId || !workspaceIdentity.id || isDemoModeActive()) return;
+    let cancelled = false;
+    void loadDismissedContactKeys(workspaceIdentity.id)
+      .then((keys) => {
+        if (!cancelled && keys) setDismissed({ scope: dismissedScope, keys: new Set(keys) });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // `filterContacts` only decides whether this surface lists placeholders at all.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Boolean(filterContacts), viewerId, workspaceIdentity.id, dismissedScope]);
+
+  const handleDismissContacts = useCallback(
+    async (emails: string[]) => {
+      // /demo writes no rows, so the dismissal lives in this session only — the
+      // row still has to leave the list, or Delete reports a delete that never happened.
+      if (!isDemoModeActive() && !(await dismissContactsClient(emails))) return false;
+      setDismissed((current) => ({
+        scope: dismissedScope,
+        keys: new Set([...(current.scope === dismissedScope ? current.keys : []), ...emails.map(dismissedContactKey)]),
+      }));
+      return true;
+    },
+    [dismissedScope],
+  );
+
   const placeholderListItems = useMemo(() => {
     if (!filterContacts || listSegment === "archived" || listSegment === "unread") return [];
     return buildResidentPlaceholderInboxItems({
@@ -1000,8 +1043,9 @@ export function ManagerUnifiedInbox({
       occupiedEmails: occupiedResidentEmails,
       searchQuery: query,
       listSegment,
+      dismissedKeys,
     });
-  }, [filterContacts, listSegment, occupiedResidentEmails, query, threadFilters]);
+  }, [dismissedKeys, filterContacts, listSegment, occupiedResidentEmails, query, threadFilters]);
 
   const listSegmentCounts = useMemo(() => {
     const placeholders = !filterContacts
@@ -1012,6 +1056,7 @@ export function ManagerUnifiedInbox({
           occupiedEmails: occupiedResidentEmails,
           searchQuery: "",
           listSegment: "active",
+          dismissedKeys,
         });
     const pinAssistant = (rows: UnifiedInboxListItem[], segment: InboxListSegment) => {
       if (!assistantThreadId || !viewerId) {
@@ -1050,6 +1095,7 @@ export function ManagerUnifiedInbox({
     allSmsItems,
     assistantThreadId,
     assistantWorkspace,
+    dismissedKeys,
     emailThreads,
     filterContacts,
     filteredEmail,
@@ -1158,6 +1204,7 @@ export function ManagerUnifiedInbox({
     },
     smsTargets,
     onSmsMutationStart: beginSmsMutation,
+    onDismissContacts: filterContacts ? handleDismissContacts : undefined,
     assistantPlaceholder: viewerId
       ? buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace)
       : undefined,

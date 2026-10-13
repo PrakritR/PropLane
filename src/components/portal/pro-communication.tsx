@@ -28,6 +28,7 @@ import {
   type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
+import { clearDismissedContactsClient, invalidateDismissedContacts } from "@/lib/communication-dismissed-contacts.client";
 import {
   buildManagerPropertyFilterOptions,
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
@@ -255,6 +256,11 @@ export function ManagerCommunication({
 
   const handleComposeSent = useCallback(
     async (result: { email: boolean; sms: boolean; primaryRecipientEmail?: string }) => {
+      // Writing to someone again ends a deleted empty chat's dismissal. Best-effort: a live
+      // conversation with them hides the placeholder on its own, this only keeps the record honest.
+      if (result.primaryRecipientEmail && (result.email || result.sms)) {
+        void clearDismissedContactsClient([result.primaryRecipientEmail]).then(() => invalidateDismissedContacts());
+      }
       if (result.email) {
         if (result.primaryRecipientEmail) {
           await inboxRef.current?.reloadInboxAsync?.();

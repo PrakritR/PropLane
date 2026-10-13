@@ -65,6 +65,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   },
   // ---------------------------------------------------------------- phase 1: child rows
   {
+    // A manager's deleted empty chats (Communication), per viewer and workspace.
+    // `contact_key` is the OTHER person's lower-cased email, so deleting their
+    // account has to take the dismissal with it: a re-registered email is a new
+    // contact, and a workspace that still remembered the dismissal would keep
+    // their "No messages yet" row hidden.
+    table: "communication_dismissed_contacts",
+    phase: 1,
+    manager: { ids: ["viewer_user_id"] },
+    resident: { emails: ["contact_key"] },
+    vendor: { emails: ["contact_key"] },
+  },
+  {
     // Source receipts are private conversation content and cascade from the
     // durable burst. Keep this explicit so the account-purge coverage test
     // cannot silently leave a re-registered manager's prospect history.

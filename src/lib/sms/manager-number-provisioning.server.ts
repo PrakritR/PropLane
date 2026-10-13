@@ -86,8 +86,16 @@ export async function getWorkspaceNumberRecord(
 ): Promise<ManagerSmsNumberRecord | null> {
   const id = workspaceId.trim();
   if (!id) return null;
-  const { data } = await db.from(TABLE).select("*").eq("workspace_id", id).maybeSingle();
-  return mapNumberRow(data as Record<string, unknown> | null);
+  // The unique index is per workspace among rows that are NOT released, so a
+  // workspace can hold a released row beside its live one. The live row wins.
+  const query = db.from(TABLE).select("*").eq("workspace_id", id);
+  // A real builder is thenable and yields every row; a single-row double
+  // only answers `maybeSingle`, and its one row is the one record.
+  const { data } =
+    typeof (query as { then?: unknown }).then === "function" ? await query : await query.maybeSingle();
+  const list = (Array.isArray(data) ? data : data ? [data] : []) as Record<string, unknown>[];
+  const live = list.find((row) => !row.released_at) ?? list[0];
+  return mapNumberRow(live ?? null);
 }
 
 /**
@@ -159,20 +167,21 @@ export async function ensureManagerNumberRecord(
     const adopted = await getWorkspaceNumberRecord(db, wsId);
     if (adopted) return adopted;
   }
+  // A plain insert, not `upsert(..., { onConflict: "workspace_id" })`: the
+  // unique index on `workspace_id` is partial (live rows only) and ON CONFLICT
+  // cannot infer a partial index. The existing-row check above already covers
+  // the repeat call; a racing insert loses to the index and is ignored.
   await db
     .from(TABLE)
-    .upsert(
-      {
-        manager_user_id: id,
-        workspace_id: wsId,
-        provision_state: "pending_registration",
-        registration_state: "pending",
-        registration_ref: sharedRegistrationRef(),
-        requested_at: nowIso(),
-        updated_at: nowIso(),
-      },
-      { onConflict: "workspace_id" },
-    )
+    .insert({
+      manager_user_id: id,
+      workspace_id: wsId,
+      provision_state: "pending_registration",
+      registration_state: "pending",
+      registration_ref: sharedRegistrationRef(),
+      requested_at: nowIso(),
+      updated_at: nowIso(),
+    })
     .then(() => undefined, () => undefined);
   return getWorkspaceNumberRecord(db, wsId);
 }

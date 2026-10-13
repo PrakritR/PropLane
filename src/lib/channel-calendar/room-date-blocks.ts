@@ -7,6 +7,7 @@
  * matching how a stay is entered: block Sep 10 → Sep 12 and Sep 12 is free.
  */
 
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import type { RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
 import { CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE, ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
@@ -94,7 +95,7 @@ async function readError(res: Response, fallback: string): Promise<string> {
 }
 
 export async function fetchRoomDateBlocks(): Promise<RoomDateBlock[]> {
-  const res = await fetchWithTimeout("/api/portal-schedule-records", { cache: "no-store", credentials: "include" }, PORTAL_READ_TIMEOUT_MS);
+  const res = await fetchWithTimeout(adminOversightUrl("/api/portal-schedule-records"), { cache: "no-store", credentials: "include" }, PORTAL_READ_TIMEOUT_MS);
   if (!res.ok) throw new Error(await readError(res, "Could not load blocked dates."));
   const body = (await res.json()) as { rows?: unknown[] };
   if (!Array.isArray(body.rows)) return [];
@@ -154,7 +155,7 @@ export async function saveRoomDateBlock(
     ...(input.isBookingResidency ? { isBookingResidency: true } : {}),
     createdAt: new Date().toISOString(),
   };
-  const res = await fetch("/api/portal-schedule-records", {
+  const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -174,7 +175,7 @@ export async function saveRoomDateBlock(
 }
 
 export async function deleteRoomDateBlock(blockId: string): Promise<void> {
-  const res = await fetch("/api/portal-schedule-records", {
+  const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

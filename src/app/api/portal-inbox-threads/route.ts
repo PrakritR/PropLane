@@ -183,6 +183,20 @@ export async function GET(request: Request) {
       if (ownerRefusal) return ownerRefusal;
     }
 
+    // The deleted empty chats of the viewer's ACTIVE workspace: a small read of its own, so the
+    // inbox does not pull the whole thread list to learn which placeholders to leave out. The
+    // workspace is the server's (cookie + membership); a `workspaceId` query is only a cache key.
+    if (scopeParam === MANAGER_INBOX_SCOPE && url.searchParams.get("view") === "dismissed") {
+      try {
+        const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
+        const { listDismissedContactKeys } = await import("@/lib/communication/dismissed-contacts.server");
+        const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
+        return NextResponse.json({ workspaceId: active.id, dismissed: await listDismissedContactKeys(ctx.db, ctx.user.id, active.id) });
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : "Failed to load dismissed chats." }, { status: 500 });
+      }
+    }
+
     // A View-as session is read-only, and both heals below insert a thread row into the account
     // being looked at — resident Communication included. Resolved once for this GET.
     const viewAsOpen = await isViewAsSessionOpen();
@@ -232,7 +246,7 @@ export async function GET(request: Request) {
 
     let query = ctx.db
       .from("portal_inbox_thread_records")
-      .select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type")
+      .select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type, workspace_id")
       .order("updated_at", { ascending: false })
       .limit(500);
 
@@ -425,8 +439,10 @@ export async function GET(request: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder" | "markRead" | "clearMessages";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder" | "markRead" | "clearMessages" | "dismissContacts" | "clearDismissedContacts";
       scope?: string;
+      /** dismissContacts / clearDismissedContacts: the people's emails. A workspace in the body is ignored. */
+      contactKeys?: unknown;
       folderAction?: "archive" | "restore";
       id?: string;
       ids?: unknown[];
@@ -441,7 +457,7 @@ export async function POST(req: Request) {
         ? (body.rows?.[0]?.scope ?? "")
         : body.action === "upsert"
           ? (body.row?.scope ?? "")
-          : body.action === "changeFolder" || body.action === "markRead" || body.action === "clearMessages"
+          : body.action === "changeFolder" || body.action === "markRead" || body.action === "clearMessages" || body.action === "dismissContacts" || body.action === "clearDismissedContacts"
             ? body.scope
             : "",
     ).trim();
@@ -451,6 +467,34 @@ export async function POST(req: Request) {
     if (ctx.user.role !== "admin" && scopeKey === MANAGER_INBOX_SCOPE) {
       const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
       if (ownerRefusal) return ownerRefusal;
+    }
+
+    if (body.action === "dismissContacts" || body.action === "clearDismissedContacts") {
+      if (scopeKey !== MANAGER_INBOX_SCOPE) return NextResponse.json({ error: "Unsupported scope." }, { status: 400 });
+      const { DISMISSED_CONTACT_KEYS_PER_CALL, clearDismissedContactKeys, dismissContactKeys, sanitizeDismissedContactKeys } = await import(
+        "@/lib/communication/dismissed-contacts.server"
+      );
+      const keys = sanitizeDismissedContactKeys(body.contactKeys);
+      if (keys.length === 0) return NextResponse.json({ error: "Choose people." }, { status: 400 });
+      // Refuse an oversized batch instead of saving the first page of it: the answer's
+      // `count` is what was written, and the client sends long lists in batches.
+      if (keys.length > DISMISSED_CONTACT_KEYS_PER_CALL) {
+        return NextResponse.json(
+          { error: `Choose up to ${DISMISSED_CONTACT_KEYS_PER_CALL} people.` },
+          { status: 400 },
+        );
+      }
+      try {
+        // The viewer is the session's and the workspace is the cookie's, checked against the
+        // viewer's memberships. Nothing in the body names either.
+        const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
+        const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
+        if (body.action === "dismissContacts") await dismissContactKeys(ctx.db, ctx.user.id, active.id, keys);
+        else await clearDismissedContactKeys(ctx.db, ctx.user.id, active.id, keys);
+        return NextResponse.json({ ok: true, workspaceId: active.id, count: keys.length });
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : "Could not save." }, { status: 500 });
+      }
     }
 
     if (body.action === "markRead") {
@@ -467,7 +511,7 @@ export async function POST(req: Request) {
       const ids = [...requested.keys()];
       const editScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "edit");
       const extraOwnerIds = inboxStoreOwnerIds(editScope);
-      let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").in("id", ids);
+      let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type, workspace_id").in("id", ids);
       query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof query;
       const { data, error } = await query;
       if (error) throw error;
@@ -492,7 +536,7 @@ export async function POST(req: Request) {
             if (result.error) throw result.error;
             changed = result.data === true;
             if (changed || attempt === 1) break;
-            let retryQuery = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").eq("id", record.id).eq("scope", scopeKey);
+            let retryQuery = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type, workspace_id").eq("id", record.id).eq("scope", scopeKey);
             retryQuery = applyPortalInboxThreadScope(retryQuery, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof retryQuery;
             const { data: retryData, error: retryError } = await retryQuery.maybeSingle();
             if (retryError) throw retryError;
@@ -583,7 +627,7 @@ export async function POST(req: Request) {
         ? await resolveCommunicationScope(ctx.db, ctx.user.id, "edit")
         : null;
       let query = ctx.db.from("portal_inbox_thread_records")
-        .select("id, owner_user_id, participant_email, thread_type, scope, row_data").in("id", ids);
+        .select("id, owner_user_id, participant_email, thread_type, scope, workspace_id, row_data").in("id", ids);
       query = applyPortalInboxThreadScope(query, ctx.user, folderScope ? inboxStoreOwnerIds(folderScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
       }) as typeof query;
@@ -630,7 +674,7 @@ export async function POST(req: Request) {
       let deleted = 0;
       for (const id of ids) {
         let targetQuery = ctx.db.from("portal_inbox_thread_records")
-          .select("id, owner_user_id, participant_email, scope, thread_type, row_data").eq("id", id);
+          .select("id, owner_user_id, participant_email, scope, thread_type, workspace_id, row_data").eq("id", id);
         targetQuery = applyPortalInboxThreadScope(targetQuery, ctx.user, extraOwnerIds, scopeOptions) as typeof targetQuery;
         const { data: fetchedTarget, error: targetError } = await targetQuery.maybeSingle();
         if (targetError) return NextResponse.json({ error: targetError.message }, { status: 500 });
@@ -685,7 +729,7 @@ export async function POST(req: Request) {
 
       const { data: existing, error: existingError } = await ctx.db
         .from("portal_inbox_thread_records")
-        .select("id, owner_user_id, participant_email, scope, thread_type, row_data")
+        .select("id, owner_user_id, participant_email, scope, thread_type, workspace_id, row_data")
         .eq("id", id)
         .limit(1);
       if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
