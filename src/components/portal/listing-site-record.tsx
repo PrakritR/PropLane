@@ -336,6 +336,8 @@ export function ListingSiteRecord({
   );
 
   const postText = selectedStatus?.property?.postTexts[channelId] ?? "";
+  // The nightly post, offered only on the Facebook sites and only when the listing quotes a nightly rate.
+  const shortStayPostText = selectedStatus?.property?.shortStayPostTexts?.[channelId] ?? "";
   const taggedLink = taggedLinkFromPostText(postText);
   const postSection = (
     <div className="space-y-4" data-attr="listing-site-post">
@@ -366,6 +368,13 @@ export function ListingSiteRecord({
                     disabled={!postText}
                     onCopy={() => copyText(postText, selected.holdReasons)}
                   />
+                  {shortStayPostText ? (
+                    <CopyIconAction
+                      label="Copy short-stay post"
+                      data-attr={`listing-site-copy-short-stay-${def.id}`}
+                      onCopy={() => copyText(shortStayPostText, selected.holdReasons)}
+                    />
+                  ) : null}
                   <a
                     href={`/api/manager/listing-channels/photos?propertyId=${encodeURIComponent(selected.id)}`}
                     download

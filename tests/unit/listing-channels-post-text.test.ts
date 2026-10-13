@@ -187,3 +187,32 @@ describe("listing eligibility", () => {
     }
   });
 });
+
+describe("buildListingPostText short_stay variant", () => {
+  const stay = (sub: Record<string, unknown> = {}) =>
+    projected({}, { shortTermRentalsAllowed: true, shortTermDailyCost: "55", listingPlaceCategoryId: "rooms", entireHomeMonthlyRent: undefined, rooms: [{ id: "r1", name: "Room 1", occupancyCapacity: 1 }], ...sub });
+  const buildStay = (property: MockProperty, channel: Parameters<typeof buildListingPostText>[0]["channel"] = "facebook_marketplace") =>
+    buildListingPostText({ property, origin: "https://proplane.ai", contact: CONTACT, channel, attribution: true, variant: "short_stay" });
+
+  it("is one line with the real nightly rate, the ?stay=1 link and both doors", () => {
+    const built = buildStay(stay());
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.text).toBe(
+      "Private room near Ballard from $55/night · dates open now · Book: https://proplane.ai/rent/listings/prop-1?stay=1&src=facebook_marketplace · Text (206) 555-0100 · Email work@proplane.test",
+    );
+  });
+  it("tags Facebook Groups with its own source", () => {
+    const built = buildStay(stay(), "facebook_groups");
+    expect(built.ok && built.text.includes("?stay=1&src=facebook_groups")).toBe(true);
+  });
+  it("refuses a listing without short stays or without a work number", () => {
+    expect(buildStay(stay({ shortTermRentalsAllowed: false }))).toEqual({ ok: false, reason: "no_short_stay" });
+    expect(buildStay(stay({ shortTermDailyCost: "" }))).toEqual({ ok: false, reason: "no_short_stay" });
+    expect(buildListingPostText({ property: stay(), origin: "https://proplane.ai", contact: { phone: null, email: null }, channel: "facebook_marketplace", attribution: false, variant: "short_stay" })).toEqual({ ok: false, reason: "no_work_number" });
+  });
+  it("leaves the standard post alone", () => {
+    const built = build(stay());
+    expect(built.ok && built.text.includes("Details and photos:")).toBe(true);
+  });
+});

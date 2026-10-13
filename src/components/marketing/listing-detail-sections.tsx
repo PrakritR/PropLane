@@ -31,6 +31,7 @@ import {
   ListingPreviewNewTabContext,
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
+import { ShortStayBookingBlock, ShortStayProvider, useShortStay } from "@/components/marketing/short-stay-booking";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import { propertyAllowsShortTermRental } from "@/lib/rental-application/data";
 import { listingTermCtas } from "@/lib/listing-prospect-cta-labels";
@@ -172,6 +173,16 @@ function AboutBody({ rich }: { rich: ListingRichContent }) {
   );
 }
 
+function PhoneShortStayCard() {
+  const stay = useShortStay();
+  if (!stay?.offered) return null;
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface lg:hidden" id="short-stay-card" data-attr="short-stay-phone-card">
+      <ShortStayBookingBlock />
+    </div>
+  );
+}
+
 function PriceCard({
   property,
   rich,
@@ -190,9 +201,12 @@ function PriceCard({
   const nightly = shortStay
     ? shortTermNightlyRate(property.listingSubmission?.shortTermDailyCost)
     : 0;
+  const stay = useShortStay();
+  const stayBooking = stay?.offered === true;
   const termCtas = listingTermCtas({ shortStayOffered: shortStay, signingOrder: property.signingOrder });
   return (
     <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
+      {stayBooking ? <ShortStayBookingBlock className="mb-5 border-b border-border pb-5" /> : null}
       <p className="text-xs font-semibold text-muted">Base rent from</p>
       <p className={`mt-0.5 text-3xl ${listingMoneyClass}`}>{from}</p>
       {estimated || breakdownLines.length > 0 ? (
@@ -211,7 +225,7 @@ function PriceCard({
           ))}
         </dl>
       ) : null}
-      {shortStay && nightly > 0 ? (
+      {shortStay && nightly > 0 && !stayBooking ? (
         <p className="mt-3 text-sm font-semibold text-foreground">
           Short stays from ${nightly.toFixed(0)} / night
         </p>
@@ -220,7 +234,10 @@ function PriceCard({
         <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className={primaryCtaClass} newTab={newTab}>
           Schedule tour
         </ProspectListingCta>
-        {termCtas.map((cta) => (
+        {termCtas
+          // With dates picked, "Request to book" is the short-stay door; the long application door stays otherwise.
+          .filter((cta) => !(stayBooking && stay?.rangeValid && cta.rentalType === "short_term"))
+          .map((cta) => (
           <ProspectListingCta
             key={cta.id}
             action="apply"
@@ -497,6 +514,7 @@ export function ListingDetailSections({
 
   return (
     <ListingPreviewNewTabContext.Provider value={embeddedPreview}>
+      <ShortStayProvider property={property} disabled={embeddedPreview}>
       <ListingSidebarRenterCtasContext.Provider value>
         <div
           className={`@container min-w-0 max-w-full bg-background text-foreground ${
@@ -615,6 +633,8 @@ export function ListingDetailSections({
                   ) : (
                     <div id="overview" aria-hidden />
                   )}
+                  {/* Phone: the price card is not drawn below lg, so a short-stay listing gets its booking block here. */}
+                  <PhoneShortStayCard />
                   <div className="hidden lg:block @min-[900px]:hidden" data-listing-price-card-stack>
                     <PriceCard property={property} rich={rich} newTab={embeddedPreview} />
                   </div>
@@ -751,6 +771,7 @@ export function ListingDetailSections({
           </div>
         </div>
       </ListingSidebarRenterCtasContext.Provider>
+      </ShortStayProvider>
     </ListingPreviewNewTabContext.Provider>
   );
 }

@@ -37,6 +37,7 @@ import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-ro
 import { normalizeRoomOccupancyCapacity, type OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { useShortStay } from "@/components/marketing/short-stay-booking";
 import { ListingSharedRoomBeds } from "@/components/marketing/listing-shared-room-beds";
 import {
   publicRoomOpenBedCount,
@@ -1383,6 +1384,10 @@ export function SpacesInteractive({
   type RoomFilter = "all" | "private" | "shared";
   const [roomFilter, setRoomFilter] = useState<RoomFilter>("all");
   const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
+  // Short-stay dates picked on the price card narrow this list: rooms free for the nights can be picked,
+  // the rest stay in place, dimmed, saying when they free up.
+  const stay = useShortStay();
+  const stayVerdict = (roomId: string) => (stay?.offered && stay.rangeValid ? stay.verdictFor(roomId) : null);
   const openBedsForRoom = useCallback(
     (roomId: string, capacity: number) => {
       const row = findPublicRoomOccupancy(occupancyRows, listingPropertyId, roomId);
@@ -1466,8 +1471,10 @@ export function SpacesInteractive({
                   const openBeds = openBedsForRoom(room.id, capacity);
                   const sharedHeadline = sharedRoomListingHeadline(capacity, openBeds);
                   const openLine = sharedRoomOpenBedsLine(capacity, openBeds);
+                  const verdict = stayVerdict(room.id);
+                  const dimmed = verdict !== null && !verdict.free;
                   return (
-                  <tr key={room.id} className="sr-detbtn">
+                  <tr key={room.id} className={`sr-detbtn ${dimmed ? "opacity-55" : ""}`} data-stay-room={verdict ? (verdict.free ? "free" : "booked") : undefined}>
                     <td className={SPACE_TD}>
                       <ListingThumb urls={room.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
@@ -1480,6 +1487,20 @@ export function SpacesInteractive({
                       ) : null}
                       {openLine ? (
                         <span className="block text-xs font-semibold text-foreground">{openLine}</span>
+                      ) : null}
+                      {verdict && !verdict.free ? (
+                        <span className="block text-xs font-semibold text-muted" data-attr="listing-room-stay-booked">{verdict.label}</span>
+                      ) : null}
+                      {verdict?.free ? (
+                        <button
+                          type="button"
+                          data-attr="listing-room-stay-select"
+                          aria-pressed={stay?.roomId === room.id}
+                          onClick={() => stay?.setRoomId(room.id)}
+                          className="mt-1 min-h-8 rounded-full border border-primary/40 px-3 text-xs font-semibold text-primary transition hover:bg-primary/10 aria-pressed:bg-primary aria-pressed:text-white"
+                        >
+                          {stay?.roomId === room.id ? "Selected" : "Select"}
+                        </button>
                       ) : null}
                     </td>
                     <td className={`${SPACE_TD} ${SPACE_TD_CLIP} text-muted`} title={floorLabel}>{floorLabel}</td>
@@ -1511,13 +1532,16 @@ export function SpacesInteractive({
             </table>
           </div>
           <div className={SPACE_ROWS_MOBILE}>
-            {filteredRooms.map(({ room, floorLabel }) => (
+            {filteredRooms.map(({ room, floorLabel }) => {
+              const verdict = stayVerdict(room.id);
+              return (
               <button
                 key={room.id}
                 type="button"
                 data-attr="listing-room-details"
+                data-stay-room={verdict ? (verdict.free ? "free" : "booked") : undefined}
                 onClick={() => setModal({ kind: "room", room, floorLabel })}
-                className={SPACE_ROW_MOBILE}
+                className={`${SPACE_ROW_MOBILE} ${verdict && !verdict.free ? "opacity-55" : ""}`}
               >
                 <ListingThumb urls={room.modal.photoUrls} />
                 <span className="min-w-0 flex-1">
@@ -1526,6 +1550,11 @@ export function SpacesInteractive({
                     {floorLabel} · {roomBathLabel(room)}
                     {roomOccupancyCapacity(room) >= 2 ? ` · Up to ${roomOccupancyCapacity(room)} residents` : ""}
                   </span>
+                  {verdict ? (
+                    <span className="block truncate text-xs font-semibold text-muted" data-attr="listing-room-stay-line">
+                      {verdict.free ? "Free for your dates" : verdict.label}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="shrink-0 text-right">
                   <span className={`block text-sm ${LISTING_TABLE_MONEY}`}>{roomRentCell(room)}</span>
@@ -1535,7 +1564,8 @@ export function SpacesInteractive({
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}

@@ -331,3 +331,7 @@ Register those two URLs in the Meta app. Coverage:
 `tests/unit/listing-channels-*.test.ts`, `meta-oauth-state.test.ts`,
 `meta-data-deletion.test.ts`, `listing-channel-posts-rls.test.ts`,
 `listing-sites-panel.test.tsx`.
+
+## Short-stay post (Facebook Marketplace and Groups)
+
+`buildListingPostText({ ..., variant: "short_stay" })` writes the one-line nightly post: "Private room near UW from $55/night · dates open now · Book: <link>?stay=1&src=<channel> · Text <work number> · Email <work email>". It uses the same projected listing and the same work contact as the standard post, quotes the lowest real nightly rate (`listingShortStayNightlyFrom`) and refuses (`no_short_stay`) a listing without short stays or a nightly rate. The listing-sites modal and record page offer **Copy short-stay post** beside Copy post, only on the two Facebook sites and only when the listing allows short stays; `?stay=1` on the public listing scrolls to and focuses the check-in date. Coverage: `tests/unit/listing-channels-post-text.test.ts`.

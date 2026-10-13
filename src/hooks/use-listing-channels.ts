@@ -27,7 +27,7 @@ export type ListingChannelsStatus = {
   /** Leads that arrived through each site's tagged link; absent channel = 0. */
   leadCounts?: Record<string, number>;
   posts: ListingChannelPostRow[];
-  property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string> } | null;
+  property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string>; shortStayPostTexts?: Record<string, string> } | null;
   /** Only with `useListingChannels(undefined, { listings: true })`: every workspace listing, for the picker. */
   listings?: ListingPickerSource[];
 };
