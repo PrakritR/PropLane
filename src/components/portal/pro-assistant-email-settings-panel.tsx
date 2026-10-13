@@ -1,5 +1,6 @@
 "use client";
 
+import { workspaceMailboxLocalFor } from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
 import { WorkIdentityRow } from "./work-identity-row";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
@@ -486,6 +487,7 @@ export function ManagerAssistantEmailChannelRow({
               aria-label="Work email address"
               data-attr="assistant-email-local"
               value={localInput}
+              placeholder={workspaceMailboxLocalFor(entry.workspaceName, "") || undefined}
               onChange={(event) => setLocalInput(event.target.value.toLowerCase())}
               disabled={savingAddress}
               spellCheck={false}

@@ -12,7 +12,10 @@ export function isUpcomingScheduledInboxMessage(sendAt: string, status: string):
 export type ScheduledInboxMessageRecord = {
   id: string; managerUserId: string; sendAt: string; status: ScheduledInboxMessageStatus;
   subject: string; body: string; recipientEmail: string; recipientName: string;
-  recipientUserId?: string | null; broadcastCategories?: ("management" | "resident")[];
+  recipientUserId?: string | null;
+  /** E.164. A phone-only text recipient (no email, no account): delivered as a manager conversation SMS. */
+  recipientPhone?: string | null; conversationKey?: string | null;
+  broadcastCategories?: ("management" | "resident")[];
   deliverViaEmail: boolean; deliverViaSms: boolean; deliverViaInbox: boolean;
   senderPortal?: "resident" | "manager"; senderUserId?: string | null; senderName?: string; senderEmail?: string;
   createdAt: string; sentAt?: string | null; cancelledAt?: string | null; messageKind?: string;

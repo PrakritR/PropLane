@@ -40,6 +40,7 @@ export function emailReplySubjectFor(subject: string | null | undefined): string
 export function inboxEmailBubbleFields(
   turn: { body: string; subject?: string | null; channel?: InboxThreadMessageChannel | null },
   lastShownSubject: string,
+  threadTitle?: string | null,
 ): { body: string; subject?: string; lastShownSubject: string } {
   const channel = turn.channel ?? null;
   const body = inboxTurnDisplayBody(turn.body, channel);
@@ -47,7 +48,8 @@ export function inboxEmailBubbleFields(
     return { body, lastShownSubject };
   }
   const subject = String(turn.subject ?? "").trim();
-  const show = Boolean(subject) && emailSubjectTopic(subject) !== emailSubjectTopic(lastShownSubject);
+  const repeatsTitle = Boolean(threadTitle) && subject.toLowerCase() === String(threadTitle).trim().toLowerCase();
+  const show = Boolean(subject) && !repeatsTitle && emailSubjectTopic(subject) !== emailSubjectTopic(lastShownSubject);
   return {
     body,
     ...(show ? { subject } : {}),

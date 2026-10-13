@@ -67,6 +67,17 @@ export {
 
 export type TeamMember = { userId: string; teamRole: string | null; isOwner: boolean };
 
+/** The raw membership row behind a teammate: what `resolveWorkspaceNoticeRecipients` reads their role and houses from. */
+export type TeamMemberGrantRow = {
+  assigned_property_ids?: unknown;
+  property_co_manager_permissions?: unknown;
+  co_manager_permissions?: unknown;
+  house_scope?: unknown;
+  team_role?: unknown;
+};
+
+export type TeamMemberWithGrant = TeamMember & { grantRow: TeamMemberGrantRow | null };
+
 /**
  * Everyone in a workspace's Team chat: the owner first, then each accepted
  * teammate whose membership row is for this workspace (a row with no workspace
@@ -77,9 +88,21 @@ export async function resolveWorkspaceTeamMembers(
   db: SupabaseClient,
   input: { ownerManagerUserId: string; workspaceId?: string | null },
 ): Promise<TeamMember[]> {
+  return (await resolveWorkspaceTeamMembersWithGrants(db, input)).map(({ userId, teamRole, isOwner }) => ({
+    userId,
+    teamRole,
+    isOwner,
+  }));
+}
+
+/** The same roster, each teammate carrying the membership row their grants are read from. */
+export async function resolveWorkspaceTeamMembersWithGrants(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; workspaceId?: string | null },
+): Promise<TeamMemberWithGrant[]> {
   const ownerId = input.ownerManagerUserId.trim();
   if (!ownerId) return [];
-  const members: TeamMember[] = [{ userId: ownerId, teamRole: null, isOwner: true }];
+  const members: TeamMemberWithGrant[] = [{ userId: ownerId, teamRole: null, isOwner: true, grantRow: null }];
   const requested = input.workspaceId?.trim() ?? "";
   try {
     const defaultId = await userDefaultWorkspaceId(db, ownerId);
@@ -100,16 +123,21 @@ export async function resolveWorkspaceTeamMembers(
     );
     if (error) return members;
     const seen = new Set<string>([ownerId]);
-    for (const row of (data ?? []) as Array<{ invitee_user_id?: unknown; workspace_id?: unknown; team_role?: unknown }>) {
+    for (const row of (data ?? []) as Array<{ invitee_user_id?: unknown; workspace_id?: unknown; team_role?: unknown } & TeamMemberGrantRow>) {
       const inviteeId = String(row.invitee_user_id ?? "").trim();
       if (!inviteeId || seen.has(inviteeId)) continue;
       const rowWorkspace = String(row.workspace_id ?? "").trim() || defaultId;
       if (workspaceId && rowWorkspace !== workspaceId) continue;
       seen.add(inviteeId);
-      members.push({ userId: inviteeId, teamRole: String(row.team_role ?? "").trim() || null, isOwner: false });
+      members.push({
+        userId: inviteeId,
+        teamRole: String(row.team_role ?? "").trim() || null,
+        isOwner: false,
+        grantRow: row,
+      });
     }
   } catch {
-    return [{ userId: ownerId, teamRole: null, isOwner: true }];
+    return [{ userId: ownerId, teamRole: null, isOwner: true, grantRow: null }];
   }
   return members;
 }

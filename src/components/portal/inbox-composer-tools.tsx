@@ -74,10 +74,12 @@ export function InboxComposerAiMenu({
   );
 }
 
-function formatScheduledLabel(sendAt: string): string {
+export function formatScheduledLabel(sendAt: string): string {
   const date = new Date(sendAt);
   if (Number.isNaN(date.getTime())) return "Scheduled";
-  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${day} \u00b7 ${time}`;
 }
 
 export function InboxComposerScheduleMenu({

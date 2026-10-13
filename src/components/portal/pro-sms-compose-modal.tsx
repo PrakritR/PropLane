@@ -327,9 +327,6 @@ export function ManagerSmsComposeModal({
             maxLength={1600}
             data-attr="manager-sms-compose-body"
           />
-          <span className="mt-1 block text-xs text-muted">
-            {body.trim().length}/1600
-          </span>
         </div>
         {sendIssue ? (
           <p className="text-sm leading-relaxed text-danger" role="alert">

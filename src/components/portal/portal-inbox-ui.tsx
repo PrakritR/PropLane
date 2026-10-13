@@ -1038,11 +1038,6 @@ function inboxAvatarGlyph(name: string): ReactNode {
   return inboxInitials(name);
 }
 
-/** A phone shows the length counter only once the limit is near (past 80%), never as a standing 0/1600. */
-export function shouldShowComposerCounter(length: number, maxLength: number | undefined): boolean {
-  return Boolean(maxLength) && length > maxLength! * 0.8;
-}
-
 /** One row in the left conversation list. */
 export function InboxConversationRow({
   name,
@@ -1898,6 +1893,7 @@ export function InboxComposer({
   placeholder = "Write a message…",
   maxLength,
   hint,
+  sendAtLabel,
   dataAttr,
   /** Inline channel picker rendered in the tools row beside Send (preferred). */
   channelControl,
@@ -1924,6 +1920,8 @@ export function InboxComposer({
   placeholder?: string;
   maxLength?: number;
   hint?: ReactNode;
+  /** When a send time is set, the send icon's tooltip reads "Send at <label>". */
+  sendAtLabel?: string;
   dataAttr?: string;
   channelControl?: ReactNode;
   leadingControl?: ReactNode;
@@ -1964,7 +1962,6 @@ export function InboxComposer({
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;
-  const showPhoneCounter = shouldShowComposerCounter(value.trim().length, maxLength);
   return (
     <div
       className="portal-inbox-composer shrink-0 bg-card max-md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
@@ -2072,18 +2069,11 @@ export function InboxComposer({
               {resolvedChannel}
             </div>
           ) : null}
-          {showPhoneCounter ? (
-            <span
-              className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-muted md:hidden"
-              data-attr="inbox-composer-counter"
-            >
-              {value.trim().length}/{maxLength}
-            </span>
-          ) : null}
           <button
             type="submit"
             disabled={!canSend}
-            aria-label="Send"
+            aria-label={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
+            title={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
             data-attr={dataAttr ? `${dataAttr}-send` : undefined}
             className={PORTAL_INBOX_COMPOSER_SEND_CLASS}
           >
@@ -2095,7 +2085,7 @@ export function InboxComposer({
           </button>
         </div>
         </div>
-        {hint || maxLength || onAutoSendChange ? (
+        {hint || onAutoSendChange ? (
           <div
             className={cn(
               "mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1",
@@ -2118,11 +2108,6 @@ export function InboxComposer({
               ) : null}
               <span className="text-[11px] text-muted">{hint}</span>
             </div>
-            {maxLength ? (
-              <span className="text-[11px] tabular-nums text-muted max-md:hidden">
-                {value.trim().length}/{maxLength}
-              </span>
-            ) : null}
           </div>
         ) : null}
       </form>

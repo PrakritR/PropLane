@@ -12,7 +12,7 @@ import { ManagerCommunicationComposeModal } from "@/components/portal/pro-commun
 import type { ScopedInboxSendPayload } from "@/lib/role-compose";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
-import { InboxComposerChannelMenu, InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
+import { InboxComposerChannelMenu, InboxComposerScheduleMenu, formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
 import { matchResidentManagerContact, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
@@ -1350,6 +1350,7 @@ export const ResidentInboxPanel = forwardRef<
           channel: m.channel,
         },
         lastShownSubject,
+        activeThread.from,
       );
       lastShownSubject = fields.lastShownSubject;
       return {
@@ -1655,16 +1656,7 @@ export const ResidentInboxPanel = forwardRef<
         }
         dataAttr="resident-inbox-reply"
         focusSignal={replyFocusSignal}
-        hint={
-          scheduleLater
-            ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              })}.`
-            : undefined
-        }
+        sendAtLabel={scheduleLater ? formatScheduledLabel(scheduleSendAt) : undefined}
         trailingControls={
           <>
             <InboxComposerScheduleMenu

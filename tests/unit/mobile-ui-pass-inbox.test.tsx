@@ -11,7 +11,6 @@ import {
   PORTAL_LIST_PAGE_BODY,
   inboxInitials,
   inboxNameIsPhoneLike,
-  shouldShowComposerCounter,
 } from "@/components/portal/portal-inbox-ui";
 import { smsTurnChannelTag } from "@/components/portal/pro-sms-panel";
 import { buildSmsThreadScheduleBody, smsThreadCanSchedule } from "@/lib/sms-thread-schedule";
@@ -134,13 +133,11 @@ describe("the bottom bar is cleared once", () => {
     expect(css).not.toMatch(/data-communication-thread-reading\] \.portal-inbox-composer\s*\{\s*padding-bottom: max\(/);
   });
 
-  it("the 0/1600 counter shows only past 80% of the limit, in the tools row", () => {
-    expect(shouldShowComposerCounter(0, 1600)).toBe(false);
-    expect(shouldShowComposerCounter(1280, 1600)).toBe(false);
-    expect(shouldShowComposerCounter(1281, 1600)).toBe(true);
-    expect(shouldShowComposerCounter(5000, undefined)).toBe(false);
+  it("no length counter renders under the composer; the hard limit stays on the field", () => {
     const ui = read("src/components/portal/portal-inbox-ui.tsx");
-    expect(ui).toContain('data-attr="inbox-composer-counter"');
+    expect(ui).not.toContain("inbox-composer-counter");
+    expect(ui).not.toContain("shouldShowComposerCounter");
+    expect(ui).toContain("maxLength={maxLength}");
   });
 });
 

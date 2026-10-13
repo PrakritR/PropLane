@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
+import { resolveWorkspaceNoticeRecipients } from "@/lib/workspace-team-recipients.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { samePhone, senderLabelForInbound } from "@/lib/sms/manager-relay.server";
 import { resolveWorkspaceSendLine } from "@/lib/sms/manager-number-provisioning.server";
@@ -9,7 +9,6 @@ import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { TEAM_INBOUND_FORWARD_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
 import {
   memberPhoneEligibility,
-  resolveWorkspaceTeamMembers,
   teamRelayCapRemaining,
   withdrawTeamRelayIfOverCap,
 } from "@/lib/team-comms.server";
@@ -75,22 +74,21 @@ export async function forwardInboundToTeammates(
   const ownerId = input.managerUserId.trim();
   const houseId = input.houseId?.trim() ?? "";
   const sid = input.messageSid?.trim() ?? "";
-  // Unknown house or no MessageSid (nothing to dedupe on) is owner-only.
-  if (!ownerId || !houseId || !sid) return [];
+  // No MessageSid (nothing to dedupe on) is owner-only. An unknown house is no longer owner-only:
+  // the role matrix decides, and a no-house event reaches property managers, leasing and viewers.
+  if (!ownerId || !sid) return [];
 
   const line = await resolveWorkspaceSendLine(db, ownerId, input.workspaceId).catch(() => null);
   if (!line) return [];
 
-  const [members, withHouse] = await Promise.all([
-    resolveWorkspaceTeamMembers(db, { ownerManagerUserId: ownerId, workspaceId: input.workspaceId }),
-    resolvePropertyScopedManagerRecipientIds(db as Parameters<typeof resolvePropertyScopedManagerRecipientIds>[0], {
-      ownerManagerUserId: ownerId,
-      propertyId: houseId,
-      channel: "inbox",
-    }),
-  ]);
-  const hasHouse = new Set(withHouse);
-  const recipients = members.filter((member) => !member.isOwner && hasHouse.has(member.userId));
+  const recipients = (
+    await resolveWorkspaceNoticeRecipients(db, {
+      ownerUserId: ownerId,
+      workspaceId: input.workspaceId,
+      module: "inbox",
+      propertyId: houseId || null,
+    })
+  ).filter((member) => !member.isOwner);
   if (recipients.length === 0) return [];
 
   const label = await senderLabelForInbound(db, { managerUserId: ownerId, fromPhone: input.fromPhone });
@@ -124,7 +122,7 @@ export async function forwardInboundToTeammates(
         sendClass: "transactional",
         purpose: TEAM_INBOUND_FORWARD_SMS_PURPOSE,
         counterpartyRole: "manager",
-        propertyId: houseId,
+        propertyId: houseId || undefined,
         suppressConversationLog: true,
         dedupeKey: `fwd:${sid}:${member.userId}`,
       },

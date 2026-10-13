@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { createMemoryDb } from "./support/memory-supabase";
+
+const notifyManager = vi.hoisted(() => vi.fn(async () => ({ delivered: true, suppressed: false })));
+vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: notifyManager }));
+vi.mock("@/lib/work-number-recipients.server", () => ({ notifyWorkNumberRecipients: vi.fn(async () => undefined) }));
+
 import {
   resolvePropertyLeadRecipientIds,
+  notifyPropertyScopedManagersFromAgent,
   resolvePropertyScopedManagerRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
 
@@ -125,5 +132,37 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
       propertyId: "prop-a",
     });
     expect(result.sort()).toEqual(["co-both", "co-calendar", "co-inbox", "owner-1"]);
+  });
+});
+
+describe("notifyPropertyScopedManagersFromAgent — fans out by role", () => {
+  const stamp = { inbox: { read: true, notification: true }, payments: { read: true, notification: true } };
+  const invite = (id: string, role: string, over: Record<string, unknown> = {}) => ({
+    inviter_user_id: "owner", invitee_user_id: id, status: "accepted", workspace_id: "ws-1", team_role: role,
+    house_scope: "selected", assigned_property_ids: ["prop-a"], co_manager_permissions: stamp,
+    property_co_manager_permissions: { "prop-a": stamp }, ...over,
+  });
+  const db = () =>
+    createMemoryDb({
+      portal_workspaces: [{ id: "ws-1", owner_user_id: "owner", name: "Seattle Homes", is_default: true }],
+      manager_property_records: [{ id: "prop-a", manager_user_id: "owner", workspace_id: "ws-1", row_data: {} }],
+      profiles: [],
+      account_link_invites: [invite("pm", "property_manager"), invite("book", "bookkeeper"), invite("away", "viewer", { assigned_property_ids: ["prop-z"] })],
+    });
+
+  it("a house-less event now reaches property managers, not just the owner", async () => {
+    notifyManager.mockClear();
+    await notifyPropertyScopedManagersFromAgent(db() as never, {
+      ownerManagerUserId: "owner", module: "inbox", subject: "s", text: "t", idempotencyKey: "k1",
+    });
+    expect(notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort()).toEqual(["away", "owner", "pm"]); // a viewer on another house still hears a no-house event
+  });
+  it("a payments event reaches the bookkeeper too, and a teammate off the house hears nothing", async () => {
+    notifyManager.mockClear();
+    await notifyPropertyScopedManagersFromAgent(db() as never, {
+      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k2",
+    });
+    const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort();
+    expect(landlords).toEqual(["book", "owner", "pm"]);
   });
 });
