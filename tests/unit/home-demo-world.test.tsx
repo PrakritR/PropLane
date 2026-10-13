@@ -153,7 +153,11 @@ describe("sidebar grouping (the redesigned shell)", () => {
       expect(groups[0]!.querySelector("p"), `${portal}: the home group has no heading`).toBeNull();
       for (const group of groups.slice(1)) {
         const label = group.querySelector("p");
-        expect(label, `${portal}: a headed group`).not.toBeNull();
+        // The resident's "My home" group has no heading: it would repeat its own first row.
+        if (!label) {
+          expect(portal, "only the resident's My home group is unheaded").toBe("resident");
+          continue;
+        }
         expect(group.firstElementChild, `${portal}: label first`).toBe(label);
       }
       // Every tab is exactly one row in exactly one group.

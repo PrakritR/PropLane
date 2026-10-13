@@ -31,6 +31,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
+import { inboxDisplayName } from "@/lib/inbox-display-name";
 import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
 import { pickInboxColumns, type InboxColumns } from "@/lib/inbox-columns";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -1061,11 +1062,14 @@ export function InboxConversationRow({
   trailing,
   listVariant = "default",
   appearance = "default",
+  emailNameAsPerson = false,
 }: {
   name: string;
   subtitle?: string;
   preview: string;
   time: string;
+  /** A row named only by an email address reads as the person ("Manager"), not the address. */
+  emailNameAsPerson?: boolean;
   /** Manager Communication list — avatar, name, preview, stamp; no property/category line. */
   listVariant?: "default" | "manager";
   /**
@@ -1141,7 +1145,7 @@ export function InboxConversationRow({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-1.5">
                 <p className={`min-w-0 truncate text-sm leading-tight text-foreground ${unread ? "font-bold" : "font-semibold"}`}>
-                  <span className="truncate">{name}</span>
+                  <span className="truncate">{emailNameAsPerson ? inboxDisplayName(name) : name}</span>
                 </p>
                 <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11.5px] tabular-nums text-muted">
                   {time}
@@ -1222,7 +1226,7 @@ export function InboxConversationRow({
               {!managerList && unread ? (
                 <span className="mr-1.5 inline-block size-2 shrink-0 rounded-full bg-primary align-middle" aria-label="Unread" />
               ) : null}
-              <span className="truncate">{name}</span>
+              <span className="truncate">{emailNameAsPerson ? inboxDisplayName(name) : name}</span>
             </p>
             <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted">
               {time}
@@ -1517,7 +1521,7 @@ export function InboxBubble({
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
   const startsRun = cluster === "single" || cluster === "first" || showAvatar;
-  const author = assistant ? "PropLane" : message.author || "?";
+  const author = assistant ? "PropLane" : inboxDisplayName(message.author) || "?";
   const clock = inboxMessageClock(message.at);
   const bookingNoticePath = assistant ? bookingRecordPathFromNotice(message.body) : null;
 

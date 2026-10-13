@@ -1740,8 +1740,9 @@ export async function renderPortalSectionWith(
 
   if (kind === "resident" && section === "lease") {
     const LEASE_BUCKETS = ["pending", "signed"] as const;
+    // A bare `/lease` names no tab: the panel opens on the first tab that has a lease.
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/lease/pending`);
+      return <ResidentLeasePanel basePath={def.basePath} bucketNamed={false} />;
     }
     // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
     if (tabParts.length > 3) notFound();
@@ -1780,6 +1781,7 @@ export async function renderPortalSectionWith(
         <ResidentFormsSection
           basePath={def.basePath}
           bucket={parseResidentFormsBucket(seg) ?? "pending"}
+          bucketNamed={seg !== undefined}
           formId={isResidentFormId(seg) ? seg : undefined}
         />
       </ManagerPortalPageShell>

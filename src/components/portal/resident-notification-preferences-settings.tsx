@@ -238,7 +238,15 @@ export function ResidentNotificationPreferencesSettings() {
     >
       {loadState === "loading" ? (
         <PortalSettingsGroup>
-          <div className="px-4 py-6 text-sm text-muted">Loading notification preferences…</div>
+          <div aria-busy="true" role="status" data-attr="resident-notification-preferences-skeleton">
+            <span className="sr-only">Loading</span>
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="flex min-h-[3.25rem] items-center justify-between gap-4 border-b border-border/70 px-4 last:border-0">
+                <div className="h-3.5 w-40 animate-pulse rounded bg-accent/55 motion-reduce:animate-none" />
+                <div className="h-6 w-20 animate-pulse rounded-lg bg-accent/55 motion-reduce:animate-none" />
+              </div>
+            ))}
+          </div>
         </PortalSettingsGroup>
       ) : loadState === "error" ? (
         <PortalSettingsGroup>

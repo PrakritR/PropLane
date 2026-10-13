@@ -1,5 +1,6 @@
 import type { LeasePipelineRow, SignedLeaseSnapshot } from "@/lib/lease-pipeline-storage";
 import { hasBothLeaseSignatures, residentCanViewLeaseRow } from "@/lib/lease-pipeline-storage";
+import { formatLeaseDateLabel } from "@/lib/resident-lease-display";
 
 export type ResidentLeaseDocumentFilterBucket = "pending" | "signed";
 
@@ -118,7 +119,7 @@ export function resolveResidentLeaseDocumentView(
     if (!snapshot) return null;
     return {
       title: snapshot.label,
-      subtitle: `Signed · ${snapshot.fullySignedAt}`,
+      subtitle: `Signed ${formatLeaseDateLabel(snapshot.fullySignedAt) ?? snapshot.fullySignedAt}`,
       pdfSrc: snapshot.managerUploadedPdf?.dataUrl ?? null,
       leaseHtml: snapshot.generatedHtml ?? null,
       pipelineRow: null,
@@ -135,7 +136,7 @@ export function resolveResidentLeaseDocumentView(
       : `Lease agreement${row.unit ? ` · ${row.unit}` : ""}`;
   return {
     title,
-    subtitle: hasBothLeaseSignatures(row) ? `Fully signed · ${signedAt}` : row.status ?? "Pending signatures",
+    subtitle: hasBothLeaseSignatures(row) ? `Signed ${formatLeaseDateLabel(signedAt) ?? signedAt}` : row.status ?? "Pending signatures",
     pdfSrc,
     leaseHtml,
     pipelineRow: row,

@@ -38,8 +38,13 @@ export type ResidentAgentSnapshot = {
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /** The snapshot, or null while loading / unavailable. `enabled: false` means the feature is hidden. */
-export function useResidentAgentSnapshot(): { snapshot: ResidentAgentSnapshot | null; reload: () => Promise<void> } {
-  const [snapshot, setSnapshot] = useState<ResidentAgentSnapshot | null>(null);
+export function useResidentAgentSnapshot(): { snapshot: ResidentAgentSnapshot | null; loaded: boolean; reload: () => Promise<void> } {
+  const [snapshot, setSnapshotState] = useState<ResidentAgentSnapshot | null>(null);
+  const [loaded, setLoaded] = useState(isDemoModeActive());
+  const setSnapshot = useCallback((next: ResidentAgentSnapshot | null) => {
+    setSnapshotState(next);
+    setLoaded(true);
+  }, []);
   const reload = useCallback(async () => {
     if (isDemoModeActive()) return;
     try {
@@ -49,7 +54,7 @@ export function useResidentAgentSnapshot(): { snapshot: ResidentAgentSnapshot | 
     } catch {
       setSnapshot(null);
     }
-  }, []);
+  }, [setSnapshot]);
   useEffect(() => {
     if (isDemoModeActive()) return;
     let cancelled = false;
@@ -65,8 +70,8 @@ export function useResidentAgentSnapshot(): { snapshot: ResidentAgentSnapshot | 
     return () => {
       cancelled = true;
     };
-  }, []);
-  return { snapshot, reload };
+  }, [setSnapshot]);
+  return { snapshot, loaded, reload };
 }
 
 type ProvisionOutcome = { status: string; reason?: string };

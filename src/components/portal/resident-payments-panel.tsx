@@ -103,7 +103,7 @@ import {
   residentChargesListHref,
   parseResidentPaymentDetailTab,
 } from "@/lib/portal-detail-routes";
-import { RESIDENT_PAYMENTS_TAB_LABELS, shouldSimplifyResidentPaymentsHeader } from "@/lib/resident-payments-tabs";
+import { RESIDENT_PAYMENTS_TAB_LABELS, residentPaymentsLandingBucket, shouldSimplifyResidentPaymentsHeader } from "@/lib/resident-payments-tabs";
 import { ResidentAutopayCard } from "@/components/portal/resident-autopay-card";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
@@ -297,6 +297,8 @@ export function ResidentPaymentsPanel({
   const [payConfirm, setPayConfirm] = useState<PayConfirmState | null>(null);
   const [payModalStep, setPayModalStep] = useState<"select" | "pay">("select");
   const [tick, setTick] = useState(0);
+  /** True once the first server read of the charge ledger has settled. */
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [checkout, setCheckout] = useState<CheckoutState | null>(null);
   const [applicationTick, setApplicationTick] = useState(0);
   const email = session.email?.trim() ?? null;
@@ -552,7 +554,10 @@ export function ResidentPaymentsPanel({
       await syncPropertyPipelineFromServer({ force: true });
       await syncLeasePipelineFromServer();
       await syncHouseholdChargesFromServer(true, { skipReconcile: true });
-    })().finally(refresh);
+    })().finally(() => {
+      refresh();
+      setInitialSyncDone(true);
+    });
   }, [email, refresh, session.ready, session.userId]);
 
   useEffect(() => {
@@ -689,14 +694,16 @@ export function ResidentPaymentsPanel({
     // An explicitly routed Paid tab is the resident asking for history — never
     // bounce them onto Due just because something is owed. Neither is a charge
     // record: the resident opened that row, not a list.
-    if (landedOnBucket.current || !email || chargeIdProp || resolvedBucketProp === "paid") return;
-    if (overdueRows.length === 0 && upcomingPendingRows.length === 0) return;
+    // Decided only after the first server read: the cached rows alone can show Upcoming while the
+    // Due rows are still on their way, which sent a phone to Upcoming and a desktop to Due.
+    if (landedOnBucket.current || !email || chargeIdProp || resolvedBucketProp === "paid" || !initialSyncDone) return;
+    const landing = residentPaymentsLandingBucket({ due: overdueRows.length, upcoming: upcomingPendingRows.length });
+    if (!landing) return;
     landedOnBucket.current = true;
-    const landing = overdueRows.length > 0 ? "overdue" : "pending";
     if (landing !== resolvedBucketProp) {
       portalNavigate(residentChargesListHref(basePath, landing), { replace: true });
     }
-  }, [basePath, chargeIdProp, email, portalNavigate, resolvedBucketProp, overdueRows.length, upcomingPendingRows.length]);
+  }, [basePath, chargeIdProp, email, initialSyncDone, portalNavigate, resolvedBucketProp, overdueRows.length, upcomingPendingRows.length]);
 
   const statusTabs = useMemo(
     () =>

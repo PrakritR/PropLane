@@ -178,10 +178,10 @@ describe("phase 1 regroup: headings and exact order per portal", () => {
     ]);
   });
 
-  it("resident: home, My home, Applying, Money", () => {
+  it("resident: home, My home (no heading: it would repeat its own first row), Applying, Money", () => {
     expect(headings("resident")).toEqual([
       [null, ["dashboard", "communication"]],
-      ["My home", ["move-in", "lease", "forms", "services"]],
+      [null, ["move-in", "lease", "forms", "services"]],
       ["Applying", ["tour", "applications"]],
       ["Money", ["payments", "documents"]],
     ]);

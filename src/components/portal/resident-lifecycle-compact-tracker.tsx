@@ -1,7 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
-import type { ResidentLifecycleStep } from "@/lib/resident-lifecycle-journey";
+import { compactLifecycleLabel, type ResidentLifecycleStep } from "@/lib/resident-lifecycle-journey";
 
 /** Six-step compact tracker — matches studio `jr-track is-compact` (journey-0930). */
 export function ResidentLifecycleCompactTracker({
@@ -69,8 +69,11 @@ export function ResidentLifecycleCompactTracker({
                 <i className="text-[11.5px] not-italic text-muted">{step.state === "done" ? "Done" : step.who}</i>
               </>
             ) : (
-              <b className="text-[10.5px] font-extrabold uppercase leading-tight tracking-[0.05em] [html[data-native]_&]:text-[9px]">
-                {step.label}
+              <b
+                className="min-w-0 max-w-full text-[10.5px] font-extrabold leading-tight tracking-tight [html[data-native]_&]:text-[10px]"
+                style={step.state === "current" ? { color: "var(--primary)" } : undefined}
+              >
+                {compactLifecycleLabel(step)}
               </b>
             )}
           </span>

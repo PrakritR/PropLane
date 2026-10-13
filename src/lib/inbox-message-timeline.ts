@@ -76,8 +76,31 @@ function clusterPosition(sameDirAsPrev: boolean, sameDirAsNext: boolean): InboxB
   return "single";
 }
 
+/**
+ * A turn stored twice reads as the paragraph repeated: a thread's opening line (kept with the
+ * subject) and the stored message that carries the same words right after it, from the same
+ * sender. The later copy is dropped. Only a body long enough to be a real message is compared
+ * ("OK" twice in a row is two turns), and only against the turn immediately before it.
+ */
+export function dropDuplicateTurns<T extends InboxBubbleMessage>(messages: readonly T[]): T[] {
+  const kept: T[] = [];
+  for (const message of messages) {
+    const body = (message.body ?? "").trim();
+    const previous = kept[kept.length - 1];
+    const duplicate =
+      previous !== undefined &&
+      body.length >= 16 &&
+      previous.direction === message.direction &&
+      (previous.author ?? "") === (message.author ?? "") &&
+      (previous.body ?? "").trim() === body;
+    if (!duplicate) kept.push(message);
+  }
+  return kept;
+}
+
 /** Group consecutive same-direction bubbles (Instagram-style clusters). */
-export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): InboxTimelineItem[] {
+export function buildInboxMessageTimeline(rawMessages: InboxBubbleMessage[]): InboxTimelineItem[] {
+  const messages = dropDuplicateTurns(rawMessages);
   const items: InboxTimelineItem[] = [];
   const keyOccurrences = new Map<string, number>();
   const mixedChannels = new Set(messages.flatMap((message) => message.channel ? [message.channel] : [])).size > 1;

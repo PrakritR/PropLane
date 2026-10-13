@@ -226,8 +226,10 @@ describe("resident portal redesign completeness", () => {
       expect(moveIn).toContain('variant="command"');
       expect(moveIn).toContain("RESIDENT_MOVE_IN_TABS");
       expect(moveIn).toContain("RESIDENT_MOVE_IN_TAB_LABELS");
-      // Phone tabs use the full labels (studio After, cee81a4aa), so no short-label map.
-      expect(moveIn).toContain("destinationDenseEqualRow");
+      // Phone tabs use the full labels, and the strip is the one compact style Inspections uses
+      // (round 4 R14): no stretched equal-width layout on any of the four tabs.
+      expect(moveIn).not.toContain("destinationDenseEqualRow");
+      expect(moveIn).not.toContain('destinationItemLayout="equal"');
       expect(moveIn).toContain("residentMoveInHref");
       expect(moveIn).toContain("Assigned room");
       expect(moveIn).toContain("InstructionsTabContent");

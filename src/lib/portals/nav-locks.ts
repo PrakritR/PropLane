@@ -84,3 +84,18 @@ export function portalNavLockNavigable(params: Parameters<typeof portalNavLockKi
   const kind = portalNavLockKind(params);
   return kind === "upsell" || kind === "notice";
 }
+
+/**
+ * Whether a section may occupy a slot on the phone's bottom bar.
+ *
+ * A manager's locked rows leave the bar. A resident's stage-locked rows (`inert`:
+ * Lease / Payments before approval, Services before signing) stay, so the bar
+ * keeps its lifecycle shape. A row locked by the MANAGER's plan (`notice`) does
+ * not: the resident can never use it, so it must not take a slot a working tab
+ * could have. The sidebar row and the More sheet keep their lock either way.
+ */
+export function portalBottomBarShowsSection(params: Parameters<typeof portalNavLockKind>[0]): boolean {
+  const kind = portalNavLockKind(params);
+  if (params.kind === "resident") return kind !== "notice";
+  return kind === "none";
+}

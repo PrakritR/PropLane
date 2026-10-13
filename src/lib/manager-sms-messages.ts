@@ -51,6 +51,20 @@ export type ManagerSmsMessageRow = {
   sentBy?: { userId: string; name: string } | null;
 };
 
+/**
+ * Who a text bubble is from, as a person reads it: "You" for the viewer's own
+ * texts (or the teammate's name when a co-manager sent it), the other side's
+ * name for what they sent. Never the raw direction word.
+ */
+export function smsBubbleSenderLabel(
+  message: Pick<ManagerSmsMessageRow, "direction" | "sentBy">,
+  counterpartName = "Property manager",
+): string {
+  if (message.direction === "inbound") return counterpartName.trim() || "Property manager";
+  const teammate = message.sentBy?.name?.trim();
+  return teammate || "You";
+}
+
 export type ManagerSmsResidentConversation = {
   /** Stable opaque Communication projection identity; never an authorization input. */
   projectionId?: string;

@@ -85,7 +85,7 @@ describe("My home", () => {
     expect(screen.getAllByText("Lease signed").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: /^Move-in details/ }));
     for (const section of HOUSE_INFO_SECTIONS) expect((await screen.findAllByText(section.label)).length).toBeGreaterThan(0);
-    expect(screen.getByText("How your portal works")).toBeInTheDocument();
+    expect(screen.queryByText("How your portal works")).toBeNull();
     expect(container.textContent).not.toMatch(/work[\s-]?order/i);
   });
 

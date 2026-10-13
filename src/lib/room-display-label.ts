@@ -58,3 +58,8 @@ export function roomDisplayLabel(roomNumber: string | null | undefined): string 
   if (/^[A-Za-z]{3,}/.test(afterScope)) return afterScope;
   return `Room ${afterScope}`;
 }
+
+/** "5257 Brooklyn Ave · Room 4": the parts that are names, joined; a raw record id reads as nothing. */
+export function placeLineWithoutRawIds(...parts: Array<string | null | undefined>): string {
+  return parts.map((part) => placeNameOrEmpty(part)).filter(Boolean).join(" · ");
+}

@@ -3,7 +3,7 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { splitLineList } from "@/data/manager-listing-presets";
 import type { MockProperty } from "@/data/types";
-import { emptyHouseInfo, getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { emptyHouseInfo, getHouseInfoValue, houseInfoIsEmpty, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { normalizeManagerListingSubmissionV1, isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 
@@ -391,4 +391,39 @@ export function redactMoveInDetails(resolved: ResidentMoveInResolved): ResidentM
     wifiPassword: null,
     residentSection: null,
   };
+}
+
+/**
+ * What the resident's Move-in details tab has to show. The tab draws one block per
+ * part that has content and a single empty state when none does — never an empty
+ * message per part.
+ */
+export function residentMoveInInfoParts(
+  resolved: Pick<
+    ResidentMoveInResolved,
+    | "houseInfo"
+    | "generalHouseInfo"
+    | "houseRulesText"
+    | "houseInstructions"
+    | "houseMoveInPhotoDataUrls"
+    | "houseMoveInVideoDataUrl"
+    | "instructions"
+    | "moveInPhotoDataUrls"
+    | "moveInVideoDataUrl"
+    | "residentSection"
+    | "amenities"
+  >,
+): { hasInfo: boolean; hasArrival: boolean; hasAmenities: boolean; isEmpty: boolean } {
+  const hasInfo =
+    !houseInfoIsEmpty(resolved.houseInfo) || Boolean(resolved.generalHouseInfo || resolved.houseRulesText);
+  const hasArrival =
+    Boolean(resolved.houseInstructions) ||
+    resolved.houseMoveInPhotoDataUrls.length > 0 ||
+    Boolean(resolved.houseMoveInVideoDataUrl) ||
+    Boolean(resolved.instructions) ||
+    resolved.moveInPhotoDataUrls.length > 0 ||
+    Boolean(resolved.moveInVideoDataUrl) ||
+    Boolean(resolved.residentSection);
+  const hasAmenities = resolved.amenities.length > 0;
+  return { hasInfo, hasArrival, hasAmenities, isEmpty: !hasInfo && !hasArrival && !hasAmenities };
 }

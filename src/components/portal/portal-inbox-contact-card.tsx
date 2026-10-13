@@ -189,14 +189,16 @@ export function PortalInboxContactCard({
                   <span className="flex shrink-0 items-center [&_svg]:size-3.5 [&_svg]:text-muted">{box.leading}</span>
                 ) : null}
                 <span className={cn("tabular-nums", wrapValue ? "min-w-0 [overflow-wrap:anywhere]" : "truncate")}>{box.value}</span>
-                {box.note && box.noteTone === "warn" ? (
-                  <span className="min-w-0 truncate text-[11px] text-[var(--status-pending-fg)]">{box.note}</span>
-                ) : box.note && box.noteTone === "fact" ? (
+                {box.note && box.noteTone === "fact" ? (
                   <span className="min-w-0 truncate text-[11px] text-muted">{box.note}</span>
                 ) : null}
               </p>
+              {/* A status gets its own line, so it truncates on its own and never squeezes the address. */}
+              {box.note && box.noteTone === "warn" ? (
+                <p className="mt-0.5 truncate text-[11px] leading-tight text-[var(--status-pending-fg)]">{box.note}</p>
+              ) : null}
               {box.actions && box.actions.length > 0 ? (
-                <span className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-card/90 opacity-0 transition-opacity focus-within:opacity-100 group-hover/idbox:opacity-100 max-lg:opacity-100">
+                <span className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-card/90">
                   {box.actions.map((action) =>
                     action.href ? (
                       <a

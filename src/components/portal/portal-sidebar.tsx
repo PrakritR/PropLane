@@ -13,7 +13,7 @@ import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
 import { useIsSmallPortalViewport, useNativeChrome } from "@/hooks/use-is-native-app";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
 import { usePortalSession } from "@/hooks/use-portal-session";
-import { portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
+import { portalBottomBarShowsSection, portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
 import {
   residentNavLockReason,
   residentNavSectionVisibleInNav,
@@ -311,11 +311,19 @@ export function PortalSidebar({
 
   const nativeBottomNavItems = useMemo(() => {
     const primary = nativeBottomNavSplit.primary;
-    // Resident lifecycle tabs stay visible while locked so the bar can show
-    // Lease / Payments before approval and Services after signing.
-    if (definition.kind === "resident") return primary;
-    return primary.filter((item) => !isSectionLocked(item.section));
-  }, [definition.kind, nativeBottomNavSplit, isSectionLocked]);
+    // Resident lifecycle tabs stay visible while stage-locked so the bar can show
+    // Lease / Payments before approval and Services after signing; a section the
+    // manager's plan locks never takes a slot (`portalBottomBarShowsSection`).
+    return primary.filter((item) =>
+      portalBottomBarShowsSection({
+        kind: definition.kind,
+        section: item.section,
+        subscriptionTier,
+        residentNavStage,
+        coManagerRestricted: restrictedSections.has(item.section),
+      }),
+    );
+  }, [definition.kind, nativeBottomNavSplit, subscriptionTier, residentNavStage, restrictedSections]);
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
   // A record page no longer has a bottom bar of its own (PLAN-0921-1029) —
   // this bar is never hidden on its account any more.
@@ -840,12 +848,12 @@ export function PortalSidebar({
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 pb-3 pt-1 [scrollbar-width:thin]"
         aria-label="Portal sections"
       >
-        {navGroups.map((group) => {
+        {navGroups.map((group, groupIndex) => {
           const closed = Boolean(group.label) && closedGroups.includes(group.id);
           // The active row stays visible even inside a collapsed group.
           const visibleItems = closed ? group.items.filter((item) => isNavItemActive(item)) : group.items;
           return (
-            <div key={group.id} className={cn("flex flex-col gap-px", group.label && "mt-3")} data-nav-group={group.id}>
+            <div key={group.id} className={cn("flex flex-col gap-px", (group.label || groupIndex > 0) && "mt-3")} data-nav-group={group.id}>
               {group.label ? (
                 <button
                   type="button"

@@ -56,6 +56,21 @@ const LABELS: Record<ResidentLifecycleStepId, string> = {
   move_in: "Move in",
 };
 
+/** One-word names for the phone tracker, where six columns share 390px. The current step still shows its full label. */
+const SHORT_LABELS: Record<ResidentLifecycleStepId, string> = {
+  received: "Applied",
+  review: "Review",
+  approved: "Approved",
+  sign_lease: "Sign",
+  pay_move_in: "Pay",
+  move_in: "Move in",
+};
+
+/** The label a compact (six-across) tracker prints: full for the current step, short for the rest. */
+export function compactLifecycleLabel(step: Pick<ResidentLifecycleStep, "id" | "label" | "state">): string {
+  return step.state === "current" ? step.label : (SHORT_LABELS as Partial<Record<string, string>>)[step.id] ?? step.label;
+}
+
 const ACTORS: Record<ResidentLifecycleStepId, ResidentLifecycleActor> = {
   received: "You",
   review: "Property manager",

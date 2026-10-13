@@ -17,10 +17,9 @@ const MAX_LENGTH = 2_000;
  * One server-backed preference per signed-in person. It intentionally uses the
  * generic authenticated route, so the same component works in every portal.
  */
-export function AssistantCustomInstructionsSetting({ role }: { role: "manager" | "admin" | "resident" | "vendor" }) {
+export function AssistantCustomInstructionsSetting({ role: _role }: { role: "manager" | "admin" | "resident" | "vendor" }) {
   const fieldId = useId();
   const errorId = `${fieldId}-error`;
-  const hintId = `${fieldId}-hint`;
   const [value, setValue] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -88,10 +87,6 @@ export function AssistantCustomInstructionsSetting({ role }: { role: "manager" |
               <label htmlFor={fieldId} className="text-sm font-medium text-foreground">
                 Custom instructions
               </label>
-              <p id={hintId} className="text-xs leading-relaxed text-muted">
-                Example: “Keep resident messages friendly and close with ‘Thanks for rooming with me.’”
-                {role === "manager" ? " These preferences also guide automated leasing text replies." : ""}
-              </p>
               <Textarea
                 id={fieldId}
                 value={value}
@@ -105,11 +100,11 @@ export function AssistantCustomInstructionsSetting({ role }: { role: "manager" |
                 placeholder="Tell PropLane Assistant how you prefer it to respond or draft messages."
                 data-attr="assistant-custom-instructions-input"
                 aria-invalid={error ? "true" : undefined}
-                aria-describedby={`${hintId}${error ? ` ${errorId}` : ""}`}
+                aria-describedby={error ? errorId : undefined}
               />
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-muted" aria-live="polite">
-                  {!loaded ? "Loading…" : `${value.length.toLocaleString()} / ${MAX_LENGTH.toLocaleString()}`}
+                  {!loaded ? "" : `${value.length.toLocaleString()} / ${MAX_LENGTH.toLocaleString()}`}
                 </p>
                 {saved ? <p className="text-xs font-medium text-emerald-700" aria-live="polite">Saved</p> : null}
               </div>
