@@ -123,27 +123,23 @@ describe("listing sticky bar", () => {
     expect(document.body.textContent).toContain("0 available now");
   });
 
-  it("carries the work number and the work email as tappable pills when the listing has them", () => {
+  it("carries the work number as the card's text link and prints no email door anywhere", () => {
     render(<ListingDetailSections property={property({ phone: WORK_NUMBER, email: WORK_EMAIL })} rich={rich} />);
-    const el = bar();
-    const text = el.querySelector('[data-attr="listing-sticky-text"]') as HTMLAnchorElement | null;
-    const email = el.querySelector('[data-attr="listing-sticky-email"]') as HTMLAnchorElement | null;
+    const text = document.querySelector('[data-attr="listing-price-card"] [data-attr="listing-text-tour"]') as HTMLAnchorElement | null;
     expect(text).not.toBeNull();
     expect(text!.getAttribute("href")?.startsWith("sms:")).toBe(true);
-    expect(text!.textContent).toMatch(/\(206\)/);
-    expect(email).not.toBeNull();
-    expect(email!.getAttribute("href")?.startsWith("mailto:")).toBe(true);
-    expect(email!.getAttribute("href")).toContain(WORK_EMAIL);
+    expect(text!.textContent).toMatch(/^Text .*\(206\)/);
+    expect(document.body.textContent).not.toContain("Email the manager");
+    expect(document.querySelector('[data-attr="listing-email-tour"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
+    // The bar is one primary and Tour: no contact pills.
+    expect(bar().querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
+    expect(bar().querySelectorAll('[data-attr="listing-sticky-actions"] a, [data-attr="listing-sticky-actions"] button')).toHaveLength(2);
   });
 
-  it("prints no door the listing does not have", () => {
+  it("prints no text link the listing does not have a work number for", () => {
     render(<ListingDetailSections property={property({ email: WORK_EMAIL })} rich={rich} />);
-    const el = bar();
-    expect(el.querySelector('[data-attr="listing-sticky-text"]')).toBeNull();
-    expect(el.querySelector('[data-attr="listing-sticky-email"]')).not.toBeNull();
-
-    cleanup();
-    render(<ListingDetailSections property={property({})} rich={rich} />);
+    expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
     expect(bar().querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
   });
 });

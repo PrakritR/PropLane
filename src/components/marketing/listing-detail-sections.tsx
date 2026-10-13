@@ -2,7 +2,7 @@
 
 import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
-import { Heart, Mail, MessageSquareText, Share2 } from "lucide-react";
+import { Heart, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ListingDetailCollapsibleSection,
@@ -21,22 +21,14 @@ import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { ListingKeyFacts, deriveListingKeyFacts, formatMoneyInLabel } from "@/components/marketing/listing-key-facts";
 import { ListingNoPhotoBand, ListingPhotoMosaic } from "@/components/marketing/listing-photo-mosaic";
-import {
-  ListingContactCard,
-  listingContactRows,
-  listingPrimaryCtaClass,
-  listingSecondaryCtaClass,
-} from "@/components/marketing/listing-contact-card";
+import { listingPrimaryCtaClass, listingSecondaryCtaClass } from "@/components/marketing/listing-contact-card";
 import {
   ListingPreviewNewTabContext,
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
-import { ShortStayBookingBlock, ShortStayProvider, useShortStay } from "@/components/marketing/short-stay-booking";
+import { ShortStayProvider, useShortStay } from "@/components/marketing/short-stay-booking";
+import { ListingActionsProvider, ListingPriceCard, MonthlyPrimaryCta } from "@/components/marketing/listing-price-card";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
-import { propertyAllowsShortTermRental } from "@/lib/rental-application/data";
-import { listingTermCtas } from "@/lib/listing-prospect-cta-labels";
-import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
-import { formatFeeCentsForFact } from "@/lib/property-form-row-facts";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
 import { filterListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
@@ -84,9 +76,6 @@ function formatPropertyLayoutQuickFact(value: string): string {
     (_, n: string) => ` · ${n} ${n === "1" ? "story" : "stories"} · `,
   );
 }
-
-/** Proportional figures — `tabular-nums` / `tnum` widens commas and reads as "$1 , 000". */
-const listingMoneyClass = "font-bold tracking-tight text-foreground";
 
 function propertyDisplayLabel(property: MockProperty): string | null {
   return property.buildingName?.trim() || property.title?.trim() || property.address?.trim() || null;
@@ -173,85 +162,11 @@ function AboutBody({ rich }: { rich: ListingRichContent }) {
   );
 }
 
-function PhoneShortStayCard() {
-  const stay = useShortStay();
-  if (!stay?.offered) return null;
+/** The phone draws the same card below the overview; desktop draws it in the sticky aside. */
+function PhonePriceCard({ property, rich, newTab }: { property: MockProperty; rich: ListingRichContent; newTab: boolean }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface lg:hidden" id="short-stay-card" data-attr="short-stay-phone-card">
-      <ShortStayBookingBlock />
-    </div>
-  );
-}
-
-function PriceCard({
-  property,
-  rich,
-  newTab,
-  className = "",
-}: {
-  property: MockProperty;
-  rich: ListingRichContent;
-  newTab: boolean;
-  className?: string;
-}) {
-  const estimated = rich.estimatedMonthlyTotalLabel?.trim() ? formatMoneyInLabel(rich.estimatedMonthlyTotalLabel.trim()) : undefined;
-  const from = listingFromPrice(rich);
-  const breakdownLines = rich.pricingBreakdown ?? [];
-  const shortStay = propertyAllowsShortTermRental(property.id);
-  const nightly = shortStay
-    ? shortTermNightlyRate(property.listingSubmission?.shortTermDailyCost)
-    : 0;
-  const stay = useShortStay();
-  const stayBooking = stay?.offered === true;
-  const termCtas = listingTermCtas({ shortStayOffered: shortStay, signingOrder: property.signingOrder });
-  return (
-    <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
-      {stayBooking ? <ShortStayBookingBlock className="mb-5 border-b border-border pb-5" /> : null}
-      <p className="text-xs font-semibold text-muted">Base rent from</p>
-      <p className={`mt-0.5 text-3xl ${listingMoneyClass}`}>{from}</p>
-      {estimated || breakdownLines.length > 0 ? (
-        <dl className="mt-3 divide-y divide-border border-y border-border text-sm">
-          {estimated ? (
-            <div className="flex items-baseline justify-between gap-3 py-2">
-              <dt className="text-muted">Est. with utilities</dt>
-              <dd className={listingMoneyClass}>{estimated}</dd>
-            </div>
-          ) : null}
-          {breakdownLines.map((line) => (
-            <div key={line.label} className="flex items-baseline justify-between gap-3 py-2">
-              <dt className="text-muted">{line.label}</dt>
-              <dd className={listingMoneyClass}>{formatMoneyInLabel(line.value)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {shortStay && nightly > 0 && !stayBooking ? (
-        <p className="mt-3 text-sm font-semibold text-foreground">
-          Short stays from ${nightly.toFixed(0)} / night
-        </p>
-      ) : null}
-      <div className="mt-4 space-y-2.5">
-        <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className={primaryCtaClass} newTab={newTab}>
-          Schedule tour
-        </ProspectListingCta>
-        {termCtas
-          // With dates picked, "Request to book" is the short-stay door; the long application door stays otherwise.
-          .filter((cta) => !(stayBooking && stay?.rangeValid && cta.rentalType === "short_term"))
-          .map((cta) => (
-          <ProspectListingCta
-            key={cta.id}
-            action="apply"
-            propertyId={property.id}
-            data-attr={cta.dataAttr}
-            className={secondaryCtaClass}
-            newTab={newTab}
-            applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
-          >
-            {cta.label}
-          </ProspectListingCta>
-        ))}
-        <ListingContactCard property={property} />
-      </div>
+    <div className="lg:hidden" id="short-stay-card" data-attr="listing-phone-price-card">
+      <ListingPriceCard property={property} rich={rich} newTab={newTab} />
     </div>
   );
 }
@@ -306,59 +221,49 @@ function StickyBar({
   roomsLine: string | null;
   newTab: boolean;
   /**
-   * Manager preview on a phone: one slim row (price and availability left,
-   * Apply and Tour right). The contact pills are not drawn — the manager's own
-   * Email lives in the record header menu, and the work number sits under the title.
+   * Manager preview on a phone: one slim row (price and availability left, the primary and Tour right).
    */
   slim?: boolean;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   useStickyBarClearance(barRef);
+  const stay = useShortStay();
   const from = listingFromPrice(rich);
-  const termCtas = listingTermCtas({
-    shortStayOffered: propertyAllowsShortTermRental(property.id),
-    signingOrder: property.signingOrder,
-  });
-  const doors = listingContactRows(property);
-  const doorClass =
-    "inline-flex min-h-[44px] min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
-  // With both doors the number is the label worth reading; Email folds to its
-  // icon so the price keeps room. Alone, Email says so in words.
-  const emailIconOnly = Boolean(doors.phone && doors.email);
-  if (slim) {
-    const bothStays = termCtas.length > 1;
-    // One button per stay the listing offers, each opening its own application: with both stays the
-    // bar reads Long term, Short term, Tour, and the price takes its own row; with one stay the
-    // single door says Apply. Two buttons to the same application is never the answer.
-    const slimCta = bothStays ? "!min-h-[44px] !w-auto min-w-0 flex-auto whitespace-nowrap !px-2 !text-[13px]" : "!min-h-[44px] !w-auto flex-none !px-4 !py-2";
-    const applyButtons = (
-      <>
-        {termCtas.map((cta) => (
-          <ProspectListingCta
-            key={cta.id}
-            action="apply"
-            propertyId={property.id}
-            data-attr={cta.dataAttr}
-            className={`${secondaryCtaClass} ${slimCta}`}
-            newTab={newTab}
-            applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
-          >
-            <span aria-hidden>{!bothStays ? "Apply" : cta.rentalType === "short_term" ? "Short term" : "Long term"}</span>
-            <span className="sr-only">{cta.label}</span>
-          </ProspectListingCta>
-        ))}
-        <ProspectListingCta
-          action="tour"
-          propertyId={property.id}
-          data-attr="listing-web-tour"
-          className={`${primaryCtaClass} ${slimCta}`}
-          newTab={newTab}
-        >
+  // Exactly one primary and Tour: on the Short stay segment the primary is Request to book, which brings the
+  // booking block into view; on Monthly it is the same Quick apply / Continue / Apply the card shows.
+  const shortSegment = stay?.offered === true && stay.segment === "short";
+  const compact = slim ? "!min-h-[44px] !w-auto flex-none !px-4 !py-2" : "!min-h-[44px] !py-2.5 min-w-[7.5rem] flex-1 !px-3";
+  const primary = shortSegment ? (
+    <button
+      type="button"
+      className={`${primaryCtaClass} ${compact}`}
+      data-attr="listing-sticky-request"
+      onClick={() => document.getElementById("short-stay-card")?.scrollIntoView({ block: "start", behavior: "smooth" })}
+    >
+      Request to book
+    </button>
+  ) : (
+    <MonthlyPrimaryCta property={property} newTab={newTab} className={`${primaryCtaClass} ${compact}`} label={slim ? "short" : undefined} />
+  );
+  const tour = (
+    <ProspectListingCta
+      action="tour"
+      propertyId={property.id}
+      data-attr="listing-web-tour"
+      className={`${secondaryCtaClass} ${compact}`}
+      newTab={newTab}
+    >
+      {slim ? (
+        <>
           <span aria-hidden>Tour</span>
           <span className="sr-only">Schedule tour</span>
-        </ProspectListingCta>
-      </>
-    );
+        </>
+      ) : (
+        "Schedule tour"
+      )}
+    </ProspectListingCta>
+  );
+  if (slim) {
     return (
       <div
         ref={barRef}
@@ -366,23 +271,13 @@ function StickyBar({
         data-attr="listing-sticky-bar"
         data-slim=""
       >
-        {bothStays ? (
-          <div className="flex min-w-0 flex-col gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
-              {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
-            </div>
-            <div className="flex min-w-0 items-center gap-2" data-attr="listing-sticky-actions">{applyButtons}</div>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
+            {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
           </div>
-        ) : (
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
-              {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
-            </div>
-            <div className="flex shrink-0 items-center gap-2" data-attr="listing-sticky-actions">{applyButtons}</div>
-          </div>
-        )}
+          <div className="flex shrink-0 items-center gap-2" data-attr="listing-sticky-actions">{primary}{tour}</div>
+        </div>
       </div>
     );
   }
@@ -392,58 +287,15 @@ function StickyBar({
       className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 pb-3 pt-2.5 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       data-attr="listing-sticky-bar"
     >
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="min-w-[7rem] flex-1">
-          {/* No tabular figures here: the brand face gives the comma a digit's
-              width under `tnum`, which reads as "$1 , 050" in a lone price. */}
-          <p className="truncate text-lg font-bold tracking-tight text-foreground">{from}</p>
-          {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
-        </div>
-        {doors.phone || doors.email ? (
-          <div className="flex min-w-0 shrink items-center gap-1.5" data-attr="listing-sticky-contact">
-            {doors.phone ? (
-              <a href={doors.phone.smsHref} className={doorClass} data-attr="listing-sticky-text" aria-label={`Text ${doors.phone.label}`}>
-                <MessageSquareText className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-                <span className="truncate">{doors.phone.label}</span>
-              </a>
-            ) : null}
-            {doors.email ? (
-              <a
-                href={doors.email.href}
-                className={`${doorClass} ${emailIconOnly ? "w-[38px] shrink-0 justify-center !px-0" : ""}`}
-                data-attr="listing-sticky-email"
-                aria-label="Email the manager"
-              >
-                <Mail className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-                {emailIconOnly ? null : <span className="truncate">Email</span>}
-              </a>
-            ) : null}
-          </div>
-        ) : null}
+      <div className="min-w-0">
+        {/* No tabular figures here: the brand face gives the comma a digit's
+            width under `tnum`, which reads as "$1 , 050" in a lone price. */}
+        <p className="truncate text-lg font-bold tracking-tight text-foreground">{from}</p>
+        {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        {termCtas.map((cta) => (
-          <ProspectListingCta
-            key={cta.id}
-            action="apply"
-            propertyId={property.id}
-            data-attr={cta.dataAttr}
-            className={`${secondaryCtaClass} !min-h-[44px] !py-2.5 min-w-[7.5rem] flex-1 !px-3`}
-            newTab={newTab}
-            applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
-          >
-            {cta.label}
-          </ProspectListingCta>
-        ))}
-        <ProspectListingCta
-          action="tour"
-          propertyId={property.id}
-          data-attr="listing-web-tour"
-          className={`${primaryCtaClass} !min-h-[44px] !py-2.5 min-w-[7.5rem] flex-1 !px-3`}
-          newTab={newTab}
-        >
-          Schedule tour
-        </ProspectListingCta>
+      <div className="mt-2.5 flex gap-2" data-attr="listing-sticky-actions">
+        {primary}
+        {tour}
       </div>
     </div>
   );
@@ -515,6 +367,7 @@ export function ListingDetailSections({
   return (
     <ListingPreviewNewTabContext.Provider value={embeddedPreview}>
       <ShortStayProvider property={property} disabled={embeddedPreview}>
+      <ListingActionsProvider property={property} preview={embeddedPreview}>
       <ListingSidebarRenterCtasContext.Provider value>
         <div
           className={`@container min-w-0 max-w-full bg-background text-foreground ${
@@ -580,9 +433,6 @@ export function ListingDetailSections({
 
             <ListingKeyFacts facts={facts} className="mt-4" />
 
-            {/* Phone: the manager's doors sit under the title; desktop has them in the card. */}
-            <ListingContactCard property={property} className="mt-3 lg:hidden" />
-
             <div
               className={`mt-6 grid min-w-0 gap-8 lg:mt-8 @min-[900px]:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] @min-[900px]:gap-10 ${
                 managerPreviewChrome && hidePortalSubnav ? "max-lg:scroll-mt-1" : ""
@@ -633,10 +483,10 @@ export function ListingDetailSections({
                   ) : (
                     <div id="overview" aria-hidden />
                   )}
-                  {/* Phone: the price card is not drawn below lg, so a short-stay listing gets its booking block here. */}
-                  <PhoneShortStayCard />
+                  {/* Phone: the same card, below the overview; from lg up it sits in the aside or the stack below. */}
+                  <PhonePriceCard property={property} rich={rich} newTab={embeddedPreview} />
                   <div className="hidden lg:block @min-[900px]:hidden" data-listing-price-card-stack>
-                    <PriceCard property={property} rich={rich} newTab={embeddedPreview} />
+                    <ListingPriceCard property={property} rich={rich} newTab={embeddedPreview} />
                   </div>
 
                   <ListingDetailCollapsibleSection
@@ -757,7 +607,7 @@ export function ListingDetailSections({
               </div>
 
               <aside className="hidden @min-[900px]:sticky @min-[900px]:top-[var(--listing-sticky-stack,calc(env(safe-area-inset-top,0px)+7.5rem))] @min-[900px]:block @min-[900px]:self-start">
-                <PriceCard property={property} rich={rich} newTab={embeddedPreview} />
+                <ListingPriceCard property={property} rich={rich} newTab={embeddedPreview} />
               </aside>
             </div>
 
@@ -771,6 +621,7 @@ export function ListingDetailSections({
           </div>
         </div>
       </ListingSidebarRenterCtasContext.Provider>
+      </ListingActionsProvider>
       </ShortStayProvider>
     </ListingPreviewNewTabContext.Provider>
   );

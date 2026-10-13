@@ -944,6 +944,16 @@ function RentalApplicationWizardInner({
     );
   }, [savedAutofillProfile, showToast]);
 
+  // Quick apply sends a resident here with `?prefill=1` when their saved answers did not cover this listing:
+  // the tap on Quick apply is the explicit ask, so the saved answers go in once, as the step-2 button would.
+  const quickPrefillDone = useRef(false);
+  const quickPrefillRequested = searchParams.get("prefill") === "1";
+  useEffect(() => {
+    if (!quickPrefillRequested || quickPrefillDone.current || !savedAutofillProfile || autofillApplied) return;
+    quickPrefillDone.current = true;
+    handleApplySavedAutofill();
+  }, [autofillApplied, handleApplySavedAutofill, quickPrefillRequested, savedAutofillProfile]);
+
   const propertyOptions = useMemo(() => {
     void extrasTick;
     if (mode === "portal") {
