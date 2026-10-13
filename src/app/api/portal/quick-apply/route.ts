@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 /**
  * Quick apply: submit a solo application to one room from the signed-in resident's saved answers.
- * Signed-in residents only (401 otherwise), 10 a minute per account. Everything that makes a submit a
+ * Signed-in residents only (401 otherwise), 10 a minute per account (30 for the read-only dry run that labels the button). Everything that makes a submit a
  * submit (validation, fee guard, linking, notices, screening) is the shared write in
  * `signed-in-application-write.server.ts`; see `quick-apply.server.ts`.
  */
@@ -23,7 +23,12 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (!user?.email) return NextResponse.json({ error: "Sign in to apply." }, { status: 401 });
 
-    if (!(await rateLimit(`quick-apply:${user.id}`, 10, 60_000)).ok) {
+    const body = (await req.json().catch(() => ({}))) as QuickApplyInput;
+    // A dry run only decides what the button says, so it gets its own, looser budget.
+    const limited = body.dryRun === true
+      ? await rateLimit(`quick-apply-dry:${user.id}`, 30, 60_000)
+      : await rateLimit(`quick-apply:${user.id}`, 10, 60_000);
+    if (!limited.ok) {
       return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429 });
     }
     if (!(await rateLimit(`quick-apply-ip:${clientIpFrom(req)}`, 30, 60_000)).ok) {
@@ -42,7 +47,6 @@ export async function POST(req: Request) {
     const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();
     if (!email) return NextResponse.json({ error: "Sign in to apply." }, { status: 401 });
 
-    const body = (await req.json().catch(() => ({}))) as QuickApplyInput;
     const outcome = await runQuickApply(
       db,
       { user, role: legacyRole, email, leadSource: await readListingSource(req) },

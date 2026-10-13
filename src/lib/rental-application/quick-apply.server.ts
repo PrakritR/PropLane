@@ -57,6 +57,11 @@ export type QuickApplyInput = {
   confirmCurrent?: unknown;
   /** The typed signature line. */
   signature?: unknown;
+  /**
+   * Decide what the button should say, write nothing: `{ ready: true }`, `needsWizard`, `needsPayment`
+   * or a duplicate. The sheet's confirmation and signature are not asked for.
+   */
+  dryRun?: unknown;
 };
 
 export type QuickApplyNeedsWizardReason =
@@ -68,6 +73,7 @@ export type QuickApplyNeedsWizardReason =
 
 export type QuickApplyOutcome =
   | { status: 200; body: { ok: true; applicationId: string; href: string } }
+  | { status: 200; body: { ready: true } }
   | { status: 200; body: { needsWizard: true; reason: QuickApplyNeedsWizardReason; missing?: string[]; href: string } }
   | { status: 200; body: { needsPayment: true; applicationId: string; href: string } }
   | { status: number; body: { error: string; existingApplicationId?: string } };
@@ -117,11 +123,12 @@ export async function runQuickApply(
   const propertyId = text(input.propertyId);
   if (!propertyId) return { status: 400, body: { error: "Choose a listing." } };
   const requestedRoomId = text(input.roomId);
+  const dryRun = input.dryRun === true;
   const signature = text(input.signature);
-  if (input.confirmCurrent !== true) {
+  if (!dryRun && input.confirmCurrent !== true) {
     return { status: 400, body: { error: "Confirm your saved answers are current." } };
   }
-  if (!signature) return { status: 400, body: { error: "Type your full legal name as your signature." } };
+  if (!dryRun && !signature) return { status: 400, body: { error: "Type your full legal name as your signature." } };
 
   // 1. The saved answers. None means there is nothing to reuse: the wizard is the first application.
   const basis = await loadResidentApplicationAutofillBasis(db, ctx.email);
@@ -157,7 +164,8 @@ export async function runQuickApply(
 
   // 3. One room. A listing with a single room needs no pick; otherwise the room is named.
   const rooms = sub.rooms.filter((room) => room.id);
-  const roomId = requestedRoomId || (rooms.length === 1 ? rooms[0]!.id : "");
+  // A dry run asked before a room is picked is judged on the first room: the answers do not depend on which.
+  const roomId = requestedRoomId || (rooms.length === 1 || dryRun ? (rooms[0]?.id ?? "") : "");
   if (!roomId) return wizard("no_room");
   if (!rooms.some((room) => room.id === roomId)) return { status: 400, body: { error: "Choose a room of this listing." } };
 
@@ -202,7 +210,7 @@ export async function runQuickApply(
     email,
     consentCredit: wantsScreening && input.consentCredit === true,
     consentTruth: true,
-    digitalSignature: signature,
+    digitalSignature: signature || (dryRun ? "dry run" : ""),
     dateSigned: today,
     wizardStepSchema: createInitialRentalWizardState().wizardStepSchema,
   };
@@ -235,6 +243,11 @@ export async function runQuickApply(
   const fee = await authorizeApplicationFeeSubmission(db, submittedRow);
   if (!fee.ok && fee.status !== 409) return { status: fee.status, body: { error: fee.error } };
   const feeOwed = !fee.ok;
+  if (dryRun) {
+    return feeOwed
+      ? { status: 200, body: { needsPayment: true, applicationId: "", href: quickApplyWizardHref(propertyId, roomId) } }
+      : { status: 200, body: { ready: true } };
+  }
   const row: DemoApplicantRow = feeOwed
     ? {
         ...submittedRow,

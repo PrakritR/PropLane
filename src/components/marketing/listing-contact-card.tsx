@@ -38,6 +38,10 @@ export const listingPrimaryCtaClass =
 export const listingSecondaryCtaClass =
   "btn-metallic flex min-h-[48px] w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold text-foreground outline-none transition hover:-translate-y-[1px] active:translate-y-0";
 
+/** The card's tertiary door: the work number as a plain text link under the buttons. */
+export const listingTextLinkClass =
+  "mt-3 flex min-h-[44px] items-center justify-center text-sm font-semibold text-primary tabular-nums outline-none hover:underline focus-visible:underline";
+
 /**
  * Text and Email as the same secondary pill as Apply, stacked with the same
  * gap. No card, no trailing link word, no Call row.

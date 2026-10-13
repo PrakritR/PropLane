@@ -86,7 +86,9 @@ describe("listing apply doors", () => {
     const source = readFileSync("src/components/marketing/listing-detail-sections.tsx", "utf8");
     expect(source).not.toContain("Book a short stay");
     expect(source).not.toContain("/rent/stay");
-    expect(source).toContain("listingTermCtas");
+    // One Apply door; the long/short pair is gone from the card (Monthly | Short stay is the choice).
+    expect(source).not.toContain("listingTermCtas");
+    expect(source).not.toContain("Apply long term");
     const stay = readFileSync("src/app/(public)/rent/stay/page.tsx", "utf8");
     expect(stay).toContain("redirect(");
     expect(stay).toContain('rentalType: "short_term"');

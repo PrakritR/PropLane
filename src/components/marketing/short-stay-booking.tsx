@@ -9,7 +9,7 @@
  */
 import { Minus, Plus } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { listingContactRows, listingPrimaryCtaClass, listingSecondaryCtaClass } from "@/components/marketing/listing-contact-card";
+import { listingContactRows, listingPrimaryCtaClass, listingTextLinkClass as textLinkClass } from "@/components/marketing/listing-contact-card";
 import { DateField } from "@/components/ui/date-field";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -18,7 +18,7 @@ import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy"
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
-import { addRangeDays } from "@/lib/room-availability-range";
+import { addRangeDays, normalizeRangeDay } from "@/lib/room-availability-range";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import {
   SHORT_STAY_MAX_DAYS_AHEAD,
@@ -34,8 +34,16 @@ import {
 
 type StayRoom = { id: string; name: string; capacity: number; nightly: number };
 
+/** The card's two stays: a monthly lease (Apply / Quick apply) or a short stay (Request to book / Quick book). */
+export type StaySegment = "monthly" | "short";
+
 type ShortStayState = {
   offered: boolean;
+  segment: StaySegment;
+  setSegment: (value: StaySegment) => void;
+  /** The monthly segment's optional move-in date. */
+  moveIn: string;
+  setMoveIn: (value: string) => void;
   property: MockProperty;
   rooms: StayRoom[];
   checkIn: string;
@@ -64,7 +72,10 @@ export function useShortStay(): ShortStayState | null {
 export function ShortStayProvider({ property, disabled = false, children }: { property: MockProperty; /** A manager's own preview never books: the card keeps its read-only price line. */ disabled?: boolean; children: ReactNode }) {
   const sub = property.listingSubmission;
   const offered = !disabled && listingOffersShortStay(sub);
-  const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(offered ? property.id : null);
+  // Read for every listing (not only short-stay ones): the monthly segment dims a room taken on the move-in date too.
+  const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(disabled ? null : property.id);
+  const [segment, setSegment] = useState<StaySegment>("monthly");
+  const [moveIn, setMoveIn] = useState("");
   const [checkIn, setCheckInRaw] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuestsRaw] = useState(1);
@@ -89,9 +100,14 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
   const nights = check.ok ? check.nights : 0;
 
   const setCheckIn = useCallback((value: string) => {
+    setSegment("short");
     setCheckInRaw(value);
     // A check-out that is no longer after the new check-in is cleared, never silently moved.
     setCheckOut((current) => (value && current && current <= value ? "" : current));
+  }, []);
+  const setCheckOutDay = useCallback((value: string) => {
+    setSegment("short");
+    setCheckOut(value);
   }, []);
   const clampGuests = useCallback((value: number, forRoom: string) => {
     const capacity = rooms.find((r) => r.id === forRoom)?.capacity ?? Math.max(1, ...rooms.map((r) => r.capacity));
@@ -103,9 +119,16 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
     setGuestsRaw((current) => clampGuests(current, value));
   }, [clampGuests]);
 
+  // The nights the card is currently asking about: the short stay's range, or the monthly move-in day.
+  const activeRange = useMemo<{ checkIn: string; checkOut: string } | null>(() => {
+    if (segment === "short") return check.ok ? { checkIn: check.checkIn, checkOut: check.checkOut } : null;
+    const day = normalizeRangeDay(moveIn);
+    return day && day >= today ? { checkIn: day, checkOut: addRangeDays(day, 1) } : null;
+  }, [check, moveIn, segment, today]);
+
   const verdictFor = useCallback(
     (id: string): ShortStayRoomVerdict | null => {
-      if (!offered || !check.ok) return null;
+      if (!activeRange || (segment === "short" && !offered)) return null;
       const room = sub?.rooms?.find((r) => r.id === id);
       if (!room) return null;
       const spans = findPublicRoomOccupancy(occupancyRows, property.id, id)?.spans ?? [];
@@ -113,11 +136,11 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
         spans,
         capacity: room.occupancyCapacity,
         availableFrom: room.moveInAvailableDate,
-        checkIn: check.checkIn,
-        checkOut: check.checkOut,
+        checkIn: activeRange.checkIn,
+        checkOut: activeRange.checkOut,
       });
     },
-    [check, occupancyRows, offered, property.id, sub],
+    [activeRange, occupancyRows, offered, property.id, segment, sub],
   );
 
   // A picked room that the new dates take away is dropped, so the card never books a taken room.
@@ -131,36 +154,62 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
   useEffect(() => {
     if (!offered || typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("stay") !== "1") return;
+    let focusTimer: number | undefined;
     const timer = window.setTimeout(() => {
-      const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="short-stay-check-in"] input[type="text"], [data-attr="short-stay-check-in"] input:not([type])'));
-      const visible = inputs.find((input) => input.offsetParent !== null);
-      visible?.scrollIntoView({ block: "center", behavior: "smooth" });
-      visible?.focus({ preventScroll: true });
+      setSegment("short");
+      // The short-stay inputs mount with the segment: look for them one beat later.
+      focusTimer = window.setTimeout(() => {
+        const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="short-stay-check-in"] input[type="text"], [data-attr="short-stay-check-in"] input:not([type])'));
+        const visible = inputs.find((input) => input.offsetParent !== null);
+        visible?.scrollIntoView({ block: "center", behavior: "smooth" });
+        visible?.focus({ preventScroll: true });
+      }, 120);
     }, 400);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(focusTimer);
+    };
   }, [offered]);
 
   const value = useMemo<ShortStayState>(
-    () => ({ offered, property, rooms, checkIn, checkOut, guests, roomId, setCheckIn, setCheckOut, setGuests, setRoomId, rangeValid, nights, occupancyRows, occupancyLoading, verdictFor }),
-    [offered, property, rooms, checkIn, checkOut, guests, roomId, setCheckIn, setGuests, setRoomId, rangeValid, nights, occupancyRows, occupancyLoading, verdictFor],
+    () => ({ offered, segment, setSegment, moveIn, setMoveIn, property, rooms, checkIn, checkOut, guests, roomId, setCheckIn, setCheckOut: setCheckOutDay, setGuests, setRoomId, rangeValid, nights, occupancyRows, occupancyLoading, verdictFor }),
+    [offered, segment, moveIn, property, rooms, checkIn, checkOut, guests, roomId, setCheckIn, setCheckOutDay, setGuests, setRoomId, rangeValid, nights, occupancyRows, occupancyLoading, verdictFor],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 type SendState = { kind: "idle" } | { kind: "form" } | { kind: "sending" } | { kind: "sent" } | { kind: "error"; message: string };
 
-/** The Airbnb-style booking block: nightly price, dates, guests, live total, Request to book, Message. */
-export function ShortStayBookingBlock({ className = "" }: { className?: string }) {
+/**
+ * The Airbnb-style booking block: dates, room, guests, live total, Request to book, and a text link.
+ * `embedded` is the price card's Short stay segment, whose price line already sits above the segments;
+ * alone (no card around it) the block prints its own nightly price. `quickBook` is a signed-in resident
+ * with saved answers: name, phone and email come from their account and the button reads Quick book.
+ */
+export function ShortStayBookingBlock({
+  className = "",
+  embedded = false,
+  quickBook = null,
+}: {
+  className?: string;
+  embedded?: boolean;
+  quickBook?: { name: string; email: string; phone: string } | null;
+}) {
   const stay = useShortStay();
   const [state, setState] = useState<SendState>({ kind: "idle" });
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  // What the guest typed wins; until they type, the signed-in account's details stand in.
+  const [typedName, setName] = useState<string | null>(null);
+  const [typedPhone, setPhone] = useState<string | null>(null);
+  const [typedEmail, setEmail] = useState<string | null>(null);
+  const name = typedName ?? quickBook?.name ?? "";
+  const phone = typedPhone ?? quickBook?.phone ?? "";
+  const email = typedEmail ?? quickBook?.email ?? "";
   const honeypot = useRef<HTMLInputElement>(null);
   if (!stay || !stay.offered) return null;
 
   const today = pacificTodayKey();
-  const picked = stay.rooms.find((room) => room.id === stay.roomId) ?? null;
+  // A listing with one room has nothing to choose: that room is the one.
+  const picked = stay.rooms.find((room) => room.id === stay.roomId) ?? (stay.rooms.length === 1 ? stay.rooms[0]! : null);
   const freeRooms = stay.rangeValid ? stay.rooms.filter((room) => stay.verdictFor(room.id)?.free !== false) : stay.rooms;
   const from = listingShortStayNightlyFrom(stay.property.listingSubmission);
   const nightly = picked?.nightly || from;
@@ -205,12 +254,14 @@ export function ShortStayBookingBlock({ className = "" }: { className?: string }
 
   return (
     <div className={className} data-attr="short-stay-block">
-      <p className="text-xs font-semibold text-muted">{picked || stay.rooms.every((r) => r.nightly === from) ? "Per night" : "Per night from"}</p>
-      <p className="mt-0.5 text-3xl font-bold tracking-tight text-foreground" data-attr="short-stay-nightly">
-        {nightly > 0 ? `${formatShortStayMoney(nightly)}` : "—"}
-        <span className="ml-1 text-sm font-semibold text-muted">/ night</span>
-      </p>
-      <div className="mt-3 grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2" data-attr="short-stay-dates">
+      {!embedded && nightly > 0 ? (
+        <p className="text-3xl font-bold tracking-tight text-foreground" data-attr="short-stay-nightly">
+          {picked || stay.rooms.every((r) => r.nightly === from) ? "" : "from "}
+          {formatShortStayMoney(nightly)}
+          <span className="ml-1 text-sm font-semibold text-muted">/ night</span>
+        </p>
+      ) : null}
+      <div className={`${!embedded && nightly > 0 ? "mt-3 " : ""}grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2`} data-attr="short-stay-dates">
         <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="short-stay-check-in">
           Check-in
           <DateField
@@ -296,15 +347,19 @@ export function ShortStayBookingBlock({ className = "" }: { className?: string }
           type="button"
           className={`${listingPrimaryCtaClass} mt-3 disabled:opacity-50`}
           disabled={!canRequest}
-          onClick={() => setState({ kind: "form" })}
+          onClick={() => {
+            // Quick book: the account already supplies name and phone, so one tap sends the request.
+            if (quickBook && name.trim() && phone.trim()) void send();
+            else setState({ kind: "form" });
+          }}
           data-attr="short-stay-request"
         >
-          Request to book
+          {quickBook ? "Quick book" : "Request to book"}
         </button>
       )}
       {contact ? (
-        <a href={contact.smsHref} className={`${listingSecondaryCtaClass} mt-2.5`} data-attr="short-stay-message">
-          Message · text {contact.label}
+        <a href={contact.smsHref} className={textLinkClass} data-attr="short-stay-message">
+          Text {contact.label}
         </a>
       ) : null}
     </div>

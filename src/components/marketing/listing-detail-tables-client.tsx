@@ -1387,7 +1387,8 @@ export function SpacesInteractive({
   // Short-stay dates picked on the price card narrow this list: rooms free for the nights can be picked,
   // the rest stay in place, dimmed, saying when they free up.
   const stay = useShortStay();
-  const stayVerdict = (roomId: string) => (stay?.offered && stay.rangeValid ? stay.verdictFor(roomId) : null);
+  // The verdict follows whichever segment the card is on: the short stay's nights, or the monthly move-in day.
+  const stayVerdict = (roomId: string) => (stay ? stay.verdictFor(roomId) : null);
   const openBedsForRoom = useCallback(
     (roomId: string, capacity: number) => {
       const row = findPublicRoomOccupancy(occupancyRows, listingPropertyId, roomId);

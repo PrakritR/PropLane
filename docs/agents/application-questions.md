@@ -188,3 +188,33 @@ charges.
   Redeem and the resident lists re-derive a guest's applicant from the verified email.
 - A missed completion hook leaves the row owed, which the manager can mark done —
   it never blocks the form that was actually submitted.
+
+## Quick apply (resident, saved answers)
+
+`POST /api/portal/quick-apply` (`quick-apply.server.ts`) submits a **solo** application to one room from the answers
+the signed-in resident's latest submitted application holds. It is not a second submit path: the row goes through
+`prepareResidentSelfWrite` + `persistApplicationWrite` (`signed-in-application-write.server.ts`), the same pair the
+signed-in branch of `POST /api/manager-applications` uses, so validation, the fee guard, the resident link, linked
+forms, the manager notice, move-in forms and screening (`consentCredit`) are one implementation.
+
+- **Saved answers** are `RESIDENT_APPLICATION_AUTOFILL_KEYS` plus the earlier `customFieldAnswers`. A custom
+  question is answered only by an earlier answer with the same **key and type** (`carryCustomFieldAnswers`),
+  `showIf` respected. Anything still unanswered, or refused by the shared validator, answers `needsWizard` with the
+  keys; the wizard then opens prefilled (`?prefill=1`).
+- **Solo, always.** `applyingAsGroup`, `groupRole`, `groupSize`, `groupId`, `groupLeaderAppId` and `bundleId` are
+  never copied from a past application. Lease type and term come from the listing's offered terms
+  (`defaultStoredTermForKind("long", …)`), never from the last application; a short-stay-only listing goes to the
+  wizard. The template is pinned (`applicationTemplateId` / `Version`).
+- **Re-collected every time:** the "I confirm my saved answers are current" box, the screening consent when the
+  listing asks for it, and the typed signature. One sheet, one Submit (`QuickApplySheet`).
+- **Fees are never skipped.** `authorizeApplicationFeeSubmission` runs on the built row; a 409 saves the row as a
+  draft at the last step and answers `needsPayment`; any other failure is an error, not a draft.
+- **Duplicates:** the same person and room is a 409 ("You already applied to this room.") from
+  `findDuplicateApplication`.
+- **`dryRun: true`** writes nothing and says what the primary button should read: Quick apply (`ready`), Continue
+  application (`needsWizard` / `needsPayment`) or View application (duplicate). The public listing asks once per
+  listing and room (`useQuickApplyReadiness`), for a signed-in resident whose
+  `GET /api/portal/resident-application-autofill` returns a profile only.
+- Limits: signed-in residents only (401 otherwise), 10 submits and 30 dry runs a minute per account.
+- Out of scope: group quick apply, any fee bypass, any change to the wizard's questions. The row carries
+  `quickApplied: true` (a plain fact on the record, never a pill).
