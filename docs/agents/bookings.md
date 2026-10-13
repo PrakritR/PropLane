@@ -128,12 +128,22 @@ reservation also Remove stay.
 
 The Airbnb feed carries no guest name and no money. `channel_stay_details`
 (service-role only, keyed `connection_id + source_uid`, owner-scoped by the
-connection) holds what the manager types or Airbnb's emails supply: `guest_name`,
-`guest_phone`, `nightly_cents`, `payout_cents`, `paid_at`, `currency`, `source`
-(`manual` or `airbnb_email`), `check_in` / `check_out`. The booking record's
-Guest (Name, Phone) and Booking (Nightly, Payout, Paid on) rows edit them through
-one popup (`BookingsStayDetailsDialog`, one Save, `PUT .../stay-details`; a field
-left out of the request is untouched, a blank clears it).
+connection; `20261009190000_channel_stay_details.sql` plus the money columns in
+`20261013020000_channel_stay_details_money.sql`) holds what the manager types or
+Airbnb's emails supply: `guest_name`, `guest_phone`, `notes`, `nightly_cents`,
+`payout_cents`, `paid_at`, `currency`, `source` (`manual` or `airbnb_email`),
+`check_in` / `check_out`. The booking record's Guest (Name, Phone) and Booking
+(Nightly, Payout, Paid on) rows edit them through one popup
+(`BookingsStayDetailsDialog`, one Save, `PUT .../stay-details`): a field left out
+of the request is untouched, a blank clears it, and the row is deleted once it
+holds no name, no note and no money. That route is the only door into the table,
+and its permission gate is owned by [`integrations.md`](integrations.md)
+§ Bookings: one popup connects a channel.
+
+One label rule wherever a guest is drawn — list row, record title, day card,
+payout row (`bookingEntryGuestLabel`): the typed name, else "Airbnb guest · HM…"
+from the reservation code, else the feed summary. Host blocks and every
+non-channel source keep their own label.
 
 A stay with `payout_cents` projects an **Airbnb row in Incoming payments**
 (`src/lib/channel-calendar/airbnb-payouts.ts`, `GET .../channel-calendar/payouts`):
