@@ -17,9 +17,11 @@ import {
   expiryIsoForOption,
   inviteLinkUnusableMessage,
   inviteLinkUnusableReason,
+  generateInviteCode,
   maxUsesForOption,
   MANAGER_ROLE_REQUIRED_CODE,
   normalizeInviteLinkKind,
+  parseInviteInput,
   type InviteLinkKind,
   type InviteLinkUnusableReason,
 } from "@/lib/invite-links/invite-link-model";
@@ -177,7 +179,7 @@ const LINK_COLUMNS =
   "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role, house_scope, workspace_permissions";
 
 export type MintInviteLinkResult =
-  | { ok: true; link: InviteLinkRow; token: string }
+  | { ok: true; link: InviteLinkRow; token: string; code: string }
   | { ok: false; status: number; error: string };
 
 /**
@@ -428,9 +430,15 @@ export async function mintInviteLink(
     }
   }
 
-  const { data, error } = await db
-    .from("manager_invite_links")
-    .insert({
+  // The short code is an alias of this row; a collision on the unique index
+  // just draws another one.
+  let code = generateInviteCode(workspaceNameSnapshot);
+  let data: DbRow | null = null;
+  let error: { message?: string; code?: string } | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const res = await db
+      .from("manager_invite_links")
+      .insert({
       id: linkId,
       owner_user_id: ownerUserId,
       kind,
@@ -448,15 +456,21 @@ export async function mintInviteLink(
       team_role: kind === "manager" ? storedTeamRole(input.teamRole) : null,
       house_scope: houseScope,
       workspace_permissions: workspacePermissions,
+      short_code: code,
     })
-    .select(LINK_COLUMNS)
-    .maybeSingle();
+      .select(LINK_COLUMNS)
+      .maybeSingle();
+    data = (res.data as DbRow | null) ?? null;
+    error = res.error;
+    if (!error || error.code !== "23505") break;
+    code = generateInviteCode(workspaceNameSnapshot);
+  }
 
   if (error || !data) {
     return { ok: false, status: 500, error: error?.message ?? "Could not create the invite link." };
   }
   // The only moment the raw token exists outside the opener's URL bar.
-  return { ok: true, link: toInviteLinkRow(data as DbRow), token };
+  return { ok: true, link: toInviteLinkRow(data as DbRow), token, code };
 }
 
 export async function listInviteLinks(
@@ -722,12 +736,18 @@ export type InviteLinkPreview = {
   unusableReason: InviteLinkUnusableReason | null;
 };
 
-async function loadLinkByToken(db: SupabaseClient, token: string) {
-  const { data } = await db
+/** Accepts a raw token, a pasted invite URL or a workspace code; all reach the same row. */
+async function loadLinkByToken(db: SupabaseClient, tokenOrCode: string) {
+  const parsed = parseInviteInput(tokenOrCode);
+  if (!parsed) return null;
+  const query = db
     .from("manager_invite_links")
-    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`)
-    .eq("token_hash", hashInviteLinkToken(token))
-    .maybeSingle();
+    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`);
+  const token = parsed.kind === "token" ? parsed.token : "";
+  const { data } = await (parsed.kind === "code"
+    ? query.eq("short_code", parsed.code)
+    : query.eq("token_hash", hashInviteLinkToken(token))
+  ).maybeSingle();
   return (data as (DbRow & { owner_user_id: string }) | null) ?? null;
 }
 

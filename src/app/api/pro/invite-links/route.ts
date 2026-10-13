@@ -101,6 +101,7 @@ export async function POST(req: Request) {
     // Sandbox panes each bind a different port — use the request Host, not
     // NEXT_PUBLIC_APP_URL, so a link minted on :3004 is not stamped :3005.
     url: inviteLinkUrl(resolveAppOrigin(req), result.token),
+    code: result.code,
   });
 }
 

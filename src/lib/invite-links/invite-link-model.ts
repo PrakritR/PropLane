@@ -118,3 +118,59 @@ export function inviteLinkUnusableMessage(reason: InviteLinkUnusableReason): str
 export function inviteLinkUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, "")}/invite/${encodeURIComponent(token)}`;
 }
+
+/**
+ * Workspace code: a short, human-typeable alias of ONE invite link
+ * ("SH-7K4Q" = two letters from the workspace name + four base32 characters).
+ * It resolves to the same row as the raw token, so expiry, use budget and
+ * revocation are the link's own. No 0/O/1/I so it survives being read aloud.
+ */
+export const INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+export function inviteCodePrefix(workspaceName: string | null | undefined): string {
+  const letters = String(workspaceName ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  const words = String(workspaceName ?? "")
+    .toUpperCase()
+    .split(/[^A-Z]+/)
+    .filter(Boolean);
+  const initials = words.length >= 2 ? `${words[0][0]}${words[1][0]}` : letters.slice(0, 2);
+  return (initials + "PL").slice(0, 2);
+}
+
+/** `random` returns an int in [0, n); injectable for tests. */
+export function generateInviteCode(
+  workspaceName: string | null | undefined,
+  random: (n: number) => number = (n) => Math.floor(Math.random() * n),
+): string {
+  let tail = "";
+  for (let i = 0; i < 4; i += 1) tail += INVITE_CODE_ALPHABET[random(INVITE_CODE_ALPHABET.length)];
+  return `${inviteCodePrefix(workspaceName)}-${tail}`;
+}
+
+export type ParsedInviteInput = { kind: "code"; code: string } | { kind: "token"; token: string };
+
+/**
+ * What a person pastes or types into a join box: a full link, a bare token or a
+ * workspace code. Anything that is not obviously a code is treated as a token
+ * (the hash lookup refuses it uniformly).
+ */
+export function parseInviteInput(raw: unknown): ParsedInviteInput | null {
+  let text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return null;
+  const urlMatch = text.match(/\/invite\/([^/?#\s]+)/i);
+  if (urlMatch) {
+    try {
+      text = decodeURIComponent(urlMatch[1]);
+    } catch {
+      text = urlMatch[1];
+    }
+    return text ? { kind: "token", token: text } : null;
+  }
+  const squashed = text.replace(/[\s-]+/g, "").toUpperCase();
+  if (/^[A-Z0-9]{6}$/.test(squashed)) {
+    return { kind: "code", code: `${squashed.slice(0, 2)}-${squashed.slice(2)}` };
+  }
+  return { kind: "token", token: text };
+}
