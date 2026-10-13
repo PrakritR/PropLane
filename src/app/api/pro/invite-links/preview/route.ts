@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     houseScope: preview.houseScope ?? "selected",
     houseCount: preview.houseCount ?? preview.propertyLabels.length,
     canDo: preview.canDo ?? null,
+    access: preview.access ?? null,
     unusableReason: preview.unusableReason,
     ...(user ? { ownerUserId: preview.ownerUserId } : {}),
   });

@@ -417,6 +417,40 @@ export function describeCoManagerPermissions(permissions: CoManagerPermissions |
     : sentence;
 }
 
+/**
+ * The same grant as {@link describeCoManagerPermissions}, compressed to one
+ * fact for a label/value row: "Edit · Delete · Alerts in every area" when the
+ * levels cover every granted area, else "Edit in Properties, Leases; alerts in
+ * Payments".
+ */
+export function describeCoManagerAccessCompact(permissions: CoManagerPermissions | undefined): string {
+  const granted = CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => hasCoManagerPermission(permissions, id));
+  if (granted.length === 0) return "No access";
+  const levels = [
+    { word: "Edit", level: "edit" as const },
+    { word: "Delete", level: "delete" as const },
+    { word: "Alerts", level: "notification" as const },
+  ]
+    .map(({ word, level }) => ({
+      word,
+      labels: granted.filter(({ id }) => hasCoManagerPermissionLevel(permissions, id, level)).map(({ label }) => label),
+    }))
+    .filter((entry) => entry.labels.length > 0);
+  if (levels.length === 0) return "View only";
+  const key = (labels: string[]) => labels.join("|");
+  if (levels.every((entry) => key(entry.labels) === key(levels[0]!.labels))) {
+    const where = levels[0]!.labels.length === granted.length ? "every area" : levels[0]!.labels.join(", ");
+    return `${levels.map((entry) => entry.word).join(" · ")} in ${where}`;
+  }
+  return levels
+    .map((entry, i) => {
+      const word = i === 0 ? entry.word : entry.word.toLowerCase();
+      const where = entry.labels.length === granted.length ? "every area" : entry.labels.join(", ");
+      return `${word} in ${where}`;
+    })
+    .join("; ");
+}
+
 export function countCoManagerPermissions(permissions: CoManagerPermissions | undefined): number {
   return CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => hasCoManagerPermission(permissions, id)).length;
 }
