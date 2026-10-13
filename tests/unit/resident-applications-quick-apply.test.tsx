@@ -99,8 +99,19 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     expect(screen.getByRole("button", { name: "Full application" })).toBeTruthy();
     fireEvent.click(document.querySelector('[data-attr="quick-apply-confirm-current"]')!);
     fireEvent.change(screen.getByLabelText("Signature"), { target: { value: "Jamie Rivera" } });
+    fireEvent.change(screen.getByLabelText("Move-in"), { target: { value: "11/01/2026" } });
     // Two rooms: one has to be picked first.
     expect((submit as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps the short-term picker: Quick apply only ever builds a long-term application", async () => {
+    searchParams = new URLSearchParams("term=short_term");
+    await act(async () => {
+      render(<ResidentApplicationsPanel />);
+    });
+    fireEvent.click(document.querySelector('[data-attr="resident-applications-apply"]')!);
+    expect(screen.getByText("Apply short term to a property")).toBeTruthy();
+    expect(document.querySelector('[data-attr="quick-apply-sheet"]')).toBeNull();
   });
 
   it("posts the confirmation and signature for a single-room listing and navigates to the application", async () => {
@@ -122,11 +133,14 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     fireEvent.click(document.querySelector('[data-attr="quick-apply-confirm-current"]')!);
     fireEvent.change(screen.getByLabelText("Signature"), { target: { value: "Jamie Rivera" } });
     const submit = screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
+    // Move-in is the one fact the sheet exists to collect: Submit stays shut until it is given.
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Move-in"), { target: { value: "11/01/2026" } });
     await waitFor(() => expect(submit.disabled).toBe(false));
     fireEvent.click(submit);
     await waitFor(() => expect(nav.navigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-ABCD1234"));
     const call = (fetchSpy.mock.calls as unknown[][]).find((c) => String(c[0]).includes("/api/portal/quick-apply"))!;
     const body = JSON.parse(String((call[1] as RequestInit).body));
-    expect(body).toMatchObject({ propertyId: "prop-1", roomId: "r1", consentCredit: true, confirmCurrent: true, signature: "Jamie Rivera" });
+    expect(body).toMatchObject({ propertyId: "prop-1", roomId: "r1", leaseStart: "2026-11-01", consentCredit: true, confirmCurrent: true, signature: "Jamie Rivera" });
   });
 });

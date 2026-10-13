@@ -42,6 +42,45 @@ export function applicationPropertyKey(
 }
 
 /**
+ * Every room of one property this person already has a live application for, keyed by the same room
+ * choice value the rows carry. One read answers for the whole listing, so a caller weighing several
+ * rooms (Quick apply deciding which room to judge a verdict on) never asks once per room.
+ *
+ * `excludeId` is the row being written, so an edit of an existing application never collides with itself.
+ */
+export async function findDuplicateApplicationsByRoom(
+  db: SupabaseClient,
+  params: { residentEmail: string; propertyId: string; excludeId?: string | null },
+): Promise<Map<string, DuplicateApplicationMatch>> {
+  const byRoom = new Map<string, DuplicateApplicationMatch>();
+  const email = params.residentEmail.trim().toLowerCase();
+  const propertyId = params.propertyId.trim();
+  if (!email || !propertyId) return byRoom;
+
+  const exclude = (params.excludeId ?? "").trim();
+  const { data, error } = await db
+    .from("manager_application_records")
+    .select("id, row_data")
+    .eq("resident_email", email)
+    .limit(200);
+  if (error) return byRoom;
+
+  for (const record of (data ?? []) as { id: string; row_data: DemoApplicantRow }[]) {
+    const row = record.row_data;
+    if (!row) continue;
+    if (exclude && record.id === exclude) continue;
+    if (row.bucket !== "pending") continue;
+    // A half-finished draft is not a duplicate — the applicant is still in it.
+    if (isDraftShapedApplicationRow(row)) continue;
+    if (isWithdrawnApplicationRow(row)) continue;
+    if (applicationPropertyKey(row) !== propertyId) continue;
+    const roomKey = applicationRoomKey(row);
+    if (!byRoom.has(roomKey)) byRoom.set(roomKey, { id: record.id, row });
+  }
+  return byRoom;
+}
+
+/**
  * An existing SUBMITTED, non-withdrawn application from the same person for the
  * same property and room — or null.
  *
@@ -53,31 +92,10 @@ export async function findDuplicateApplication(
   db: SupabaseClient,
   params: { residentEmail: string; row: DemoApplicantRow; excludeId?: string | null },
 ): Promise<DuplicateApplicationMatch | null> {
-  const email = params.residentEmail.trim().toLowerCase();
-  const propertyId = applicationPropertyKey(params.row);
-  if (!email || !propertyId) return null;
-
-  const roomKey = applicationRoomKey(params.row);
-  const exclude = (params.excludeId ?? "").trim();
-
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id, row_data")
-    .eq("resident_email", email)
-    .limit(200);
-  if (error) return null;
-
-  for (const record of (data ?? []) as { id: string; row_data: DemoApplicantRow }[]) {
-    const row = record.row_data;
-    if (!row) continue;
-    if (exclude && record.id === exclude) continue;
-    if (row.bucket !== "pending") continue;
-    // A half-finished draft is not a duplicate — the applicant is still in it.
-    if (isDraftShapedApplicationRow(row)) continue;
-    if (isWithdrawnApplicationRow(row)) continue;
-    if (applicationPropertyKey(row) !== propertyId) continue;
-    if (applicationRoomKey(row) !== roomKey) continue;
-    return { id: record.id, row };
-  }
-  return null;
+  const byRoom = await findDuplicateApplicationsByRoom(db, {
+    residentEmail: params.residentEmail,
+    propertyId: applicationPropertyKey(params.row),
+    excludeId: params.excludeId,
+  });
+  return byRoom.get(applicationRoomKey(params.row)) ?? null;
 }

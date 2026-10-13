@@ -121,7 +121,9 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     const offering = property({
       id: "prop-short-stays",
       adminPublishLive: true,
-      listingSubmission: { v: 1, shortTermRentalsAllowed: true, shortTermDailyCost: "85" },
+      // A room is part of offering short stays: a roomless listing has nothing to book, so it keeps
+      // the Monthly card only (`listingOffersShortStay` + `rooms.length > 0`).
+      listingSubmission: { v: 1, shortTermRentalsAllowed: true, shortTermDailyCost: "85", rooms: [{ id: "r1", name: "Room 1" }] },
     } as unknown as Partial<MockProperty>);
     cachePublicExtraListings([offering], { silent: true });
     render(<ListingDetailSections property={offering} rich={rich()} />);

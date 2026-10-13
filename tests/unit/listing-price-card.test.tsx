@@ -69,7 +69,9 @@ function stubFetch(handlers: { profile: unknown; dryRun: unknown; dryRunStatus?:
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (String(url).includes("resident-application-autofill")) {
-        return new Response(JSON.stringify({ profile: handlers.profile }), { status: 200 });
+        // The public card asks the existence-only form of the route: a boolean, never the saved answers.
+        expect(String(url)).toContain("exists=1");
+        return new Response(JSON.stringify({ hasProfile: Boolean(handlers.profile) }), { status: 200 });
       }
       if (String(url).includes("quick-apply") && JSON.parse(String(init?.body ?? "{}")).dryRun) {
         return new Response(JSON.stringify(handlers.dryRun), { status: handlers.dryRunStatus ?? 200 });
@@ -115,6 +117,33 @@ describe("price line", () => {
     render(<ListingDetailSections property={property()} rich={zero} />);
     expect(card().querySelector('[data-attr="listing-price-line"]')!.textContent).toBe("from $1,050 / mo");
     expect(card().textContent).not.toContain("$0");
+  });
+
+  it("says 'from' when the rooms are not all one price, even with a stated starting rent", () => {
+    const roomsFloor = (lo: number, hi: number) =>
+      [
+        {
+          name: "Floor 1",
+          rooms: [
+            { id: "r1", name: "Room 1", priceHeadlineAmount: hi, availability: "Available now", modal: { photoUrls: [] } },
+            { id: "r2", name: "Room 2", priceHeadlineAmount: lo, availability: "Available now", modal: { photoUrls: [] } },
+          ],
+        },
+      ] as unknown as ListingRichContent["floorPlans"];
+    // `startingRentLabel` IS the cheapest room's rent for a submission-derived listing, so its presence
+    // can never mean "one stated rent".
+    const spread = rich({
+      startingRentLabel: "$1,050/mo",
+      priceRangeLabel: "base rent $1,050–$1,800/mo",
+      floorPlans: roomsFloor(1050, 1800),
+    });
+    expect(listingMonthlyPriceLine(spread)).toMatchObject({ label: "from $1,050 / mo", amount: 1050, from: true });
+    const flat = rich({
+      startingRentLabel: "$1,050/mo",
+      priceRangeLabel: "base rent $1,050/mo",
+      floorPlans: roomsFloor(1050, 1050),
+    });
+    expect(listingMonthlyPriceLine(flat)).toMatchObject({ label: "$1,050 / mo", from: false });
   });
 
   it("prints no price line at all when nothing prices the listing", () => {

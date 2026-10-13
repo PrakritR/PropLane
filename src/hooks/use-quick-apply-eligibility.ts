@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import { sharedGet } from "@/lib/shared-get-cache";
 
-export const QUICK_APPLY_PROFILE_URL = "/api/portal/resident-application-autofill";
+/**
+ * The EXISTENCE-only read. The saved answers themselves (SSN, licence, ID photos, income proof) are the
+ * wizard's business; a button that only has to decide its own label asks for the boolean and nothing else,
+ * so none of that is ever pulled into the public listing bundle or left in the shared-GET cache.
+ */
+export const QUICK_APPLY_PROFILE_URL = "/api/portal/resident-application-autofill?exists=1";
 
 export type QuickApplyIdentity = { name: string; email: string; phone: string };
 
@@ -19,8 +24,8 @@ export function useQuickApplyProfile(enabled: boolean): { ready: boolean; hasPro
     let cancelled = false;
     void sharedGet(QUICK_APPLY_PROFILE_URL).then((result) => {
       if (cancelled) return;
-      const profile = result.ok ? (result.data as { profile?: unknown } | null)?.profile : null;
-      setState({ ready: true, hasProfile: Boolean(profile && typeof profile === "object") });
+      const hasProfile = result.ok && (result.data as { hasProfile?: unknown } | null)?.hasProfile === true;
+      setState({ ready: true, hasProfile });
     });
     return () => {
       cancelled = true;

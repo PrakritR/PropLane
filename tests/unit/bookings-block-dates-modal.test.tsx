@@ -292,4 +292,41 @@ describe("BookingsBlockDatesModal — Quick book prefill", () => {
     const { view, onSave } = openPrefilled({});
     expect(await saveDraft(view, onSave)).toMatchObject({ checkOut: "2026-11-02", reason: "Reserved", residentName: "", residentEmail: "" });
   });
+
+  it("survives the Bookings reads landing after it opens: edits stand, a late resident still matches", async () => {
+    const onSave = vi.fn(() => Promise.resolve());
+    const sheet = (residents: typeof RESIDENTS) => (
+      <AppUiProvider>
+        <BookingsBlockDatesModal
+          open
+          mode="reserve"
+          onClose={() => {}}
+          // Both lists are memos in the real host: a fresh array identity every time a read lands.
+          propertyOptions={[...PROPERTY]}
+          initialPropertyId="h1"
+          initialRoomId="r1"
+          initialDayKey="2026-11-01"
+          initialCheckOut="2026-12-01"
+          initialResident={{ name: "Maya", email: "MAYA@example.com" }}
+          entries={[]}
+          residentOptions={residents}
+          onSave={onSave}
+        />
+      </AppUiProvider>
+    );
+    const view = render(sheet([]));
+    fireEvent.click(attr(view, "listing-v2-rail-when")!);
+    fireEvent.change(attr(view, "bookings-block-check-out")!, { target: { value: "2026-12-15" } });
+
+    view.rerender(sheet([...RESIDENTS]));
+
+    fireEvent.click(attr(view, "listing-v2-rail-review")!);
+    fireEvent.click(attr(view, "bookings-block-dates-save")!);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({
+      checkOut: "2026-12-15",
+      residentName: "Maya Zuneh",
+      residentEmail: "maya@example.com",
+    });
+  });
 });

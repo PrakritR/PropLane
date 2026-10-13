@@ -639,7 +639,8 @@ export function ResidentApplicationsPanel({
 
 
   const openPropertyPicker = () => {
-    if (quickProfile.hasProfile) {
+    // Quick apply only builds a long-term (`standard`) application, so short term keeps its own picker.
+    if (quickProfile.hasProfile && term !== "short_term") {
       setQuickApplyOpen(true);
       return;
     }

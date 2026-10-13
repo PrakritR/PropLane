@@ -58,3 +58,12 @@ export async function loadResidentApplicationAutofillProfile(
 ): Promise<ResidentApplicationAutofillProfile | null> {
   return (await loadResidentApplicationAutofillBasis(db, email))?.profile ?? null;
 }
+
+/**
+ * Whether there is anything to reuse, and nothing more. The saved answers carry the SSN, the licence and
+ * the ID photos, so a caller that only needs the yes/no (the public listing's Quick apply button) must
+ * never be handed the profile itself.
+ */
+export async function residentApplicationAutofillExists(db: SupabaseClient, email: string): Promise<boolean> {
+  return (await loadResidentApplicationAutofillBasis(db, email)) !== null;
+}

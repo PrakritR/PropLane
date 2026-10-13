@@ -8,6 +8,7 @@ function row(over: Record<string, unknown> = {}, app: Record<string, unknown> = 
     name: "Maya Zuneh",
     email: "maya@example.com",
     bucket: "pending",
+    stage: "Submitted",
     application: { roomChoice1: "h1::r2", leaseStart: "2026-11-01", leaseEnd: "2026-12-01", phone: "555-0100", ...app },
     ...over,
   } as unknown as DemoApplicantRow;
@@ -15,9 +16,15 @@ function row(over: Record<string, unknown> = {}, app: Record<string, unknown> = 
 
 describe("Quick book row action", () => {
   it("is offered for pending and approved, not rejected", () => {
-    expect(applicationRowCanQuickBook({ bucket: "pending" })).toBe(true);
-    expect(applicationRowCanQuickBook({ bucket: "approved" })).toBe(true);
-    expect(applicationRowCanQuickBook({ bucket: "rejected" })).toBe(false);
+    expect(applicationRowCanQuickBook(row())).toBe(true);
+    expect(applicationRowCanQuickBook(row({ bucket: "approved" }))).toBe(true);
+    expect(applicationRowCanQuickBook(row({ bucket: "rejected" }))).toBe(false);
+  });
+
+  it("is never offered for a withdrawn or an unfinished application, both of which stay pending", () => {
+    expect(applicationRowCanQuickBook(row({ withdrawnAt: "2026-10-02T00:00:00.000Z" }))).toBe(false);
+    expect(applicationRowCanQuickBook(row({ stage: "In progress" }))).toBe(false);
+    expect(applicationRowCanQuickBook(row({ stage: "" }, { propertyId: "h1" }))).toBe(false);
   });
 
   it("prefills property, room, dates and resident from the application", () => {

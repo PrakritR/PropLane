@@ -1,9 +1,10 @@
 /**
  * The single price line at the top of the public listing card.
  *
- * "$1,050 / mo" when the listing states one monthly base rent, "from $1,050 / mo" when the base rent is zero
- * or missing and the price is the lowest room rent from the rooms list. When neither exists there is no line
- * at all: the card never prints "$0" or a dash for a price it does not have.
+ * "$1,050 / mo" when the listing rents at one monthly price, "from $1,050 / mo" whenever the figure is the
+ * LOWEST of several — a room-by-room listing renting $1,050–$1,800 says "from $1,050 / mo", because the
+ * cheapest room's rent is not the price of the home. When nothing prices the listing there is no line at
+ * all: the card never prints "$0" or a dash for a price it does not have.
  */
 import type { ListingRichContent } from "@/data/listing-rich-content";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
@@ -17,13 +18,28 @@ function firstMoney(label: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** The lowest positive monthly rent across the listing's rooms (a daily room is read by its monthly equivalent). */
-export function lowestRoomMonthlyRent(rich: Pick<ListingRichContent, "floorPlans">): number {
-  const rents = rich.floorPlans
+/** Every positive monthly room rent on the listing (a daily room is read by its monthly equivalent). */
+function roomMonthlyRents(rich: Pick<ListingRichContent, "floorPlans">): number[] {
+  return rich.floorPlans
     .flatMap((floor) => floor.rooms)
     .map((room) => (room.pricePeriod === "month" || !room.pricePeriod ? room.priceHeadlineAmount : undefined) ?? room.priceMonthlyEquivalent ?? 0)
     .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+/** The lowest positive monthly rent across the listing's rooms (a daily room is read by its monthly equivalent). */
+export function lowestRoomMonthlyRent(rich: Pick<ListingRichContent, "floorPlans">): number {
+  const rents = roomMonthlyRents(rich);
   return rents.length > 0 ? Math.min(...rents) : 0;
+}
+
+/**
+ * True when the rooms are NOT all one price, so whatever single figure the card prints is a lowest-of.
+ * `startingRentLabel` is already the cheapest room's rent for every submission-derived listing, which is
+ * exactly why its presence cannot be read as "the listing states one rent".
+ */
+export function listingRoomRentsSpread(rich: Pick<ListingRichContent, "floorPlans">): boolean {
+  const rents = roomMonthlyRents(rich);
+  return rents.length > 1 && Math.max(...rents) > Math.min(...rents);
 }
 
 export function listingMonthlyPriceLine(
@@ -33,8 +49,8 @@ export function listingMonthlyPriceLine(
   const range = (rich.priceRangeLabel ?? "").replace(/^\s*base rent\s*/i, "");
   const base = firstMoney(starting || range);
   if (base > 0) {
-    // A stated starting rent is the price; a bare range label that opens with "from" is a lowest-of figure.
-    const from = !starting && /^\s*from\b/i.test(range);
+    // "from" whenever the rooms disagree on price, or when a bare range label already says so itself.
+    const from = listingRoomRentsSpread(rich) || (!starting && /^\s*from\b/i.test(range));
     return { label: `${from ? "from " : ""}${formatRoomPriceAmount(base)} / mo`, amount: base, from };
   }
   const lowest = lowestRoomMonthlyRent(rich);

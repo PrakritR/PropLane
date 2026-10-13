@@ -1,5 +1,7 @@
 import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { addDaysToDateKey } from "@/lib/channel-calendar/bookings-ui";
+import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 /** What the Block dates sheet opens on when a manager books straight from an application. */
@@ -14,8 +16,15 @@ export type QuickBookPrefill = {
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}/;
 
-/** Quick book is offered while the application is live: pending or approved, never declined. */
-export function applicationRowCanQuickBook(row: Pick<DemoApplicantRow, "bucket">): boolean {
+/**
+ * Quick book is offered while the application is LIVE: pending or approved, never declined, and never a
+ * row the resident withdrew or never finished — both of those keep `bucket: "pending"`, and holding a room
+ * for one would email the applicant a resident invite for an application that is not standing.
+ */
+export function applicationRowCanQuickBook(row: DemoApplicantRow): boolean {
+  // `isDraftShapedApplicationRow` is the draft half of `isInProgressApplicationRow`, read straight from
+  // the shared vocabulary so this module stays free of the browser-side applications store.
+  if (isWithdrawnApplicationRow(row) || isDraftShapedApplicationRow(row)) return false;
   return row.bucket === "pending" || row.bucket === "approved";
 }
 

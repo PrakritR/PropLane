@@ -82,6 +82,7 @@ export function ListingActionsProvider({
           open={open}
           onClose={() => setOpen(false)}
           propertyId={property.id}
+          submission={property.listingSubmission ?? null}
           initialRoomId={stay?.roomId}
           initialMoveIn={stay?.moveIn}
           showToast={showToast}

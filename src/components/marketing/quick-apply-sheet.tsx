@@ -26,6 +26,7 @@ import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { getPropertyById } from "@/lib/rental-application/data";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { resetQuickApplyReadiness } from "@/hooks/use-quick-apply-eligibility";
 import { syncManagerApplicationsFromServer } from "@/lib/manager-applications-storage";
@@ -44,6 +45,12 @@ export type QuickApplySheetProps = {
   onClose: () => void;
   /** A fixed listing (the public page). Without it the sheet opens on a listing picker. */
   propertyId?: string;
+  /**
+   * The fixed listing's own submission, handed down by the page that already has it. The public listing
+   * route never loads the client-side extras catalog, so `getPropertyById` cannot answer for it there and
+   * the rooms and the screening question would both go missing.
+   */
+  submission?: ManagerListingSubmissionV1 | null;
   initialRoomId?: string;
   initialMoveIn?: string;
   showToast: (message: string) => void;
@@ -75,6 +82,7 @@ function QuickApplySheetBody({
   open,
   onClose,
   propertyId: fixedPropertyId,
+  submission,
   initialRoomId = "",
   initialMoveIn = "",
   showToast,
@@ -108,7 +116,8 @@ function QuickApplySheetBody({
   }, [fixedPropertyId, open, tick]);
 
   const property = propertyId ? getPropertyById(propertyId) : undefined;
-  const sub = property?.listingSubmission?.v === 1 ? property.listingSubmission : null;
+  const handed = fixedPropertyId && submission?.v === 1 ? submission : null;
+  const sub = handed ?? (property?.listingSubmission?.v === 1 ? property.listingSubmission : null);
   const rooms = useMemo(
     () => (sub?.rooms ?? []).filter((room) => room.id).map((room, index) => ({ id: room.id, name: room.name?.trim() || `Room ${index + 1}` })),
     [sub],
@@ -122,6 +131,8 @@ function QuickApplySheetBody({
   const ready =
     Boolean(propertyId) &&
     (!needsRoomPick || Boolean(roomId)) &&
+    // Move-in is the one fact this sheet exists to collect; without it the server builds an empty lease.
+    Boolean(moveIn) &&
     confirmCurrent &&
     signature.trim().length > 1 &&
     (!screeningRequired || consentCredit);

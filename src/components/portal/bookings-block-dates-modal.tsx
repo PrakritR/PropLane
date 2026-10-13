@@ -7,7 +7,7 @@ import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
  * Link calendars is its own PortalDialog in channel-calendar-link-modal.tsx.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { Input, Select } from "@/components/ui/input";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
@@ -153,6 +153,16 @@ export function BookingsBlockDatesModal({
   const initialResidentName = initialResident?.name?.trim() ?? "";
   const initialResidentEmail = initialResident?.email?.trim() ?? "";
   const initialResidentPhone = initialResident?.phone?.trim() ?? "";
+  /**
+   * The option lists are read inside the reset effect but deliberately NOT among its dependencies: both
+   * are memos whose identity changes while the Bookings reads land (and `propertyOptions` is rebuilt on
+   * every parent render), and re-running the reset would wipe whatever the manager has already typed.
+   * Only `soloPropertyOptionId` — the one thing about them the reset actually decides on — is a dependency.
+   */
+  const residentOptionsRef = useRef(residentOptions);
+  const soloPropertyOptionId = propertyOptions.length === 1 ? propertyOptions[0]!.id : "";
+  /** Who the sheet still owes a match against the resident list, once that list arrives. */
+  const pendingResidentMatch = useRef<{ email: string; name: string } | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [propertyId, setPropertyId] = useState("");
   const [roomChoice, setRoomChoice] = useState("");
@@ -170,9 +180,14 @@ export function BookingsBlockDatesModal({
   /** Set after a NEW resident is saved — keeps the workspace open on a confirmation line instead of closing blind. */
   const [inviteResult, setInviteResult] = useState<string | null>(null);
 
+  // Declared BEFORE the reset effect so the ref is already current when that one reads it in the same commit.
+  useEffect(() => {
+    residentOptionsRef.current = residentOptions;
+  }, [residentOptions]);
+
   useEffect(() => {
     if (!open) return;
-    const property = initialPropertyId || (propertyOptions.length === 1 ? propertyOptions[0]!.id : "");
+    const property = initialPropertyId || soloPropertyOptionId;
     setPropertyId(property);
     setRoomChoice(initialRoomId && property ? `${property}::${initialRoomId}` : "");
     setCheckIn(initialDayKey ?? "");
@@ -186,9 +201,10 @@ export function BookingsBlockDatesModal({
     setNewResidentName("");
     setNewResidentEmail("");
     setNewResidentPhone("");
+    pendingResidentMatch.current = null;
     if (initialResidentName || initialResidentEmail) {
       const email = initialResidentEmail.toLowerCase();
-      const match = email ? residentOptions.find((option) => option.email.toLowerCase() === email) : undefined;
+      const match = email ? residentOptionsRef.current.find((option) => option.email.toLowerCase() === email) : undefined;
       if (match) {
         setResidentChoice(match.key);
       } else {
@@ -196,6 +212,7 @@ export function BookingsBlockDatesModal({
         setNewResidentName(initialResidentName);
         setNewResidentEmail(initialResidentEmail);
         setNewResidentPhone(initialResidentPhone);
+        if (email) pendingResidentMatch.current = { email, name: initialResidentName };
       }
     }
     setError(null);
@@ -212,9 +229,37 @@ export function BookingsBlockDatesModal({
       setNewResidentName,
       setNewResidentPhone,
       setEditingBlockId,
-      residentOptions,
+      residentOptionsRef.current,
     );
-  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, initialCheckOut, initialReason, initialResidentName, initialResidentEmail, initialResidentPhone, editingBlock, propertyOptions, residentOptions]);
+    if (editingBlock?.blockId && editingBlock.residentName && !residentOptionsRef.current.some((option) => option.name === editingBlock.residentName)) {
+      pendingResidentMatch.current = { email: "", name: editingBlock.residentName };
+    }
+  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, initialCheckOut, initialReason, initialResidentName, initialResidentEmail, initialResidentPhone, editingBlock, soloPropertyOptionId]);
+
+  /**
+   * The resident list arrives after the sheet opens. Upgrade a prefilled "new resident" to the person
+   * already on the books once they show up — and only until the manager picks someone themselves.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const pending = pendingResidentMatch.current;
+    if (!pending) return;
+    const match = residentOptions.find((option) =>
+      pending.email ? option.email.toLowerCase() === pending.email : option.name === pending.name,
+    );
+    if (!match) return;
+    pendingResidentMatch.current = null;
+    setResidentChoice(match.key);
+    setNewResidentName("");
+    setNewResidentEmail("");
+    setNewResidentPhone("");
+  }, [open, residentOptions]);
+
+  /** Any manual resident choice settles it — the late list must not overwrite it. */
+  const chooseResident = useCallback((value: string) => {
+    pendingResidentMatch.current = null;
+    setResidentChoice(value);
+  }, []);
 
   const roomOptions = useMemo(
     () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }) : []),
@@ -329,7 +374,7 @@ export function BookingsBlockDatesModal({
   const workspaceDraft = useWorkspaceDraft({
     scope: `booking:${editingBlock?.blockId ?? initialPropertyId ?? "new"}:${initialRoomId ?? ""}:${initialDayKey ?? ""}`,
     open, value: { stepIdx, propertyId, roomChoice, checkIn, checkOut, reason, residentChoice, newResidentName, newResidentEmail, newResidentPhone, editingBlockId },
-    restore: (saved) => { setStepIdx(saved.stepIdx); setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setCheckIn(saved.checkIn); setCheckOut(saved.checkOut); setReason(saved.reason); setResidentChoice(saved.residentChoice); setNewResidentName(saved.newResidentName); setNewResidentEmail(saved.newResidentEmail); setNewResidentPhone(saved.newResidentPhone); setEditingBlockId(saved.editingBlockId); },
+    restore: (saved) => { pendingResidentMatch.current = null; setStepIdx(saved.stepIdx); setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setCheckIn(saved.checkIn); setCheckOut(saved.checkOut); setReason(saved.reason); setResidentChoice(saved.residentChoice); setNewResidentName(saved.newResidentName); setNewResidentEmail(saved.newResidentEmail); setNewResidentPhone(saved.newResidentPhone); setEditingBlockId(saved.editingBlockId); },
   });
 
   if (!open) return null;
@@ -420,7 +465,7 @@ export function BookingsBlockDatesModal({
                   className={`ml-auto ${FIELD_LINK}`}
                   disabled={busy}
                   data-attr="bookings-block-resident-pick-list"
-                  onClick={() => setResidentChoice("")}
+                  onClick={() => chooseResident("")}
                 >
                   Pick from list instead
                 </button>
@@ -430,7 +475,7 @@ export function BookingsBlockDatesModal({
                   className={`ml-auto ${FIELD_LINK}`}
                   disabled={busy}
                   data-attr="bookings-block-resident-new"
-                  onClick={() => setResidentChoice(NEW_RESIDENT_CHOICE)}
+                  onClick={() => chooseResident(NEW_RESIDENT_CHOICE)}
                 >
                   + New resident
                 </button>
@@ -473,7 +518,7 @@ export function BookingsBlockDatesModal({
             ) : (
               <Select
                 value={residentChoice}
-                onChange={(e) => setResidentChoice(e.target.value)}
+                onChange={(e) => chooseResident(e.target.value)}
                 disabled={busy}
                 aria-label="Resident"
                 data-attr="bookings-block-resident"
@@ -621,6 +666,7 @@ export function BookingsBlockDatesModal({
                     <BookingsRowOverflow
                       label={name}
                       onEditDates={() => {
+                        pendingResidentMatch.current = null;
                         applyEditingBlock(
                           entry,
                           setPropertyId,

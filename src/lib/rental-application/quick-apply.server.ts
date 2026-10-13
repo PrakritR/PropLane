@@ -13,13 +13,20 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
+import {
+  findDuplicateApplication,
+  findDuplicateApplicationsByRoom,
+  type DuplicateApplicationMatch,
+} from "@/lib/rental-application/duplicate-application.server";
 import {
   persistApplicationWrite,
   prepareResidentSelfWrite,
 } from "@/lib/rental-application/signed-in-application-write.server";
 import { loadResidentApplicationAutofillBasis } from "@/lib/rental-application/resident-application-autofill.server";
-import { loadEffectiveApplicationProperty } from "@/lib/rental-application/validate-application-submit.server";
+import {
+  loadEffectiveApplicationProperty,
+  validateResidentApplicationRowForPersistence,
+} from "@/lib/rental-application/validate-application-submit.server";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { isWizardFormFieldEnabled } from "@/lib/rental-application/application-field-catalog";
@@ -163,9 +170,22 @@ export async function runQuickApply(
   if (!property || !sub) return wizard("no_listing");
 
   // 3. One room. A listing with a single room needs no pick; otherwise the room is named.
+  const email = ctx.email.trim().toLowerCase();
   const rooms = sub.rooms.filter((room) => room.id);
-  // A dry run asked before a room is picked is judged on the first room: the answers do not depend on which.
-  const roomId = requestedRoomId || (rooms.length === 1 || dryRun ? (rooms[0]?.id ?? "") : "");
+  /**
+   * A dry run asked before a room is picked is judged on one room. The ANSWERS do not depend on which,
+   * but the duplicate verdict does — so it is judged on a room this person has not already applied to,
+   * or Quick apply would disappear behind "View application" while every other room is still open.
+   * One scan answers for the whole listing.
+   */
+  const appliedRooms =
+    dryRun && !requestedRoomId && rooms.length > 1
+      ? await findDuplicateApplicationsByRoom(db, { residentEmail: email, propertyId })
+      : null;
+  const probeRoomId = appliedRooms
+    ? rooms.find((room) => !appliedRooms.has(roomChoiceValue(propertyId, room.id)))?.id
+    : undefined;
+  const roomId = requestedRoomId || (rooms.length === 1 || dryRun ? (probeRoomId ?? rooms[0]?.id ?? "") : "");
   if (!roomId) return wizard("no_room");
   if (!rooms.some((room) => room.id === roomId)) return { status: 400, body: { error: "Choose a room of this listing." } };
 
@@ -174,7 +194,10 @@ export async function runQuickApply(
   const kinds = leaseKindsOffered(offered);
   if (!kinds.long) return wizard("short_stay_only", roomId);
   const leaseTerm = defaultStoredTermForKind("long", offered);
-  const leaseStart = text(input.leaseStart, 10);
+  const today = todayISO();
+  // A dry run is asked BEFORE the sheet collects its own fields (move-in, screening consent, the
+  // signature), so they stand in as filled: the verdict is about what the SAVED answers cannot cover.
+  const leaseStart = text(input.leaseStart, 10) || (dryRun ? today : "");
   const fixedLengths = kinds.longTerm ? normalizeLongTermLengths(sub.longTermLengthsOffered) : [];
   const leaseEnd = leaseStart && fixedLengths.length > 0 ? addMonthsToDateString(leaseStart, fixedLengths[0]!) : "";
 
@@ -186,8 +209,6 @@ export async function runQuickApply(
   if (missingCustom.length > 0) return wizard("missing_answers", roomId, missingCustom);
 
   const wantsScreening = isWizardFormFieldEnabled(config, "consentCredit");
-  const today = todayISO();
-  const email = ctx.email.trim().toLowerCase();
   const application: RentalWizardFormState = {
     ...createInitialRentalWizardState(),
     ...basis.profile,
@@ -208,7 +229,7 @@ export async function runQuickApply(
     applicationTemplateVersion: templateVersion,
     customFieldAnswers,
     email,
-    consentCredit: wantsScreening && input.consentCredit === true,
+    consentCredit: wantsScreening && (dryRun || input.consentCredit === true),
     consentTruth: true,
     digitalSignature: signature || (dryRun ? "dry run" : ""),
     dateSigned: today,
@@ -234,19 +255,31 @@ export async function runQuickApply(
   };
 
   // 6. The same person never applies to the same room twice.
-  const duplicate = await findDuplicateApplication(db, { residentEmail: email, row: submittedRow });
+  const duplicate: DuplicateApplicationMatch | null = appliedRooms
+    ? appliedRooms.get(application.roomChoice1) ?? null
+    : await findDuplicateApplication(db, { residentEmail: email, row: submittedRow });
   if (duplicate) {
     return { status: 409, body: { error: "You already applied to this room.", existingApplicationId: duplicate.id } };
   }
 
-  // 7. A fee that is owed is never skipped: the application is kept as a draft at the last step.
+  // 7. A fee that is OWED is never skipped: the application is kept as a draft at the last step. A guard
+  // that could not read the row at all is a refusal, not an invoice — never turn that into "go and pay".
   const fee = await authorizeApplicationFeeSubmission(db, submittedRow);
-  if (!fee.ok && fee.status !== 409) return { status: fee.status, body: { error: fee.error } };
+  if (!fee.ok && fee.reason !== "unpaid") return { status: fee.status, body: { error: fee.error } };
   const feeOwed = !fee.ok;
   if (dryRun) {
-    return feeOwed
-      ? { status: 200, body: { needsPayment: true, applicationId: "", href: quickApplyWizardHref(propertyId, roomId) } }
-      : { status: 200, body: { ready: true } };
+    if (feeOwed) {
+      return { status: 200, body: { needsPayment: true, applicationId: "", href: quickApplyWizardHref(propertyId, roomId) } };
+    }
+    // The SAME validator the submit runs (`prepareResidentSelfWrite`), so the button cannot promise a
+    // one-sheet apply the shared write will then refuse for an answer the saved profile never carried.
+    const validation = await validateResidentApplicationRowForPersistence(db, submittedRow);
+    if (!validation.ok) {
+      const missing = Object.keys(validation.fieldErrors ?? {});
+      if (validation.status === 422 && missing.length > 0) return wizard("missing_answers", roomId, missing);
+      return { status: validation.status, body: { error: validation.error } };
+    }
+    return { status: 200, body: { ready: true } };
   }
   const row: DemoApplicantRow = feeOwed
     ? {
