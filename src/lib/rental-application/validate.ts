@@ -339,7 +339,7 @@ export function validateStandardWizardSection(
       !f.roomChoice1.trim() &&
       !entireHome
     ) {
-      e.roomChoice1 = "First choice room is required.";
+      e.roomChoice1 = "Room is required.";
     }
     const r1 = f.roomChoice1.trim();
     // `roomChoice2` / `roomChoice3` are legacy data only: the wizard asks for ONE room, and the
