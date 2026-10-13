@@ -257,6 +257,11 @@ export function ListingPriceCard({
           ) : null}
           <div className="mt-4 space-y-2.5">
             <MonthlyPrimaryCta property={property} newTab={newTab} />
+            {segments && stay ? (
+              <button type="button" className={listingSecondaryCtaClass} data-attr="listing-book-short-term" onClick={() => stay.setSegment("short")}>
+                Book short term
+              </button>
+            ) : null}
             <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className={listingSecondaryCtaClass} newTab={newTab}>
               Schedule tour
             </ProspectListingCta>

@@ -15,8 +15,8 @@ function row(over: Record<string, unknown> = {}, app: Record<string, unknown> = 
 }
 
 describe("Quick book row action", () => {
-  it("is offered for pending and approved, not rejected", () => {
-    expect(applicationRowCanQuickBook(row())).toBe(true);
+  it("is offered for approved only, not pending or rejected", () => {
+    expect(applicationRowCanQuickBook(row())).toBe(false);
     expect(applicationRowCanQuickBook(row({ bucket: "approved" }))).toBe(true);
     expect(applicationRowCanQuickBook(row({ bucket: "rejected" }))).toBe(false);
   });

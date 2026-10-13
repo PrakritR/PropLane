@@ -39,8 +39,10 @@ describe("ranked room choices", () => {
     expect(block).toContain("form.roomChoice3");
   });
 
-  it("keeps a None option on the 2nd and 3rd choices", () => {
-    expect(block).toContain('{ value: "", label: "None" }');
+  it("asks for ONE room: no 2nd or 3rd choice picker", () => {
+    expect(steps).not.toContain("2nd choice");
+    expect(steps).not.toContain("3rd choice");
+    expect(steps).not.toContain("onChange={(e) => patch({ roomChoice2");
   });
 
   it("still preserves listing order rather than re-sorting", () => {
