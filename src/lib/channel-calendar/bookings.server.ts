@@ -20,7 +20,8 @@ import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
 import { airbnbReservationUrl, isPhoneLast4 } from "@/lib/channel-calendar/reservation-details";
-import { loadChannelStayGuestNames } from "@/lib/channel-calendar/stay-details.server";
+import { loadChannelStayDetailRows } from "@/lib/channel-calendar/stay-details.server";
+import type { ChannelStayMoney } from "@/lib/channel-calendar/stay-details";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
@@ -55,11 +56,13 @@ function roomLabelFromSubmission(
 export function normalizeRanges(
   imported: ChannelCalendarImportedRange[],
   guestNames?: ReadonlyMap<string, string>,
+  stayMoney?: ReadonlyMap<string, ChannelStayMoney>,
 ): ManagerChannelBookingRange[] {
   return imported.map((r) => {
     const hostBlock = isHostBlockRange(r);
     const reservationUrl = hostBlock ? null : airbnbReservationUrl(r.reservationCode);
     const guestName = hostBlock ? undefined : guestNames?.get(importedRangeUid(r));
+    const money = hostBlock ? undefined : stayMoney?.get(importedRangeUid(r));
     return {
       sourceUid: r.sourceUid,
       start: r.start,
@@ -69,6 +72,10 @@ export function normalizeRanges(
       ...(reservationUrl && r.reservationCode ? { reservationCode: r.reservationCode, reservationUrl } : {}),
       ...(!hostBlock && isPhoneLast4(r.phoneLast4) ? { phoneLast4: r.phoneLast4 } : {}),
       ...(guestName ? { guestName } : {}),
+      ...(money?.guestPhone ? { guestPhone: money.guestPhone } : {}),
+      ...(typeof money?.nightlyCents === "number" ? { nightlyCents: money.nightlyCents } : {}),
+      ...(typeof money?.payoutCents === "number" ? { payoutCents: money.payoutCents, currency: money.currency ?? "USD" } : {}),
+      ...(money?.paidAt ? { paidAt: money.paidAt } : {}),
     };
   });
 }
@@ -116,10 +123,16 @@ export async function listManagerChannelCalendarBookings(
   const tombstoneKeys = await loadChannelStayTombstoneKeys(db, allowed);
 
   // Manager-entered guest names, one query for every connection in scope.
-  const guestNames = await loadChannelStayGuestNames(
+  const stayRows = await loadChannelStayDetailRows(
     db,
     (data ?? []).map((row) => String((row as { id?: unknown }).id ?? "")),
   );
+  const guestNames = new Map<string, Map<string, string>>();
+  for (const [connectionId, byUid] of stayRows) {
+    const names = new Map<string, string>();
+    for (const [uid, row] of byUid) if (row.guestName) names.set(uid, row.guestName);
+    guestNames.set(connectionId, names);
+  }
 
   const propertyCache = new Map<
     string,
@@ -149,6 +162,7 @@ export async function listManagerChannelCalendarBookings(
           tombstoneKeys,
         ).kept,
         guestNames.get(connection.id),
+        stayRows.get(connection.id),
       ),
       lastSyncedAt: connection.last_synced_at,
       lastError: connection.last_error,

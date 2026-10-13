@@ -1,5 +1,6 @@
 "use client";
 
+import { formatChargeDueLabel, looksLikeDueDate } from "@/lib/charge-due-label";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { recordDelightMoment } from "@/lib/native/app-review";
@@ -206,8 +207,7 @@ const RENT_REPORTING_STATUS_LABELS: Record<string, string> = {
 /** "Due Oct 1, 2026" for an upcoming date; special labels ("Card declined. Pay again") read as they are. */
 function residentChargeListMeta(row: HouseholdCharge): string {
   const label = residentChargeListDueLabel(row);
-  const isDate = /^[A-Z][a-z]{2,8}\.? \d{1,2}(, \d{4})?$/.test(label);
-  return isDate && row.status !== "paid" ? `Due ${label}` : label;
+  return looksLikeDueDate(label) && row.status !== "paid" ? formatChargeDueLabel(label) : label;
 }
 
 function rentReportingLastReportLabel(submission: RentReportingLastSubmission): string {

@@ -1,5 +1,9 @@
 "use client";
 
+import { AirbnbPayoutRowMenu } from "@/components/portal/airbnb-payout-row-menu";
+import { airbnbPayoutPlaceLine, isAirbnbPayoutLedgerRow } from "@/lib/channel-calendar/airbnb-payouts";
+import { saveChannelStayDetailsClient, type AirbnbPayoutRow } from "@/lib/channel-calendar/client";
+import { formatChargeDueLabel } from "@/lib/charge-due-label";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
@@ -26,7 +30,7 @@ import {
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { roomDisplayLabel } from "@/lib/room-display-label";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
-import { paymentDetailHref, paymentListHref, residentDetailHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
+import { bookingRecordHref, paymentDetailHref, paymentListHref, residentDetailHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
@@ -214,7 +218,8 @@ function formatDueMeta(due: string): string {
     }
   }
   if (/^(due|before)\b/i.test(trimmed)) return trimmed;
-  return `Due ${trimmed}`;
+  const shaped = formatChargeDueLabel(trimmed);
+  return shaped === trimmed ? `Due ${trimmed}` : shaped;
 }
 
 function dueDateDisplayToInputValue(display: string): string {
@@ -270,8 +275,11 @@ export function ManagerPaymentsLedgerPanel({
   canEditRow,
   canDeleteRow,
   showUpcomingCharges = true,
+  airbnbPayoutRows,
 }: {
   rows: DemoManagerPaymentLedgerRow[];
+  /** The stay behind each Airbnb payout row (place line, booking, connection) - keyed by the row id. */
+  airbnbPayoutRows?: readonly AirbnbPayoutRow[];
   managerUserId: string | null;
   activeBucket: ManagerPaymentBucket;
   scheduledMessages?: ScheduledPaymentMessage[];
@@ -312,6 +320,7 @@ export function ManagerPaymentsLedgerPanel({
   /** Whether a not-yet-due Pending charge shows at all (default Show/true). See "Upcoming" grouping below. */
   showUpcomingCharges?: boolean;
 }) {
+  const airbnbPayouts = useMemo(() => new Map((airbnbPayoutRows ?? []).map((payout) => [payout.id, payout])), [airbnbPayoutRows]);
   const rowEditable = useCallback(
     (row: DemoManagerPaymentLedgerRow) => (canEditRow ? canEditRow(row.propertyId) : true),
     [canEditRow],
@@ -2050,6 +2059,7 @@ export function ManagerPaymentsLedgerPanel({
    * (`tests/unit/portal-list-rows-no-pills.test.ts`).
    */
   const renderChargeRow = (row: DemoManagerPaymentLedgerRow) => {
+    if (isAirbnbPayoutLedgerRow(row)) return renderAirbnbPayoutRow(row);
     const property = ledgerRowPropertyLine(row);
     const due = formatDueMeta(row.dueDate ?? "");
     const reminder = paymentReminderMetaHint(row, displayScheduledMessages);
@@ -2082,6 +2092,57 @@ export function ManagerPaymentsLedgerPanel({
         onSelectedChange={showSelection ? () => toggleSelected(row.id) : undefined}
         onOpen={() => openPaymentDetail(row)}
         dataAttr="payment-list-row"
+      />
+    );
+  };
+
+  /**
+   * An Airbnb payout: tile "AB", the guest as the title, the stay as the place line, Paid / Due as the
+   * fact, the payout as the figure. It is not a resident charge, so it has no selection, reminders or
+   * bulk actions - its ⋯ is Mark paid (while due) and Open booking.
+   */
+  const renderAirbnbPayoutRow = (row: DemoManagerPaymentLedgerRow) => {
+    const payout = airbnbPayouts.get(row.id);
+    const openBooking = () => {
+      if (payout && listBasePath) navigate(bookingRecordHref(listBasePath, payout.bookingKey, "overview"));
+    };
+    const markPaid = async () => {
+      if (!payout) return;
+      try {
+        await saveChannelStayDetailsClient({
+          connectionId: payout.connectionId,
+          sourceUid: payout.sourceUid,
+          paidAt: new Date().toISOString(),
+        });
+        showToast("Marked as paid.");
+        onRowsChanged?.();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Could not mark the payout as paid.");
+      }
+    };
+    return (
+      <PortalApplicantRecordRow
+        key={row.id}
+        name={row.residentName}
+        tileLabel="A B"
+        address={payout ? airbnbPayoutPlaceLine(payout) : row.chargeTitle}
+        facts={
+          <PortalRowFact icon={CalendarDays} tone={row.bucket === "paid" ? "ok" : undefined}>
+            {row.dueDate}
+          </PortalRowFact>
+        }
+        trailing={
+          row.bucket === "paid" ? (
+            <span className="tabular-nums text-[var(--status-confirmed-fg)]">{row.lineAmount}</span>
+          ) : (
+            <span className="tabular-nums">{row.lineAmount}</span>
+          )
+        }
+        onOpen={payout ? openBooking : undefined}
+        actions={
+          <AirbnbPayoutRowMenu onMarkPaid={row.bucket === "paid" ? undefined : markPaid} onOpenBooking={payout ? openBooking : undefined} />
+        }
+        dataAttr="payment-list-row-airbnb"
       />
     );
   };

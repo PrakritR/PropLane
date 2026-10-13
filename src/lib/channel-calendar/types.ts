@@ -60,6 +60,13 @@ export type ManagerChannelBookingRange = {
   phoneLast4?: string;
   /** The name the manager entered for this stay (`channel_stay_details`). */
   guestName?: string;
+  /** Money typed on the booking or read from an Airbnb email (`channel_stay_details`). */
+  guestPhone?: string;
+  nightlyCents?: number;
+  payoutCents?: number;
+  /** ISO timestamp the payout landed; absent while it is still due. */
+  paidAt?: string;
+  currency?: string;
 };
 
 export type ManagerChannelBookingRoom = {

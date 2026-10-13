@@ -39,6 +39,11 @@ export type PropertyBookingEntry = {
   reservationUrl?: string;
   phoneLast4?: string;
   guestName?: string;
+  /** Channel stays only - money typed on the booking or read from an Airbnb email. */
+  guestPhone?: string;
+  nightlyCents?: number;
+  payoutCents?: number;
+  paidAt?: string;
   connectionId?: string;
   lastSyncedAt?: string | null;
   applicationId?: string;
@@ -422,6 +427,10 @@ export function airbnbBookingEntries(
           ...(range.reservationUrl ? { reservationUrl: range.reservationUrl } : {}),
           ...(range.phoneLast4 ? { phoneLast4: range.phoneLast4 } : {}),
           ...(range.guestName ? { guestName: range.guestName } : {}),
+          ...(range.guestPhone ? { guestPhone: range.guestPhone } : {}),
+          ...(typeof range.nightlyCents === "number" ? { nightlyCents: range.nightlyCents } : {}),
+          ...(typeof range.payoutCents === "number" ? { payoutCents: range.payoutCents } : {}),
+          ...(range.paidAt ? { paidAt: range.paidAt } : {}),
           connectionId: room.connectionId,
           lastSyncedAt: room.lastSyncedAt,
           start,

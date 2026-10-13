@@ -3,6 +3,7 @@
  * Supabase is the persistence layer; this module keeps only in-memory page-session state.
  */
 
+import { planRecurringRentCharges, residentsMissingRentProfile } from "@/lib/recurring-rent-sweep";
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
@@ -1054,7 +1055,7 @@ export function seedDemoHouseholdCharges(charges: HouseholdCharge[], rentProfile
 
 export { parseMoneyAmount } from "@/lib/parse-money";
 
-function currentRentMonth() {
+export function currentRentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
@@ -1070,7 +1071,7 @@ function trimUnderscores(value: string): string {
   return value.slice(start, end);
 }
 
-function chargeKeyPart(raw: string): string {
+export function chargeKeyPart(raw: string): string {
   const trimmed = raw.trim();
   const upper = trimmed.toUpperCase();
   if (upper.startsWith("AXIS-")) {
@@ -1207,7 +1208,7 @@ function profileHasLegacyBasisBillingMonthlyRent(profile: RecurringRentProfile):
 }
 
 /** Fold-in monthly addon for daily/weekly recurring rent — never the legacy full monthly rent. */
-function recurringBasisMonthlyAddon(profile: RecurringRentProfile, proratedFactor: number): number {
+export function recurringBasisMonthlyAddon(profile: RecurringRentProfile, proratedFactor: number): number {
   const hasBasis = (profile.dailyRentPrice ?? 0) > 0 || (profile.weeklyRentPrice ?? 0) > 0;
   if (!hasBasis || !(profile.monthlyRent > 0)) return 0;
   if (profileHasLegacyBasisBillingMonthlyRent(profile)) return 0;
@@ -1311,7 +1312,7 @@ function upfrontApprovedChargeSlotKey(
   return null;
 }
 
-function chargeBusinessKey(charge: HouseholdCharge): string {
+export function chargeBusinessKey(charge: HouseholdCharge): string {
   if (charge.migrationSourceId || charge.utilityAllocationId) return `source_record|${charge.managerUserId}|${charge.id}`;
   if (charge.kind === "rent") {
     return `rent|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.rentMonth ?? ""}`;
@@ -1531,7 +1532,7 @@ export function duplicateHouseholdChargeIds(rows: HouseholdCharge[]): string[] {
   return [...new Set(rows.map((charge) => charge.id).filter((id) => !canonicalIds.has(id)))];
 }
 
-function formatRecurringRentDueLabel(month: string, dueDay: number, dueDayMode?: RentDueDayMode) {
+export function formatRecurringRentDueLabel(month: string, dueDay: number, dueDayMode?: RentDueDayMode) {
   const day = effectiveDueDayForMonth(dueDay, dueDayMode, month);
   const [year, monthIndex] = month.split("-").map(Number);
   const dt = new Date(year!, (monthIndex ?? 1) - 1, day, 12, 0, 0, 0);
@@ -1540,7 +1541,7 @@ function formatRecurringRentDueLabel(month: string, dueDay: number, dueDayMode?:
     : dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function effectiveDueDayForMonth(dueDay: number | undefined, dueDayMode: RentDueDayMode | undefined, monthKey: string): number {
+export function effectiveDueDayForMonth(dueDay: number | undefined, dueDayMode: RentDueDayMode | undefined, monthKey: string): number {
   const mode = dueDayMode ?? "first_of_month";
   if (mode === "last_of_month") return resolveRentDueDayForMonth("last_of_month", monthKey);
   return Math.min(28, Math.max(1, Math.round(dueDay ?? 1)));
@@ -1928,23 +1929,23 @@ function submissionAmount(sub: ManagerListingSubmissionV1, kind: HouseholdCharge
   }
 }
 
-function moneyAmountLabel(amount: number): string {
+export function moneyAmountLabel(amount: number): string {
   // Thousands separators to match seed/label formatting ($2,400.00, not $2400.00).
   return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function monthKeyFromDate(date: Date): string {
+export function monthKeyFromDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function addMonthsToMonthKey(month: string, offset: number): string {
+export function addMonthsToMonthKey(month: string, offset: number): string {
   const [yearRaw, monthRaw] = month.split("-").map(Number);
   if (!yearRaw || !monthRaw) return month;
   const next = new Date(yearRaw, monthRaw - 1 + offset, 1);
   return monthKeyFromDate(next);
 }
 
-function monthsBetweenInclusive(startMonth: string, endMonth: string): string[] {
+export function monthsBetweenInclusive(startMonth: string, endMonth: string): string[] {
   if (startMonth > endMonth) return [];
   const out: string[] = [];
   let current = startMonth;
@@ -2316,7 +2317,7 @@ function resolveBundleGroupChargeContext(row: DemoApplicantRow): BundleGroupChar
   };
 }
 
-function applyBundleGroupSplit(
+export function applyBundleGroupSplit(
   amount: number,
   title: string,
   ctx: BundleGroupChargeContext | null,
@@ -2347,7 +2348,7 @@ function applyBundleGroupSplit(
  * multi-member split was recorded, so every non-bundle profile takes the
  * untouched path.
  */
-function bundleSplitContextFromProfile(profile: RecurringRentProfile): BundleGroupChargeContext | null {
+export function bundleSplitContextFromProfile(profile: RecurringRentProfile): BundleGroupChargeContext | null {
   const groupId = (profile.bundleGroupId ?? "").trim();
   const memberCount = profile.splitMemberCount ?? 0;
   const memberIndex = profile.splitMemberIndex ?? -1;
@@ -2973,249 +2974,8 @@ function syncAllRecurringRentCharges(): boolean {
   );
   if (profiles.length === 0) return false;
 
-  const now = new Date();
   const existing = readAll();
-  const newCharges: HouseholdCharge[] = [];
-
-  const hasUpfrontProratedLastCharge = (
-    residentEmail: string,
-    propertyId: string,
-    kind: "prorated_last_month_rent" | "prorated_last_month_utilities",
-  ) => {
-    const emailLower = residentEmail.trim().toLowerCase();
-    return [...existing, ...newCharges].some(
-      (c) => c.kind === kind && c.residentEmail.trim().toLowerCase() === emailLower && c.propertyId === propertyId,
-    );
-  };
-  const hasUpfrontProratedLastFeeCharge = (residentEmail: string, propertyId: string, feeId: string) => {
-    const emailLower = residentEmail.trim().toLowerCase();
-    return [...existing, ...newCharges].some(
-      (c) =>
-        c.kind === "prorated_last_month_fee" &&
-        c.customFeeId === feeId &&
-        c.residentEmail.trim().toLowerCase() === emailLower &&
-        c.propertyId === propertyId,
-    );
-  };
-
-  // Build a map of profile id → profile for stale-charge cleanup
-  const profileById = new Map(profiles.map((p) => [p.id, p]));
-  const staleIds = new Set<string>();
-  for (const c of existing) {
-    if (isStaleRecurringHouseholdCharge(c, profileById, existing)) staleIds.add(c.id);
-  }
-  const activeExisting = staleIds.size > 0 ? existing.filter((c) => !staleIds.has(c.id)) : existing;
-
-  for (const profile of profiles) {
-    const dueDayMode = profile.dueDayMode ?? "first_of_month";
-    const profileStartMonth = profile.startMonth?.trim() || currentRentMonth();
-
-    // Parse lease end for last-month proration
-    const leaseEndParts = profile.leaseEnd?.trim().split("-").map(Number) ?? [];
-    const leaseEndYear = leaseEndParts[0] && Number.isFinite(leaseEndParts[0]) ? leaseEndParts[0] : null;
-    const leaseEndMonthNum = leaseEndParts[1] && Number.isFinite(leaseEndParts[1]) ? leaseEndParts[1] : null;
-    const leaseEndDay = leaseEndParts[2] && Number.isFinite(leaseEndParts[2]) ? leaseEndParts[2] : null;
-
-    const currentMonth = monthKeyFromDate(now);
-    const nextMonth = addMonthsToMonthKey(currentMonth, 1);
-    const monthsToGenerate = new Set<string>(monthsBetweenInclusive(profileStartMonth, currentMonth));
-    // Look one month ahead so next month's rent is visible early — but NEVER before the
-    // profile's own start month. `startMonth` is deliberately the month AFTER move-in
-    // (`firstRecurringMonthAfterLeaseStart`) because the move-in month is already billed by the
-    // upfront first-month/prorated charges. Adding `nextMonth` unconditionally re-billed that
-    // same month for any lease starting in the future, on top of the upfront charge.
-    if (nextMonth >= profileStartMonth) monthsToGenerate.add(nextMonth);
-
-    for (const rentMonth of [...monthsToGenerate].sort()) {
-      const [candidateYear, candidateMonthNum] = rentMonth.split("-").map(Number);
-      if (!candidateYear || !candidateMonthNum) continue;
-      const dueDay = effectiveDueDayForMonth(profile.dueDay, dueDayMode, rentMonth);
-
-      // Skip months after lease end
-      if (leaseEndYear && leaseEndMonthNum) {
-        const leaseEndMonth = `${leaseEndYear}-${String(leaseEndMonthNum).padStart(2, "0")}`;
-        if (rentMonth > leaseEndMonth) continue;
-      }
-
-      const candidateDate = new Date(candidateYear, candidateMonthNum - 1, dueDay, 12, 0, 0, 0);
-      const dueLabel = formatRecurringRentDueLabel(rentMonth, dueDay, dueDayMode);
-      const monthLabel = candidateDate.toLocaleString("default", { month: "long", year: "numeric" });
-
-      // Determine if this is a partial last month
-      const isLastMonth = leaseEndYear !== null && leaseEndMonthNum !== null && leaseEndDay !== null
-        && candidateYear === leaseEndYear && candidateMonthNum === leaseEndMonthNum;
-      const daysInCandidateMonth = new Date(candidateYear, candidateMonthNum, 0).getDate();
-      const isPartialLastMonth = isLastMonth && leaseEndDay! < daysInCandidateMonth;
-      const proratedFactor = isPartialLastMonth ? leaseEndDay! / daysInCandidateMonth : 1;
-
-      // When the last month is partial, recordApprovedApplicationCharges creates upfront prorated_last_month_rent
-      // charges so residents can see them from approval time. Skip the recurring-generated version.
-      const emailLower = profile.residentEmail.trim().toLowerCase();
-      const hasUpfrontLastRent =
-        isPartialLastMonth && hasUpfrontProratedLastCharge(profile.residentEmail, profile.propertyId, "prorated_last_month_rent");
-      const hasUpfrontLastUtil =
-        isPartialLastMonth && hasUpfrontProratedLastCharge(profile.residentEmail, profile.propertyId, "prorated_last_month_utilities");
-
-      // A migrated month's imported row is all-in (rent + utilities combined), so a
-      // migrated rent charge for this resident/property/month covers the generator for
-      // BOTH rent and utilities that month. `chargeBusinessKey` deliberately makes a
-      // migrated row's key unique per charge id, so it can never dedupe here — check
-      // `migrationSourceId` directly against `activeExisting` instead.
-      const hasMigratedRentMonth = activeExisting.some(
-        (c) =>
-          c.managerUserId === profile.managerUserId &&
-          !!c.migrationSourceId &&
-          c.kind === "rent" &&
-          c.rentMonth === rentMonth &&
-          c.propertyId === profile.propertyId &&
-          c.residentEmail.trim().toLowerCase() === emailLower,
-      );
-
-      // Bundle-group members store the FULL household amounts on the profile, so
-      // every amount below is divided the same way the move-in charges were.
-      // Null for every ordinary profile, which leaves that path byte-identical.
-      const splitCtx = bundleSplitContextFromProfile(profile);
-
-      const profileDailyRate =
-        typeof profile.dailyRentPrice === "number" && profile.dailyRentPrice > 0 ? profile.dailyRentPrice : 0;
-      const profileWeeklyRate =
-        typeof profile.weeklyRentPrice === "number" && profile.weeklyRentPrice > 0 ? profile.weeklyRentPrice : 0;
-      if ((profile.monthlyRent > 0 || profileDailyRate > 0 || profileWeeklyRate > 0) && !hasUpfrontLastRent && !hasMigratedRentMonth) {
-        const chargeKey = `rent|${emailLower}|${profile.propertyId}|${rentMonth}`;
-        const alreadyExists =
-          activeExisting.some((c) => chargeBusinessKey(c) === chargeKey) ||
-          newCharges.some((c) => chargeBusinessKey(c) === chargeKey);
-        if (!alreadyExists) {
-          // Daily-priced rooms bill actual days-in-month × daily rate (partial last month
-          // bills leaseEndDay × rate); monthly rooms keep the flat monthlyRent × factor.
-          const daysBilled = isPartialLastMonth ? leaseEndDay! : daysInCandidateMonth;
-          const monthlyAddon = recurringBasisMonthlyAddon(profile, proratedFactor);
-          const householdAmount =
-            profileDailyRate > 0
-              ? Number((daysBilled * profileDailyRate).toFixed(2)) + monthlyAddon
-              : profileWeeklyRate > 0
-                ? weeklyRentForBillableDays(profileWeeklyRate, daysBilled) + monthlyAddon
-                : Number((profile.monthlyRent * proratedFactor).toFixed(2));
-          const rawTitlePrefix =
-            profileDailyRate > 0
-              ? `${isPartialLastMonth ? "Prorated rent" : "Rent"} (${daysBilled} days × ${formatRoomPriceAmount(profileDailyRate)}/day)`
-              : profileWeeklyRate > 0
-                ? `${isPartialLastMonth ? "Prorated rent" : "Rent"} (${Number((daysBilled / 7).toFixed(2))} weeks × ${formatRoomPriceAmount(profileWeeklyRate)}/week)`
-                : isPartialLastMonth
-                  ? "Prorated rent"
-                  : "Rent";
-          const rentSplit = applyBundleGroupSplit(householdAmount, rawTitlePrefix, splitCtx);
-          const amount = rentSplit.amount;
-          const titlePrefix = rentSplit.title;
-          newCharges.push({
-            ...(rentSplit.split ?? {}),
-            id: `hc_rent_${chargeKeyPart(profile.residentEmail)}_${chargeKeyPart(profile.propertyId)}_${rentMonth}`,
-            createdAt: new Date().toISOString(),
-            residentEmail: profile.residentEmail,
-            residentName: profile.residentName,
-            residentUserId: profile.residentUserId,
-            propertyId: profile.propertyId,
-            propertyLabel: profile.propertyLabel,
-            managerUserId: profile.managerUserId,
-            kind: "rent",
-            title: `${titlePrefix} — ${monthLabel}`,
-            amountLabel: moneyAmountLabel(amount),
-            balanceLabel: moneyAmountLabel(amount),
-            status: "pending",
-            recurringRentProfileId: profile.id,
-            rentMonth,
-            dueDay,
-            dueDayMode,
-            dueDateLabel: isPartialLastMonth
-              ? `By ${new Date(leaseEndYear!, leaseEndMonthNum! - 1, leaseEndDay!).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-              : dueLabel,
-            blocksLeaseUntilPaid: false,
-          });
-        }
-      }
-
-      const utilAmt = profile.monthlyUtilities ?? 0;
-      if (utilAmt > 0 && !hasUpfrontLastUtil && !hasMigratedRentMonth) {
-        const utilKey = `utilities_recurring|${emailLower}|${profile.propertyId}|${rentMonth}`;
-        const alreadyUtil =
-          activeExisting.some((c) => chargeBusinessKey(c) === utilKey) ||
-          newCharges.some((c) => chargeBusinessKey(c) === utilKey);
-        if (!alreadyUtil) {
-          const utilSplit = applyBundleGroupSplit(
-            Number((utilAmt * proratedFactor).toFixed(2)),
-            isPartialLastMonth ? "Prorated utilities" : "Utilities",
-            splitCtx,
-          );
-          const amount = utilSplit.amount;
-          const titlePrefix = utilSplit.title;
-          newCharges.push({
-            ...(utilSplit.split ?? {}),
-            id: `hc_util_${chargeKeyPart(profile.residentEmail)}_${chargeKeyPart(profile.propertyId)}_${rentMonth}`,
-            createdAt: new Date().toISOString(),
-            residentEmail: profile.residentEmail,
-            residentName: profile.residentName,
-            residentUserId: profile.residentUserId,
-            propertyId: profile.propertyId,
-            propertyLabel: profile.propertyLabel,
-            managerUserId: profile.managerUserId,
-            kind: "utilities",
-            title: `${titlePrefix} — ${monthLabel}`,
-            amountLabel: moneyAmountLabel(amount),
-            balanceLabel: moneyAmountLabel(amount),
-            status: "pending",
-            recurringRentProfileId: profile.id,
-            rentMonth,
-            dueDay,
-            dueDayMode,
-            dueDateLabel: isPartialLastMonth
-              ? `By ${new Date(leaseEndYear!, leaseEndMonthNum! - 1, leaseEndDay!).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-              : dueLabel,
-            blocksLeaseUntilPaid: false,
-          });
-        }
-      }
-
-      // Monthly custom fees (parking, storage, …) bill their FULL amount each recurring
-      // month — a flat monthly service, not prorated. Each fee's own business key
-      // (custom_fee|…|feeId|month) makes emission exactly-once per month across repeated
-      // syncs; an amount change only affects months not yet emitted.
-      for (const fee of profile.monthlyFees ?? []) {
-        if (!(fee.amount > 0)) continue;
-        // A partial last month is billed up front by `prorated_last_month_fee` — never also
-        // the flat month here.
-        if (isPartialLastMonth && hasUpfrontProratedLastFeeCharge(profile.residentEmail, profile.propertyId, fee.id)) continue;
-        const feeKey = `custom_fee|${emailLower}|${profile.propertyId}|${fee.id}|${rentMonth}`;
-        const alreadyFee =
-          activeExisting.some((c) => chargeBusinessKey(c) === feeKey) ||
-          newCharges.some((c) => chargeBusinessKey(c) === feeKey);
-        if (alreadyFee) continue;
-        const feeSplit = applyBundleGroupSplit(fee.amount, fee.label, splitCtx);
-        newCharges.push({
-          ...(feeSplit.split ?? {}),
-          id: `hc_cf_${chargeKeyPart(fee.id)}_${chargeKeyPart(profile.residentEmail)}_${chargeKeyPart(profile.propertyId)}_${rentMonth}`,
-          createdAt: new Date().toISOString(),
-          residentEmail: profile.residentEmail,
-          residentName: profile.residentName,
-          residentUserId: profile.residentUserId,
-          propertyId: profile.propertyId,
-          propertyLabel: profile.propertyLabel,
-          managerUserId: profile.managerUserId,
-          kind: "other_cost",
-          customFeeId: fee.id,
-          title: `${feeSplit.title} — ${monthLabel}`,
-          amountLabel: moneyAmountLabel(feeSplit.amount),
-          balanceLabel: moneyAmountLabel(feeSplit.amount),
-          status: "pending",
-          recurringRentProfileId: profile.id,
-          rentMonth,
-          dueDay,
-          dueDayMode,
-          dueDateLabel: dueLabel,
-          blocksLeaseUntilPaid: false,
-        });
-      }
-    }
-  }
+  const { newCharges, staleIds, activeExisting } = planRecurringRentCharges({ profiles, existing, now: new Date() });
 
   // Remove stale pending recurring charges that violate profile boundaries.
   const cleanedExisting = staleIds.size > 0 ? activeExisting : existing;
@@ -5715,16 +5475,8 @@ export function autoSeedRecurringRentProfiles(
 ): boolean {
   if (!isBrowser() || residents.length === 0) return false;
   const existing = readRentProfiles();
-  const existingKeys = new Set(
-    existing.filter((p) => p.active).map((p) => `${p.residentEmail.trim().toLowerCase()}|${p.propertyId}`),
-  );
-
   const toAdd: RecurringRentProfile[] = [];
-  for (const r of residents) {
-    const email = r.email.trim().toLowerCase();
-    if (!email || !Number.isFinite(r.monthlyRent) || r.monthlyRent <= 0) continue;
-    const key = `${email}|${r.propertyId}`;
-    if (existingKeys.has(key)) continue;
+  for (const r of residentsMissingRentProfile(residents, existing)) {
     toAdd.push({
       id: `rent_profile_${crypto.randomUUID()}`,
       residentEmail: r.email.trim(),

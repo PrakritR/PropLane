@@ -33,6 +33,7 @@ import {
   syncLedgerPaymentEntry,
 } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { persistHouseholdChargeRows } from "@/lib/household-charge-persist.server";
 import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
 
 export const runtime = "nodejs";
@@ -619,81 +620,16 @@ export async function POST(req: Request) {
           updated_at: now,
         });
       }
-      const persistedRows: typeof mappedRows = [];
-      let chargeWriteError: string | null = null;
-      for (const row of mappedRows) {
-        if (existingOwnerById.has(row.id)) {
-          const stored = existingRecordById.get(row.id);
-          if (stored && isDeepStrictEqual(stored.row_data, row.row_data) &&
-              stored.manager_user_id === row.manager_user_id && stored.resident_user_id === row.resident_user_id &&
-              stored.resident_email === row.resident_email && stored.property_id === row.property_id &&
-              stored.kind === row.kind && stored.status === row.status) continue;
-          const expectedStatus = previousStatusById.get(row.id);
-          const expectedUpdatedAt = existingUpdatedAtById.get(row.id);
-          // A missing version cannot safely be compared; a subsequent load
-          // can recover this row without risking a provider settlement.
-          if (!expectedStatus || !expectedUpdatedAt) continue;
-          const { data, error } = await db.from("portal_household_charge_records")
-            .update(row)
-            .eq("id", row.id)
-            .eq("status", expectedStatus)
-            .eq("updated_at", expectedUpdatedAt)
-            .select("id");
-          if (error) { chargeWriteError = error.message; break; }
-          if ((data ?? []).length > 0) persistedRows.push(row);
-        } else {
-          // Insert-only: a concurrent provider/manager writer may have created
-          // this id after our read. Never turn that row into an upsert target.
-          const { data, error } = await db.from("portal_household_charge_records").insert(row).select("id");
-          if (error?.code === "23505") continue;
-          if (error) { chargeWriteError = error.message; break; }
-          if ((data ?? []).length > 0) persistedRows.push(row);
-        }
-      }
-      if (persistedRows.length > 0) {
-        // Batch-scoped dedupe only — a full-table sweep on every client mirror
-        // was taking tens of seconds and blocking the whole portal load.
-        await reconcileDuplicateChargeList(
-          db,
-          persistedRows.map((row) => row.row_data as HouseholdCharge),
-          user.role === "admin" ? undefined : user.id,
-          new Set(chargeIds),
-        ).catch(() => undefined);
-        // Reminders + ledger/GL sync run ONLY over rows that were actually
-        // persisted (mappedRows) — NOT the full client list. A foreign charge a
-        // read-only co-manager was forbidden to persist (skipped above) must not
-        // reach syncLedgerChargeEntry, which would otherwise write owner-attributed
-        // ledger/GL rows from the co-manager's untrusted mirror copy. The owner id
-        // comes from the row's resolved manager_user_id, not the caller.
-        for (const row of persistedRows) {
-          const chargeId = row.id;
-          const nextStatus = row.status;
-          if (!nextStatus) continue;
-          const managerId = row.manager_user_id ?? user.id;
-          const prevStatus = previousStatusById.get(chargeId) ?? null;
-          const nextFingerprint = householdChargeLedgerFingerprint(row.row_data);
-          const prevFingerprint = existingLedgerFingerprintById.get(chargeId);
-          const isNewRow = !existingOwnerById.has(chargeId);
-          if (!isNewRow && prevFingerprint === nextFingerprint) continue;
-          if (nextStatus === "paid" && prevStatus !== "paid") {
-            await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
-          }
-          // No paid→pending branch here: the paid-sticky guard skips those rows,
-          // so a downgrade can only arrive via action:"unmarkPaid" (which restores
-          // reminders itself). A stale mirror can no longer revert a paid charge.
-          // Attribute the ledger/GL entry to the SERVER-resolved owner, not the
-          // client-supplied row_data.managerUserId (which a caller controls).
-          await syncLedgerChargeEntry(db, { ...(row.row_data as HouseholdCharge), managerUserId: managerId }).catch(
-            () => undefined,
-          );
-          await emitHouseholdChargeTransition(db, {
-            managerUserId: managerId,
-            previousStatus: prevStatus,
-            charge: { ...(row.row_data as HouseholdCharge), managerUserId: managerId },
-            transitionId: `${chargeId}:${nextStatus}:${now}`,
-          }).catch(() => undefined);
-        }
-      }
+      const { chargeWriteError } = await persistHouseholdChargeRows(db, mappedRows, {
+        actor: { id: user.id, role: user.role },
+        now,
+        chargeIds,
+        previousStatusById,
+        existingOwnerById,
+        existingUpdatedAtById,
+        existingRecordById,
+        existingLedgerFingerprintById,
+      });
       if (chargeWriteError) return NextResponse.json({ error: chargeWriteError }, { status: 500 });
     }
 

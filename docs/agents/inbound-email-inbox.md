@@ -285,6 +285,35 @@ The code is ready; these steps must be done in the Resend dashboard + DNS:
 Until `RESEND_INBOUND_WEBHOOK_SECRET` is set in a deployed environment, the route
 **rejects all inbound** (fail-closed) — that is intentional.
 
+## Airbnb notifications to the work email
+
+Airbnb has no host API for reservations or payouts, so two mail types are read
+from the workspace work email: "Reservation confirmed" / "New booking" and the
+payout mail ("We've sent your payout" / "You've been paid").
+
+**Host step (once per Airbnb account):** Airbnb -> Account -> Notifications ->
+add the workspace work email as a notification email address. Alternatively set a
+Gmail auto-forward of `automated@airbnb.com` to the work email. No Gmail scope and
+no scraping is involved.
+
+Handling (`handleAirbnbNotification` in `process-assistant-inbound.server.ts`):
+- The gate is the sender domain (`isAirbnbSenderAddress`: `airbnb.com` or a
+  subdomain, never a look-alike). It runs before the sender is classified, so an
+  Airbnb mail never reaches an assistant: no auto-reply, no paid AI turn, no
+  prospect thread.
+- It is parsed only when `inboundSenderAuthenticated` proves the receiving server
+  authenticated airbnb.com for the From domain.
+- `parseAirbnbEmail` (`src/lib/inbound-email/airbnb-parser.ts`) is tolerant and
+  returns null when unsure (needs an `HM...` confirmation code plus a recognised
+  kind). A null writes nothing.
+- A parsed mail is matched by confirmation code against `reservationCode` in the
+  imported ranges of the workspace owner's own connections, then
+  `applyAirbnbEmailToStay` upserts `channel_stay_details`: guest first name only
+  if the name is empty, check-in / check-out, and on payout mails `payout_cents`
+  plus `paid_at`; `source = 'airbnb_email'`.
+- An unmatched, unparsed or unauthenticated Airbnb mail is stored in Communication
+  like other inbound mail and never answered.
+
 ## Tests
 
 `tests/unit/inbound-email-webhook.test.ts` — signature accept/reject (tamper, wrong

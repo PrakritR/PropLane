@@ -123,3 +123,25 @@ reservation also Remove stay.
   never double-sends.
 - `update_room_block` (assistant-only, not on MCP) edits a hold's dates, guest, phone and notes with the same
   overlap rule as `block_room_dates`; the three booking reads accept Calendar at notification or edit.
+
+## Airbnb money (names, payouts)
+
+The Airbnb feed carries no guest name and no money. `channel_stay_details`
+(service-role only, keyed `connection_id + source_uid`, owner-scoped by the
+connection) holds what the manager types or Airbnb's emails supply: `guest_name`,
+`guest_phone`, `nightly_cents`, `payout_cents`, `paid_at`, `currency`, `source`
+(`manual` or `airbnb_email`), `check_in` / `check_out`. The booking record's
+Guest (Name, Phone) and Booking (Nightly, Payout, Paid on) rows edit them through
+one popup (`BookingsStayDetailsDialog`, one Save, `PUT .../stay-details`; a field
+left out of the request is untouched, a blank clears it).
+
+A stay with `payout_cents` projects an **Airbnb row in Incoming payments**
+(`src/lib/channel-calendar/airbnb-payouts.ts`, `GET .../channel-calendar/payouts`):
+tile AB, "Airbnb · <guest or code>", "Payout · house · room · dates", fact
+"Paid <date>" or "Due <day after check-out>", figure the payout. It is Pending
+until `paid_at` is set (Mark paid in the row's menu, or a payout email), then
+Paid, and counts in the bucket totals. It is a projection: **never a household
+charge**, so it has no reminders, selection or bulk actions.
+
+Host step to get names and payouts automatically (forward Airbnb mail to the work
+email): see `docs/agents/inbound-email-inbox.md` § Airbnb notifications.
