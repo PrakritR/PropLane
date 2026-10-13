@@ -717,7 +717,6 @@ function LeaseSendSheetBody({
           {!lease?.managerUploadedPdf ? (
             <WorkspaceFileCard
               accept="application/pdf,.pdf"
-              chips={[".pdf", "up to 3.5 MB"]}
               dataAttr="lease-send-header-upload"
               disabled={busy || !(lease && app && terms)}
               onPick={(file) => {

@@ -13,7 +13,7 @@ import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MoveInFormFrame, MoveInFormResidentCard } from "@/components/portal/move-in-forms/move-in-form-frame";
 import { MoveInFormLivePreview, moveInPreviewStepOf } from "@/components/portal/move-in-forms/move-in-form-live-preview";
-import { questionCountLabel, type MoveInAnswerMap } from "@/components/portal/move-in-forms/move-in-form-model";
+import { type MoveInAnswerMap } from "@/components/portal/move-in-forms/move-in-form-model";
 import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
 import { PropertyFormWizardCard, PropertyFormWizardRow } from "@/components/portal/property-form-wizard-kit";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -122,8 +122,8 @@ function PendingFormEditor({ record, onClose }: { record: MoveInFormRecord; onCl
   }, [questions, record.source]);
 
   const steps: AddWorkspaceStep[] = [
-    { id: "details", label: "Details", summary: `${MOVE_IN_FORM_BLOCKS_LABELS[blocks]}${due ? "" : " · No due date"}` },
-    { id: "questions", label: "Questions", summary: questionCountLabel(questions.length), incomplete: problems.length > 0 },
+    { id: "details", label: "Details" },
+    { id: "questions", label: "Questions", incomplete: problems.length > 0 },
   ];
 
   const focusQuestion = (key: string) => {

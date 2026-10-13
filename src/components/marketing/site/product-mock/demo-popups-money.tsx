@@ -123,10 +123,6 @@ export function DemoAddChargePopup({ onClose, onAdded }: { onClose: () => void; 
             { label: "Type", value: presetLabel },
             { label: "Amount", value: amountLabel },
           ]}
-          creates={[
-            { tone: "yes", text: "Pending charge on Incoming" },
-            { tone: "no", text: "Reminder uses your payment settings" },
-          ]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Add charge", onFinish: onAdded }}
@@ -198,7 +194,6 @@ export function DemoAddChargePopup({ onClose, onAdded }: { onClose: () => void; 
                 { label: "Type", value: presetLabel },
                 { label: "Amount", value: amountLabel },
               ]}
-              creates={[{ tone: "yes", text: "Creates a charge on Incoming" }]}
             />
           </StepColumn>
         )
@@ -418,10 +413,6 @@ export function DemoAddServicePopup({ onClose, onAdded }: { onClose: () => void;
             { label: "Resident", value: resident?.name ?? "—" },
             { label: "Priority", value: form.priority },
           ]}
-          creates={[
-            { tone: "yes", text: resident ? `Logged service for ${resident.name}` : "Logged service" },
-            { tone: "no", text: "No assignment message until you assign" },
-          ]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Add service", onFinish: onAdded }}
@@ -449,7 +440,6 @@ export function DemoAddServicePopup({ onClose, onAdded }: { onClose: () => void;
               value={room}
               onChange={setRoom}
               options={[{ value: "", label: "None" }, ...rooms.map((r) => ({ value: r, label: r }))]}
-              placeholder="Optional"
               dataAttr="manager-service-intake-room"
             />
             <WizardSelect
@@ -457,7 +447,6 @@ export function DemoAddServicePopup({ onClose, onAdded }: { onClose: () => void;
               value={residentEmail}
               onChange={setResidentEmail}
               options={[{ value: "", label: "None" }, ...residents.map((r) => ({ value: r.email, label: `${r.name} · ${r.room}` }))]}
-              placeholder="Optional"
               dataAttr="manager-service-intake-resident"
             />
           </StepColumn>
@@ -497,7 +486,6 @@ export function DemoAddServicePopup({ onClose, onAdded }: { onClose: () => void;
                 { label: "Priority", value: form.priority },
                 { label: "Assignee", value: "—" },
               ]}
-              creates={[{ tone: "yes", text: "Logs a manager-initiated service" }]}
             />
           </StepColumn>
         )

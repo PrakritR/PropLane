@@ -384,7 +384,7 @@ export function PromotionForm({
         />
       </div>
       <div className="sm:col-span-2">
-        <label className="text-xs font-semibold text-muted">Headline idea (optional)</label>
+        <label className="text-xs font-semibold text-muted">Headline idea</label>
         <Input
           className="mt-1"
           value={draft.headline}

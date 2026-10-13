@@ -281,8 +281,6 @@ export function ServiceEditPopup({
             { label: isAddOn ? "Fee" : "Cost", value: (isAddOn ? draft.price : draft.cost) ? (isAddOn ? `$${draft.price}` : draft.cost) : "—" },
             { label: "Visit", value: visitFact ? visitLabel(visitFact) : "—" },
           ]}
-          creates={[{ tone: "yes", text: "Saves to this service" }]}
-          createsHeading="This will"
         />
       }
       lastLabel="Save changes"
@@ -329,7 +327,7 @@ export function ServiceEditPopup({
               value={draft.roomChoice}
               onChange={(value) => set({ roomChoice: value })}
               options={[{ value: "", label: "None" }, ...roomOptions]}
-              placeholder={!draft.propertyId ? "Select property first" : roomOptions.length === 0 ? "No empty rooms" : "Optional"}
+              placeholder={!draft.propertyId ? "Select property first" : roomOptions.length === 0 ? "No empty rooms" : undefined}
               disabled={!draft.propertyId}
               dataAttr="service-edit-room"
             />
@@ -342,7 +340,7 @@ export function ServiceEditPopup({
               set({ residentEmail: value, ...(!isAddOn && picked?.assignedRoomChoice && !draft.roomChoice ? { roomChoice: picked.assignedRoomChoice } : {}) });
             }}
             options={residentChoices}
-            placeholder={!draft.propertyId ? "Select property first" : "Optional"}
+            placeholder={!draft.propertyId ? "Select property first" : undefined}
             dataAttr="service-edit-resident"
           />
         </StepColumn>

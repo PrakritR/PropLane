@@ -1266,13 +1266,10 @@ export function ManagerFinancesPanel({
           steps={((): AddWorkspaceStep[] => {
             const amountCents = Math.round(Number.parseFloat(expenseDraft.amount.replace(/[^0-9.]/g, "")) * 100);
             const amountOk = Number.isFinite(amountCents) && amountCents > 0;
-            const categoryLabel = EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name ?? expenseDraft.categoryCode;
-            const propertyLabel = propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio";
-            const vendorLabel = activeVendors.find((v) => v.id === expenseDraft.vendorId)?.name ?? "None";
             return [
-              { id: "what", label: "What", summary: amountOk ? `${categoryLabel} · $${(amountCents / 100).toFixed(2)}` : "Amount", incomplete: !amountOk },
-              { id: "where", label: "Where", summary: `${propertyLabel} · ${vendorLabel}` },
-              { id: "review", label: "Review", summary: "Ready" },
+              { id: "what", label: "What", incomplete: !amountOk },
+              { id: "where", label: "Where" },
+              { id: "review", label: "Review" },
             ];
           })()}
           current={expenseStepIdx}
@@ -1296,7 +1293,6 @@ export function ManagerFinancesPanel({
                 { label: "Amount", value: expenseDraft.amount.trim() ? `$${expenseDraft.amount}` : "Not set", warn: !expenseDraft.amount.trim() },
                 { label: "Property", value: propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio" },
               ]}
-              creates={[{ tone: "yes", text: expenseDraft.id ? "Updates this expense" : "Saves an expense" }]}
             />
           }
           lastLabel={expenseDraft.id ? "Save changes" : "Save expense"}
@@ -1382,7 +1378,6 @@ export function ManagerFinancesPanel({
                   { label: "Property", value: propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio" },
                   { label: "Vendor", value: activeVendors.find((v) => v.id === expenseDraft.vendorId)?.name ?? "None" },
                 ]}
-                creates={[{ tone: "yes", text: expenseDraft.id ? "Updates this expense" : "Saves an expense" }]}
               />
             </StepColumn>
           ) : null}
@@ -1398,7 +1393,7 @@ export function ManagerFinancesPanel({
         contextPanel={<PreviewPanel title="Expense" name={String(expenseToDelete?.category ?? "Expense")} facts={[
           { label: "Amount", value: formatCellValue({ key: "amount", label: "Amount", format: "money" }, expenseToDelete?.amount ?? null) },
           { label: "Property", value: String(expenseToDelete?.property ?? "Portfolio") },
-        ]} creates={[]} />}
+        ]} />}
         preview={<section className="rounded-xl border border-border bg-card p-4"><h3 className="font-semibold">Removed</h3><p className="mt-3 text-sm">{String(expenseToDelete?.category ?? "Expense")}</p>{expenseToDelete?.memo ? <p className="mt-2 whitespace-pre-wrap text-sm">{String(expenseToDelete.memo)}</p> : null}</section>}
         previewLabel="After deletion"
       >
@@ -1414,12 +1409,10 @@ export function ManagerFinancesPanel({
           steps={((): AddWorkspaceStep[] => {
             const amountCents = Math.round(Number.parseFloat(incomeDraft.amount.replace(/[^0-9.]/g, "")) * 100);
             const amountOk = Number.isFinite(amountCents) && amountCents > 0;
-            const categoryLabel = INCOME_CATEGORIES.find((c) => c.code === incomeDraft.categoryCode)?.name ?? incomeDraft.categoryCode;
-            const propertyLabel = propertyOptions.find((p) => p.id === incomeDraft.propertyId)?.label ?? "Portfolio";
             return [
-              { id: "what", label: "What", summary: amountOk ? `${categoryLabel} · $${(amountCents / 100).toFixed(2)}` : "Amount", incomplete: !amountOk },
-              { id: "where", label: "Where", summary: propertyLabel },
-              { id: "review", label: "Review", summary: "Ready" },
+              { id: "what", label: "What", incomplete: !amountOk },
+              { id: "where", label: "Where" },
+              { id: "review", label: "Review" },
             ];
           })()}
           current={incomeStepIdx}
@@ -1443,7 +1436,6 @@ export function ManagerFinancesPanel({
                 { label: "Amount", value: incomeDraft.amount.trim() ? `$${incomeDraft.amount}` : "Not set", warn: !incomeDraft.amount.trim() },
                 { label: "Property", value: propertyOptions.find((p) => p.id === incomeDraft.propertyId)?.label ?? "Portfolio" },
               ]}
-              creates={[{ tone: "yes", text: "Saves an income entry" }]}
             />
           }
           lastLabel="Save income"
@@ -1503,7 +1495,6 @@ export function ManagerFinancesPanel({
                   { label: "Amount", value: incomeDraft.amount.trim() ? `$${incomeDraft.amount}` : "—" },
                   { label: "Property", value: propertyOptions.find((p) => p.id === incomeDraft.propertyId)?.label ?? "Portfolio" },
                 ]}
-                creates={[{ tone: "yes", text: "Saves an income entry" }]}
               />
             </StepColumn>
           ) : null}

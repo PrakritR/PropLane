@@ -604,18 +604,14 @@ export function ManagerAddServiceModal({
     {
       id: "where",
       label: "Where",
-      summary: whereIncomplete
-        ? "Property"
-        : [selectedProperty?.propertyLabel, roomLabel, selectedResident?.residentName].filter(Boolean).join(" · "),
       incomplete: whereIncomplete,
     },
     {
       id: "what",
       label: "What",
-      summary: whatIncomplete ? "Service" : serviceTitle,
       incomplete: whatIncomplete,
     },
-    { id: "review", label: "Review", summary: "Ready" },
+    { id: "review", label: "Review" },
   ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
@@ -645,12 +641,6 @@ export function ManagerAddServiceModal({
             { label: "Room", value: roomLabel || "—" },
             { label: "Resident", value: selectedResident?.residentName ?? "—" },
             { label: "Priority", value: form.priority },
-          ]}
-          creates={[
-            { tone: "yes", text: selectedResident ? `Logged service for ${selectedResident.residentName}` : "Logged service" },
-            activeAssignee
-              ? { tone: "yes", text: `Assignment message to ${activeAssignee.name}` }
-              : { tone: "no", text: "No assignment message until you assign" },
           ]}
         />
       }
@@ -696,7 +686,7 @@ export function ManagerAddServiceModal({
                 value={roomChoice}
                 onChange={setRoomChoice}
                 options={[{ value: "", label: "None" }, ...roomOptions]}
-                placeholder={roomOptions.length === 0 ? "No empty rooms" : "Optional"}
+                placeholder={roomOptions.length === 0 ? "No empty rooms" : undefined}
                 disabled={busy}
                 dataAttr="manager-service-intake-room"
               />
@@ -724,7 +714,7 @@ export function ManagerAddServiceModal({
                 value={roomChoice}
                 onChange={setRoomChoice}
                 options={[{ value: "", label: "None" }, ...roomOptions]}
-                placeholder={!propertyId ? "Select property first" : roomOptions.length === 0 ? "No empty rooms" : "Optional"}
+                placeholder={!propertyId ? "Select property first" : roomOptions.length === 0 ? "No empty rooms" : undefined}
                 disabled={busy || !propertyId}
                 dataAttr="manager-service-intake-room"
               />
@@ -745,7 +735,7 @@ export function ManagerAddServiceModal({
                     label: resident.roomLabel ? `${resident.residentName} · ${resident.roomLabel}` : resident.residentName,
                   })),
                 ]}
-                placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Optional"}
+                placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : undefined}
                 disabled={busy || !propertyId}
                 dataAttr="manager-service-intake-resident"
               />
@@ -854,7 +844,6 @@ export function ManagerAddServiceModal({
               { label: "Priority", value: form.priority },
               { label: "Assignee", value: activeAssignee?.name ?? "—" },
             ]}
-            creates={[{ tone: "yes", text: "Logs a manager-initiated service" }]}
           />
         </StepColumn>
       ) : null}

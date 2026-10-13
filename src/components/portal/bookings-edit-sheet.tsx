@@ -104,11 +104,6 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
         { label: "Rate", value: rate === "" ? "Not set" : `$${Number(rate).toLocaleString("en-US")} / ${basis === "daily" ? "day" : basis === "weekly" ? "week" : "month"}` },
         { label: "Notes", value: notes.trim() || "None" },
       ]}
-      creates={[
-        conflicts.length && !locked
-          ? { tone: "warn", text: "These dates overlap another booking" }
-          : { tone: "yes", text: "The calendar and the guest's dates update" },
-      ]}
     />
   );
   return <PortalDialog open onClose={onClose} title="Edit booking" dataAttr="bookings-edit-sheet" contextPanel={<PopupSubjectCard title={entry.residentName || entry.summary} lines={[[entry.propertyLabel, entry.roomLabel].filter(Boolean).join(" · "), entry.bookingStatus === "confirmed" ? "Confirmed" : "Hold"]} />} previewLabel="Booking preview" preview={preview} primaryAction={lockedDetails ? null : { label: "Save booking", onClick: save, disabled: metaOnly ? busy : !valid || Boolean(conflicts.length) || busy || !rateValid, loading: busy }}>

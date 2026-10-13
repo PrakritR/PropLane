@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { DOCUMENT_FILE_CHIPS } from "@/components/portal/add-workspace/upload-action";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import {
   ReviewCard,
@@ -563,20 +562,12 @@ export function ShareLeadLinkModal({
   const workspaceSteps = useMemo<AddWorkspaceStep[]>(() => {
     const homeIncomplete = propertyIds.length === 0;
     const recipientIncomplete = !recipientReady;
-    const recipientSummary = prospectName.trim()
-      ? [prospectName.trim(), viaEmail ? prospectEmail.trim() : "", viaSms ? prospectPhone.trim() : ""].filter(Boolean).join(" · ")
-      : "Who receives this";
     return [
-      { id: "home", label: "Home", incomplete: homeIncomplete, summary: propertyTitle || "No property yet" },
-      { id: "recipient", label: "Recipient", incomplete: recipientIncomplete, summary: recipientSummary },
-      {
-        id: "review",
-        label: "Review",
-        incomplete: homeIncomplete || recipientIncomplete,
-        summary: homeIncomplete || recipientIncomplete ? "Finish required fields" : "Ready to send",
-      },
+      { id: "home", label: "Home", incomplete: homeIncomplete },
+      { id: "recipient", label: "Recipient", incomplete: recipientIncomplete },
+      { id: "review", label: "Review", incomplete: homeIncomplete || recipientIncomplete },
     ];
-  }, [propertyIds.length, propertyTitle, prospectEmail, prospectName, prospectPhone, recipientReady, viaEmail, viaSms]);
+  }, [propertyIds.length, recipientReady]);
 
   const stepId = workspaceSteps[Math.min(step, workspaceSteps.length - 1)]?.id ?? "home";
   const goTo = (id: string) => {
@@ -598,7 +589,6 @@ export function ShareLeadLinkModal({
       workNumber={workNumber}
       previewBody={previewBody}
       propertyMissing={propertyIds.length === 0}
-      recipientReady={recipientReady}
     />
   );
 
@@ -616,7 +606,6 @@ export function ShareLeadLinkModal({
         kind === "apply" && onUploadCompletedApplication
           ? {
               accept: DOCUMENT_UPLOAD_ACCEPT,
-              chips: DOCUMENT_FILE_CHIPS,
               label: "Upload a completed application",
               dataAttr: "share-lead-header-upload",
               disabled: sendBusy,

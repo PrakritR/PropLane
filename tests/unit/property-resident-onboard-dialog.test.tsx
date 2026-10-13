@@ -74,7 +74,7 @@ describe("PropertyResidentOnboardWizard (Add resident)", () => {
     expect(dialog.querySelectorAll('[data-attr="property-onboard-import"]')).toHaveLength(1);
   });
 
-  it("labels are sentence case with no asterisks; optional fields say Optional; account setup is a switch", () => {
+  it("labels are sentence case with no asterisks; no field says Optional; account setup is a switch", () => {
     renderDialog();
     const dialog = screen.getByRole("dialog", { name: "Add resident" });
     const form = dialog.querySelector("[data-popup-form]")!;
@@ -84,7 +84,7 @@ describe("PropertyResidentOnboardWizard (Add resident)", () => {
       expect(text).not.toContain("*");
       expect(text === text.toUpperCase() && /[A-Z]{3,}/.test(text), text).toBe(false);
     }
-    expect(form.textContent).toContain("Optional");
+    expect(form.textContent).not.toContain("Optional");
     expect(form.querySelector('[data-attr="property-onboard-tenantName"]')).toBeTruthy();
     const toggle = form.querySelector('[role="switch"][data-attr="property-onboard-send-setup"]')!;
     expect(toggle.getAttribute("aria-checked")).toBe("true");

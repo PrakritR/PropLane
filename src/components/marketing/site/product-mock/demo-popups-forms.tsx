@@ -26,7 +26,6 @@ import { PropertyFormWizardCard, PropertyFormWizardRow } from "@/components/port
 import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
 import { MoveInFormLivePreview } from "@/components/portal/move-in-forms/move-in-form-live-preview";
 import type { MoveInAnswerMap } from "@/components/portal/move-in-forms/move-in-form-model";
-import { questionCountLabel } from "@/components/portal/move-in-forms/move-in-form-model";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { MOVE_IN_FORM_BLOCKS, MOVE_IN_FORM_BLOCKS_LABELS, type MoveInFormBlocks, type MoveInFormQuestion } from "@/lib/move-in-forms/types";
@@ -298,8 +297,8 @@ export function DemoEditPendingFormPopup({ form, onClose, onSaved }: { form: Man
   const dirty = blocks !== initialBlocks || due !== "2025-09-27" || JSON.stringify(questions) !== JSON.stringify(detail.questions);
 
   const steps = [
-    { id: "details", label: "Details", summary: `${MOVE_IN_FORM_BLOCKS_LABELS[blocks]}${due ? "" : " · No due date"}` },
-    { id: "questions", label: "Questions", summary: questionCountLabel(questions.length) },
+    { id: "details", label: "Details" },
+    { id: "questions", label: "Questions" },
   ];
 
   return (

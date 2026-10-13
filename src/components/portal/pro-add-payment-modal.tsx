@@ -421,13 +421,12 @@ export function ManagerAddPaymentModal({
   const whoIncomplete = !propertyId || !residentApplicationId;
   const amountIncomplete = !chargeTitle.trim() || !Number.isFinite(amountNum) || amountNum <= 0;
   const presetLabel = MANAGER_PAYMENT_PRESETS.find((option) => option.id === preset)?.label ?? "Charge";
-  const propertyLabel = selectedProperty?.propertyLabel ?? "Not set";
   const residentLabel = selectedResident?.residentName ?? "Not set";
   const amountLabel = Number.isFinite(amountNum) && amountNum > 0 ? `$${amountNum.toFixed(2)}` : "Not set";
   const steps: AddWorkspaceStep[] = [
-    { id: "who", label: "Who", summary: whoIncomplete ? "Property and resident" : `${residentLabel} · ${propertyLabel}`, incomplete: whoIncomplete },
-    { id: "amount", label: "Amount", summary: amountIncomplete ? "Amount" : `${presetLabel} · ${amountLabel}`, incomplete: amountIncomplete },
-    { id: "review", label: "Review", summary: "Ready" },
+    { id: "who", label: "Who", incomplete: whoIncomplete },
+    { id: "amount", label: "Amount", incomplete: amountIncomplete },
+    { id: "review", label: "Review" },
   ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
@@ -488,10 +487,6 @@ export function ManagerAddPaymentModal({
                 { label: "Resident", value: residentLabel, warn: !residentApplicationId },
                 { label: "Type", value: presetLabel },
                 { label: "Amount", value: amountLabel, warn: amountIncomplete },
-              ]}
-              creates={[
-                { tone: "yes", text: "Pending charge on Incoming" },
-                { tone: "no", text: "Reminder uses your payment settings" },
               ]}
             />
           }
@@ -587,7 +582,6 @@ export function ManagerAddPaymentModal({
                   { label: "Type", value: presetLabel },
                   { label: "Amount", value: amountLabel },
                 ]}
-                creates={[{ tone: "yes", text: "Creates a charge on Incoming" }]}
               />
             </StepColumn>
           ) : null}

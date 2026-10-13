@@ -129,7 +129,7 @@ export function ListingWizardV2({
    * Basics strip already uses). Picking a file jumps to Basics first, where the strip shows its reading /
    * replace confirm.
    */
-  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" | "chips">;
+  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" >;
   /**
    * Footer Delete on a new property: after the confirm, the draft row is deleted and this runs INSTEAD of
    * `onClose` (the host decides where the manager lands). Without it a new property has no Delete.

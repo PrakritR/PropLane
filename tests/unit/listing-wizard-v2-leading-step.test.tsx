@@ -58,7 +58,7 @@ describe("ListingEditorV2 with the import's Upload step", () => {
     expect(labels[0]).toBe("listing-v2-rail-upload");
     expect(labels[1]).toBe("listing-v2-rail-basics");
     expect(labels).toHaveLength(LISTING_V2_STEPS.length + 1);
-    expect(screen.getByRole("navigation", { name: "Listing sections" }).textContent).toContain("Copy of Sales.xlsx · 6 found");
+    expect(screen.getByRole("navigation", { name: "Listing sections" }).textContent).not.toContain("Copy of Sales.xlsx · 6 found");
     expect(document.querySelector("[data-attr='listing-v2-rail-basics']")?.getAttribute("aria-current")).toBe("step");
     expect(document.querySelectorAll("[data-step-progress]")).toHaveLength(LISTING_V2_STEPS.length + 1); // Upload counts in the bar
     expect(screen.getByTestId("switcher")).toBeInTheDocument();

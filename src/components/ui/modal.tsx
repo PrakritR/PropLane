@@ -26,6 +26,7 @@ import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { cn } from "@/lib/utils";
 import { PopupFormContext, PopupFormSnapshot } from "@/components/ui/popup-form-context";
+import { DialogTitleProvider } from "@/components/ui/dialog-title-context";
 
 export {
   MODAL_INSET_BOX_CLASS,
@@ -459,7 +460,7 @@ function ModalPanelInner({
             "px-4 py-4 sm:px-[22px] sm:py-[18px]",
           )}
         >
-          <PhoneStripPickerScope>{children}</PhoneStripPickerScope>
+          <DialogTitleProvider title={title}><PhoneStripPickerScope>{children}</PhoneStripPickerScope></DialogTitleProvider>
         </div>
         {preview !== null ? (
           <aside

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
-import { DOCUMENT_FILE_CHIPS, WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   FilterCollapsibleSection,
@@ -1071,13 +1071,13 @@ function UploadModal({
   const fileIncomplete = !file;
   const steps: AddWorkspaceStep[] = versionMode
     ? [
-        { id: "file", label: "File", summary: file?.name ?? "Choose a file", incomplete: fileIncomplete },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "file", label: "File", incomplete: fileIncomplete },
+        { id: "review", label: "Review" },
       ]
     : [
-        { id: "file", label: "File", summary: file?.name ?? "Choose a file", incomplete: fileIncomplete },
-        { id: "details", label: "Details", summary: DOCUMENT_CATEGORY_LABELS[category] },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "file", label: "File", incomplete: fileIncomplete },
+        { id: "details", label: "Details" },
+        { id: "review", label: "Review" },
       ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
@@ -1107,7 +1107,6 @@ function UploadModal({
             { label: "Category", value: DOCUMENT_CATEGORY_LABELS[category] },
             { label: "Visibility", value: DOCUMENT_VISIBILITY_LABELS[visibility] },
           ]}
-          creates={[{ tone: "yes", text: versionMode ? "Uploads a new version" : "Saves this document" }]}
         />
       }
       lastLabel={busy ? "Uploading…" : versionMode ? "Upload version" : "Upload"}
@@ -1132,7 +1131,6 @@ function UploadModal({
           <StepHeading title="File" />
           <WorkspaceFileCard
             accept={DOCUMENT_UPLOAD_ACCEPT}
-            chips={DOCUMENT_FILE_CHIPS}
             dataAttr="document-upload-file-card"
             fileName={file?.name ?? null}
             onPick={(next) => pickFile(next)}
@@ -1211,7 +1209,6 @@ function UploadModal({
               { label: "Property", value: propertyLabel },
               { label: "Visibility", value: visibility === "vendor" ? vendorLabel : DOCUMENT_VISIBILITY_LABELS[visibility] },
             ]}
-            creates={[{ tone: "yes", text: versionMode ? "Uploads a new version" : "Saves this document" }]}
           />
         </StepColumn>
       ) : null}

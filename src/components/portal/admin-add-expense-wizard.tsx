@@ -138,10 +138,10 @@ export function AdminAddExpenseWizard({
   const endsOk = !recurring || !draft.endsOn || draft.endsOn >= draft.spentOn;
 
   const steps: AddWorkspaceStep[] = [
-    { id: "details", label: "Details", incomplete: !detailsOk, summary: draft.vendor.trim() || "Vendor and amount" },
-    { id: "repeat", label: "Repeat", incomplete: !endsOk, summary: EXPENSE_RECURRENCE_LABELS[draft.recurrence] },
-    { id: "receipt", label: "Receipt", summary: draft.receiptPath ? draft.receiptName || "Attached" : "None" },
-    { id: "review", label: "Review", summary: editing ? "Save expense" : "Add expense" },
+    { id: "details", label: "Details", incomplete: !detailsOk },
+    { id: "repeat", label: "Repeat", incomplete: !endsOk },
+    { id: "receipt", label: "Receipt" },
+    { id: "review", label: "Review" },
   ];
   const current = Math.min(draft.stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
@@ -266,10 +266,6 @@ export function AdminAddExpenseWizard({
               { label: "First charge", value: draft.spentOn || "Not set" },
               { label: "Repeats", value: repeatText },
               { label: "Receipt", value: draft.receiptPath ? "Attached" : "None" },
-            ]}
-            creates={[
-              { tone: detailsOk ? "yes" : "warn", text: recurring ? "A charge in every month it covers" : "A charge in its month" },
-              { tone: "yes", text: "Counted against profit on Finances" },
             ]}
           />
         }

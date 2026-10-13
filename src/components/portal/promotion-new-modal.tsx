@@ -243,11 +243,10 @@ export function PromotionNewModal({
   };
 
   const assistantContext = buildPromotionNewModalAssistantContext(draft, kind);
-  const kindLabel = PROMOTION_KIND_OPTIONS.find((opt) => opt.id === kind)?.label ?? "Promotion";
   const workspaceSteps: AddWorkspaceStep[] = [
-    { id: "kind", label: "Kind", summary: kindLabel },
-    { id: "content", label: "Content", summary: kind === "upload" ? uploadFileName || "Choose a file" : draft.title || draft.headline || "Listing facts" },
-    { id: "preview", label: "Preview", summary: kindLabel },
+    { id: "kind", label: "Kind" },
+    { id: "content", label: "Content" },
+    { id: "preview", label: "Preview" },
   ];
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
   const stepId = workspaceSteps[current]!.id;
@@ -288,7 +287,7 @@ export function PromotionNewModal({
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
       assistantScopeKey="New promotion"
-      headerUpload={{ accept: PROMOTION_UPLOAD_ACCEPT, chips: ["images", ".pdf", "up to 12 MB"], onPick: (file) => void pickUploadFromHeader(file), disabled: flyerBusy || textBusy || uploadBusy, dataAttr: "promotion-new-header-upload", label: "Upload your own" }}
+      headerUpload={{ accept: PROMOTION_UPLOAD_ACCEPT, onPick: (file) => void pickUploadFromHeader(file), disabled: flyerBusy || textBusy || uploadBusy, dataAttr: "promotion-new-header-upload", label: "Upload your own" }}
       sidePanel={preview}
       lastLabel={lastLabel}
       lastDisabled={lastDisabled}

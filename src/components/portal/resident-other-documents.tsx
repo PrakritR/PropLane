@@ -398,7 +398,7 @@ export function ResidentAddDocumentModal({
         ) : null}
 
         <label className="block">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Name (optional)</span>
+          <span className={MODAL_FIELD_LABEL_CLASS}>Name</span>
           <input
             type="text"
             value={label}

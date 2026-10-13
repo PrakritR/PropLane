@@ -73,7 +73,7 @@ describe("demo Residents tab matches the real Residents page", () => {
     for (const label of ["Resident", "Home", "Application", "Lease", "Payments", "Documents", "Review"]) {
       expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0);
     }
-    expect(within(dialog).getAllByText("Off this add").length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText("Off this add")).toBeNull();
     expect(within(dialog).getAllByText("Add documents").length).toBeGreaterThan(0);
     expect(within(dialog).getByText("Start from a file")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Upload a file")).toBeInTheDocument();

@@ -208,13 +208,13 @@ describe("the Add service popup", () => {
     );
   }
 
-  it("does not mark the required Name 'Optional'", () => {
+  it("marks no field 'Optional'", () => {
     renderModal();
     const nameRow = screen.getAllByText("Name")[0]!.closest("div.flex")!;
     expect(nameRow.querySelector("[data-field-optional]")).toBeNull();
-    // A field that really is optional still says so.
+    // An optional field carries no marker either: only a required one is marked.
     const descriptionRow = screen.getAllByText("Description")[0]!.closest("div.flex")!;
-    expect(descriptionRow.querySelector("[data-field-optional]")).toBeTruthy();
+    expect(descriptionRow.querySelector("[data-field-optional]")).toBeNull();
   });
 
   it("section headings are sentence case, not ALL-CAPS", () => {

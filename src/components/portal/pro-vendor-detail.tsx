@@ -1083,7 +1083,7 @@ function VendorCheckInsTab({
               <ChannelSegments value={channel} onChange={setChannel} dataAttr="vendor-check-in-channel" />
             </Field>
             {propertyOptions.length ? (
-              <Field label="Property (optional)">
+              <Field label="Property">
                 <Select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} data-attr="vendor-check-in-property">
                   <option value="">All of {callName}&apos;s</option>
                   {propertyOptions.map((p) => (

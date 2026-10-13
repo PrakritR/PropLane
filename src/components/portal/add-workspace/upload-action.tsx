@@ -6,7 +6,6 @@ import { Camera, ScanLine, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { scanImageToPdf } from "./scan-document";
-import { DOCUMENT_UPLOAD_ACCEPT, MAX_DOCUMENT_BYTES } from "@/lib/documents/manager-documents";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
 /** File readers retain ownership of parsing and limits; only the picker moves to chrome. */
@@ -35,39 +34,35 @@ export type WorkspaceHeaderUploadProps = {
   /** Names the file input for assistive tech; the card's visible title is always "Start from a file". */
   label?: string;
   extraItems?: WorkspaceUploadExtraItem[];
-  /** The flow's real accepted formats and size limit, e.g. [".pdf", ".docx", "up to 10 MB"]. Derived from `accept` when omitted. */
-  chips?: readonly string[];
 };
 
-/** Format chips for an `accept` string: ".pdf · .docx · .png", images folded to one chip. */
-export function acceptChips(accept: string, maxMb?: number): string[] {
-  const chips: string[] = [];
-  const add = (chip: string) => { if (!chips.includes(chip)) chips.push(chip); };
-  for (const raw of accept.split(",")) {
-    const part = raw.trim().toLowerCase();
-    if (!part) continue;
-    if (part === "application/pdf" || part === ".pdf") add(".pdf");
-    else if (part.includes("wordprocessingml") || part === ".docx") add(".docx");
-    else if (part === "application/msword" || part === ".doc") add(".doc");
-    else if (part.includes("spreadsheetml") || part === ".xlsx") add(".xlsx");
-    else if (part === "application/vnd.ms-excel" || part === ".xls") add(".xls");
-    else if (part === "text/csv" || part === ".csv") add(".csv");
-    else if (part.startsWith("image/")) add("images");
-    else if (part.startsWith(".")) add(part);
-  }
-  if (maxMb) chips.push(`up to ${maxMb} MB`);
-  return chips;
+/** True when `file` matches an `accept` list (MIME types, `type/*` wildcards and extensions). An empty list accepts anything. */
+export function fileMatchesAccept(file: Pick<File, "name" | "type">, accept: string): boolean {
+  const parts = accept.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean);
+  if (parts.length === 0) return true;
+  const name = file.name.toLowerCase();
+  const type = (file.type || "").toLowerCase();
+  return parts.some((part) => {
+    if (part.startsWith(".")) return name.endsWith(part);
+    if (part.endsWith("/*")) return type.startsWith(part.slice(0, -1));
+    return type === part;
+  });
 }
 
-/** Chips for a document upload: the allowlist the upload API enforces, with its size cap. */
-export const DOCUMENT_FILE_CHIPS = acceptChips(DOCUMENT_UPLOAD_ACCEPT, Math.round(MAX_DOCUMENT_BYTES / 1024 / 1024));
+/**
+ * The error a refused pick shows, or null when the file is fine. Size limits stay with each flow's
+ * reader, which already refuses an oversize file with its own message.
+ */
+export function fileRefusal(file: Pick<File, "name" | "type">, accept: string): string | null {
+  return fileMatchesAccept(file, accept) ? null : "That file type isn't supported.";
+}
 
 /**
  * "Start from a file" — the dashed card at the top of an Add pop-up's first step (captain, Oct 6):
- * upload icon tile, title, the accepted-format chips and a "Choose file" button. It is the pop-up's
+ * upload icon tile, title, and a "Choose file" button. It is the pop-up's
  * one upload entry; `onPick` is that flow's existing reader.
  */
-export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputDataAttr, disabled, dataAttr = "workspace-header-upload", label = "Start from a file", chips, extraItems, className }: WorkspaceHeaderUploadProps & {
+export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputDataAttr, disabled, dataAttr = "workspace-header-upload", label = "Start from a file", extraItems, className }: WorkspaceHeaderUploadProps & {
   className?: string;
   /** The upload IS the record (Add document): the card takes several files at once and hands them all here. */
   onPickMany?: (files: File[]) => void;
@@ -85,8 +80,18 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
   const acceptsPdf = /(?:application\/pdf|\.pdf)(?:,|$)/i.test(accept);
   const acceptsImages = accept.split(",").some((part) => /^(image\/|\.(png|jpe?g|heic|webp)$)/i.test(part.trim()));
   const canCapture = acceptsImages || acceptsPdf;
-  const chipList = chips ?? acceptChips(accept);
   const off = Boolean(disabled);
+  /** A wrong type or an oversize file is refused here, with a visible error, before the flow's reader sees it. */
+  const accepts = (file: File) => {
+    const refusal = fileRefusal(file, accept);
+    setScanError(refusal);
+    return refusal === null;
+  };
+  const acceptMany = (files: File[]) => {
+    const refusals = files.map((file) => fileRefusal(file, accept));
+    setScanError(refusals.find((refusal) => refusal !== null) ?? null);
+    return files.filter((_, index) => refusals[index] === null);
+  };
   const capture = async (file: File) => {
     setScanError(null);
     setScanning(true);
@@ -96,7 +101,7 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
   };
   const take = (event: ChangeEvent<HTMLInputElement>, asScan: boolean) => {
     const file = event.target.files?.[0];
-    if (file && !off) { if (asScan || !acceptsImages) void capture(file); else onPick(file); }
+    if (file && !off) { if (asScan || !acceptsImages) void capture(file); else if (accepts(file)) onPick(file); }
     event.target.value = "";
   };
   const button = "min-h-[40px] rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50";
@@ -110,9 +115,9 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
         event.preventDefault();
         setDragOver(false);
         if (off) return;
-        if (onPickMany) { const files = Array.from(event.dataTransfer.files ?? []); if (files.length) onPickMany(files); return; }
+        if (onPickMany) { const files = acceptMany(Array.from(event.dataTransfer.files ?? [])); if (files.length) onPickMany(files); return; }
         const file = event.dataTransfer.files?.[0];
-        if (file) onPick(file);
+        if (file && accepts(file)) onPick(file);
       }}
       className={cn(
         "mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
@@ -123,8 +128,8 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
     >
       <input ref={fileRef} type="file" accept={accept || undefined} multiple={Boolean(onPickMany)} className="sr-only" aria-label={label} disabled={off} data-attr={inputDataAttr ?? `${dataAttr}-input`} onChange={(event) => {
         if (!off) {
-          if (onPickMany) { const files = Array.from(event.target.files ?? []); if (files.length) onPickMany(files); }
-          else { const file = event.target.files?.[0]; if (file) onPick(file); }
+          if (onPickMany) { const files = acceptMany(Array.from(event.target.files ?? [])); if (files.length) onPickMany(files); }
+          else { const file = event.target.files?.[0]; if (file && accepts(file)) onPick(file); }
         }
         event.target.value = "";
       }} />
@@ -135,11 +140,6 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[14px] font-bold text-foreground">Start from a file</span>
-        {chipList.length ? (
-          <span className="mt-1 flex flex-wrap gap-1.5">
-            {chipList.map((chip) => <span key={chip} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-bold text-muted">{chip}</span>)}
-          </span>
-        ) : null}
         {fileName ? <span className="mt-1 block truncate text-[12.5px] font-semibold text-foreground" data-attr={`${dataAttr}-file-name`}>{fileName}</span> : null}
         {scanError ? <span role="alert" className="mt-1 block text-[12px] font-semibold text-destructive">{scanError}</span> : null}
       </span>
@@ -187,7 +187,11 @@ export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inpu
   const content = <div data-attr={dataAttr} data-state="blank">
     <input ref={fileRef} type="file" accept={accept} className="sr-only" aria-label={label} disabled={disabled} data-attr={inputDataAttr ?? `${dataAttr}-input`} onChange={(event) => {
       const file = event.target.files?.[0];
-      if (file && !disabled) onPick(file);
+      if (file && !disabled) {
+        const refusal = fileRefusal(file, accept);
+        setScanError(refusal);
+        if (!refusal) onPick(file);
+      }
       event.target.value = "";
     }} />
     {acceptsImages || acceptsPdf ? <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Take photo" disabled={disabled} onChange={(event) => {

@@ -4,15 +4,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 afterEach(cleanup);
 import { AddWorkspace } from "@/components/portal/add-workspace";
-import { WorkspaceFileCard, acceptChips } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceFileCard, fileMatchesAccept } from "@/components/portal/add-workspace/upload-action";
 
 describe("WorkspaceFileCard (Start from a file)", () => {
-  it("shows the title, the flow's chips and Choose file, and delivers the picked file once", () => {
+  it("shows the title and Choose file with no format chips, and delivers the picked file once", () => {
     const onPick = vi.fn();
-    render(<WorkspaceFileCard accept="application/pdf,.pdf" chips={[".pdf", "up to 8 MB"]} onPick={onPick} dataAttr="t-card" />);
+    render(<WorkspaceFileCard accept="application/pdf,.pdf" onPick={onPick} dataAttr="t-card" />);
     expect(screen.getByText("Start from a file")).toBeTruthy();
-    expect(screen.getByText(".pdf")).toBeTruthy();
-    expect(screen.getByText("up to 8 MB")).toBeTruthy();
+    expect(screen.queryByText(".pdf")).toBeNull();
+    expect(screen.queryByText(/up to \d/)).toBeNull();
     expect(screen.getByRole("button", { name: "Choose file" })).toBeTruthy();
     const file = new File(["x"], "lease.pdf", { type: "application/pdf" });
     fireEvent.change(document.querySelector<HTMLInputElement>("[data-attr='t-card-input']")!, { target: { files: [file] } });
@@ -30,8 +30,24 @@ describe("WorkspaceFileCard (Start from a file)", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("derives chips from an accept string", () => {
-    expect(acceptChips("application/pdf,image/png,image/jpeg,.csv", 5)).toEqual([".pdf", "images", ".csv", "up to 5 MB"]);
+  it("refuses a wrong type with a visible error and never hands it to the reader", () => {
+    const onPick = vi.fn();
+    render(<WorkspaceFileCard accept="application/pdf,.pdf" onPick={onPick} dataAttr="t-card" />);
+    const input = document.querySelector<HTMLInputElement>("[data-attr='t-card-input']")!;
+    fireEvent.change(input, { target: { files: [new File(["x"], "photo.png", { type: "image/png" })] } });
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toMatch(/isn't supported/);
+    fireEvent.change(input, { target: { files: [new File(["x"], "lease.pdf", { type: "application/pdf" })] } });
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("matches a file against MIME types, wildcards and extensions", () => {
+    expect(fileMatchesAccept({ name: "a.pdf", type: "application/pdf" }, "application/pdf,image/*")).toBe(true);
+    expect(fileMatchesAccept({ name: "a.heic", type: "image/heic" }, "application/pdf,image/*")).toBe(true);
+    expect(fileMatchesAccept({ name: "a.csv", type: "" }, ".csv,.xlsx")).toBe(true);
+    expect(fileMatchesAccept({ name: "a.exe", type: "application/x-msdownload" }, "application/pdf,image/*")).toBe(false);
+    expect(fileMatchesAccept({ name: "a.anything", type: "" }, "")).toBe(true);
   });
 });
 
@@ -39,7 +55,7 @@ describe("AddWorkspace headerUpload", () => {
   const steps = [{ id: "a", label: "Alpha" }, { id: "b", label: "Beta" }];
   const mount = (current: number) => render(
     <AddWorkspace title="Add thing" steps={steps} current={current} onJump={() => undefined} onClose={() => undefined} assistantContext="x" assistantScopeKey="x" lastLabel="Add" onFinish={() => undefined}
-      headerUpload={{ accept: "application/pdf", chips: [".pdf"], onPick: () => undefined, dataAttr: "thing-upload" }}>
+      headerUpload={{ accept: "application/pdf", onPick: () => undefined, dataAttr: "thing-upload" }}>
       <p>body</p>
     </AddWorkspace>,
   );

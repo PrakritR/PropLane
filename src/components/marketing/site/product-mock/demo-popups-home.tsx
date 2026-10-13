@@ -34,7 +34,7 @@ import {
   recordActionsFromSections,
 } from "@/components/marketing/site/product-mock/demo-record";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { IMPORT_FILE_ACCEPT, IMPORT_FILE_CHIPS } from "@/components/portal/listing-wizard-v2/import-upload-step";
+import { IMPORT_FILE_ACCEPT } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { CheckboxOption, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { emptyRoom, createNewListingWizardSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
@@ -212,7 +212,7 @@ export function DemoNewPropertyPopup({
             isEdit={isEdit}
             saveState={isEdit ? "Saved" : "Not saved yet"}
             propertyId={editing?.id ?? null}
-            headerUpload={isEdit ? undefined : { accept: IMPORT_FILE_ACCEPT, chips: IMPORT_FILE_CHIPS, onPick: () => undefined }}
+            headerUpload={isEdit ? undefined : { accept: IMPORT_FILE_ACCEPT, onPick: () => undefined }}
             onDiscardDraft={isEdit ? undefined : onClose}
           />
         </div>
@@ -260,8 +260,6 @@ export function DemoShareListingPopup({
     : "";
   const steps = SHARE_STEPS.map((s) => ({
     ...s,
-    summary:
-      s.id === "home" ? propertyTitle || "No property yet" : s.id === "recipient" ? (name.trim() ? [name.trim(), viaEmail ? email.trim() : ""].filter(Boolean).join(" · ") : "Who receives this") : propertyIds.length && recipientReady ? "Ready to send" : "Finish required fields",
     attention: s.id === "home" ? (propertyIds.length === 0 ? 1 : 0) : s.id === "recipient" ? (recipientReady ? 0 : 1) : 0,
   }));
 
@@ -284,7 +282,6 @@ export function DemoShareListingPopup({
           workNumber="(206) 555-0100"
           previewBody={body}
           propertyMissing={propertyIds.length === 0}
-          recipientReady={recipientReady}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Send", onFinish: onSent, hideStepCount: true }}
@@ -706,10 +703,10 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
   const fieldClass = PORTAL_MODAL_FORM_FIELD_CLASS;
   const fullRow = `${PORTAL_MODAL_FORM_FIELD_CLASS} ${PORTAL_MODAL_FORM_FULL_ROW_CLASS}`;
   const steps = [
-    { id: "task", label: "Task", summary: title.trim() || "What to do" },
-    { id: "property", label: "Property", summary: property || "Optional" },
-    { id: "when", label: "When", summary: scheduleDate || (urgency === "urgent" ? "Urgent" : "Timing") },
-    { id: "review", label: "Review", summary: "Add task" },
+    { id: "task", label: "Task" },
+    { id: "property", label: "Property" },
+    { id: "when", label: "When" },
+    { id: "review", label: "Review" },
   ];
   void TASK_STEPS;
   return (
@@ -727,7 +724,6 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
             { label: "Property", value: property || "Not set" },
             { label: "Type", value: MANAGER_TASK_FORM_KIND_LABELS[kind] },
           ]}
-          creates={[]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Add task", onFinish: onAdded }}
@@ -765,7 +761,7 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
             <>
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-property">
-                  Property (optional)
+                  Property
                 </label>
                 <Select id="demo-task-property" value={property} onChange={(e) => setProperty(e.target.value)} data-attr="manager-task-property">
                   <option value="">No property</option>
@@ -792,7 +788,7 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
               ) : null}
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-resident">
-                  Resident (optional)
+                  Resident
                 </label>
                 <Select id="demo-task-resident" defaultValue="" data-attr="manager-task-resident">
                   <option value="">Select resident</option>
@@ -803,7 +799,7 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
               {property ? (
                 <div className={fullRow}>
                   <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-room">
-                    Room (optional)
+                    Room
                   </label>
                   <Select id="demo-task-room" defaultValue="" data-attr="manager-task-room">
                     <option value="">No room</option>
@@ -880,7 +876,7 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
             <>
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-notes">
-                  Notes (optional)
+                  Notes
                 </label>
                 <textarea id="demo-task-notes" className="min-h-[88px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} data-attr="manager-task-notes" />
               </div>
@@ -921,9 +917,9 @@ export function DemoAddServicePopup({ properties, onClose, onAdded }: { properti
   const [charge, setCharge] = useState("");
   const name = serviceTitle.trim() || SERVICE_TYPES.find((t) => t.value === type)?.label || "Service";
   const steps = [
-    { id: "where", label: "Where", summary: property || "Property", attention: property ? 0 : 1 },
-    { id: "what", label: "What", summary: type ? name : "Service", attention: type ? 0 : 1 },
-    { id: "review", label: "Review", summary: "Ready" },
+    { id: "where", label: "Where",attention: property ? 0 : 1 },
+    { id: "what", label: "What",attention: type ? 0 : 1 },
+    { id: "review", label: "Review" },
   ];
   return (
     <DemoWorkspacePopup
@@ -941,10 +937,6 @@ export function DemoAddServicePopup({ properties, onClose, onAdded }: { properti
             { label: "Room", value: room || "—" },
             { label: "Resident", value: resident || "—" },
             { label: "Priority", value: priority },
-          ]}
-          creates={[
-            { tone: "yes", text: resident ? `Logged service for ${resident}` : "Logged service" },
-            addTask ? { tone: "yes", text: "Assignment message to the assignee" } : { tone: "no", text: "No assignment message until you assign" },
           ]}
         />
       }
@@ -1002,7 +994,6 @@ export function DemoAddServicePopup({ properties, onClose, onAdded }: { properti
                   { label: "Priority", value: priority },
                   { label: "Assignee", value: addTask ? (TASK_ASSIGNEES.find((a) => a.value === assignee)?.label ?? "—") : "—" },
                 ]}
-                creates={[{ tone: "yes", text: "Logs a manager-initiated service" }]}
               />
             </>
           ) : null}

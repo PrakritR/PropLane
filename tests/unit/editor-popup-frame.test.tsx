@@ -49,10 +49,11 @@ describe("the frame", () => {
     expect(document.querySelector('[aria-label="Step progress"]')).toBeNull();
     expect(document.querySelector('[data-rail="none"]')).not.toBeNull();
     cleanup();
-    frame([{ id: "a", label: "First", summary: "One line" }, { id: "b", label: "Second", summary: "Another line" }]);
+    frame([{ id: "a", label: "First" }, { id: "b", label: "Second" }]);
     expect(document.querySelectorAll('[aria-label="Step progress"] [data-step-progress]')).toHaveLength(2);
     expect(document.querySelector('[data-rail="none"]')).toBeNull();
-    expect(screen.getAllByText("One line").length).toBeGreaterThan(0);
+    // The rail names each step; it carries no caption under the name.
+    expect(screen.getAllByText("First").length).toBeGreaterThan(0);
   });
 
   it("the footer is red Delete text at the left (edit only), Back, and the primary at the right", () => {

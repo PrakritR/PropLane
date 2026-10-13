@@ -280,7 +280,7 @@ export function SendLeadListingWizard({
       </div>
       <PortalMessageSendViaDropdown selected={sendVia} onChange={setSendVia} smsAvailable={smsAvailable} dataAttr="send-listing-via" />
       <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="send-listing-note">Note (optional)</label>
+        <label className={FIELD_LABEL_CLASS} htmlFor="send-listing-note">Note</label>
         <Input id="send-listing-note" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
     </div>

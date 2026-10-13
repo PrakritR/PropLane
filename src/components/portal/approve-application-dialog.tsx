@@ -313,10 +313,6 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
             { label: "Rent", value: (() => { const typed = perResident ? parseMoneyAmount(rentValue) : baseRent; return typed > 0 ? `${formatRoomPriceAmount(typed)} / month` : "Not set"; })() },
             { label: "Message", value: sendsMessage ? channelsLabel(channels.viaEmail, channels.viaSms) : "None" },
           ]}
-          creates={[
-            { tone: "yes", text: "The applicant is told and a lease can be sent" },
-            { tone: "no", text: "Nothing is charged yet" },
-          ]}
         />
       }
       primaryAction={{

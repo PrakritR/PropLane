@@ -284,7 +284,7 @@ export function PortalRecordShareModal({
               <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
                 <div>
                   <label htmlFor="record-share-name" className={FIELD_LABEL_CLASS}>
-                    Name (optional)
+                    Name
                   </label>
                   <Input
                     id="record-share-name"
@@ -343,7 +343,7 @@ export function PortalRecordShareModal({
               ) : null}
               <div>
                 <label htmlFor="record-share-note" className={FIELD_LABEL_CLASS}>
-                  Note (optional)
+                  Note
                 </label>
                 <textarea
                   id="record-share-note"

@@ -14,7 +14,7 @@ import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceUploadEx
 import { StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { importReadinessLabel } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { describeSourceRows, importedMonthlyRent } from "@/lib/property-import/to-submission";
-import { PROPERTY_IMPORT_MAX_BYTES, type PropertyImportProperty, type PropertyImportUnderstanding } from "@/lib/property-import/types";
+import { type PropertyImportProperty, type PropertyImportUnderstanding } from "@/lib/property-import/types";
 import { cn } from "@/lib/utils";
 
 export const IMPORT_FILE_ACCEPT =
@@ -53,9 +53,6 @@ export type ImportStripState =
   | { kind: "error"; fileName: string | null; message: string }
   | { kind: "confirm"; fileName: string };
 
-/** What the property import reads — the chips on the Start from a file card. */
-export const IMPORT_FILE_CHIPS = [".xlsx", ".csv", ".pdf rent roll", "AppFolio export", "Buildium export", `up to ${Math.round(PROPERTY_IMPORT_MAX_BYTES / 1024 / 1024)} MB`];
-
 /**
  * The "Start from a file" strip — one dashed row that sits above Property type
  * on a new listing's Basics, and is the whole of the Import step until a file
@@ -69,7 +66,6 @@ export function ImportFileStrip({
   onReread,
   onConfirm,
   onCancel,
-  chips = IMPORT_FILE_CHIPS,
   accept = IMPORT_FILE_ACCEPT,
   dataAttr = "create-file-strip",
   extraItems,
@@ -82,13 +78,6 @@ export function ImportFileStrip({
   onConfirm?: () => void;
   /** The manager kept what they typed; the picked file is dropped. */
   onCancel?: () => void;
-  /**
-   * F-editor a/e (F002/F013): the format chips shown on the blank state.
-   * Defaults to the property-import formats — the Add application / Add
-   * lease editors pass their own (PDF/DOCX only) instead of relabeling this
-   * strip as a spreadsheet importer.
-   */
-  chips?: readonly string[];
   /** File picker `accept` — defaults to the property-import formats. */
   accept?: string;
   /** Root `data-attr`, so a caller outside property-import gets its own selector instead of colliding on `create-file-strip`. */
@@ -98,7 +87,6 @@ export function ImportFileStrip({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const headerUpload = useContext(WorkspaceHeaderUploadPresent);
-  void chips;
   const [hint, setHint] = useState("");
 
   const pick = (files: FileList | null) => {
@@ -134,7 +122,7 @@ export function ImportFileStrip({
 
   if (state.kind === "blank") {
     if (headerUpload) return null;
-    return <WorkspaceFileCard accept={accept} chips={chips} onPick={onPickFile} disabled={busy} dataAttr={dataAttr} inputDataAttr="import-upload-file-input" extraItems={extraItems} />;
+    return <WorkspaceFileCard accept={accept} onPick={onPickFile} disabled={busy} dataAttr={dataAttr} inputDataAttr="import-upload-file-input" extraItems={extraItems} />;
   }
 
   if (state.kind === "reading") {

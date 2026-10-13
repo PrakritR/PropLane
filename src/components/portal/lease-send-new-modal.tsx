@@ -207,11 +207,11 @@ export function SendNewLeaseModal({
 
   const steps = useMemo<AddWorkspaceStep[]>(
     () => [
-      { id: "lease", label: "Lease", incomplete: !leaseReady, summary: source === "pdf" ? file?.name ?? "Upload a PDF" : "From the property's template" },
-      { id: "terms", label: "Terms", incomplete: !termsReady, summary: term ? `${term}${start ? ` · ${start}` : ""}` : "Set the terms" },
-      { id: "review", label: "Review & send", summary: row.residentName },
+      { id: "lease", label: "Lease", incomplete: !leaseReady },
+      { id: "terms", label: "Terms", incomplete: !termsReady },
+      { id: "review", label: "Review & send" },
     ],
-    [leaseReady, termsReady, source, file, term, start, row.residentName],
+    [leaseReady, termsReady],
   );
   const stepId = steps[Math.min(step, steps.length - 1)]!.id;
 
@@ -258,7 +258,7 @@ export function SendNewLeaseModal({
       discardBody="Nothing has been sent yet. Close and lose what you set?"
       assistantContext="Send new lease"
       assistantScopeKey="lease-send-new"
-      headerUpload={{ accept: PDF_ACCEPT, chips: [".pdf", "up to 3.5 MB"], onPick: pickPdf, disabled: busy, dataAttr: "lease-send-new-header-upload", label: "Upload lease PDF" }}
+      headerUpload={{ accept: PDF_ACCEPT, onPick: pickPdf, disabled: busy, dataAttr: "lease-send-new-header-upload", label: "Upload lease PDF" }}
       dataAttrPrefix="lease-send-new"
       finishDataAttr="lease-send-new-confirm"
       lastLabel="Send new lease"

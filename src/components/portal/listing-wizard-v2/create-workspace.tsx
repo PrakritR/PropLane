@@ -24,7 +24,6 @@ import { Building2 } from "lucide-react";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
   IMPORT_FILE_ACCEPT,
-  IMPORT_FILE_CHIPS,
   ImportFileStrip,
   ImportUploadSidePanel,
   ImportUploadStep,
@@ -450,16 +449,14 @@ export function CreateWorkspace({
     [entries],
   );
 
-  const importSummary = fileName ? `${fileName}${entries.length ? ` · ${entries.length} found` : ""}` : "Choose a file";
   const leadingStep = useMemo(
     () => ({
       id: IMPORT_STEP_ID,
       label: "Import",
-      summary: importSummary,
       attention: needLook,
       onOpen: () => void backToImport(),
     }),
-    [backToImport, importSummary, needLook],
+    [backToImport, needLook],
   );
 
   if (phase === "blank") {
@@ -483,7 +480,7 @@ export function CreateWorkspace({
         onDirtyChange={(dirty) => {
           blankDirtyRef.current = dirty;
         }}
-        headerUpload={{ accept: IMPORT_FILE_ACCEPT, chips: IMPORT_FILE_CHIPS, onPick: onPickFileFromBasics, disabled: busy, extraItems: portfolioImportItems }}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileFromBasics, disabled: busy, extraItems: portfolioImportItems }}
         onDiscarded={() => {
           blankDraftIdRef.current = null;
           blankDirtyRef.current = false;
@@ -541,7 +538,7 @@ export function CreateWorkspace({
         }
         flushRef={flushRef}
         initialStep={editStep}
-        headerUpload={{ accept: IMPORT_FILE_ACCEPT, chips: IMPORT_FILE_CHIPS, onPick: onPickFileOverEntries, disabled: busy }}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileOverEntries, disabled: busy }}
         onDiscarded={() => {
           const remaining = entriesRef.current.filter((e) => e.key !== selected.key);
           setEntries(remaining);
@@ -563,11 +560,10 @@ export function CreateWorkspace({
   const chrome = selected ? listingRailChrome(selected.submission) : null;
   const pathIds = selected ? listingV2PathStepIds(selected.submission) : LISTING_V2_STEPS.map((s) => s.id);
   const railSteps = [
-    { id: IMPORT_STEP_ID, label: "Import", summary: importSummary, attention: needLook },
+    { id: IMPORT_STEP_ID, label: "Import", attention: needLook },
     ...LISTING_V2_STEPS.map((s) => ({
       id: s.id,
       label: s.label,
-      summary: chrome?.summaries[s.id],
       attention: chrome?.attention[s.id] ?? 0,
       offPath: !pathIds.includes(s.id),
     })),

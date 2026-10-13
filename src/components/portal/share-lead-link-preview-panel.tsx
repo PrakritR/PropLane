@@ -1,6 +1,6 @@
 "use client";
 
-import { PreviewPanel, type CreatesItem } from "@/components/portal/add-workspace/parts";
+import { PreviewPanel } from "@/components/portal/add-workspace/parts";
 import type { LeadInviteKind } from "@/lib/lead-invite-email";
 
 export function ShareLeadLinkPreviewPanel({
@@ -15,7 +15,6 @@ export function ShareLeadLinkPreviewPanel({
   workNumber,
   previewBody,
   propertyMissing,
-  recipientReady,
 }: {
   kind: LeadInviteKind;
   prospectName: string;
@@ -28,38 +27,10 @@ export function ShareLeadLinkPreviewPanel({
   workNumber: string;
   previewBody: string;
   propertyMissing: boolean;
-  recipientReady: boolean;
 }) {
   const channel =
     viaEmail && viaSms ? "Email and text" : viaSms ? "Text" : viaEmail ? "Email" : "Not set";
   const fromLine = viaSms && workNumber ? workNumber : senderName || "PropLane";
-
-  const creates: CreatesItem[] = [];
-  if (kind === "apply") {
-    creates.push(
-      { tone: propertyMissing || !recipientReady ? "warn" : "yes", text: "Application invite with a secure apply link" },
-      { tone: viaEmail ? "yes" : "no", text: viaEmail ? "Email to the prospect" : "No email" },
-      { tone: viaSms ? "yes" : "no", text: viaSms ? "Text from your work number" : "No text message" },
-    );
-  } else if (kind === "listing") {
-    creates.push(
-      { tone: propertyMissing || !recipientReady ? "warn" : "yes", text: "Public listing link in the message" },
-      { tone: viaEmail ? "yes" : "no", text: viaEmail ? "Email to the prospect" : "No email" },
-      { tone: viaSms ? "yes" : "no", text: viaSms ? "Text from your work number" : "No text message" },
-    );
-  } else if (kind === "tour") {
-    creates.push(
-      { tone: propertyMissing || !recipientReady ? "warn" : "yes", text: "Tour scheduling link" },
-      { tone: viaEmail ? "yes" : "no", text: viaEmail ? "Email to the prospect" : "No email" },
-      { tone: viaSms ? "yes" : "no", text: viaSms ? "Text from your work number" : "No text message" },
-    );
-  } else {
-    creates.push(
-      { tone: propertyMissing || !recipientReady ? "warn" : "yes", text: "Lease signing link" },
-      { tone: viaEmail ? "yes" : "no", text: viaEmail ? "Email to the prospect" : "No email" },
-      { tone: viaSms ? "yes" : "no", text: viaSms ? "Text from your work number" : "No text message" },
-    );
-  }
 
   const title =
     kind === "apply"
@@ -81,8 +52,6 @@ export function ShareLeadLinkPreviewPanel({
           { label: "Channel", value: channel, warn: !viaEmail && !viaSms },
           { label: "From", value: fromLine },
         ]}
-        creates={creates}
-        createsHeading="This will send"
       />
       <section aria-label="Message preview">
         <h3 className="mb-2 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">Recipient receives</h3>

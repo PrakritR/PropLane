@@ -183,7 +183,7 @@ describe("demo Applications tab matches the real Applications page", () => {
     const dialog = await dialogNamed("Add application");
     for (const label of ["Applicant", "Home", "Application", "Documents", "Review"]) expect(railHas(dialog, label)).toBe(true);
     expect(within(dialog).getAllByText("Start from a file").length).toBeGreaterThan(0);
-    expect(within(dialog).getAllByText("PDF up to 3.5 MB").length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText("PDF up to 3.5 MB")).toBeNull();
     for (const field of ["Full name", "Email", "Phone", "Preferred contact"]) expect(within(dialog).getAllByText(field).length).toBeGreaterThan(0);
     expect(finishLabel(dialog)).toBe("Add application");
     for (const card of ["Applicant", "Home", "Application", "Documents"]) expect(within(dialog).getAllByText(card).length).toBeGreaterThan(0);

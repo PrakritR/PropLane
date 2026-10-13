@@ -321,7 +321,7 @@ describe("Documents", () => {
     const dialog = await screen.findByRole("dialog", { name: "Add to documents" });
     expect(within(dialog).getByText("Choose file")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Take photo" })).toBeInTheDocument();
-    expect(within(dialog).getAllByText("Name (optional)").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("Name").length).toBeGreaterThan(0);
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });

@@ -267,7 +267,7 @@ export function ManagerVendorOptionalFields({
       </div>
       <div>
         <label className={MODAL_FIELD_LABEL_CLASS} htmlFor={`${idPrefix}-notes`}>
-          Notes <span className="font-normal normal-case tracking-normal text-muted">(optional)</span>
+          Notes
         </label>
         <Textarea
           id={`${idPrefix}-notes`}
@@ -392,7 +392,7 @@ export function ManagerVendorFormFields({
       </div>
       <div className={`${PORTAL_MODAL_FORM_FIELD_CLASS} ${PORTAL_MODAL_FORM_FULL_ROW_CLASS}`}>
         <label className={MODAL_FIELD_LABEL_CLASS} htmlFor={`${idPrefix}-notes`}>
-          Notes <span className="font-normal normal-case tracking-normal text-muted">(optional)</span>
+          Notes
         </label>
         <Textarea
           id={`${idPrefix}-notes`}
@@ -889,31 +889,23 @@ export function ManagerVendorFormModal({
   const steps: AddWorkspaceStep[] =
     mode === "edit"
       ? [
-          { id: "vendor", label: "Vendor", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Who they are" },
-          { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
-          { id: "trades", label: "Who can handle", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
-          { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
-          { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Save changes" },
+          { id: "vendor", label: "Vendor", incomplete: !draft.name.trim() },
+          { id: "properties", label: "Properties" },
+          { id: "trades", label: "Who can handle", incomplete: draft.trades.length === 0 },
+          { id: "rates", label: "Typical price" },
+          { id: "review", label: "Review", incomplete: !draft.name.trim() },
         ]
       : isCatalogAdd
         ? [
-            {
-              id: "properties",
-              label: "Properties",
-              summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property",
-            },
+            { id: "properties", label: "Properties" },
           ]
         : [
-          {
-            id: "invite",
-            label: "Invite by",
-            summary: invitePath === "link" ? "Link" : invitePath === "message" ? "Message" : "PropLane code",
-          },
-          { id: "contact", label: "Contact", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Name and phone" },
-          { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
-          { id: "trades", label: "What they do", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
-          { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
-          { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Invite vendor" },
+          { id: "invite", label: "Invite by" },
+          { id: "contact", label: "Contact", incomplete: !draft.name.trim() },
+          { id: "properties", label: "Properties" },
+          { id: "trades", label: "What they do", incomplete: draft.trades.length === 0 },
+          { id: "rates", label: "Typical price" },
+          { id: "review", label: "Review", incomplete: !draft.name.trim() },
         ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;

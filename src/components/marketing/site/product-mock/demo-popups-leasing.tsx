@@ -450,11 +450,11 @@ export function DemoShareLinkPopup({
 
   const steps = useMemo(
     () => [
-      { id: "home", label: "Home", summary: propertyTitle || "No property yet" },
-      { id: "recipient", label: "Recipient", summary: name.trim() ? [name.trim(), viaEmail ? email.trim() : "", viaSms ? phone.trim() : ""].filter(Boolean).join(" · ") : "Who receives this" },
-      { id: "review", label: "Review", summary: chosen.length === 0 || !recipientReady ? "Finish required fields" : "Ready to send" },
+      { id: "home", label: "Home" },
+      { id: "recipient", label: "Recipient" },
+      { id: "review", label: "Review" },
     ],
-    [propertyTitle, name, email, phone, viaEmail, viaSms, chosen.length, recipientReady],
+    [],
   );
 
   return (
@@ -477,7 +477,6 @@ export function DemoShareLinkPopup({
             workNumber="(206) 555-0100"
             previewBody={previewBody}
             propertyMissing={chosen.length === 0}
-            recipientReady={recipientReady}
           />
           <section aria-label="Subject">
             <h3 className="mb-2 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">Subject</h3>
@@ -920,14 +919,12 @@ export function DemoAddApplicationPopup({
   const derived = useMemo(() => demoDerived(form.propertyId), [form.propertyId]);
   const property = LEASING_PROPERTIES.find((p) => p.id === form.propertyId);
   const propertyLabel = property?.label ?? null;
-  const a = form.application;
-  const appFilled = [a.employer ? "Employment" : null, a.currentStreet ? "address" : null, a.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
   const steps = [
-    { id: "contact", label: "Applicant", summary: form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who is applying" },
-    { id: "home", label: "Home", summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-    { id: "application", label: "Application", offPath: true, summary: appFilled || "The house's questions" },
-    { id: "documents", label: "Documents", offPath: true, summary: form.documents.length ? `${form.documents.length} attached` : "None attached" },
-    { id: "review", label: "Review", summary: "Ready to add" },
+    { id: "contact", label: "Applicant" },
+    { id: "home", label: "Home" },
+    { id: "application", label: "Application", offPath: true },
+    { id: "documents", label: "Documents", offPath: true },
+    { id: "review", label: "Review" },
   ];
   const goTo = (id: string) => setStep(Math.max(0, APPLICATION_STEP_IDS.indexOf(id as (typeof APPLICATION_STEP_IDS)[number])));
   const noop = () => undefined;
@@ -966,7 +963,7 @@ export function DemoAddApplicationPopup({
       {(index) => (
         <WorkspaceHeaderUploadPresent.Provider value>
           {index === 0 ? (
-            <WorkspaceFileCard accept="application/pdf,image/*" chips={[".pdf", "images", "PDF up to 3.5 MB"]} onPick={noop} label="Upload a file" dataAttr="residents-wizard-header-upload" />
+            <WorkspaceFileCard accept="application/pdf,image/*" onPick={noop} label="Upload a file" dataAttr="residents-wizard-header-upload" />
           ) : null}
           {index === 0 ? <ContactStep form={form} patch={patch} strip={{ kind: "blank" }} onPickFile={noop} onUndoFill={noop} busy={false} lockKind mode="application" /> : null}
           {index === 1 ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={LEASING_PROPERTIES.map((p) => ({ id: p.id, label: p.label }))} /> : null}
@@ -1209,7 +1206,7 @@ export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CA
     >
       {() => (
         <div className="mx-auto max-w-[640px] space-y-5" data-attr="lease-send-body">
-          <WorkspaceFileCard accept="application/pdf,.pdf" chips={[".pdf", "up to 3.5 MB"]} dataAttr="lease-send-header-upload" onPick={() => setSource("pdf")} />
+          <WorkspaceFileCard accept="application/pdf,.pdf" dataAttr="lease-send-header-upload" onPick={() => setSource("pdf")} />
           <FieldSingleSelect
             label="Resident"
             value={candidateId}

@@ -184,7 +184,6 @@ export function PropertyLeaseUploadModal({
               onClick={() => inputRef.current?.click()}
             >
               <span className="text-sm font-semibold text-foreground">Drop or click to upload</span>
-              <span className="text-xs text-muted">PDF only · up to 8 MB</span>
             </label>
           )}
         </div>

@@ -558,7 +558,6 @@ function PdfUploadField({
             }}
           />
           <span className="text-sm font-semibold text-foreground">Upload lease template (PDF)</span>
-          <span className="text-xs text-muted">Click to choose a file · up to 8 MB</span>
         </label>
       )}
       {leaseTemplateError ? <p className="mt-1.5 text-sm text-red-600">{leaseTemplateError}</p> : null}

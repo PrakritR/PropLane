@@ -313,7 +313,7 @@ export function ManagerInviteLinkModal({
             </div>
 
             <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
-              Label (optional)
+              Label
               <Input
                 className="mt-1.5"
                 value={label}

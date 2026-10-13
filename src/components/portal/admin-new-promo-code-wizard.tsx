@@ -167,10 +167,10 @@ export function AdminNewPromoCodeWizard({
   const expiresText = draft.expiresOn ? formatPromoDate(`${draft.expiresOn}T00:00:00Z`) : "Never";
 
   const steps: AddWorkspaceStep[] = [
-    { id: "code", label: "Code", incomplete: Boolean(problem), summary: code || "Pick a code" },
-    { id: "discount", label: "Discount", incomplete: !valueOk, summary: discountText },
-    { id: "applies", label: "Applies to", incomplete: !expiresOk, summary: plansText },
-    { id: "review", label: "Review", summary: "Create code" },
+    { id: "code", label: "Code", incomplete: Boolean(problem) },
+    { id: "discount", label: "Discount", incomplete: !valueOk },
+    { id: "applies", label: "Applies to", incomplete: !expiresOk },
+    { id: "review", label: "Review" },
   ];
   const current = Math.min(draft.stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
@@ -257,10 +257,6 @@ export function AdminNewPromoCodeWizard({
               { label: "Uses", value: maxUses ? `${maxUses}` : "Unlimited" },
               { label: "Expires", value: expiresText },
               { label: "New customers only", value: draft.firstTimeOnly ? "Yes" : "No" },
-            ]}
-            creates={[
-              { tone: problem ? "warn" : "yes", text: "A Stripe coupon and promotion code" },
-              { tone: "yes", text: "Accepted at checkout on the plans above" },
             ]}
           />
         }

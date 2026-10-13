@@ -79,7 +79,6 @@ import { applyRoomFurnitureItems, roomFurnitureItems, roomFurnishingLabel, ROOM_
 import {
   BATHROOM_EXTRA_AMENITY_PRESETS,
   HOUSE_WIDE_AMENITY_PRESETS,
-  LISTING_PROPERTY_TYPE_OPTIONS,
   LISTING_STORIES_OPTIONS,
   ROOM_AMENITY_PRESETS,
   SHARED_SPACE_KIND_OPTIONS,
@@ -242,8 +241,6 @@ export type ListingV2StepId = (typeof LISTING_V2_STEPS)[number]["id"];
 export type ListingEditorLeadingStep = {
   id: string;
   label: string;
-  /** What the rail says under the label — the file name, the count found. */
-  summary?: ReactNode;
   /** Steps the caller draws as needing attention, for the rail's red dot. */
   attention?: number;
   /** The manager chose it (from the rail or Back on Basics). */
@@ -293,18 +290,8 @@ export function listingV2StepIndex(id: ListingV2StepId | null | undefined): numb
  */
 export type ListingRailChrome = {
   attention: Record<string, number>;
-  summaries: {
-    basics: string;
-    rooms: string;
-    bathrooms: string;
-    spaces: string;
-    application: string;
-    lease: string;
-    movein: string;
-    pricing: string;
-    review: string;
-    open: number;
-  };
+  /** How many readiness checks are still open — the rail notice reads it. */
+  summaries: { open: number };
   coverUrl: string | null;
   photoCount: number;
 };
@@ -326,32 +313,9 @@ export function listingRailChrome(submission: ManagerListingSubmissionV1): Listi
     review: 0,
   } as Record<string, number>;
   const open = checks.filter((c) => c.state !== "done").length;
-  const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
-  const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
-  const baths = (submission.bathrooms ?? []).length;
-  const spaces = (submission.sharedSpaces ?? []).length;
-  const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
   return {
     attention,
-    summaries: {
-      basics:
-        [
-          submission.address.split(",")[0]!.trim(),
-          submission.listingPlaceCategoryId === "entire_home" ? "Whole place" : "By the room",
-          typeLabel,
-        ]
-          .filter(Boolean)
-          .join(" · ") || "Address and type",
-      rooms:
-        rooms.length === 0
-          ? "Add the first room"
-          : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
-      bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
-      spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
-      ...listingDetailSummaries(submission),
-      review: open === 0 ? "Ready to publish" : `${open} to finish`,
-      open,
-    },
+    summaries: { open },
     coverUrl: (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null,
     photoCount:
       (submission.housePhotoDataUrls ?? []).length +
@@ -3212,7 +3176,7 @@ export function ListingEditorV2({
    * Scan). Picking a file jumps to Basics first, where that step's strip shows the reading or the
    * "Replace what you typed?" confirm, then hands the file to `onPick`. Absent on an edit.
    */
-  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" | "chips">;
+  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" >;
   /**
    * Footer Delete on a NEW property: the host forgets the draft (after the confirm drawn here) and closes.
    * Without it, or on an edit, the footer has no Delete.
@@ -3402,13 +3366,12 @@ export function ListingEditorV2({
     id: s.id,
     label: s.label,
     attention: attention[s.id] ?? 0,
-    summary: summaries[s.id],
     offPath: !pathIds.includes(s.id),
   }));
   // The leading step, when there is one, is index 0 on the rail and shifts the
   // listing steps by one; `step` itself still indexes LISTING_V2_STEPS.
   const railSteps = leadingStep
-    ? [{ id: leadingStep.id, label: leadingStep.label, summary: leadingStep.summary, attention: leadingStep.attention ?? 0 }, ...listingRailSteps]
+    ? [{ id: leadingStep.id, label: leadingStep.label, attention: leadingStep.attention ?? 0 }, ...listingRailSteps]
     : listingRailSteps;
   const railOffset = leadingStep ? 1 : 0;
   const onRailJump = (index: number) => {
@@ -3583,7 +3546,6 @@ export function ListingEditorV2({
       {headerUpload && !isEdit && step === 0 ? (
         <WorkspaceFileCard
           accept={headerUpload.accept}
-          chips={headerUpload.chips}
           disabled={busy || headerUpload.disabled}
           dataAttr="listing-v2-header-upload"
           inputDataAttr="import-upload-file-input"

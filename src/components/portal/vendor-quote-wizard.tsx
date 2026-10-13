@@ -350,9 +350,6 @@ export function VendorQuoteWizard({
               : [{ label: "When", value: when ? toDatetimeLocalValue(fromDatetimeLocalValue(when) ?? undefined) || when : "Not set", warn: !when }]),
             { label: door === "invoice" ? "Invoice" : "Bid", value: labor.trim() ? `$${labor}` : "Not set", warn: door !== "visit" && !labor.trim() },
           ]}
-          creates={[
-            { tone: job || door === "invoice" ? "yes" : "warn", text: door === "invoice" ? "An invoice for the manager" : door === "visit" ? "A site visit on the calendar" : "A bid the manager can approve" },
-          ]}
         />
       }
     >

@@ -202,7 +202,7 @@ export function ServiceAssignDialog({
             </div>
             <label className="block">
               <span className={MODAL_FIELD_LABEL_CLASS}>Note to vendors</span>
-              <Input value={note} placeholder="Optional" onChange={(e) => setNote(e.target.value)} disabled={busy} data-attr="service-assign-note" />
+              <Input value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} data-attr="service-assign-note" />
             </label>
             {photoCount > 0 ? (
               <label className="flex items-center gap-2 text-sm">

@@ -304,7 +304,6 @@ export function ServiceIntakeFormFields({
                 <Input
                   value={form.entryNotes}
                   onChange={(e) => onChange({ entryNotes: e.target.value })}
-                  placeholder="Optional"
                   className="bg-card"
                   disabled={disabled}
                 />

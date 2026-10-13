@@ -199,7 +199,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
 
   const statusOf = (row: LinkRow) => clearedOf(row) ? "Link will be removed" : draftOf(row) ? (isBad(row) ? "Link not valid" : "Ready to connect") : connections.get(row.key)?.hasImportUrl ? "Connected" : "Not connected";
   const stepsDef: AddWorkspaceStep[] = [
-    { id: "link", label: "Link", summary: loading ? undefined : `${rows.length} ${rows.length === 1 ? "calendar" : "calendars"}`, incomplete: invalid || !provider },
+    { id: "link", label: "Link", incomplete: invalid || !provider },
   ];
   const errorAlert = error ? <p role="alert" className="mb-4 text-sm text-danger">{error}</p> : null;
   const gridClass = "md:grid md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.5fr)_minmax(0,1.3fr)_auto] md:items-start md:gap-3";

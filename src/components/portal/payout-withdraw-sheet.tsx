@@ -163,9 +163,6 @@ export function PayoutWithdrawSheet({
             { label: "Arrives", value: method === "instant" ? "Within 30 minutes" : "1–2 business days" },
             { label: method === "instant" ? "Bank receives" : "Fee", value: method === "instant" ? formatMoney(netCents, currency) : "Free" },
           ]}
-          creates={[
-            { tone: overBalance || belowMinimum ? "warn" : "yes", text: overBalance ? "Amount is more than is available" : belowMinimum ? "Withdrawals start at $1.00" : "Sent to your payout account" },
-          ]}
         />
       }
       primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account || busy, dataAttr: "withdraw-confirm" }}>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileUp } from "lucide-react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { WizardField, PreviewPanel, type CreatesItem } from "@/components/portal/add-workspace/parts";
+import { WizardField, PreviewPanel } from "@/components/portal/add-workspace/parts";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { DateField } from "@/components/ui/date-field";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -32,16 +32,11 @@ import {
 
 const LEASE_TERM_PICK_OPTIONS = [...LEASE_TERM_CHOICES, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM];
 
-/** A label row for a picker: sentence case, "Optional" when it is not required. */
-function PickerLabel({ label, optional }: { label: string; optional?: boolean }) {
+/** A label row for a picker: sentence case, no "Optional" marker. */
+function PickerLabel({ label }: { label: string }) {
   return (
     <span className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-foreground">
       {label}
-      {optional ? (
-        <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">
-          Optional
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -208,14 +203,6 @@ export function PropertyResidentOnboardWizard({
       ? [leaseTermValue, ...LEASE_TERM_PICK_OPTIONS]
       : LEASE_TERM_PICK_OPTIONS
   ).map((term) => ({ value: term, label: term }));
-  const hasApplicationPdf = Boolean(applicationFile);
-  const hasLeasePdf = Boolean(leaseFile);
-  const creates: CreatesItem[] = [
-    { tone: hasApplicationPdf ? "yes" : "no", text: "Application on file" },
-    { tone: hasLeasePdf ? "yes" : "no", text: leaseFullyExecuted && hasLeasePdf ? "Signed lease on file" : "Lease on file" },
-    { tone: sendAccountSetup ? "yes" : "no", text: "Portal setup email" },
-  ];
-
   async function parseKind(file: File, kind: "application" | "lease") {
     const url = await readDataUrlFromFile(file);
     const parsed = await parseResidentDocumentPdfClient({
@@ -404,8 +391,6 @@ export function PropertyResidentOnboardWizard({
             ...(fields.monthlyRent?.trim() ? [{ label: "Rent", value: `$${fields.monthlyRent.trim().replace(/^\$/, "")}` }] : []),
             ...(matchedResident ? [{ label: "Matched", value: matchedResident }] : []),
           ]}
-          creates={creates}
-          createsHeading="On import"
         />
       }
       primaryAction={{
@@ -474,7 +459,7 @@ export function PropertyResidentOnboardWizard({
           </div>
           {roomOptions.length > 0 ? (
             <div data-wizard-picker="">
-              <PickerLabel label="Room" optional />
+              <PickerLabel label="Room" />
               <FieldSingleSelect
                 label="Room"
                 hideLabel
@@ -487,7 +472,7 @@ export function PropertyResidentOnboardWizard({
             </div>
           ) : null}
           <div data-wizard-picker="">
-            <PickerLabel label="Lease term" optional />
+            <PickerLabel label="Lease term" />
             <FieldSingleSelect
               label="Lease term"
               hideLabel

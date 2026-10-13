@@ -734,10 +734,6 @@ export function ManagerApplicationQuestionsEditorModal({
   );
 
   const workspaceSteps = useMemo<AddWorkspaceStep[]>(() => {
-    const questionSummary = (sectionId: string) => {
-      const n = applicationFields.filter((f) => (f.section ?? "additional") === sectionId).length;
-      return n === 1 ? "1 question" : `${n} questions`;
-    };
     if (isTemplateEditor) {
       // P002: the property Add/Edit application editor — Name -> Questions. The
       // Settings step is gone (C2-CP8): workspace choices live in Settings ->
@@ -745,39 +741,23 @@ export function ManagerApplicationQuestionsEditorModal({
       // After (proto/property-forms.js ED_STEPS); the listing-wide editor
       // below (opened outside a property record) keeps its own separate
       // per-section step rail, out of scope for this collapse.
-      // F003: a section the manager unchecked drops out of every count too.
-      const includedSectionIds = new Set(
-        RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== "review" && !disabledSectionIds.includes(s.id)).map((s) => s.id),
-      );
-      const totalQuestions = applicationFields.filter((f) => includedSectionIds.has((f.section ?? "additional") as RentalApplicationSectionId)).length;
       return [
-        { id: "name", label: "Application", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" },
-        {
-          id: "sections",
-          label: "Questions",
-          summary: `${totalQuestions === 1 ? "1 question" : `${totalQuestions} questions`} · ${includedSectionIds.size === 1 ? "1 section" : `${includedSectionIds.size} sections`}`,
-        },
+        { id: "name", label: "Application", incomplete: !templateLabel.trim() },
+        { id: "sections", label: "Questions" },
       ];
     }
     const head: AddWorkspaceStep[] = lockVariant
       ? []
-      : [{ id: "form", label: "Form", summary: APPLICATION_FORM_VARIANTS.find((v) => v.id === variant)?.label ?? "Form" }];
+      : [{ id: "form", label: "Form" }];
     return [
       ...head,
       ...RENTAL_APPLICATION_SECTIONS.map((section) => ({
         id: section.id,
         label: section.title,
-        summary: questionSummary(section.id),
       })),
-      { id: "preview", label: "Preview", summary: "What the applicant sees" },
+      { id: "preview", label: "Preview" },
     ];
-  }, [
-    applicationFields,
-    isTemplateEditor,
-    lockVariant,
-    templateLabel,
-    variant,
-  ]);
+  }, [isTemplateEditor, lockVariant, templateLabel]);
 
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
   const stepId = workspaceSteps[current]?.id ?? "preview";
@@ -1188,7 +1168,6 @@ export function ManagerApplicationQuestionsEditorModal({
   const headerUpload = templateEditorMode === "add" && applicationPreviewPropertyId && !isBulkSave
     ? {
         accept: "application/pdf,.pdf",
-        chips: [".pdf", "up to 8 MB"],
         disabled: importing || saving,
         dataAttr: "property-application-header-upload",
         label: "Upload application",
@@ -1844,7 +1823,6 @@ export function ManagerApplicationQuestionsEditorModal({
             />
             {isTemplateEditor && templateEditorMode === "add" && startFrom === "upload" && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
               dataAttr="property-application-start-from-file"
-              chips={[".pdf", "up to 8 MB"]}
               accept={APPLICATION_UPLOAD_ACCEPT}
               busy={importing}
               state={
