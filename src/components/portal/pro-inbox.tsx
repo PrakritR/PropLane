@@ -15,6 +15,7 @@ import {
   InboxComposerAiMenu,
   InboxComposerChannelMenu,
   InboxComposerScheduleMenu,
+  formatScheduledLabel,
 } from "@/components/portal/inbox-composer-tools";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
@@ -2651,16 +2652,7 @@ export const ManagerInbox = forwardRef<
               maxLength={!embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined}
               dataAttr="inbox-reply"
               focusSignal={replyFocusSignal}
-              hint={
-                scheduleLater && inboxThreadHasEmail(activeThread.email)
-                  ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}.`
-                  : undefined
-              }
+              sendAtLabel={scheduleLater && inboxThreadHasEmail(activeThread.email) ? formatScheduledLabel(scheduleSendAt) : undefined}
               trailingControls={
                 <>
                   <InboxComposerAiMenu

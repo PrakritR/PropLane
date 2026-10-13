@@ -25,7 +25,7 @@ import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
 } from "@/components/portal/inbox-thread-assistant-strip";
-import { InboxComposerAiMenu, InboxComposerChannelMenu, InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
+import { InboxComposerAiMenu, InboxComposerChannelMenu, InboxComposerScheduleMenu, formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
 import { useThreadScheduledCards } from "@/components/portal/use-thread-scheduled-cards";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { buildSmsThreadScheduleBody, smsThreadCanSchedule } from "@/lib/sms-thread-schedule";
@@ -1543,6 +1543,7 @@ export const ManagerSmsPanel = forwardRef<
         disabled={(!replyViaEmail && !replyViaSms) || Boolean(replyIssue)}
         placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
         maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
+        sendAtLabel={scheduleLater && activeCanSchedule ? formatScheduledLabel(scheduleSendAt) : undefined}
         dataAttr="sms-messages-reply"
         trailingControls={
           <>
