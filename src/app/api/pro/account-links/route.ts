@@ -819,7 +819,11 @@ export async function POST(req: Request) {
           const labels = (props ?? []).map((p: { id?: string; property_data?: unknown; row_data?: unknown }) =>
             labelFromManagerPropertyRecordRow(p),
           );
+          const { data: workspaceRow } = workspaceId
+            ? await svc.from("portal_workspaces").select("name").eq("id", workspaceId).maybeSingle()
+            : { data: null };
           await notifyCoManagerInviteSent({
+            workspaceName: String((workspaceRow as { name?: unknown } | null)?.name ?? "").trim() || undefined,
             inviterUserId,
             inviteeUserId: inviteeProfile.id,
             inviterName:

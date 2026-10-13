@@ -73,6 +73,7 @@ import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
+import { WorkNumberAlsoNotifyCard } from "@/components/portal/work-number-also-notify-card";
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
@@ -203,6 +204,7 @@ function ManagerMessagingSettingsPane() {
   return (
     <>
       <ManagerMessagingSettingsPanel />
+      <WorkNumberAlsoNotifyCard />
       <PortalSettingsSection title="Automation">
         <AutoSendAiDraftsRow />
       </PortalSettingsSection>
