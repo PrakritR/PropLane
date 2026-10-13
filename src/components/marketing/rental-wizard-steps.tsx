@@ -1,7 +1,7 @@
 "use client";
 
 import { applicationRentalTypeFor, leaseTermDisplayLabel } from "@/lib/rental-application/lease-terms";
-import { Children, Fragment, isValidElement, useState, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -20,6 +20,7 @@ import {
   applicationFeeWaiverExplanation,
 } from "@/lib/rental-application/application-fee-display";
 import { ApplyFieldRow } from "@/app/(public)/rent/apply/apply-field-row";
+import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize } from "@/app/(public)/rent/apply/apply-validation";
 import {
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
@@ -757,6 +758,21 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     onApplySavedAutofill,
   } = p;
 
+  // The organizer's group size is a 2-12 stepper, which cannot express a blank or an out-of-range
+  // number — so the stored value is held at whatever the stepper is showing. Without this, clearing
+  // the organizer id (which drops `groupSize`) or resuming a draft saved before the stepper existed
+  // left step 1 refusing with "Tell us how many people are applying together." right beside a
+  // control already reading 2, with - disabled and + the only way out.
+  const organizerGroupSizeFix =
+    step === 1 && form.applicantRole !== "cosigner" && form.applyingAsGroup === "yes" && !form.groupLeaderAppId.trim()
+      ? String(normalizeGroupSize(form.groupSize))
+      : null;
+  useEffect(() => {
+    if (organizerGroupSizeFix !== null && organizerGroupSizeFix !== form.groupSize) {
+      patch({ groupSize: organizerGroupSizeFix });
+    }
+  }, [form.groupSize, organizerGroupSizeFix, patch]);
+
   const listingSub = (() => {
     const prop = getPropertyById(form.propertyId);
     return prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
@@ -1415,9 +1431,9 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                     */}
                     <CountStepper
                       compact
-                      value={Math.min(12, Math.max(2, Number.parseInt(form.groupSize, 10) || 2))}
-                      min={2}
-                      max={12}
+                      value={normalizeGroupSize(form.groupSize)}
+                      min={GROUP_SIZE_MIN}
+                      max={GROUP_SIZE_MAX}
                       label="people in the group"
                       dataAttr="group-size-stepper"
                       onChange={(n) => patch({ groupSize: String(n) })}

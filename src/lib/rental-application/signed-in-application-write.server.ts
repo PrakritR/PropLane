@@ -36,7 +36,11 @@ import {
 } from "@/lib/rental-application/validate-application-submit.server";
 import { fillApplicantIdentityFromAccount } from "@/lib/rental-application/applicant-identity.server";
 import type { ApplicantAuthUser } from "@/lib/rental-application/applicant-identity";
-import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
+import {
+  authorizeApplicationFeeSubmission,
+  reuseApplicationFeeAuthorization,
+  type PriorApplicationFeeAuthorization,
+} from "@/lib/rental-application/application-fee-submit-guard.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -44,6 +48,24 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
 export type ApplicationWriteRefusal = { ok: false; status: number; body: Record<string, unknown> };
+
+/**
+ * One translation of a thrown application write into the answer the submitting client needs.
+ * `persistNormalizedRow` surfaces the database's own codes, and both submit routes (the wizard's
+ * `POST /api/manager-applications` and `POST /api/portal/quick-apply`) reach it through the same
+ * pair above, so the shared-room last-bed arbitration (P4001), a serialization failure
+ * (40001/40P01) and a check violation (23514) must read the same on both. Anything else is a
+ * genuine 500 and keeps its own message.
+ */
+export function applicationWriteErrorResponse(
+  error: unknown,
+  fallbackMessage: string,
+): { status: number; body: { error: string; blocked?: "capacity" } } {
+  const message = error instanceof Error ? error.message : fallbackMessage;
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  const status = ["P4001", "40001", "40P01"].includes(code) ? 409 : code === "23514" ? 422 : 500;
+  return { status, body: { error: message, ...(code === "P4001" ? { blocked: "capacity" as const } : {}) } };
+}
 
 export function idVariants(id: string): string[] {
   const trimmed = id.trim();
@@ -304,6 +326,12 @@ export async function prepareResidentSelfWrite(
     email: string;
     /** Where the listing is read from, so one request reads it once (`memoizeEffectiveApplicationProperty`). */
     loadProperty?: EffectiveApplicationPropertyLoader;
+    /**
+     * A fee verdict this request already produced for this same row (Quick apply has to ask before
+     * it can tell a submit from a draft). Reused only when it provably answers this row — never a
+     * way to skip the guard: with no match, or no prior verdict at all, it runs here as always.
+     */
+    priorFeeAuthorization?: PriorApplicationFeeAuthorization;
   },
 ): Promise<PreparedResidentSelfWrite> {
   const { requestedRowId, role, email } = input;
@@ -379,7 +407,9 @@ export async function prepareResidentSelfWrite(
       });
     }
     if (!isDraftShapedApplicationRow(row)) {
-      const fee = await authorizeApplicationFeeSubmission(db, row);
+      const fee =
+        reuseApplicationFeeAuthorization(row, input.priorFeeAuthorization)
+        ?? (await authorizeApplicationFeeSubmission(db, row));
       if (!fee.ok) return refuse(fee.status, { error: fee.error });
     }
   }

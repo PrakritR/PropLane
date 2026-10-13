@@ -124,6 +124,11 @@ export async function sendScheduledInboxMessageNow(
             toPhone: active.recipientPhone ?? "",
             text: active.body,
             conversationKey: active.conversationKey ?? null,
+            // The cron has no cookie, so the workspace the manager composed in must be named
+            // here or the conversation lookup narrows to their FIRST workspace and a thread in
+            // any other one fails closed. A legacy row that never recorded one keeps the
+            // cookie-less default rather than resolving to no workspace at all.
+            ...(active.workspaceId?.trim() ? { workspace: { id: active.workspaceId.trim() } } : {}),
           });
           const sentStatus = String(sent.body.status ?? "");
           const smsOutcome: Exclude<Outcome, "claimed"> =

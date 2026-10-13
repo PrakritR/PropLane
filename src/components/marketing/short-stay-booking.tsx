@@ -83,10 +83,16 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
         })),
     [sub],
   );
-  // A hold is always on a room, so a listing carrying none has nothing to book: the whole
-  // short-stay block stays off the page and the monthly card stands alone, rather than
+  // THE predicate for "this listing offers a short stay", read by the card's segment control, the
+  // phone sticky bar's primary and the booking block alike — one answer, so the bar can never offer
+  // "Request to book" for a card that is showing the monthly side.
+  //
+  // A hold is always on a room, so a listing carrying none has nothing to book; and a night with no
+  // nightly rate has no price, so the segment would read "- / night" over a total of nothing. Either
+  // way the whole short-stay block stays off the page and the monthly card stands alone, rather than
   // drawing dates, a total and a "Request to book" that can never be pressed.
-  const offered = !disabled && listingOffersShortStay(sub) && rooms.length > 0;
+  const offered =
+    !disabled && listingOffersShortStay(sub) && rooms.length > 0 && listingShortStayNightlyFrom(sub) > 0;
   // Read for every listing (not only short-stay ones): the monthly segment dims a room taken on the move-in date too.
   const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(disabled ? null : property.id);
   const [segment, setSegment] = useState<StaySegment>("monthly");

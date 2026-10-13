@@ -19,6 +19,55 @@ export type ApplicationFeeSubmitGuard =
   | { ok: true }
   | { ok: false; status: 409 | 500; error: string; reason: ApplicationFeeRefusalReason };
 
+/**
+ * A verdict this request already produced, with the row it was produced for, so one submit verifies
+ * the fee ONCE. Quick apply has to ask "is a fee owed" before it can decide whether the row it
+ * builds is a submit or a draft, and the shared write then asks the same question of the same row;
+ * without this the listing fee resolution, the payment claim and the household charge row are all
+ * read twice per submit.
+ */
+export type PriorApplicationFeeAuthorization = {
+  row: DemoApplicantRow;
+  guard: ApplicationFeeSubmitGuard;
+};
+
+/** The fee-relevant identity of a row: the same values `authorizeApplicationFeeSubmission` reads. */
+function feeBasisOf(row: DemoApplicantRow): string {
+  const answers = row.application;
+  return JSON.stringify([
+    row.id?.trim() ?? "",
+    row.propertyId?.trim() || answers?.propertyId?.trim() || "",
+    (row.email?.trim() || answers?.email?.trim() || "").toLowerCase(),
+    row.residentUserId ?? null,
+    answers?.applicationTemplateId ?? null,
+    answers?.roomChoice1 ?? null,
+    (answers as { bundleId?: string } | undefined)?.bundleId ?? null,
+    answers?.leaseTerm ?? null,
+    answers?.rentalType ?? null,
+    answers?.applicationFeeWaived ?? null,
+  ]);
+}
+
+/**
+ * The prior verdict when it provably answers this row too, else null — so a miss costs a fresh
+ * verification rather than letting a submit through.
+ *
+ * The fee basis must match exactly, and the prior verdict must have been computed under a manager
+ * constraint at least as tight as this row's: the guard refuses when a claimed manager is not the
+ * listing's owner, so a verdict reached WITHOUT that claim may never stand in for a row that makes
+ * one. A verdict reached with the claim can, because the only extra check it passed is one this row
+ * does not ask for.
+ */
+export function reuseApplicationFeeAuthorization(
+  row: DemoApplicantRow,
+  prior: PriorApplicationFeeAuthorization | undefined,
+): ApplicationFeeSubmitGuard | null {
+  if (!prior || feeBasisOf(prior.row) !== feeBasisOf(row)) return null;
+  const claimed = row.managerUserId?.trim() ?? "";
+  if (claimed && (prior.row.managerUserId?.trim() ?? "") !== claimed) return null;
+  return prior.guard;
+}
+
 /** The applicant's submitted flag is not payment evidence. Resolve the fee
  * from the owned listing and require a waiver or this exact application's
  * settled provider claim before a new resident/guest submission is saved. */

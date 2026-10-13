@@ -207,7 +207,9 @@ export function ListingPriceCard({
   const priceLine = listingMonthlyPriceLine(rich);
   const nightlyFrom = listingShortStayNightlyFrom(property.listingSubmission);
   const priceRows = listingPriceRows(rich, property.listingSubmission as Parameters<typeof listingPriceRows>[1], stay?.offered === true ? nightlyFrom : 0, formatMoneyInLabel);
-  const segments = stay?.offered === true && nightlyFrom > 0;
+  // `stay.offered` already answers "is a short stay on offer" (a room to hold AND a nightly rate to
+  // price it), which is the same answer the phone sticky bar reads.
+  const segments = stay?.offered === true;
   const segment = segments && stay ? stay.segment : "monthly";
   const contact = listingContactRows(property).phone;
   const freeRooms = stay ? stay.rooms.filter((room) => stay.verdictFor(room.id)?.free !== false) : [];

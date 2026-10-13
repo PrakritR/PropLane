@@ -57,16 +57,51 @@ export function channelCheckFacts(
   ];
 }
 
+export type ChannelConnectionStatus = {
+  hasImportUrl?: boolean;
+  lastError?: string | null;
+  lastSyncedAt: string | null;
+  exportLastFetchedAt?: string | null;
+};
+
+/**
+ * The status line's own parts, so a caller that renders the error differently (the link modal paints
+ * "Error:" in red) composes them instead of cutting segments back off a formatted string.
+ */
+export type ChannelStatusParts = {
+  /** "Not linked", "Synced" or "Waiting for <channel>"; "" when the error is the state. */
+  state: string;
+  /** The last error, without a leading "Error:", or null. */
+  error: string | null;
+  /** "Airbnb 8:04 AM", "PropLane 8:00 AM" — only the sides that carry a timestamp. */
+  details: string[];
+};
+
+export function channelStatusParts(
+  connection: ChannelConnectionStatus | null | undefined,
+  now: Date = new Date(),
+  provider: ChannelCalendarProvider = "airbnb",
+): ChannelStatusParts {
+  const channel = channelCalendarProviderLabel(provider);
+  if (!connection?.hasImportUrl) return { state: "Not linked", error: null, details: [] };
+  const fetched = formatCheckedAt(connection.exportLastFetchedAt ?? null, now);
+  const synced = formatCheckedAt(connection.lastSyncedAt, now);
+  const error = connection.lastError?.trim().replace(/^Error:\s*/, "") || null;
+  return {
+    state: error ? "" : fetched ? "Synced" : `Waiting for ${channel}`,
+    error,
+    details: [fetched && `${channel} ${fetched}`, synced && `PropLane ${synced}`].filter(
+      (part): part is string => Boolean(part),
+    ),
+  };
+}
+
 /** One plain status line per room: "Synced · Airbnb 8:04 AM · PropLane 8:00 AM". A part without a timestamp is omitted. */
 export function channelStatusLine(
-  connection: { hasImportUrl?: boolean; lastError?: string | null; lastSyncedAt: string | null; exportLastFetchedAt?: string | null } | null | undefined,
+  connection: ChannelConnectionStatus | null | undefined,
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
 ): string {
-  const channel = channelCalendarProviderLabel(provider);
-  if (!connection?.hasImportUrl) return "Not linked";
-  const fetched = formatCheckedAt(connection.exportLastFetchedAt ?? null, now);
-  const synced = formatCheckedAt(connection.lastSyncedAt, now);
-  const state = connection.lastError ? `Error: ${connection.lastError}` : fetched ? "Synced" : `Waiting for ${channel}`;
-  return [state, fetched && `${channel} ${fetched}`, synced && `PropLane ${synced}`].filter(Boolean).join(" · ");
+  const parts = channelStatusParts(connection, now, provider);
+  return [parts.error ? `Error: ${parts.error}` : parts.state, ...parts.details].filter(Boolean).join(" · ");
 }

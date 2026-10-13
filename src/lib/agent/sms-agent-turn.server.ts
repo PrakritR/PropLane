@@ -48,6 +48,7 @@ import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
 import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 
 type Db = SupabaseClient;
 
@@ -794,5 +795,9 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
   return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId, toolTrace: result.toolTrace };
   };
-  return execute();
+  // The standing no-em-dash rule lives here, not at each call site: every reply this runner can
+  // produce (model, confirmation, proposal preview, precomputed, rate limit, error) leaves
+  // stripped, so no surface can forget it.
+  const turn = await execute();
+  return turn?.reply ? { ...turn, reply: stripLongDashes(turn.reply) } : turn;
 }

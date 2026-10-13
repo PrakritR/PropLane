@@ -10,6 +10,7 @@
  * the AI can never see anything the UI couldn't already show.
  */
 import { z } from "zod";
+import type { MockProperty } from "@/data/types";
 import { getPublicListings } from "@/lib/public-listings.server";
 import { filterRoomListings, type RoomListingRow } from "@/lib/room-listings-catalog";
 import { LEASE_TYPES, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
@@ -95,10 +96,23 @@ export function resolveNeighborhood(raw: string | undefined, neighborhoods: stri
   return neighborhoods.find((n) => n.toLowerCase().includes(needle));
 }
 
+/**
+ * The public catalog, read ONCE per request. `getPublicListings` is uncached and costs up to 500
+ * property rows plus a work-number + work-email resolve per (manager, workspace) and a profiles
+ * read, so the prompt's neighborhood list and the search that follows it share this one read
+ * instead of each paying for the whole catalog.
+ */
+export async function loadPublicHousingCatalog(): Promise<MockProperty[]> {
+  return getPublicListings();
+}
+
 /** The catalog's distinct neighborhood names (max 60), the only values the model may return. */
-export async function listCatalogNeighborhoods(): Promise<string[]> {
-  const listings = await getPublicListings();
+export function catalogNeighborhoods(listings: MockProperty[]): string[] {
   return [...new Set(listings.map((p) => p.neighborhood?.trim()).filter((n): n is string => Boolean(n)))].slice(0, 60);
+}
+
+export async function listCatalogNeighborhoods(): Promise<string[]> {
+  return catalogNeighborhoods(await loadPublicHousingCatalog());
 }
 
 /** System prompt for the forced extraction call: pure so the alias rules are testable. */
@@ -124,8 +138,12 @@ export function buildHousingSearchSystemPrompt(opts: { todayIso: string; neighbo
  * Tool-grounded housing search: resolves filters against the real public
  * catalog and returns only actual matches — never model-invented listings.
  */
-export async function searchPublicHousing(rawFilters: HousingSearchFilters): Promise<HousingSearchResult> {
-  const listings = await getPublicListings();
+export async function searchPublicHousing(
+  rawFilters: HousingSearchFilters,
+  /** The catalog the caller already loaded for the extraction prompt, so one request reads it once. */
+  catalog?: MockProperty[],
+): Promise<HousingSearchResult> {
+  const listings = catalog ?? (await loadPublicHousingCatalog());
   const neighborhoods = [...new Set(listings.map((p) => p.neighborhood).filter(Boolean))];
   const neighborhood = resolveNeighborhood(rawFilters.neighborhood, neighborhoods);
 
