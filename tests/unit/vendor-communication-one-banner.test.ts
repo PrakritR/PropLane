@@ -30,7 +30,7 @@ describe("vendor Communication — one banner, no separate Disabled status cards
     expect(card).toContain("noteTone");
     // The work EMAIL card keeps its copy icon; the work number card is retired (vendors never own a number).
     expect(card).not.toContain('"Your work number"');
-    expect(card).toContain('"Work email"');
+    expect(card).toContain('"Your work email"');
     expect(card).toContain("copyAction");
   });
 

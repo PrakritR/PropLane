@@ -1672,3 +1672,14 @@ notice's `externalText` out to each of them as a text FROM the owner's work numb
 email from the work email, never an Assistant thread (`notifyWorkNumberRecipients`). The list is managed by the
 owner (a teammate with Team at edit may read the list, only the owner changes it) (`/api/pro/work-number-recipients`). An addressed co-manager invite also
 texts a verified invitee from the inviter's work number (`notifyCoManagerInviteSent`).
+
+## Inbound texts reach the whole team by role (Oct 13)
+
+A prospect or resident text is forwarded to the owner's cell as before, and ALSO reaches every teammate the role matrix
+names (`resolveWorkspaceNoticeRecipients`, module `inbox`, house = the resident's house, none for a prospect):
+`forwardInboundToTeammates` texts those with a verified phone under the same consent gate and the shared hourly relay cap,
+and `fanOutWorkspaceNotice` (`src/lib/workspace-team-fanout.server.ts`) drops a "Prospect text: ..." / "Resident text: ..."
+notice, then the agent's answer as "Replied: ...", into each person's OWN Assistant thread
+(`managerAgentNoticeThreadId`), never the Team chat. The notices pass `sms: false` (the forward is their text), keyed
+`inbound-sms:<MessageSid>` / `inbound-sms-reply:<MessageSid>` so a redelivery notifies nobody twice. An unknown house no
+longer means owner-only: property managers, leasing and viewers still hear a no-house event.

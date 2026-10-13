@@ -171,3 +171,11 @@ default audience includes `team`, pinned in `reminder-team-scope.test.ts`): 9:00
 and 9:00 PT on check-out morning. Both are swept in `subjects/bookings.server.ts` under one rule; the
 check-out is a second subject (`<id>:out`) with its own anchor, and the message is a finished headline
 (`payload.headline`) with a link to the booking record.
+
+## Fan-out by role (Oct 13)
+
+`notifyPropertyScopedManagersFromAgent` no longer computes its own recipients: it asks
+`resolveWorkspaceNoticeRecipients` (role matrix in `co-manager-access.md`). A house-less event now reaches property
+managers, leasing and viewers, a payments event reaches the bookkeeper, a services event reaches maintenance. Signature,
+"Also notify" recipients and the owner-first failure rule are unchanged; each notice lands in the person's own Assistant
+thread for the owner's workspace.
