@@ -58,7 +58,14 @@ import {
 } from "@/lib/portal-sidebar-collapse-store";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
-import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
+import {
+  adminNavRowSection,
+  collapseAdminNavItems,
+  groupNavItems,
+  isAppNavHiddenInNativeShell,
+  isHiddenFromMobileNav,
+  mergeAdminGroupCounts,
+} from "@/lib/portals/nav-groups";
 import {
   buildPortalNavItems,
   type PortalSidebarNavItem,
@@ -158,7 +165,12 @@ export function PortalSidebar({
     definition,
     session.userId,
   );
-  const navCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
+  const rawNavCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
+  // Admin folds Accounts / Money / Support into one row each; the row carries its tabs' counts.
+  const navCounts = useMemo(
+    () => (definition.kind === "admin" ? mergeAdminGroupCounts(rawNavCounts) : rawNavCounts),
+    [definition.kind, rawNavCounts],
+  );
   // The collapse control lives in the top strip; both read one shared store.
   const collapsed = useSyncExternalStore(
     subscribePortalSidebarCollapsed,
@@ -193,13 +205,16 @@ export function PortalSidebar({
     [groupsStorageKey],
   );
 
-  const activeSection = useMemo(() => {
+  const pathSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
     return parts[1] ?? "dashboard";
   }, [pathname]);
+  // A grouped admin section (Promo codes) is active on its group's row (Money).
+  const activeSection = definition.kind === "admin" ? adminNavRowSection(pathSection) : pathSection;
 
   const navItems = useMemo(() => {
-    return buildPortalNavItems(definition, visibleSections, showNativeChrome, residentNavStage);
+    const built = buildPortalNavItems(definition, visibleSections, showNativeChrome, residentNavStage);
+    return definition.kind === "admin" ? collapseAdminNavItems(built) : built;
   }, [definition, residentNavStage, visibleSections, showNativeChrome]);
 
   const activeSectionSubTab = useMemo(() => {
