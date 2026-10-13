@@ -364,9 +364,15 @@ Connect API directly (ES256 JWT from the same `ASC_*` secrets, no extra deps):
    that errors (a retry landing on 409 "already exists") does not fail a build the
    API says *is* assigned. The read is re-polled a few times over ~1 min because
    that filter is search-index-backed and can lag the write; re-polling only
-   prevents a false red, it never softens the verdict. The query is exact rather
-   than a page of the group's builds, so a group with hundreds of accumulated
-   builds can never report a correctly-assigned build as missing.
+   prevents a false red, it never softens the verdict. When **both** POST shapes
+   are refused with Apple's 422 "cannot add internal group to a build" — the group
+   has automatic distribution, so Apple adds the build itself after a variable
+   delay — the confirming reads get up to ~5 minutes instead, clamped to the step
+   budget actually left so the wider window never comes out of the processing wait
+   or the installability gate; a build that never appears still fails closed. The
+   query is exact rather than a page of the group's builds, so a group with
+   hundreds of accumulated builds can never report a correctly-assigned build as
+   missing.
 5. Report `buildBetaDetail` (`internalBuildState` / `externalBuildState`) and pass
    **only** on an affirmatively installable `internalBuildState` —
    `READY_FOR_BETA_TESTING` or `IN_BETA_TESTING`. `PROCESSING` and
