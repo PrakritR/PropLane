@@ -60,6 +60,19 @@ draws what it returns.
   reworded but not added, removed or reordered — position *i* stores value *i*.
   The property section's choices (property, rooms, lease term) come from the
   listing, so they are never typed in.
+- **A built-in's `standardKey` is slugged from its LABEL**, so rewording the
+  catalog mints a new key while listings keep storing the old one — in
+  `disabledStandardApplicationKeys`, in a saved override row (`standardKey` /
+  `replacedStandardKey` / the `std-<key>` id) and in `questionDisplayOrder`.
+  Renaming a catalog question therefore means adding an alias in
+  `standard-application-key-aliases.ts`; every stored key and question id is
+  read back through `canonicalStandardApplicationKey` /
+  `canonicalApplicationQuestionId`, so the manager's off switch, relabel,
+  required override and ordering survive the rename instead of reverting to
+  catalog defaults. "Room choices (1st – 3rd)" → **Room** (captain, Oct 13,
+  when the wizard dropped to one room choice —
+  [`shared-room-capacity.md`](shared-room-capacity.md)) is the first alias.
+  Coverage: `tests/unit/legacy-standard-application-keys.test.ts`.
 - **Changing a built-in's type detaches it.** `convertBuiltInQuestion` retires
   the built-in and asks the manager's own question of the new type in its place,
   with a fresh custom key and `replacedStandardKey` pointing back, so the editor

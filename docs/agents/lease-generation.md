@@ -13,7 +13,9 @@ Long-term and Short-term, with Custom dates and Month-to-month as two indented c
 `LEASE_PICK_OPTIONS` (same file, with `normalizeLeasePick` / `leasePickFromStored` /
 `storedTermsFromLeasePick` / `leasePickSummary`) is the one owner of that picker shape; a picker that lists
 either child at the top level fails `tests/unit/lease-pick-two-types.test.ts`. Only the picker changed — the
-stored terms below are untouched.
+stored terms below are untouched. A **filter** over existing listings is not a picker: the browse "Lease type"
+filter legitimately offers all four `LEASE_TYPES` and is the one file that test exempts
+([`../ai-assistant.md`](../ai-assistant.md) § Public browse "Ask").
 
 | Type | Stored term | Term and dates | Charges |
 | --- | --- | --- | --- |

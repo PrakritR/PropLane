@@ -116,7 +116,6 @@ export function catalogNeighborhoods(listings: MockProperty[]): string[] {
  * double quotes (the prompt's own delimiter around a name) go, 60 chars max.
  */
 export function sanitizePromptName(name: string): string {
-  // eslint-disable-next-line no-control-regex
   const printable = name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
   return printable.replace(/["\u201c\u201d]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 }

@@ -616,6 +616,9 @@ module off at notification level hears nothing.
 
 Channels follow each person's own routing: Assistant thread always, email when they have one, text only with a verified
 phone, no STOP and `sms_forward_inbound` on. Texts leave from the owner's work number and are billed to the owner.
+A caller may still withhold the text by passing `sms: false` to `fanOutWorkspaceNotice` — an inbound work email never
+texts, and an inbound text's notice does not repeat the forward
+([`inbound-email-inbox.md`](inbound-email-inbox.md), [`sms-system.md`](sms-system.md) own those two cases).
 
 ## Property owner
 

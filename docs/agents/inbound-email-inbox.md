@@ -68,8 +68,13 @@ status). Both go through `checkWorkspaceAssistantMailboxLocal` /
   alphanumeric; never contains `+` (that stays reserved for the legacy
   `assistant+<token>` form).
 - **The reserved list** (`RESERVED_MAILBOX_LOCALS` /
-  `isReservedMailboxLocal`, same file) blocks official-sounding locals
-  (`support`, `admin`, `postmaster`, `assist`, `assistant`, …) at both the
+  `isReservedMailboxLocal`, same file — the `RESERVED` copy in
+  `workspace-mailbox-local-rule.mjs` is pinned equal to it by
+  `tests/unit/workspace-mailbox-local-rule.test.ts`, never edited alone) blocks
+  official-sounding locals (`support`, `admin`, `postmaster`, `assist`,
+  `assistant`, …) **and names a workspace could impersonate someone with**
+  (payment and bank names like `stripe`, `venmo`, `zelle`, `payments`,
+  `invoice`, and platform names like `airbnb`, `apple`, `google`, `irs`) at both the
   write (`checkWorkspaceAssistantMailboxLocal`) and the inbound read
   (`extractAssistantMailboxLocal` skips a reserved local before it is ever
   treated as a mailbox — so `support@…`/`admin@…` still falls through to the
@@ -336,3 +341,10 @@ After the owner's inbox mirror, `processManagerAssistantInboundEmail` calls `fan
 `resolveWorkspaceNoticeRecipients` (module `inbox`, no house): "Work email from <sender> · <subject> · <first 120 chars>",
 keyed `inbound-email:<inbound id>`; the answer the agent actually sent follows as "Replied: ...", keyed
 `inbound-email-reply:<inbound id>`. Each lands in that person's own Assistant thread.
+
+**A work-email notice never becomes a text.** Every one of those calls passes `sms: false`, so the fan-out
+reaches the teammate in-app only: an emailed body is not consented SMS content, a text would bill the owner
+for traffic they never sent, and an inbound email is the one fan-out with no forward path of its own (a
+prospect or resident text still texts, because the forward IS their text —
+[`sms-system.md`](sms-system.md) § Inbound texts reach the whole team by role). Coverage:
+`tests/unit/manager-assistant-email-inbound.test.ts`.

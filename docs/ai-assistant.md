@@ -551,7 +551,10 @@ query, never instructions.
   `custom`, from `LEASE_TYPES`), `bedroom`, `bathroom`, `petFriendly`, `neighborhood`. A field is set
   only when the sentence implies it; nothing is guessed.
 - **Neighborhood is an allowlist, not free text.** `buildHousingSearchSystemPrompt` lists the
-  catalog's own distinct names (`catalogNeighborhoods`, max 60) and the model may only copy one of
+  catalog's own distinct names (`catalogNeighborhoods`, max 60, each through `sanitizePromptName` —
+  control characters and line breaks collapse to spaces, the double quotes the prompt itself puts
+  around a name are dropped, 60 characters max, so a manager-typed neighborhood cannot add a line or
+  close a quote in the prompt) and the model may only copy one of
   them; `resolveNeighborhood` still re-matches server-side, with the University District aliases
   ("UW", "U District", "near campus", …) resolving to whatever the catalog actually spells it.
 - **One catalog read per turn.** `getPublicListings()` is uncached and expensive, so the route calls

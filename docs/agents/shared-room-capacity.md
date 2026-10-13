@@ -57,11 +57,13 @@ keys of `residentPrices` and nothing else. A fee can be scoped to a slot with
 `roomIds`), read through `feeAppliesToResidentSlot`, which also applies when
 the slot is unknown so a fee is never dropped for want of a number.
 
-The apply wizard's first choice lists each bed when the room prices per
-resident (`Room 9 · Resident 1 · $1,050/mo`). The value is
-`propertyId::roomId::rN`; `parseRoomChoiceValue` strips the slot so occupancy
-and the public snapshot still key on `propertyId::roomId`. Second and third
-choices stay room-level. Taken beds show as disabled "Taken"; a pending
+The apply wizard asks for ONE room (label "Room", `roomChoice1`) and lists each
+bed when the room prices per resident (`Room 9 · Resident 1 · $1,050/mo`). The
+value is `propertyId::roomId::rN`; `parseRoomChoiceValue` strips the slot so
+occupancy and the public snapshot still key on `propertyId::roomId`.
+`roomChoice2` / `roomChoice3` are legacy data only — an older row's extra picks
+are carried and displayed, never asked for and never validated. Taken beds show
+as disabled "Taken"; a pending
 application does not reserve a bed. Submit stores `residentSlot` plus the
 slot's rent/utilities/deposit overrides. The apply "What a resident pays"
 card and Review housing charges read `buildListingQuote` with that slot, so
