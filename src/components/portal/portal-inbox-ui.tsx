@@ -87,6 +87,7 @@ import {
 } from "@/lib/inbox-attachments";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { cn } from "@/lib/utils";
+import { bookingRecordPathFromNotice } from "@/lib/booking-notice-link";
 import type { InboundWorkflowSuggestion } from "@/lib/inbox/inbound-message-workflow-suggestions";
 
 /** Same chrome as other portal data tables */
@@ -1517,6 +1518,7 @@ export function InboxBubble({
   const startsRun = cluster === "single" || cluster === "first" || showAvatar;
   const author = assistant ? "PropLane" : message.author || "?";
   const clock = inboxMessageClock(message.at);
+  const bookingNoticePath = assistant ? bookingRecordPathFromNotice(message.body) : null;
 
   const readReceipt =
     outbound &&
@@ -1575,6 +1577,11 @@ export function InboxBubble({
           {assistant ? (
             <div className="break-words [overflow-wrap:anywhere]">
               <AssistantMarkdown text={message.body || " "} />
+              {bookingNoticePath ? (
+                <a href={bookingNoticePath} className="mt-1 inline-block font-semibold text-primary hover:underline" data-inbox-open-booking>
+                  Open booking
+                </a>
+              ) : null}
             </div>
           ) : (
             <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>

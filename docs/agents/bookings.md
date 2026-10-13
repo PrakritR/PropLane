@@ -106,3 +106,20 @@ total or rate plus that household's charges, each linking to its own payment
 record. Only a manager-made hold is editable in place (the one combined
 Add/Edit sheet); any other source offers Message and Copy link, and a channel
 reservation also Remove stay.
+
+## Booking alerts and reminders (Oct 12 2026)
+
+- A new / cancelled channel booking is an `action_events` row in the `channel_booking` domain, and the
+  database `action_events_domain_check` must list every `ActionEventDomain` the code emits
+  (`tests/unit/channel-booking-prod-shape.test.ts` fails a domain the latest migration omits). The check
+  was missing `channel_booking` until `20261013000000`, so the sync's best-effort catch swallowed a rejected
+  insert and no alert ever went out; that catch now logs a warning.
+- The notice reads "New Airbnb booking · House · Room N · Oct 13 – Oct 16 (3 nights) · <code>" and links to the
+  booking RECORD page (`bookingRecordUrl`), never the calendar. The Assistant thread shows an "Open booking"
+  action for any notice whose body carries a record link (`bookingRecordPathFromNotice`).
+- Check-in (9:00 PT the day before) and check-out (9:00 PT that morning) reminders ride the existing `booking`
+  reminder kind for channel stays, holds and leases, to the owner and every teammate with the house; a host
+  block ("Airbnb (Not available)") is never reminded. Each is its own subject (`…` and `…:out`), so a re-sweep
+  never double-sends.
+- `update_room_block` (assistant-only, not on MCP) edits a hold's dates, guest, phone and notes with the same
+  overlap rule as `block_room_dates`; the three booking reads accept Calendar at notification or edit.
