@@ -445,7 +445,6 @@ export function PortalNotificationPreviewModal({
           placeholder="Write your message…"
           minHeightClass="min-h-[7rem]"
           maxLength={viaSms ? 1600 : undefined}
-          showCharCount={viaSms}
           dataAttr="portal-notification-body"
         />
 

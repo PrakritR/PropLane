@@ -5,6 +5,7 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
 import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 
 type Channel = "inbox" | "email" | "sms";
@@ -84,6 +85,7 @@ export async function sendScheduledInboxMessageNow(
         return await preflightFailure("Scheduled recipient account changed.");
       }
     }
+    const phoneOnly = Boolean(active.recipientPhone) && !active.recipientEmail && !active.recipientUserId && !active.broadcastCategories?.length && !residentOriginated;
     const fromName = residentOriginated
       ? active.senderName?.trim() || "Resident"
       : profile?.full_name?.trim() || "Property manager";
@@ -114,6 +116,24 @@ export async function sendScheduledInboxMessageNow(
         return;
       }
       try {
+        if (channel === "sms" && phoneOnly) {
+          // Same outbound path, consent, billing reserve and work number as a manual reply.
+          const sent = await sendManagerConversationSms(db, {
+            actorUserId: active.managerUserId,
+            idempotencyKey: `sched-${active.id}`.padEnd(16, "_").slice(0, 128),
+            toPhone: active.recipientPhone ?? "",
+            text: active.body,
+            conversationKey: active.conversationKey ?? null,
+          });
+          const sentStatus = String(sent.body.status ?? "");
+          const smsOutcome: Exclude<Outcome, "claimed"> =
+            sent.status === 409 && sent.body.code === "delivery_outcome_unknown" ? "unknown" :
+            sent.status >= 200 && sent.status < 300 ? (sentStatus === "unknown" ? "unknown" : "submitted") : "failed";
+          await resolve(db, active.id, channel, acquired.token, smsOutcome,
+            smsOutcome === "submitted" ? undefined : String(sent.body.error ?? sent.body.code ?? "sms_failed").slice(0, 200));
+          channels[channel] = smsOutcome;
+          return;
+        }
         const result = await deliverPortalInboxMessage(db, {
           ...base,
           suppressInbox: channel !== "inbox",

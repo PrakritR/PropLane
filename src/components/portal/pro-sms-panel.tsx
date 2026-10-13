@@ -25,7 +25,7 @@ import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
 } from "@/components/portal/inbox-thread-assistant-strip";
-import { InboxComposerAiMenu, InboxComposerChannelMenu, InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
+import { InboxComposerAiMenu, InboxComposerChannelMenu, InboxComposerScheduleMenu, formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
 import { useThreadScheduledCards } from "@/components/portal/use-thread-scheduled-cards";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { buildSmsThreadScheduleBody, smsThreadCanSchedule } from "@/lib/sms-thread-schedule";
@@ -1022,10 +1022,12 @@ export const ManagerSmsPanel = forwardRef<
   }, [active, load, setActiveId, showToast]);
 
   const activeEmailAvailable = Boolean(active?.resident.residentEmail?.trim());
-  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail);
+  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail, active?.resident.phone);
   // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
   const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
     recipientEmail: active?.resident.residentEmail?.trim() ?? "",
+    recipientPhone: active?.resident.phone,
+    conversationKey: active?.resident.conversationKey,
     smsAvailable: smsUiEnabled && !active?.resident.sendDisabled,
     enabled: activeCanSchedule,
   });
@@ -1040,6 +1042,7 @@ export const ManagerSmsPanel = forwardRef<
       viaEmail: replyViaEmail,
       viaSms: replyViaSms,
       sendAtLocal: scheduleSendAt,
+      conversationKey: active?.resident.conversationKey,
     });
     if (!built.ok) {
       showToast(built.error);
@@ -1543,6 +1546,7 @@ export const ManagerSmsPanel = forwardRef<
         disabled={(!replyViaEmail && !replyViaSms) || Boolean(replyIssue)}
         placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
         maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
+        sendAtLabel={scheduleLater && activeCanSchedule ? formatScheduledLabel(scheduleSendAt) : undefined}
         dataAttr="sms-messages-reply"
         trailingControls={
           <>

@@ -540,7 +540,6 @@ export function PortalMessageBodyField({
   minHeightClass = "min-h-[9rem]",
   maxLength,
   dataAttr,
-  showCharCount = false,
 }: {
   id?: string;
   value: string;
@@ -551,7 +550,6 @@ export function PortalMessageBodyField({
   minHeightClass?: string;
   maxLength?: number;
   dataAttr?: string;
-  showCharCount?: boolean;
 }) {
   return (
     <div>
@@ -581,9 +579,6 @@ export function PortalMessageBodyField({
             maxLength={maxLength}
             data-attr={dataAttr}
           />
-          {showCharCount && maxLength ? (
-            <span className="mt-1 block text-xs text-muted">{value.trim().length}/{maxLength}</span>
-          ) : null}
         </>
       )}
     </div>

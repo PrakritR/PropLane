@@ -65,12 +65,17 @@ export function useThreadScheduledItems(email: string): ThreadScheduledItem[] {
 
 export function useThreadScheduledCards({
   recipientEmail,
+  recipientPhone,
+  conversationKey,
   smsAvailable,
   enabled = true,
   refreshKey = 0,
   includeAutomation = true,
 }: {
   recipientEmail: string;
+  /** Phone-only conversations: match scheduled Texts by E.164 phone / conversation key. */
+  recipientPhone?: string | null;
+  conversationKey?: string | null;
   smsAvailable: boolean;
   enabled?: boolean;
   /** Bump to reload (e.g. right after the composer scheduled something). */
@@ -117,11 +122,11 @@ export function useThreadScheduledCards({
   }, [enabled, refreshKey, reloadScheduled]);
 
   const items = useMemo(
-    () => (enabled ? scheduledItemsForRecipient(recipientEmail, manual, automation, automationChannelDefaultsFromSettings(settings)) : []),
-    [automation, enabled, manual, recipientEmail, settings],
+    () => (enabled ? scheduledItemsForRecipient(recipientEmail, manual, automation, automationChannelDefaultsFromSettings(settings), { phone: recipientPhone, conversationKey }) : []),
+    [automation, conversationKey, enabled, manual, recipientEmail, recipientPhone, settings],
   );
 
-  usePublishThreadScheduledItems(recipientEmail, items);
+  usePublishThreadScheduledItems(recipientEmail || recipientPhone || "", items);
 
   const cancel = useCallback(
     async (item: ScheduledRef) => {
