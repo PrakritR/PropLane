@@ -17,15 +17,14 @@ export type QuickBookPrefill = {
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}/;
 
 /**
- * Quick book is offered while the application is LIVE: pending or approved, never declined, and never a
- * row the resident withdrew or never finished — both of those keep `bucket: "pending"`, and holding a room
- * for one would email the applicant a resident invite for an application that is not standing.
+ * Quick book is offered only for an APPROVED application (captain, Oct 13): never pending, declined, withdrawn
+ * or unfinished, since holding a room would email the applicant a resident invite.
  */
 export function applicationRowCanQuickBook(row: DemoApplicantRow): boolean {
   // `isDraftShapedApplicationRow` is the draft half of `isInProgressApplicationRow`, read straight from
   // the shared vocabulary so this module stays free of the browser-side applications store.
   if (isWithdrawnApplicationRow(row) || isDraftShapedApplicationRow(row)) return false;
-  return row.bucket === "pending" || row.bucket === "approved";
+  return row.bucket === "approved";
 }
 
 /** Null when the application names no room or no move-in date: there is nothing to hold. */

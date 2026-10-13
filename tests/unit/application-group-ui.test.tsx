@@ -161,7 +161,8 @@ describe("group application — applicant Group ID hand-off", () => {
     // Copy matches the compacted `GroupInviteCallout` the organizer now sees:
     // one header line carrying the label, the recipient count and the Group ID.
     expect(screen.getByText("Roommate invite")).toBeTruthy();
-    expect(screen.getByText(/send to 2 roommates of 3/)).toBeTruthy();
+    expect(screen.getByText(ORGANIZER_ID)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
     expect(screen.getByText(/groupLeaderAppId=PROPLANE-7KQ2MW9D/)).toBeTruthy();
     dumpHtml("callout-organizer", container.innerHTML);
   });
