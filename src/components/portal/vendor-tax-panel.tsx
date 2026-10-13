@@ -7,14 +7,12 @@
  * is encrypted server-side and only its last four digits ever come back.
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Pencil } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, FileText, Receipt } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -23,7 +21,6 @@ import {
   form1099StatusLabel,
   maskTin,
   VENDOR_W9_ENTITY_TYPES,
-  vendorW9EntityLabel,
   type VendorTaxYearSummary,
   type VendorW9Profile,
 } from "@/lib/vendor-banking/tax";
@@ -62,7 +59,8 @@ function draftFrom(profile: VendorW9Profile | null): Draft {
 
 /** The page shell, or nothing when the panel sits inside another page (Documents > Tax). */
 function TaxShell({ embedded, children }: { embedded: boolean; children: ReactNode }) {
-  if (embedded) return <div data-attr="vendor-tax-embedded">{children}</div>;
+  // Embedded in Documents > Tax: no wrapper, so its list surfaces are direct children of the page body like the document rows below them.
+  if (embedded) return <>{children}</>;
   return (
     <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
       {children}
@@ -106,23 +104,30 @@ export function VendorTaxPanel({ basePath, embedded = false }: { basePath: strin
         <PortalRecordListSurface loadError="Could not load your tax info." onRetry={() => void load()} dataAttr="vendor-tax-error" />
       ) : (
         <>
-          <PortalSettingsSection
-            title="W-9"
-            action={<PortalIconAction icon={Pencil} label={hasW9 ? "Edit W-9" : "Add W-9"} data-attr="vendor-tax-edit" onClick={() => setEditing(true)} />}
-          >
-            <PortalSettingsGroup>
-              {profile ? (
-                <>
-                  <PortalSettingsRow label="Legal name"><span data-attr="vendor-tax-legal-name">{profile.legalName ?? "—"}</span></PortalSettingsRow>
-                  <PortalSettingsRow label="Tax ID"><span data-attr="vendor-tax-tin">{maskTin(profile.tinType, profile.tinLast4)}</span></PortalSettingsRow>
-                  <PortalSettingsRow label="Entity type">{vendorW9EntityLabel(profile.entityType)}</PortalSettingsRow>
-                  <PortalSettingsRow label="Address">{[profile.city, profile.state].filter(Boolean).join(", ") || "—"}</PortalSettingsRow>
-                </>
-              ) : (
-                <PortalSettingsRow label="W-9">Not submitted</PortalSettingsRow>
-              )}
-            </PortalSettingsGroup>
-          </PortalSettingsSection>
+          {/* The ONE W-9 row, with its state (submitted · Tax ID, or not submitted); the row opens the W-9 form. */}
+          <PortalRecordListSurface isEmpty={false} dataAttr="vendor-tax-w9">
+            <PortalPropertyRecordRow
+              title="W-9"
+              attention={!hasW9}
+              leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+              facts={
+                hasW9 && profile ? (
+                  <>
+                    <PortalRowFact icon={Check} srLabel="W-9 state">
+                      Submitted
+                    </PortalRowFact>
+                    <span data-attr="vendor-tax-tin">{maskTin(profile.tinType, profile.tinLast4)}</span>
+                  </>
+                ) : (
+                  <PortalRowFact icon={AlertTriangle} srLabel="W-9 state">
+                    Not submitted
+                  </PortalRowFact>
+                )
+              }
+              onOpen={() => setEditing(true)}
+              dataAttr="vendor-tax-edit"
+            />
+          </PortalRecordListSurface>
           {embedded ? null : (
             <PortalListControlStack
               className="mb-2 max-lg:mb-1.5"
@@ -148,15 +153,13 @@ export function VendorTaxPanel({ basePath, embedded = false }: { basePath: strin
             {data.years.map((year) => (
               <PortalPropertyRecordRow
                 key={year.year}
-                title={String(year.year)}
-                leading={
-                  <span className="grid size-14 place-items-center rounded-xl bg-accent text-sm font-semibold text-primary" aria-hidden>
-                    {year.year}
-                  </span>
-                }
-                leadingShape="square"
+                title="Tax summary"
+                leading={<Receipt className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
                 facts={
                   <>
+                    <PortalRowFact icon={CalendarDays} srLabel="Tax year">
+                      {String(year.year)}
+                    </PortalRowFact>
                     <span>Earnings {formatMoney(year.earningsCents, "usd")}</span>
                     <span>Fees {formatMoney(year.feesCents, "usd")}</span>
                     <span>Refunds {formatMoney(year.refundsCents, "usd")}</span>

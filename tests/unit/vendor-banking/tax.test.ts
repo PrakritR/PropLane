@@ -107,10 +107,10 @@ describe("tax years", () => {
 
   it("says what happens for the 1099", () => {
     const over = { year: 2026, earningsCents: 241_000, feesCents: 0, refundsCents: 0, reportableCents: 241_000, thresholdCents: 200_000, overThreshold: true };
-    expect(form1099StatusLabel(over, { hasW9: true, currentYear: 2026 })).toBe("We'll file your 1099 for 2026");
-    expect(form1099StatusLabel(over, { hasW9: false, currentYear: 2026 })).toBe("Add your W-9 so we can file your 1099");
-    expect(form1099StatusLabel({ ...over, year: 2025, thresholdCents: 60_000 }, { hasW9: true, currentYear: 2026 })).toBe("1099 filed by PropLane in Jan 2026");
-    expect(form1099StatusLabel({ ...over, overThreshold: false }, { hasW9: true, currentYear: 2026 })).toContain("No 1099 needed");
+    expect(form1099StatusLabel(over, { hasW9: true, currentYear: 2026 })).toBe("1099 in Jan 2027");
+    expect(form1099StatusLabel(over, { hasW9: false, currentYear: 2026 })).toBe("W-9 needed for 1099");
+    expect(form1099StatusLabel({ ...over, year: 2025, thresholdCents: 60_000 }, { hasW9: true, currentYear: 2026 })).toBe("1099 filed Jan 2026");
+    expect(form1099StatusLabel({ ...over, overThreshold: false }, { hasW9: true, currentYear: 2026 })).toBe("No 1099 needed");
   });
 });
 

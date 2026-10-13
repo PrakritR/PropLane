@@ -444,14 +444,15 @@ export function PreviewPanel({
   sub,
   facts,
 }: {
-  title: string;
+  /** Omit when the surrounding pop-up already heads the column (a second heading repeats it). */
+  title?: string;
   name: ReactNode;
   sub?: ReactNode;
   facts: { label: string; value: ReactNode; warn?: boolean }[];
 }) {
   return (
     <section>
-      <h3 className="mb-2.5 text-xs font-semibold text-muted">{title}</h3>
+      {title ? <h3 className="mb-2.5 text-xs font-semibold text-muted">{title}</h3> : null}
       <div className="rounded-[10px] border border-border bg-card p-3.5">
         <div className="text-[15px] font-bold text-foreground">{name}</div>
         {sub ? <div className="text-[12.5px] text-muted">{sub}</div> : null}

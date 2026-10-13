@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type RefObject } from "react";
+import { formatPortalListDate } from "@/lib/portal-display-dates";
 
 type Field = { label: string; value: string; invalid: boolean; element: HTMLElement };
 
@@ -19,6 +20,8 @@ export function readPopupFields(root: HTMLElement): Field[] {
     const value = element instanceof HTMLSelectElement ? Array.from(element.selectedOptions).map(option => option.text).join(", ")
       : element instanceof HTMLInputElement && ["checkbox", "radio"].includes(element.type) ? (element.checked ? "Yes" : "No")
       : element.getAttribute("role") === "combobox" ? element.textContent?.trim() ?? ""
+      // A date input holds an ISO wall date; the rail and preview say "Oct 13, 2026", never "2026-10-13".
+      : element instanceof HTMLInputElement && element.type === "date" ? formatPortalListDate(control.value)
       : control.value ?? "";
     const invalid = Boolean(control.willValidate && !control.validity.valid) || element.getAttribute("aria-invalid") === "true";
     return [{ label, value, invalid, element }];
@@ -67,9 +70,10 @@ export function PopupFormContext({ formRef, hasContext }: { formRef: RefObject<H
  * Domain outputs (email, charge, invoice, receipt) supply a caller-owned preview instead.
  */
 export function PopupFormSnapshot({ formRef }: { formRef: RefObject<HTMLDivElement | null> }) {
-  const fields = usePopupFields(formRef);
+  // Only fields that hold a value: a blank one is not a "Not set" row, and with nothing filled in the column does not exist.
+  const fields = usePopupFields(formRef).filter(field => field.value.trim());
   if (fields.length === 0) return null;
   return <dl className="divide-y divide-border rounded-[10px] border border-border bg-card px-4 text-sm" data-attr="popup-draft-preview" data-popup-rail-content="">
-    {fields.map((field, index) => <div key={`${field.label}-${index}`} className="py-3"><dt className="text-xs text-muted">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words font-semibold">{field.value || "Not set"}</dd></div>)}
+    {fields.map((field, index) => <div key={`${field.label}-${index}`} className="py-3"><dt className="text-xs text-muted">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words font-semibold">{field.value}</dd></div>)}
   </dl>;
 }

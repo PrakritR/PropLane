@@ -10,16 +10,10 @@ import {
   PORTAL_TABLE_TR,
 } from "@/components/portal/portal-data-table";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
-import { Badge } from "@/components/ui/badge";
+import { VendorTimelineState } from "@/components/portal/vendor-timeline-state";
 import { safeFormatDateTime } from "@/lib/pacific-time";
-import type { VendorPayoutTimelineState, VendorPayoutTimelineStep } from "@/lib/vendor-payout-timeline";
+import type { VendorPayoutTimelineStep } from "@/lib/vendor-payout-timeline";
 
-const STATE_BADGE: Record<VendorPayoutTimelineState, { tone: "confirmed" | "pending" | "overdue" | "neutral"; label: string }> = {
-  done: { tone: "confirmed", label: "Done" },
-  pending: { tone: "pending", label: "Pending" },
-  failed: { tone: "overdue", label: "Failed" },
-  skipped: { tone: "neutral", label: "Skipped" },
-};
 
 /**
  * Compact dated timeline of one vendor payout: invoice approved → payout created →
@@ -59,13 +53,12 @@ export function VendorPayoutTimeline({
             </thead>
             <tbody>
               {steps.map((step) => {
-                const badge = STATE_BADGE[step.state];
                 return (
                   <tr key={step.id} className={PORTAL_TABLE_TR} data-attr={`${dataAttr}-step`} data-step={step.id} data-state={step.state}>
                     <td className={`${PORTAL_TABLE_TD_COMPACT} font-medium text-foreground`}>
                       <span className="inline-flex flex-wrap items-center gap-2">
                         {step.label}
-                        <Badge tone={badge.tone}>{badge.label}</Badge>
+                        <VendorTimelineState state={step.state} failedLabel="Failed" />
                       </span>
                     </td>
                     <td className={`${PORTAL_TABLE_TD_COMPACT} whitespace-nowrap tabular-nums text-muted`}>

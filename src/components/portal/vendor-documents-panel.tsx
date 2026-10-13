@@ -32,6 +32,7 @@ import {
   VENDOR_DOCUMENT_LABELS,
   VENDOR_DOCUMENT_SECTIONS,
   isVendorComplianceDocumentKind,
+  isVendorDocumentRowHidden,
   readVendorDocumentDataUrl,
   type VendorDocumentKind,
   type VendorDocumentRecord,
@@ -307,7 +308,9 @@ export function VendorDocumentsPanel({
   const sectionId = VENDOR_DOCUMENT_TAB_SECTION[tabId];
   const needle = listSearch.trim().toLowerCase();
   const tabRows = useMemo(() => {
-    const rows = sectionId ? ownRows.filter((row) => row.sectionId === sectionId) : [];
+    const rows = sectionId
+      ? ownRows.filter((row) => row.sectionId === sectionId).filter((row) => !isVendorDocumentRowHidden(sectionId, row.kind, Boolean(row.doc)))
+      : [];
     if (!needle) return rows;
     return rows.filter((row) =>
       `${VENDOR_DOCUMENT_LABELS[row.kind]} ${row.doc?.fileName ?? ""}`.toLowerCase().includes(needle),
@@ -541,35 +544,34 @@ export function VendorDocumentsPanel({
 
   return (
     <ManagerPortalPageShell title="Documents" hideTitleOnMobileNav compactFilterRow>
-      <div className="mb-2 max-lg:mb-1.5">
-        <RecordTabBand
-          dataAttr="vendor-documents-band"
-          ariaLabel="Document type"
-          tabs={VENDOR_DOCUMENT_ROUTE_TABS.map((id) => ({ id, label: DOCUMENT_TAB_LABELS[id] }))}
-          activeId={tabId}
-          onChange={(id) => navigate(vendorDocumentsHref(basePath, id as VendorDocumentRouteTab))}
-          search={
-            showSearch
-              ? { value: listSearch, onChange: setListSearch, placeholder: "Search documents" }
-              : undefined
-          }
-          actions={
-            tabId === "statements" ? (
-              <PortalIconAction
-                icon={Download}
-                label="Export all activity CSV"
-                data-attr="vendor-statements-export-all"
-                onClick={() => window.open("/api/vendor/payouts/statement?format=csv", "_blank", "noopener")}
-              />
-            ) : undefined
-          }
-          plus={
-            hasUploads
-              ? { label: portalListAddPrimaryLabel("document"), onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-add" }
-              : undefined
-          }
-        />
-      </div>
+      <RecordTabBand
+        className="mb-2 max-lg:mb-1.5"
+        dataAttr="vendor-documents-band"
+        ariaLabel="Document type"
+        tabs={VENDOR_DOCUMENT_ROUTE_TABS.map((id) => ({ id, label: DOCUMENT_TAB_LABELS[id] }))}
+        activeId={tabId}
+        onChange={(id) => navigate(vendorDocumentsHref(basePath, id as VendorDocumentRouteTab))}
+        search={
+          showSearch
+            ? { value: listSearch, onChange: setListSearch, placeholder: "Search documents" }
+            : undefined
+        }
+        actions={
+          tabId === "statements" ? (
+            <PortalIconAction
+              icon={Download}
+              label="Export all activity CSV"
+              data-attr="vendor-statements-export-all"
+              onClick={() => window.open("/api/vendor/payouts/statement?format=csv", "_blank", "noopener")}
+            />
+          ) : undefined
+        }
+        plus={
+          hasUploads
+            ? { label: portalListAddPrimaryLabel("document"), onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-add" }
+            : undefined
+        }
+      />
 
       {tabId === "statements" ? (
         <VendorStatementsPanel basePath={basePath} embedded />

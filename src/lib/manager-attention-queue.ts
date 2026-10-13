@@ -11,7 +11,9 @@ export type ManagerAttentionRow = {
   title: string;
   /** Optional; the manager queue is title and action only (no muted sentence under a row). */
   detail?: string;
-  actionLabel: "Review" | "Approve" | "Remind" | "Set up" | "Sign" | "Confirm" | "Continue" | "Reply";
+  actionLabel: "Review" | "Approve" | "Remind" | "Set up" | "Sign" | "Confirm" | "Continue" | "Reply" | "Verify phone";
+  /** The action is a compact icon (the label is its tooltip and aria-label), for a row that is a one-step chore. */
+  iconAction?: boolean;
   href: string;
   tone: "danger" | "pending" | "info";
 };

@@ -30,7 +30,8 @@ export function PortalSettingsSection({
   children,
   id,
 }: {
-  title: string;
+  /** Omit when the page already carries this heading (a section titled "Profile" under the Profile page repeats it). */
+  title?: string;
   action?: ReactNode;
   children: ReactNode;
   /** Anchor a settings gear links to (`/portal/profile?tab=…#<id>`). */
@@ -42,7 +43,7 @@ export function PortalSettingsSection({
       <section data-slot="settings-section" id={id} className="scroll-mt-4 space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {titleStyle === "heading" ? (
+            {!title ? null : titleStyle === "heading" ? (
               <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
             ) : (
               <h2 className="text-xs font-medium uppercase tracking-[0.06em] text-muted">{title}</h2>
@@ -338,25 +339,29 @@ export function PortalSettingsAutosaveField({
 }) {
   return (
     <div className="border-b border-border/70 px-4 py-3 last:border-0">
-      <div className="flex items-center gap-4">
+      {/* On a phone the label sits over the control (flex-wrap), so the field gets the whole row, not a 100px sliver. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 sm:flex-nowrap">
         <label
           htmlFor={htmlFor}
-          className="w-[7.5rem] shrink-0 text-[13px] text-muted sm:w-36"
+          className="shrink-0 max-sm:basis-full text-[13px] text-muted sm:w-36"
         >
           {label}
         </label>
-        <div className="min-w-0 flex-1">{children}</div>
-        <span
-          aria-live="polite"
-          className="w-16 shrink-0 text-right text-[11.5px] font-semibold tabular-nums"
-        >
-          {state === "saving" ? <span className="text-muted">Saving…</span> : null}
-          {state === "saved" ? <span className="text-[var(--status-confirmed-fg,#15803d)]">Saved</span> : null}
-          {state === "error" ? <span className="text-red-600">Failed</span> : null}
-        </span>
+        {/* The save state sits inside the control's right edge, so the field itself takes the whole row. */}
+        <div className="relative min-w-0 flex-1 [&_input]:pr-[4.5rem] [&:has(select)>span]:right-9">
+          {children}
+          <span
+            aria-live="polite"
+            className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[11.5px] font-semibold tabular-nums"
+          >
+            {state === "saving" ? <span className="text-muted">Saving…</span> : null}
+            {state === "saved" ? <span className="text-[var(--status-confirmed-fg,#15803d)]">Saved</span> : null}
+            {state === "error" ? <span className="text-red-600">Failed</span> : null}
+          </span>
+        </div>
       </div>
       {state === "error" ? (
-        <p className="mt-1.5 pl-[8.5rem] text-[12px] text-red-600 sm:pl-40">
+        <p className="mt-1.5 text-[12px] text-red-600 sm:pl-40">
           {error ?? "Could not save."}{" "}
           {onRetry ? (
             <button

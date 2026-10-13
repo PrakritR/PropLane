@@ -333,24 +333,29 @@ export function VendorQuoteWizard({
       assistantScopeKey={`vendor-add-${door}`}
       lastLabel={door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Submit bid"}
       lastDisabled={door === "invoice" ? !labor.trim() : !job}
+      // A payment request needs no service (PRP-254: a vendor can bill a manager directly), so its Service step is
+      // valid empty; every other door needs the service picked before Next.
       nextDisabled={door !== "invoice" && currentId === "job" && !job}
       busy={busy}
       onFinish={() => void finish()}
       dataAttrPrefix="vendor-quote-wizard"
       finishDataAttr={door === "invoice" ? "vendor-invoice-submit" : undefined}
+      // Empty until something is chosen or typed: a preview of nothing is a column of "Not set".
       sidePanel={
-        <PreviewPanel
-          title="Service preview"
-          name={job?.title ?? (door === "invoice" ? "No service yet" : "No service yet")}
-          sub={job ? propertyLabel(job) : door === "invoice" ? "No house" : "Pick a service"}
-          facts={[
-            { label: "House", value: job ? propertyLabel(job) : "Not set", warn: door !== "invoice" && !job },
-            ...(door === "invoice"
-              ? []
-              : [{ label: "When", value: when ? toDatetimeLocalValue(fromDatetimeLocalValue(when) ?? undefined) || when : "Not set", warn: !when }]),
-            { label: door === "invoice" ? "Invoice" : "Bid", value: labor.trim() ? `$${labor}` : "Not set", warn: door !== "visit" && !labor.trim() },
-          ]}
-        />
+        job || when.trim() || labor.trim() ? (
+          <PreviewPanel
+            title="Service preview"
+            name={job?.title ?? (door === "invoice" ? "Payment request" : door === "visit" ? "Visit" : "Bid")}
+            sub={job ? propertyLabel(job) : undefined}
+            facts={[
+              ...(job ? [{ label: "House", value: propertyLabel(job) }] : []),
+              ...(door !== "invoice" && when.trim()
+                ? [{ label: "When", value: toDatetimeLocalValue(fromDatetimeLocalValue(when) ?? undefined) || when }]
+                : []),
+              ...(labor.trim() ? [{ label: door === "invoice" ? "Invoice" : "Bid", value: `$${labor}` }] : []),
+            ]}
+          />
+        ) : null
       }
     >
       {currentId === "job" ? (

@@ -629,6 +629,7 @@ export function ManagerPortalPageShell({
   /** Fixed title + tabs/search; only the body region scrolls (default on). */
   stickyPageChrome = true,
   surfaceCard = false,
+  pageFrame = false,
   count,
 }: {
   title: string;
@@ -666,6 +667,12 @@ export function ManagerPortalPageShell({
   stickyPageChrome?: boolean;
   /** Legacy white card shell — default is flat on the page canvas. */
   surfaceCard?: boolean;
+  /**
+   * A page with no list command band under the header (Dashboard, an overview) still gets the list
+   * pages' frame: the title band bleeds to the column edges at the same x, with no extra top padding
+   * (`[data-page-frame]` in globals.css). Pages whose command band is a direct child get it for free.
+   */
+  pageFrame?: boolean;
   /** Optional record count beside the title. */
   count?: number;
 }) {
@@ -705,6 +712,7 @@ export function ManagerPortalPageShell({
     <div
       data-slot="portal-page-shell"
       {...(viewportFillBody ? { "data-viewport-fill-body": "" } : {})}
+      {...(pageFrame ? { "data-page-frame": "" } : {})}
       className={cn(
         surfaceCard ? PORTAL_SECTION_SURFACE : PORTAL_PAGE_SHELL_BARE,
         surfaceCard && "relative z-0 min-w-0 w-full shrink-0",

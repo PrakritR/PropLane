@@ -21,6 +21,7 @@ import { CalendarDays, Clock, Wrench, FileText, Mail } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { useVendorPhoneNeedsVerification } from "@/hooks/use-vendor-phone-needs-verification";
 import {
   MANAGER_WORK_ORDERS_EVENT,
   readVendorWorkOrderRows,
@@ -48,6 +49,7 @@ export function VendorDashboard({}: { displayName: string }) {
   const [nowMs] = useState(() => Date.now());
   const bump = () => setTick((n) => n + 1);
   const [paymentsConnected, setPaymentsConnected] = useState(false);
+  const phoneNeedsVerification = useVendorPhoneNeedsVerification();
 
   useEffect(() => {
     void Promise.allSettled([
@@ -104,7 +106,7 @@ export function VendorDashboard({}: { displayName: string }) {
   if (bidsPending.length > 0) {
     attentionRows.push({
       id: "bids",
-      title: `${bidsPending.length} ${bidsPending.length === 1 ? "job" : "jobs"} waiting on a bid`,
+      title: `${bidsPending.length} ${bidsPending.length === 1 ? "service" : "services"} waiting on a bid`,
       detail: bidsPending[0] ? propertyLabel(bidsPending[0]) : "Services",
       actionLabel: "Continue",
       href: vendorWorkOrderListHref(BASE, "open"),
@@ -129,6 +131,19 @@ export function VendorDashboard({}: { displayName: string }) {
       actionLabel: "Confirm",
       href: `${BASE}/financials/payouts`,
       tone: "pending",
+    });
+  }
+
+  if (phoneNeedsVerification) {
+    // The one place the "verify your phone" nudge lives outside Settings > Phone (round 5): a compact
+    // attention row with an icon action, no per-page banner.
+    attentionRows.push({
+      id: "messaging",
+      title: "Verify your phone",
+      actionLabel: "Verify phone",
+      iconAction: true,
+      href: `${BASE}/profile?tab=messaging`,
+      tone: "info",
     });
   }
 
@@ -226,12 +241,13 @@ export function VendorDashboardView({
       title="Dashboard"
       hideTitleOnNative
       hideTitleOnMobileNav
+      pageFrame
     >
       <PortalHomeLayout
         kpis={
           <>
             <KpiCard
-              label="Open jobs"
+              label="Open services"
               value={String(openJobs)}
               href={vendorWorkOrderListHref(BASE, "open")}
               dataAttr="vendor-dashboard-kpi-jobs"

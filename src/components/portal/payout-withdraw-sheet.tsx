@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PreviewPanel } from "@/components/portal/add-workspace/parts";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+import { bankAccountLabel } from "@/lib/vendor-banking/bank-label";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { computeInstantPayoutFeeCents } from "@/lib/stripe-payouts";
@@ -150,21 +151,20 @@ export function PayoutWithdrawSheet({
       open={open}
       title="Withdraw"
       onClose={onClose}
-      contextPanel={<PopupRecordPreview rows={[{ label: "Available", value: formatMoney(availableCents, currency) }, { label: "To", value: account ? `${account.label} ····${account.last4}` : "No account" }]} />}
-      previewLabel="Withdrawal preview"
-      preview={
+      contextPanel={<PopupRecordPreview rows={[{ label: "Available", value: formatMoney(availableCents, currency) }, { label: "To", value: account ? bankAccountLabel(account) : "No account" }]} />}
+      previewLabel="Withdrawal"
+      // Empty until an amount is set: no placeholder rows, no preview column.
+      preview={amountCents > 0 ?
         <PreviewPanel
-          title="Withdrawal"
           name={formatMoney(amountCents, currency)}
-          sub={account ? `${account.label} ····${account.last4}` : "No payout account"}
+          sub={account ? bankAccountLabel(account) : "No payout account"}
           facts={[
-            { label: "Amount", value: amountCents > 0 ? formatMoney(amountCents, currency) : "Not set" },
+            { label: "Amount", value: formatMoney(amountCents, currency) },
             { label: "Speed", value: method === "instant" ? "Instant" : "Standard" },
             { label: "Arrives", value: method === "instant" ? "Within 30 minutes" : "1–2 business days" },
             { label: method === "instant" ? "Bank receives" : "Fee", value: method === "instant" ? formatMoney(netCents, currency) : "Free" },
           ]}
-        />
-      }
+        /> : null}
       primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account || busy, dataAttr: "withdraw-confirm" }}>
       <div className="space-y-4">
         <label className="block text-sm font-medium">Amount
@@ -176,7 +176,7 @@ export function PayoutWithdrawSheet({
           if (!next) return;
           setAccountId(id);
           setMethod(next.kind === "card" ? "instant" : "standard");
-        }} options={accounts.map((item) => ({ value: item.id, label: `${item.label} ····${item.last4}` }))} />
+        }} options={accounts.map((item) => ({ value: item.id, label: bankAccountLabel(item) }))} />
         <label className="flex items-center gap-2 text-sm"><input type="radio" name="withdraw-speed" checked={method === "standard"} disabled={!standardAllowed} onChange={() => setMethod("standard")} />Standard · free</label>
         <label className="flex items-center gap-2 text-sm"><input type="radio" name="withdraw-speed" checked={method === "instant"} disabled={Boolean(instantDisabledReason)} onChange={() => setMethod("instant")} />Instant · {instantFeeLabel}</label>
         {instantDisabledReason ? <p className="text-sm text-muted">{instantDisabledReason}</p> : null}

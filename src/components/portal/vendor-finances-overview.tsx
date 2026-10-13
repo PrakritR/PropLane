@@ -3,8 +3,8 @@
 /**
  * Vendor Finances > Overview tab (vendor-portal-ia-1007; a tab of the one Finances page since
  * vendor-finances-1008). The page above it already shows Available / Pending / Held / On the way,
- * so this body adds only what those cards do not: Owed to you, Paid this year, this month's
- * earnings and spend, then "By manager" rows. Every figure comes from
+ * so this body adds only what those cards do not, as plain rows in the same money format (no second
+ * tile row): Owed to you, Paid this year, this month's earnings and spend, then "By manager" rows. Every figure comes from
  * `GET /api/vendor/finances/overview` (integer cents computed on the server); this component
  * only formats. When Stripe cannot answer, the figures are the PropLane ledger's and a quiet
  * "Stripe unavailable" fact says so above them, never an error page — unless the page's own
@@ -13,23 +13,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
+import { formatMoney } from "@/components/portal/portal-payouts-panel";
+import { vendorOverviewRows } from "@/lib/vendor-banking/overview-display";
 import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
 import { PortalPropertyRecordRow, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import type { VendorFinancesOverview } from "@/lib/vendor-banking/overview";
-
-/** Whole dollars like the manager overview ("$7,700"); exact cents live in Statements. */
-function wholeMoney(cents: number | null | undefined, currency = "usd"): string {
-  if (cents === null || cents === undefined) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase(), maximumFractionDigits: 0 }).format(
-    Math.round(cents / 100),
-  );
-}
-
-function monthName(monthKey: string): string {
-  const d = new Date(`${monthKey}-15T12:00:00`);
-  return Number.isNaN(d.getTime()) ? "This month" : d.toLocaleString("en-US", { month: "long" });
-}
 
 export function VendorFinancesOverviewBody({ hideStripeNotice = false }: { hideStripeNotice?: boolean } = {}) {
   const [data, setData] = useState<VendorFinancesOverview | null>(null);
@@ -71,14 +59,7 @@ export function VendorFinancesOverviewBody({ hideStripeNotice = false }: { hideS
   }
 
   const cur = data.balance.currency;
-  const month = monthName(data.month.monthKey);
-  const stat = (id: string, label: string, cents: number | null, tone?: "ok" | "danger"): PortalStat => ({
-    id,
-    label,
-    value: wholeMoney(cents, cur),
-    dataAttr: `vendor-overview-${id}`,
-    tone: tone === "ok" && (cents ?? 0) > 0 ? "ok" : tone === "danger" && (cents ?? 0) < 0 ? "danger" : undefined,
-  });
+  const rows = vendorOverviewRows(data, formatMoney);
 
   return (
     <div className="space-y-4 pb-6" data-attr="vendor-finances-overview">
@@ -87,19 +68,19 @@ export function VendorFinancesOverviewBody({ hideStripeNotice = false }: { hideS
           Stripe unavailable
         </p>
       ) : null}
-      <PortalStatStrip
-        size="lg"
-        dataAttr="vendor-overview-month-strip"
-        className="[grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]"
-        items={[
-          stat("owed", "Owed to you", data.balance.owedCents),
-          stat("paid-year", "Paid this year", data.balance.paidThisYearCents, "ok"),
-          stat("earned", `Earned (${month})`, data.month.earnedCents, "ok"),
-          stat("spent", `Spent (${month})`, data.month.spentCents),
-          stat("profit", `Profit (${month})`, data.month.profitCents, "ok"),
-          { id: "jobs", label: `Jobs (${month})`, value: String(data.month.jobs), dataAttr: "vendor-overview-jobs" },
-        ]}
-      />
+      <section className="overflow-hidden rounded-[10px] border border-border bg-card" data-attr="vendor-overview-month-rows">
+        {rows.map((row) => (
+          <div key={row.id} className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 last:border-b-0">
+            <span className="min-w-0 truncate text-[14px] text-foreground">{row.label}</span>
+            <strong
+              className={`shrink-0 text-[15px] font-semibold tabular-nums ${row.tone === "ok" ? "text-[var(--status-confirmed-fg)]" : "text-foreground"}`}
+              data-attr={`vendor-overview-${row.id}`}
+            >
+              {row.value}
+            </strong>
+          </div>
+        ))}
+      </section>
       {data.byManager.length > 0 ? (
         <section className="overflow-hidden rounded-[10px] border border-border bg-card" data-attr="vendor-overview-by-manager">
           <h3 className="border-b border-border px-4 py-2.5 text-[14px] font-semibold text-foreground">By manager</h3>
@@ -112,11 +93,11 @@ export function VendorFinancesOverviewBody({ hideStripeNotice = false }: { hideS
                 leadingShape="square"
                 facts={
                   <>
-                    <span className="font-medium text-[var(--status-confirmed-fg)]">Earned {wholeMoney(row.earnedCents, cur)}</span>
-                    <span>Spent {wholeMoney(row.spentCents, cur)}</span>
+                    <span className="font-medium text-[var(--status-confirmed-fg)]">Earned {formatMoney(row.earnedCents, cur)}</span>
+                    <span>Spent {formatMoney(row.spentCents, cur)}</span>
                   </>
                 }
-                amount={wholeMoney(row.profitCents, cur)}
+                amount={formatMoney(row.profitCents, cur)}
                 dataAttr="vendor-overview-by-manager-row"
               />
             ))}
