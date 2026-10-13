@@ -50,8 +50,10 @@ below goes through them.
 ### Custom work email local part
 
 The owner may rename the workspace's mailbox local part in Settings →
-Messaging → Work email (e.g. `assist-jane-smith@…` → `frontdesk@…`) instead of
-living with the auto-generated `assist-<slug>` address. `POST
+Messaging → Work email (e.g. `seattlehomes@…` → `frontdesk@…`) instead of
+living with the allocated one (the workspace-name rule in § The whole team hears
+the work email; only a workspace with no usable name falls back to
+`assist-<owner>`). `POST
 /api/manager/assistant-email` gained two actions:
 `check_address` (`{ action: "check_address", local }`, rate limited, returns
 `available` / `current` / `taken` / `reserved` / `invalid`) and `set_address`
@@ -74,9 +76,12 @@ status). Both go through `checkWorkspaceAssistantMailboxLocal` /
   admin support inbox, never this feature, no matter what the manager scheme
   allows elsewhere).
 - **One address per workspace.** Renaming updates the workspace's existing
-  active row in place; the OLD local part stops resolving the instant the
-  change commits, because inbound resolution reads `mailbox_local` off that
-  same row. There is no grace period and no forwarding.
+  active row in place, because inbound resolution reads `mailbox_local` off that
+  same row. The OLD local part is held for `RELEASED_MAILBOX_ALIAS_DAYS` (30) in
+  `manager_assistant_email_aliases`, so mail still reaches the renamed row for a
+  month and no other workspace can take the name meanwhile; renaming back onto
+  an alias this same owner holds reclaims it outright. Nothing is forwarded
+  anywhere else.
 
 ## How it works
 
