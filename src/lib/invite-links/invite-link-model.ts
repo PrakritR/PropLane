@@ -121,10 +121,11 @@ export function inviteLinkUrl(origin: string, token: string): string {
 
 /**
  * Workspace code: a short, human-typeable alias of ONE invite link
- * ("SH-7K4Q" = two letters from the workspace name + four base32 characters).
+ * ("SH-7K4Q2M" = two letters from the workspace name + six base32 characters).
  * It resolves to the same row as the raw token, so expiry, use budget and
  * revocation are the link's own. No 0/O/1/I so it survives being read aloud.
  */
+export const INVITE_CODE_TAIL_LENGTH = 6;
 export const INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export function inviteCodePrefix(workspaceName: string | null | undefined): string {
@@ -139,13 +140,26 @@ export function inviteCodePrefix(workspaceName: string | null | undefined): stri
   return (initials + "PL").slice(0, 2);
 }
 
+/**
+ * CSPRNG int in [0, n) via Web Crypto (same CSPRNG as node:crypto randomInt, but
+ * this module is also bundled for the browser). Rejection sampling, no modulo bias.
+ */
+function csprngInt(n: number): number {
+  const limit = 256 - (256 % n);
+  const buf = new Uint8Array(1);
+  for (;;) {
+    globalThis.crypto.getRandomValues(buf);
+    if (buf[0] < limit) return buf[0] % n;
+  }
+}
+
 /** `random` returns an int in [0, n); injectable for tests. */
 export function generateInviteCode(
   workspaceName: string | null | undefined,
-  random: (n: number) => number = (n) => Math.floor(Math.random() * n),
+  random: (n: number) => number = csprngInt,
 ): string {
   let tail = "";
-  for (let i = 0; i < 4; i += 1) tail += INVITE_CODE_ALPHABET[random(INVITE_CODE_ALPHABET.length)];
+  for (let i = 0; i < INVITE_CODE_TAIL_LENGTH; i += 1) tail += INVITE_CODE_ALPHABET[random(INVITE_CODE_ALPHABET.length)];
   return `${inviteCodePrefix(workspaceName)}-${tail}`;
 }
 
@@ -169,7 +183,7 @@ export function parseInviteInput(raw: unknown): ParsedInviteInput | null {
     return text ? { kind: "token", token: text } : null;
   }
   const squashed = text.replace(/[\s-]+/g, "").toUpperCase();
-  if (/^[A-Z0-9]{6}$/.test(squashed)) {
+  if (/^[A-Z0-9]{8}$/.test(squashed)) {
     return { kind: "code", code: `${squashed.slice(0, 2)}-${squashed.slice(2)}` };
   }
   return { kind: "token", token: text };

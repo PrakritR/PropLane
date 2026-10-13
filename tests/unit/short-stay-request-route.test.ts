@@ -9,14 +9,15 @@ vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: vi.fn(async ()
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
 const availability = vi.fn();
 vi.mock("@/lib/room-availability-range.server", () => ({ roomAvailabilityForRange: (...args: unknown[]) => availability(...args) }));
-vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "1.2.3.4", rateLimit: async () => ({ ok: true }) }));
+const rateLimit = vi.fn(async (..._a: unknown[]) => ({ ok: true }));
+vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "1.2.3.4", rateLimit: (...a: unknown[]) => rateLimit(...a) }));
 
 import { submitShortStayRequest } from "@/lib/short-stay-request.server";
 
 const TODAY = "2026-10-12";
 const OWNER = "owner-1";
 
-function makeDb(opts: { propertyStatus?: string; upsertError?: { code: string } | null } = {}) {
+function makeDb(opts: { propertyStatus?: string; upsertError?: { code: string } | null; holds?: Array<Record<string, unknown>> } = {}) {
   const upserts: unknown[] = [];
   const property = {
     id: "prop-1",
@@ -38,6 +39,10 @@ function makeDb(opts: { propertyStatus?: string; upsertError?: { code: string } 
       chain.select = () => chain;
       chain.eq = () => chain;
       chain.is = () => chain;
+      chain.gte = () => chain;
+      chain.limit = () => chain;
+      chain.then = (resolve: (v: unknown) => void) =>
+        resolve({ data: table === "portal_schedule_records" ? (opts.holds ?? []).map((row_data) => ({ id: "h", row_data })) : [] });
       chain.maybeSingle = async () =>
         table === "manager_property_records" ? { data: property } : { data: { email: "owner@proplane.test", full_name: "Ambika Mago" } };
       chain.upsert = async (row: unknown) => {
@@ -64,6 +69,7 @@ const valid = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  rateLimit.mockResolvedValue({ ok: true });
   availability.mockResolvedValue({ ok: true, rooms: [{ roomId: "r3", available: true }] });
 });
 
@@ -139,5 +145,35 @@ describe("submitShortStayRequest", () => {
   it("404s a listing that is not live", async () => {
     const { db } = makeDb({ propertyStatus: "draft" });
     expect(await submitShortStayRequest(db, valid, { today: TODAY })).toMatchObject({ ok: false, status: 404 });
+  });
+});
+
+describe("short-stay abuse caps", () => {
+  it("429s when the phone or the property limit is exceeded, creating nothing", async () => {
+    rateLimit.mockImplementation(async (key: unknown) => ({ ok: !String(key).startsWith("short-stay-phone:") }));
+    const a = makeDb();
+    expect(await submitShortStayRequest(a.db, valid, { today: TODAY })).toMatchObject({ ok: false, status: 429 });
+    rateLimit.mockImplementation(async (key: unknown) => ({ ok: !String(key).startsWith("short-stay-property:") }));
+    expect(await submitShortStayRequest(a.db, valid, { today: TODAY })).toMatchObject({ ok: false, status: 429 });
+    expect(a.upserts).toHaveLength(0);
+  });
+
+  it("409s a second open hold for the same phone and room", async () => {
+    const { db, upserts } = makeDb({ holds: [{ bookingStatus: "hold", roomId: "r3", residentPhone: "+12065550142", checkOut: "2026-11-02", stayDetails: { source: "public_short_stay_request" } }] });
+    expect(await submitShortStayRequest(db, valid, { today: TODAY })).toEqual({ ok: false, status: 409, error: "You already have a request for this room." });
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("caps open short-stay holds per property at 20", async () => {
+    const holds = Array.from({ length: 20 }, (_, i) => ({ bookingStatus: "hold", roomId: "r9", residentPhone: `+1206555${String(1000 + i)}`, checkOut: "2026-11-02", stayDetails: { source: "public_short_stay_request" } }));
+    const { db, upserts } = makeDb({ holds });
+    expect(await submitShortStayRequest(db, valid, { today: TODAY })).toEqual({ ok: false, status: 429, error: "Too many open requests for this listing right now." });
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("keys the guest text on phone and day", async () => {
+    const { db } = makeDb();
+    await submitShortStayRequest(db, valid, { today: TODAY });
+    expect((enqueueOwnerSms.mock.calls[0]![0] as { dedupeKey: string }).dedupeKey).toBe(`short-stay:+12065550142:${TODAY}`);
   });
 });

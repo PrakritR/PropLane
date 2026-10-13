@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { rateLimit } from "@/lib/rate-limit";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { redeemInviteLink } from "@/lib/invite-links/invite-links.server";
 
 export const runtime = "nodejs";
@@ -21,6 +21,10 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Sign in to accept this invite." }, { status: 401 });
 
   if (!(await rateLimit(`invite-redeem:${user.id}`, 20, 60_000)).ok) {
+    return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429 });
+  }
+
+  if (!(await rateLimit(`invite-redeem-ip:${clientIpFrom(req)}`, 20, 60_000)).ok) {
     return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429 });
   }
 

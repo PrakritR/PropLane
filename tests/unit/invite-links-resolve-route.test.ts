@@ -10,7 +10,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({}) }));
 vi.mock("@/lib/invite-links/invite-links.server", () => ({ previewInviteLink: mocks.preview }));
-vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.limit }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.limit, clientIpFrom: () => "9.9.9.9" }));
 
 import { POST } from "@/app/api/pro/invite-links/resolve/route";
 
@@ -58,6 +58,14 @@ describe("POST /api/pro/invite-links/resolve", () => {
     const body = await res.json();
     expect(body.workspaceName).toBe("SEATTLE HOMES");
     expect(JSON.stringify(body)).not.toContain("secret");
+  });
+
+  it("passes allowCode and also rate limits per IP", async () => {
+    mocks.preview.mockResolvedValue(null);
+    await call({ input: "SH-7K4Q2M" });
+    expect(mocks.preview.mock.calls[0]![3]).toEqual({ allowCode: true });
+    const keys = (mocks.limit.mock.calls as unknown as string[][]).map((c) => c[0]);
+    expect(keys).toContain("invite-resolve-ip:9.9.9.9");
   });
 
   it("rate limits guessing", async () => {

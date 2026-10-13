@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { after, NextResponse } from "next/server";
 
 import { extractMessengerInbound, handleMessengerInbound, verifyMetaWebhookSignature } from "@/lib/listing-channels/meta/messenger.server";
@@ -5,11 +6,17 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
+function verifyTokenMatches(given: string | null, expected: string): boolean {
+  const a = Buffer.from(given ?? "");
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Meta's webhook verification handshake. */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const expected = process.env.META_WEBHOOK_VERIFY_TOKEN?.trim();
-  if (expected && params.get("hub.mode") === "subscribe" && params.get("hub.verify_token") === expected) {
+  if (expected && params.get("hub.mode") === "subscribe" && verifyTokenMatches(params.get("hub.verify_token"), expected)) {
     return new Response(params.get("hub.challenge") ?? "", { status: 200, headers: { "Content-Type": "text/plain" } });
   }
   return new Response("Forbidden", { status: 403 });

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { previewInviteLink } from "@/lib/invite-links/invite-links.server";
-import { rateLimit } from "@/lib/rate-limit";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -25,11 +25,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429 });
   }
 
+  if (!(await rateLimit(`invite-resolve-ip:${clientIpFrom(req)}`, 30, 60_000)).ok) {
+    return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429 });
+  }
+
   const body = (await req.json().catch(() => ({}))) as { input?: unknown };
   const notFound = () => NextResponse.json({ error: "Not found." }, { status: 404 });
   if (typeof body.input !== "string" || !body.input.trim() || body.input.length > 600) return notFound();
 
-  const preview = await previewInviteLink(createSupabaseServiceRoleClient(), body.input);
+  const preview = await previewInviteLink(createSupabaseServiceRoleClient(), body.input, new Date(), { allowCode: true });
   if (!preview) return notFound();
   return NextResponse.json({
     kind: preview.kind,

@@ -24,6 +24,14 @@ const conn = { pageId: "P1", workspaceId: "w1", managerUserId: "m1", pageToken: 
 function fakeDb() {
   const replies = new Map<string, { replied_at: string }>();
   const db = {
+    // Mirrors claim_meta_messenger_reply: insert, or update only when the prior reply is older than 24h.
+    rpc: async (_fn: string, a: { p_page_id: string; p_sender_psid: string; p_now: string }) => {
+      const key = `${a.p_page_id}:${a.p_sender_psid}`;
+      const prior = replies.get(key);
+      if (prior && new Date(a.p_now).getTime() - new Date(prior.replied_at).getTime() < 24 * 3600 * 1000) return { data: [], error: null };
+      replies.set(key, { replied_at: a.p_now });
+      return { data: [{ page_id: a.p_page_id }], error: null };
+    },
     from(table: string) {
       const f: Record<string, string> = {};
       const q: Record<string, unknown> = {
@@ -111,6 +119,18 @@ describe("handleMessengerInbound", () => {
     // 25 hours later: replies again.
     expect(await handleMessengerInbound(db, { ...inbound, mid: "m.3" }, { ...deps, now: new Date("2026-10-14T11:00:00Z") })).toBe("replied");
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("concurrent deliveries for one sender send exactly once (atomic claim)", async () => {
+    const { db } = fakeDb();
+    const send = vi.fn(async () => "mid");
+    const deps = { live: () => true, loadConnection: async () => conn, send, now: new Date("2026-10-13T10:00:00Z") };
+    const results = await Promise.all([
+      handleMessengerInbound(db, { ...inbound, mid: "a" }, deps),
+      handleMessengerInbound(db, { ...inbound, mid: "b" }, deps),
+    ]);
+    expect(results.sort()).toEqual(["already_replied", "replied"]);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("files the lead under a stable per-message id so a redelivery appends once", async () => {

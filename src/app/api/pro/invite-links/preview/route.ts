@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { previewInviteLink } from "@/lib/invite-links/invite-links.server";
+import { parseInviteInput } from "@/lib/invite-links/invite-link-model";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -14,9 +16,14 @@ export const runtime = "nodejs";
  * endpoint is not an oracle for guessing valid ones.
  */
 export async function POST(req: Request) {
+  if (!(await rateLimit(`invite-preview-ip:${clientIpFrom(req)}`, 30, 60_000)).ok) {
+    return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429 });
+  }
   const body = (await req.json().catch(() => ({}))) as { token?: string };
   const token = body.token?.trim() ?? "";
   if (!token) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  // Workspace codes are short: they resolve only for a signed-in person (resolve route).
+  if (parseInviteInput(token)?.kind === "code") return NextResponse.json({ error: "Not found." }, { status: 404 });
   const preview = await previewInviteLink(createSupabaseServiceRoleClient(), token);
   if (!preview) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const supabase = await createSupabaseServerClient();

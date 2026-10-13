@@ -163,38 +163,27 @@ export async function handleMessengerInbound(db: SupabaseClient, inbound: Messen
     return "lead_only";
   }
 
-  // Claim the (Page, sender) slot for 24h before sending; a concurrent delivery loses the claim.
-  const { data: prior } = await db
-    .from("meta_messenger_replies")
-    .select("replied_at")
-    .eq("page_id", inbound.pageId)
-    .eq("sender_psid", inbound.senderPsid)
-    .maybeSingle();
-  const priorAt = prior?.replied_at ? new Date(String(prior.replied_at)).getTime() : 0;
-  if (priorAt && now.getTime() - priorAt < MESSENGER_REPLY_WINDOW_MS) return "already_replied";
-  const { error: claimError } = await db.from("meta_messenger_replies").upsert(
-    {
-      page_id: inbound.pageId,
-      sender_psid: inbound.senderPsid,
-      replied_at: now.toISOString(),
-      listing_id: listing?.propertyId ?? null,
-      manager_user_id: conn.managerUserId,
-      workspace_id: conn.workspaceId,
-    },
-    { onConflict: "page_id,sender_psid" },
-  );
+  // Claim the (Page, sender) slot for 24h in ONE conditional upsert (SQL function); a concurrent delivery gets no row back.
+  const { data: claimed, error: claimError } = await db.rpc("claim_meta_messenger_reply", {
+    p_page_id: inbound.pageId,
+    p_sender_psid: inbound.senderPsid,
+    p_listing_id: listing?.propertyId ?? null,
+    p_manager_user_id: conn.managerUserId,
+    p_workspace_id: conn.workspaceId,
+    p_now: now.toISOString(),
+  });
   if (claimError) {
     console.warn("meta messenger: could not record reply claim", claimError.message);
     return "failed";
   }
+  if (!Array.isArray(claimed) || claimed.length === 0) return "already_replied";
 
   const text = buildMessengerReplyText({ listingTitle: listing?.title || null, phone: contact.phone, email: contact.email?.trim() || null, listingUrl: listing?.url ?? null });
   try {
     await (deps.send ?? sendMetaPageMessage)({ pageId: inbound.pageId, token: conn.pageToken, recipientPsid: inbound.senderPsid, text });
   } catch (error) {
     // Release the claim so the next message can try again; a rejected token stops until reconnect.
-    if (prior) await db.from("meta_messenger_replies").upsert({ page_id: inbound.pageId, sender_psid: inbound.senderPsid, replied_at: prior.replied_at }, { onConflict: "page_id,sender_psid" });
-    else await db.from("meta_messenger_replies").delete().eq("page_id", inbound.pageId).eq("sender_psid", inbound.senderPsid);
+    await db.from("meta_messenger_replies").delete().eq("page_id", inbound.pageId).eq("sender_psid", inbound.senderPsid);
     if (error instanceof MetaGraphError && error.needsReconnect) await markMetaConnectionRevoked(db, conn.workspaceId).catch(() => undefined);
     console.warn("meta messenger: reply failed", error instanceof Error ? error.message : error);
     return "failed";

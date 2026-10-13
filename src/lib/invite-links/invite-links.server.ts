@@ -741,9 +741,14 @@ export type InviteLinkPreview = {
 };
 
 /** Accepts a raw token, a pasted invite URL or a workspace code; all reach the same row. */
-async function loadLinkByToken(db: SupabaseClient, tokenOrCode: string) {
+async function loadLinkByToken(
+  db: SupabaseClient,
+  tokenOrCode: string,
+  opts: { allowCode: boolean } = { allowCode: false },
+) {
   const parsed = parseInviteInput(tokenOrCode);
   if (!parsed) return null;
+  if (parsed.kind === "code" && !opts.allowCode) return null;
   const query = db
     .from("manager_invite_links")
     .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`);
@@ -766,8 +771,9 @@ export async function previewInviteLink(
   db: SupabaseClient,
   token: string,
   now: Date = new Date(),
+  opts: { allowCode: boolean } = { allowCode: false },
 ): Promise<InviteLinkPreview | null> {
-  const link = await loadLinkByToken(db, token);
+  const link = await loadLinkByToken(db, token, opts);
   if (!link) return null;
 
   const [{ data: owner }, { data: properties }] = await Promise.all([
@@ -930,7 +936,7 @@ export async function redeemInviteLink(
   const redeemerUserId = input.redeemerUserId.trim();
   if (!redeemerUserId) return { ok: false, status: 401, error: "Sign in to accept this invite." };
 
-  const link = await loadLinkByToken(db, input.token);
+  const link = await loadLinkByToken(db, input.token, { allowCode: true });
   if (!link) return { ok: false, status: 404, error: "That invite link is not valid." };
 
   if (String(link.owner_user_id) === redeemerUserId) {

@@ -14,6 +14,7 @@ import "server-only";
  * returns names another guest.
  */
 import { randomUUID } from "node:crypto";
+import { rateLimit } from "@/lib/rate-limit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
@@ -51,7 +52,7 @@ export type ShortStayRequestBody = {
   honeypot?: unknown;
 };
 
-export type ShortStayRequestResult = { ok: true } | { ok: false; status: 400 | 404 | 409 | 503; error: string };
+export type ShortStayRequestResult = { ok: true } | { ok: false; status: 400 | 404 | 409 | 429 | 503; error: string };
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -79,6 +80,15 @@ export async function submitShortStayRequest(
   }
   const dates = validateShortStayDates(body.checkIn, body.checkOut, options.today ?? pacificTodayKey());
   if (!dates.ok) return { ok: false, status: 400, error: dates.error };
+
+  // Abuse caps beyond the route's per-IP limit: one phone and one listing can each be flooded from many IPs.
+  if (!(await rateLimit(`short-stay-phone:${phone}`, 3, 86_400_000)).ok) {
+    return { ok: false, status: 429, error: "Too many requests from this number today. Please try again tomorrow." };
+  }
+  if (!(await rateLimit(`short-stay-property:${propertyId}`, 30, 3_600_000)).ok) {
+    return { ok: false, status: 429, error: "Too many requests for this listing right now. Please try again later." };
+  }
+  const todayKey = options.today ?? pacificTodayKey();
 
   const { data: record } = await db
     .from("manager_property_records")
@@ -112,6 +122,25 @@ export async function submitShortStayRequest(
     return { ok: false, status: 503, error: "We couldn't check the calendar right now. Try again in a minute." };
   }
   if (!verdict.available) return { ok: false, status: 409, error: "That room was just booked for those dates." };
+
+  // Open (not yet checked-out) holds on this listing: one per phone per room, and a ceiling per property.
+  const { data: openRows } = await db
+    .from("portal_schedule_records")
+    .select("id, row_data")
+    .eq("property_id", propertyId)
+    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+    .gte("ends_at", `${todayKey}T00:00:00`)
+    .limit(500);
+  const openHolds = ((openRows ?? []) as Array<{ row_data?: Record<string, unknown> | null }>)
+    .map((r) => r.row_data ?? {})
+    .filter((d) => d.bookingStatus === "hold" && String(d.checkOut ?? "") > todayKey);
+  if (openHolds.some((d) => d.roomId === roomId && normalizeE164(String(d.residentPhone ?? "")) === phone)) {
+    return { ok: false, status: 409, error: "You already have a request for this room." };
+  }
+  const openShortStay = openHolds.filter((d) => (d.stayDetails as { source?: string } | undefined)?.source === "public_short_stay_request");
+  if (openShortStay.length >= 20) {
+    return { ok: false, status: 429, error: "Too many open requests for this listing right now." };
+  }
 
   const total = shortStayTotal(nightly, dates.nights);
   const now = new Date().toISOString();
@@ -185,7 +214,7 @@ export async function submitShortStayRequest(
       purpose: "short_stay_request_ack",
       counterpartyRole: "prospect",
       propertyId,
-      dedupeKey: `short_stay_request:${blockId}`,
+      dedupeKey: `short-stay:${phone}:${todayKey}`,
     },
     db,
   ).catch(() => undefined);

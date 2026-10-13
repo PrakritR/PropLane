@@ -65,14 +65,18 @@ describe("/api/pro/work-number-recipients", () => {
     expect(res.status).toBe(403);
     expect(fake.tables.workspace_work_number_recipients).toHaveLength(1);
   });
-  it("lets a teammate with Team edit add for that owner, and the owner delete", async () => {
+  it("lets a teammate with Team edit read, but POST and DELETE are owner-only (403)", async () => {
     actor = { id: "mate-1" };
     manageable = new Set(["mate-1", "owner-1"]);
-    const res = await POST(json({ ownerUserId: "owner-1", label: "Priya", phone: "2065550101" }));
+    expect((await GET(new Request("http://localhost/api/pro/work-number-recipients?ownerUserId=owner-1"))).status).toBe(200);
+    expect((await POST(json({ ownerUserId: "owner-1", label: "Priya", phone: "2065550101" }))).status).toBe(403);
+    expect((await DELETE(json({ id: "r1", ownerUserId: "owner-1" }, "DELETE"))).status).toBe(403);
+    expect(fake.tables.workspace_work_number_recipients).toHaveLength(1);
+  });
+  it("lets the owner add and delete", async () => {
+    const res = await POST(json({ label: "Priya", phone: "2065550101" }));
     expect(res.status).toBe(200);
-    const row = fake.tables.workspace_work_number_recipients!.at(-1)!;
-    expect(row).toMatchObject({ owner_user_id: "owner-1", label: "Priya", phone: "+12065550101", created_by: "mate-1" });
-    actor = { id: "owner-1" };
+    expect(fake.tables.workspace_work_number_recipients!.at(-1)).toMatchObject({ owner_user_id: "owner-1", label: "Priya", phone: "+12065550101", created_by: "owner-1" });
     expect((await DELETE(json({ id: "r1" }, "DELETE"))).status).toBe(200);
     expect(fake.tables.workspace_work_number_recipients!.some((r) => r.id === "r1")).toBe(false);
   });

@@ -1669,5 +1669,5 @@ so they are an egress reduction rather than a distributed quota guarantee.
 get every manager notice the workspace's work number sends. `notifyPropertyScopedManagersFromAgent` fans the
 notice's `externalText` out to each of them as a text FROM the owner's work number (billed to the owner) and an
 email from the work email, never an Assistant thread (`notifyWorkNumberRecipients`). The list is managed by the
-owner or a teammate with Team at edit (`/api/pro/work-number-recipients`). An addressed co-manager invite also
+owner (a teammate with Team at edit may read the list, only the owner changes it) (`/api/pro/work-number-recipients`). An addressed co-manager invite also
 texts a verified invitee from the inviter's work number (`notifyCoManagerInviteSent`).
