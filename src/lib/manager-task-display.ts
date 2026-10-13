@@ -7,6 +7,7 @@ import {
   readAllServiceRequests,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
+import { looksLikeRawRecordId } from "@/lib/room-display-label";
 import { normalizeAssignee } from "@/lib/work-assignment";
 import { pacificEndOfDayMs } from "@/lib/pacific-time";
 import { managerTaskStage, serviceRequestTaskStage } from "@/lib/manager-task-stage";
@@ -25,14 +26,15 @@ export function compactTaskPropertyLabel(
     }
   }
   const stored = propertyTitle?.trim();
-  if (!stored) return undefined;
+  if (!stored || looksLikeRawRecordId(stored)) return undefined;
   return stored.split(" · ")[0]?.trim() || stored;
 }
 
 /** Room line on tasks should be the room name, not the full picker label with floor and rent. */
 export function compactTaskRoomLabel(roomLabel?: string): string | undefined {
   const raw = roomLabel?.trim();
-  if (!raw) return undefined;
+  // A stored room id ("mgr-qa-c3-house-0001") is not a name: omit it rather than print it.
+  if (!raw || looksLikeRawRecordId(raw)) return undefined;
   return raw.split(" · ")[0]?.trim() || raw;
 }
 

@@ -157,6 +157,11 @@ export function kpiDelta(
   };
 }
 
+/** A comparison line is only worth drawing when something actually changed. */
+export function visibleKpiDelta(delta: KpiDelta | null | undefined): KpiDelta | null {
+  return delta && delta.direction !== "flat" ? delta : null;
+}
+
 /** Parses "$1,160.00" or "1160" to a number; anything else is 0. */
 export function moneyToNumber(label: string | undefined | null): number {
   if (!label) return 0;
