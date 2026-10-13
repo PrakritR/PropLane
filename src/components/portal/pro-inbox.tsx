@@ -1824,6 +1824,9 @@ export const ManagerInbox = forwardRef<
     activeEmailAvailable,
     activeSmsAvailable,
     activeProplaneAvailable,
+    scheduleLater,
+    scheduleSendAt,
+    reloadScheduled,
     handleReply,
     showToast,
   ]);

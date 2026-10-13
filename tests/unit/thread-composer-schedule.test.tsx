@@ -39,6 +39,27 @@ describe("Schedule from thread composer posts a scheduled send", () => {
     expect(read("src/components/portal/pro-sms-panel.tsx")).toContain('"/api/portal/scheduled-inbox-messages"');
   });
 
+  /*
+   * The send handler is a `useCallback`. Leaving the schedule state out of its deps froze
+   * "Schedule for later" at whatever it was when one of the listed deps last changed, so a
+   * reply typed BEFORE the clock was pressed went out immediately instead of being scheduled.
+   */
+  it("keeps the send handler's schedule state fresh in every memoized composer", () => {
+    for (const [file, fn] of [
+      ["pro-inbox", "sendActiveReply"],
+      ["pro-resident-detail-inbox", "sendMessage"],
+      ["resident-inbox-panel", "sendActiveReply"],
+    ] as const) {
+      const src = read(`src/components/portal/${file}.tsx`);
+      const start = src.indexOf(`const ${fn} = useCallback(`);
+      expect(start, `${file}: ${fn} is not a useCallback`).toBeGreaterThan(-1);
+      const depsStart = src.indexOf("\n  }, [", start);
+      const deps = src.slice(depsStart, src.indexOf("]);", depsStart));
+      expect(deps, `${file}: ${fn} deps`).toContain("scheduleLater");
+      expect(deps, `${file}: ${fn} deps`).toContain("scheduleSendAt");
+    }
+  });
+
   it("the clock appears on a phone-only text thread and its schedule body is a phone-only Text", () => {
     expect(smsThreadCanSchedule(null, "(726) 248-3085")).toBe(true);
     expect(smsThreadCanSchedule("", "")).toBe(false);
