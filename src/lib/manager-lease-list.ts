@@ -96,6 +96,28 @@ export function leaseStageFact(row: LeasePipelineRow): string | undefined {
   return row.stageLabel?.trim() || row.status?.trim() || undefined;
 }
 
+const LEASE_TAB_BUCKET_LABEL: Record<ManagerLeaseTab, string> = {
+  draft: "Draft",
+  resident: "Resident signature",
+  manager: "Manager signature",
+  completed: "Signed",
+  signed: "Signed",
+};
+
+/**
+ * {@link leaseStageFact} for a row listed under `tab`: a stage that only repeats
+ * the tab ("Draft" on the Draft tab, "Fully Signed" on Signed) is dropped, so a
+ * row says it only when the bucket holds several stages.
+ */
+export function leaseStageFactInTab(row: LeasePipelineRow, tab: ManagerLeaseTab): string | undefined {
+  const stage = leaseStageFact(row);
+  if (!stage) return undefined;
+  const normalized = stage.trim().toLowerCase();
+  if (normalized === LEASE_TAB_BUCKET_LABEL[tab]?.toLowerCase()) return undefined;
+  if (tab === "completed" && normalized === "fully signed") return undefined;
+  return stage;
+}
+
 /**
  * Shared-room fact on a lease list row (PLAN-0924-0718): same rent each resident pays.
  */

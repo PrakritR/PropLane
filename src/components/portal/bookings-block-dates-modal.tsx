@@ -361,7 +361,7 @@ export function BookingsBlockDatesModal({
         dataAttrPrefix="bookings-block-dates"
         finishDataAttr={inviteResult ? "bookings-block-dates-done" : "bookings-block-dates-save"}
       >
-        <div hidden={stepId !== "property"}>
+        <div hidden={stepId !== "property"} className="sm:space-y-4">
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <div className={MODAL_FIELD_LABEL_CLASS}>
               Property

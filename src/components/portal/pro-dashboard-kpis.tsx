@@ -32,7 +32,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { cn } from "@/lib/utils";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
-import { DASHBOARD_PERIOD_LABELS, type DashboardPeriodKind, type KpiDelta } from "@/lib/dashboard-kpis";
+import { DASHBOARD_PERIOD_LABELS, type DashboardPeriodKind, type KpiDelta, visibleKpiDelta } from "@/lib/dashboard-kpis";
 import { formatPacificDate, pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 /* ───────────────────────── period selector ───────────────────────── */
@@ -165,6 +165,8 @@ export function KpiCard({
 }) {
   const Arrow = delta?.direction === "up" ? ArrowUpRight : delta?.direction === "down" ? ArrowDownRight : Minus;
   const hasSeries = Boolean(series && series.length > 0);
+  // A flat comparison says nothing: show the line only for a real change.
+  const shownDelta = visibleKpiDelta(delta);
   const subLine = unit || (!delta ? detail : undefined);
   return (
     <Link
@@ -180,19 +182,19 @@ export function KpiCard({
         {value}
       </span>
       {subLine ? <span className="truncate text-[12.5px] text-muted max-md:line-clamp-2 max-md:whitespace-normal">{subLine}</span> : null}
-      {delta ? (
+      {shownDelta ? (
         <span
           className={cn(
             "mt-1.5 flex min-w-0 items-center gap-1 text-[12.5px]",
-            delta.direction === "up"
+            shownDelta.direction === "up"
               ? "text-[var(--status-confirmed-fg)]"
-              : delta.direction === "down"
+              : shownDelta.direction === "down"
                 ? "text-[var(--status-overdue-fg)]"
                 : "text-muted",
           )}
         >
           <Arrow className="size-3 shrink-0" aria-hidden />
-          <span className="truncate max-md:line-clamp-2 max-md:whitespace-normal">{delta.label}</span>
+          <span className="truncate max-md:line-clamp-2 max-md:whitespace-normal">{shownDelta.label}</span>
         </span>
       ) : null}
       {hasSeries ? <Sparkline values={series!} labels={seriesLabels ?? []} format={format ?? String} /> : null}
@@ -279,7 +281,7 @@ export function AttentionPanel({
               <DashboardGlyphTile icon={ROW_GLYPH[row.id] ?? ClipboardList} tone={row.tone} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-foreground">{row.title}</span>
-                {!hideRowDetail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
+                {!hideRowDetail && row.detail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
               </span>
               <Link href={row.href} className={actionClassName}>
                 {row.actionLabel}

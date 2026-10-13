@@ -4,14 +4,16 @@ import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { firstNonEmptyTabToOpen } from "@/lib/portal-default-tab";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import {
   PortalFilterSortSheet,
   filterApplyLabel,
@@ -440,6 +442,29 @@ export function ManagerTaskList({
       dataAttr: `manager-task-list-tab-${id}`,
     }));
   }, [assignedServices, basePath, matchesProperty, tasks]);
+
+  // `/tasks` names no tab. Open on the first tab that has rows (once, on arrival) instead of an
+  // empty Open; an explicit URL tab, or any later navigation, is left alone.
+  const pathname = usePathname();
+  const arrivalPathRef = useRef<string | null>(null);
+  const defaultTabSettledRef = useRef(false);
+  useEffect(() => {
+    if (defaultTabSettledRef.current || loading || taskIdProp) return;
+    if (arrivalPathRef.current === null) arrivalPathRef.current = pathname ?? "";
+    if (pathname !== arrivalPathRef.current) {
+      defaultTabSettledRef.current = true;
+      return;
+    }
+    const last = pathname?.split("/").filter(Boolean).pop() ?? "";
+    const urlNamesTab = (MANAGER_TASK_LIST_TABS as readonly string[]).includes(last);
+    const next = firstNonEmptyTabToOpen(tabItems, tabId, urlNamesTab);
+    defaultTabSettledRef.current = true;
+    if (!next) return;
+    const href = tabItems.find((tab) => tab.id === next)?.href;
+    if (!href) return;
+    window.history.replaceState(null, "", href);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [loading, pathname, tabId, tabItems, taskIdProp]);
 
   function beginEdit(task: ManagerTask) {
     setEditingId(task.id);
@@ -928,9 +953,7 @@ export function ManagerTaskList({
                   }
                 : null
             }
-            sibling={listSearch.trim() || activeFilterChips.length > 0 ? null : portalEmptySibling(tabItems, tabId)}
-            // Assigned, Scheduled and Completed are stages a task moves into; a new one starts open.
-            actions={tabId === "open" ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }] : []}
+            // The round + in the command bar is the only create action; no pill or sibling link here.
             dataAttr="manager-task-empty"
           />
         ) : null}

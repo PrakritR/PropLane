@@ -109,9 +109,13 @@ export function formsRowMenuItems({
 }
 
 export function ManagerFormsPage({ tab, basePath = "/portal" }: { tab?: string; basePath?: string }) {
+  return <FormsGate bucket={parseFormsBucket(tab) ?? "pending"} basePath={basePath} />;
+}
+
+function FormsPageShell({ children }: { children: ReactNode }) {
   return (
     <ManagerPortalPageShell title="Forms" hideTitleOnMobileNav compactFilterRow>
-      <FormsGate bucket={parseFormsBucket(tab) ?? "pending"} basePath={basePath} />
+      {children}
     </ManagerPortalPageShell>
   );
 }
@@ -120,15 +124,23 @@ function FormsGate({ bucket, basePath }: { bucket: FormsListBucket; basePath: st
   const { userId, ready } = usePortalSession();
   if (!ready) {
     return (
-      <div role="status" aria-label="Loading forms" className="space-y-3 p-4">
-        <div className="h-16 animate-pulse rounded-xl bg-foreground/5" />
-        <div className="h-16 animate-pulse rounded-xl bg-foreground/5" />
-      </div>
+      <FormsPageShell>
+        <div role="status" aria-label="Loading forms" className="space-y-3 p-4">
+          <div className="h-16 animate-pulse rounded-xl bg-foreground/5" />
+          <div className="h-16 animate-pulse rounded-xl bg-foreground/5" />
+        </div>
+      </FormsPageShell>
     );
   }
-  if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view forms.</p>;
+  if (!userId && !isDemoModeActive()) {
+    return (
+      <FormsPageShell>
+        <p className="p-4 text-sm text-muted">Sign in to view forms.</p>
+      </FormsPageShell>
+    );
+  }
   // Remount on a viewer change so another account never sees stale rows.
-  return <FormsList key={userId ?? "demo"} userId={userId ?? "demo"} bucket={bucket} basePath={basePath} />;
+  return <FormsList key={userId ?? "demo"} userId={userId ?? "demo"} bucket={bucket} basePath={basePath} asPage />;
 }
 
 export function FormsList({
@@ -138,6 +150,7 @@ export function FormsList({
   applicationId,
   bucketHref,
   className,
+  asPage = false,
 }: {
   userId: string;
   bucket: FormsListBucket;
@@ -147,6 +160,8 @@ export function FormsList({
   /** Where each tab goes. Defaults to the sidebar page's addresses. */
   bucketHref?: (bucket: FormsListBucket) => string;
   className?: string;
+  /** The Forms page itself: the command stack and surface sit directly under the page shell (Properties' frame). */
+  asPage?: boolean;
 }) {
   const navigate = usePortalNavigate();
   const actions = useMoveInFormRowActions();
@@ -290,12 +305,11 @@ export function FormsList({
     </>
   );
 
-  return (
-    <div className={className ?? "min-w-0 space-y-3"} data-attr="forms-list-panel" data-forms-bucket={bucket}>
+  const listStack = (
       <PortalListControlStack
         variant="command"
         className={scopedToResident ? "rs40 mb-2 max-lg:mb-1.5 plp-header-card" : undefined}
-        stickyDestinations={!scopedToResident}
+        stickyDestinations={!scopedToResident && !asPage}
         destinationAriaLabel="Forms"
         activeDestinationId={bucket}
         destinations={tabs}
@@ -325,6 +339,8 @@ export function FormsList({
           )
         }
       />
+  );
+  const listSurface = (
       <PortalListGroupRowContext.Provider value={scopedToResident}>
         <PortalRecordListSurface
           isEmpty={rows.length === 0}
@@ -361,6 +377,10 @@ export function FormsList({
           ))}
         </PortalRecordListSurface>
       </PortalListGroupRowContext.Provider>
+  );
+  const listModals = (
+    <>
+
       {viewing ? <MoveInFormViewer form={viewing} actions={actions} onClose={() => setViewing(null)} /> : null}
       {editing ? <EditPendingMoveInFormPopup form={editing} onClose={() => setEditing(null)} /> : null}
       {sendOpen ? (
@@ -374,6 +394,22 @@ export function FormsList({
           }}
         />
       ) : null}
+    </>
+  );
+  if (asPage) {
+    return (
+      <FormsPageShell>
+        {listStack}
+        {listSurface}
+        {listModals}
+      </FormsPageShell>
+    );
+  }
+  return (
+    <div className={className ?? "min-w-0 space-y-3"} data-attr="forms-list-panel" data-forms-bucket={bucket}>
+      {listStack}
+      {listSurface}
+      {listModals}
     </div>
   );
 }

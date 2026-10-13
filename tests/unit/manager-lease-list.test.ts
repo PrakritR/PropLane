@@ -7,6 +7,7 @@ import {
   leaseRowPlaceLine,
   leaseRowSortMs,
   leaseStageFact,
+  leaseStageFactInTab,
   leaseUpdatedShort,
   sortManagerLeaseClustersForBucket,
   sortManagerLeaseRowsForBucket,
@@ -163,5 +164,20 @@ describe("manager-lease-list", () => {
   it("shows no initials fact for an ordinary lease (no imported template)", () => {
     const ordinary = row({ id: "lease-ordinary", residentName: "Alex Kim", residentEmail: "alex@example.com" });
     expect(leaseInitialsProgressFact(ordinary)).toBeUndefined();
+  });
+});
+
+describe("leaseStageFactInTab", () => {
+  it("drops a stage that only repeats the tab it is listed under", () => {
+    const draft = row({ id: "d", residentName: "A", residentEmail: "a@x.co", stageLabel: "Draft", status: "Draft" });
+    expect(leaseStageFact(draft)).toBe("Draft");
+    expect(leaseStageFactInTab(draft, "draft")).toBeUndefined();
+    const signed = row({ id: "s", residentName: "B", residentEmail: "b@x.co", stageLabel: "Fully Signed", status: "Fully Signed" });
+    expect(leaseStageFactInTab(signed, "completed")).toBeUndefined();
+  });
+  it("keeps a stage the tab does not say (Draft inside Manager signature)", () => {
+    const draft = row({ id: "d", residentName: "A", residentEmail: "a@x.co", stageLabel: "Draft", status: "Draft" });
+    expect(leaseStageFactInTab(draft, "manager")).toBe("Draft");
+    expect(leaseStageFactInTab(row({ id: "m", residentName: "C", residentEmail: "c@x.co" }), "manager")).toBe("Manager Review");
   });
 });

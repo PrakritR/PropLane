@@ -20,6 +20,15 @@ vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
 let mockPlannedEvents: PlannedEvent[] = [];
 
 describe("manager-task-display", () => {
+  it("never prints a raw record id as a room or property name", () => {
+    expect(compactTaskRoomLabel("mgr-qa-c3-house-0001")).toBeUndefined();
+    expect(compactTaskRoomLabel("Room 4 · 2nd floor")).toBe("Room 4");
+    expect(compactTaskPropertyLabel(undefined, "mgr-qa-c3-house-0001")).toBeUndefined();
+    expect(
+      compactTaskLocationLabel({ propertyId: undefined, propertyTitle: "5257 Brooklyn Avenue Northeast", roomLabel: "mgr-qa-c3-house-0001" }),
+    ).toBe("5257 Brooklyn Avenue Northeast");
+  });
+
   it("shortens property and room labels for list rows", () => {
     expect(
       compactTaskLocationLabel({

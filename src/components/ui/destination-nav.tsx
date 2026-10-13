@@ -89,6 +89,26 @@ export function useTabOverflowFade(ref: { current: HTMLElement | null }, itemCou
   return { maskImage: mask, WebkitMaskImage: mask };
 }
 
+/** A command row that still overflows must never hide its active tab: scroll it into view. */
+function useActiveTabInView(
+  ref: { current: HTMLElement | null },
+  enabled: boolean,
+  activeKey: string,
+  itemCount: number,
+) {
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    const row = ref.current;
+    if (!row || row.scrollWidth <= row.clientWidth + 2) return;
+    const active = row.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!active) return;
+    const left = active.offsetLeft;
+    const right = left + active.offsetWidth;
+    if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 8);
+    else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 8;
+  }, [ref, enabled, activeKey, itemCount]);
+}
+
 /**
  * M014 — value flash on the count pill: marks the pill for one animation
  * cycle the instant its number changes between renders (the same "marks what
@@ -183,6 +203,7 @@ function DestinationNavStrip({
   const { wrapRef, registerItem, rect } = useCommandTabIndicator(activeItemId, items.length, commandEnabled);
   const flashing = useCountFlash(items);
   const overflowStyle = useTabOverflowFade(wrapRef, items.length);
+  useActiveTabInView(wrapRef, commandEnabled, activeItemId, items.length);
 
   return (
     <nav
@@ -399,17 +420,7 @@ function LocalDestinationNavStrip({
   const overflowStyle = useTabOverflowFade(wrapRef, items.length);
 
   // A row that still overflows must never hide the active tab (House details has six).
-  useLayoutEffect(() => {
-    if (!commandEnabled) return;
-    const row = wrapRef.current;
-    if (!row || row.scrollWidth <= row.clientWidth + 2) return;
-    const active = row.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!active) return;
-    const left = active.offsetLeft;
-    const right = left + active.offsetWidth;
-    if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 8);
-    else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 8;
-  }, [activeId, commandEnabled, items.length, wrapRef]);
+  useActiveTabInView(wrapRef, commandEnabled, activeId, items.length);
 
   return (
     <nav

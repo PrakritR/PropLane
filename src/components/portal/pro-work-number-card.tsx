@@ -264,7 +264,6 @@ export function ManagerWorkNumberCard() {
           dataAttr="manager-work-email-card"
           value={workEmail}
           label={emailLabel}
-          wrapValue
           actions={[
             copyIdentityAction({
               key: "copy-email",

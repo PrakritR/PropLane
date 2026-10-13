@@ -32,6 +32,10 @@ describe("portal nav order contracts", () => {
     expect(ids.indexOf("outgoing")).toBe(ids.indexOf("vendors") + 1);
   });
 
+  it("names the manager's applications row in the plural, like its page", () => {
+    expect(proPortal.sections.find((section) => section.section === "applications")?.label).toBe("Applications");
+  });
+
   it("pro native order matches web registry with settings last", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
