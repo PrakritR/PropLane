@@ -1,5 +1,6 @@
 "use client";
 
+import { formatChargeDueLabel } from "@/lib/charge-due-label";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
@@ -214,7 +215,8 @@ function formatDueMeta(due: string): string {
     }
   }
   if (/^(due|before)\b/i.test(trimmed)) return trimmed;
-  return `Due ${trimmed}`;
+  const shaped = formatChargeDueLabel(trimmed);
+  return shaped === trimmed ? `Due ${trimmed}` : shaped;
 }
 
 function dueDateDisplayToInputValue(display: string): string {
