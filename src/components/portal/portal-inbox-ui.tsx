@@ -585,7 +585,7 @@ export type InboxMessageDirection = "inbound" | "outbound" | "assistant" | "syst
  * can AGGREGATE email + SMS + WhatsApp + Gmail in one thread — adding a channel
  * is additive (tag the message), never a new parallel thread.
  */
-export type InboxChannel = "email" | "sms" | "whatsapp" | "gmail" | "proplane";
+export type InboxChannel = "email" | "sms" | "whatsapp" | "gmail" | "proplane" | "facebook";
 
 export const INBOX_CHANNEL_LABEL: Record<InboxChannel, string> = {
   email: "Email",
@@ -593,6 +593,7 @@ export const INBOX_CHANNEL_LABEL: Record<InboxChannel, string> = {
   whatsapp: "WhatsApp",
   gmail: "Gmail",
   proplane: "In-app",
+  facebook: "Facebook",
 };
 
 export type InboxBubbleMessage = {
