@@ -52,11 +52,6 @@ export type ResidentEditDiff = {
   any: boolean;
 };
 
-export type ResidentEditSaveWillRow = {
-  tone: "ok" | "warn" | "none";
-  text: string;
-};
-
 const CONTACT_KEYS = ["name", "phone", "preferredContact"] as const;
 const HOME_KEYS = ["propertyId", "roomId", "bundleId"] as const;
 const LEASE_KEYS = [
@@ -257,43 +252,6 @@ export function residentEditLeaseTermsChanged(diff: ResidentEditDiff): boolean {
 
 export function residentEditRequiresVoidConfirm(stage: ResidentEditStage, diff: ResidentEditDiff): boolean {
   return stage === "lease_sent" && residentEditLeaseTermsChanged(diff);
-}
-
-export function residentEditSaveWill(
-  stage: ResidentEditStage,
-  diff: ResidentEditDiff,
-  moveOutDate?: string,
-): ResidentEditSaveWillRow[] {
-  if (!diff.any) return [{ tone: "none", text: "Nothing changed" }];
-
-  const rows: ResidentEditSaveWillRow[] = [];
-  const leaseTerms = residentEditLeaseTermsChanged(diff);
-
-  if (diff.contact.length || diff.email) rows.push({ tone: "ok", text: "Resident record updated" });
-  if (diff.email) rows.push({ tone: "warn", text: "Charges, rent schedule and lease move to the new email" });
-
-  if (stage === "applicant") {
-    if (leaseTerms || diff.app) rows.push({ tone: "ok", text: "Application terms updated" });
-    rows.push({ tone: "none", text: "No lease or charges yet" });
-  } else {
-    if (stage === "lease_draft" && leaseTerms) rows.push({ tone: "ok", text: "Lease draft regenerated" });
-    if (stage === "lease_sent" && leaseTerms) {
-      rows.push({ tone: "warn", text: "Sent lease voided, new draft to resend" });
-    }
-    if (stage === "by_hand" && leaseTerms) {
-      rows.push({ tone: "ok", text: "Unpaid charges rebuilt · paid kept" });
-    }
-    if (stage === "moved_out" && diff.lease.includes("moveOutDate")) {
-      rows.push({
-        tone: "ok",
-        text: `Unpaid rent after ${moveOutDate?.trim() || "the new date"} removed`,
-      });
-    }
-    if (diff.app) rows.push({ tone: "ok", text: "Application answers updated" });
-    if (stage === "signed") rows.push({ tone: "none", text: "Signed lease untouched" });
-  }
-
-  return rows;
 }
 
 export type ResidentEditReviewLine = { label: string; before: string; after: string };

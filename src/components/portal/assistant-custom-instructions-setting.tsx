@@ -17,7 +17,10 @@ const MAX_LENGTH = 2_000;
  * One server-backed preference per signed-in person. It intentionally uses the
  * generic authenticated route, so the same component works in every portal.
  */
-export function AssistantCustomInstructionsSetting({ role: _role }: { role: "manager" | "admin" | "resident" | "vendor" }) {
+export function AssistantCustomInstructionsSetting({}: {
+  /** Accepted so every portal mounts the same section; the body never branches on it. */
+  role: "manager" | "admin" | "resident" | "vendor";
+}) {
   const fieldId = useId();
   const errorId = `${fieldId}-error`;
   const [value, setValue] = useState("");
