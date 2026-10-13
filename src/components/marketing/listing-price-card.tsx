@@ -217,7 +217,7 @@ export function ListingPriceCard({
       {segments && stay ? <SegmentControl value={stay.segment} onChange={stay.setSegment} /> : null}
 
       {segment === "short" ? (
-        <ShortStayBookingBlock embedded className="mt-4" quickBook={actions?.quickEligible ? actions.identity : null} />
+        <ShortStayBookingBlock className="mt-4" quickBook={actions?.quickEligible ? actions.identity : null} />
       ) : (
         <>
           {estimated || breakdownLines.length > 0 ? (

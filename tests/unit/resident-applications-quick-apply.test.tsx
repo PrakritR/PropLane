@@ -130,6 +130,12 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
     // The standard application asks for screening consent: the sheet shows it as its first box.
     fireEvent.click(document.querySelector('[data-attr="quick-apply-consent-screening"]')!);
+    // …and its truthfulness certification as a sentence they can actually confirm, because that is the
+    // attestation the manager and the PDF record. Nothing is stamped for the applicant.
+    expect(document.querySelector('[data-attr="quick-apply-consent-truth"]')!.closest("label")!.textContent).toContain(
+      "I confirm the information provided is true and complete.",
+    );
+    fireEvent.click(document.querySelector('[data-attr="quick-apply-consent-truth"]')!);
     fireEvent.click(document.querySelector('[data-attr="quick-apply-confirm-current"]')!);
     fireEvent.change(screen.getByLabelText("Signature"), { target: { value: "Jamie Rivera" } });
     const submit = screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
@@ -141,6 +147,6 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     await waitFor(() => expect(nav.navigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-ABCD1234"));
     const call = (fetchSpy.mock.calls as unknown[][]).find((c) => String(c[0]).includes("/api/portal/quick-apply"))!;
     const body = JSON.parse(String((call[1] as RequestInit).body));
-    expect(body).toMatchObject({ propertyId: "prop-1", roomId: "r1", leaseStart: "2026-11-01", consentCredit: true, confirmCurrent: true, signature: "Jamie Rivera" });
+    expect(body).toMatchObject({ propertyId: "prop-1", roomId: "r1", leaseStart: "2026-11-01", consentCredit: true, consentTruth: true, confirmCurrent: true, signature: "Jamie Rivera" });
   });
 });

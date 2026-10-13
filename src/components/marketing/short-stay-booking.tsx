@@ -195,17 +195,15 @@ type SendState = { kind: "idle" } | { kind: "form" } | { kind: "sending" } | { k
 
 /**
  * The Airbnb-style booking block: dates, room, guests, live total, Request to book, and a text link.
- * `embedded` is the price card's Short stay segment, whose price line already sits above the segments;
- * alone (no card around it) the block prints its own nightly price. `quickBook` is a signed-in resident
- * with saved answers: name, phone and email come from their account and the button reads Quick book.
+ * It is the price card's Short stay segment and nothing else, so it prints no price line of its own —
+ * the card's one price line already sits above the segments. `quickBook` is a signed-in resident with
+ * saved answers: name, phone and email come from their account and the button reads Quick book.
  */
 export function ShortStayBookingBlock({
   className = "",
-  embedded = false,
   quickBook = null,
 }: {
   className?: string;
-  embedded?: boolean;
   quickBook?: { name: string; email: string; phone: string } | null;
 }) {
   const stay = useShortStay();
@@ -267,14 +265,7 @@ export function ShortStayBookingBlock({
 
   return (
     <div className={className} data-attr="short-stay-block">
-      {!embedded && nightly > 0 ? (
-        <p className="text-3xl font-bold tracking-tight text-foreground" data-attr="short-stay-nightly">
-          {picked || stay.rooms.every((r) => r.nightly === from) ? "" : "from "}
-          {formatShortStayMoney(nightly)}
-          <span className="ml-1 text-sm font-semibold text-muted">/ night</span>
-        </p>
-      ) : null}
-      <div className={`${!embedded && nightly > 0 ? "mt-3 " : ""}grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2`} data-attr="short-stay-dates">
+      <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2" data-attr="short-stay-dates">
         <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="short-stay-check-in">
           Check-in
           <DateField

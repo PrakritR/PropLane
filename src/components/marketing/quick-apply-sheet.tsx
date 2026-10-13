@@ -23,7 +23,7 @@ import {
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
 import { isProductionPublicSite } from "@/lib/public-demo-access";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
-import { isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
+import { isWizardFormFieldRequired, wizardFormFieldLabel } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { getPropertyById } from "@/lib/rental-application/data";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -96,6 +96,7 @@ function QuickApplySheetBody({
   const [roomId, setRoomId] = useState(initialRoomId);
   const [moveIn, setMoveIn] = useState(initialMoveIn);
   const [consentCredit, setConsentCredit] = useState(false);
+  const [consentTruth, setConsentTruth] = useState(false);
   const [confirmCurrent, setConfirmCurrent] = useState(false);
   const [signature, setSignature] = useState("");
   const [busy, setBusy] = useState(false);
@@ -127,6 +128,26 @@ function QuickApplySheetBody({
     () => (sub ? isWizardFormFieldRequired(applicationConfigForApplicant(sub, "standard").config, "consentCredit") : false),
     [sub],
   );
+  /**
+   * The listing's truthfulness certification, in the applicant's own sentence (or the manager's, when
+   * they reworded the question). It is a legal attestation — the manager reads it as "Accuracy
+   * confirmed" and the application PDF prints it as acknowledged — so the applicant ticks THIS or
+   * nothing is recorded: the server stamps the answer only from this box (`quick-apply.server.ts`),
+   * never from the confirmation below it, and never for a listing that does not ask.
+   */
+  const truthLabel = useMemo(
+    () =>
+      sub
+        ? wizardFormFieldLabel(applicationConfigForApplicant(sub, "standard").config, "consentTruth", {
+            applicantDefault: "I confirm the information provided is true and complete.",
+          })
+        : undefined,
+    [sub],
+  );
+  const truthRequired = useMemo(
+    () => (sub ? isWizardFormFieldRequired(applicationConfigForApplicant(sub, "standard").config, "consentTruth") : false),
+    [sub],
+  );
 
   const ready =
     Boolean(propertyId) &&
@@ -135,7 +156,8 @@ function QuickApplySheetBody({
     Boolean(moveIn) &&
     confirmCurrent &&
     signature.trim().length > 1 &&
-    (!screeningRequired || consentCredit);
+    (!screeningRequired || consentCredit) &&
+    (!truthRequired || consentTruth);
 
   const submit = async () => {
     if (!ready || busy) return;
@@ -151,6 +173,7 @@ function QuickApplySheetBody({
           roomId: roomId || undefined,
           leaseStart: moveIn || undefined,
           consentCredit,
+          consentTruth,
           confirmCurrent,
           signature: signature.trim(),
         }),
@@ -265,6 +288,14 @@ function QuickApplySheetBody({
               checked={consentCredit}
               onChange={setConsentCredit}
               dataAttr="quick-apply-consent-screening"
+            />
+          ) : null}
+          {truthLabel ? (
+            <CheckboxOption
+              label={truthLabel}
+              checked={consentTruth}
+              onChange={setConsentTruth}
+              dataAttr="quick-apply-consent-truth"
             />
           ) : null}
           <CheckboxOption

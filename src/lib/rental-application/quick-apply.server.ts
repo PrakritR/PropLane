@@ -14,8 +14,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
-  findDuplicateApplication,
-  findDuplicateApplicationsByRoom,
+  findResidentApplicationsForListing,
   type DuplicateApplicationMatch,
 } from "@/lib/rental-application/duplicate-application.server";
 import {
@@ -24,12 +23,12 @@ import {
 } from "@/lib/rental-application/signed-in-application-write.server";
 import { loadResidentApplicationAutofillBasis } from "@/lib/rental-application/resident-application-autofill.server";
 import {
-  loadEffectiveApplicationProperty,
+  memoizeEffectiveApplicationProperty,
   validateResidentApplicationRowForPersistence,
 } from "@/lib/rental-application/validate-application-submit.server";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
-import { isWizardFormFieldEnabled } from "@/lib/rental-application/application-field-catalog";
+import { isWizardFormFieldEnabled, isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
 import {
   customFieldAnswerValue,
   isCustomFieldHiddenByCondition,
@@ -62,6 +61,8 @@ export type QuickApplyInput = {
   consentCredit?: unknown;
   /** The sheet's "I confirm my saved answers are current" box. */
   confirmCurrent?: unknown;
+  /** The listing's truthfulness certification, when it asks for one; stamped only from this. */
+  consentTruth?: unknown;
   /** The typed signature line. */
   signature?: unknown;
   /**
@@ -163,7 +164,10 @@ export async function runQuickApply(
     .maybeSingle();
   if (recordError) return { status: 500, body: { error: "Could not load the listing. Try again." } };
   if (!record || record.status !== "live") return { status: 404, body: { error: "This listing is not taking applications." } };
-  const loaded = await loadEffectiveApplicationProperty(db, propertyId);
+  // One listing read for the whole request: this look at the rooms and questions, and the validator's
+  // own look inside the shared write, are the same read.
+  const loadProperty = memoizeEffectiveApplicationProperty(db);
+  const loaded = await loadProperty(propertyId);
   if (!loaded.ok) return { status: 500, body: { error: "Could not load the listing. Try again." } };
   const property = loaded.property;
   const sub = property?.listingSubmission?.v === 1 ? property.listingSubmission : null;
@@ -173,18 +177,18 @@ export async function runQuickApply(
   const email = ctx.email.trim().toLowerCase();
   const rooms = sub.rooms.filter((room) => room.id);
   /**
+   * One scan of everything this person already has on this listing: which rooms they have applied to,
+   * and the live draft (if any) a fresh attempt must resume instead of minting a second row.
+   *
    * A dry run asked before a room is picked is judged on one room. The ANSWERS do not depend on which,
    * but the duplicate verdict does — so it is judged on a room this person has not already applied to,
    * or Quick apply would disappear behind "View application" while every other room is still open.
-   * One scan answers for the whole listing.
    */
-  const appliedRooms =
+  const onListing = await findResidentApplicationsForListing(db, { residentEmail: email, propertyId });
+  const probeRoomId =
     dryRun && !requestedRoomId && rooms.length > 1
-      ? await findDuplicateApplicationsByRoom(db, { residentEmail: email, propertyId })
-      : null;
-  const probeRoomId = appliedRooms
-    ? rooms.find((room) => !appliedRooms.has(roomChoiceValue(propertyId, room.id)))?.id
-    : undefined;
+      ? rooms.find((room) => !onListing.byRoom.has(roomChoiceValue(propertyId, room.id)))?.id
+      : undefined;
   const roomId = requestedRoomId || (rooms.length === 1 || dryRun ? (probeRoomId ?? rooms[0]?.id ?? "") : "");
   if (!roomId) return wizard("no_room");
   if (!rooms.some((room) => room.id === roomId)) return { status: 400, body: { error: "Choose a room of this listing." } };
@@ -209,6 +213,18 @@ export async function runQuickApply(
   if (missingCustom.length > 0) return wizard("missing_answers", roomId, missingCustom);
 
   const wantsScreening = isWizardFormFieldEnabled(config, "consentCredit");
+  /**
+   * The truthfulness certification is a legal attestation the manager reads as "Accuracy confirmed" and
+   * the application PDF prints as acknowledged, so it is recorded only from the applicant's OWN tick of
+   * the sheet's box, which carries this listing's wording — never stamped for them, and never at all for
+   * a listing that does not ask the question. When the listing requires it and the sheet could not put
+   * that sentence in front of them, the full application opens (where the question lives) rather than
+   * the sheet refusing with a box it is not showing.
+   */
+  const wantsTruth = isWizardFormFieldEnabled(config, "consentTruth");
+  if (!dryRun && isWizardFormFieldRequired(config, "consentTruth") && input.consentTruth !== true) {
+    return wizard("missing_answers", roomId, ["consentTruth"]);
+  }
   const application: RentalWizardFormState = {
     ...createInitialRentalWizardState(),
     ...basis.profile,
@@ -230,13 +246,20 @@ export async function runQuickApply(
     customFieldAnswers,
     email,
     consentCredit: wantsScreening && (dryRun || input.consentCredit === true),
-    consentTruth: true,
+    consentTruth: wantsTruth && (dryRun || input.consentTruth === true),
     digitalSignature: signature || (dryRun ? "dry run" : ""),
     dateSigned: today,
     wizardStepSchema: createInitialRentalWizardState().wizardStepSchema,
   };
 
-  const applicationId = newApplicationId();
+  /**
+   * The resident's own live draft for this room IS this application: Quick apply resumes it instead of
+   * minting a second id. Nothing downstream can tell two drafts for one room apart — the duplicate
+   * guards skip draft rows by design, and the wizard resumes only the first — so a new id per attempt
+   * would stack "Incomplete" rows in the manager's list; and because a fee claim is keyed on the
+   * application id, it would also orphan a fee the resident had already paid against the draft.
+   */
+  const applicationId = onListing.draftsByRoom.get(roomChoiceValue(propertyId, roomId))?.id || newApplicationId();
   const submittedRow: DemoApplicantRow = {
     id: applicationId,
     name: application.fullLegalName.trim() || signature,
@@ -255,9 +278,7 @@ export async function runQuickApply(
   };
 
   // 6. The same person never applies to the same room twice.
-  const duplicate: DuplicateApplicationMatch | null = appliedRooms
-    ? appliedRooms.get(application.roomChoice1) ?? null
-    : await findDuplicateApplication(db, { residentEmail: email, row: submittedRow });
+  const duplicate: DuplicateApplicationMatch | null = onListing.byRoom.get(application.roomChoice1) ?? null;
   if (duplicate) {
     return { status: 409, body: { error: "You already applied to this room.", existingApplicationId: duplicate.id } };
   }
@@ -273,7 +294,7 @@ export async function runQuickApply(
     }
     // The SAME validator the submit runs (`prepareResidentSelfWrite`), so the button cannot promise a
     // one-sheet apply the shared write will then refuse for an answer the saved profile never carried.
-    const validation = await validateResidentApplicationRowForPersistence(db, submittedRow);
+    const validation = await validateResidentApplicationRowForPersistence(db, submittedRow, { loadProperty });
     if (!validation.ok) {
       const missing = Object.keys(validation.fieldErrors ?? {});
       if (validation.status === 422 && missing.length > 0) return wizard("missing_answers", roomId, missing);
@@ -300,6 +321,7 @@ export async function runQuickApply(
     requestedRowId: applicationId,
     role: ctx.role,
     email: ctx.email.trim().toLowerCase(),
+    loadProperty,
   });
   if (!prepared.ok) {
     const fieldErrors = prepared.body.fieldErrors as Record<string, string> | undefined;

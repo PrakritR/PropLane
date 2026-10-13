@@ -293,6 +293,18 @@ describe("BookingsBlockDatesModal — Quick book prefill", () => {
     expect(await saveDraft(view, onSave)).toMatchObject({ checkOut: "2026-11-02", reason: "Reserved", residentName: "", residentEmail: "" });
   });
 
+  it("will not save while the Bookings reads are still out — the collision check is the empty list", async () => {
+    const { view, onSave } = openPrefilled({
+      readsPending: true,
+      initialResident: { name: "Maya", email: "MAYA@example.com" },
+    });
+    const save = attr(view, "bookings-block-dates-save") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(attr(view, "bookings-block-reads-pending")).toBeTruthy();
+  });
+
   it("survives the Bookings reads landing after it opens: edits stand, a late resident still matches", async () => {
     const onSave = vi.fn(() => Promise.resolve());
     const sheet = (residents: typeof RESIDENTS) => (

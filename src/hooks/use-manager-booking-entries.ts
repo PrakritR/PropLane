@@ -445,6 +445,13 @@ export function useManagerBookingEntries({
     [sourceStatus],
   );
   const loading = BOOKINGS_SOURCE_IDS.every((id) => sourceStatus[id] === "pending");
+  /**
+   * True until EVERY source has answered (or failed). `loading` falls as soon as the first one
+   * settles, which is right for drawing the calendar but not for deciding anything: the collision
+   * check and the resident picker are only complete once the last read is in, so a sheet that can
+   * double-book a room or invite someone already on the books gates its save on this instead.
+   */
+  const readsPending = BOOKINGS_SOURCE_IDS.some((id) => sourceStatus[id] === "pending");
 
   /** Re-run the sources. A failed one stops counting as failed while it retries, so the band clears. */
   const retry = useCallback(() => {
@@ -516,5 +523,5 @@ export function useManagerBookingEntries({
     [airbnbEntries, importedAirbnbEntries, residentEntries, blockEntries, stayMetas],
   );
 
-  return { entries, occupancyDays, loading, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
+  return { entries, occupancyDays, loading, readsPending, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
 }

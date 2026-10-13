@@ -143,7 +143,7 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, occupancyDays, loading, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
+  const { entries: rawEntries, occupancyDays, loading, readsPending, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
@@ -499,6 +499,7 @@ function useBookingsWorkspace({
         }
         initialRoomId={sheet.reserve ? sheet.reserve.roomId : roomFilterId}
         initialDayKey={sheet.dayKey}
+        readsPending={readsPending}
         editingBlock={sheet.editingBlock}
         entries={rawEntries}
         residentOptions={residentOptions}

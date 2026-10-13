@@ -73,7 +73,7 @@ describe("short-stay booking card", () => {
     }));
     render(
       <ShortStayProvider property={property}>
-        <ShortStayBookingBlock embedded quickBook={{ name: "Dana Resident", email: "dana@example.com", phone: "2065550100" }} />
+        <ShortStayBookingBlock quickBook={{ name: "Dana Resident", email: "dana@example.com", phone: "2065550100" }} />
         <Probe />
         <PickRoom />
       </ShortStayProvider>,
@@ -88,15 +88,14 @@ describe("short-stay booking card", () => {
     expect(calls[0]!.body).toMatchObject({ propertyId: "prop-1", roomId: "r3", name: "Dana Resident", phone: "2065550100", email: "dana@example.com" });
   });
 
-  it("the price card's embedded block prints no price header of its own, and never a dash", () => {
-    render(<ShortStayProvider property={property}><ShortStayBookingBlock embedded /></ShortStayProvider>);
+  it("prints no price header of its own (the card's one price line sits above it), and never a dash", () => {
+    render(<ShortStayProvider property={property}><ShortStayBookingBlock /></ShortStayProvider>);
     expect(screen.queryByText("/ night")).toBeNull();
     expect(document.body.textContent).not.toContain("—");
   });
 
-  it("shows the nightly price, the live total and the text link; Request to book waits for a room", async () => {
+  it("shows the live total and the text link; Request to book waits for a room", async () => {
     render(<ShortStayProvider property={property}><ShortStayBookingBlock /><Probe /></ShortStayProvider>);
-    expect(screen.getByText("/ night")).toBeTruthy();
     const request = screen.getByRole("button", { name: "Request to book" }) as HTMLButtonElement;
     expect(request.disabled).toBe(true);
     fireEvent.click(screen.getByText("pick dates"));

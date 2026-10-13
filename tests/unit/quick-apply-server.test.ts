@@ -9,8 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const mocks = vi.hoisted(() => ({
   basis: vi.fn(),
   property: vi.fn(),
-  duplicate: vi.fn(),
-  duplicatesByRoom: vi.fn(),
+  onListing: vi.fn(),
   fee: vi.fn(),
   prepare: vi.fn(),
   persist: vi.fn(),
@@ -21,12 +20,12 @@ vi.mock("@/lib/rental-application/resident-application-autofill.server", () => (
   loadResidentApplicationAutofillBasis: mocks.basis,
 }));
 vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({
-  loadEffectiveApplicationProperty: mocks.property,
+  // The real memoizer hands back a loader; here the listing read IS the mock.
+  memoizeEffectiveApplicationProperty: () => mocks.property,
   validateResidentApplicationRowForPersistence: mocks.validate,
 }));
 vi.mock("@/lib/rental-application/duplicate-application.server", () => ({
-  findDuplicateApplication: mocks.duplicate,
-  findDuplicateApplicationsByRoom: mocks.duplicatesByRoom,
+  findResidentApplicationsForListing: mocks.onListing,
 }));
 vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
   authorizeApplicationFeeSubmission: mocks.fee,
@@ -67,14 +66,21 @@ const db = {
 } as unknown as SupabaseClient;
 
 const ctx = { user: { id: "u1", email: "dana@example.com" }, role: "resident", email: "dana@example.com", leadSource: null };
-const input = { propertyId: "prop-1", roomId: "r1", leaseStart: "2026-11-01", confirmCurrent: true, signature: "Dana Resident" };
+const input = {
+  propertyId: "prop-1",
+  roomId: "r1",
+  leaseStart: "2026-11-01",
+  confirmCurrent: true,
+  consentTruth: true,
+  signature: "Dana Resident",
+};
+const nothingOnListing = () => ({ byRoom: new Map(), draftsByRoom: new Map() });
 
 beforeEach(() => {
   Object.values(mocks).forEach((m) => m.mockReset());
   mocks.basis.mockResolvedValue({ profile: PROFILE, customFieldAnswers: [] });
   mocks.property.mockResolvedValue(listing());
-  mocks.duplicate.mockResolvedValue(null);
-  mocks.duplicatesByRoom.mockResolvedValue(new Map());
+  mocks.onListing.mockResolvedValue(nothingOnListing());
   mocks.fee.mockResolvedValue({ ok: true });
   mocks.validate.mockResolvedValue({ ok: true });
   mocks.prepare.mockImplementation(async (_db, _user, { row }) => ({ ok: true, row, authorizedWriteRecord: null }));
@@ -113,7 +119,7 @@ describe("quick apply", () => {
   });
 
   it("refuses a duplicate of the same room with a 409", async () => {
-    mocks.duplicate.mockResolvedValue({ id: "PROPLANE-OLD1", row: {} });
+    mocks.onListing.mockResolvedValue({ byRoom: new Map([["prop-1::r1", { id: "PROPLANE-OLD1", row: {} }]]), draftsByRoom: new Map() });
     const out = await runQuickApply(db, ctx, input);
     expect(out.status).toBe(409);
     expect(out.body).toMatchObject({ error: "You already applied to this room." });
@@ -128,6 +134,38 @@ describe("quick apply", () => {
     expect(saved.stage).toBe("In progress");
     expect(saved.application.wizardStep).toBe(7);
     expect(mocks.persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes the resident's live draft for the room instead of minting a second one", async () => {
+    mocks.onListing.mockResolvedValue({
+      byRoom: new Map(),
+      draftsByRoom: new Map([["prop-1::r1", { id: "PROPLANE-DRAFT1", row: {} }]]),
+    });
+    mocks.fee.mockResolvedValue({ ok: false, status: 409, error: "Pay this application's fee before submitting.", reason: "unpaid" });
+    const out = await runQuickApply(db, ctx, input);
+    expect(out.body).toMatchObject({ needsPayment: true });
+    // The fee claim is keyed on the application id, so the row that collects the fee has to be the
+    // draft that already exists for this room — not a new id beside it.
+    expect(mocks.fee.mock.calls[0]![1].id).toBe("PROPLANE-DRAFT1");
+    expect(mocks.prepare.mock.calls[0]![2]).toMatchObject({ requestedRowId: "PROPLANE-DRAFT1" });
+    expect(mocks.prepare.mock.calls[0]![2].row.id).toBe("PROPLANE-DRAFT1");
+  });
+
+  it("records the truthfulness attestation only from the applicant's own tick", async () => {
+    await runQuickApply(db, ctx, input);
+    expect(mocks.prepare.mock.calls[0]![2].row.application.consentTruth).toBe(true);
+
+    // Not ticked: the listing asks and requires it, so the full application opens instead of the
+    // server acknowledging an attestation on their behalf.
+    mocks.prepare.mockClear();
+    const unticked = await runQuickApply(db, ctx, { ...input, consentTruth: false });
+    expect(unticked.body).toMatchObject({ needsWizard: true, reason: "missing_answers", missing: ["consentTruth"] });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+
+    // A listing that does not ask the question records nothing, whatever the request says.
+    mocks.property.mockResolvedValue(listing({ disabledStandardApplicationKeys: ["consent-truthfulness-certification"] }));
+    await runQuickApply(db, ctx, { ...input, consentTruth: true });
+    expect(mocks.prepare.mock.calls[0]![2].row.application.consentTruth).toBe(false);
   });
 
   it("does not turn an unverifiable fee into a draft", async () => {
@@ -147,18 +185,19 @@ describe("quick apply", () => {
   });
 
   it("a dry run with no room picked is judged on a room the resident has NOT already applied to", async () => {
-    mocks.duplicatesByRoom.mockResolvedValue(new Map([["prop-1::r1", { id: "PROPLANE-OLD1", row: {} }]]));
+    mocks.onListing.mockResolvedValue({ byRoom: new Map([["prop-1::r1", { id: "PROPLANE-OLD1", row: {} }]]), draftsByRoom: new Map() });
     const out = await runQuickApply(db, ctx, { propertyId: "prop-1", dryRun: true });
     expect(out.body).toEqual({ ready: true });
     expect(mocks.validate.mock.calls[0]![1].application.roomChoice1).toBe("prop-1::r2");
 
     // Every room taken: only then is the verdict "you already applied".
-    mocks.duplicatesByRoom.mockResolvedValue(
-      new Map([
+    mocks.onListing.mockResolvedValue({
+      byRoom: new Map([
         ["prop-1::r1", { id: "PROPLANE-OLD1", row: {} }],
         ["prop-1::r2", { id: "PROPLANE-OLD2", row: {} }],
       ]),
-    );
+      draftsByRoom: new Map(),
+    });
     const taken = await runQuickApply(db, ctx, { propertyId: "prop-1", dryRun: true });
     expect(taken.status).toBe(409);
     expect(taken.body).toMatchObject({ existingApplicationId: "PROPLANE-OLD1" });

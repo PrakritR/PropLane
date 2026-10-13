@@ -8,6 +8,7 @@ import { getManagerSubscriptionTier } from "@/lib/manager-access-server";
 import { getScreeningProvider } from "@/lib/screening/providers";
 import { buildScreeningRecommendation } from "@/lib/screening/recommendation";
 import { getManagerScreeningSettings } from "@/lib/screening/settings";
+import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import type { ApplicationScreeningReport, ScreeningProviderReport } from "@/lib/screening/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
@@ -238,8 +239,17 @@ export async function orderScreeningForApplication(opts: {
   return { ok: true, row: nextRow, screening };
 }
 
+/**
+ * Auto-on-submit orders a report and BILLS the manager for it, so only a row the applicant actually
+ * submitted may trigger one. A draft is still `bucket: "pending"` and carries the consent box the
+ * applicant ticked on its last step, so every caller used to hand drafts here too — a saved-but-unpaid
+ * Quick apply, or a wizard autosave of step 7, ordered a background check for an application nobody
+ * had submitted. The shape test is the same one the rest of the write path gates its submit-only work
+ * on, and it fails closed: a row that cannot be read as submitted never costs money.
+ */
 export async function tryAutoOrderScreening(db: SupabaseClient, row: DemoApplicantRow): Promise<void> {
   if (row.bucket !== "pending" || !row.application?.consentCredit) return;
+  if (isDraftShapedApplicationRow(row)) return;
   if (row.screening?.status && row.screening.status !== "failed") return;
   const managerUserId = row.managerUserId?.trim();
   if (!managerUserId) return;

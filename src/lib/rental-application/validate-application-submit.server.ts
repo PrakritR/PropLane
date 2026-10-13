@@ -44,10 +44,17 @@ function asValidationProperty(value: unknown, propertyId: string): MockProperty 
  * form applied. The submit validator and Quick apply both read the questions from THIS, so what is asked and
  * what is required can never differ between them.
  */
+export type EffectiveApplicationPropertyRead =
+  | { ok: true; property: MockProperty | null }
+  | { ok: false; readFailed: true };
+
+/** How a caller reads the listing. Always the database — the only choice is whether it is read again. */
+export type EffectiveApplicationPropertyLoader = (propertyId: string) => Promise<EffectiveApplicationPropertyRead>;
+
 export async function loadEffectiveApplicationProperty(
   db: SupabaseClient,
   propertyId: string,
-): Promise<{ ok: true; property: MockProperty | null } | { ok: false; readFailed: true }> {
+): Promise<EffectiveApplicationPropertyRead> {
   let property: MockProperty | null = null;
   if (propertyId) {
     const { data, error } = await db
@@ -97,16 +104,39 @@ export async function loadEffectiveApplicationProperty(
 }
 
 /**
+ * One read per listing for as long as the returned loader lives (one request).
+ *
+ * A single submit asks for the same listing two or three times — the caller's own look at the rooms and
+ * questions, then the validator inside the shared write. Keyed on the listing id, so a different listing
+ * still reads fresh and the answer is always the database's: this removes a round trip, never a check.
+ */
+export function memoizeEffectiveApplicationProperty(db: SupabaseClient): EffectiveApplicationPropertyLoader {
+  const reads = new Map<string, Promise<EffectiveApplicationPropertyRead>>();
+  return (propertyId: string) => {
+    const key = propertyId.trim();
+    const pending = reads.get(key);
+    if (pending) return pending;
+    const read = loadEffectiveApplicationProperty(db, key);
+    reads.set(key, read);
+    return read;
+  };
+}
+
+/**
  * Validate an applicant-owned row immediately before persistence.
  *
  * The listing configuration is loaded from the database so required custom
  * questions and disabled standard fields cannot be forged by the request.
  * Manager/admin edits use a separate route branch and deliberately do not pass
  * through this gate, preserving their ability to repair legacy applications.
+ *
+ * `loadProperty` only says WHERE the already-read listing came from
+ * (`memoizeEffectiveApplicationProperty`, keyed on the listing id) — never what it says.
  */
 export async function validateResidentApplicationRowForPersistence(
   db: SupabaseClient,
   row: DemoApplicantRow,
+  opts?: { loadProperty?: EffectiveApplicationPropertyLoader },
 ): Promise<ServerApplicationValidationResult> {
   if (isDraftApplicationRow(row)) return { ok: true };
 
@@ -123,7 +153,7 @@ export async function validateResidentApplicationRowForPersistence(
   const propertyId = propertyIdForApplication(row);
   let property: MockProperty | null = null;
   if (propertyId) {
-    const loaded = await loadEffectiveApplicationProperty(db, propertyId);
+    const loaded = await (opts?.loadProperty ?? ((id: string) => loadEffectiveApplicationProperty(db, id)))(propertyId);
     if (!loaded.ok) {
       return {
         ok: false,

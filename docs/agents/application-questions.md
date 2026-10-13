@@ -206,7 +206,12 @@ forms, the manager notice, move-in forms and screening (`consentCredit`) are one
   (`defaultStoredTermForKind("long", …)`), never from the last application; a short-stay-only listing goes to the
   wizard. The template is pinned (`applicationTemplateId` / `Version`).
 - **Re-collected every time:** the move-in date, the "I confirm my saved answers are current" box, the screening
-  consent when the listing asks for it, and the typed signature. Every one of them gates Submit — a blank move-in
+  consent when the listing asks for it, the listing's **truthfulness certification in its own wording**
+  (`wizardFormFieldLabel(config, "consentTruth")`) when it asks for one, and the typed signature. `consentTruth` is
+  an attestation the manager reads as "Accuracy confirmed" and the PDF prints as acknowledged, so it is recorded
+  only from the applicant's own tick of that sentence — never stamped server-side, and never at all for a listing
+  that does not ask. A listing that requires it and a sheet that could not show it send the applicant to the full
+  application instead. Every one of them gates Submit — a blank move-in
   would build an empty lease range. One sheet, one Submit (`QuickApplySheet`), and the fixed listing's rooms and
   screening question are handed down as its `submission` prop (the public route never loads the client catalog, so
   `getPropertyById` cannot answer for it there).
@@ -215,14 +220,19 @@ forms, the manager notice, move-in forms and screening (`consentCredit`) are one
 - **Fees are never skipped.** `authorizeApplicationFeeSubmission` runs on the built row; only its
   `reason: "unpaid"` refusal saves the row as a draft at the last step and answers `needsPayment`. An
   `"unverifiable"` refusal is an error — never an invoice for a fee that did not actually fail on payment.
-- **Duplicates:** the same person and room is a 409 ("You already applied to this room.") from
-  `findDuplicateApplication`.
+  A draft is not a submission: `tryAutoOrderScreening` refuses a draft-shaped row outright, so an
+  auto-on-submit manager is never billed for a background check on an application nobody has submitted.
+- **One row per person and room.** `findResidentApplicationsForListing` is one read that answers both halves:
+  a live SUBMITTED application for the room is the 409 ("You already applied to this room."), and a live DRAFT for
+  it is the row Quick apply **resumes** — its id, not a fresh one. Minting a new id per attempt would stack
+  "Incomplete" rows no duplicate guard can see (they all skip drafts by design) and orphan a fee claim, which is
+  keyed on the application id.
 - **`dryRun: true`** writes nothing and says what the primary button should read: Quick apply (`ready`), Continue
   application (`needsWizard` / `needsPayment`) or View application (duplicate). It runs the SAME
   `validateResidentApplicationRowForPersistence` the submit runs, with the sheet's own fields (move-in, consent,
   signature) standing in as filled, so the button cannot promise a one-sheet apply the shared write then refuses;
   and with no room named it is judged on a room the resident has **not** already applied to
-  (`findDuplicateApplicationsByRoom`), never blindly on `rooms[0]`. The public listing asks once per listing and
+  (`findResidentApplicationsForListing`), never blindly on `rooms[0]`. The public listing asks once per listing and
   room (`useQuickApplyReadiness`), for a signed-in resident whose
   `GET /api/portal/resident-application-autofill?exists=1` answers `{ hasProfile: true }` — the existence-only
   form, because the full payload carries the SSN, the licence and the ID photos and has no business in a public

@@ -114,6 +114,7 @@ export function BookingsBlockDatesModal({
   initialCheckOut,
   initialResident,
   initialReason,
+  readsPending = false,
   editingBlock = null,
   entries,
   residentOptions = NO_RESIDENTS,
@@ -135,6 +136,13 @@ export function BookingsBlockDatesModal({
   initialResident?: { name: string; email: string; phone?: string } | null;
   /** Pre-filled reason, e.g. "Application AXIS-123". */
   initialReason?: string;
+  /**
+   * The Bookings reads behind `entries` / `residentOptions` have not all answered yet. Both lists are
+   * the only guard the save has — `entries` is the collision check and `residentOptions` decides
+   * whether the prefilled applicant is a NEW resident (and so gets an account-setup invite) — so while
+   * this is true the sheet opens and fills but will not save.
+   */
+  readsPending?: boolean;
   editingBlock?: PropertyBookingEntry | null;
   /** Everything already on the calendar, for the collision check and the hold list. */
   entries: readonly PropertyBookingEntry[];
@@ -295,7 +303,7 @@ export function BookingsBlockDatesModal({
   const residentValid =
     !isNewResident || (newResidentName.trim().length > 0 && (newResidentEmail.trim().length > 0 || newResidentPhone.trim().length > 0));
 
-  const canSave = Boolean(propertyId) && rangeValid && conflicts.length === 0 && residentValid && !busy;
+  const canSave = Boolean(propertyId) && rangeValid && conflicts.length === 0 && residentValid && !busy && !readsPending;
 
   const existingBlocks = useMemo(
     () => entries.filter((entry) => entry.source === "block" && entry.blockId),
@@ -692,6 +700,12 @@ export function BookingsBlockDatesModal({
                 );
               })}
             </ul>
+          ) : null}
+
+          {readsPending ? (
+            <p role="status" className="mt-4 text-sm text-muted" data-attr="bookings-block-reads-pending">
+              Checking the calendar for these dates…
+            </p>
           ) : null}
 
           {error ? (

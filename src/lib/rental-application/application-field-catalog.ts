@@ -695,6 +695,31 @@ export function isWizardFormFieldRequired(
   return field?.required ?? true;
 }
 
+/**
+ * The wording a listing shows for one built-in question, or undefined when it does not ask it. Any
+ * surface outside the wizard that records an answer to a built-in question asks here, so a manager who
+ * reworded the question rewords every surface and the stored answer means what the applicant read.
+ *
+ * `applicantDefault` is that surface's own sentence for the question, used while the listing still
+ * carries the catalog's label — the catalog label is the manager-facing outline wording
+ * ("Truthfulness certification"), which is a heading, not something an applicant can confirm.
+ */
+export function wizardFormFieldLabel(
+  slice: ApplicationConfigSlice | null | undefined,
+  formKey: string,
+  opts?: { applicantDefault?: string },
+): string | undefined {
+  if (!isWizardFormFieldEnabled(slice, formKey)) return undefined;
+  const field = resolveListingApplicationFields(slice, (raw) => asCustomFields(raw)).find((candidate) =>
+    candidate.standardKey && applicationFieldCatalogDef(candidate.standardKey)?.wizardFormKeys.includes(formKey),
+  );
+  if (!field) return undefined;
+  const label = field.label?.trim() || "";
+  const catalogLabel = field.standardKey ? applicationFieldCatalogDef(field.standardKey)?.label : undefined;
+  if (!label || label === catalogLabel) return opts?.applicantDefault || label || undefined;
+  return label;
+}
+
 /** Built-in questions currently turned OFF for a listing/variant (for the manager re-add UI). */
 export function resolveDisabledStandardApplicationFields(
   sub: { disabledStandardApplicationKeys?: unknown } | null | undefined,

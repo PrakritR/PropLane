@@ -13,6 +13,11 @@ import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access
  * application's house, room, dates and applicant filled in. Mounted only while open, so the
  * Bookings reads (and their sharedGet-backed loaders) never run for an applications list that
  * never uses it. Saves through the same hook Bookings does.
+ *
+ * Those reads START here, so the sheet is the one place that opens on an empty calendar: until they
+ * all answer, `entries` has nothing to collide with and `residentOptions` nobody to match, so
+ * `readsPending` holds the save rather than letting it double-book a room or email an
+ * account-setup invite to someone already on the books.
  */
 export function ApplicationQuickBook({
   prefill,
@@ -27,7 +32,7 @@ export function ApplicationQuickBook({
 }) {
   const [tick] = useState(0);
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
-  const { entries, residentOptions, channelLinks } = useManagerBookingEntries({
+  const { entries, residentOptions, channelLinks, readsPending } = useManagerBookingEntries({
     userId,
     propertyIds,
     propertyOptions,
@@ -47,6 +52,7 @@ export function ApplicationQuickBook({
       initialCheckOut={prefill.checkOut}
       initialResident={prefill.resident}
       initialReason={prefill.reason}
+      readsPending={readsPending}
       entries={entries}
       residentOptions={residentOptions}
       onSave={saveBlock}

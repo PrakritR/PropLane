@@ -30,8 +30,12 @@ import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shap
 import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
-import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
+import {
+  validateResidentApplicationRowForPersistence,
+  type EffectiveApplicationPropertyLoader,
+} from "@/lib/rental-application/validate-application-submit.server";
 import { fillApplicantIdentityFromAccount } from "@/lib/rental-application/applicant-identity.server";
+import type { ApplicantAuthUser } from "@/lib/rental-application/applicant-identity";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
@@ -290,8 +294,17 @@ export type PreparedResidentSelfWrite =
  */
 export async function prepareResidentSelfWrite(
   db: Db,
-  user: { id: string },
-  input: { row: DemoApplicantRow; requestedRowId: string; role: string; email: string },
+  // The whole auth user, not just its id: a template that no longer asks for a name or an email
+  // resolves them from THIS account below, and a bare `{ id }` would silently store neither.
+  user: ApplicantAuthUser & { id: string },
+  input: {
+    row: DemoApplicantRow;
+    requestedRowId: string;
+    role: string;
+    email: string;
+    /** Where the listing is read from, so one request reads it once (`memoizeEffectiveApplicationProperty`). */
+    loadProperty?: EffectiveApplicationPropertyLoader;
+  },
 ): Promise<PreparedResidentSelfWrite> {
   const { requestedRowId, role, email } = input;
   let row = input.row;
@@ -355,7 +368,9 @@ export async function prepareResidentSelfWrite(
   };
   row = prepareApplicantIdentityWrite(row, existing, String(records?.[0]?.id ?? row.id));
   if (!existing || isDraftShapedApplicationRow(existing)) {
-    const validation = await validateResidentApplicationRowForPersistence(db, row);
+    const validation = await validateResidentApplicationRowForPersistence(db, row, {
+      loadProperty: input.loadProperty,
+    });
     if (!validation.ok) {
       return refuse(validation.status, {
         error: validation.error,
@@ -386,7 +401,7 @@ export async function prepareResidentSelfWrite(
   // The answers were validated above; whatever identity the template no longer asks for now comes
   // from the applicant's own account, so the stored row (resident_email, name, answers) is complete.
   if (!isDraftShapedApplicationRow(row)) {
-    row = await fillApplicantIdentityFromAccount(db, user as Parameters<typeof fillApplicantIdentityFromAccount>[1], row, { submitted: true });
+    row = await fillApplicantIdentityFromAccount(db, user, row, { submitted: true });
   }
   row = anchorServerOwnedSmsConsent(row, existing ?? null);
   return { ok: true, row, authorizedWriteRecord };
