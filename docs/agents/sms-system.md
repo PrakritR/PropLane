@@ -1187,11 +1187,17 @@ relevant tool-built link. A prospect ready to reserve, pay, or move immediately
 remains a prospect, so the agent never redirects them to resident rent payment
 or claims approval, reservation, or payment.
 
-Reply suppression is limited to a deterministic, standalone acknowledgment
-such as "thanks" or "got it" and requires an outbox row whose status is exactly
-`delivered`. The tool classifies the trusted current inbound text from the
-webhook context. A repeated question, clarification, correction, new fact, or
-availability question always rejects suppression so the model can answer.
+Reply suppression is a permission ceiling, never an instruction: it is limited
+to a deterministic, standalone acknowledgment such as "thanks" or "got it" and
+requires an outbox row whose status is exactly `delivered`. The tool classifies
+the trusted current inbound text from the webhook context. A repeated question,
+clarification, correction, new fact, or availability question always rejects
+suppression so the model can answer. What the agent actually does with a bare
+thank-you is decided by the standing acknowledge-every-thank-you rule in the
+same prompt — a short warm line, not silence — owned by
+[`../ai-assistant.md`](../ai-assistant.md) § Standing prompt rules. The
+deterministic check above stays the fail-closed boundary for any suppression
+call that is still made.
 
 For a high-intent manager-only uncertainty with no useful grounded reply left,
 the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.

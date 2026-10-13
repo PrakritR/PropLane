@@ -60,8 +60,8 @@ async function ids(module: string, propertyId?: string | null) {
 
 describe("resolveWorkspaceNoticeRecipients — the role matrix", () => {
   it("always includes the owner, and never a property owner", async () => {
-    for (const module of ["inbox", "payments", "services"]) {
-      const got = await ids(module, HOUSE_A);
+    for (const moduleKey of ["inbox", "payments", "services"]) {
+      const got = await ids(moduleKey, HOUSE_A);
       expect(got).toContain("owner");
       expect(got).not.toContain("inv");
     }
