@@ -614,8 +614,10 @@ texting). What the vendor does:
 
 - **Verify the phone** with a 6-digit code (the user-generic `/api/manager/phone`,
   shown by `PortalTextNotificationsBlock`): Settings > Messaging, the onboarding
-  page, and the portal-wide notice (`VendorMessagingSetupBanner`, cleared by
-  `profiles.phone_verified_at`, never by a typed phone).
+  page, and one **Dashboard attention row** ("Verify your phone") — the portal-wide
+  banner it replaced is retired, so no other vendor page carries the nudge
+  (`useVendorPhoneNeedsVerification`, cleared by `profiles.phone_verified_at`, never
+  by a typed phone; `tests/unit/vendor-phone-verification-row.test.tsx`).
 - Verifying links the history: every conversation a manager had with that number
   appears in their Communication, one per manager workspace, earlier texts included
   (`communication-inbox.md` § A vendor's texts are in their conversation). A number a
@@ -665,7 +667,9 @@ Refunds** and the Bank + Withdraw icons. The tab is the URL segment, handled in 
 (bare) -> `/payouts`; `/financials/balance/<id>` is still a withdrawal's own page; `/financials/payouts/<id>[/<tab>]`
 is still a payment's record page; `invoices` bare / `income` -> Incoming payments, `statements` / `tax` -> Documents,
 `/vendor/payments` -> Incoming payments. Overview adds only what the cards do not show (Owed to you, Paid this
-year, this month's earned / spent / profit / jobs, By manager); Refunds mounts `VendorRefundsPanel embedded`, whose
+year, this month's earned / spent / profit / **services**, By manager) and adds no second tile row: they are plain
+label-and-figure rows in the same money format as the cards (`vendorOverviewRows`,
+`src/lib/vendor-banking/overview-display.ts`); Refunds mounts `VendorRefundsPanel embedded`, whose
 round + sits in the band. Settings > Payouts keeps only **Bank accounts + Schedule** and links to the Payouts tab.
 
 **One server snapshot feeds every number**: `GET /api/vendor/payouts/balance`. `deriveVendorFinancesFigures`

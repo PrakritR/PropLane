@@ -242,7 +242,7 @@ export function InfoTabContent({
   forManager = false,
 }: {
   resolved: ResidentMoveInResolved;
-  /** The manager's resident record: PropLane's "How your portal works" card is resident-facing, so it is left out. */
+  /** The manager's resident record: sibling cards instead of the resident page body, and its own empty copy. */
   forManager?: boolean;
 }) {
   const hasSections = !houseInfoIsEmpty(resolved.houseInfo);

@@ -176,20 +176,25 @@ Add applicant, Add lease, …) is the same **full-screen editor**, never a small
 - **Header:** title (+ status chip and address for an existing record), save state ("Not saved
   yet" / "Saved"), "✦ Ask PropLane", ✕. No Upload icon: a door that reads a file declares it with
   `AddWorkspace` / `ListingEditorV2` `headerUpload` and that renders the shared **"Start from a
-  file"** card (`WorkspaceFileCard`: upload tile, title, the flow's real format/size chips, Choose
-  file, plus any extra door like "Import a portfolio") at the top of the **first step** (captain,
-  Oct 6). A step's own file strip keeps its reading / filled / replace-confirm states but draws no
+  file"** card (`WorkspaceFileCard`: upload tile, title, Choose file, plus any extra door like
+  "Import a portfolio") at the top of the **first step** (captain, Oct 6). It states no format or
+  size: a wrong pick is refused in place with an error that names the file (`fileRefusal` /
+  `fileRefusalMany`), and each flow's own reader still owns its size limit. A step's own file strip
+  keeps its reading / filled / replace-confirm states but draws no
   second card in the blank state (`WorkspaceHeaderUploadPresent`).
 - **Left column:** a drop card ("Add documents" / "Contact and tour") or cover photo; a "● N
-  things to finish ›" card; the step list (title + one-line summary, red dot while
+  things to finish ›" card; the step list (title only — no caption under it — with a red dot while
   required info is missing, the active step as a white card with a blue outline).
 - **Centre:** a step progress bar (desktop only; one segment per rail step, filled up to the current
   one, red for a step the manager pressed Next past while it still needed something — none on a
-  one-step door or a tab rail), a big step title, section cards with two-column fields (required *),
+  one-step door or a tab rail), a big step title (dropped when it only repeats the dialog's own
+  title — `DialogTitleProvider` / `StepHeading`), section cards with two-column fields (required *),
   and tile grids, radio cards, stepper rows or a "Start from a file" strip where the step needs them.
-- **Right column:** "<THING> PREVIEW" (facts, with "Not set" for anything unset) and "THIS WILL
-  CREATE" (✓ will happen · ! needs attention · – won't happen), and it must be true to what the
-  commit really does.
+- **Right column:** "<THING> PREVIEW" — the record's facts, and nothing after them: no "THIS WILL
+  CREATE" checklist of what the commit will do (round 3 of the portal sweep; guard
+  `tests/unit/popup-shell-no-subtext.test.tsx`). The shared draft snapshot
+  (`PopupFormSnapshot`) lists only the fields that hold a value, and renders nothing until one
+  does; a caller-owned preview may still show its own "Not set" rows for what a commit requires.
 - **Footer:** one shared shell for every `AddWorkspace` door and the property wizard
   (`src/lib/editor-footer-state.ts`, pure, so the editors and their test read one rule): the red
   **Delete** on the left — editing a record, or, on a new property, the confirm that deletes the draft

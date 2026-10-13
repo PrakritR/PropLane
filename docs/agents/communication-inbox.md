@@ -436,6 +436,14 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   carries `inbound | outbound | assistant | system`. Assistant-authored turns show
   "PropLane" with a sparkle tile and the clock - never an "Assistant" / "PropLane
   Assistant" label. List previews do not prefix assistant turns with "You: ".
+  A sender known only as an email address can read as the person ("Manager") where the
+  surface opts in (`emailNameAsPerson`, `inboxDisplayName`); it is off by default so a
+  multi-party timeline keeps two senders who share a local part apart.
+  **A turn is hidden only when it cannot be a second real one** (`dropDuplicateTurns`): the
+  immediately preceding turn, same sender, body, channel, delivery, status and attachments,
+  differing in nothing but id and stamp, never outbound, and never a line too short to be a
+  message of its own ("OK" twice is two turns) - a retried send, a scheduled copy beside its
+  delivered one and the same words on two channels are all genuine turns.
   Coverage: `tests/unit/inbox-turn-direction.test.ts`,
   `tests/unit/inbox-bubble-alignment.test.tsx`.
 - **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`; `InboxChannel` in

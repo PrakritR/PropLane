@@ -549,7 +549,11 @@ it on every charge an accepted manual reminder covered (re-reading the row and m
 only that field, so a status change that landed during delivery is never overwritten);
 the charges mirror route (`POST /api/portal-household-charges`) and the browser
 reconcile (`reconcileChargeWithLocal`) both carry a stored stamp through a client copy
-that predates it. The manager-side Upcoming group is a different rule
+that predates it. **The resident portal only reads that ledger** — the route answers a
+resident's write with 403 — so a resident-side change to the local copy (stamping the
+signed-in user id onto email-only rows, `linkHouseholdChargesToResidentUser`) stays in the
+browser session: it neither posts the mirror nor stamps the sync clock, which would have
+suppressed the next server read for its TTL. The manager-side Upcoming group is a different rule
 ([financials.md](financials.md) § Manager charge counts). Coverage:
 `tests/unit/household-charge-visibility.test.ts`,
 `tests/unit/resident-payments-visibility.test.ts`,
