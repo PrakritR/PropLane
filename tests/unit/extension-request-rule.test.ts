@@ -4,6 +4,7 @@ import {
   EXTENSION_REQUEST_RULE_MANAGER,
   EXTENSION_REQUEST_RULE_RESIDENT,
 } from "@/lib/agent/extension-request-rule";
+import { NO_LONG_DASHES_RULE, THANK_YOU_REPLY_RULE, stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
 import { RESIDENT_PERSONAL_AGENT_SURFACE_PROMPT } from "@/lib/agent/resident-personal-agent-system-prompt";
 import {
@@ -21,6 +22,8 @@ const CORE = [
 ];
 
 function hasCore(prompt: string) {
+  expect(prompt).toContain(THANK_YOU_REPLY_RULE);
+  expect(prompt).toContain(NO_LONG_DASHES_RULE);
   for (const piece of CORE) expect(prompt).toContain(piece);
 }
 
@@ -44,5 +47,18 @@ describe("extension request rule", () => {
     expect(RESIDENT_PERSONAL_AGENT_SURFACE_PROMPT).toContain(EXTENSION_REQUEST_RULE_RESIDENT);
     hasCore(RESIDENT_PERSONAL_AGENT_SURFACE_PROMPT);
     expect(EXTENSION_REQUEST_RULE_RESIDENT).not.toContain("update_room_block");
+  });
+});
+
+describe("stripLongDashes", () => {
+  it("replaces spaced dashes with commas and range dashes with hyphens", () => {
+    expect(stripLongDashes("Yes \u2014 it is free")).toBe("Yes, it is free");
+    expect(stripLongDashes("Oct 3\u20135")).toBe("Oct 3-5");
+    expect(stripLongDashes("a \u2013 b \u2014 c")).toBe("a, b, c");
+  });
+  it("passes null, empty and clean text through", () => {
+    expect(stripLongDashes(null)).toBeNull();
+    expect(stripLongDashes("")).toBe("");
+    expect(stripLongDashes("Plain - text.")).toBe("Plain - text.");
   });
 });
