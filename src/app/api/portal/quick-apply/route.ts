@@ -11,7 +11,8 @@ export const runtime = "nodejs";
 
 /**
  * Quick apply: submit a solo application to one room from the signed-in resident's saved answers.
- * Signed-in residents only (401 otherwise), 10 a minute per account (30 for the read-only dry run that labels the button). Everything that makes a submit a
+ * Signed-in residents only (401 when nobody is signed in, 403 when the account is not a resident), 10 a
+ * minute per account (30 for the read-only dry run that labels the button). Everything that makes a submit a
  * submit (validation, fee guard, linking, notices, screening) is the shared write in
  * `signed-in-application-write.server.ts`; see `quick-apply.server.ts`.
  */
@@ -42,7 +43,9 @@ export async function POST(req: Request) {
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
     if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole }))) {
-      return NextResponse.json({ error: "Quick apply is for resident accounts." }, { status: 401 });
+      // Authenticated, just not a resident: 403, never 401 — a 401 reads as an expired session and
+      // sends the client back through sign-in for an account that is already signed in.
+      return NextResponse.json({ error: "Quick apply is for resident accounts." }, { status: 403 });
     }
     const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();
     if (!email) return NextResponse.json({ error: "Sign in to apply." }, { status: 401 });

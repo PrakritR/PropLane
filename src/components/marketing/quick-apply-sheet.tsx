@@ -26,7 +26,7 @@ import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isWizardFormFieldRequired, wizardFormFieldLabel } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { getPropertyById } from "@/lib/rental-application/data";
-import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { resetQuickApplyReadiness } from "@/hooks/use-quick-apply-eligibility";
 import { syncManagerApplicationsFromServer } from "@/lib/manager-applications-storage";
@@ -119,9 +119,17 @@ function QuickApplySheetBody({
   const property = propertyId ? getPropertyById(propertyId) : undefined;
   const handed = fixedPropertyId && submission?.v === 1 ? submission : null;
   const sub = handed ?? (property?.listingSubmission?.v === 1 ? property.listingSubmission : null);
+  /**
+   * An entire-home listing is applied for as the WHOLE place: the server stores the property id as the
+   * unit choice, so its bedrooms are never offered here and no room id is sent for one.
+   */
+  const entireHome = sub ? isEntireHomeListing(sub) : false;
   const rooms = useMemo(
-    () => (sub?.rooms ?? []).filter((room) => room.id).map((room, index) => ({ id: room.id, name: room.name?.trim() || `Room ${index + 1}` })),
-    [sub],
+    () =>
+      entireHome
+        ? []
+        : (sub?.rooms ?? []).filter((room) => room.id).map((room, index) => ({ id: room.id, name: room.name?.trim() || `Room ${index + 1}` })),
+    [entireHome, sub],
   );
   const needsRoomPick = rooms.length > 1;
   const screeningRequired = useMemo(
@@ -170,7 +178,7 @@ function QuickApplySheetBody({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           propertyId,
-          roomId: roomId || undefined,
+          roomId: entireHome ? undefined : roomId || undefined,
           leaseStart: moveIn || undefined,
           consentCredit,
           consentTruth,

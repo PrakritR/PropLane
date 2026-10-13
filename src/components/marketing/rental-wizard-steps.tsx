@@ -1429,8 +1429,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                   <div className="px-4 pb-4 sm:px-5">
                     <GroupInviteCallout
                       leaderAppId={inviteAppId}
-                      organizerName={form.fullLegalName.trim() || undefined}
-                      groupSize={form.groupSize.trim() || undefined}
                       propertyId={form.propertyId.trim() || undefined}
                       pendingSubmit
                     />
@@ -1466,11 +1464,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                 </ApplyFieldRow>
                 {form.hasCosigner === "yes" && inviteAppId ? (
                   <div className="px-4 pb-4 sm:px-5">
-                    <CosignerInviteCallout
-                      signerAppId={inviteAppId}
-                      signerName={form.fullLegalName.trim() || undefined}
-                      pendingSubmit
-                    />
+                    <CosignerInviteCallout signerAppId={inviteAppId} pendingSubmit />
                   </div>
                 ) : null}
               </>

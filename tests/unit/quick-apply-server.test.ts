@@ -187,7 +187,9 @@ describe("quick apply", () => {
   it("a dry run with no room picked is judged on a room the resident has NOT already applied to", async () => {
     mocks.onListing.mockResolvedValue({ byRoom: new Map([["prop-1::r1", { id: "PROPLANE-OLD1", row: {} }]]), draftsByRoom: new Map() });
     const out = await runQuickApply(db, ctx, { propertyId: "prop-1", dryRun: true });
-    expect(out.body).toEqual({ ready: true });
+    // The rooms already applied to ride along, so the card answers every later room pick from this
+    // one reply instead of spending another dry run on each.
+    expect(out.body).toEqual({ ready: true, appliedRooms: { "prop-1::r1": "PROPLANE-OLD1" } });
     expect(mocks.validate.mock.calls[0]![1].application.roomChoice1).toBe("prop-1::r2");
 
     // Every room taken: only then is the verdict "you already applied".
@@ -201,6 +203,21 @@ describe("quick apply", () => {
     const taken = await runQuickApply(db, ctx, { propertyId: "prop-1", dryRun: true });
     expect(taken.status).toBe(409);
     expect(taken.body).toMatchObject({ existingApplicationId: "PROPLANE-OLD1" });
+  });
+
+  it("applies for the whole place on an entire-home listing, never one of its bedrooms", async () => {
+    mocks.property.mockResolvedValue(listing({ listingPlaceCategoryId: "entire_home" }));
+    const out = await runQuickApply(db, ctx, input);
+    expect(out.status).toBe(200);
+    expect(mocks.prepare.mock.calls[0]![2].row.application.roomChoice1).toBe("prop-1");
+
+    // A room id in the request cannot turn a whole-home application into a bedroom application, and the
+    // duplicate guard is the property itself.
+    mocks.prepare.mockClear();
+    mocks.onListing.mockResolvedValue({ byRoom: new Map([["prop-1", { id: "PROPLANE-OLD1", row: {} }]]), draftsByRoom: new Map() });
+    const dup = await runQuickApply(db, ctx, { ...input, roomId: "r2" });
+    expect(dup.status).toBe(409);
+    expect(mocks.prepare).not.toHaveBeenCalled();
   });
 
   it("a dry run runs the shared validator, so the button never promises an apply the write refuses", async () => {

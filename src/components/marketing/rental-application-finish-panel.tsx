@@ -25,7 +25,6 @@ type FinishPanelProps = {
   /** Organizer application id for sharing a group invite link after submit. */
   groupLeaderAppId?: string;
   groupRole?: GroupRole;
-  groupSize?: string;
   groupPropertyId?: string;
   hasCosigner?: "yes" | "no" | null;
   /** Forms the template's rules owe after this submit (replaces the co-signer copy box when there are any). */
@@ -40,14 +39,12 @@ type FinishPanelProps = {
 export function GroupShareCallout({
   leaderAppId,
   groupRole,
-  groupSize,
   propertyId,
   className,
   shareable = true,
 }: {
   leaderAppId?: string;
   groupRole?: GroupRole;
-  groupSize?: string;
   propertyId?: string;
   className?: string;
   shareable?: boolean;
@@ -83,7 +80,6 @@ export function GroupShareCallout({
   return (
     <GroupInviteCallout
       leaderAppId={leaderAppId}
-      groupSize={groupSize}
       propertyId={propertyId}
       className={`mt-6 ${className ?? ""}`}
     />
@@ -100,7 +96,6 @@ export function RentalApplicationFinishPanel({
   setupHref,
   groupLeaderAppId,
   groupRole,
-  groupSize,
   groupPropertyId,
   hasCosigner,
   linkedForms: submittedLinkedForms = [],
@@ -163,7 +158,6 @@ export function RentalApplicationFinishPanel({
         <GroupShareCallout
           leaderAppId={groupLeaderAppId!.trim()}
           groupRole={groupRole}
-          groupSize={groupSize}
           propertyId={groupPropertyId}
         />
       ) : showGroupJoined ? (

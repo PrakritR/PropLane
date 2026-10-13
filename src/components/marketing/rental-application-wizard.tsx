@@ -530,7 +530,6 @@ function RentalApplicationWizardInner({
     /** Organizer application id for group invite link on the finish screen. */
     groupLeaderAppId?: string;
     groupRole?: GroupRole;
-    groupSize?: string;
     groupPropertyId?: string;
     hasCosigner?: "yes" | "no" | null;
     /** Forms the template's rules owe after this submit, from the submit response. */
@@ -2114,7 +2113,6 @@ function RentalApplicationWizardInner({
               ? axisId
               : undefined,
           groupRole: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole : undefined,
-          groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
           groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
           hasCosigner: submittedForm.hasCosigner,
           linkedForms: sync.linkedForms,
@@ -2143,7 +2141,6 @@ function RentalApplicationWizardInner({
             ? axisId
             : undefined,
         groupRole: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole : undefined,
-        groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
         groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
         hasCosigner: submittedForm.hasCosigner,
         linkedForms: sync.linkedForms,
@@ -2741,7 +2738,6 @@ function RentalApplicationWizardInner({
             setupHref={postSubmit.setupHref}
             groupLeaderAppId={postSubmit.groupLeaderAppId}
             groupRole={postSubmit.groupRole}
-            groupSize={postSubmit.groupSize}
             groupPropertyId={postSubmit.groupPropertyId}
             hasCosigner={postSubmit.hasCosigner}
             linkedForms={postSubmit.linkedForms}

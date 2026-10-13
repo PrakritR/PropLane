@@ -19,7 +19,7 @@ import {
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
 import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
-import { ListingKeyFacts, deriveListingKeyFacts, formatMoneyInLabel } from "@/components/marketing/listing-key-facts";
+import { ListingKeyFacts, deriveListingKeyFacts } from "@/components/marketing/listing-key-facts";
 import { ListingNoPhotoBand, ListingPhotoMosaic } from "@/components/marketing/listing-photo-mosaic";
 import { listingPrimaryCtaClass, listingSecondaryCtaClass } from "@/components/marketing/listing-contact-card";
 import {
@@ -27,6 +27,8 @@ import {
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
 import { ShortStayProvider, useShortStay } from "@/components/marketing/short-stay-booking";
+import { listingMonthlyPriceLine } from "@/lib/listing-price-line";
+import { listingShortStayNightlyFrom } from "@/lib/short-stay-request";
 import { ListingActionsProvider, ListingPriceCard, MonthlyPrimaryCta } from "@/components/marketing/listing-price-card";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import type { MockProperty } from "@/data/types";
@@ -65,8 +67,14 @@ const iconButtonClass =
 
 const QUICK_FACTS_COVERED_BY_TILES = new Set(["rooms listed", "rooms", "bathrooms", "pets", "building", "neighborhood", "overview"]);
 
-function listingFromPrice(rich: ListingRichContent): string {
-  return formatMoneyInLabel(rich.startingRentLabel?.trim() || rich.priceRangeLabel.replace(/^\s*base rent\s*/i, ""));
+/**
+ * The phone bar's price is the SAME answer the price card prints — one derivation
+ * (`listingMonthlyPriceLine`, and the nightly figure on the Short stay segment), never a second one, or
+ * the bar and the card can show two different prices for one listing.
+ */
+function listingStickyPrice(rich: ListingRichContent, nightlyFrom: number, shortSegment: boolean): string {
+  if (shortSegment && nightlyFrom > 0) return `from $${nightlyFrom.toLocaleString("en-US")} / night`;
+  return listingMonthlyPriceLine(rich)?.label ?? "";
 }
 
 /** Legacy `homeStructureNote` rows sometimes left a bare story count between middots — label it for display. */
@@ -228,10 +236,10 @@ function StickyBar({
   const barRef = useRef<HTMLDivElement>(null);
   useStickyBarClearance(barRef);
   const stay = useShortStay();
-  const from = listingFromPrice(rich);
   // Exactly one primary and Tour: on the Short stay segment the primary is Request to book, which brings the
   // booking block into view; on Monthly it is the same Quick apply / Continue / Apply the card shows.
   const shortSegment = stay?.offered === true && stay.segment === "short";
+  const from = listingStickyPrice(rich, listingShortStayNightlyFrom(property.listingSubmission), shortSegment);
   const compact = slim ? "!min-h-[44px] !w-auto flex-none !px-4 !py-2" : "!min-h-[44px] !py-2.5 min-w-[7.5rem] flex-1 !px-3";
   const primary = shortSegment ? (
     <button
@@ -273,7 +281,7 @@ function StickyBar({
       >
         <div className="flex min-w-0 items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
+            {from ? <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p> : null}
             {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
           </div>
           <div className="flex shrink-0 items-center gap-2" data-attr="listing-sticky-actions">{primary}{tour}</div>
@@ -290,7 +298,7 @@ function StickyBar({
       <div className="min-w-0">
         {/* No tabular figures here: the brand face gives the comma a digit's
             width under `tnum`, which reads as "$1 , 050" in a lone price. */}
-        <p className="truncate text-lg font-bold tracking-tight text-foreground">{from}</p>
+        {from ? <p className="truncate text-lg font-bold tracking-tight text-foreground">{from}</p> : null}
         {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
       </div>
       <div className="mt-2.5 flex gap-2" data-attr="listing-sticky-actions">

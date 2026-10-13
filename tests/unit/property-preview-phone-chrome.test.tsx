@@ -91,7 +91,7 @@ describe("manager preview — slim phone sticky bar", () => {
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar).not.toBeNull();
     expect(bar.hasAttribute("data-slim")).toBe(true);
-    expect(bar.textContent).toContain("$1,450/mo");
+    expect(bar.textContent).toContain("$1,450 / mo");
     expect(bar.textContent).toContain("5 rooms · 2 available");
     expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Apply");
     expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toContain("Tour");

@@ -1072,7 +1072,6 @@ export function ResidentApplicationsPanel({
           <GroupShareCallout
             leaderAppId={row.id}
             groupRole="first"
-            groupSize={row.application?.groupSize}
             propertyId={row.propertyId}
             className="rounded-2xl border border-border bg-accent/30 p-5"
             shareable={row.bucket !== "rejected"}

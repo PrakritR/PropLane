@@ -24,6 +24,7 @@ import { DateField } from "@/components/ui/date-field";
 import { Select } from "@/components/ui/input";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
+import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import {
   useQuickApplyEligibility,
   useQuickApplyReadiness,
@@ -49,6 +50,12 @@ export function useListingActions(): ListingActions | null {
   return useContext(ActionsCtx);
 }
 
+/** True when the listing is leased as the whole home, so its bedrooms are read-only facts, not choices. */
+function listingIsEntireHome(property: MockProperty): boolean {
+  const sub = property.listingSubmission;
+  return sub?.v === 1 && isEntireHomeListing(sub);
+}
+
 export function ListingActionsProvider({
   property,
   preview,
@@ -63,10 +70,14 @@ export function ListingActionsProvider({
   const showToast = useOptionalAppUi()?.showToast ?? (() => undefined);
   const eligibility = useQuickApplyEligibility();
   const quickEligible = eligibility.eligible && !preview;
+  // An entire-home listing is applied for as the whole place, so no bedroom of it is ever the unit
+  // choice — the room a short stay is holding must not reach the application either.
+  const entireHome = listingIsEntireHome(property);
+  const roomId = entireHome ? "" : stay?.roomId ?? "";
   const readiness = useQuickApplyReadiness({
     enabled: quickEligible,
     propertyId: property.id,
-    roomId: stay?.roomId ?? "",
+    roomId,
   });
   const [open, setOpen] = useState(false);
   const openQuickApply = useCallback(() => setOpen(true), []);
@@ -83,7 +94,7 @@ export function ListingActionsProvider({
           onClose={() => setOpen(false)}
           propertyId={property.id}
           submission={property.listingSubmission ?? null}
-          initialRoomId={stay?.roomId}
+          initialRoomId={roomId}
           initialMoveIn={stay?.moveIn}
           showToast={showToast}
         />
@@ -110,7 +121,7 @@ export function MonthlyPrimaryCta({
 }) {
   const actions = useListingActions();
   const stay = useShortStay();
-  const roomId = stay?.roomId ?? "";
+  const roomId = listingIsEntireHome(property) ? "" : stay?.roomId ?? "";
   const words = (long: string, short: string) => (
     label === "short" ? (
       <>
@@ -192,6 +203,7 @@ export function ListingPriceCard({
 }) {
   const stay = useShortStay();
   const actions = useListingActions();
+  const entireHome = listingIsEntireHome(property);
   const priceLine = listingMonthlyPriceLine(rich);
   const nightlyFrom = listingShortStayNightlyFrom(property.listingSubmission);
   const priceRows = listingPriceRows(rich, property.listingSubmission as Parameters<typeof listingPriceRows>[1], stay?.offered === true ? nightlyFrom : 0, formatMoneyInLabel);
@@ -235,7 +247,7 @@ export function ListingPriceCard({
                 Move-in
                 <DateField value={stay.moveIn} onChange={stay.setMoveIn} min={today} className="mt-1" aria-label="Move-in" />
               </label>
-              {stay.rooms.length > 1 ? (
+              {!entireHome && stay.rooms.length > 1 ? (
                 <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="listing-room-select">
                   Room
                   <Select aria-label="Room" className="mt-1" value={stay.roomId} onChange={(e) => stay.setRoomId(e.target.value)}>

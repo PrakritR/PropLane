@@ -28,7 +28,6 @@ import {
   listingAllowedLeaseTerms,
   getPropertyById,
   parseRoomChoiceValue,
-  canonicalRoomChoiceValue,
   isRoomChoiceAvailable,
   firstChoiceSlotIsTaken,
 } from "./data";
@@ -343,19 +342,11 @@ export function validateStandardWizardSection(
       e.roomChoice1 = "First choice room is required.";
     }
     const r1 = f.roomChoice1.trim();
-    const r2 = f.roomChoice2.trim();
-    const r3 = f.roomChoice3.trim();
-    const r1Room = canonicalRoomChoiceValue(r1);
-    const r2Room = canonicalRoomChoiceValue(r2);
-    const r3Room = canonicalRoomChoiceValue(r3);
-    if (fieldEnabled("roomChoice2") && r2 && r2Room && r2Room === r1Room) {
-      e.roomChoice2 = "Second choice must differ from your first choice.";
-    }
-    if (fieldEnabled("roomChoice3") && r3 && ((r3Room && r3Room === r1Room) || (r3Room && r3Room === r2Room) || r3 === r1 || r3 === r2)) {
-      e.roomChoice3 = "Third choice must differ from your other choices.";
-    }
+    // `roomChoice2` / `roomChoice3` are legacy data only: the wizard asks for ONE room, and the
+    // second and third pickers (with their inline errors and scroll anchors) are gone. An error on a
+    // field nothing renders is unfixable — step 1 would refuse to advance with no highlighted field
+    // and no message — so an old row's extra picks are carried and displayed, never validated.
     // A room limited to other lease types cannot be taken on the chosen one.
-    // Same message for any of the three ranked picks; first choice wins the slot.
     const roomOffersChosenTerm = (choice: string): boolean => {
       if (!choice || !listingSub || !f.leaseTerm.trim()) return true;
       const id = parseRoomChoiceValue(choice).listingRoomId;
@@ -363,12 +354,6 @@ export function validateStandardWizardSection(
       return roomOffersLeaseTerm(row, f.leaseTerm);
     };
     const roomNotOfferedMessage = "That room isn't offered on this lease type. Choose another room or lease type.";
-    if (fieldEnabled("roomChoice2") && !f.bundleId.trim() && !roomOffersChosenTerm(r2)) {
-      e.roomChoice2 ??= roomNotOfferedMessage;
-    }
-    if (fieldEnabled("roomChoice3") && !f.bundleId.trim() && !roomOffersChosenTerm(r3)) {
-      e.roomChoice3 ??= roomNotOfferedMessage;
-    }
     if (fieldEnabled("roomChoice1") && r1 && !f.bundleId.trim()) {
       const parsed = parseRoomChoiceValue(r1);
       const room = parsed.listingRoomId && listingSub
