@@ -325,13 +325,18 @@ describe("Your lease: a pick writes the existing stored term", () => {
 });
 
 describe("apply wizard — step labels", () => {
-  it("room choices read '1st choice / 2nd choice / 3rd choice' in sentence case, and required fields carry no asterisk", () => {
+  it("offers ONE room choice (captain's order), in sentence case, and required fields carry no asterisk", () => {
     rentByRoom = true;
     renderLeaseTermStep(["Long-term", "Short-Term Stay"], "Long-term", true);
     rentByRoom = false;
+    // One Room select; the 2nd and 3rd ranked choices are not offered.
+    expect(screen.getAllByLabelText("Room")).toHaveLength(1);
+    const fields = [...document.querySelectorAll("[data-wizard-field]")].map((e) => e.getAttribute("data-wizard-field"));
+    expect(fields).toContain("roomChoice1");
+    expect(fields).not.toContain("roomChoice2");
+    expect(fields).not.toContain("roomChoice3");
     for (const label of ["1st choice", "2nd choice", "3rd choice"]) {
-      const node = screen.getByText(label);
-      expect(node.className).not.toContain("uppercase");
+      expect(screen.queryByText(label)).toBeNull();
     }
     expect(document.body.textContent).not.toMatch(/\*/);
     // The lease term label says "(required)" to assistive tech only.

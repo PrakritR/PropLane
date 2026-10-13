@@ -83,7 +83,12 @@ describe("no picker lists Custom or Month-to-month as a top-level option", () =>
   });
 
   it("no component maps the flat four-type LEASE_TYPES list into a picker's options", () => {
-    const offenders = walk(join(root, "components")).filter((file) => /options=\{LEASE_TYPES\.map\(/.test(readFileSync(file, "utf8")));
+    // The browse "Lease type" CheckboxMultiSelect is a FILTER over existing listings, not a lease-term picker, so it
+    // legitimately lists all four types. Nothing else is exempt.
+    const FILTER_NOT_PICKER = ["marketing/resident-housing-browse.tsx"];
+    const offenders = walk(join(root, "components"))
+      .filter((file) => !FILTER_NOT_PICKER.some((allowed) => file.split("\\").join("/").endsWith(`/components/${allowed}`)))
+      .filter((file) => /options=\{LEASE_TYPES\.map\(/.test(readFileSync(file, "utf8")));
     expect(offenders).toEqual([]);
   });
 

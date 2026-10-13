@@ -156,8 +156,8 @@ describe("a manager can set up a line and an address in each workspace they own"
     expect(a.workspaceId).toBe(PRAKRIT_WS);
     expect(b.workspaceId).toBe(PRAKRIT_WS2);
     expect(a.address).not.toBe(b.address);
-    expect(a.address).toBe("my-workspace@proplane.ai");
-    expect(b.address).toBe("seattle-rentals@proplane.ai");
+    expect(a.address).toBe("myworkspace@proplane.ai");
+    expect(b.address).toBe("seattlerentals@proplane.ai");
     await expect(
       ensureManagerAssistantEmail(db as never, prakrit, { id: AMBIKA_WS, ownerUserId: ambika, owned: false, isDefault: true }),
     ).rejects.toBeInstanceOf(WorkspaceNotOwnedError);
@@ -181,9 +181,9 @@ describe("a manager can set up a line and an address in each workspace they own"
     const { emails } = await resolveWorkspaceWorkEmails(db as never, prakrit);
     const owned = emails.filter((e) => e.owned);
     expect(owned.map((e) => e.address).sort()).toEqual([
-      "9-rooms@proplane.ai",
-      "axis-housing@proplane.ai",
-      "capitol-hill@proplane.ai",
+      "9rooms@proplane.ai",
+      "axishousing@proplane.ai",
+      "capitolhill@proplane.ai",
     ]);
     // Second call is a no-op — no duplicate rows.
     await expect(ensureOwnedWorkspaceAssistantEmails(db as never, prakrit)).resolves.toEqual({ minted: 0 });

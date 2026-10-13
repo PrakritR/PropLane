@@ -188,7 +188,8 @@ vi.mock("@/lib/screening/order-screening", () => ({
 vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({
   validateResidentApplicationRowForPersistence: async () => ({ ok: true }),
 }));
-vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
+vi.mock("@/lib/rental-application/application-fee-submit-guard.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rental-application/application-fee-submit-guard.server")>()),
   authorizeApplicationFeeSubmission: async () => ({ ok: true }),
 }));
 

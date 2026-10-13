@@ -21,7 +21,13 @@ function walk(dir: string, exts: string[]): string[] {
   });
 }
 
-const ALLOWED_FILES = new Set(["src/lib/manager-listing-submission.ts"]);
+// The work-email mailbox reserved-name lists NAME these brands so a workspace can never claim venmo@ / zelle@
+// (a phishing guard), which is the opposite of supporting the channel.
+const ALLOWED_FILES = new Set([
+  "src/lib/manager-listing-submission.ts",
+  "src/lib/manager-assistant-email/assistant-email-address.ts",
+  "src/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs",
+]);
 
 const RETIRED = /zelle|venmo|gmail-payments|gmail_payments|paymentInboxToken|receiptAutoMark|paidViaGmail/i;
 
