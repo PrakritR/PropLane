@@ -5,7 +5,8 @@
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { buildCoManagerInviteBody, coManagerInviteSubject } from "@/lib/co-manager-link-email";
+import { buildCoManagerInviteBody, coManagerInviteAcceptUrl, coManagerInviteSubject } from "@/lib/co-manager-link-email";
+import { formatInviteMessageBody } from "@/lib/invite-message-body";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -27,6 +28,8 @@ export async function notifyCoManagerInviteSent(input: {
   inviterName: string;
   propertyLabels: string[];
   inviteId: string;
+  /** The workspace the invite is into, for the text's first line. */
+  workspaceName?: string;
 }): Promise<void> {
   const db = (await import("@/lib/supabase/service")).createSupabaseServiceRoleClient();
   const invitee = await profileEmail(db, input.inviteeUserId);
@@ -50,6 +53,45 @@ export async function notifyCoManagerInviteSent(input: {
     toUserIds: [input.inviteeUserId],
     // Real account/access invite — account-critical; SMS force-on for a verified invitee.
     eventCategory: "account",
+  });
+  await textCoManagerInvite(db, input).catch((error) => {
+    console.error("co-manager invite text failed", error instanceof Error ? error.name : "unknown");
+  });
+}
+
+/**
+ * The invitee also gets a text from the inviter's WORK NUMBER when their phone is verified
+ * (an invite that only lands in an inbox they have not opened is how a teammate stays unaware).
+ * Same body as the Invite manager sheet's text (`formatInviteMessageBody`). A refusal (no work
+ * number, STOP, quiet) is a quiet no; the email and inbox notice already went.
+ */
+async function textCoManagerInvite(
+  db: Db,
+  input: { inviterUserId: string; inviteeUserId: string; inviterName: string; propertyLabels: string[]; inviteId: string; workspaceName?: string },
+): Promise<void> {
+  const { data } = await db.from("profiles").select("phone, phone_verified_at").eq("id", input.inviteeUserId).maybeSingle();
+  const phone = String((data as { phone?: unknown } | null)?.phone ?? "").trim();
+  const verified = Boolean((data as { phone_verified_at?: unknown } | null)?.phone_verified_at);
+  if (!phone || !verified) return;
+  const { resolveManagerWorkNumber } = await import("@/lib/twilio-provisioning");
+  const fromNumber = await resolveManagerWorkNumber(db, input.inviterUserId);
+  if (!fromNumber) return;
+  const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
+  await sendFromManagerWorkNumber({
+    managerUserId: input.inviterUserId,
+    to: phone,
+    fromNumber,
+    text: formatInviteMessageBody({
+      kind: "workspace",
+      inviterName: input.inviterName,
+      workspaceName: input.workspaceName,
+      propertyLabels: input.propertyLabels,
+      inviteUrl: coManagerInviteAcceptUrl(input.inviteId),
+    }),
+    source: "work_number",
+    counterpartyRole: "manager",
+    purpose: "co_manager_invite_text",
+    dedupeKey: `co-manager-invite-text:${input.inviteId}`,
   });
 }
 

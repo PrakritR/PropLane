@@ -209,6 +209,8 @@ export async function managerCalendarReadableProperties(
   db: ServiceClient,
   userId: string,
   propertyIds: readonly string[],
+  /** `allowNotification`: a Calendar grant that is only "get the alerts" (notification) also counts. */
+  opts: { allowNotification?: boolean } = {},
 ): Promise<Set<string>> {
   const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
   const readable = new Set<string>();
@@ -227,7 +229,8 @@ export async function managerCalendarReadableProperties(
     const perms = linked.get(id);
     if (
       hasCoManagerPermissionLevelForProperty(perms, id, "calendar", "read") ||
-      hasCoManagerPermissionLevelForProperty(perms, id, "properties", "read")
+      hasCoManagerPermissionLevelForProperty(perms, id, "properties", "read") ||
+      (opts.allowNotification === true && hasCoManagerPermissionLevelForProperty(perms, id, "calendar", "notification"))
     ) {
       readable.add(id);
     }

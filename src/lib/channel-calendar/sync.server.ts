@@ -521,8 +521,13 @@ export async function syncChannelCalendarConnection(
       };
       for (const range of diff.created) await emitChannelBookingEvent(db, { ...base, event: "channel_booking_created", range });
       for (const range of diff.cancelled) await emitChannelBookingEvent(db, { ...base, event: "channel_booking_cancelled", range });
-    } catch {
-      // Delivery has its own retry; the sync result is the calendar.
+    } catch (alertError) {
+      // Delivery has its own retry; the sync result is the calendar. Never swallow it silently:
+      // a rejected action_events insert (a domain missing from the DB check) hid every alert for weeks.
+      console.warn("[channel-calendar] booking alert failed", {
+        connectionId: connection.id,
+        message: alertError instanceof Error ? alertError.message : String(alertError),
+      });
     }
     return parseConnectionRow(saved as Record<string, unknown>);
   } catch (e) {

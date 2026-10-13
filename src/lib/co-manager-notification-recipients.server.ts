@@ -9,6 +9,8 @@ import {
 } from "@/lib/co-manager-permissions";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
+import { notifyWorkNumberRecipients } from "@/lib/work-number-recipients.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -314,6 +316,24 @@ export async function notifyPropertyScopedManagersFromAgent(
     } catch (error) {
       // Masked: the teammate id and the notice body never reach a log.
       console.error("teammate notice failed", error instanceof Error ? error.name : "unknown");
+    }
+  }
+  // "Also notify": people with no PropLane account who get every notice the work number sends.
+  // They ride the owner's leg (the owner was served unless they were the actor), as a text from the
+  // owner's work number and an email from the work email - never an Assistant thread.
+  if (!excluded.has(ownerId)) {
+    try {
+      const workspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId });
+      await notifyWorkNumberRecipients(db, {
+        ownerUserId: ownerId,
+        workspaceId: workspace.workspaceId || null,
+        subject: input.subject,
+        text: input.externalText ?? input.text,
+        url: input.url,
+        idempotencyKey: input.idempotencyKey,
+      });
+    } catch (error) {
+      console.error("extra recipient notice failed", error instanceof Error ? error.name : "unknown");
     }
   }
 }

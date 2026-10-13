@@ -65,6 +65,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   },
   // ---------------------------------------------------------------- phase 1: child rows
   {
+    // Extra people (a name, a phone, an email) who get the workspace's manager notices. Owned by the
+    // workspace owner; `created_by` is only who typed it in and has no FK, so a teammate leaving
+    // does not take the owner's list with them.
+    table: "workspace_work_number_recipients",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
+  {
     // A manager's deleted empty chats (Communication), per viewer and workspace.
     // `contact_key` is the OTHER person's lower-cased email, so deleting their
     // account has to take the dismissal with it: a re-registered email is a new
@@ -1342,6 +1350,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
  * does.
  */
 export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
+  "workspace_work_number_recipients.email": "Contact address of an \"Also notify\" person on the owner's list, not a PropLane login; the row goes with the owner.",
   "manager_payees.email": "Contact address of a payee the manager pays (lender, utility), not a PropLane login.",
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
