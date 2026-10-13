@@ -14,6 +14,9 @@ export const META_OAUTH_SCOPES = [
   "instagram_content_publish",
 ] as const;
 
+/** Added to the OAuth request only once the app is live: Meta App Review must approve it first. */
+export const META_MESSAGING_SCOPE = "pages_messaging";
+
 export function metaGraphVersion(): string {
   return process.env.META_GRAPH_VERSION?.trim() || "v21.0";
 }
@@ -74,7 +77,7 @@ export function buildMetaOAuthDialogUrl(args: { appId: string; redirectUri: stri
     redirect_uri: args.redirectUri,
     state: args.state,
     response_type: "code",
-    scope: META_OAUTH_SCOPES.join(","),
+    scope: [...META_OAUTH_SCOPES, ...(process.env.META_APP_LIVE?.trim() === "1" ? [META_MESSAGING_SCOPE] : [])].join(","),
   });
   return `https://www.facebook.com/${metaGraphVersion()}/dialog/oauth?${params.toString()}`;
 }
@@ -228,4 +231,26 @@ export async function fetchInstagramMediaInsights(mediaId: string, token: string
     if (typeof v === "number") raw[m.name] = v;
   }
   return { views: raw.views ?? null, likes: raw.likes ?? null, comments: raw.comments ?? null, shares: raw.shares ?? null, saved: raw.saved ?? null, raw };
+}
+
+/** Page webhook fields the app subscribes a connected Page to. */
+export const META_PAGE_WEBHOOK_FIELDS = ["messages", "messaging_postbacks"] as const;
+
+/** Subscribe a Page to this app's Messenger webhook fields. Needs pages_messaging. */
+export async function subscribeMetaPageToApp(args: { pageId: string; token: string }): Promise<void> {
+  await graph("POST", `${encodeURIComponent(args.pageId)}/subscribed_apps`, {
+    subscribed_fields: META_PAGE_WEBHOOK_FIELDS.join(","),
+    access_token: args.token,
+  });
+}
+
+/** Send a Page message in answer to an inbound one (messaging_type RESPONSE). Returns Meta's message id. */
+export async function sendMetaPageMessage(args: { pageId: string; token: string; recipientPsid: string; text: string }): Promise<string> {
+  const res = await graph<{ message_id?: string }>("POST", `${encodeURIComponent(args.pageId)}/messages`, {
+    recipient: JSON.stringify({ id: args.recipientPsid }),
+    message: JSON.stringify({ text: args.text }),
+    messaging_type: "RESPONSE",
+    access_token: args.token,
+  });
+  return res.message_id ?? "";
 }

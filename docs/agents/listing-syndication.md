@@ -331,3 +331,25 @@ Register those two URLs in the Meta app. Coverage:
 `tests/unit/listing-channels-*.test.ts`, `meta-oauth-state.test.ts`,
 `meta-data-deletion.test.ts`, `listing-channel-posts-rls.test.ts`,
 `listing-sites-panel.test.tsx`.
+
+### Facebook Page replies
+
+When the Meta app is live (`metaAppLive()`), a person who messages the connected Facebook Page is told,
+once per sender per 24 hours, to text the workspace work number (or email the work email) and given the
+public listing link; the message is also filed as a prospect conversation in the manager's Communication
+inbox (channel `facebook`, listing `recordRef` when known). No work number means no reply is sent (the lead
+is still filed). The inbox is not watched; the reply says so.
+
+* Webhook: `POST/GET /api/webhooks/meta/messenger` (register `https://<origin>/api/webhooks/meta/messenger`
+  in the Meta app, product Messenger/Webhooks, fields `messages` and `messaging_postbacks`). GET answers the
+  handshake when `hub.verify_token` equals `META_WEBHOOK_VERIFY_TOKEN`; POST verifies `X-Hub-Signature-256`
+  (HMAC-SHA256 of the raw body with `META_APP_SECRET`, constant time, fail closed when unset).
+* Permission: `pages_messaging` (needs Meta App Review). It is added to the OAuth scopes only when
+  `META_APP_LIVE=1`; connecting a Page then calls `POST /{page-id}/subscribed_apps` for `messages` and
+  `messaging_postbacks`.
+* Listing: the event's `referral.ref` when it is a live listing of the Page's workspace, else the
+  workspace's newest live listing, else no listing line.
+* Dedupe: `meta_messenger_replies (page_id, sender_psid)` (service role only; account purge classifies it).
+  The inbound message id dedupes the lead on Meta redelivery.
+* Row fact on Listing sites / Integrations Posting for Facebook Page: "Replies: Coming soon" until the app
+  is live, "Replies: on" after.

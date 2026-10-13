@@ -385,6 +385,11 @@ export function metaChannelsLive(env: EnvLike = process.env): boolean {
   return Boolean(env.META_APP_ID?.trim() && env.META_APP_SECRET?.trim() && env.META_APP_LIVE?.trim() === "1");
 }
 
+/** Alias of `metaChannelsLive`: the Page webhook and its replies run only when the Meta app is live. */
+export function metaAppLive(env: EnvLike = process.env): boolean {
+  return metaChannelsLive(env);
+}
+
 /** Meta's OAuth can start whenever the app exists, even before it is marked live. */
 export function metaAppConfigured(env: EnvLike = process.env): boolean {
   return Boolean(env.META_APP_ID?.trim() && env.META_APP_SECRET?.trim());

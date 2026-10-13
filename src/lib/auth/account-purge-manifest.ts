@@ -280,6 +280,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Facebook Page auto-reply dedupe: one row per (Page, sender), service role only.
+    table: "meta_messenger_replies",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     // Which outside vendor marketplaces (TaskRabbit, Thumbtack, ...) the manager says they hold an account
     // at: a label and an optional profile link, never a credential. Deleted with the login.
     table: "vendor_marketplace_accounts",
