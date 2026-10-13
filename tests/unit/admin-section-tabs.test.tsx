@@ -14,7 +14,7 @@ import {
   collapseAdminNavItems,
   mergeAdminGroupCounts,
 } from "@/lib/portals/nav-groups";
-import { buildPortalNavItems } from "@/components/portal/portal-nav-model";
+import { buildPortalNavItems, hrefForSection } from "@/components/portal/portal-nav-model";
 
 const state = vi.hoisted(() => ({
   pathname: "/admin/axis-users",
@@ -107,6 +107,19 @@ describe("admin sidebar rows", () => {
     ]);
   });
 
+  it("keeps the row keyed on the group's first section even when that tab is filtered out", () => {
+    const withoutAccounts = {
+      ...adminPortal,
+      sections: adminPortal.sections.filter((s) => s.section !== "axis-users"),
+    };
+    const row = rowsFor(withoutAccounts).find((r) => r.label === "Accounts");
+    // The key every other surface derives (active section, merged counts, the
+    // native bottom bar) stays the group's first section; only the link moves.
+    expect(row?.section).toBe(adminNavRowSection("subscribers"));
+    expect(row?.href).toBe("/admin/subscribers");
+    expect(row?.groupSections).toEqual(["subscribers", "test-accounts"]);
+  });
+
   it("puts the Meetings count on the Support row", () => {
     const merged = mergeAdminGroupCounts({
       events: { count: 3, tone: "muted" },
@@ -192,6 +205,25 @@ describe("AdminSectionTabs strip", () => {
   it("renders nothing on a record page under a grouped section", () => {
     state.pathname = "/admin/axis-users/manager-123";
     const { container } = render(<AdminSectionTabs definition={operator} />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("links a tabbed section the way every other surface does, and still shows on its tab page", () => {
+    const tabbed = {
+      ...operator,
+      sections: operator.sections.map((s) =>
+        s.section === "subscribers" ? { ...s, tabs: [{ id: "active", label: "Active" }] } : s,
+      ),
+    };
+    state.pathname = "/admin/subscribers/active";
+    render(<AdminSectionTabs definition={tabbed} />);
+    expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("href")).toBe(
+      hrefForSection(tabbed, "subscribers"),
+    );
+    expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("aria-current")).toBe("page");
+    cleanup();
+    state.pathname = "/admin/subscribers/sub-123";
+    const { container } = render(<AdminSectionTabs definition={tabbed} />);
     expect(container.innerHTML).toBe("");
   });
 });
