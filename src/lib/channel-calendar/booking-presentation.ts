@@ -30,13 +30,25 @@ export function bookingStatusLabel(entry: PropertyBookingEntry, today = dateKey(
 export function canCancelBooking(entry: PropertyBookingEntry, today = dateKey(new Date())): boolean {
   return entry.source === "block" && Boolean(entry.blockId) && entry.bookingStatus !== "cancelled" && (entry.openEnded === true || entry.end >= today);
 }
-/** A block with nobody attached: dates the manager marked reserved. Removing it is "Remove", not "Cancel booking". */
+/** A block with nobody attached: dates the manager marked reserved. Removing it is "Delete reservation", not "Cancel booking". */
 export function isReservedBlock(entry: Pick<PropertyBookingEntry, "source" | "residentName" | "residentEmail" | "residentPhone">): boolean {
   return entry.source === "block" && !entry.residentName?.trim() && !entry.residentEmail?.trim() && !entry.residentPhone?.trim();
 }
-/** The destructive action's label in the row/record ⋯: "Remove" for marked-reserved dates, else "Cancel booking". */
+/**
+ * A marked-reserved block (nobody attached) is deleted outright, at ANY date - a past one included, since
+ * nothing is owed to anyone and it only clutters the calendar. A named hold keeps the soft cancel
+ * (`canCancelBooking`, until its last night).
+ */
+export function canDeleteReservation(entry: Pick<PropertyBookingEntry, "source" | "residentName" | "residentEmail" | "residentPhone" | "blockId" | "bookingStatus">): boolean {
+  return isReservedBlock(entry) && Boolean(entry.blockId) && entry.bookingStatus !== "cancelled";
+}
+/** The destructive action's label in the row/record ⋯ and the popover: "Delete reservation" for marked-reserved dates, else "Cancel booking". */
 export function bookingCancelLabel(entry: Parameters<typeof isReservedBlock>[0]): string {
-  return isReservedBlock(entry) ? "Remove" : "Cancel booking";
+  return isReservedBlock(entry) ? "Delete reservation" : "Cancel booking";
+}
+/** Whether the destructive action is offered at all: a reservation can be deleted any time, a named hold cancelled until its last night. */
+export function canRemoveBooking(entry: PropertyBookingEntry, today = dateKey(new Date())): boolean {
+  return canDeleteReservation(entry) || canCancelBooking(entry, today);
 }
 /** A reservation read from a channel calendar feed: it can be removed (tombstoned), never edited or cancelled here. */
 export function canRemoveChannelStay(entry: PropertyBookingEntry): boolean {

@@ -359,7 +359,36 @@ export function groupStaysByRoom<T extends { roomId: string; roomLabel: string }
   });
 }
 
+const CHANNEL_SOURCE_NAMES: Partial<Record<PropertyBookingEntry["source"], string>> = {
+  airbnb: "Airbnb",
+  booking_com: "Booking.com",
+  vrbo: "Vrbo",
+};
+
+/**
+ * A day row that is only dates taken off the calendar, with no guest behind it: the manager's own
+ * block, or a channel's "Not available". A channel "Reserved" is a real guest stay, so it is not one.
+ */
+export function isAvailabilityBlockRow(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName">): boolean {
+  if (CHANNEL_SOURCE_NAMES[entry.source]) {
+    return isIcalAvailabilityBlock(entry.summary) && entry.summary?.trim().toLowerCase() !== "reserved";
+  }
+  return occupancyStayKind(entry) === "block";
+}
+
+/**
+ * What a day row calls a stay. A channel's own "Not available" block names its channel
+ * ("Airbnb · Not available"), because the manager did not make it and cannot edit it here;
+ * only the manager's own block on a room reads "Blocked".
+ */
 export function dayStayDisplayName(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName">): string {
+  const channel = CHANNEL_SOURCE_NAMES[entry.source];
+  if (channel && isIcalAvailabilityBlock(entry.summary)) {
+    if (entry.summary?.trim().toLowerCase() === "reserved") {
+      return entry.residentName?.trim() || `${channel} · Reserved`;
+    }
+    return `${channel} · Not available`;
+  }
   if (occupancyStayKind(entry) === "block") return "Blocked";
   const named = entry.residentName?.trim();
   if (named) return named;

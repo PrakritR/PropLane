@@ -63,4 +63,24 @@ describe("Modal — inert on siblings (M007)", () => {
     expect(pageContent.hasAttribute("inert")).toBe(true);
     document.body.removeChild(pageContent);
   });
+
+  it("never seals a menu that opened after the modal, even when the content ref is re-attached", async () => {
+    const { rerender } = render(
+      <Modal open title="Confirm" onClose={() => {}} contentRef={() => {}}>
+        Body
+      </Modal>,
+    );
+    // A menu portaled to <body> after the modal opened sits above it.
+    const menuHost = document.createElement("div");
+    menuHost.innerHTML = '<div data-radix-popper-content-wrapper=""><div role="menu"></div></div>';
+    document.body.appendChild(menuHost);
+    // A new `contentRef` function detaches and re-attaches the content node: release, then acquire again.
+    rerender(
+      <Modal open title="Confirm" onClose={() => {}} contentRef={() => {}}>
+        Body
+      </Modal>,
+    );
+    expect(menuHost.hasAttribute("inert")).toBe(false);
+    document.body.removeChild(menuHost);
+  });
 });

@@ -123,6 +123,24 @@ export type ModalShellProps = {
   dismissOnCanvasPointerDown?: boolean;
 };
 
+const OPEN_LAYER_SELECTOR = '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"], [role="menu"][data-state="open"]';
+
+/**
+ * Clears a leftover `pointer-events: none` on <body> once the last dialog or menu layer is gone.
+ * Checked twice (after the unmount effects settle, and after exit animations) because Radix restores
+ * the "original" value in its own cleanup, which may run after ours.
+ */
+export function clearStaleBodyPointerLock() {
+  if (typeof document === "undefined") return;
+  const clear = () => {
+    if (document.body.style.pointerEvents !== "none") return;
+    if (document.querySelector(OPEN_LAYER_SELECTOR)) return;
+    document.body.style.pointerEvents = "";
+  };
+  window.setTimeout(clear, 0);
+  window.setTimeout(clear, 200);
+}
+
 /** Radix Dialog (desktop) + Vaul drawer (mobile) shell for custom modal layouts. */
 export function ModalShell({
   open,
@@ -157,6 +175,14 @@ export function ModalShell({
     if (!open || !lockScroll) return;
     return lockPortalScroll();
   }, [open, lockScroll]);
+
+  // A Radix modal DropdownMenu sets `body { pointer-events: none }`. A dialog opened from one of its items
+  // (onSelect) captures that "none" as the body's original value and restores it on close, leaving the page
+  // dead with nothing open. Once this modal has gone and no dialog or menu layer remains, clear the stale lock.
+  useEffect(() => {
+    if (!open) return;
+    return () => clearStaleBodyPointerLock();
+  }, [open]);
 
   // M007 — real DOM `inert` on everything outside this modal/drawer while
   // it's open, additive to Radix's own aria-hidden/focus-trap/scroll-lock.

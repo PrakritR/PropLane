@@ -4,6 +4,7 @@ import {
   bookedBedNights,
   combineOccupancyEntries,
   dayStayDisplayName,
+  isAvailabilityBlockRow,
   exportBlockedRanges,
   occupancyForDay,
 } from "@/lib/occupancy/snapshot";
@@ -88,8 +89,30 @@ describe("combineOccupancyEntries", () => {
 });
 
 describe("dayStayDisplayName", () => {
-  it("labels a Not available import Blocked, not a guest", () => {
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Not available" })).toBe("Blocked");
+  it("names the channel on a channel availability block, never a guest", () => {
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Not available" })).toBe("Airbnb · Not available");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe("Airbnb · Not available");
+    expect(dayStayDisplayName({ source: "booking_com", summary: "CLOSED - Not available" })).toBe("Booking.com · Not available");
+  });
+
+  it("reads Blocked only for the manager's own block", () => {
+    expect(dayStayDisplayName({ source: "block", summary: "Reserved" })).toBe("Blocked");
+  });
+
+  it("keeps a real channel reservation as a reservation", () => {
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb · Reserved");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved", residentName: "Dana" })).toBe("Dana");
+  });
+});
+
+describe("isAvailabilityBlockRow", () => {
+  it("is true for a channel Not available block and the manager's own block, false for a channel Reserved guest", () => {
+    expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe(true);
+    expect(isAvailabilityBlockRow({ source: "booking_com", summary: "CLOSED - Not available" })).toBe(true);
+    expect(isAvailabilityBlockRow({ source: "block", summary: "Reserved" })).toBe(true);
+    expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Reserved" })).toBe(false);
+    expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Jane Doe" })).toBe(false);
+    expect(isAvailabilityBlockRow({ source: "block", summary: "Prakrit", residentName: "Prakrit" })).toBe(false);
   });
 });
 

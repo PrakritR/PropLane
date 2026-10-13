@@ -106,3 +106,5 @@ total or rate plus that household's charges, each linking to its own payment
 record. Only a manager-made hold is editable in place (the one combined
 Add/Edit sheet); any other source offers Message and Copy link, and a channel
 reservation also Remove stay.
+
+A marked reservation (a block with nobody attached) is deleted outright at any date, a past one included (`canDeleteReservation`, a hard delete through `deleteRoomDateBlock`, with a toast Undo that re-saves the same row); a block held for a named person is cancelled until its last night (`canCancelBooking`, soft cancel).

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
@@ -145,7 +145,8 @@ describe("Balance & payouts — no bank, one bank, several", () => {
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findAllByText(/Chase ····1487/);
     expect(screen.getByText("Default")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(1);
+    // The default row's only action is Remove, so it is drawn as that icon instead of a ⋯.
+    expect(document.querySelectorAll('[data-attr="record-actions-trigger"], [data-attr="record-actions-single"]')).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeEnabled();
     expect(screen.getByText("Withdraw to")).toBeInTheDocument();
   });
@@ -155,7 +156,7 @@ describe("Balance & payouts — no bank, one bank, several", () => {
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText(/Wells Fargo ····9921/);
     expect(screen.getAllByText("Default")).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: /^Actions for / })).toHaveLength(2);
+    expect(document.querySelectorAll('[data-attr="record-actions-trigger"], [data-attr="record-actions-single"]')).toHaveLength(2);
     const withdrawTo = screen.getByRole("button", { name: "Withdraw to" });
     expect(withdrawTo).toHaveTextContent("Chase ····1487");
   });
@@ -167,9 +168,10 @@ describe("Bank row ⋯ menu", () => {
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText(/Wells Fargo ····9921/);
 
-    await openRowMenu("Chase ····1487");
-    expect(screen.queryByRole("menuitem", { name: "Make default" })).not.toBeInTheDocument();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    // The default row offers only Remove, drawn as its icon: no menu, so no Make default.
+    expect(screen.queryByRole("button", { name: "Actions for Chase ····1487" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Make default" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" }).getAttribute("data-attr")).toBe("record-actions-single");
     cleanup();
 
     stubFetch({ destinations: [chase, wells] });
@@ -192,10 +194,9 @@ describe("Bank row ⋯ menu", () => {
     stubFetch({ destinations: [chase, wells] });
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText(/Wells Fargo ····9921/);
-    await openRowMenu("Chase ····1487");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect((await screen.findAllByText("Make another account the default before removing this one.")).length).toBeGreaterThan(0);
-    const confirm = screen.getByRole("button", { name: "Remove" });
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" });
     expect(confirm).toBeDisabled();
     fireEvent.click(confirm);
     const deletes = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");

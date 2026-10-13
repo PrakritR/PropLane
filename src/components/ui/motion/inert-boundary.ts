@@ -41,10 +41,19 @@ import { prefersReducedMotionNow } from "@/components/ui/motion/use-reduced-moti
 let openCount = 0;
 let releaseFns: Array<() => void> = [];
 
+/**
+ * A menu or popover that is open right now sits ABOVE the modal, never beneath it. A ref callback can be
+ * detached and re-attached within one commit (React re-running it for a content node that never left the
+ * DOM), which releases and re-acquires the boundary; the re-acquire walks `document.body` as it is by then and
+ * would seal a menu portaled in after the modal opened, leaving it visible and dead to clicks.
+ */
+const OPEN_FLOATING_LAYER = '[data-radix-popper-content-wrapper], [role="menu"], [role="listbox"]';
+
 function applyInert(host: Element): () => void {
   const restores: Array<() => void> = [];
   Array.prototype.forEach.call(document.body.children, (child: Element) => {
     if (child.contains(host)) return;
+    if (child.querySelector(OPEN_FLOATING_LAYER)) return;
     if (child.hasAttribute("inert")) return; // already inert for some other reason — never our job to remove it
     child.setAttribute("inert", "");
     restores.push(() => child.removeAttribute("inert"));

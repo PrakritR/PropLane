@@ -19,7 +19,7 @@ import {
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
-import { bookingCancelLabel, bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
+import { bookingCancelLabel, bookingRateLabel, bookingStatusLabel, canRemoveBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { dateKey } from "@/lib/room-availability-calendar";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
@@ -117,7 +117,7 @@ export function ManagerBookingsListView({
               onOpenResident={residentHref ? () => navigate(residentHref) : undefined}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
               onCancel={
-                canCancelBooking(entry) && onDeleteBlock
+                canRemoveBooking(entry) && onDeleteBlock
                   ? () => onDeleteBlock(entry)
                   : canRemoveChannelStay(entry) && onRemoveStay
                     ? () => onRemoveStay(entry)

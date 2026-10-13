@@ -63,7 +63,7 @@ describe("ManagerPropertyAiInfoPanel", () => {
     expect(rows[0]!.textContent).toContain("About this home");
     expect(rows[0]!.textContent).toMatch(/\d+ chars/);
     expect(rows[1]!.textContent).toContain("Not filled in yet");
-    rows.forEach((row) => expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1));
+    rows.forEach((row) => expect(row.querySelectorAll('button[aria-label^="Actions for"], [data-attr="record-actions-single"]')).toHaveLength(1));
   });
 
   it("search narrows the one list", () => {

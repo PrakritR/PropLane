@@ -1,9 +1,10 @@
 "use client";
 
-import { Children, Fragment, cloneElement, isValidElement, useContext, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { Children, Fragment, cloneElement, isValidElement, useContext, useLayoutEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RecordActionContext, RecordActionItemsContext, RecordActionCloseContext } from "./record-action-context";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu";
 import { classifyRecordActionTone, isPostDividerRecordActionId, orderRecordActions, type RecordActionTone } from "@/lib/portals/record-action-order";
@@ -44,6 +45,7 @@ export function RecordActionItems({ children }: { children: ReactNode }) {
 }
 
 type ActionLeafProps = {
+  disabled?: boolean;
   variant?: string;
   className?: string;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void | Promise<unknown>;
@@ -146,6 +148,47 @@ function splitDestructiveActions(actions: ReactNode) {
   return { nonDestructive: orderedNeutral, destructive: [...positive, ...negative, ...trailing] };
 }
 
+/** The click handler of a lone menu item, or null when it is not a plain button / menu item we can fire directly. */
+function singleActionHandler(leaf: ReactElement<ActionLeafProps>): ((event: MouseEvent<HTMLButtonElement>) => void) | null {
+  if (leaf.type === Button || leaf.type === "button") {
+    const { onClick } = leaf.props;
+    return onClick ? (event) => { void onClick(event); } : null;
+  }
+  if (leaf.type === DropdownMenuItem) {
+    const { onSelect } = leaf.props;
+    return onSelect ? () => onSelect(new Event("select")) : null;
+  }
+  return null;
+}
+
+/**
+ * A menu of exactly one item, drawn as that item's icon. The row's `activate` selects the record the
+ * action is for, and the handlers are built from that selection, so the click runs the handler the
+ * row rendered AFTER activating - never the one it closed over before.
+ */
+function SingleRecordAction({ label, actionId, tone, disabled, handler, prepare }: {
+  label: string;
+  actionId?: string;
+  tone: "default" | "primary" | "danger";
+  disabled?: boolean;
+  handler: (event: MouseEvent<HTMLButtonElement>) => void;
+  prepare: () => void;
+}) {
+  const latest = useRef(handler);
+  useLayoutEffect(() => { latest.current = handler; });
+  return <span className="order-last ml-auto inline-flex shrink-0 self-center" data-portal-row-ignore onClick={(event) => event.stopPropagation()}>
+    <PortalIconAction
+      icon={recordActionIcon(label)}
+      label={label}
+      tone={tone}
+      disabled={disabled}
+      data-attr="record-actions-single"
+      data-record-action-id={actionId}
+      onClick={(event) => { prepare(); latest.current(event); }}
+    />
+  </span>;
+}
+
 export function RecordActionMenu({ label, activate, disabled = false, onOpen }: {
   label: string;
   activate: () => void;
@@ -181,6 +224,21 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
       ? leaf
       : cloneElement(leaf, { "data-record-action-destructive": "" } as Partial<ActionLeafProps>),
   );
+  // A ⋯ that would hold exactly one item is that item's icon instead: one tap, no menu to open.
+  const onlyLeaf = !onOpen && !context.lazy && nonDestructive.length + destructive.length === 1 ? [...nonDestructive, ...destructive][0]! : null;
+  const onlyHandler = onlyLeaf ? singleActionHandler(onlyLeaf) : null;
+  if (onlyLeaf && onlyHandler) {
+    const itemLabel = leafLabel(onlyLeaf.props.children).trim() || onlyLeaf.props["data-record-action-id"] || label;
+    const itemTone = (onlyLeaf.props as Record<string, unknown>)["data-record-action-tone"];
+    return <SingleRecordAction
+      label={itemLabel}
+      actionId={onlyLeaf.props["data-record-action-id"]}
+      tone={itemTone === "positive" ? "primary" : destructive.includes(onlyLeaf) ? "danger" : "default"}
+      disabled={onlyLeaf.props.disabled}
+      handler={onlyHandler}
+      prepare={() => { flushSync(() => context.clear()); if (!disabled) flushSync(activate); }}
+    />;
+  }
   return <span className="order-last ml-auto inline-flex shrink-0 self-center" data-portal-row-ignore onClick={(event) => event.stopPropagation()}>
     <DropdownMenu modal={false} open={open} onOpenChange={(next) => {
       if (next) {
@@ -211,7 +269,7 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
         data-attr="record-actions-menu"
         className="record-action-menu z-[10060] max-h-[min(var(--radix-dropdown-menu-content-available-height),28rem)] w-64 overflow-y-auto"
       >
-        <DropdownMenuLabel className="truncate text-xs font-semibold text-muted">{label}</DropdownMenuLabel>
+        <DropdownMenuLabel className="truncate text-xs font-semibold text-muted lg:hidden">{label}</DropdownMenuLabel>
         {onOpen ? <DropdownMenuItem onSelect={(event) => { event.preventDefault(); closeForAction(); onOpen(); }}>View</DropdownMenuItem> : null}
         <RecordActionCloseContext.Provider value={closeForAction}>
         <RecordActionItemsContext.Provider value>

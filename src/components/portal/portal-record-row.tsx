@@ -264,7 +264,7 @@ export function PortalPropertyRecordRow({
   const hasFacts = factNodes.length > 0 || metaNodes.length > 0;
   const factsLine = hasFacts ? (
     <div
-      className="flex flex-wrap items-center gap-x-3.5 gap-y-0.5 text-[13px] text-muted max-lg:mt-0.5 lg:shrink-0 lg:flex-nowrap"
+      className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-0.5 text-[13px] text-muted max-lg:mt-0.5 lg:shrink"
       data-attr="record-row-facts"
     >
       {factNodes.map((node, i) => phoneCap(node, i, `fact-${i}`))}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Button } from "@/components/ui/button";
 import { RecordActionContext } from "@/components/ui/record-action-context";
@@ -68,5 +68,39 @@ describe("record ⋯ menu decisions", () => {
       expect(icon, item.textContent ?? "").not.toBeNull();
       expect(icon?.getAttribute("class")).toContain("size-4");
     }
+  });
+});
+
+describe("record ⋯ menu with one item", () => {
+  function renderOnly(actions: ReactNode, activate = () => {}) {
+    render(
+      <RecordActionContext.Provider value={{ scope: "row-1", clear: () => {}, actions }}>
+        <RecordActionMenu label="Row" activate={activate} />
+      </RecordActionContext.Provider>,
+    );
+  }
+
+  it("draws that item as an icon action, not a ⋯", () => {
+    const onClick = vi.fn();
+    const activate = vi.fn();
+    renderOnly(<Button variant="danger" onClick={onClick}>Remove stay</Button>, activate);
+    expect(document.querySelector('[data-attr="record-actions-trigger"]')).toBeNull();
+    const icon = screen.getByRole("button", { name: "Remove stay" });
+    expect(icon.getAttribute("data-slot")).toBe("portal-icon-action");
+    expect(icon.className).toContain("text-red-600");
+    fireEvent.click(icon);
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the ⋯ when there are two or more items", () => {
+    renderOnly(
+      <>
+        <Button onClick={() => {}}>Edit</Button>
+        <Button onClick={() => {}}>Delete</Button>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Actions for Row" }).getAttribute("data-attr")).toBe("record-actions-trigger");
+    expect(document.querySelector('[data-slot="portal-icon-action"]')).toBeNull();
   });
 });

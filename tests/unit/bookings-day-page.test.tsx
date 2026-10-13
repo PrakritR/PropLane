@@ -138,4 +138,36 @@ describe("BookingsDayPage", () => {
     fireEvent.click(screen.getByText("Ada Lovelace"));
     expect(navigate).toHaveBeenCalledWith(bookingRecordHref("/portal", bookingEntryKey(brooklyn)));
   });
+
+  it("a channel Not available block gets the lock tile and no Message; a channel Reserved guest stay keeps a guest tile and Message", () => {
+    const airbnbBase: PropertyBookingEntry = { ...brooklyn, source: "airbnb", propertyId: "p1", connectionId: "c1", sourceUid: "u1" };
+    const notAvailable: PropertyBookingEntry = { ...airbnbBase, roomId: "r3", roomLabel: "Room 3", summary: "Airbnb (Not available)", sourceUid: "u-block" };
+    const guest: PropertyBookingEntry = { ...airbnbBase, roomId: "r4", roomLabel: "Room 4", summary: "Reserved", sourceUid: "u-guest" };
+    render(
+      <BookingsDayPage
+        dayKey="2026-09-01"
+        basePath="/portal"
+        entries={[notAvailable, guest]}
+        loading={false}
+        propertyOptions={propertyOptions}
+        residentOptions={[]}
+        onSaveBlock={async () => {}}
+        onRemoveBlock={async () => {}}
+        showToast={() => {}}
+      />,
+    );
+    const rowFor = (entry: PropertyBookingEntry) =>
+      document.querySelector(`[data-attr="bookings-day-row-${bookingEntryKey(entry)}"]`)!.closest("[data-record-row]") as HTMLElement;
+    const blockRow = rowFor(notAvailable);
+    const guestRow = rowFor(guest);
+    expect(blockRow.textContent).toContain("Airbnb · Not available");
+    expect(blockRow.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+    expect(guestRow.textContent).toContain("Airbnb · Reserved");
+    expect(guestRow.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeNull();
+
+    fireEvent.keyDown(within(blockRow).getByRole("button", { name: /^Actions for / }), { key: "ArrowDown" });
+    expect(screen.queryByRole("menuitem", { name: "Message" })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    cleanup();
+  });
 });

@@ -211,6 +211,12 @@ function useBookingsWorkspace({
 
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
 
+  // Stable identities: the calendar's bars are memoized, so opening a dialog (a state change here) redraws none of them.
+  const editBooking = useCallback((entry: PropertyBookingEntry) => setSheet({ open: true, dayKey: null, editingBlock: entry }), []);
+  const deleteBooking = useCallback((entry: PropertyBookingEntry) => setCancelEntry(entry), []);
+  /** Delete / Cancel from the Edit sheet's footer: the sheet closes, the same confirm the popover opens takes over. */
+  const deleteFromEdit = useCallback((entry: PropertyBookingEntry) => { setSheet({ open: false, dayKey: null, editingBlock: null }); setCancelEntry(entry); }, []);
+
   const counts = useMemo(() => {
     const listCounts = countBookingsByListBucket(entries, todayKey);
     return {
@@ -438,7 +444,8 @@ function useBookingsWorkspace({
         calendarOnly
         preferenceKey={showPropertyFilter ? "workspace" : propertyIds[0]}
         onAddBooking={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
-        onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
+        onEditBooking={editBooking}
+        onDeleteBooking={deleteBooking}
         onReserveRoomDay={({ propertyId, roomId, dayKey }) => setSheet({ open: true, dayKey, editingBlock: null, reserve: { propertyId, roomId } })}
         onDayClick={goToDayPage}
         selectedDayKey={selectedDayKey}
@@ -514,8 +521,8 @@ function useBookingsWorkspace({
   const modals = (
     <>
       {removeStayEntry ? <BookingsRemoveStayDialog key={bookingEntryKey(removeStayEntry)} entry={removeStayEntry} onClose={() => setRemoveStayEntry(null)} onChanged={() => onRefreshSignal?.()} /> : null}
-      {cancelEntry ? <BookingsCancelDialog key={bookingEntryKey(cancelEntry)} entry={cancelEntry} onClose={() => setCancelEntry(null)} onSave={saveBlock} /> : null}
-      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} onSaveStayMeta={saveStayDetails} /> : null}
+      {cancelEntry ? <BookingsCancelDialog key={bookingEntryKey(cancelEntry)} entry={cancelEntry} onClose={() => setCancelEntry(null)} onSave={saveBlock} viewerUserId={userId} /> : null}
+      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} onSaveStayMeta={saveStayDetails} onDelete={deleteFromEdit} /> : null}
       <BookingsBlockDatesModal
         open={sheet.open && !sheet.editingBlock}
         onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })}

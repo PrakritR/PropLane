@@ -95,20 +95,45 @@ describe("removing a block", () => {
       expect(canCancelBooking(entry({ source, blockId: source === "airbnb" ? undefined : "x", start: "2026-09-12", end: "2026-09-14" }), TODAY_KEY)).toBe(false);
     }
   });
-  it("a block with nobody attached is labelled Remove, one with a resident Cancel booking", () => {
+  it("a block with nobody attached is labelled Delete reservation, one with a resident Cancel booking", () => {
     expect(isReservedBlock(entry())).toBe(true);
-    expect(bookingCancelLabel(entry())).toBe("Remove");
+    expect(bookingCancelLabel(entry())).toBe("Delete reservation");
     expect(bookingCancelLabel(entry({ residentName: "Maya" }))).toBe("Cancel booking");
   });
-  it("Remove asks for a destructive confirm and saves the block as cancelled", async () => {
+  it("Delete asks for a destructive confirm, hard-deletes the block and offers Undo that re-saves the same row", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<AppUiProvider><BookingsCancelDialog entry={entry({ start: dateKey(addDays(new Date(), -2)), end: dateKey(addDays(new Date(), 2)) })} onClose={() => {}} onSave={onSave} /></AppUiProvider>);
-    expect(screen.getByText("Remove this reservation?")).toBeTruthy();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render(<AppUiProvider><BookingsCancelDialog entry={entry({ blockId: "axis_room_block_mgr-1_abc", start: dateKey(addDays(new Date(), -2)), end: dateKey(addDays(new Date(), -1)) })} viewerUserId="mgr-1" onClose={onClose} onSave={onSave} onDelete={onDelete} /></AppUiProvider>);
+    expect(screen.getByText("Delete this reservation?")).toBeTruthy();
+    expect(screen.getByText("Room")).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: "Notify guest" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith("axis_room_block_mgr-1_abc"));
+    expect(onSave).not.toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Undo", hidden: true }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]![0]).toMatchObject({ id: "b1", bookingStatus: "cancelled" });
-    await waitFor(() => expect(screen.getByText(/Reservation removed/)).toBeTruthy());
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ id: "axis_room_block_mgr-1_abc", roomId: "room-1", checkIn: expect.any(String), bookingStatus: "hold" });
+  });
+  it("a co-manager deleting the owner's reservation gets the delete but no Undo, since the route would refuse the re-insert", async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render(<AppUiProvider><BookingsCancelDialog entry={entry({ blockId: "axis_room_block_owner-1_abc" })} viewerUserId="co-manager-1" onClose={onClose} onSave={vi.fn()} onDelete={onDelete} /></AppUiProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith("axis_room_block_owner-1_abc"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(await screen.findByText("Reservation deleted.", {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Undo", hidden: true })).toBeNull();
+  });
+  it("a failed delete keeps the dialog open with the server's message", async () => {
+    const onDelete = vi.fn().mockRejectedValue(new Error("Calendar edit access is required."));
+    const onClose = vi.fn();
+    render(<AppUiProvider><BookingsCancelDialog entry={entry()} onClose={onClose} onSave={vi.fn()} onDelete={onDelete} /></AppUiProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Calendar edit access is required."));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Delete this reservation?")).toBeTruthy();
   });
 });
 
