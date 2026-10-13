@@ -163,8 +163,8 @@ describe("handleMessengerInbound", () => {
 });
 
 describe("registry fact", () => {
-  it("Facebook Page row says Replies: Coming soon, then on; other rows untouched", () => {
-    expect(withRepliesFact("facebook_page", "Not connected", false)).toBe("Not connected · Replies: Coming soon");
+  it("Facebook Page row carries Replies: on only when the Page is live; other rows untouched", () => {
+    expect(withRepliesFact("facebook_page", "Not connected", false)).toBe("Not connected");
     expect(withRepliesFact("facebook_page", "Posts for you · 2 of 3 listings", true)).toBe("Posts for you · 2 of 3 listings · Replies: on");
     expect(withRepliesFact("instagram", "x", true)).toBe("x");
   });

@@ -45,5 +45,6 @@ export function facebookRepliesFact(live: boolean): string {
 
 /** Appends the replies fact to the Facebook Page row only; every other channel is unchanged. */
 export function withRepliesFact(channelId: string, fact: string, live: boolean): string {
-  return channelId === "facebook_page" ? `${fact} · ${facebookRepliesFact(live)}` : fact;
+  // A channel that is itself Coming soon says so once; the Replies fact only joins a live Page row.
+  return channelId === "facebook_page" && live ? `${fact} · ${facebookRepliesFact(live)}` : fact;
 }

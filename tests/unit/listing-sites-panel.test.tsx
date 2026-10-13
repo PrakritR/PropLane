@@ -113,7 +113,7 @@ describe("property Promotion › Listing sites", () => {
       posts: [{ propertyId: "p1", channel: "facebook_page", enabled: true, state: "posted", externalId: "1", lastError: null, postedAt: "2026-10-06T20:00:00Z", updatedAt: null }],
     });
     render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
-    await waitFor(() => expect(document.querySelector('[data-attr="property-listing-site-fact-facebook_page"]')?.textContent).toBe("Posted Oct 6"));
+    await waitFor(() => expect(document.querySelector('[data-attr="property-listing-site-fact-facebook_page"]')?.textContent).toBe("Posted Oct 6 · Replies: on"));
     fireEvent.click(rowByName("Facebook Page"));
     await waitFor(() => expect(document.querySelector('[data-attr="listing-site-toggle-facebook_page"]')).not.toBeNull());
     fireEvent.click(document.querySelector('[data-attr="listing-site-toggle-facebook_page"]') as HTMLElement);
@@ -131,7 +131,7 @@ describe("property Promotion › Listing sites", () => {
       property: { id: "p1", live: true, holdReasons: ["no_photo"], postTexts: {} },
     });
     render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
-    await waitFor(() => expect(document.querySelector('[data-attr="property-listing-site-fact-facebook_page"]')?.textContent).toBe("Held: no photo"));
+    await waitFor(() => expect(document.querySelector('[data-attr="property-listing-site-fact-facebook_page"]')?.textContent).toBe("Held: no photo · Replies: on"));
   });
 
   it("a manual site's row says Not posted yet, then Posted by you · date once marked", async () => {
@@ -216,7 +216,7 @@ describe("overall Promotion › Listing sites", () => {
       posts: [{ propertyId: "p2", channel: "facebook_page", enabled: true, state: "posted", externalId: "1", lastError: null, postedAt: null, updatedAt: null }],
     });
     render(<WorkspaceListingSitesPanel />);
-    await waitFor(() => expect(document.querySelector('[data-attr="promotion-listing-site-fact-facebook_page"]')?.textContent).toBe("Posts for you · 1 of 2 listings"));
+    await waitFor(() => expect(document.querySelector('[data-attr="promotion-listing-site-fact-facebook_page"]')?.textContent).toBe("Posts for you · 1 of 2 listings · Replies: on"));
   });
 
   it("shows Posted by you · date when any listing was posted by hand", async () => {
