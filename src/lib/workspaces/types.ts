@@ -50,6 +50,13 @@ export const WORKSPACE_PLAN_ENTITLEMENTS: Record<
   business: { label: "Business", workspaces: 2, properties: null, recordsPerWorkspace: null, team: null, residents: 500, vendors: null },
 };
 
+/** The plan's display name ("Pro", never the stored `pro`); empty when the tier is unknown. */
+export function workspacePlanTierLabel(tier: string | null | undefined): string {
+  if (!tier) return "";
+  const known = WORKSPACE_PLAN_ENTITLEMENTS[tier as WorkspacePlanTier];
+  return known ? known.label : tier.charAt(0).toUpperCase() + tier.slice(1);
+}
+
 export type WorkspaceMember = {
   /** The membership row (an account link pinned to this workspace). */
   linkId: string;

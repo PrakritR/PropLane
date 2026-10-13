@@ -9,7 +9,8 @@
 export type ManagerAttentionRow = {
   id: string;
   title: string;
-  detail: string;
+  /** Optional; the manager queue is title and action only (no muted sentence under a row). */
+  detail?: string;
   actionLabel: "Review" | "Approve" | "Remind" | "Set up" | "Sign" | "Confirm" | "Continue" | "Reply";
   href: string;
   tone: "danger" | "pending" | "info";
@@ -20,7 +21,6 @@ export type ManagerAttentionInput = {
   overdueChargeCount: number;
   overdueBalanceLabel: string;
   pendingApplicationCount: number;
-  latestPendingApplicationProperty?: string | null;
   managerSignatureLeaseCount: number;
   pendingTourCount: number;
   messagingNeedsSetup: boolean;
@@ -28,7 +28,6 @@ export type ManagerAttentionInput = {
   draftPropertyCount: number;
   draftsHref: string;
   unreadConversationCount: number;
-  latestUnreadSubject?: string | null;
 };
 
 export const MANAGER_ATTENTION_MAX_ROWS = 6;
@@ -39,7 +38,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     overdueChargeCount,
     overdueBalanceLabel,
     pendingApplicationCount,
-    latestPendingApplicationProperty,
     managerSignatureLeaseCount,
     pendingTourCount,
     messagingNeedsSetup,
@@ -47,14 +45,12 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     draftPropertyCount,
     draftsHref,
     unreadConversationCount,
-    latestUnreadSubject,
   } = input;
   const rows: ManagerAttentionRow[] = [];
   if (overdueChargeCount > 0) {
     rows.push({
       id: "overdue",
-      title: `${overdueChargeCount} overdue ${overdueChargeCount === 1 ? "charge" : "charges"}`,
-      detail: `${overdueBalanceLabel} past due across your residents`,
+      title: `${overdueChargeCount} overdue ${overdueChargeCount === 1 ? "charge" : "charges"} · ${overdueBalanceLabel}`,
       actionLabel: "Remind",
       href: `${BASE}/payments/incoming/overdue`,
       tone: "danger",
@@ -64,9 +60,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     rows.push({
       id: "applications",
       title: `${pendingApplicationCount} ${pendingApplicationCount === 1 ? "application" : "applications"} ready for review`,
-      detail: latestPendingApplicationProperty
-        ? `Latest for ${latestPendingApplicationProperty}`
-        : "Waiting for your decision",
       actionLabel: "Review",
       href: `${BASE}/applications/pending`,
       tone: "pending",
@@ -76,7 +69,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     rows.push({
       id: "leases",
       title: `${managerSignatureLeaseCount} ${managerSignatureLeaseCount === 1 ? "lease waits" : "leases wait"} for your signature`,
-      detail: "Residents have signed; countersign to make them official",
       actionLabel: "Sign",
       href: `${BASE}/leases/manager`,
       tone: "pending",
@@ -86,7 +78,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     rows.push({
       id: "tours",
       title: `${pendingTourCount} tour ${pendingTourCount === 1 ? "request" : "requests"} to confirm`,
-      detail: "Confirm a time so the guest gets their reminder",
       actionLabel: "Confirm",
       href: `${BASE}/tours/pending`,
       tone: "pending",
@@ -96,7 +87,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     rows.push({
       id: "messaging",
       title: "Phone number not set up",
-      detail: "Set up messaging in Settings",
       actionLabel: "Set up",
       href: messagingSettingsHref,
       tone: "info",
@@ -106,7 +96,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     rows.push({
       id: "drafts",
       title: `${draftPropertyCount} ${draftPropertyCount === 1 ? "property" : "properties"} still in setup`,
-      detail: "Pick up where you left off",
       actionLabel: "Continue",
       href: draftsHref,
       tone: "info",
@@ -116,7 +105,6 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     rows.push({
       id: "inbox",
       title: `${unreadConversationCount} unread ${unreadConversationCount === 1 ? "conversation" : "conversations"}`,
-      detail: latestUnreadSubject ? `Latest: ${latestUnreadSubject}` : "Waiting for a reply",
       actionLabel: "Reply",
       href: `${BASE}/communication/active`,
       tone: "info",

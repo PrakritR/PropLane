@@ -2041,12 +2041,24 @@ export function ManagerApplications({
                     {reminderPreviewBusyId === singleListSelectedRow.id ? "Loading…" : "Remind"}
                   </Button>
                 ) : null}
+                {/*
+                  A bare Button, not ApplicationPdfDownloadButton: these bulk
+                  actions are also the row ⋯ menu's items (the list surface
+                  publishes them through RecordActionContext), and
+                  RecordActionItems can only turn a Button / DropdownMenuItem
+                  into a real menu row with its leading glyph — a wrapper
+                  component lands there as an icon-less outline pill.
+                */}
                 {canBulkDownload && singleListSelectedRow ? (
-                  <ApplicationPdfDownloadButton
-                    row={singleListSelectedRow}
-                    label="Download"
+                  <Button
+                    type="button"
+                    variant="outline"
                     className={PORTAL_BULK_BAR_BTN}
-                  />
+                    data-attr="application-pdf-download"
+                    onClick={() => runApplicationPdfDownload(singleListSelectedRow, showToast)}
+                  >
+                    Download
+                  </Button>
                 ) : null}
                 {canBulkMoveToPending && singleListSelectedRow ? (
                   <Button

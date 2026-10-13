@@ -3,7 +3,7 @@
 /**
  * The three pop-ups the manager Forms page opens, drawn for the home demo from fixture props:
  *
- *  - Send a move-in form (the round +): `SendMoveInFormPopup`'s one step. Resident, Form and Due on the
+ *  - Send a form (the round +): `SendMoveInFormPopup`'s one step. Resident, Form and Due on the
  *    centre, "What <first> gets" flush right, Cancel and Send in the footer.
  *  - A form's record (any row): `MoveInFormViewer`. Rail "Answers · Activity", the resident card, the
  *    answers (completed) or "Not submitted yet" with Remind (pending), "Filled PDF" / "Form" on the right,
@@ -75,7 +75,7 @@ function FormTile({ name, detail }: { name: string; detail: string }) {
 const longDate = (iso: string) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-/* ─────────────────────────── Send a move-in form ─────────────────────────── */
+/* ────────────────────────────── Send a form ──────────────────────────────── */
 
 export function DemoSendFormPopup({ onClose, onSent, presetResidentId }: { onClose: () => void; onSent: () => void; presetResidentId?: string }) {
   const [residentId, setResidentId] = useState(presetResidentId ?? DEMO_RESIDENCIES[0]!.id);
@@ -88,7 +88,7 @@ export function DemoSendFormPopup({ onClose, onSent, presetResidentId }: { onClo
 
   return (
     <DemoWorkspacePopup
-      title="Send a move-in form"
+      title="Send a form"
       steps={[{ id: "send", label: "Send a form" }]}
       railHeader={<ResidentCard name={resident.name} place={resident.place} />}
       sidePanel={

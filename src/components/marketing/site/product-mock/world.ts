@@ -315,7 +315,6 @@ function build(story: DemoStory): DemoWorld {
     overdueChargeCount: overdue.length,
     overdueBalanceLabel: money(overdue.reduce((sum, p) => sum + parseMoney(p.amount), 0)),
     pendingApplicationCount: pendingApplications.length,
-    latestPendingApplicationProperty: pendingApplications[0]?.property,
     managerSignatureLeaseCount: toSign.length,
     pendingTourCount: 0,
     messagingNeedsSetup: false,
@@ -323,7 +322,6 @@ function build(story: DemoStory): DemoWorld {
     draftPropertyCount: 0,
     draftsHref: "#",
     unreadConversationCount: unreadThreads.length,
-    latestUnreadSubject: unreadThreads[0]?.preview,
   });
   const upcoming = [...DASHBOARD_UPCOMING];
   if (story.tourAccepted) {

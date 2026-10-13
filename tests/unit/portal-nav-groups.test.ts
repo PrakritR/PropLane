@@ -15,8 +15,8 @@ import {
 
 const CASES = [
   // Settings (profile) has no sidebar row anywhere — every portal reaches it
-  // only from the account menu. Admin exposes Feedback as its own sidebar
-  // item under Support; manager/resident/vendor feedback stays embedded
+  // only from the account menu. Admin reaches Feedback through the Support
+  // row's tab strip; manager/resident/vendor feedback stays embedded
   // inside Settings.
   {
     kind: "pro" as const,
@@ -59,6 +59,9 @@ describe("portal nav groups cover the registry exactly", () => {
 
   for (const { kind, sections, sidebarShowsProfile, sidebarShowsFeedback } of CASES) {
     const groups = PORTAL_NAV_GROUPS[kind];
+    // Admin's config lists every section, including the ones its sidebar folds
+    // into a tab group's row (Money = Payments · Promo codes · Finances), so an
+    // unfolded caller (the command palette) buckets them too.
     const grouped = groups.flatMap((g) => g.sections);
 
     it(`${kind}: every registry section (except excluded) maps to exactly one group`, () => {

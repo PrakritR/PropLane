@@ -4,6 +4,7 @@
  */
 
 import { planRecurringRentCharges, residentsMissingRentProfile } from "@/lib/recurring-rent-sweep";
+import { formatPortalMonth } from "@/lib/portal-display-dates";
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
@@ -5616,7 +5617,7 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
     createdAt: c.createdAt,
     notes:
       c.kind === "rent"
-        ? `Recurring tenant rent. Current cycle: ${c.rentMonth ?? currentRentMonth()}. Due ${formatRecurringRentDueLabel(c.rentMonth ?? currentRentMonth(), c.dueDay ?? 1, c.dueDayMode)}.`
+        ? `Recurring tenant rent. Current cycle: ${formatPortalMonth(c.rentMonth ?? currentRentMonth())}. Due ${formatRecurringRentDueLabel(c.rentMonth ?? currentRentMonth(), c.dueDay ?? 1, c.dueDayMode)}.`
         : c.kind === "application_fee"
         ? c.status === "paid"
           ? "Application fee recorded as paid."

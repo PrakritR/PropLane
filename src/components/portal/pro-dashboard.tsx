@@ -1087,7 +1087,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     overdueChargeCount,
     overdueBalanceLabel,
     pendingApplicationCount: pendingApps.length,
-    latestPendingApplicationProperty: pendingApps[0]?.property,
     managerSignatureLeaseCount,
     pendingTourCount: pendingTours.length,
     messagingNeedsSetup,
@@ -1095,7 +1094,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     draftPropertyCount: portfolio.draftCount,
     draftsHref: propertyListHref(BASE, "drafts"),
     unreadConversationCount: inboxCount,
-    latestUnreadSubject: inboxThreads[0]?.subject,
   });
   const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
 

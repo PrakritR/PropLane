@@ -983,7 +983,7 @@ const formBlocks = (form: ManagerFormFixture) =>
 
 /**
  * The real Forms page (`forms-list.tsx`): Pending · Completed tabs, search, the Filter popover (Kind, Property,
- * Resident, Blocks), the round + that opens "Send a move-in form", rows that open the form's record (answers and
+ * Resident, Blocks), the round + that opens "Send a form", rows that open the form's record (answers and
  * activity, or "Not submitted yet" with Remind), and a ⋯ of Edit · Remind · Cancel request (pending) or
  * View · Download PDF (completed). Edit opens the real Edit form pop-up. Nothing is sent or saved.
  */

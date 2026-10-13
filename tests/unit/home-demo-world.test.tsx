@@ -168,7 +168,7 @@ describe("sidebar grouping (the redesigned shell)", () => {
     const groups = Array.from(container.querySelector("nav")!.children);
     expect(groups.map((group) => group.querySelector("p")?.textContent?.trim() ?? "")).toEqual(["", "Portfolio", "Leasing", "People", "Money"]);
     expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Dashboard", "Tasks", "Calendar", "Communication"]);
-    expect(Array.from(groups[2]!.querySelectorAll("button[data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(["Tours", "Application", "Leases", "Forms"]);
+    expect(Array.from(groups[2]!.querySelectorAll("button[data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(["Tours", "Applications", "Leases", "Forms"]);
   });
 
   it("collapses and re-opens a group, and keeps every cursor target on its row", () => {

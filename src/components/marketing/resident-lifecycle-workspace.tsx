@@ -41,7 +41,7 @@ import { portalSwitchTargets } from "@/lib/portal-switch-targets";
 import { PORTAL_META } from "./resident-lifecycle-script";
 
 /** One row of the assistant panel's "Needs attention": a title and the place it is about. */
-export type AssistantNeed = { id: string; title: string; detail: string };
+export type AssistantNeed = { id: string; title: string; detail?: string };
 
 /** Alert (a red pill) for unread mail and overdue money, quiet numbers for ordinary pending work (`usePortalNavCounts`). */
 const ALERT_COUNTS = new Set(["communication", "payments"]);
@@ -194,7 +194,7 @@ function AssistantPanel({ needs, name, onClose }: { needs: AssistantNeed[]; name
               {needs.map((need) => (
                 <li key={need.id}>
                   <strong>{need.title}</strong>
-                  <span>{need.detail}</span>
+                  {need.detail ? <span>{need.detail}</span> : null}
                 </li>
               ))}
             </ul>

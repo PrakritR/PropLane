@@ -28,7 +28,7 @@ import {
   type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
-import { roomDisplayLabel } from "@/lib/room-display-label";
+import { placeNameOrEmpty, roomDisplayLabel } from "@/lib/room-display-label";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
 import { bookingRecordHref, paymentDetailHref, paymentListHref, residentDetailHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -247,7 +247,7 @@ function isStayTotalRow(row: DemoManagerPaymentLedgerRow): boolean {
 }
 
 function ledgerRowPropertyLine(row: DemoManagerPaymentLedgerRow): string {
-  return [row.propertyName, formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ") || "—";
+  return [placeNameOrEmpty(row.propertyName), formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ") || "—";
 }
 
 export function ManagerPaymentsLedgerPanel({
@@ -1129,7 +1129,7 @@ export function ManagerPaymentsLedgerPanel({
                 : row.chargeTitle}
             </p>
             <p className="mt-0.5 text-xs text-muted">
-              {[row.propertyName, formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ")}
+              {[placeNameOrEmpty(row.propertyName), formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ")}
             </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

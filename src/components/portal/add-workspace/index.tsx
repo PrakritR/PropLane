@@ -92,6 +92,7 @@ export function AddWorkspace({
   skipOffPath = false,
   numberedSteps = false,
   hideFooterStepCount = false,
+  hideReadinessCaption = false,
   reviewEditLinks = true,
   tabRail = false,
 }: {
@@ -146,6 +147,8 @@ export function AddWorkspace({
   deleteDisabled?: boolean;
   deleteDataAttr?: string;
   footerNote?: ReactNode;
+  /** Drop the grey "missing field" line above "Step n of N" — the rail's "things to finish" card already says it. */
+  hideReadinessCaption?: boolean;
   /**
    * Sits on top of the workspace without unmounting steps — message preview
    * Back restores the last step with values still filled.
@@ -358,7 +361,7 @@ export function AddWorkspace({
               ) : null}
             </div>
             <span className="min-w-0 flex-1 text-center text-[13px] text-muted">
-              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : null}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness && !hideReadinessCaption ? <span className="mb-0.5 block">{readiness}</span> : null}
               {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
             <div className="flex items-center gap-2.5">

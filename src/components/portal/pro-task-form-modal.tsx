@@ -61,6 +61,7 @@ import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.clien
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 import type { ResidentMaintenanceCategoryLabel } from "@/lib/work-order-taxonomy";
 import type { WorkAssignee } from "@/lib/work-assignment";
+import { formatPortalRowDate } from "@/lib/portal-display-dates";
 import { cn } from "@/lib/utils";
 
 const TOUR_DURATION_OPTIONS = [
@@ -619,7 +620,7 @@ export function ManagerTaskFormModal({
     {
       id: "when",
       label: "When",
-      summary: form.scheduleDate || form.dueDate || (form.urgency === "urgent" ? "Urgent" : "Timing"),
+      summary: formatPortalRowDate(form.scheduleDate || form.dueDate) || (form.urgency === "urgent" ? "Urgent" : "Timing"),
     },
     {
       id: "review",

@@ -57,3 +57,15 @@ export function formatOutgoingDueDetail(due: string | undefined): string {
   const formatted = formatOutgoingDue(due).replace(/^Due\s+/i, "").trim();
   return formatted || due?.trim() || "";
 }
+
+/** A bare `YYYY-MM` billing month as people say it: "2026-11" -> "Nov 2026". Anything else is returned as given. */
+export function formatPortalMonth(month: string | null | undefined): string {
+  const value = month?.trim() ?? "";
+  const m = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return value;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}

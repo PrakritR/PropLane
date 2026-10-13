@@ -1,5 +1,6 @@
 "use client";
 
+import { createElement } from "react";
 import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -10,6 +11,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
+import { recordActionIcon } from "@/lib/portals/record-action-icons";
+
+/** The 16px glyph the item's words call for (`record-action-icons.ts`), drawn by DropdownMenuItem's `[&>svg]` rule. */
+function menuItemIcon(label: string) {
+  return createElement(recordActionIcon(label), { "aria-hidden": true });
+}
 
 export type VendorRowMenuItem = {
   id: string;
@@ -59,7 +66,8 @@ export function VendorRowMenu({
             onSelect={item.onSelect}
             data-attr={`${dataAttr}-${item.id}`}
           >
-            {item.label}
+            {menuItemIcon(item.label)}
+            <span className="min-w-0 truncate">{item.label}</span>
           </DropdownMenuItem>
         ))}
         {destructive.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -71,7 +79,8 @@ export function VendorRowMenu({
             className="text-danger focus:text-danger"
             data-attr={`${dataAttr}-${item.id}`}
           >
-            {item.label}
+            {menuItemIcon(item.label)}
+            <span className="min-w-0 truncate">{item.label}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

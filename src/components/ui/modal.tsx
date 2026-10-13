@@ -423,7 +423,14 @@ function ModalPanelInner({
         )}
       >
         {contextPanel !== null ? (
-        <aside data-popup-context="" className="hidden w-[190px] shrink-0 overflow-y-auto border-r border-border bg-background px-3.5 py-[18px] lg:block">
+        <aside
+          data-popup-context=""
+          // With no record context and nothing typed yet the rail is an empty strip — it shows only once it has content.
+          className={cn(
+            "hidden w-[190px] shrink-0 overflow-y-auto border-r border-border bg-background px-3.5 py-[18px]",
+            contextPanel ? "lg:block" : "lg:has-[[data-popup-rail-content]]:block",
+          )}
+        >
           {contextPanel}
           <div className={contextPanel ? "mt-4" : undefined}><PopupFormContext formRef={formRef} hasContext={contextPanel != null} /></div>
         </aside>
@@ -455,7 +462,14 @@ function ModalPanelInner({
           <PhoneStripPickerScope>{children}</PhoneStripPickerScope>
         </div>
         {preview !== null ? (
-          <aside data-popup-preview="" className="hidden w-[260px] shrink-0 overflow-y-auto border-l border-border bg-[#fafbfc] p-4 lg:block [html[data-theme=dark]_&]:bg-black/20">
+          <aside
+            data-popup-preview=""
+            // The read-only snapshot column only appears once it has fields to show; a caller-owned preview always does.
+            className={cn(
+              "hidden w-[260px] shrink-0 overflow-y-auto border-l border-border bg-[#fafbfc] p-4 [html[data-theme=dark]_&]:bg-black/20",
+              preview ? "lg:block" : "lg:has-[[data-popup-rail-content]]:block",
+            )}
+          >
             <div className="mb-2.5 text-xs font-semibold text-muted">{previewLabel}</div>
             {preview ?? <PopupFormSnapshot formRef={formRef} />}
           </aside>

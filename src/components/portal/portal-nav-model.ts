@@ -43,6 +43,8 @@ export type PortalSidebarNavItem = {
   prefetchHrefs: string[];
   sectionTabId?: string;
   subItems?: PortalSidebarNavSubItem[];
+  /** Admin grouped row: every section this row stands for (active on any of them). */
+  groupSections?: string[];
 };
 
 export function buildPortalNavItems(

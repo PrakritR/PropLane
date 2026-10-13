@@ -48,3 +48,24 @@ export function formatSmsPhoneLabel(phone: string | null | undefined): string | 
   }
   return e164 ?? raw;
 }
+
+/**
+ * A NANP national number: area code and exchange code both start 2-9. Digit
+ * count alone is not the test — a bare French `0612345678` is ten digits too,
+ * and reading it back as "(061) 234-5678" claims an area code that cannot exist.
+ */
+const NANP_NATIONAL = /^[2-9]\d{2}[2-9]\d{6}$/;
+
+/**
+ * A US/Canada number as people read it, "(425) 555-0147" — the +1 country code is
+ * dropped because every house is domestic. A number outside the NANP keeps its
+ * own form so it is never mangled; empty stays empty.
+ */
+export function formatUsPhoneDisplay(phone: string | null | undefined): string {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return "";
+  const digits = raw.replace(/\D/g, "");
+  const national = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits.length === 10 ? digits : "";
+  if (!NANP_NATIONAL.test(national) || (raw.startsWith("+") && digits.length === 10)) return raw;
+  return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+}

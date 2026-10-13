@@ -1,8 +1,9 @@
 "use client";
 
+import { MoreHorizontal } from "lucide-react";
 import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
-import { RecordActionItems } from "@/components/ui/record-action-menu";
+import { RecordActionItems, isRecordActionRowShape, withRecordActionIcon } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -196,7 +197,15 @@ export function PortalAdaptiveActionRow({
     }
   }, [fixed, optionalFitCount, optional.length, actions]);
 
-  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{action.node}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
+  // The action's own `menuItem` is the menu shape (glyph + label) the overflow
+  // path already uses; `node` is a bare icon button for a header row, which
+  // `withRecordActionIcon` cannot re-shape once it is a forwardRef component.
+  // A `menuItem` that is not a shape RecordActionItems can turn into a row
+  // (the type is a bare ReactNode) would land here inert, so fall back to
+  // `node`, which every caller builds from a Button.
+  const recordMenuNode = (action: PortalAdaptiveAction) =>
+    withRecordActionIcon(isRecordActionRowShape(action.menuItem) ? action.menuItem : action.node);
+  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{recordMenuNode(action)}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);
@@ -214,7 +223,7 @@ export function PortalAdaptiveActionRow({
           data-attr={moreDataAttr}
           aria-label={moreAriaLabel}
         >
-          …
+          <MoreHorizontal className="size-4" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="record-action-menu">
@@ -248,7 +257,7 @@ export function PortalAdaptiveActionRow({
         ))}
         <div data-portal-adaptive-fit-more>
           <Button type="button" variant="outline" className={moreBtnClass} tabIndex={-1}>
-            …
+            <MoreHorizontal className="size-4" aria-hidden />
           </Button>
         </div>
       </div>

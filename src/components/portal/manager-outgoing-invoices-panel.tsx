@@ -393,8 +393,8 @@ export function ManagerOutgoingInvoicesPanel({
     ? { title: portalEmptyNoMatchTitle("payments", search), section: "payments", tone: "muted" as const, clear: { label: "Clear search", onClick: () => setSearch("") } }
     : { title: nothingToThisVendor ? `No payments to ${vendorName?.trim() || "this vendor"} yet` : EMPTY_TITLE[currentTab], section: "payments" };
   const filterCount = portalFilterActiveCount([vendorFilter, propertyFilter]);
-  const listBody = <div data-attr="manager-outgoing-invoices">
-    <PortalListControlStack className="mb-2 max-lg:mb-1.5 sm:mt-2" variant="command" stickyDestinations={false}
+  const listStack = (
+    <PortalListControlStack className={scoped ? "mb-2 max-lg:mb-1.5 sm:mt-2" : "mb-2 max-lg:mb-1.5"} variant="command" stickyDestinations={false}
       {...(scoped
         ? {
             destinationRow: (
@@ -429,6 +429,8 @@ export function ManagerOutgoingInvoicesPanel({
         </PortalFilterSortSheet>
       )}
       primary={scoped && !vendorUserId ? null : <PortalPrimaryIconAction label="Add payment" icon={Plus} onClick={() => { setActionError(""); setPicker(true); }} />} />
+  );
+  const listSurface = (
     <PortalRecordListSurface loading={loading} loadError={error} onRetry={() => void load()} isEmpty={!shown.length && !shownPayouts.length && !shownPayeePayments.length} emptyCard={emptyCard}>
       {shown.map(row => {
         const rowBucket = bucket(row);
@@ -462,9 +464,10 @@ export function ManagerOutgoingInvoicesPanel({
         facts={<PortalRowFact icon={CalendarDays}>{[row.referenceLabel, `paid ${shortDate(row.dateIso) || "—"}`].filter(Boolean).join(" · ")}</PortalRowFact>}
         trailing={<strong>{money(row.amountCents)}</strong>} onOpen={() => {}} dataAttr="outgoing-payee-payment-row" /></RecordActionContext.Provider>)}
     </PortalRecordListSurface>
-    {dialogs}
-  </div>;
+  );
   // The vendor record embeds this list under its own header; the page route gets the standard list title.
-  if (scoped) return listBody;
-  return <ManagerPortalPageShell title="Outgoing payments" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>{listBody}</ManagerPortalPageShell>;
+  if (scoped) return <div data-attr="manager-outgoing-invoices">{listStack}{listSurface}{dialogs}</div>;
+  // The command stack and the surface are direct children of the shell, so the page frame (header band,
+  // edge-to-edge rows) matches Properties; wrapping them in a div drops that frame.
+  return <ManagerPortalPageShell title="Outgoing payments" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>{listStack}{listSurface}{dialogs}</ManagerPortalPageShell>;
 }

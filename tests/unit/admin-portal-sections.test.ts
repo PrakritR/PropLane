@@ -1,5 +1,6 @@
 /**
- * The admin sidebar: Dashboard, Communication · Accounts · Portfolio · Support, and the new Health
+ * The admin sidebar: seven rows (Dashboard, Communication, Accounts, Money, Properties, Support, Growth;
+ * the grouped ones show their sections as a tab strip), and the Health
  * section wired through the registry, the nav groups, the renderer and the route tree.
  *
  * A section that is in one of these and not the others is a live nav row that lands nowhere (the
@@ -11,7 +12,13 @@ import { describe, expect, it } from "vitest";
 import { routeResolves } from "../helpers/route-resolves";
 import { findSection } from "@/lib/portals";
 import { ADMIN_PORTAL_SMOKE_PATHS, adminPortal } from "@/lib/portals/admin";
-import { PORTAL_NAV_GROUPS, groupNavItems } from "@/lib/portals/nav-groups";
+import {
+  ADMIN_NAV_ROW_SECTIONS,
+  ADMIN_SECTION_TABS,
+  PORTAL_NAV_GROUPS,
+  collapseAdminNavItems,
+  groupNavItems,
+} from "@/lib/portals/nav-groups";
 import { hrefForSection } from "@/components/portal/portal-nav-model";
 import { isInAppPath } from "@/lib/platform/parity";
 
@@ -19,40 +26,87 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("admin nav groups", () => {
   const groups = PORTAL_NAV_GROUPS.admin;
-  const grouped = groups.flatMap((g) => g.sections);
+  const rows = groups.flatMap((g) => g.sections);
+  const registry = adminPortal.sections.map((s) => s.section).filter((s) => s !== "profile");
 
-  it("heads the sidebar: unheaded Dashboard + Communication, then Accounts, Money, Portfolio, Support", () => {
-    expect(groups.map((g) => [g.label, g.sections] as const)).toEqual([
-      [null, ["dashboard", "communication"]],
-      ["Accounts", ["axis-users", "subscribers", "test-accounts"]],
-      ["Money", ["payments", "promo-codes", "finances"]],
-      ["Portfolio", ["properties"]],
-      ["Support", ["bugs-feedback", "events", "health"]],
-      ["Marketing", ["growth"]],
+  it("folds into seven unheaded rows: Dashboard, Communication, Accounts, Money, Properties, Support, Growth", () => {
+    expect(ADMIN_NAV_ROW_SECTIONS).toEqual([
+      "dashboard",
+      "communication",
+      "axis-users",
+      "payments",
+      "properties",
+      "bugs-feedback",
+      "growth",
     ]);
   });
 
-  it("places every admin section exactly once (Settings is reached from the account menu, not a row)", () => {
-    expect(new Set(grouped).size).toBe(grouped.length);
-    const registry = adminPortal.sections.map((s) => s.section).filter((s) => s !== "profile");
-    expect([...grouped].sort()).toEqual([...registry].sort());
+  it("is one unheaded group listing every section in row order, so an unfolded caller buckets too", () => {
+    expect(groups.map((g) => [g.id, g.label] as const)).toEqual([["home", null]]);
+    expect(rows).toEqual([
+      "dashboard",
+      "communication",
+      "axis-users",
+      "subscribers",
+      "test-accounts",
+      "payments",
+      "promo-codes",
+      "finances",
+      "properties",
+      "bugs-feedback",
+      "events",
+      "health",
+      "growth",
+    ]);
+  });
+
+  it("reaches every admin section exactly once, through a row or a tab (Settings is the account menu)", () => {
+    const tabbed = Object.values(ADMIN_SECTION_TABS).flatMap((t) => t.sections);
+    const rowsWithoutGroupKeys = ADMIN_NAV_ROW_SECTIONS.filter((id) => !tabbed.includes(id));
+    const reach = [...rowsWithoutGroupKeys, ...tabbed];
+    expect(new Set(reach).size).toBe(reach.length);
+    expect([...reach].sort()).toEqual([...registry].sort());
+    // each grouped row key is the first tab of its group
+    for (const group of Object.values(ADMIN_SECTION_TABS)) {
+      expect(ADMIN_NAV_ROW_SECTIONS).toContain(group.sections[0]);
+    }
   });
 
   it("keeps the registry in sidebar order so the native bar and the web nav agree", () => {
-    const registry = adminPortal.sections.map((s) => s.section).filter((s) => s !== "profile");
-    expect(registry).toEqual(grouped);
+    const folded = collapseAdminNavItems(adminPortal.sections.filter((s) => s.section !== "profile")).map(
+      (s) => s.section,
+    );
+    expect(folded).toEqual(ADMIN_NAV_ROW_SECTIONS);
   });
 
-  it("groups real nav items into the same six buckets", () => {
-    const items = adminPortal.sections.map((s) => ({ section: s.section }));
-    expect(groupNavItems("admin", items).map((g) => g.id)).toEqual([
-      "home",
-      "accounts",
-      "money",
-      "portfolio",
-      "support",
-      "marketing",
+  it("groups the folded rows into one unheaded home group of seven labelled rows", () => {
+    const items = collapseAdminNavItems(
+      adminPortal.sections.map((s) => ({ section: s.section, label: s.label })),
+    );
+    const grouped = groupNavItems("admin", items);
+    expect(grouped.map((g) => g.id)).toEqual(["home"]);
+    expect(grouped[0]!.label).toBeNull();
+    expect(grouped[0]!.items.map((i) => i.label)).toEqual([
+      "Dashboard",
+      "Communication",
+      "Accounts",
+      "Money",
+      "Properties",
+      "Support",
+      "Growth",
     ]);
+  });
+
+  it("leaves an unfolded caller (the command palette) every section as its own destination", () => {
+    const items = adminPortal.sections
+      .filter((s) => s.section !== "profile")
+      .map((s) => ({ section: s.section, label: s.label }));
+    const grouped = groupNavItems("admin", items);
+    expect(grouped.map((g) => g.id)).toEqual(["home"]);
+    expect(grouped[0]!.items.map((i) => i.section)).toEqual(rows);
+    expect(grouped[0]!.items.map((i) => i.label)).toContain("Promo codes");
+    expect(grouped[0]!.items.map((i) => i.label)).toContain("Health");
+    expect(grouped[0]!.items).toHaveLength(registry.length);
   });
 });
 

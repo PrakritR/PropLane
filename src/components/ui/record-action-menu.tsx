@@ -2,7 +2,7 @@
 
 import { Children, Fragment, cloneElement, isValidElement, useContext, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { MoreHorizontal } from "lucide-react";
+import { Eye, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RecordActionContext, RecordActionItemsContext, RecordActionCloseContext } from "./record-action-context";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu";
@@ -106,6 +106,28 @@ function withLeadingIcon(leaf: ReactElement<ActionLeafProps>, tone: RecordAction
   if (leafHasOwnIcon(leaf)) return cloneElement(leaf, extra);
   const Icon = recordActionIcon(label);
   return cloneElement(leaf, extra, <Icon className="size-4 shrink-0" aria-hidden />, <span className="min-w-0 truncate">{leaf.props.children}</span>);
+}
+
+/**
+ * Whether {@link RecordActionItems} can turn this node into a real menu row.
+ *
+ * Only a Button / `button` / DropdownMenuItem becomes a `menuitem`; anything
+ * else is rendered through untouched, so a caller handing over some other
+ * shape would land in the menu as inert, unfocusable markup.
+ */
+export function isRecordActionRowShape(node: ReactNode): boolean {
+  return Children.toArray(node).some((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return false;
+    if (child.type === Fragment || child.type === "div") return isRecordActionRowShape(child.props.children);
+    return child.type === Button || child.type === "button" || child.type === DropdownMenuItem;
+  });
+}
+
+/** A text-only action button inside a menu gets the same leading glyph as a tagged leaf (the adaptive row hands its actions over as opaque nodes). */
+export function withRecordActionIcon(node: ReactNode): ReactNode {
+  if (!isValidElement<ActionLeafProps>(node)) return node;
+  if (node.type !== Button && node.type !== "button" && node.type !== DropdownMenuItem) return node;
+  return withLeadingIcon(node, leafTone(node));
 }
 
 function isDestructiveLeaf(leaf: ReactElement<ActionLeafProps>): boolean {
@@ -212,7 +234,7 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
         className="record-action-menu z-[10060] max-h-[min(var(--radix-dropdown-menu-content-available-height),28rem)] w-64 overflow-y-auto"
       >
         <DropdownMenuLabel className="truncate text-xs font-semibold text-muted">{label}</DropdownMenuLabel>
-        {onOpen ? <DropdownMenuItem onSelect={(event) => { event.preventDefault(); closeForAction(); onOpen(); }}>View</DropdownMenuItem> : null}
+        {onOpen ? <DropdownMenuItem onSelect={(event) => { event.preventDefault(); closeForAction(); onOpen(); }}><Eye aria-hidden /><span className="min-w-0 truncate">View</span></DropdownMenuItem> : null}
         <RecordActionCloseContext.Provider value={closeForAction}>
         <RecordActionItemsContext.Provider value>
           {hasActions ? (

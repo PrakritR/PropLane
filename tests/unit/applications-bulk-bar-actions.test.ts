@@ -31,6 +31,15 @@ describe("applications list bulk bar mirrors detail footer actions", () => {
     expect(PANEL).not.toContain('application-share');
   });
 
+  // The bulk bar's children are also the row ⋯ menu's items (the list surface
+  // publishes them through RecordActionContext), and RecordActionItems only
+  // turns a Button / DropdownMenuItem into a real menu row with its leading
+  // glyph — a wrapper component lands there as an icon-less outline pill.
+  it("hands Download to the row menu as a Button leaf, not a wrapper component", () => {
+    expect(PANEL).toContain("runApplicationPdfDownload(singleListSelectedRow, showToast)");
+    expect(PANEL).not.toMatch(/<ApplicationPdfDownloadButton[^>]*PORTAL_BULK_BAR_BTN/);
+  });
+
   it("declines in one click (no confirm dialog) with an Undo", () => {
     expect(PANEL).toContain("declineApplicationWithUndo");
     expect(PANEL).not.toContain("application-reject-confirm");
