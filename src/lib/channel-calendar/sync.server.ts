@@ -30,8 +30,11 @@ import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
-import { pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
-import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
+import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import {
+  clearChannelStayTombstonesForRoom,
+  loadChannelStayTombstoneKeys,
+} from "@/lib/channel-calendar/stay-tombstones.server";
 
 const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 
@@ -228,6 +231,7 @@ export async function upsertChannelCalendarConnection(
   const unlinking = importUrlProvided && importUrl === null;
   // Read the stays this feed had imported BEFORE the row is rewritten: unlinking
   // has to take their listing blocks and placeholder residents with them.
+  const priorImportUrl = importUrlProvided ? await loadConnectionImportUrl(db, input.propertyId, input.roomId, provider) : null;
   const priorRanges = unlinking
     ? await loadConnectionImportedRanges(db, input.propertyId, input.roomId, provider)
     : [];
@@ -253,10 +257,32 @@ export async function upsertChannelCalendarConnection(
     .single();
   if (error) throw new Error(error.message);
   const saved = parseConnectionRow(data as Record<string, unknown>);
+  // A new feed has new event identities, so the old feed's removed-stay tombstones must not
+  // prune its stays (Airbnb reuses one UID for every host block).
+  if (importUrlProvided && (priorImportUrl ?? null) !== (importUrl ?? null)) {
+    await clearChannelStayTombstonesForRoom(db, { propertyId: input.propertyId, roomId: input.roomId, provider });
+  }
   if (unlinking) {
     await releaseConnectionImportedStays(db, saved, priorRanges);
   }
   return toPublicConnection(saved, browserOrigin);
+}
+
+async function loadConnectionImportUrl(
+  db: SupabaseClient,
+  propertyId: string,
+  roomId: string,
+  provider: ChannelCalendarProvider,
+): Promise<string | null> {
+  const { data } = await db
+    .from("external_calendar_connections")
+    .select("import_url")
+    .eq("property_id", propertyId)
+    .eq("room_id", roomId)
+    .eq("provider", provider)
+    .maybeSingle();
+  const url = (data as { import_url?: unknown } | null)?.import_url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
 }
 
 /** The ranges a connection currently holds, read by its natural key (the row may not exist yet). */
@@ -438,11 +464,21 @@ export async function syncChannelCalendarConnection(
     // C2-AB7: a stay the manager removed is not stored again, so neither Bookings
     // nor the public room calendar nor the occupancy snapshot ever see it back.
     const tombstoneKeys = await loadChannelStayTombstoneKeys(db, [connection.property_id]);
-    const imported = pruneTombstonedRanges(
+    const firstPass = pruneTombstonedRanges(
       icalEventsToImportedRanges(parseIcsCalendar(icsText)),
       { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
       tombstoneKeys,
-    ).kept;
+    );
+    const imported = firstPass.kept;
+    if (firstPass.dropped.length > 0) {
+      // Diagnostics only (last_error means failure): a sync that stores fewer ranges than the feed
+      // carried should say so, with the UIDs, so a wrongly pruned stay is findable.
+      console.info(
+        `[channel-calendar] sync ${connection.id}: pruned_count=${firstPass.dropped.length} (${firstPass.dropped
+          .map((r) => `${importedRangeUid(r)}@${r.start}..${r.end}`)
+          .join(", ")}) kept=${imported.length}`,
+      );
+    }
 
     const record = await loadPropertyRecord(db, connection.property_id);
     if (!record?.property?.listingSubmission) {

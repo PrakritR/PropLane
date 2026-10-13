@@ -16,10 +16,13 @@ export async function POST(req: Request) {
   try {
     const ctx = await requireBookingsManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const body = (await req.json().catch(() => ({}))) as { action?: unknown; connectionId?: unknown; sourceUid?: unknown };
+    const body = (await req.json().catch(() => ({}))) as { action?: unknown; connectionId?: unknown; sourceUid?: unknown; start?: unknown; end?: unknown };
     const action = body.action === "restore" ? "restore" : body.action === "remove" ? "remove" : null;
     if (!action) return NextResponse.json({ error: "action must be remove or restore." }, { status: 400 });
-    const input = { connectionId: String(body.connectionId ?? ""), sourceUid: String(body.sourceUid ?? "") };
+    const input = { connectionId: String(body.connectionId ?? ""), sourceUid: String(body.sourceUid ?? ""),
+      start: String(body.start ?? "").trim() || undefined,
+      end: String(body.end ?? "").trim() || undefined,
+    };
 
     const result =
       action === "remove"

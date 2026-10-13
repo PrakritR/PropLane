@@ -27,6 +27,7 @@ import {
 } from "@/lib/channel-calendar/stay-tombstones";
 import {
   channelStayTombstoneRecordId,
+  clearChannelStayTombstonesForRoom,
   loadChannelStayTombstoneKeys,
   removeChannelStay,
   restoreChannelStay,
@@ -184,5 +185,49 @@ describe("authorization comes from the session, not the body", () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("src/app/api/portal-schedule-records/route.ts", "utf8");
     expect(src.match(/isDedicatedBookingsRecordType/g)!.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("host-block identity (Airbnb reuses one UID for every block)", () => {
+  const conn = { propertyId: "prop-1", roomId: "room-1", provider: "airbnb" };
+  const block = (start: string, end: string): ChannelCalendarImportedRange => ({
+    id: `b-${start}`, sourceUid: "shared-uid@airbnb.com", summary: "Airbnb (Not available)", hostBlock: true, start, end,
+  });
+  const oldBlock = block("2026-10-11", "2026-10-11");
+  const keyOf = (r: ChannelCalendarImportedRange) =>
+    channelStayTombstoneKey({ ...conn, sourceUid: r.sourceUid, start: r.start, end: r.end, hostBlock: r.hostBlock, summary: r.summary });
+
+  it("the key carries the dates for a host block and only the UID for a reservation", () => {
+    expect(keyOf(oldBlock)).toBe("prop-1|room-1|airbnb|shared-uid@airbnb.com|2026-10-11|2026-10-11");
+    expect(keyOf(MARCUS)).toBe("prop-1|room-1|airbnb|uid-marcus");
+  });
+
+  it("(a) same UID, different dates is not pruned", () => {
+    const keys = new Set([keyOf(oldBlock)]);
+    const next = block("2026-10-11", "2026-10-15");
+    const { kept, dropped } = pruneTombstonedRanges([next], conn, keys);
+    expect(dropped).toHaveLength(0);
+    expect(kept).toEqual([next]);
+  });
+
+  it("(b) same UID and same dates is pruned", () => {
+    const { dropped } = pruneTombstonedRanges([block("2026-10-11", "2026-10-11")], conn, new Set([keyOf(oldBlock)]));
+    expect(dropped).toHaveLength(1);
+  });
+
+  it("(c) a reservation still prunes on UID alone", () => {
+    const keys = new Set([keyOf(MARCUS)]);
+    expect(pruneTombstonedRanges([{ ...MARCUS, start: "2026-11-01", end: "2026-11-03" }], conn, keys).dropped).toHaveLength(1);
+  });
+
+  it("(d) clearing a room's tombstones leaves other rooms and channels alone", async () => {
+    const mk = (id: string, roomId: string, provider: string): Row => ({
+      id, property_id: "prop-1", record_type: CHANNEL_STAY_TOMBSTONE_RECORD_TYPE,
+      row_data: { propertyId: "prop-1", roomId, provider, sourceUid: "u", range: { id: "u", sourceUid: "u", start: "2026-10-11", end: "2026-10-11", summary: "x" }, removedAt: "" },
+    });
+    const tables: Record<string, Row[]> = { portal_schedule_records: [mk("t1", "room-1", "airbnb"), mk("t2", "room-2", "airbnb"), mk("t3", "room-1", "vrbo")] };
+    const db = fakeSupabaseClient(tables) as never;
+    expect(await clearChannelStayTombstonesForRoom(db, { propertyId: "prop-1", roomId: "room-1", provider: "airbnb" })).toBe(1);
+    expect(tables.portal_schedule_records.map((r) => r.id).sort()).toEqual(["t2", "t3"]);
   });
 });

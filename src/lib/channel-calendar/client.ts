@@ -169,7 +169,7 @@ export async function fetchManagerChannelBookings(
 
 async function postChannelStayTombstone(
   action: "remove" | "restore",
-  input: { connectionId: string; sourceUid: string },
+  input: { connectionId: string; sourceUid: string; start?: string; end?: string },
 ): Promise<void> {
   const res = await fetch("/api/portal/channel-calendar/stay-tombstones", {
     method: "POST",
@@ -182,12 +182,12 @@ async function postChannelStayTombstone(
 }
 
 /** Remove stay — leaves a tombstone so the next sync does not bring the reservation back (C2-AB7). */
-export function removeChannelStay(input: { connectionId: string; sourceUid: string }): Promise<void> {
+export function removeChannelStay(input: { connectionId: string; sourceUid: string; start?: string; end?: string }): Promise<void> {
   return postChannelStayTombstone("remove", input);
 }
 
 /** Undo for Remove stay. */
-export function restoreChannelStay(input: { connectionId: string; sourceUid: string }): Promise<void> {
+export function restoreChannelStay(input: { connectionId: string; sourceUid: string; start?: string; end?: string }): Promise<void> {
   return postChannelStayTombstone("restore", input);
 }
 
