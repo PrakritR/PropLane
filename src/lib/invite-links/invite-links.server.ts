@@ -91,6 +91,8 @@ export type InviteLinkRow = {
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+  /** The short workspace code (`short_code`) a person can type after pressing + in PropLane. */
+  code: string | null;
   teamRole?: TeamRoleId | null;
   /** Manager links only: 'all' = every house in the workspace, now and later. */
   houseScope?: "all" | "selected";
@@ -110,6 +112,7 @@ type DbRow = {
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  short_code?: string | null;
   workspace_id?: string | null;
   workspace_name_snapshot?: string | null;
   house_scope?: string | null;
@@ -169,6 +172,7 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     createdAt: row.created_at,
+    code: row.short_code ?? null,
     teamRole: storedTeamRole(row.team_role),
     houseScope: parseHouseScope(row.house_scope),
     workspacePermissions: normalizeWorkspacePermissions(row.workspace_permissions),
@@ -176,7 +180,7 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
 }
 
 const LINK_COLUMNS =
-  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role, house_scope, workspace_permissions";
+  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, short_code, team_role, house_scope, workspace_permissions";
 
 export type MintInviteLinkResult =
   | { ok: true; link: InviteLinkRow; token: string; code: string }

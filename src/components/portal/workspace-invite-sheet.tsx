@@ -148,6 +148,7 @@ export function WorkspaceInviteSheet({
 
   const [linkId, setLinkId] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [linkCode, setLinkCode] = useState<string | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
   /** The terms the held link (`linkId`) actually carries — null until one is hydrated or minted. */
   const [heldTerms, setHeldTerms] = useState<HeldLinkTerms | null>(null);
@@ -222,6 +223,7 @@ export function WorkspaceInviteSheet({
     setWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
     setLinkId(null);
     setLinkUrl(null);
+    setLinkCode(null);
     setHeldTerms(null);
     setSendValue("");
     setLinkPhone("");
@@ -236,6 +238,7 @@ export function WorkspaceInviteSheet({
         const data = (await res.json().catch(() => ({}))) as {
           link?: {
             id?: string;
+            code?: string | null;
             teamRole?: string | null;
             houseScope?: string | null;
             assignedPropertyIds?: string[];
@@ -272,6 +275,7 @@ export function WorkspaceInviteSheet({
         setCustomPermissions(nextCustomPermissions);
         setWorkspacePermissions(nextWorkspacePermissions);
         setLinkId(link.id);
+        setLinkCode(link.code ?? null);
         setHeldTerms({
           role: nextRole,
           houseScope: nextHouseScope,
@@ -319,14 +323,14 @@ export function WorkspaceInviteSheet({
    * URL when its terms still match; otherwise mints with `replaceActive: true`.
    */
   const resolveLinkForCurrentTerms = async (): Promise<
-    { ok: true; url: string; linkId: string } | { ok: false; error: string }
+    { ok: true; url: string; linkId: string; code: string | null } | { ok: false; error: string }
   > => {
     if (linkId && termsMatchHeldLink) {
-      if (linkUrl) return { ok: true, url: linkUrl, linkId };
+      if (linkUrl) return { ok: true, url: linkUrl, linkId, code: linkCode };
       const result = await revealInviteLinkClient(linkId);
       if (!result.ok) return { ok: false, error: result.error };
       setLinkUrl(result.url);
-      return { ok: true, url: result.url, linkId };
+      return { ok: true, url: result.url, linkId, code: linkCode };
     }
 
     const hadPriorLink = linkId != null;
@@ -348,18 +352,19 @@ export function WorkspaceInviteSheet({
     if (!result.ok) return { ok: false, error: result.error };
     setLinkId(result.linkId);
     setLinkUrl(result.url);
+    setLinkCode(result.code);
     setHeldTerms(currentTerms);
     if (hadPriorLink) {
       showToast("Link updated. Anyone with the old link will need the new one.");
     }
-    return { ok: true, url: result.url, linkId: result.linkId };
+    return { ok: true, url: result.url, linkId: result.linkId, code: result.code };
   };
 
   /** Text or email the invite for what is on screen; returns an error message or null when it went. */
   const deliverInvite = async (
     kind: "phone" | "email",
     value: string,
-    link: { url: string; linkId: string },
+    link: { url: string; linkId: string; code: string | null },
   ): Promise<string | null> => {
     const facts = {
       kind: "workspace" as const,
@@ -367,6 +372,7 @@ export function WorkspaceInviteSheet({
       workspaceName: workspace.name,
       propertyLabels: houseIds.map((id) => workspace.propertyLabels?.[id]?.trim() || id),
       inviteUrl: link.url,
+      workspaceCode: link.code ?? undefined,
       roleLabel: roleLabelFor(role),
       reach,
     };
@@ -483,6 +489,7 @@ export function WorkspaceInviteSheet({
         workspaceName: workspace.name,
         propertyLabels: houseIds.map((id) => workspace.propertyLabels?.[id]?.trim() || id),
         inviteUrl: linkResult.url,
+        workspaceCode: linkResult.code ?? undefined,
         roleLabel,
         reach,
       };
@@ -641,6 +648,14 @@ export function WorkspaceInviteSheet({
 
         <WorkspaceInviteLinkBox
           url={linkUrl}
+          code={linkCode}
+          onCopyCode={() => {
+            if (!linkCode) return;
+            void navigator.clipboard.writeText(linkCode).then(
+              () => showToast("Workspace code copied."),
+              () => showToast("Could not copy the workspace code."),
+            );
+          }}
           visible={termsMatchHeldLink}
           stale={heldTerms != null && !termsMatchHeldLink}
           awaitingReveal={termsMatchHeldLink && linkId != null && !linkUrl}

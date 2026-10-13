@@ -17,7 +17,7 @@ export type MintInviteLinkClientInput = {
 };
 
 export type MintInviteLinkClientResult =
-  | { ok: true; url: string; linkId: string }
+  | { ok: true; url: string; linkId: string; code: string | null }
   | { ok: false; error: string };
 
 export async function mintInviteLinkClient(
@@ -45,13 +45,14 @@ export async function mintInviteLinkClient(
     });
     const body = (await res.json().catch(() => ({}))) as {
       url?: string;
-      link?: { id?: string };
+      link?: { id?: string; code?: string | null };
+      code?: string | null;
       error?: string;
     };
     if (!res.ok || !body.url) {
       return { ok: false, error: body.error ?? "Could not create the invite link." };
     }
-    return { ok: true, url: body.url, linkId: String(body.link?.id ?? "") };
+    return { ok: true, url: body.url, linkId: String(body.link?.id ?? ""), code: body.code ?? body.link?.code ?? null };
   } catch {
     return { ok: false, error: "Could not create the invite link." };
   }
