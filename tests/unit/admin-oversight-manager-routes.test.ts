@@ -10,7 +10,10 @@
  * and schedule records carry the same three cases in their own route test files (where their
  * heavier fixtures live).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Row = Record<string, unknown>;
 
@@ -233,12 +236,37 @@ const CASES: Case[] = [
   { name: "portal/work-order-bids", path: "/api/portal/work-order-bids", route: "@/app/api/portal/work-order-bids/route", ids: (b) => idsOf(b.bids), mine: ["bid-mine"], all: ["bid-mine", "bid-other"] },
 ];
 
+/** Real request → real response lines, written out as a reviewer-readable transcript. */
+const transcript: string[] = [];
+
 async function read(c: Case, query: string): Promise<string[]> {
   const { GET } = (await import(/* @vite-ignore */ c.route)) as { GET: (req: Request) => Promise<Response> };
   const res = await GET(get(c.path, query));
   expect(res.status).toBe(200);
-  return c.ids((await res.json()) as Record<string, unknown>);
+  const ids = c.ids((await res.json()) as Record<string, unknown>);
+  transcript.push(
+    `GET ${c.path}${query}`.padEnd(62) +
+      `(viewer: ${hoisted.admin ? "platform admin + manager" : "manager"})\n` +
+      `  ${res.status} rows: ${JSON.stringify(ids)}`,
+  );
+  return ids;
 }
+
+afterAll(() => {
+  const out = process.env.EVIDENCE_DIR ?? join(tmpdir(), "proplane-comms-isolation-evidence");
+  mkdirSync(out, { recursive: true });
+  writeFileSync(
+    join(out, "manager-portal-routes-oversight.txt"),
+    [
+      "Manager-portal GET routes — the all-owners read is served only for ?oversight=admin from a",
+      "server-confirmed admin. Fixture: every table holds one row owned by the viewer (-mine) and",
+      "one owned by a different manager (-other).",
+      "",
+      ...transcript,
+      "",
+    ].join("\n"),
+  );
+});
 
 describe.each(CASES)("GET $name — admin oversight is explicit", (c) => {
   it("an admin in their own manager portal reads only their own rows", async () => {

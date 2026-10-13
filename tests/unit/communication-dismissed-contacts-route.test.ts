@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
@@ -203,5 +206,73 @@ describe("POST /api/portal-inbox-threads dismissContacts", () => {
     state.cookie = W1;
     await post({ action: "dismissContacts", contactKeys: ["t-h1@example.test"] });
     expect(await listIds()).toContain("t-h1");
+  });
+});
+
+/**
+ * Reviewer-visible evidence: the same two surfaces as a transcript of real requests and real
+ * responses, written to `$EVIDENCE_DIR` (default: the OS temp dir).
+ */
+describe("evidence: the route's answers, as a transcript", () => {
+  it("writes which threads each workspace is served, and the dismissal round trip", async () => {
+    const lines: string[] = [];
+    const listing = async (label: string) => {
+      const ids = await listIds();
+      lines.push(`  GET  /api/portal-inbox-threads?scope=${SCOPE}  [${label}]\n       200 rows: ${JSON.stringify(ids)}`);
+      return ids;
+    };
+    const dismissals = async (label: string) => {
+      const keys = await dismissed();
+      lines.push(`  GET  ...&view=dismissed  [${label}]\n       200 dismissed: ${JSON.stringify(keys)}`);
+      return keys;
+    };
+    const send = async (label: string, body: Record<string, unknown>) => {
+      const res = await post(body);
+      lines.push(`  POST /api/portal-inbox-threads ${JSON.stringify(body)}  [${label}]\n       ${res.status}`);
+      return res;
+    };
+
+    state.viewer = { id: A, email: "a@example.test" };
+    state.cookie = W1;
+    lines.push("Owner A holds two workspaces. t-stamped-w2 is about a W1 house but stamped with W2.");
+    const w1 = await listing("workspace A default");
+    expect(w1).toContain("t-stamped-w1");
+    expect(w1).not.toContain("t-stamped-w2");
+    state.cookie = W2;
+    const w2 = await listing("workspace A second");
+    expect(w2).toContain("t-stamped-w2-own-house");
+    expect(w2).not.toContain("t-stamped-w1");
+
+    lines.push("", "Deleting an empty chat is saved for the signed-in viewer in the SERVER-resolved workspace.");
+    state.cookie = W1;
+    await send("ids in the body are ignored", {
+      action: "dismissContacts",
+      contactKeys: ["Khue@Example.test"],
+      workspaceId: W2,
+      viewerUserId: B,
+    });
+    expect(await dismissals("workspace A default — survives a reload")).toEqual(["khue@example.test"]);
+    state.cookie = W2;
+    expect(await dismissals("workspace A second — never leaks across")).toEqual([]);
+    state.viewer = { id: B, email: "b@example.test" };
+    state.cookie = WB;
+    expect(await dismissals("owner B — never leaks across")).toEqual([]);
+
+    lines.push("", "Writing to the person again (New message) clears it.");
+    state.viewer = { id: A, email: "a@example.test" };
+    state.cookie = W1;
+    await send("New message to khue", { action: "clearDismissedContacts", contactKeys: ["khue@example.test"] });
+    expect(await dismissals("workspace A default")).toEqual([]);
+
+    lines.push("", "A dismissal is a list of people, never of threads: a live conversation stays.");
+    await send("dismiss the person behind t-h1", { action: "dismissContacts", contactKeys: ["t-h1@example.test"] });
+    expect(await listing("workspace A default")).toContain("t-h1");
+
+    const out = process.env.EVIDENCE_DIR ?? tmpdir();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(
+      join(out, "inbox-threads-workspace-and-dismissals.txt"),
+      ["/api/portal-inbox-threads — real requests, real responses.", "", ...lines, ""].join("\n"),
+    );
   });
 });
