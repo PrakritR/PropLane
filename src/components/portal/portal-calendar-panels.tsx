@@ -4750,7 +4750,7 @@ export function PortalCalendarPanels({
       );
 
     const calendarNavControls = (
-      <div className="flex min-w-0 flex-wrap items-center justify-center gap-1 sm:gap-1.5" data-attr="calendar-nav">
+      <div className={cn("flex min-w-0 flex-wrap items-center justify-center gap-1 sm:gap-1.5", embeddedInModal && "max-sm:col-span-2 max-sm:row-start-2 max-sm:justify-between")} data-attr="calendar-nav">
         <button
           type="button"
           className="h-7 max-md:h-11 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
@@ -4797,7 +4797,7 @@ export function PortalCalendarPanels({
       <>
         <div className={compactShellClass} ref={compactShellRef}>
           <div className={compactToolbarClass} ref={compactToolbarRef}>
-            <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 overflow-x-clip sm:gap-1.5">
+            <div className={cn("grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 overflow-x-clip sm:gap-1.5", embeddedInModal && "max-sm:grid-cols-[minmax(0,1fr)_auto]")}>
               <div className="flex min-w-0 items-center justify-start gap-1.5">
                 {saveStatus === "saving" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_INFO}`}>Saving…</span> : null}
                 {saveStatus === "error" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_ERROR}`}>Failed</span> : null}
@@ -4825,7 +4825,7 @@ export function PortalCalendarPanels({
                 ) : null}
               </div>
               {navControlsHost ? null : calendarNavControls}
-              <div className="flex min-w-0 items-center justify-end gap-1">
+              <div className={cn("flex min-w-0 items-center justify-end gap-1", embeddedInModal && "max-sm:col-start-2 max-sm:row-start-1")}>
                 {weekActionsHost ? createPortal(availabilityMenuAction, weekActionsHost) : availabilityMenuAction}
                 {weekPrimaryActionHost
                   ? createPortal(availabilityAddAction, weekPrimaryActionHost)

@@ -590,6 +590,7 @@ export function ManagerAddOutgoingPaymentModal({
       onFinish={() => void save()}
       dataAttrPrefix="outgoing-payment"
       finishDataAttr="outgoing-payment-save"
+      hideReadinessCaption
       footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
     >
       {stepId === "payto" ? (

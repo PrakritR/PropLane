@@ -46,7 +46,6 @@ import { workspaceInitials } from "@/components/portal/workspace-switcher";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
-  PortalSettingsField,
   PortalSettingsGroup,
   PortalSettingsLinkRow,
   PortalSettingsProfileHeader,
@@ -70,6 +69,7 @@ import {
 } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
+import { workspacePlanTierLabel } from "@/lib/workspaces/types";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
@@ -408,12 +408,22 @@ export function PortalProfileClient({
       <PortalSettingsSection title="Personal information">
         <PortalSettingsGroup>
           {renderEditableProfileRow("fullName", "Full name", fullName)}
-          <PortalSettingsField label="Email" value={initialEmail} />
+          <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr="profile-email-row">
+            <div className="flex min-h-11 items-center justify-between gap-4">
+              <span className="text-sm font-medium text-foreground">Email</span>
+              <span className="min-w-0 max-w-[22rem] truncate text-sm text-foreground" title={initialEmail}>{initialEmail}</span>
+            </div>
+          </div>
           {renderEditableProfileRow("phone", "Phone", formatSmsPhoneLabel(phone) || "")}
-          <PortalSettingsRow label={idLabel}>
-            <span className="font-mono text-sm text-foreground">{formatProplaneIdForDisplay(idValue)}</span>
-            <PortalIconAction icon={Copy} label={`Copy ${idLabel}`} onClick={() => void navigator.clipboard?.writeText(formatProplaneIdForDisplay(idValue))} data-attr="profile-copy-id" />
-          </PortalSettingsRow>
+          <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr="profile-id-row">
+            <div className="flex min-h-11 items-center justify-between gap-4">
+              <span className="text-sm font-medium text-foreground">{idLabel}</span>
+              <span className="flex min-w-0 items-center justify-end gap-2">
+                <span className="min-w-0 truncate font-mono text-sm text-foreground">{formatProplaneIdForDisplay(idValue)}</span>
+                <PortalIconAction icon={Copy} label={`Copy ${idLabel}`} onClick={() => void navigator.clipboard?.writeText(formatProplaneIdForDisplay(idValue))} data-attr="profile-copy-id" />
+              </span>
+            </div>
+          </div>
         </PortalSettingsGroup>
       </PortalSettingsSection>
       <Modal
@@ -861,7 +871,7 @@ export function PortalProfileClient({
   );
   const linkRow = (g: SettingsGroup) => (
     <PortalSettingsLinkRow key={g.id} icon={locked(g.id) ? <Lock className="h-4 w-4" /> : <g.icon className="h-4 w-4" />} label={g.label}
-      value={g.id === "billing" ? workspaces?.plan?.tier ?? undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
+      value={g.id === "billing" ? workspacePlanTierLabel(workspaces?.plan?.tier) || undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
   );
   const homeVisible = activeGroup === null;
   return (

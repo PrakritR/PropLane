@@ -30,7 +30,7 @@ import { Input, Select } from "@/components/ui/input";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal-styles";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { formatSmsPhoneLabel, formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { SaveStatus } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
@@ -699,7 +699,7 @@ export function ManagerVendorDetail({
       </section>
       <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-profile-contact">
         <h2 className="text-sm font-semibold">Contact</h2>
-        {fact("Phone", draft.phone)}
+        {fact("Phone", formatUsPhoneDisplay(draft.phone))}
         {!draft.phone.trim() && formatSmsPhoneLabel(row.linkPhone)
           ? fact("Texted to", formatSmsPhoneLabel(row.linkPhone) ?? "")
           : null}

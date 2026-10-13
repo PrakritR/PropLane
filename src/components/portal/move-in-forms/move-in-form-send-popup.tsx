@@ -82,7 +82,8 @@ export function SendMoveInFormPopup({
     };
   }, [userId, attempt, presetApplicationId]);
 
-  const residency = residencies?.find((r) => r.id === pickedResident) ?? residencies?.[0] ?? null;
+  // Nobody is preselected: from a resident record that one resident is the only offering, otherwise the manager picks.
+  const residency = residencies?.find((r) => r.id === pickedResident) ?? (presetApplicationId ? residencies?.[0] : null) ?? null;
   const forms = useMemo(() => (residency ? sendableMoveInForms(userId, residency.propertyId) : []), [userId, residency]);
   const template = forms.find((f) => f.id === pickedForm) ?? forms[0] ?? null;
 
@@ -141,6 +142,7 @@ export function SendMoveInFormPopup({
         <WizardSelect
           label="Resident"
           value={residency?.id ?? ""}
+          placeholder="Choose a resident"
           onChange={(next) => {
             setPickedResident(next);
             setPickedForm("");
@@ -149,7 +151,7 @@ export function SendMoveInFormPopup({
           options={residencies.map((r) => ({ value: r.id, label: `${r.name} · ${residencyPlace(r)}` }))}
           dataAttr="move-in-form-send-resident"
         />
-        {forms.length > 0 ? (
+        {!residency ? null : forms.length > 0 ? (
           <WizardSelect
             label="Form"
             value={template?.id ?? ""}
@@ -165,7 +167,7 @@ export function SendMoveInFormPopup({
             <p className="text-sm font-semibold text-foreground">No move-in forms for {residency?.property || "this property"}</p>
             {onOpenProperty && residency ? (
               <Button variant="outline" className="mt-3" onClick={() => onOpenProperty(residency.propertyId)} data-attr="move-in-form-send-open-property">
-                Open Move-in forms
+                Add a form
               </Button>
             ) : null}
           </div>
@@ -187,10 +189,10 @@ export function SendMoveInFormPopup({
 
   return (
     <MoveInFormFrame
-      title="Send a move-in form"
+      title="Send a form"
       onClose={onClose}
-      assistantContext="Send a move-in form"
-      assistantScopeKey="Send a move-in form"
+      assistantContext="Send a form"
+      assistantScopeKey="Send a form"
       dataAttr="move-in-form-send-popup"
       railHeader={residency ? <MoveInFormResidentCard name={residency.name} place={residencyPlace(residency)} /> : null}
       rail={<StepRail steps={STEPS} current={0} onJump={() => {}} />}

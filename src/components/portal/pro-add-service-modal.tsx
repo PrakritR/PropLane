@@ -683,7 +683,7 @@ export function ManagerAddServiceModal({
               <p className="text-[16px] font-bold">No properties</p>
             </div>
           ) : lockedResident ? (
-            <>
+            <div className="sm:space-y-4">
               <div className="rounded-2xl border border-border bg-card px-4 py-3">
                 <p className="text-[15px] font-bold text-foreground">
                   {lockedResident.residentName}
@@ -700,9 +700,9 @@ export function ManagerAddServiceModal({
                 disabled={busy}
                 dataAttr="manager-service-intake-room"
               />
-            </>
+            </div>
           ) : (
-            <>
+            <div className="sm:space-y-4">
               <WizardSelect
                 label="Property"
                 value={propertyId}
@@ -749,7 +749,7 @@ export function ManagerAddServiceModal({
                 disabled={busy || !propertyId}
                 dataAttr="manager-service-intake-resident"
               />
-            </>
+            </div>
           )}
         </StepColumn>
       ) : null}

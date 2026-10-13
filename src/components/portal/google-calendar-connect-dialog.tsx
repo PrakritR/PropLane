@@ -20,11 +20,14 @@ export function GoogleCalendarConnectDialog({
   apiBase = "/api/portal/google-calendar",
   /** Vendor calendar only: offer the "push my assigned visits to Google" toggle. */
   showVendorPushToggle = false,
+  /** Inside a menu: a labelled row (glyph + "Google Calendar") like its siblings, not a bare icon button. */
+  menuRow = false,
 }: {
   onConnectionChange?: () => void;
   className?: string;
   apiBase?: string;
   showVendorPushToggle?: boolean;
+  menuRow?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -65,6 +68,26 @@ export function GoogleCalendarConnectDialog({
 
   return (
     <>
+      {menuRow ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          data-attr="google-calendar-header-btn"
+          data-connected={connected == null ? undefined : String(connected)}
+          className="flex min-h-11 w-full cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13.5px] font-medium outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal"
+        >
+          <span className="relative inline-flex shrink-0">
+            <CalendarSync className="size-4 text-muted" aria-hidden />
+            {connected !== null ? (
+              <span
+                aria-hidden
+                className={`absolute -right-1 -top-1 size-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`}
+              />
+            ) : null}
+          </span>
+          <span className="min-w-0 truncate">{label}</span>
+        </button>
+      ) : (
       <PortalIconAction
         icon={CalendarSync}
         label={label}
@@ -74,6 +97,7 @@ export function GoogleCalendarConnectDialog({
         data-attr="google-calendar-header-btn"
         data-connected={connected == null ? undefined : String(connected)}
       />
+      )}
       <Modal
         open={open}
         title="Google Calendar"

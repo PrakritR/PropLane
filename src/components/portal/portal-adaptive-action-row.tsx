@@ -1,8 +1,9 @@
 "use client";
 
+import { MoreHorizontal } from "lucide-react";
 import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
-import { RecordActionItems } from "@/components/ui/record-action-menu";
+import { RecordActionItems, withRecordActionIcon } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -196,7 +197,7 @@ export function PortalAdaptiveActionRow({
     }
   }, [fixed, optionalFitCount, optional.length, actions]);
 
-  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{action.node}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
+  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{withRecordActionIcon(action.node)}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);
@@ -214,7 +215,7 @@ export function PortalAdaptiveActionRow({
           data-attr={moreDataAttr}
           aria-label={moreAriaLabel}
         >
-          …
+          <MoreHorizontal className="size-4" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="record-action-menu">
@@ -248,7 +249,7 @@ export function PortalAdaptiveActionRow({
         ))}
         <div data-portal-adaptive-fit-more>
           <Button type="button" variant="outline" className={moreBtnClass} tabIndex={-1}>
-            …
+            <MoreHorizontal className="size-4" aria-hidden />
           </Button>
         </div>
       </div>
