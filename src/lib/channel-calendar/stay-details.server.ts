@@ -40,6 +40,7 @@ type StayRow = {
 export function moneyFromRow(row: StayRow | null | undefined): ChannelStayMoney {
   if (!row) return {};
   return {
+    ...(row.notes ? { notes: row.notes } : {}),
     ...(row.guest_phone ? { guestPhone: row.guest_phone } : {}),
     ...(typeof row.nightly_cents === "number" ? { nightlyCents: row.nightly_cents } : {}),
     ...(typeof row.payout_cents === "number" ? { payoutCents: row.payout_cents } : {}),
@@ -137,8 +138,8 @@ export async function saveChannelStayDetails(
   const guestName = input.guestName === undefined ? normalizeStayGuestName(stored?.guest_name) : normalizeStayGuestName(input.guestName);
   const notes = input.notes === undefined ? normalizeStayNotes(stored?.notes) : normalizeStayNotes(input.notes);
   const merged: StayRow = { ...(stored ?? {}), ...patch } as StayRow;
-  const moneyAfter = moneyFromRow(merged);
-  const hasMoney = Object.keys(moneyAfter).some((key) => key !== "currency");
+  const moneyAfter = moneyFromRow({ ...merged, notes });
+  const hasMoney = Object.keys(moneyAfter).some((key) => key !== "currency" && key !== "notes");
   if (!guestName && !notes && !hasMoney) {
     const { error } = await db.from("channel_stay_details").delete().eq("connection_id", connection.id).eq("source_uid", sourceUid);
     if (error) return { ok: false, status: 500, error: "Could not save stay details." };

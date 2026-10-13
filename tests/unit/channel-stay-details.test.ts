@@ -156,6 +156,25 @@ describe("bookings merge", () => {
   });
 });
 
+describe("stay notes", () => {
+  it("saves a note, leaves it untouched when omitted, and clears it when blank", async () => {
+    await put({ connectionId: "conn-mine", sourceUid: "uid-1", notes: "Owner stays" });
+    expect(tables.channel_stay_details[0]).toMatchObject({ notes: "Owner stays" });
+    await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "Maria" });
+    expect(tables.channel_stay_details[0]).toMatchObject({ guest_name: "Maria", notes: "Owner stays" });
+    await put({ connectionId: "conn-mine", sourceUid: "uid-1", notes: "" });
+    expect(tables.channel_stay_details[0]).toMatchObject({ guest_name: "Maria", notes: null });
+  });
+
+  it("reaches the booking range, host blocks included", async () => {
+    tables.channel_stay_details.push({ connection_id: "conn-mine", source_uid: "uid-1", notes: "Late arrival" });
+    const { normalizeRanges } = await import("@/lib/channel-calendar/bookings.server");
+    const { moneyFromRow } = await import("@/lib/channel-calendar/stay-details.server");
+    const money = new Map([["uid-1", moneyFromRow({ notes: "Late arrival" })]]);
+    expect(normalizeRanges([RANGE as never], undefined, money)[0]).toMatchObject({ stayNotes: "Late arrival" });
+  });
+});
+
 describe("Airbnb money on a stay", () => {
   it("saves phone, nightly, payout and paid-on in one request and returns only what is set", async () => {
     const res = await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "Juan Angel", guestPhone: "(206) 555-0100", nightlyCents: 13700, payoutCents: 41200, paidAt: "2026-10-16" });
