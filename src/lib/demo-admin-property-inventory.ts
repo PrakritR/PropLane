@@ -1,3 +1,4 @@
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import type { MockProperty } from "@/data/types";
 import { discardPropertyRecordWrite } from "@/lib/property-record-outbox";
@@ -140,7 +141,7 @@ function mirrorAdminPropertyRecord(input: {
   if (typeof window === "undefined" || isDemoModeActive()) return;
   // This status change supersedes any unsent local-first write for the record.
   discardPropertyRecordWrite(input.id);
-  void fetch("/api/property-records", {
+  void fetch(adminOversightUrl("/api/property-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

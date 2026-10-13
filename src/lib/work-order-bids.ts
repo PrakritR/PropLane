@@ -3,6 +3,8 @@
  * (consultationVisitAt) -> bid (amountCents + bidSubmittedAt) -> accepted or declined.
  * An estimate (estimateCents) is NOT a bid: amountCents/proposedTime stay null until the vendor
  * submits a real bid, and only a row with a submitted bid can be approved. */
+
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 export type WorkOrderBid = {
   id: string;
   workOrderId: string;
@@ -46,7 +48,7 @@ export async function fetchWorkOrderBidsResult(workOrderId?: string): Promise<{ 
   }
   try {
     const query = workOrderId ? `?workOrderId=${encodeURIComponent(workOrderId)}` : "";
-    const res = await fetch(`/api/portal/work-order-bids${query}`, { credentials: "include" });
+    const res = await fetch(adminOversightUrl(`/api/portal/work-order-bids${query}`), { credentials: "include" });
     if (!res.ok) return { ok: false, bids: [] };
     const data = (await res.json()) as { bids?: WorkOrderBid[] };
     return { ok: true, bids: Array.isArray(data.bids) ? data.bids : [] };

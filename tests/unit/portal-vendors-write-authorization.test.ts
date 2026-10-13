@@ -64,7 +64,7 @@ function fixture() {
   return { tables, writes, failures, beforeWrite: (callback: () => void) => { beforeWrite = callback; } };
 }
 const row = (overrides: Row = {}) => ({ id: "vendor", managerUserId: "actor", name: "Changed", propertyId: "own-house", ...overrides });
-const request = (body: unknown = { action: "upsert", row: row() }) => new Request("https://example.test/api/portal-vendors", { method: "POST", body: JSON.stringify(body) });
+const request = (body: unknown = { action: "upsert", row: row() }, query = "") => new Request(`https://example.test/api/portal-vendors${query}`, { method: "POST", body: JSON.stringify(body) });
 function grant(owner = "other", property = "other-house") {
   mocks.scope.mockResolvedValue({ ownerIds: new Set([owner]), propertyIds: new Set([property]), propertyIdsByOwner: new Map([[owner, new Set([property])]]) });
 }
@@ -140,9 +140,9 @@ describe("vendor writes use stored owner and current services grants", () => {
     expect((await POST(request({ action: "replace", rows: [row({ id: "new" }), row()] }))).status).toBe(403);
     expect(f.writes).toEqual([]);
   });
-  it("preserves ownership even for an administrator's edit", async () => {
+  it("preserves ownership even for an administrator's edit (oversight)", async () => {
     const f = fixture(); mocks.admin.mockResolvedValue(true);
-    expect((await POST(request())).status).toBe(200);
+    expect((await POST(request(undefined, "?oversight=admin"))).status).toBe(200);
     expect(f.tables.manager_vendor_records[0].manager_user_id).toBe("other");
   });
   it("canonicalizes the category id before checking its stored owner", async () => {

@@ -4,6 +4,7 @@
  * Leases panel and the Send lease screen so the receipt they persist is identical:
  * bound to the source PDF's SHA-256, the template version and the sanitized final HTML.
  */
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { track } from "@/lib/analytics/track-client";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
@@ -30,7 +31,7 @@ export async function confirmTemplatePlacementReviewForRow(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Could not save the lease review." };
   }
-  const response = await fetch("/api/portal-lease-pipeline", {
+  const response = await fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

@@ -1,3 +1,4 @@
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
@@ -191,7 +192,7 @@ async function mirrorServiceRequestToServer(row: ServiceRequest): Promise<Mirror
     return { ok: true, row };
   }
   try {
-    const res = await fetch("/api/portal-service-requests", {
+    const res = await fetch(adminOversightUrl("/api/portal-service-requests"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -222,7 +223,7 @@ function mirrorServiceRequestToServerBestEffort(row: ServiceRequest): void {
 
 function deleteServiceRequestFromServer(id: string): void {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/portal-service-requests", {
+  void fetch(adminOversightUrl("/api/portal-service-requests"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -257,7 +258,7 @@ export async function syncServiceRequestsFromServer(opts?: { force?: boolean }):
   let currentRequest: Promise<ServiceRequest[]> | null = null;
   try {
     currentRequest = (async () => {
-      const res = await fetch("/api/portal-service-requests", { credentials: "include" });
+      const res = await fetch(adminOversightUrl("/api/portal-service-requests"), { credentials: "include" });
       if (!res.ok || !isCurrentRead()) return readAll();
       const body = (await res.json()) as { rows?: ServiceRequest[] };
       if (!isCurrentRead()) return readAll();

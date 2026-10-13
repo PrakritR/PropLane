@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -42,14 +42,18 @@ type OfferJson = {
   createdAt: string;
 };
 
-async function sessionActor(db: Db) {
+/**
+ * `admin` on the actor means ADMIN OVERSIGHT: the request asked for it (`?oversight=admin`) AND the
+ * server confirmed the admin role. An admin in their own manager portal acts as the manager they are.
+ */
+async function sessionActor(db: Db, req: Request) {
   const auth = await createSupabaseServerClient();
   const {
     data: { user },
   } = await auth.auth.getUser();
   if (!user) return null;
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const admin = await isAdminUser(user.id);
+  const admin = await resolveAdminOversight(req, user.id);
   const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", user.id).maybeSingle();
   const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
   return {
@@ -79,7 +83,7 @@ function toJson(offer: OfferRecord, vendors: Map<string, { name: string; email: 
 export async function GET(req: Request) {
   try {
     const db = createSupabaseServiceRoleClient();
-    const actor = await sessionActor(db);
+    const actor = await sessionActor(db, req);
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const url = new URL(req.url);
@@ -130,7 +134,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const db = createSupabaseServiceRoleClient();
-    const actor = await sessionActor(db);
+    const actor = await sessionActor(db, req);
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json().catch(() => ({}))) as {

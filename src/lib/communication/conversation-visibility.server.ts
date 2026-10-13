@@ -82,6 +82,12 @@ export type VisibilityInput = {
   threadType?: string | null;
   threadId?: string | null;
   /**
+   * The workspace the store stamped on the conversation (`workspace_id`). A
+   * stamped conversation is visible ONLY in that workspace, whatever house it
+   * names; an unstamped one (null) keeps following the house / line rules.
+   */
+  workspaceId?: string | null;
+  /**
    * The work lines this conversation went through — the number texted or the
    * address written to. Places a house-less thread in the workspace that holds
    * that line. Optional: a caller that cannot say passes nothing and the
@@ -160,6 +166,10 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
       scope.untaggedOwnedVisible,
     );
   }
+
+  // A conversation stamped with a workspace belongs to that workspace alone.
+  const stampedWorkspaceId = clean(input.workspaceId);
+  if (stampedWorkspaceId && scope.activeWorkspaceId && stampedWorkspaceId !== scope.activeWorkspaceId) return false;
 
   const inWorkspace = (houseId: string) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(houseId);
 
@@ -397,6 +407,8 @@ export type StoredInboxThreadRecord = {
   owner_user_id: string | null;
   participant_email: string | null;
   thread_type?: string | null;
+  /** Stamped by the store; absent from older selects (treated as unstamped). */
+  workspace_id?: string | null;
   row_data: unknown;
 };
 
@@ -567,6 +579,7 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
         houseIds: houses.map((h) => h.propertyId),
         threadType: record.thread_type ?? null,
         threadId: record.id,
+        workspaceId: record.workspace_id ?? null,
         lines: threadWorkLines(record.row_data),
       })
     ) {

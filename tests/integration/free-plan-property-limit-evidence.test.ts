@@ -124,9 +124,9 @@ function listing(id: string, owner: string, name: string, status = "live"): Row 
   };
 }
 
-async function post(body: Row) {
+async function post(body: Row, query = "") {
   const { POST } = await import("@/app/api/property-records/route");
-  const res = await POST(jsonRequest("http://localhost:3000/api/property-records", { method: "POST", body }));
+  const res = await POST(jsonRequest(`http://localhost:3000/api/property-records${query}`, { method: "POST", body }));
   return parseJsonResponse<Record<string, unknown>>(res);
 }
 
@@ -299,7 +299,8 @@ describe("free plan door limit — end to end over the real route", () => {
     say("SCENARIO 5 — an ADMIN publishing on a Free manager's behalf spends THAT manager's plan");
     SESSION = { id: staff, email: "staff@proplane.test" };
     CALLER_IS_ADMIN = true;
-    const onBehalf = await post(listing("mgr-admin-published", free, "Published by staff"));
+    // Admin authority over another owner is explicit: the admin page sends `?oversight=admin`.
+    const onBehalf = await post(listing("mgr-admin-published", free, "Published by staff"), "?oversight=admin");
     record("admin creates a listing owned by the free manager", 'POST {managerUserId: <free manager>}', onBehalf);
     expect(onBehalf.status).toBe(403);
     expect(onBehalf.data.error).toBe("Free includes 2 doors. Upgrade to Pro or Business for more doors.");

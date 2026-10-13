@@ -40,9 +40,14 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   const isPlaceholderRow = members.some(
     (member) => member?.channel === "email" && isContactInboxThreadId(member.threadId),
   );
+  // Delete on an empty chat is permanent: the hook dismisses the person for this workspace, so
+  // the row is not rebuilt from the resident directory on the next load.
   const placeholderArchive =
     isPlaceholderRow && onArchivePlaceholder ? (
-      <Button variant="outline" onClick={() => onArchivePlaceholder(row.threadId)}>Archive</Button>
+      <>
+        <Button variant="outline" onClick={() => onArchivePlaceholder(row.threadId)}>Archive</Button>
+        <Button variant="danger" data-record-action-id="delete" onClick={() => void bulk.handleDelete([row.key])}>Delete</Button>
+      </>
     ) : null;
   const permitted = !isPlaceholderRow && members.every((member) => {
     if (!member) return false;

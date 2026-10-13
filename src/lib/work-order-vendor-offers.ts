@@ -1,5 +1,7 @@
 /** Client-side shape returned by GET /api/portal/work-order-vendor-offers — the vendors a
  * manager has confirmed sending a work order to for consultation/quote. */
+
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 export type WorkOrderVendorOffer = {
   id: string;
   workOrderId: string;
@@ -15,7 +17,7 @@ export type WorkOrderVendorOffer = {
 export async function fetchWorkOrderVendorOffers(workOrderId?: string): Promise<WorkOrderVendorOffer[]> {
   try {
     const query = workOrderId ? `?workOrderId=${encodeURIComponent(workOrderId)}` : "";
-    const res = await fetch(`/api/portal/work-order-vendor-offers${query}`, { credentials: "include" });
+    const res = await fetch(adminOversightUrl(`/api/portal/work-order-vendor-offers${query}`), { credentials: "include" });
     if (!res.ok) return [];
     const data = (await res.json()) as { offers?: WorkOrderVendorOffer[] };
     return Array.isArray(data.offers) ? data.offers : [];
@@ -47,7 +49,7 @@ export async function previewMarketplaceVendorReach(
       trade,
       radiusMi: String(radiusMi),
     });
-    const res = await fetch(`/api/portal/work-order-vendor-offers?${params}`, { credentials: "include" });
+    const res = await fetch(adminOversightUrl(`/api/portal/work-order-vendor-offers?${params}`), { credentials: "include" });
     if (!res.ok) return 0;
     const data = (await res.json()) as { count?: number };
     return typeof data.count === "number" ? data.count : 0;

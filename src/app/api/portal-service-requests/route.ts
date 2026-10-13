@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -57,7 +58,7 @@ function recordFromRow(row: ServiceRequest) {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -67,6 +68,9 @@ export async function GET() {
       return NextResponse.json({ error: "Test workspace access is unavailable." }, { status: 403 });
     }
     const admin = await isAdminUser(user.id);
+    // The all-owners read is admin oversight: asked for with `?oversight=admin` AND confirmed by the
+    // role. An admin in their own manager portal reads exactly what a manager does.
+    const oversight = await resolveAdminOversight(req, user.id, admin);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const role = await resolveResidentScopedActorRole(db, {
       userId: user.id,
@@ -77,7 +81,7 @@ export async function GET() {
     // Managers/pro see the requests they own plus rows on properties they own
     // or share via co-manager services access — catches mis-stamped manager_user_id
     // as long as property_id is correct.
-    if (!admin && role !== "resident") {
+    if (!oversight && role !== "resident") {
       // Heal orphans for this manager's residents before listing (wrong/empty
       // manager_user_id on older client-mirrored rows). TTL-gated so nav-count
       // polls and repeat page loads don't re-run the per-resident sweep.
@@ -123,8 +127,8 @@ export async function GET() {
       .order("updated_at", { ascending: false })
       .limit(500);
 
-    // Residents see only their own requests; admins see all.
-    if (!admin && role === "resident") {
+    // Residents see only their own requests; admin oversight sees all.
+    if (!oversight && role === "resident") {
       query = query.eq("resident_email", email);
     }
 
@@ -135,7 +139,7 @@ export async function GET() {
 
     // Resident load: re-stamp any of their rows that lost manager/property so
     // the matching manager portal can pick them up on next sync.
-    if (!admin && role === "resident" && email) {
+    if (!oversight && role === "resident" && email) {
       const healed: ServiceRequest[] = [];
       const scopeCache = new Map<
         string,

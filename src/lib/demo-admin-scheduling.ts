@@ -1,3 +1,4 @@
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { MANAGER_KIND_AVAILABILITY_RECORD_TYPE } from "@/lib/manager-availability-kinds";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
@@ -402,7 +403,7 @@ async function writeJsonToServer(
             : {}),
         }
       : {};
-  const res = await fetch("/api/portal-schedule-records", {
+  const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -424,7 +425,7 @@ async function writeJsonToServer(
 
 async function deleteJsonRecordFromServer(id: string): Promise<boolean> {
   if (!isBrowser()) return false;
-  const res = await fetch("/api/portal-schedule-records", {
+  const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -436,7 +437,7 @@ async function deleteJsonRecordFromServer(id: string): Promise<boolean> {
 async function fetchScheduleRecordsFromServer(): Promise<boolean> {
   const readEpoch = plannedScheduleState.serverEpoch;
   try {
-    const res = await fetch("/api/portal-schedule-records", {
+    const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
       cache: "no-store",
       credentials: "include",
     });

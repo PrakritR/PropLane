@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { isMissingColumnError } from "@/lib/db-missing-column";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
@@ -1167,6 +1168,12 @@ export async function GET(req: Request) {
     } catch {
       selfScope = false;
     }
+    // The all-owners read is a different product surface (admin oversight), so it is
+    // served only when the request ASKS for it (`?oversight=admin`) AND the server
+    // confirms the admin role. The manager portal never sends it, so a platform admin
+    // using their own workspace reads exactly what a manager does: their own and
+    // granted houses, narrowed to the active workspace.
+    const adminOversight = (await resolveAdminOversight(req, user.id, admin)) && !selfScope;
     if (!email && (selfScope || (!admin && role === "resident"))) {
       return NextResponse.json({ rows: [] });
     }
@@ -1188,7 +1195,7 @@ export async function GET(req: Request) {
       data = result.data;
       error = result.error;
       truncated = (result.data ?? []).length >= APPLICATIONS_READ_LIMIT;
-    } else if (!admin && (role === "manager" || role === "owner" || role === "pro")) {
+    } else if (!adminOversight && (admin || role === "manager" || role === "owner" || role === "pro")) {
       try {
         const loaded = await fetchApplicationsForManagerUser(db, user.id, timer);
         data = loaded.rows;
@@ -1197,7 +1204,7 @@ export async function GET(req: Request) {
       } catch (e) {
         error = { message: e instanceof Error ? e.message : "Failed to load applications." };
       }
-    } else if (admin) {
+    } else if (adminOversight) {
       const result = await db
         .from("manager_application_records")
         .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")

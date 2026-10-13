@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -11,6 +12,13 @@ type AtomicWriteResult = { handled: boolean; error?: string; status?: number };
 
 type RecordConfig = {
   table: string;
+  /**
+   * The admin role alone is NOT the all-owners read. With this set, `user.role` / `user.roles` carry
+   * "admin" only when the request asked for oversight (`?oversight=admin`) AND the role holds; a
+   * platform admin in their own manager portal is the manager they are, scoped like any manager,
+   * on every read and write. Leave unset for tables that are admin-wide by design (bug feedback).
+   */
+  explicitAdminOversight?: boolean;
   select?: string;
   orderColumn?: string;
   /**
@@ -102,33 +110,42 @@ type RecordConfig = {
   }) => Promise<AtomicWriteResult>;
 };
 
-async function getUserContext() {
+async function getUserContext(req?: Request, explicitAdminOversight = false) {
   const portalCtx = await getPortalAccessContext();
   if (!portalCtx.user) return null;
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(portalCtx.user.id, db)).kind === "denied") return null;
   const admin = await isAdminUser(portalCtx.user.id);
-  const role = admin
+  const oversight = !explicitAdminOversight || (req ? await resolveAdminOversight(req, portalCtx.user.id, admin) : false);
+  const asAdmin = admin && oversight;
+  let role = asAdmin
     ? "admin"
     : String(
         portalCtx.effectiveRole ?? portalCtx.roles[0] ?? portalCtx.profile?.role ?? "",
       ).toLowerCase();
+  let roles = portalCtx.roles;
+  if (explicitAdminOversight && !asAdmin) {
+    // Never read as admin by accident (a legacy "admin" role value, or "admin" in the role list).
+    if (role === "admin") role = "manager";
+    roles = roles.filter((r) => String(r).toLowerCase() !== "admin");
+    if (role === "manager" && !roles.includes("manager")) roles = [...roles, "manager"];
+  }
   return {
     db,
     user: {
       id: portalCtx.user.id,
       email: (portalCtx.profile?.email ?? portalCtx.user.email ?? "").trim().toLowerCase(),
       role,
-      roles: portalCtx.roles,
+      roles,
     },
   };
 }
 
 export function createJsonRecordRoute(config: RecordConfig) {
   return {
-    GET: async () => {
+    GET: async (req?: Request) => {
       try {
-        const ctx = await getUserContext();
+        const ctx = await getUserContext(req, config.explicitAdminOversight);
         if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
         let data: Record<string, unknown>[] | null;
         let error: { message: string } | null;
@@ -172,7 +189,7 @@ export function createJsonRecordRoute(config: RecordConfig) {
     },
     POST: async (req: Request) => {
       try {
-        const ctx = await getUserContext();
+        const ctx = await getUserContext(req, config.explicitAdminOversight);
         if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
         const body = (await req.json()) as {
           action?: "upsert" | "delete" | "deleteIds" | "replace";

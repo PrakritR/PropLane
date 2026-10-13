@@ -990,7 +990,12 @@ async function main() {
     provisioned_at: NOW.toISOString(),
     updated_at: NOW.toISOString(),
   };
-  const numbers = await must(supabase.from("manager_sms_numbers").upsert(numberRow, { onConflict: "workspace_id" }).select("id"), "manager_sms_numbers");
+  // The unique index on workspace_id is partial (live rows only), which ON CONFLICT
+  // cannot infer: find the workspace's live row, then update or insert.
+  const liveNumbers = await must(supabase.from("manager_sms_numbers").select("id").eq("workspace_id", workspaceId).is("released_at", null).limit(1), "manager_sms_numbers lookup");
+  const numbers = liveNumbers?.[0]?.id
+    ? await must(supabase.from("manager_sms_numbers").update(numberRow).eq("id", liveNumbers[0].id).select("id"), "manager_sms_numbers")
+    : await must(supabase.from("manager_sms_numbers").insert(numberRow).select("id"), "manager_sms_numbers");
   const numberId = numbers?.[0]?.id;
   if (numberId) {
     await must(supabase.from("workspace_work_numbers").upsert({ workspace_id: workspaceId, number_id: numberId, is_primary: true }, { onConflict: "workspace_id,number_id" }), "workspace_work_numbers");

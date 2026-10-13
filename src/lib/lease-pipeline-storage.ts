@@ -4,6 +4,7 @@
  * Signing order: manager prepares/sends → resident signs → manager countersigns → fully signed.
  */
 
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { parseMoneyAmount } from "@/lib/parse-money";
@@ -1870,7 +1871,7 @@ function write(
     for (const row of rows) persistLeaseRowToServer(row);
     return;
   }
-  void fetch("/api/portal-lease-pipeline", {
+  void fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -1916,7 +1917,7 @@ export type LeasePipelineActionResult = { ok: true } | { ok: false; error: strin
 
 function persistLeaseRowToServer(row: LeasePipelineRow) {
   if (!canUseStorage() || isDemoModeActive()) return;
-  void fetch("/api/portal-lease-pipeline", {
+  void fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -1936,7 +1937,7 @@ function persistApprovalSeedLeaseRowToServer(row: LeasePipelineRow, scopeUserId?
   if (approvalSeedSyncInFlight.has(key) || approvalSeedSyncAttempted.has(key)) return;
   approvalSeedSyncInFlight.add(key);
   approvalSeedSyncAttempted.add(key);
-  void fetch("/api/portal-lease-pipeline", {
+  void fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -1953,7 +1954,7 @@ function persistApprovalSeedLeaseRowToServer(row: LeasePipelineRow, scopeUserId?
 
 function persistLeaseDeleteToServer(ids: string[]) {
   if (!canUseStorage() || isDemoModeActive() || ids.length === 0) return;
-  void fetch("/api/portal-lease-pipeline", {
+  void fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -1969,7 +1970,7 @@ export async function persistLeaseRowToServerAwait(
   }
   if (isDemoModeActive()) return { ok: true };
   try {
-    const res = await fetch("/api/portal-lease-pipeline", {
+    const res = await fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -2383,7 +2384,7 @@ export async function ensureLeaseDocumentLoaded(
     }
   }
   try {
-    const res = await fetch(`/api/portal-lease-pipeline?id=${encodeURIComponent(rowId)}`, {
+    const res = await fetch(adminOversightUrl(`/api/portal-lease-pipeline?id=${encodeURIComponent(rowId)}`), {
       credentials: "include",
       cache: "no-store",
     });
@@ -2463,7 +2464,7 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
   }
   const ownPromise: Promise<LeasePipelineRow[]> = (async () => {
       const localSnapshot = readLeasePipeline(managerUserId);
-      const res = await fetchWithTimeout("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" }, LEASE_PIPELINE_FETCH_TIMEOUT_MS);
+      const res = await fetchWithTimeout(adminOversightUrl("/api/portal-lease-pipeline"), { credentials: "include", cache: "no-store" }, LEASE_PIPELINE_FETCH_TIMEOUT_MS);
       // Another scope took over while this request was out: its own sync owns
       // the store now. Touching it here would reset the scope under that caller.
       if (generation !== leaseScopeGeneration) return [];
@@ -3854,7 +3855,7 @@ export async function confirmUploadedLeaseParseOnServer(
     return { ok: false, error: "Imported lease review is unavailable in demo mode." };
   }
   try {
-    const response = await fetch("/api/portal-lease-pipeline", {
+    const response = await fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",

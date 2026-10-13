@@ -1,3 +1,4 @@
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { VendorCheckIn } from "@/lib/vendor-check-ins";
 import type { VendorDocumentRecord } from "@/lib/vendor-documents";
@@ -167,7 +168,7 @@ function ownVendorRows(rows: ManagerVendorRow[], managerUserId: string | null | 
 function mirrorVendorsToServer(rows: ManagerVendorRow[], managerUserId?: string | null) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
   const payload = managerUserId ? ownVendorRows(rows, managerUserId) : rows;
-  void fetch("/api/portal-vendors", {
+  void fetch(adminOversightUrl("/api/portal-vendors"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -184,7 +185,7 @@ function mirrorVendorRowToServer(row: ManagerVendorRow) {
 export async function persistManagerVendorToServer(row: ManagerVendorRow): Promise<boolean> {
   if (typeof window === "undefined" || isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/portal-vendors", {
+    const res = await fetch(adminOversightUrl("/api/portal-vendors"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -198,7 +199,7 @@ export async function persistManagerVendorToServer(row: ManagerVendorRow): Promi
 
 function deleteVendorFromServer(id: string) {
   if (typeof window === "undefined" || isDemoModeActive()) return;
-  void fetch("/api/portal-vendors", {
+  void fetch(adminOversightUrl("/api/portal-vendors"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -230,7 +231,7 @@ async function syncManagerVendorsFromServerCore(opts?: { force?: boolean }): Pro
   }
   try {
     managerVendorsSyncPromise = (async () => {
-      const res = await fetch("/api/portal-vendors", { credentials: "include" });
+      const res = await fetch(adminOversightUrl("/api/portal-vendors"), { credentials: "include" });
       if (!res.ok) return { rows: readManagerVendorRows(), ok: false };
       const body = (await res.json()) as { rows?: ManagerVendorRow[] };
       const rows = Array.isArray(body.rows) ? body.rows : [];
