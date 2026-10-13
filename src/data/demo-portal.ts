@@ -79,6 +79,8 @@ export type DemoApplicantRow = {
   smsLeadWorkspaceId?: string;
   /** Public Axis application id when linked to a resident account. */
   axisId?: string;
+  /** Set by Quick apply: the resident submitted this from their saved answers. A plain fact on the record, never a pill. */
+  quickApplied?: boolean;
   /** Linked resident auth user id when known. */
   residentUserId?: string | null;
   /** SHA-256 hex of the one-time resident account setup token (raw token is emailed once). */

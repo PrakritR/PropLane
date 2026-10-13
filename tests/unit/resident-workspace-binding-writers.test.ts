@@ -28,35 +28,40 @@ describe("resident_workspace_bindings writers", () => {
     expect(touching).toEqual(["scripts/lib/account-deletion.mjs", "src/lib/auth/account-purge-manifest.ts", "src/lib/auth/resident-account-deletion.ts", "src/lib/auth/resident-workspace-binding.ts"]);
   });
 
-  it("recordResidentWorkspaceBinding has one caller: a resident's own non-draft submit on /api/manager-applications", () => {
+  it("recordResidentWorkspaceBinding has one caller: a resident's own non-draft submit, shared by /api/manager-applications and Quick apply", () => {
+    const WRITER = "src/lib/rental-application/signed-in-application-write.server.ts";
     const callers = sources
       .filter((file) => !rel(file).endsWith("resident-workspace-binding.ts"))
       .filter((file) => fs.readFileSync(file, "utf8").includes("recordResidentWorkspaceBinding("))
       .map(rel);
-    expect(callers).toEqual(["src/app/api/manager-applications/route.ts"]);
+    expect(callers).toEqual([WRITER]);
 
-    const route = fs.readFileSync(path.join(ROOT, "src/app/api/manager-applications/route.ts"), "utf8");
-    expect(route.match(/recordResidentWorkspaceBinding\(/g)).toHaveLength(1);
-    const call = route.indexOf("recordResidentWorkspaceBinding(db");
+    const writer = fs.readFileSync(path.join(ROOT, WRITER), "utf8");
+    expect(writer.match(/recordResidentWorkspaceBinding\(/g)).toHaveLength(1);
+    const call = writer.indexOf("recordResidentWorkspaceBinding(db");
     expect(call).toBeGreaterThan(-1);
     // Gated on the resident's own write AND on a real submit: starting a draft binds nothing.
-    const gate = route.lastIndexOf("if (residentSelfWrite && !isDraftShapedApplicationRow(row)) {", call);
+    const gate = writer.lastIndexOf("if (residentSelfWrite && !isDraftShapedApplicationRow(row)) {", call);
     expect(gate).toBeGreaterThan(-1);
     // Written only after the row itself is stored, so the proof never outlives a failed save.
-    // Matched on the call prefix, not the whole argument list: the call spans several lines.
-    const save = route.lastIndexOf("row = await persistNormalizedRow(", call);
+    const save = writer.lastIndexOf("row = await persistNormalizedRow(", call);
     expect(save).toBeGreaterThan(-1);
     expect(save).toBeLessThan(gate);
     // The id is the session's, never the body's.
-    expect(route.slice(call, call + 200)).toContain("residentUserId: user.id");
-    // `residentSelfWrite` is set in exactly one place: the branch that runs only for the
-    // signed-in user's own email.
+    expect(writer.slice(call, call + 200)).toContain("residentUserId: user.id");
+    // The writer's ownership check runs on the authenticated email before anything is stored.
+    const prepare = writer.slice(writer.indexOf("export async function prepareResidentSelfWrite"));
+    expect(prepare).toContain("rowEmail !== email");
+    expect(prepare).toContain("You can only update your own application.");
+
+    // `residentSelfWrite` is set in exactly one place in the route: the branch that runs only for the
+    // signed-in user's own email, and that branch goes through the shared preparer.
+    const route = fs.readFileSync(path.join(ROOT, "src/app/api/manager-applications/route.ts"), "utf8");
     expect(route.match(/residentSelfWrite = true;/g)).toHaveLength(1);
     const branchStart = route.indexOf("if (role === \"resident\" || selfApplicationWrite) {");
     expect(branchStart).toBeGreaterThan(-1);
-    const branch = route.slice(branchStart, route.indexOf("const priorLoad = await loadStoredApplicationRecord", branchStart));
+    const branch = route.slice(branchStart, route.indexOf("} else {", branchStart));
     expect(branch).toContain("residentSelfWrite = true;");
-    expect(branch).toContain("rowEmail !== email");
-    expect(branch).toContain("You can only update your own application.");
+    expect(branch).toContain("prepareResidentSelfWrite(db, user");
   });
 });

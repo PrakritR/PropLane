@@ -40,30 +40,14 @@ function asValidationProperty(value: unknown, propertyId: string): MockProperty 
 }
 
 /**
- * Validate an applicant-owned row immediately before persistence.
- *
- * The listing configuration is loaded from the database so required custom
- * questions and disabled standard fields cannot be forged by the request.
- * Manager/admin edits use a separate route branch and deliberately do not pass
- * through this gate, preserving their ability to repair legacy applications.
+ * The listing as the applicant was shown it: the stored property with the workspace's effective application
+ * form applied. The submit validator and Quick apply both read the questions from THIS, so what is asked and
+ * what is required can never differ between them.
  */
-export async function validateResidentApplicationRowForPersistence(
+export async function loadEffectiveApplicationProperty(
   db: SupabaseClient,
-  row: DemoApplicantRow,
-): Promise<ServerApplicationValidationResult> {
-  if (isDraftApplicationRow(row)) return { ok: true };
-
-  if (!row.application || typeof row.application !== "object") {
-    const error = "Application answers are required before submission.";
-    return {
-      ok: false,
-      status: 422,
-      error,
-      fieldErrors: { _general: error },
-    };
-  }
-
-  const propertyId = propertyIdForApplication(row);
+  propertyId: string,
+): Promise<{ ok: true; property: MockProperty | null } | { ok: false; readFailed: true }> {
   let property: MockProperty | null = null;
   if (propertyId) {
     const { data, error } = await db
@@ -72,12 +56,7 @@ export async function validateResidentApplicationRowForPersistence(
       .eq("id", propertyId)
       .maybeSingle();
     if (error) {
-      return {
-        ok: false,
-        status: 500,
-        error: "Could not validate the application against the listing.",
-        fieldErrors: {},
-      };
+      return { ok: false, readFailed: true };
     }
     property = asValidationProperty(data?.property_data, propertyId);
     // Same effective-form resolution as the public payload the applicant
@@ -112,6 +91,48 @@ export async function validateResidentApplicationRowForPersistence(
         /* fall back to the listing's own fields, unchanged */
       }
     }
+  }
+
+  return { ok: true, property };
+}
+
+/**
+ * Validate an applicant-owned row immediately before persistence.
+ *
+ * The listing configuration is loaded from the database so required custom
+ * questions and disabled standard fields cannot be forged by the request.
+ * Manager/admin edits use a separate route branch and deliberately do not pass
+ * through this gate, preserving their ability to repair legacy applications.
+ */
+export async function validateResidentApplicationRowForPersistence(
+  db: SupabaseClient,
+  row: DemoApplicantRow,
+): Promise<ServerApplicationValidationResult> {
+  if (isDraftApplicationRow(row)) return { ok: true };
+
+  if (!row.application || typeof row.application !== "object") {
+    const error = "Application answers are required before submission.";
+    return {
+      ok: false,
+      status: 422,
+      error,
+      fieldErrors: { _general: error },
+    };
+  }
+
+  const propertyId = propertyIdForApplication(row);
+  let property: MockProperty | null = null;
+  if (propertyId) {
+    const loaded = await loadEffectiveApplicationProperty(db, propertyId);
+    if (!loaded.ok) {
+      return {
+        ok: false,
+        status: 500,
+        error: "Could not validate the application against the listing.",
+        fieldErrors: {},
+      };
+    }
+    property = loaded.property;
   }
 
   if (!property) {
