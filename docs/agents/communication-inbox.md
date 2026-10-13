@@ -438,8 +438,8 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   Assistant" label. List previews do not prefix assistant turns with "You: ".
   Coverage: `tests/unit/inbox-turn-direction.test.ts`,
   `tests/unit/inbox-bubble-alignment.test.tsx`.
-- **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`,
-  `InboxChannel = email|sms|whatsapp|gmail`). Manager email and SMS are live in
+- **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`; `InboxChannel` in
+  `portal-inbox-ui.tsx` is the one list — read it there rather than re-copying it). Manager email and SMS are live in
   one selected person pane. Each explicitly bound SMS projection loads its own
   paged transcript; a list preview is never treated as history. Bubbles render
   the full body (pre-wrap, no clamp).
@@ -850,8 +850,13 @@ who had only ever emailed — the reply landed on a row nobody could read.
   `manager-inbox-auto-send-refusal.test.tsx`.
 
 Every turn is **stamped with the channel it actually went on**
-(`InboxThreadMessage.channel`: `email` / `sms` / `proplane`; the root turn's stamp
-lives at `rootChannel`). The bubble shows that tag and nothing else — an
+(`InboxThreadMessage.channel` in `portal-inbox-storage.ts`: `email` / `sms` / `proplane` /
+`facebook`; the root turn's stamp
+lives at `rootChannel`). `facebook` is **inbound only**: a Facebook Page lead is filed under a
+PropLane-minted thread key (`facebook-<psid>@facebook.proplane.local`) that has no mailbox behind it,
+so `shouldSkipOutboundEmail` keeps it away from Resend and the composer falls back to its usual
+default — the auto-reply tells the person to text the work number instead
+([`listing-syndication.md`](listing-syndication.md) § Facebook Page replies). The bubble shows that tag and nothing else — an
 unstamped legacy turn shows no tag, never a guessed "Email". Email turns also
 carry their `subject`; the manager bubble builder shows it once per topic
 (`subjectTopic` folds `Re:`/`Fwd:`), so "Re: Propert" is not repeated on every reply.

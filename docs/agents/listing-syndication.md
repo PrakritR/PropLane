@@ -355,5 +355,6 @@ is still filed). The inbox is not watched; the reply says so.
   workspace's newest live listing, else no listing line.
 * Dedupe: `meta_messenger_replies (page_id, sender_psid)` (service role only; account purge classifies it).
   The inbound message id dedupes the lead on Meta redelivery.
-* Row fact on Listing sites / Integrations Posting for Facebook Page: "Replies: Coming soon" until the app
-  is live, "Replies: on" after.
+* Row fact on Listing sites / Integrations Posting for Facebook Page: the row gains
+  "· Replies: on" only once the Page channel is live (`withRepliesFact`); before that it carries its own
+  "Coming soon" fact and nothing about replies.

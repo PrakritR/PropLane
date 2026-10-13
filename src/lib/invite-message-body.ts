@@ -14,7 +14,7 @@ export type InviteMessageFacts = {
   workspaceName?: string;
   propertyLabels?: string[];
   inviteUrl?: string;
-  /** Workspace code ("SH-7K4Q"), the typeable alias of the link (workspace kind only). */
+  /** Workspace code ("SH-7K4Q2M"), the typeable alias of the link (workspace kind only). */
   workspaceCode?: string;
   proplaneCode?: string;
   phone?: string;

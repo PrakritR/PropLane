@@ -27,7 +27,9 @@ through a service-role route after the caller has been authenticated.
 Keys have the form `pl_live_<32 random bytes as base64url>`. The server returns
 the plaintext exactly once from `POST /api/manager/api-keys`; it stores only
 `sha256(token)` and a short display prefix. Do not log, persist, or return a
-plaintext key from any later endpoint.
+plaintext key from any later endpoint. There is no rotate endpoint either: the panel's
+**Rotate** mints a replacement key with the same name and `allowed_tools` through that same
+POST and then revokes the old row.
 
 **A key is a credential, never standing authorization.**
 `resolveApiKeyContext` hashes and looks up the token, rejects revoked and
@@ -52,12 +54,13 @@ Managers can disconnect any active MCP client from Settings → API & MCP; this
 revokes every active token for that manager/client grant immediately. Clients
 may also use the advertised RFC 7009 revocation endpoint.
 
-The browser half is two screens. **`/mcp/authorize`** is the consent screen: who
-is signed in, the workspace the connection will be scoped to (it refuses with
-"Pick a workspace first" rather than minting a connection with no workspace), what
-the app may do (read; drafts that wait for approval; disconnect in Settings), then
+The browser half is two screens, both inside the sign-in split shell
+(`AuthSplitShell`, `src/app/mcp/layout.tsx`) as label/value rows with no subtext.
+**`/mcp/authorize`** is the consent screen: Signed in as, Workspace (it refuses with
+"Pick a workspace first" rather than minting a connection with no workspace), App,
+Can read, Can do (drafts you approve in PropLane), then
 Allow / Cancel. `POST /api/mcp/oauth/approve` then lands on **`/mcp/connected`**
-("PropLane is connected") and continues to the client's callback after a beat. That
+("Connected") and continues to the client's callback after a beat. That
 screen is reached with a 2-minute HMAC token (`signMcpConnected`, domain-separated
 from the approval signature) carrying the already-validated callback, so it can
 never redirect anywhere the approve route did not itself build; it renders only for
@@ -101,10 +104,11 @@ Local development and tests use an in-memory counter. These limits are an
 abuse brake, not a daily billing quota.
 
 The catalog is deliberate: a newly added tool is not externally available until
-it is assigned to a product area in the capabilities file. Metered Brave
-property-location research is explicitly excluded from direct MCP and REST
-credentials, including legacy broad keys: those calls have no assistant-turn
-search budget.
+it is assigned to a product area in the capabilities file. `EXTERNAL_EXCLUDED_TOOL_NAMES`
+is the one exclusion list and it applies to every direct MCP and REST credential,
+legacy broad keys included: metered Brave property-location research
+(those calls have no assistant-turn search budget) and `update_room_block`, the hold
+editor, which stays assistant-only for now.
 
 `read_spreadsheet` is a deliberate result-shape change for external clients
 (Oct 2026): the sheet's cells now come back as one `untrustedContent` envelope

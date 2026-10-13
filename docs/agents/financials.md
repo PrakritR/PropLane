@@ -505,7 +505,10 @@ modules' header comments carry the full rationale.
   collections view); `processing` → **pending**, never overdue (the ACH debit is
   clearing); `pending` / `partially_paid` / `failed` → **pending**, or **overdue**
   once past due. Bucketing on `status === "pending"` alone is what dropped
-  clearing-ACH rows from the dashboard while Payments counted them.
+  clearing-ACH rows from the dashboard while Payments counted them. The one Incoming-payments row
+  that does NOT come from it is the Airbnb payout projection, which is not a charge at all
+  (paid once `paid_at` is set, pending otherwise) — owned by
+  [`bookings.md`](bookings.md) § Airbnb money.
 - **`src/lib/manager-payments-scope.ts` is the ONE Payments-ledger scoping.**
   `readChargesForManager` is narrowed by two extra rules (plus the manager's own
   Upcoming choice, below), and **each is deliberately as narrow as it can be —

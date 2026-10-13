@@ -327,7 +327,7 @@ inbox (`list_inbox_threads` R, `get_thread_messages` R, `reply_to_thread` W,
 calendar (`list_calendar_events` R, `list_tour_inquiries` R,
 `update_manager_availability` W, `create_calendar_event` W,
 `cancel_calendar_event` W, `list_bookings` R, `check_room_availability` R (dates only; also on the prospect and resident-SMS registries via `roomAvailabilityForRange`), `list_room_blocks` R,
-`block_room_dates` W, `remove_room_block` W destructive (Calendar edit on the house;
+`block_room_dates` W, `update_room_block` W (dates, guest, phone, notes of an existing hold; assistant-only, see `mcp-api.md`), `remove_room_block` W destructive (Calendar edit on the house for every write, while the three booking READS also accept a Calendar grant at notification;
 bookings built on `occupancySnapshotForManager`), `accept_tour_inquiry` W, `confirm_tour_inquiry` W —
 backs the approval-first auto-tour proposals), tours (`list_open_tour_slots` R —
 the ONE source of bookable times; `book_tour` W from scratch, `reschedule_tour` W,

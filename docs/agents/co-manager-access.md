@@ -102,8 +102,10 @@ Column: `account_link_invites.team_role` (copied from
 
 **Shareable invite links do not need a PropLane ID.** Houses default to every
 house currently in the workspace. See `docs/agents/send-message-compose.md`
-for how Send resolves a channel. The accept screen is titled **Invite to
-workspace**, names the workspace, and offers Message the inviter.
+for how Send resolves a channel. The accept screen sits in the sign-in split shell
+(`AuthSplitShell`, `src/app/invite/layout.tsx`) as label/value rows with no subtext: a
+manager link is titled **Join <workspace>** (other kinds keep `inviteAcceptTitle`), the
+line under it is "<owner> invited you", and it offers Message the inviter.
 
 **The invite sheet (`workspace-invite-sheet.tsx`) is the one manager invite
 surface** — opened by `ProAccountLinksPanel.openLinkModal`, no separate
@@ -133,8 +135,13 @@ separate `{ rotate: true }` call two sections below).
 Pressing "Invite link" does not copy or navigate anywhere — it resolves the
 URL through `resolveLinkForCurrentTerms` and an inline link box appears
 UNDER the form (`linkUrl && termsMatchHeldLink`): the read-only URL, a "This
-link joins as <role> · <reach>" line, and Copy (a `PortalIconAction` icon,
-per the icon-chrome rule) / Share in the box's own header. The box is gated
+link joins as <role> · <reach>" line, the workspace code as a plain "Code SH-7K4Q2M"
+fact with its own copy action when the link carries one (§ Workspace code and the
+rail (+) below), and Copy (a `PortalIconAction` icon,
+per the icon-chrome rule) / Share in the box's own header. The Invite link channel
+also takes an optional phone and an optional email: whatever is filled in is
+delivered when the link is created (both, when both are), through the same two send
+paths described next. The box is gated
 on the SAME terms comparison the mint/reuse decision uses, so the moment Role
 or Houses changes after a link was shown, the box disappears and is replaced
 by one line — "Access changed — press Invite link again for a link with
@@ -763,4 +770,4 @@ Do not "fix" these without asking:
 
 ## Workspace code and the rail (+)
 
-Every manager invite link also carries a `short_code` (`SH-7K4Q`: two initials + six base32 characters from a CSPRNG, no 0/O/1/I; `manager_invite_links.short_code`, unique where set). It is an alias of the same row, so expiry, use budget, revocation and unusable reasons are the link's own; `previewInviteLink` / `redeemInviteLink` accept a token, a pasted `/invite/<token>` URL or a code (`parseInviteInput`). `POST /api/pro/invite-links/resolve` is the signed-in, rate-limited, uniform-404 lookup behind the rail (+) popup (Create | Join, `workspace-create-join-dialog.tsx`); `/portal?join=<code>` opens it on Join, prefilled. Invite texts include the code via `workspaceCode`. Codes resolve only for a signed-in person (`allowCode` on `loadLinkByToken`; the unauthenticated `/preview` route 404s a code), with per-user and per-IP limits on resolve and redeem.
+Every manager invite link also carries a `short_code` (`SH-7K4Q2M`: two initials + six base32 characters from a CSPRNG, no 0/O/1/I; `manager_invite_links.short_code`, unique where set). It is an alias of the same row, so expiry, use budget, revocation and unusable reasons are the link's own; `previewInviteLink` / `redeemInviteLink` accept a token, a pasted `/invite/<token>` URL or a code (`parseInviteInput`). `POST /api/pro/invite-links/resolve` is the signed-in, rate-limited, uniform-404 lookup behind the rail (+) popup (Create | Join, `workspace-create-join-dialog.tsx`); `/portal?join=<code>` opens it on Join, prefilled. Invite texts include the code via `workspaceCode`. Codes resolve only for a signed-in person (`allowCode` on `loadLinkByToken`; the unauthenticated `/preview` route 404s a code), with per-user and per-IP limits on resolve and redeem.

@@ -3,7 +3,8 @@
  *
  * Reads are built on the same server builders the Bookings page uses
  * (`occupancySnapshotForManager`, `listManagerChannelCalendarBookings`) and are
- * narrowed FIRST to the houses this manager can read the calendar for, in the
+ * narrowed FIRST to the houses this manager can read the calendar for - a Calendar
+ * grant at `notification` counts for the reads (`allowNotification`) - in the
  * active workspace — the snapshot builder itself does not apply a co-manager
  * grant to leases, holds or blocks, so the property list handed to it is the gate.
  *

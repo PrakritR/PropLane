@@ -109,10 +109,13 @@ Airbnb has no public write API, so the two directions are not equally fast:
   connection's stored ones (`diffChannelReservations`, `channel-booking-diff.ts`) and
   emits `channel_booking_created` / `channel_booking_cancelled` on the action-event bus
   (`channel-booking-events.server.ts`): "New Airbnb booking · 5259 Brooklyn Ave · Room 3 ·
-  Oct 12 – Oct 15 (3 nights)". Every path (cron, Sync, Sync all) ends in that one
-  function, so a manual Sync alerts too. They ride the manager audience of the bus
-  - the PropLane Assistant notice, which follows the alert destination to the work number
-  - exactly like a confirmed tour. Never on a connection's first sync (the baseline),
+  Oct 12 – Oct 15 (3 nights) · HM…" (the reservation code when the feed carries one), linking to the
+  booking RECORD page. Every path (cron, Sync, Sync all) ends in that one
+  function, so a manual Sync alerts too. They reach the owner AND every teammate with the house
+  - the PropLane Assistant notice, which follows the alert destination to the work number, plus the
+  work email - exactly like a confirmed tour. The alert, the check-in / check-out reminders that ride
+  it and the database check constraint every domain needs are owned by
+  [`bookings.md`](bookings.md) § Booking alerts and reminders. Never on a connection's first sync (the baseline),
   never for a host block, never for a stay that already ended, and idempotent on
   connection + stay (`eventId`), so a re-run does not notify twice. Copy carries no guest
   name; the payload keeps only what the feed exposes ("Reserved" when it hides the guest).
@@ -122,12 +125,17 @@ Airbnb has no public write API, so the two directions are not equally fast:
   (`HM…`, taken only from a `https://www.airbnb.com/hosting/reservations/details/<code>`
   URL, and the Open-in-Airbnb link is rebuilt from the code — never the raw feed URL) and
   the guest's **phone ending** (last 4). Both show as fact rows on the booking record page;
-  the raw description is never stored. The third is the **name the manager types**
-  (`channel_stay_details`, keyed connection + `source_uid`, `20261009190000_channel_stay_details.sql`):
-  RLS on with no client policy or grant, so `GET/PUT
+  the raw description is never stored. The third is `channel_stay_details` (keyed connection +
+  `source_uid`, `20261009190000_channel_stay_details.sql` plus the money columns in
+  `20261013020000_channel_stay_details_money.sql`): what the manager types, or what Airbnb's own
+  notification mail to the work email fills in
+  ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Airbnb notifications). RLS is
+  on with no client policy or grant, so `GET/PUT
   /api/portal/channel-calendar/stay-details` is the only door. It needs Calendar `read` / `edit` on
   the connection's OWN house (a house id in the body is never read), only names a stay the
-  connection still carries, and clearing both fields deletes the row. One label rule
+  connection still carries, patches only the fields the request carries, and deletes the row once it
+  holds no name, no note and no money. The guest phone and the payout fields, and the Incoming-payments
+  row a payout projects, are owned by [`bookings.md`](bookings.md) § Airbnb money. One label rule
   everywhere a guest is drawn (`bookingEntryGuestLabel`): the typed name, else
   "Airbnb guest · HM…", else the feed summary — host blocks keep their own label.
 - **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
@@ -200,12 +208,17 @@ Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
   listing-site builder (`GET /api/manager/listing-channels?propertyId=`): the
   listing's public facts plus the workspace **work number and work email**. The
   post is published publicly, so its listing link is the canonical origin. Do not
-  add a "post for me" action.
+  add a "post for me" action. Marketplace and Groups also offer a nightly **Copy short-stay post**
+  for a listing that allows short stays — the builder and its refusals are owned by
+  [`listing-syndication.md`](listing-syndication.md) § Short-stay post.
 - **Facebook Page auto-post** and **Instagram** are the two Meta rows. They read
   "Coming soon" (plain text, no control) until the Meta app is live
   (`META_APP_LIVE=1`, see [`listing-syndication.md`](listing-syndication.md)).
   Live: **Connect Facebook** (one OAuth per workspace, owner only), then
-  "Connected as <Page>" with a disconnect icon; Instagram reads "Connected as
+  "Connected as <Page>" with a disconnect icon, and the Page row then also carries the fact
+  "Replies: on" (the Messenger auto-reply, owned by
+  [`listing-syndication.md`](listing-syndication.md) § Facebook Page replies);
+  Instagram reads "Connected as
   @<name>" from the Page's linked account. Where each listing posts is switched
   on the listing's Promotion › Listing sites tab, not here.
 

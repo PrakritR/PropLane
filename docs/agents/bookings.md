@@ -109,11 +109,11 @@ reservation also Remove stay.
 
 ## Booking alerts and reminders (Oct 12 2026)
 
-- A new / cancelled channel booking is an `action_events` row in the `channel_booking` domain, and the
-  database `action_events_domain_check` must list every `ActionEventDomain` the code emits
-  (`tests/unit/channel-booking-prod-shape.test.ts` fails a domain the latest migration omits). The check
-  was missing `channel_booking` until `20261013000000`, so the sync's best-effort catch swallowed a rejected
-  insert and no alert ever went out; that catch now logs a warning.
+- A new / cancelled channel booking is an `action_events` row in the `channel_booking` domain. The
+  domain and category allowlists the bus's own insert has to satisfy are owned by
+  [`../action-event-catalog.md`](../action-event-catalog.md) § Producer contract — a missing
+  `channel_booking` entry there (until `20261013000000`) is why no alert ever went out, so the
+  sync's best-effort catch now logs a warning instead of swallowing the refusal.
 - The notice reads "New Airbnb booking · House · Room N · Oct 13 – Oct 16 (3 nights) · <code>" and links to the
   booking RECORD page (`bookingRecordUrl`), never the calendar. The Assistant thread shows an "Open booking"
   action for any notice whose body carries a record link (`bookingRecordPathFromNotice`).
