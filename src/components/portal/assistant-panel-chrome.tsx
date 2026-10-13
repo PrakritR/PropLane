@@ -137,7 +137,7 @@ export function AssistantAttentionQueue({ onNavigate }: { onNavigate?: () => voi
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14px] font-semibold text-foreground">{row.title}</span>
-                <span className="block truncate text-[12.5px] text-muted">{row.detail}</span>
+                {row.detail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
               </span>
               <Link
                 href={row.href}

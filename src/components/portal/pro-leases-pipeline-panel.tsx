@@ -1108,6 +1108,7 @@ export function ManagerLeasesPipelinePanel({
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
           onOpenLease={openLeaseDetail}
+          tab={tab}
         />
       </PortalRecordListSurface>
     </>

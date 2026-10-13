@@ -16,6 +16,7 @@ import {
   managerPropertyRowsForStage,
   type AdminPropertyRow,
 } from "@/lib/demo-admin-property-inventory";
+import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 export type PortfolioStage = "listed" | "unlisted" | "drafts";
@@ -100,8 +101,9 @@ export function readPortfolioSnapshot(userId: string | null): {
  * One property on the dashboard.
  *
  * The photo band is short — the card is a row in a portfolio, not a listing
- * hero — and a home with no photo says "Add a photo" rather than showing a
- * grey box, because the missing photo is the one thing worth doing about it.
+ * hero — and a home with no photo shows the shared no-image tile (never a
+ * pill or a link). A listed home carries no stage pill; only Unlisted and
+ * Draft do.
  * Under the name, an occupancy bar: filled spaces over rentable ones, which is
  * the question a manager glancing at a property is actually asking.
  */
@@ -134,18 +136,18 @@ export function PortfolioPropertyCard({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={card.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
-          <span className="absolute inset-0 grid place-items-center text-[12.5px] font-semibold text-primary">
-            + Add a photo
-          </span>
+          <NoImagePlaceholder variant="compact" />
         )}
-        <span
-          className={cn(
-            "absolute left-3 top-3 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-            STAGE_PILL[card.stage],
-          )}
-        >
-          {STAGE_LABEL[card.stage]}
-        </span>
+        {card.stage !== "listed" ? (
+          <span
+            className={cn(
+              "absolute left-3 top-3 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+              STAGE_PILL[card.stage],
+            )}
+          >
+            {STAGE_LABEL[card.stage]}
+          </span>
+        ) : null}
       </div>
       <div className="flex flex-col gap-0.5 px-4 py-3">
         <p className="truncate text-[15px] font-semibold text-foreground">{card.title}</p>

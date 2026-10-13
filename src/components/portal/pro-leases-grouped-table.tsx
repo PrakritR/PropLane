@@ -16,10 +16,12 @@
 
 import { Clock, FileText, Mail, PenLine, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import type { ManagerLeaseTab } from "@/data/demo-portal";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   leaseRowPlaceLine,
   leaseStageFact,
+  leaseStageFactInTab,
   leaseUpdatedShort,
   leaseResidentSlotFact,
   leaseInitialsProgressFact,
@@ -32,12 +34,15 @@ export function ManagerLeasesGroupedTable({
   selectedIds,
   onToggleSelected,
   selectable = true,
+  tab,
 }: {
   clusters: ManagerLeaseListCluster[];
   onOpenLease: (row: LeasePipelineRow) => void;
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
   selectable?: boolean;
+  /** The tab the rows are listed under; a stage that repeats it is not shown again. */
+  tab?: ManagerLeaseTab;
 }) {
   const select = (id: string) => (selectable && onToggleSelected ? () => onToggleSelected(id) : undefined);
   return (
@@ -46,7 +51,7 @@ export function ManagerLeasesGroupedTable({
         cluster.rows.map((row) => {
           const name = row.residentName?.trim() || cluster.residentLabel;
           const email = row.residentEmail?.trim() ?? "";
-          const stage = leaseStageFact(row);
+          const stage = tab ? leaseStageFactInTab(row, tab) : leaseStageFact(row);
           return (
             <PortalApplicantRecordRow
               key={row.id}

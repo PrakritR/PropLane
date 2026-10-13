@@ -145,6 +145,7 @@ import { Modal } from "@/components/ui/modal";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { addOnActivityEvents } from "@/lib/service-activity";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { firstNonEmptyTabToOpen } from "@/lib/portal-default-tab";
 import { SERVICE_TAB_URL_SEGMENT, serviceTabFromSegment } from "@/lib/unified-service-rows";
 
 type FilterType = "requests" | "work-orders";
@@ -271,7 +272,10 @@ export function ManagerAllServicesPanel({
     const fromUrl = lockedPropertyId ? null : tabFromPath(pathname);
     if (fromUrl && fromUrl !== serviceState) setServiceStateRaw(fromUrl);
   }
+  // The user picked a tab (or the URL named one): the first-non-empty default must not move it.
+  const [serviceTabSettled, setServiceTabSettled] = useState(false);
   const setServiceState = (next: ServiceStage) => {
+    setServiceTabSettled(true);
     setServiceStateRaw(next);
     if (lockedPropertyId || typeof window === "undefined") return;
     const href = `${basePath}/services/work-orders/${SERVICE_TAB_URL_SEGMENT[next]}`;
@@ -656,6 +660,28 @@ export function ManagerAllServicesPanel({
 
   const servicesSearchExcludesAll =
     Boolean(searchQuery.trim()) && tabUnifiedRows.length > 0 && visibleUnifiedRows.length === 0;
+  // A URL that names no tab opens on the first tab that has rows, not an empty Open (decided once).
+  if (!serviceTabSettled && !lockedPropertyId && !workOrderIdProp && !serviceRequestIdProp) {
+    if (tabFromPath(pathname)) {
+      setServiceTabSettled(true);
+    } else {
+      const next = firstNonEmptyTabToOpen(
+        SERVICE_STATE_TABS.map((tab) => ({
+          id: tab.id,
+          count: tab.id === "completed" ? unifiedCounts.completed + unifiedCounts.declined : unifiedCounts[tab.id],
+        })),
+        serviceState,
+        false,
+      );
+      if (next) {
+        setServiceStateRaw(next);
+        setServiceTabSettled(true);
+      } else if (unifiedCounts.open > 0) {
+        setServiceTabSettled(true);
+      }
+    }
+  }
+
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(serviceState);
   const selectedSingleRow = useMemo(() => {
     if (selectedIds.size !== 1) return null;
@@ -1288,20 +1314,9 @@ export function ManagerAllServicesPanel({
     />
   );
 
-  const servicesBody = (
-    <>
-      {/*
-        * Rows share one joined card with the header. An empty tab drops that outer
-        * chrome: the empty card carries its own border, so keeping both drew a box
-        * in a box. Empty = header card, then the one empty card (like Properties).
-        */}
-      <div
-        className={cn("svc30", !servicesListIsEmpty && "overflow-hidden rounded-xl border border-border bg-card shadow-sm")}
-        data-svc-page={serviceState}
-        data-svc-empty={servicesListIsEmpty ? "true" : undefined}
-      >
+  const servicesStack = (
       <PortalListControlStack
-        className={cn("plp-header-card", servicesListIsEmpty ? "mb-2 max-lg:mb-1.5" : "!border-0 !shadow-none !rounded-none bg-transparent")}
+        className={cn(!lockedPropertyId && "mb-2 max-lg:mb-1.5", lockedPropertyId && "plp-header-card", lockedPropertyId && (servicesListIsEmpty ? "mb-2 max-lg:mb-1.5" : "!border-0 !shadow-none !rounded-none bg-transparent"))}
         variant="command"
         embedded={false}
         stickyDestinations={false}
@@ -1323,7 +1338,10 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface className={cn("plp-listsurface", !servicesListIsEmpty && "border-t border-border pb-0 lg:pb-0 max-lg:pb-0")} isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+  );
+
+  const servicesSurface = (
+      <PortalRecordListSurface className={cn(lockedPropertyId && "plp-listsurface", lockedPropertyId && !servicesListIsEmpty && "border-t border-border pb-0 lg:pb-0 max-lg:pb-0")} isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
@@ -1335,8 +1353,10 @@ export function ManagerAllServicesPanel({
             </div>
           </PortalListGroupRowContext.Provider>
       </PortalRecordListSurface>
-      </div>
+  );
 
+  const servicesModals = (
+    <>
       <ManagerAddServiceModal
         open={addServiceOpen}
         onClose={() => setAddServiceOpen(false)}
@@ -1410,10 +1430,33 @@ export function ManagerAllServicesPanel({
     </>
   );
 
-  if (lockedPropertyId) return servicesBody;
+  // Embedded in a property record: the joined card keeps its own frame. The page route puts the command
+  // stack and the surface directly under the shell, so the header band and edge-to-edge rows match Properties.
+  if (lockedPropertyId) {
+    return (
+      <>
+        {/*
+          * Rows share one joined card with the header. An empty tab drops that outer
+          * chrome: the empty card carries its own border, so keeping both drew a box
+          * in a box. Empty = header card, then the one empty card (like Properties).
+          */}
+        <div
+          className={cn("svc30", !servicesListIsEmpty && "overflow-hidden rounded-xl border border-border bg-card shadow-sm")}
+          data-svc-page={serviceState}
+          data-svc-empty={servicesListIsEmpty ? "true" : undefined}
+        >
+          {servicesStack}
+          {servicesSurface}
+        </div>
+        {servicesModals}
+      </>
+    );
+  }
   return (
     <ManagerPortalPageShell title="Services" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
-      {servicesBody}
+      {servicesStack}
+      {servicesSurface}
+      {servicesModals}
     </ManagerPortalPageShell>
   );
 }

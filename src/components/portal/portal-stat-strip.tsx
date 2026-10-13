@@ -25,7 +25,8 @@ export type PortalStat = {
  * The hairline stat cards that sit above a money list's rows: label in 13px
  * muted, figure in 20px semibold, one card per bucket / balance. The grid fits
  * as many columns as the width allows (never fewer than a readable card), so
- * three buckets share one row on a desktop and wrap on a phone.
+ * three buckets share one row on a desktop and wrap on a phone, where an odd
+ * last card spans both columns.
  */
 export function PortalStatStrip({
   items,
@@ -42,7 +43,7 @@ export function PortalStatStrip({
   if (items.length === 0) return null;
   return (
     <div
-      className={cn("grid gap-3 max-md:grid-cols-2 max-md:gap-2 md:[grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))]", className)}
+      className={cn("grid gap-3 max-md:grid-cols-2 max-md:gap-2 max-md:[&>:last-child:nth-child(odd)]:col-span-2 md:[grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))]", className)}
       data-slot="portal-stat-strip"
       data-attr={dataAttr}
     >

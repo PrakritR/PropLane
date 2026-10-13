@@ -1,6 +1,6 @@
 // The dashboard's KPI maths: periods, flows, stocks, and how a change is worded.
 import { describe, expect, it } from "vitest";
-import { ageLabel, bucketSeries, dashboardPeriods, kpiDelta, moneyToNumber, stockSeries, toMs, usdWhole } from "@/lib/dashboard-kpis";
+import { ageLabel, bucketSeries, dashboardPeriods, kpiDelta, moneyToNumber, stockSeries, toMs, usdWhole, visibleKpiDelta } from "@/lib/dashboard-kpis";
 
 // Fri Sep 11 2026, 19:30 local.
 const NOW = new Date(2026, 8, 11, 19, 30).getTime();
@@ -109,5 +109,13 @@ describe("helpers", () => {
     expect(ageLabel(NOW - 1000, NOW)).toBe("today");
     expect(ageLabel(NOW - 45 * 24 * 3600 * 1000, NOW)).toBe("1 month");
     expect(toMs("not a date")).toBeNull();
+  });
+});
+
+describe("visibleKpiDelta", () => {
+  it("hides a flat comparison and keeps a real change", () => {
+    expect(visibleKpiDelta(kpiDelta([5, 5], String, "last month"))).toBeNull();
+    expect(visibleKpiDelta(null)).toBeNull();
+    expect(visibleKpiDelta(kpiDelta([5, 7], String, "last month"))?.label).toBe("+2 vs last month");
   });
 });
