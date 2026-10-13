@@ -8,7 +8,8 @@
  * restricts to those houses; an empty array (the workspace holds none)
  * yields nothing.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { oversightTranscript } from "./support/oversight-transcript";
 
 const getUser = vi.fn();
 const isAdminUser = vi.fn();
@@ -126,6 +127,12 @@ describe("GET /api/property-records — active-workspace guard", () => {
 });
 
 describe("GET /api/property-records — admin oversight is explicit", () => {
+  const transcript = oversightTranscript("oversight-property-records.txt", [
+    "GET /api/property-records — the manager portal's houses read.",
+    "Fixture: house-admin is the viewer's (a platform admin who also manages); house-other is another owner's.",
+  ]);
+  afterAll(() => transcript.write());
+
   beforeEach(() => {
     // The fixture db keys the viewer's own rows on MANAGER; here that account is also a platform admin.
     getUser.mockResolvedValue({ data: { user: { id: MANAGER, email: "manager@example.com" } } });
@@ -134,12 +141,13 @@ describe("GET /api/property-records — admin oversight is explicit", () => {
       { id: "house-other", manager_user_id: "owner-other" },
     ];
   });
-  const houses = async (query = "") => {
+  const houses = async (query = "", viewer = "platform admin + manager") => {
     const { GET } = await import("@/app/api/property-records/route");
-    const body = (await (await GET(new Request(`http://localhost/api/property-records${query}`))).json()) as {
-      snapshot: { extrasByUser: Record<string, { id?: string }[]> };
-    };
-    return Object.values(body.snapshot.extrasByUser).flat().length;
+    const res = await GET(new Request(`http://localhost/api/property-records${query}`));
+    const body = (await res.json()) as { snapshot: { extrasByUser: Record<string, { id?: string }[]> } };
+    const rows = Object.values(body.snapshot.extrasByUser).flat();
+    transcript.record("/api/property-records", query, viewer, res.status, rows.map((row) => String(row.id)).sort());
+    return rows.length;
   };
 
   it("an admin in their own manager portal reads only their own houses", async () => {
@@ -154,6 +162,11 @@ describe("GET /api/property-records — admin oversight is explicit", () => {
 
   it("a non-admin sending the oversight parameter is still scoped", async () => {
     isAdminUser.mockResolvedValue(false);
-    expect(await houses("?oversight=admin")).toBe(1);
+    expect(await houses("?oversight=admin", "manager")).toBe(1);
+  });
+
+  it("a different oversight value is not oversight", async () => {
+    isAdminUser.mockResolvedValue(true);
+    expect(await houses("?oversight=all")).toBe(1);
   });
 });

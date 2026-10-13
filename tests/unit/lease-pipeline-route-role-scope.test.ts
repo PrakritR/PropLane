@@ -8,7 +8,8 @@
  * response at all — the captain's "the lease arrives and the resident cannot
  * open it" symptom, one layer below the nav fix.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { oversightTranscript } from "./support/oversight-transcript";
 import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 const USER_ID = "user-both";
@@ -197,6 +198,18 @@ describe("portal-lease-pipeline — manager+resident acting in the manager porta
 });
 
 describe("portal-lease-pipeline — admin", () => {
+  const transcript = oversightTranscript("oversight-lease-pipeline.txt", [
+    "GET /api/portal-lease-pipeline — the manager portal's lease read.",
+    "Fixture: MANAGER_PIPELINE is the viewer's own (a platform admin who also manages);",
+    "ALL_LEASES additionally holds leases belonging to other owners.",
+  ]);
+  afterAll(() => transcript.write());
+  const read = async (query = "", viewer = "platform admin + manager") => {
+    const { status, ids } = await loadLeases(query);
+    transcript.record("/api/portal-lease-pipeline", query, viewer, status, ids);
+    return { status, ids };
+  };
+
   beforeEach(() => {
     PROFILE = { email: "admin@example.com", role: "admin" };
     PROFILE_ROLES = [];
@@ -206,7 +219,7 @@ describe("portal-lease-pipeline — admin", () => {
   });
 
   it("an admin in their own manager portal reads only the manager pipeline", async () => {
-    const { status, ids } = await loadLeases();
+    const { status, ids } = await read();
     expect(status).toBe(200);
     expect(fetchLeasesForManagerUser).toHaveBeenCalledTimes(1);
     expect(ids).toEqual(MANAGER_PIPELINE.map((lease) => lease.id));
@@ -217,16 +230,22 @@ describe("portal-lease-pipeline — admin", () => {
     PROFILE = { email: "mgr@example.com", role: "manager" };
     PORTAL_ROLES = ["manager"];
     EFFECTIVE_ROLE = "manager";
-    const { ids } = await loadLeases("?oversight=admin");
+    const { ids } = await read("?oversight=admin", "manager");
     expect(fetchLeasesForManagerUser).toHaveBeenCalledTimes(1);
     expect(ids).toEqual(MANAGER_PIPELINE.map((lease) => lease.id));
   });
 
   it("still reads every lease, unscoped, when the request asks for oversight", async () => {
-    const { status, ids } = await loadLeases("?oversight=admin");
+    const { status, ids } = await read("?oversight=admin");
     expect(status).toBe(200);
     expect(fetchLeasesForManagerUser).not.toHaveBeenCalled();
     expect(ids).toEqual(ALL_LEASES.map((lease) => lease.id));
+  });
+
+  it("a different oversight value is not oversight", async () => {
+    const { ids } = await read("?oversight=all");
+    expect(fetchLeasesForManagerUser).toHaveBeenCalledTimes(1);
+    expect(ids).toEqual(MANAGER_PIPELINE.map((lease) => lease.id));
   });
 });
 

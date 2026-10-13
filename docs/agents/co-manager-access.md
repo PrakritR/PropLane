@@ -173,14 +173,20 @@ row's ⋯ menu or the member sheet's footer (owner only, `pro-team-blocks.tsx` /
 `renderDetailFooter`). It issues ONE
 `POST /api/pro/workspaces/[workspaceId]/transfer-ownership`, backed by the
 database routine `transfer_portal_workspace_ownership`
-(`20260921000000_workspace_ownership_transfer.sql`), which atomically:
-reassigns the workspace row itself, moves every house's `manager_user_id`
+(`20260921000000_workspace_ownership_transfer.sql`, redefined in full by
+`20261012121000_workspace_transfer_moves_work_identity.sql` — read the later
+one), which atomically: reassigns the workspace row itself, moves every
+house's `manager_user_id`
 (the workspace-reassign-to-default and membership-propagation triggers are
 held off for the call via a session-local GUC so a house's `workspace_id`
 stays put instead of bouncing to the new owner's default workspace — see the
 migration header), rewrites `manager_user_id` on the same related tables
-`transferPropertyOwnership` rewrites per house, and rewires memberships: the
-new owner's own membership row is dropped, every other member's row now
+`transferPropertyOwnership` rewrites per house, moves the workspace's work
+identity — its work number and work email rows — to the new owner (the exact
+rule, including the holds it drops and the `profiles.sms_from_number` cache it
+clears, is `docs/agents/sms-system.md`, "One number and one email per
+workspace, and the transfer moves them"), and rewires memberships: the new
+owner's own membership row is dropped, every other member's row now
 answers to the new owner (their per-house grants are untouched), and the
 former owner is added back as a member under whatever role they chose to
 keep — Admin, Property manager, Viewer, Custom, or **Nothing** (an empty

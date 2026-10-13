@@ -272,6 +272,12 @@ own top-level `<table>`. Admin Settings is `PortalProfileClient variant="admin"`
 Tables stay for detail views. Admin Communication is the manager's
 `ManagerUnifiedInbox` over an admin data adapter - no table, no inbox of its own.
 
+The admin ROLE is not the all-owners read. A manager-portal route serves it only
+when the request asks (`?oversight=admin`, from `adminOversightUrl`) and
+`resolveAdminOversight` confirms the role; otherwise a platform admin reads and
+writes as the manager they are. Never branch a new manager route on `isAdminUser`
+yourself - `docs/agents/communication-inbox.md` § Workspace isolation.
+
 # Listing images: never fabricate a photo
 
 Empty `PropertyBrowseCard.imageUrl` means no real photo. Render
@@ -446,7 +452,7 @@ answer. Fail closed to `true`.
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
 | Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |
-| SMS / phone | `docs/agents/sms-system.md` | Outbound from the work number only; conversation id is not the phone pair |
+| SMS / phone | `docs/agents/sms-system.md` | Outbound from the work number of the workspace the message is about, never another workspace's; one work number and one work email per workspace; conversation id is not the phone pair |
 | Number subscription | `docs/agents/comms-billing.md` § PropLane Number, `docs/agents/vendor-portal.md` | The vendor/resident owns the $5/month PropLane Number; gate a number feature on `numberServiceEntitled` (active\|past_due), never your own status check; reserve the number credit BEFORE any provider or model call and hand it back when nothing went out; a lapsed number is paused and released after 30 days; deleting the account cancels the Stripe subscription before its rows are purged |
 | Communication credit | `docs/agents/comms-billing.md` | Reserve credit before provider/model work; a saved card never authorizes a charge |
 | Vendor dispatch agent | `docs/agents/vendor-dispatch-agent.md` | Answer-only + `escalate_to_manager`; `row_data.dispatch` is server-owned |

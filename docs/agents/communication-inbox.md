@@ -318,11 +318,13 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   its caller asks to merge across folders) — the more recently active thread
   wins folder and every message from both merges into one timeline; no
   migration needed. A resident-directory placeholder row
-  (`buildResidentPlaceholderInboxItems`, no stored conversation at all) offers
-  no Archive action — running it used to silently no-op while still toasting
-  "Archived.".
+  (`buildResidentPlaceholderInboxItems`, no stored conversation at all) has its
+  own two actions, both of which persist something: Archive writes the real
+  `contact_thread_<id>` thread, Delete dismisses the person — see § Workspace
+  isolation and "No messages yet" rows.
 - **Archived ⋯ is Restore + Delete** for email and SMS (SMS hard-delete is
-  `DELETE /api/manager/sms-conversations`). Active ⋯ stays Archive only. PropLane
+  `DELETE /api/manager/sms-conversations`). Active ⋯ is Archive only, except a
+  placeholder row, which carries Archive + Delete there too. PropLane
   Assistant cannot be archived or deleted. Archived has a **Delete all archived**
   button (`unified-inbox-delete-all-archived`) that confirms, then deletes every
   non-assistant conversation; it is hidden when only Assistant remains.
@@ -511,11 +513,15 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   conversation only when it is about a house they hold Communication on at the
   level asked for (`read` lists, `edit` replies and sends, `delete` deletes),
   and a conversation about no house is never shared; (3) the active workspace
-  narrows — a conversation shows in the workspace that holds its house; a
+  narrows — a conversation the store STAMPED with a workspace
+  (`workspace_id`, Oct 12) shows in that workspace alone, whatever house it
+  names; an unstamped one shows in the workspace that holds its house; a
   house-less thread follows the work line it used (the owning workspace's SMS
   number or assistant address — shared-in number assignments do not duplicate
   threads), and only when no line places it does it fall back to the owner's
-  default workspace. Manager email inbox sync is server-authoritative on fetch:
+  default workspace. Threads older than the stamp are filled in by
+  `scripts/backfill-thread-workspaces.mjs`.
+  Manager email inbox sync is server-authoritative on fetch:
   rows the API omits are dropped from local storage (local-only ghosts do not
   resurrect). New SMS projection archive/read state is per viewer with a
   compare-and-set version; legacy archive flags still mirror from
@@ -612,10 +618,8 @@ Communication built "No messages yet" rows for another owner's residents.
   (`workspaceContainsProperty`) AND the viewer owns the row or holds
   Communication on that house (`applicationVisibleToPortalUser(..., "inbox")`).
   A cancelled grant, or a grant without Communication, lists nobody.
-- **A stamped thread belongs to its workspace.** In
-  `conversation-visibility.server.ts` a thread whose `workspace_id` is set and
-  differs from the active workspace is never visible; an unstamped one keeps
-  following its house / work line.
+- **A stamped thread belongs to its workspace** — rule (3) of
+  `conversationVisible` above, which owns that order.
 - **Deleting an empty chat is permanent.** A placeholder has nothing stored, so
   Delete / Delete all archived (on a placeholder or the `contact_thread_<id>`
   an archived placeholder became) saves a row in
