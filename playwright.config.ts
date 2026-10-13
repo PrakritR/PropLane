@@ -58,6 +58,9 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         // The CI production build (`npm run build`) alone now exceeds 3 minutes, so allow 7.
+        // This is spent inside whichever `--global-timeout` governs the run, so it must
+        // leave the specs room; `tests/unit/ci-test-workflow.test.ts` pins that against
+        // `test:e2e:smoke`'s own cap.
         timeout: 420_000,
       },
   projects: [

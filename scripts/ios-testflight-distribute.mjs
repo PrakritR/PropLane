@@ -176,9 +176,15 @@ export const CONFIRM_INTERVAL_MS = 12_000;
 /**
  * The internal group has automatic distribution, so Apple refuses the assignment
  * POSTs (HTTP 422) and adds the build itself after a variable delay (instant for
- * builds 266 and 268, over 50s for 267). That case gets ~5 minutes of re-reads
- * (15 sleeps) instead of the ~50s window above; every other failure keeps the
- * short window.
+ * builds 266 and 268, over 50s for 267). That case gets up to ~5 minutes of
+ * re-reads (15 sleeps) instead of the ~50s window above; every other failure
+ * keeps the short window.
+ *
+ * This is a CEILING, not a reservation. It is clamped at use to the step budget
+ * actually left (`autoDistributionConfirmAttempts`), because reserving it up
+ * front would come straight out of the processing wait below — the common path,
+ * which this window is never even reached from unless processing already
+ * finished.
  */
 export const AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS = 16;
 export const AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS = 20_000;
@@ -201,16 +207,8 @@ const REQUEST_LATENCY_BUDGET_MS = 5000;
 /** Node boot + module load before the first request goes out. */
 const PROCESS_STARTUP_BUDGET_MS = 15_000;
 
-/**
- * confirmAssignment runs with ONE of the two windows, never both, so the reserve
- * is built from whichever is longer. Taking the max (not the short default) is
- * what keeps the auto-distribution wait from running into the step cap.
- */
-const WORST_CASE_CONFIRM_ATTEMPTS = Math.max(CONFIRM_ATTEMPTS, AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS);
-const WORST_CASE_CONFIRM_SLEEP_MS = Math.max(
-  (CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS,
-  (AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS - 1) * AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
-);
+/** Worst case one request costs in wall clock: its retry backoff plus the network itself. */
+const REQUEST_BUDGET_MS = REQUEST_BACKOFF_BUDGET_MS + REQUEST_LATENCY_BUDGET_MS;
 
 /**
  * Every request that is NOT inside the bounded processing wait, so its retry
@@ -220,11 +218,12 @@ const WORST_CASE_CONFIRM_SLEEP_MS = Math.max(
  *      the deadline, so this is the only work the wait can run past it)
  *   1  the alreadyAssigned pre-check
  *   2  the two assign POST shapes
- *   +  one read per confirmAssignment attempt (the longer window)
+ *   +  one read per confirmAssignment attempt (the SHORT window: the long one is
+ *      clamped to the budget left rather than reserved out of the wait)
  *   +  one buildBetaDetail read per beta-state attempt
  */
 export const REQUESTS_OUTSIDE_PROCESSING_WAIT =
-  2 + 1 + 1 + 2 + WORST_CASE_CONFIRM_ATTEMPTS + BETA_STATE_ATTEMPTS;
+  2 + 1 + 1 + 2 + CONFIRM_ATTEMPTS + BETA_STATE_ATTEMPTS;
 
 /**
  * Every sleep that happens outside the bounded processing wait. One term per
@@ -232,8 +231,8 @@ export const REQUESTS_OUTSIDE_PROCESSING_WAIT =
  * automatically.
  */
 const SLEEP_MS_OUTSIDE_PROCESSING_WAIT =
-  // confirmAssignment's sleeps between re-reads (the longer window).
-  WORST_CASE_CONFIRM_SLEEP_MS +
+  // confirmAssignment's sleeps between re-reads, short window.
+  (CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS +
   // resolveInstallableBetaState's sleeps while the state is still transient.
   (BETA_STATE_ATTEMPTS - 1) * BETA_STATE_INTERVAL_MS;
 
@@ -246,10 +245,38 @@ const SLEEP_MS_OUTSIDE_PROCESSING_WAIT =
  */
 const POST_WAIT_RESERVE_SECONDS = Math.ceil(
   (SLEEP_MS_OUTSIDE_PROCESSING_WAIT +
-    REQUESTS_OUTSIDE_PROCESSING_WAIT * (REQUEST_BACKOFF_BUDGET_MS + REQUEST_LATENCY_BUDGET_MS) +
+    REQUESTS_OUTSIDE_PROCESSING_WAIT * REQUEST_BUDGET_MS +
     PROCESS_STARTUP_BUDGET_MS) /
     1000,
 );
+
+/**
+ * Work that still has to happen AFTER confirmAssignment returns — the beta-state
+ * read loop and its sleeps. Held back so a widened confirmation window can never
+ * consume the budget the installability gate needs.
+ */
+const POST_CONFIRM_RESERVE_MS =
+  (BETA_STATE_ATTEMPTS - 1) * BETA_STATE_INTERVAL_MS + BETA_STATE_ATTEMPTS * REQUEST_BUDGET_MS;
+
+/** Wall clock at module load, so the budget left is a measurement, not an estimate. */
+const PROCESS_START_MS = Date.now();
+
+/** Step budget still unspent, node's own boot (which precedes this module) included. */
+export function remainingStepBudgetMs(now = Date.now()) {
+  return STEP_BUDGET_SECONDS * 1000 - PROCESS_STARTUP_BUDGET_MS - (now - PROCESS_START_MS);
+}
+
+/**
+ * How many of the long window's re-reads actually fit in what is left, so the
+ * wait for Apple to self-assign can never run the step past its cap. Returns 0
+ * when nothing fits; the caller falls back to the short window, which the
+ * processing-wait reserve above always guarantees room for.
+ */
+export function autoDistributionConfirmAttempts(remainingMs) {
+  const perAttemptMs = AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS + REQUEST_BUDGET_MS;
+  const fits = Math.floor(Math.max(0, remainingMs - POST_CONFIRM_RESERVE_MS) / perAttemptMs);
+  return Math.min(AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS, Math.max(0, fits));
+}
 
 export const MAX_PROCESSING_TIMEOUT_SECONDS = STEP_BUDGET_SECONDS - POST_WAIT_RESERVE_SECONDS;
 
@@ -614,17 +641,27 @@ export function isAutoDistributionRejection(message) {
  * Window for the confirming reads. Only an assignment that failed EVERYWHERE with
  * the auto-distribution 422 earns the long one, because only then is Apple
  * expected to add the build itself; the read stays the sole gate either way.
+ *
+ * The long window is sized against the budget left, never reserved in advance: a
+ * slow processing queue shortens it instead of shortening the queue's own wait,
+ * and a window that would not beat the short one falls back to it.
  */
-export function confirmationWindow(assignOutcome) {
+export function confirmationWindow(assignOutcome, remainingMs = remainingStepBudgetMs()) {
   if (!assignOutcome?.autoDistribution) return {};
+  const attempts = autoDistributionConfirmAttempts(remainingMs);
+  if (attempts <= CONFIRM_ATTEMPTS) {
+    console.log(
+      "  group distributes builds automatically, but only " +
+        `${Math.max(0, Math.round(remainingMs / 1000))}s of the step budget is left; ` +
+        "keeping the short confirmation window",
+    );
+    return {};
+  }
   console.log(
     "  group distributes builds automatically; waiting for Apple to add the build " +
-      `(up to ${AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS} reads, ${AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS / 1000}s apart)`,
+      `(up to ${attempts} reads, ${AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS / 1000}s apart)`,
   );
-  return {
-    attempts: AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
-    intervalMs: AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
-  };
+  return { attempts, intervalMs: AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS };
 }
 
 /**

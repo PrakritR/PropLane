@@ -8,7 +8,10 @@ import { test, expect } from "@playwright/test";
 test.describe("Ladder smoke", () => {
   test("public home loads", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1, name: /your ai property management assistant/i })).toBeVisible();
+    // Structural, deliberately not the hero's words: this is the release ladder's
+    // gate, so it must fail when the page does not load, never when marketing
+    // rewrites the headline (how the previous `^propLane$` assertion went stale).
+    await expect(page.locator("#rlp-hero-title")).toBeVisible();
   });
 
   test("sign-in page loads", async ({ page }) => {

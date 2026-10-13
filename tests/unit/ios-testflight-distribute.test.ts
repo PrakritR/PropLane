@@ -10,6 +10,7 @@ import {
   assignBuildToGroup,
   AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
   AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
+  autoDistributionConfirmAttempts,
   BETA_STATE_ATTEMPTS,
   BETA_STATE_INTERVAL_MS,
   betaStateIsTransient,
@@ -314,12 +315,9 @@ describe("timeout budget leaves room to verify", () => {
     // Computed from the script's OWN constants, never re-typed as literals: a
     // duplicated copy drifts silently and turns this guard into a tautology that
     // only catches someone hard-coding the maximum.
-    // confirmAssignment runs with one of two windows; the reserve takes the longer.
-    const confirmRePollSleepSeconds =
-      Math.max(
-        (CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS,
-        (AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS - 1) * AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
-      ) / 1000;
+    // The reserve covers the SHORT window only: the long auto-distribution window
+    // is clamped to the budget actually left, so it never shortens this wait.
+    const confirmRePollSleepSeconds = ((CONFIRM_ATTEMPTS - 1) * CONFIRM_INTERVAL_MS) / 1000;
     const betaStateRePollSleepSeconds = ((BETA_STATE_ATTEMPTS - 1) * BETA_STATE_INTERVAL_MS) / 1000;
     const worstCaseBackoffPerRequestSeconds =
       (((REQUEST_ATTEMPTS * (REQUEST_ATTEMPTS - 1)) / 2) * REQUEST_BACKOFF_STEP_MS) / 1000;
@@ -342,6 +340,42 @@ describe("timeout budget leaves room to verify", () => {
     // At least a second of real network time per request outside the wait.
     expect(slackSeconds).toBeGreaterThanOrEqual(REQUESTS_OUTSIDE_PROCESSING_WAIT);
     expect(MAX_PROCESSING_TIMEOUT_SECONDS).toBeGreaterThan(0);
+  });
+
+  it("never lets the long auto-distribution window shorten the processing wait", () => {
+    // Reserving the long window up front cost the processing queue 7+ minutes for
+    // a window only reachable AFTER processing already finished. The wait Apple's
+    // queue gets must be sized by the short window alone.
+    const shortWindowRequests = 2 + 1 + 1 + 2 + CONFIRM_ATTEMPTS + BETA_STATE_ATTEMPTS;
+    expect(REQUESTS_OUTSIDE_PROCESSING_WAIT).toBe(shortWindowRequests);
+    // Apple's queue regularly sits past 20 minutes; that is the whole point of the wait.
+    expect(MAX_PROCESSING_TIMEOUT_SECONDS).toBeGreaterThanOrEqual(23 * 60);
+  });
+
+  it("clamps the long confirmation window to the step budget actually left", () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const perAttemptMs =
+      AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS +
+      ((REQUEST_ATTEMPTS * (REQUEST_ATTEMPTS - 1)) / 2) * REQUEST_BACKOFF_STEP_MS +
+      5000;
+
+    // Plenty left → the full ceiling, never more.
+    expect(autoDistributionConfirmAttempts(STEP_BUDGET_SECONDS * 1000)).toBe(
+      AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
+    );
+    // A processing queue that ate almost everything shrinks the window instead of
+    // overrunning the step cap, and falls back to the short one when nothing fits.
+    expect(autoDistributionConfirmAttempts(8 * perAttemptMs)).toBeLessThan(
+      AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
+    );
+    expect(autoDistributionConfirmAttempts(0)).toBe(0);
+    expect(autoDistributionConfirmAttempts(-60_000)).toBe(0);
+    expect(confirmationWindow({ autoDistribution: true }, 0)).toEqual({});
+    expect(confirmationWindow({ autoDistribution: true }, STEP_BUDGET_SECONDS * 1000)).toEqual({
+      attempts: AUTO_DISTRIBUTION_CONFIRM_ATTEMPTS,
+      intervalMs: AUTO_DISTRIBUTION_CONFIRM_INTERVAL_MS,
+    });
+    vi.restoreAllMocks();
   });
 
   it("keeps the step budget matching the distribute step's own timeout-minutes", () => {
