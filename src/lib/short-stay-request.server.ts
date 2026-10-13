@@ -22,7 +22,7 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -89,12 +89,8 @@ export async function submitShortStayRequest(
   const ownerId = String(record?.manager_user_id ?? "").trim();
   if (!record || record.status !== "live" || !ownerId) return { ok: false, status: 404, error: "Listing not found." };
   const property = (record.property_data ?? {}) as { title?: string; buildingName?: string; address?: string; listingSubmission?: unknown };
-  let submission;
-  try {
-    submission = normalizeManagerListingSubmissionV1((property.listingSubmission ?? {}) as never);
-  } catch {
-    return { ok: false, status: 404, error: "Listing not found." };
-  }
+  // The stored submission as-is: `roomAvailabilityForRange` normalizes it itself and refuses an unreadable one.
+  const submission = (property.listingSubmission ?? {}) as ManagerListingSubmissionV1;
   if (!listingOffersShortStay(submission)) return { ok: false, status: 400, error: "This listing doesn't take short stays." };
   const rooms = submission.rooms ?? [];
   const roomIndex = rooms.findIndex((room) => room.id === roomId);
