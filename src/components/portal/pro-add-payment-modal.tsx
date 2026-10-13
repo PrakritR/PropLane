@@ -523,7 +523,7 @@ export function ManagerAddPaymentModal({
                   <Button type="button" onClick={() => router.push("/portal/properties")}>Add property</Button>
                 </div>
               ) : (
-                <>
+                <div className="sm:space-y-4">
                   <WizardSelect
                     label="Property"
                     value={propertyId}
@@ -542,7 +542,7 @@ export function ManagerAddPaymentModal({
                     placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Select resident"}
                     disabled={!propertyId}
                   />
-                </>
+                </div>
               )}
             </StepColumn>
           ) : null}

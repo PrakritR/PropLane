@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { formatSmsPhoneLabel, formatUsPhoneDisplay } from "@/lib/phone-e164";
 
 import { ArrowUpRight, FileCheck2, Mail, MapPin, MessageSquare, Phone, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -1125,7 +1125,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                   <>
                     {phone ? (
                       <PortalRowFact icon={Phone} srLabel="Phone">
-                        {phone}
+                        {formatUsPhoneDisplay(phone)}
                       </PortalRowFact>
                     ) : null}
                     {linkPhoneFact ? (

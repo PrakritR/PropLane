@@ -53,10 +53,10 @@ export function PopupFormContext({ formRef, hasContext }: { formRef: RefObject<H
   const missing = fields.filter(field => field.invalid);
   const context = fields.filter(field => field.value.trim()).slice(0, 4);
   return <div className="space-y-4">
-    {!hasContext && context.length > 0 ? <dl className="divide-y divide-border rounded-[10px] border border-border bg-card px-4 text-sm" data-attr="popup-form-context">
+    {!hasContext && context.length > 0 ? <dl className="divide-y divide-border rounded-[10px] border border-border bg-card px-4 text-sm" data-attr="popup-form-context" data-popup-rail-content="">
       {context.map((field, index) => <div key={`${field.label}-${index}`} className="py-3"><dt className="text-xs text-muted">{field.label}</dt><dd className="mt-1 break-words font-semibold">{field.value}</dd></div>)}
     </dl> : null}
-    {missing.length > 0 ? <div className="rounded-[10px] border border-danger/25 bg-danger/5 p-3 text-sm text-danger" data-attr="popup-things-to-finish">
+    {missing.length > 0 ? <div className="rounded-[10px] border border-danger/25 bg-danger/5 p-3 text-sm text-danger" data-attr="popup-things-to-finish" data-popup-rail-content="">
       <div className="font-semibold">{missing.length} {missing.length === 1 ? "thing" : "things"} to finish</div>
       {missing.map((field, index) => <button key={`${field.label}-${index}`} type="button" className="block min-h-11 w-full text-left" onClick={() => { field.element.scrollIntoView?.({ block: "center" }); field.element.focus(); }}>{field.label}</button>)}
     </div> : null}
@@ -68,8 +68,8 @@ export function PopupFormContext({ formRef, hasContext }: { formRef: RefObject<H
  */
 export function PopupFormSnapshot({ formRef }: { formRef: RefObject<HTMLDivElement | null> }) {
   const fields = usePopupFields(formRef);
-  return <dl className="divide-y divide-border rounded-[10px] border border-border bg-card px-4 text-sm" data-attr="popup-draft-preview">
+  if (fields.length === 0) return null;
+  return <dl className="divide-y divide-border rounded-[10px] border border-border bg-card px-4 text-sm" data-attr="popup-draft-preview" data-popup-rail-content="">
     {fields.map((field, index) => <div key={`${field.label}-${index}`} className="py-3"><dt className="text-xs text-muted">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words font-semibold">{field.value || "Not set"}</dd></div>)}
-    {fields.length === 0 ? <div className="py-3 text-muted">No changes</div> : null}
   </dl>;
 }

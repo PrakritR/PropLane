@@ -570,7 +570,7 @@ function PortalCalendarManager({
 
   const calendarGoogleCalendarButton =
     portal === "manager" ? (
-      <GoogleCalendarConnectDialog onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)} />
+      <GoogleCalendarConnectDialog menuRow onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)} />
     ) : null;
 
   /*

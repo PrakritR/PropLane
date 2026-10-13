@@ -83,7 +83,7 @@ export function PortalRecordHeaderIconActions({
           className={action.tone === "danger" ? "text-red-600" : undefined}
           data-attr={`record-header-action-${action.id}`}
           onSelect={() => onAction?.(action.id)}
-        >{action.label}</DropdownMenuItem>,
+        ><action.icon aria-hidden /><span className="min-w-0 truncate">{action.label}</span></DropdownMenuItem>,
       }))}
     />
   );

@@ -126,7 +126,6 @@ export function ManagerTourAvailabilityModal({
       open={open}
       onClose={onClose}
       title="Tour availability"
-      description={`Publish open tour windows for ${activePropertyLabel}.`}
       panelClassName="max-w-6xl"
       contextPanel={<PopupRecordPreview rows={[{ label: "Property", value: activePropertyLabel }]} />}
       preview={null}
