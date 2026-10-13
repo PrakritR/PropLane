@@ -101,7 +101,8 @@ const LEASE_TAB_BUCKET_LABEL: Record<ManagerLeaseTab, string> = {
   resident: "Resident signature",
   manager: "Manager signature",
   completed: "Signed",
-  signed: "Signed",
+  /** Legacy route id for the Manager signature bucket, not the Signed tab. */
+  signed: "Manager signature",
 };
 
 /**

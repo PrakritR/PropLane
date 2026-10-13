@@ -148,6 +148,22 @@ import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-director
 import { firstNonEmptyTabToOpen } from "@/lib/portal-default-tab";
 import { SERVICE_TAB_URL_SEGMENT, serviceTabFromSegment } from "@/lib/unified-service-rows";
 
+/**
+ * The URL names the tab (`/services/work-orders/scheduled`), so it selects it — on first load, on
+ * back/forward, and when the page is reached from a link. A tab click writes the URL back.
+ * Old tab ids (`done`, `pending`, `active`, ...) resolve through `parseServiceStage`, so a saved link
+ * lands on the right tab.
+ */
+function serviceTabFromPath(path: string | null | undefined): ServiceStage | null {
+  const parts = (path ?? "").split("/").filter(Boolean);
+  const at = parts.lastIndexOf("work-orders");
+  return at >= 0 && at === parts.length - 2 ? serviceTabFromSegment(parts[at + 1]) : null;
+}
+
+function serviceTabHref(basePath: string, stage: ServiceStage): string {
+  return `${basePath}/services/work-orders/${SERVICE_TAB_URL_SEGMENT[stage]}`;
+}
+
 type FilterType = "requests" | "work-orders";
 
 type RequestBucket = ManagerServiceRequestBucket;
@@ -253,32 +269,25 @@ export function ManagerAllServicesPanel({
   const [editRequestOpen, setEditRequestOpen] = useState(false);
   /** The add-on's Vendors section opens on this tab (the header's next step, the Who's doing it card). */
   const [vendorsIntent, setVendorsIntent] = useState<VendorsIntent | null>(null);
-  // The URL names the tab (`/services/work-orders/scheduled`), so it selects it - on first load, on
-  // back/forward, and when the page is reached from a link. A tab click writes the URL back.
-  // Old tab ids (`done`, `pending`, `active`, ...) resolve through `parseServiceStage`, so a saved link
-  // lands on the right tab.
-  const tabFromPath = (path: string | null | undefined): ServiceStage | null => {
-    const parts = (path ?? "").split("/").filter(Boolean);
-    const at = parts.lastIndexOf("work-orders");
-    return at >= 0 && at === parts.length - 2 ? serviceTabFromSegment(parts[at + 1]) : null;
-  };
   const urlTabSegment = lockedPropertyId || tabId !== "work-orders" ? null : serviceTabFromSegment(workOrderBucketProp);
   const [serviceState, setServiceStateRaw] = useState<ServiceStage>(
-    () => (lockedPropertyId ? null : tabFromPath(pathname)) ?? urlTabSegment ?? "open",
+    () => (lockedPropertyId ? null : serviceTabFromPath(pathname)) ?? urlTabSegment ?? "open",
   );
   const [prevPathname, setPrevPathname] = useState(pathname);
   if (pathname !== prevPathname) {
     setPrevPathname(pathname);
-    const fromUrl = lockedPropertyId ? null : tabFromPath(pathname);
+    const fromUrl = lockedPropertyId ? null : serviceTabFromPath(pathname);
     if (fromUrl && fromUrl !== serviceState) setServiceStateRaw(fromUrl);
   }
   // The user picked a tab (or the URL named one): the first-non-empty default must not move it.
   const [serviceTabSettled, setServiceTabSettled] = useState(false);
+  // The tab this mount opened on before the first-non-empty default had a say.
+  const [arrivalServiceState] = useState(serviceState);
   const setServiceState = (next: ServiceStage) => {
     setServiceTabSettled(true);
     setServiceStateRaw(next);
     if (lockedPropertyId || typeof window === "undefined") return;
-    const href = `${basePath}/services/work-orders/${SERVICE_TAB_URL_SEGMENT[next]}`;
+    const href = serviceTabHref(basePath, next);
     if (window.location.pathname !== href) window.history.pushState(null, "", href);
   };
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
@@ -662,7 +671,7 @@ export function ManagerAllServicesPanel({
     Boolean(searchQuery.trim()) && tabUnifiedRows.length > 0 && visibleUnifiedRows.length === 0;
   // A URL that names no tab opens on the first tab that has rows, not an empty Open (decided once).
   if (!serviceTabSettled && !lockedPropertyId && !workOrderIdProp && !serviceRequestIdProp) {
-    if (tabFromPath(pathname)) {
+    if (serviceTabFromPath(pathname)) {
       setServiceTabSettled(true);
     } else {
       const next = firstNonEmptyTabToOpen(
@@ -681,6 +690,20 @@ export function ManagerAllServicesPanel({
       }
     }
   }
+
+  // Writing it, not pushing it: when the first-non-empty default moved the tab
+  // and the address named none, the chosen tab replaces that address — the way
+  // Tasks does — so a reload or a shared link lands on it and Back still leaves
+  // the page instead of returning to an address that looks unchanged.
+  useEffect(() => {
+    if (lockedPropertyId || !serviceTabSettled) return;
+    if (serviceState === arrivalServiceState) return;
+    if (serviceTabFromPath(window.location.pathname)) return;
+    const href = serviceTabHref(basePath, serviceState);
+    if (window.location.pathname === href) return;
+    window.history.replaceState(null, "", href);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, [arrivalServiceState, basePath, lockedPropertyId, serviceState, serviceTabSettled]);
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(serviceState);
   const selectedSingleRow = useMemo(() => {

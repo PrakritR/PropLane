@@ -16,4 +16,16 @@ describe("roomDisplayLabel", () => {
     expect(looksLikeRawRecordId("Unit 3")).toBe(false);
     expect(roomDisplayLabel("room-2")).toBe("Room 2");
   });
+  it("keeps a hyphenated label a person typed", () => {
+    expect(looksLikeRawRecordId("unit-2-a")).toBe(false);
+    expect(looksLikeRawRecordId("suite-2-b")).toBe(false);
+    expect(looksLikeRawRecordId("4709A-8th-Ave")).toBe(false);
+    expect(placeNameOrEmpty("4709A-8th-Ave")).toBe("4709A-8th-Ave");
+    expect(roomDisplayLabel("unit-2-a")).toBe("unit-2-a");
+  });
+  it("still catches a generated id with a counter, timestamp or random part", () => {
+    expect(looksLikeRawRecordId("prop_4f2a_001")).toBe(true);
+    expect(looksLikeRawRecordId("prop_1760000000000_a1b2c3")).toBe(true);
+    expect(looksLikeRawRecordId("task_m3k2a9bz_0")).toBe(true);
+  });
 });

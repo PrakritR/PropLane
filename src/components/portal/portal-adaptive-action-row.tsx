@@ -197,7 +197,10 @@ export function PortalAdaptiveActionRow({
     }
   }, [fixed, optionalFitCount, optional.length, actions]);
 
-  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{withRecordActionIcon(action.node)}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
+  // The action's own `menuItem` is the menu shape (glyph + label) the overflow
+  // path already uses; `node` is a bare icon button for a header row, which
+  // `withRecordActionIcon` cannot re-shape once it is a forwardRef component.
+  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{withRecordActionIcon(action.menuItem ?? action.node)}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);

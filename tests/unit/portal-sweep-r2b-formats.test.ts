@@ -17,6 +17,9 @@ describe("portal sweep r2 B6/B8 formats", () => {
     expect(formatUsPhoneDisplay("4255550147")).toBe("(425) 555-0147");
     expect(formatUsPhoneDisplay("1 (425) 555-0147")).toBe("(425) 555-0147");
     expect(formatUsPhoneDisplay("+442071838750")).toBe("+442071838750");
+    // Ten digits is not proof of a NANP number: a bare foreign number keeps its own form.
+    expect(formatUsPhoneDisplay("0612345678")).toBe("0612345678");
+    expect(formatUsPhoneDisplay("1612345678")).toBe("1612345678");
     expect(formatUsPhoneDisplay("")).toBe("");
     expect(formatUsPhoneDisplay(null)).toBe("");
   });
