@@ -4,7 +4,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { managerCanWriteCalendarForProperty, managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
-import { normalizeStayGuestName, normalizeStayNotes, type ChannelStayDetails } from "@/lib/channel-calendar/stay-details";
+import {
+  normalizeStayCents,
+  normalizeStayGuestName,
+  normalizeStayNotes,
+  normalizeStayPaidAt,
+  normalizeStayPhone,
+  type ChannelStayDetails,
+  type ChannelStayMoney,
+} from "@/lib/channel-calendar/stay-details";
 import { importedRangeUid } from "@/lib/channel-calendar/stay-tombstones";
 
 export type StayDetailsResult<T> = { ok: true; value: T } | { ok: false; status: 400 | 403 | 404 | 500; error: string };
@@ -13,6 +21,32 @@ export type StayDetailsResult<T> = { ok: true; value: T } | { ok: false; status:
 async function loadConnection(db: SupabaseClient, connectionId: string) {
   const { data } = await db.from("external_calendar_connections").select("*").eq("id", connectionId).maybeSingle();
   return data ? parseConnectionRow(data as Record<string, unknown>) : null;
+}
+
+const STAY_COLUMNS = "guest_name, notes, guest_phone, nightly_cents, payout_cents, paid_at, currency, source";
+
+type StayRow = {
+  guest_name?: string | null;
+  notes?: string | null;
+  guest_phone?: string | null;
+  nightly_cents?: number | null;
+  payout_cents?: number | null;
+  paid_at?: string | null;
+  currency?: string | null;
+  source?: string | null;
+};
+
+/** Only the money fields that are actually set, so an unset stay serialises exactly as before. */
+export function moneyFromRow(row: StayRow | null | undefined): ChannelStayMoney {
+  if (!row) return {};
+  return {
+    ...(row.guest_phone ? { guestPhone: row.guest_phone } : {}),
+    ...(typeof row.nightly_cents === "number" ? { nightlyCents: row.nightly_cents } : {}),
+    ...(typeof row.payout_cents === "number" ? { payoutCents: row.payout_cents } : {}),
+    ...(row.paid_at ? { paidAt: row.paid_at } : {}),
+    ...(row.currency && typeof row.payout_cents === "number" ? { currency: row.currency } : {}),
+    ...(row.source && row.source !== "manual" ? { source: row.source } : {}),
+  };
 }
 
 export async function readChannelStayDetails(
@@ -30,21 +64,34 @@ export async function readChannelStayDetails(
   }
   const { data, error } = await db
     .from("channel_stay_details")
-    .select("guest_name, notes")
+    .select(STAY_COLUMNS)
     .eq("connection_id", connection.id)
     .eq("source_uid", sourceUid)
     .maybeSingle();
   if (error) return { ok: false, status: 500, error: "Could not load stay details." };
-  const row = data as { guest_name?: string | null; notes?: string | null } | null;
-  return { ok: true, value: { guestName: row?.guest_name ?? "", notes: row?.notes ?? "" } };
+  const row = data as StayRow | null;
+  return { ok: true, value: { guestName: row?.guest_name ?? "", notes: row?.notes ?? "", ...moneyFromRow(row) } };
 }
 
-/** Save (or clear, when both fields are empty) the manager-entered details for one channel stay. */
+/**
+ * Save the manager-entered details for one channel stay. The name and note behave as they always did
+ * (clear when both are empty). The money fields (`guestPhone`, `nightlyCents`, `payoutCents`, `paidAt`)
+ * are patched only when the key is present: undefined leaves the stored value alone, blank clears it.
+ */
 export async function saveChannelStayDetails(
   db: SupabaseClient,
   userId: string,
-  input: { connectionId: string; sourceUid: string; guestName: unknown; notes?: unknown },
-): Promise<StayDetailsResult<ChannelStayDetails>> {
+  input: {
+    connectionId: string;
+    sourceUid: string;
+    guestName?: unknown;
+    notes?: unknown;
+    guestPhone?: unknown;
+    nightlyCents?: unknown;
+    payoutCents?: unknown;
+    paidAt?: unknown;
+  },
+): Promise<StayDetailsResult<ChannelStayDetails & ChannelStayMoney>> {
   const connectionId = input.connectionId.trim();
   const sourceUid = input.sourceUid.trim();
   if (!connectionId || !sourceUid) return { ok: false, status: 400, error: "connectionId and sourceUid are required." };
@@ -58,9 +105,46 @@ export async function saveChannelStayDetails(
   if (!connection.imported_ranges.some((range) => importedRangeUid(range) === sourceUid)) {
     return { ok: false, status: 404, error: "That stay is no longer on the channel calendar." };
   }
-  const guestName = normalizeStayGuestName(input.guestName);
-  const notes = normalizeStayNotes(input.notes);
-  if (!guestName && !notes) {
+  const moneyKeys = ["guestPhone", "nightlyCents", "payoutCents", "paidAt"] as const;
+  const hasMoneyKey = moneyKeys.some((key) => input[key] !== undefined);
+  const patch: Record<string, unknown> = {};
+  if (input.guestPhone !== undefined) patch.guest_phone = normalizeStayPhone(input.guestPhone) || null;
+  if (input.nightlyCents !== undefined) {
+    const cents = normalizeStayCents(input.nightlyCents);
+    if (input.nightlyCents !== null && input.nightlyCents !== "" && cents === null) return { ok: false, status: 400, error: "Nightly rate is not a valid amount." };
+    patch.nightly_cents = cents;
+  }
+  if (input.payoutCents !== undefined) {
+    const cents = normalizeStayCents(input.payoutCents);
+    if (input.payoutCents !== null && input.payoutCents !== "" && cents === null) return { ok: false, status: 400, error: "Payout is not a valid amount." };
+    patch.payout_cents = cents;
+    if (cents !== null) patch.currency = "USD";
+  }
+  if (input.paidAt !== undefined) {
+    const paidAt = normalizeStayPaidAt(input.paidAt);
+    if (input.paidAt && !paidAt) return { ok: false, status: 400, error: "Paid on is not a valid date." };
+    patch.paid_at = paidAt;
+  }
+
+  let stored: StayRow | null = null;
+  if (hasMoneyKey || input.notes === undefined) {
+    const { data, error } = await db
+      .from("channel_stay_details")
+      .select(STAY_COLUMNS)
+      .eq("connection_id", connection.id)
+      .eq("source_uid", sourceUid)
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, error: "Could not save stay details." };
+    stored = data as StayRow | null;
+  }
+  // A save that sends money only (Mark paid) must not wipe the name it never showed.
+  const guestName = input.guestName === undefined && hasMoneyKey ? normalizeStayGuestName(stored?.guest_name) : normalizeStayGuestName(input.guestName);
+  // A save that sends money but no note must not wipe the note it never showed.
+  const notes = input.notes === undefined && hasMoneyKey ? normalizeStayNotes(stored?.notes) : normalizeStayNotes(input.notes);
+  const merged: StayRow = { ...(stored ?? {}), ...patch } as StayRow;
+  const moneyAfter = moneyFromRow(merged);
+  const hasMoney = Object.keys(moneyAfter).some((key) => key !== "currency");
+  if (!guestName && !notes && !hasMoney) {
     const { error } = await db.from("channel_stay_details").delete().eq("connection_id", connection.id).eq("source_uid", sourceUid);
     if (error) return { ok: false, status: 500, error: "Could not save stay details." };
     return { ok: true, value: { guestName: "", notes: "" } };
@@ -71,13 +155,14 @@ export async function saveChannelStayDetails(
       source_uid: sourceUid,
       guest_name: guestName || null,
       notes: notes || null,
+      ...patch,
       updated_by: userId,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "connection_id,source_uid" },
   );
   if (error) return { ok: false, status: 500, error: "Could not save stay details." };
-  return { ok: true, value: { guestName, notes } };
+  return { ok: true, value: { guestName, notes, ...moneyAfter } };
 }
 
 /** Guest names for many connections in ONE query: connectionId -> sourceUid -> name. */
@@ -99,6 +184,30 @@ export async function loadChannelStayGuestNames(
     if (!row.connection_id || !row.source_uid || !name) continue;
     const byUid = out.get(row.connection_id) ?? new Map<string, string>();
     byUid.set(row.source_uid, name);
+    out.set(row.connection_id, byUid);
+  }
+  return out;
+}
+
+export type ChannelStayDetailRow = { guestName: string } & ChannelStayMoney;
+
+/** Name + money for many connections in ONE query: connectionId -> sourceUid -> details. Failure reads as "nothing typed". */
+export async function loadChannelStayDetailRows(
+  db: SupabaseClient,
+  connectionIds: readonly string[],
+): Promise<Map<string, Map<string, ChannelStayDetailRow>>> {
+  const ids = [...new Set(connectionIds.map((id) => id.trim()).filter(Boolean))];
+  const out = new Map<string, Map<string, ChannelStayDetailRow>>();
+  if (ids.length === 0) return out;
+  const { data, error } = await db
+    .from("channel_stay_details")
+    .select(`connection_id, source_uid, ${STAY_COLUMNS}`)
+    .in("connection_id", ids);
+  if (error) return out;
+  for (const row of (data ?? []) as Array<StayRow & { connection_id?: string; source_uid?: string }>) {
+    if (!row.connection_id || !row.source_uid) continue;
+    const byUid = out.get(row.connection_id) ?? new Map<string, ChannelStayDetailRow>();
+    byUid.set(row.source_uid, { guestName: row.guest_name?.trim() ?? "", ...moneyFromRow(row) });
     out.set(row.connection_id, byUid);
   }
   return out;

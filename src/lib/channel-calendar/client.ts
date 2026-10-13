@@ -203,3 +203,50 @@ export async function saveChannelStayGuestName(input: { connectionId: string; so
   if (!res.ok) throw new Error(data.error ?? "Could not save the guest name.");
   return data.guestName ?? "";
 }
+
+export type ChannelStayDetailsInput = {
+  connectionId: string;
+  sourceUid: string;
+  /** Omitted fields are left as they are; blank / null clears. */
+  guestName?: string;
+  guestPhone?: string;
+  nightlyCents?: number | null;
+  payoutCents?: number | null;
+  /** YYYY-MM-DD or ISO; null clears. */
+  paidAt?: string | null;
+};
+
+/** Save the name, phone and Airbnb money for a channel stay in one request. */
+export async function saveChannelStayDetailsClient(input: ChannelStayDetailsInput): Promise<void> {
+  const res = await fetch("/api/portal/channel-calendar/stay-details", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not save the booking details.");
+}
+
+export type AirbnbPayoutRow = {
+  id: string;
+  connectionId: string;
+  sourceUid: string;
+  propertyId: string;
+  propertyLabel: string;
+  roomLabel: string;
+  guestLabel: string;
+  start: string;
+  end: string;
+  payoutCents: number;
+  paidAt: string | null;
+  /** Key of the booking record page. */
+  bookingKey: string;
+};
+
+export async function fetchAirbnbPayouts(): Promise<AirbnbPayoutRow[]> {
+  const res = await fetchWithTimeout("/api/portal/channel-calendar/payouts", { credentials: "include" }, PORTAL_READ_TIMEOUT_MS);
+  const data = (await res.json().catch(() => ({}))) as { payouts?: AirbnbPayoutRow[]; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not load Airbnb payouts.");
+  return data.payouts ?? [];
+}

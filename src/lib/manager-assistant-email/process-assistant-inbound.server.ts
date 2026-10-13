@@ -27,6 +27,8 @@ import {
   deliverManagerEmailReply,
   runManagerEmailAgentTurn,
 } from "@/lib/agent/manager-email-agent.server";
+import { applyAirbnbEmailToStay } from "@/lib/channel-calendar/airbnb-email-intake.server";
+import { isAirbnbSenderAddress, parseAirbnbEmail } from "@/lib/inbound-email/airbnb-parser";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
 import { fetchResendReceivedEmailHeaders } from "@/lib/inbound-email/inbound-email-headers.server";
@@ -105,6 +107,55 @@ function replySubject(subject: string): string {
   return `Re: ${trimmed}`;
 }
 
+async function handleAirbnbNotification(
+  db: SupabaseClient,
+  input: {
+    parsed: ParsedInboundEmail;
+    managerUserId: string;
+    workspaceId: string | null;
+    rawBody: string;
+    inboundText: string;
+  },
+): Promise<AssistantInboundEmailResult> {
+  const { parsed, managerUserId, workspaceId, rawBody, inboundText } = input;
+  let authenticated = false;
+  try {
+    const headers = parsed.headers ?? (await fetchResendReceivedEmailHeaders(parsed.emailId));
+    authenticated = inboundSenderAuthenticated(headers, parsed.fromEmail);
+  } catch {
+    authenticated = false;
+  }
+  if (authenticated) {
+    const facts = parseAirbnbEmail({ subject: parsed.subject, text: rawBody, receivedAt: parsed.receivedAt });
+    if (facts) {
+      const applied = await applyAirbnbEmailToStay(db, managerUserId, facts, parsed.receivedAt);
+      if (applied.applied) return { handled: true, replied: false };
+    }
+  }
+  /* Not a stay we can match (or not provably Airbnb): keep it visible in Communication, answer nothing. */
+  try {
+    const senderEmail = parsed.fromEmail.trim().toLowerCase();
+    await mirrorAssistantEmailConversation(db, {
+      managerUserId,
+      managerEmail: await loadManagerProfileEmail(db, managerUserId),
+      senderEmail,
+      senderName: parsed.fromName?.trim() || senderEmail,
+      subject: parsed.subject,
+      inboundText,
+      replyText: null,
+      inboundEmailId: parsed.emailId,
+      replySent: false,
+      replyAsReviewDraft: false,
+      workspaceId,
+      workLine: parsed.toEmails.find((address) => isAssistantEmailAddress([address])) ?? null,
+      residentUserId: null,
+    });
+  } catch (cause) {
+    console.error("airbnb notification mirror failed", cause);
+  }
+  return { handled: true, replied: false };
+}
+
 /**
  * Route inbound mail to a manager's work address through the right assistant.
  * Returns `{ handled: false }` when the To address is not an assistant mailbox.
@@ -135,6 +186,14 @@ export async function processManagerAssistantInboundEmail(
   const rawBody = parsed.text?.trim() ? parsed.text : await resolveInboundEmailBody(parsed);
   const inboundText = stripEmailReplyQuote(rawBody).trim();
   if (!inboundText) return { handled: true, replied: false };
+
+  /* Airbnb's own notifications (reservation confirmed, payout sent) are data for a channel stay, not a
+     person to answer. They never reach an assistant: no auto-reply, no prospect thread, no paid turn.
+     Only a message the receiving server proved came from airbnb.com is believed enough to write the
+     stay; anything else from an airbnb.com address is stored like other inbound mail and left alone. */
+  if (isAirbnbSenderAddress(parsed.fromEmail)) {
+    return handleAirbnbNotification(db, { parsed, managerUserId, workspaceId, rawBody, inboundText });
+  }
 
   const sender = await classifyAssistantEmailSender(db, {
     managerUserId,

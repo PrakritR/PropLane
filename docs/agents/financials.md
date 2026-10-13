@@ -661,3 +661,21 @@ goes through `/api/admin/finances` and `/api/admin/expenses` (+ `/receipt`), eac
   unreadable `platform_expenses` is `null` and the card is omitted, never $0.
 
 Coverage: `tests/unit/platform-expenses.test.ts`, `admin-revenue.test.ts`.
+
+## Monthly rent sweep runs on the server too
+
+`syncAllRecurringRentCharges` used to run only in a browser, so a resident whose
+manager never opened the portal got no next-month charge. The pure decision
+(`planRecurringRentCharges`, `src/lib/recurring-rent-sweep.ts`) is shared; the
+daily cron `/api/cron/sync-recurring-rent-charges` (13:00 UTC) calls it per
+manager with the service role and persists through
+`persistHouseholdChargeRows` (`household-charge-persist.server.ts`), the same
+write path `POST /api/portal-household-charges` uses (insert-only for a new id,
+so a paid or existing row is never rewritten). Same invariants as the client:
+`chargeBusinessKey` exactly-once, never before a profile's start month or after
+lease end, a migration billing hold skips the resident, and an imported
+(`migrationSourceId`) row covers its month. Capped per run; the cron does not
+create profiles (the client path still seeds them at approval).
+
+A due label reads "Due by <date>" for a "By <date>" window and "Due <date>" for a
+bare date, from one formatter (`src/lib/charge-due-label.ts`).

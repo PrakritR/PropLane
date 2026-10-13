@@ -28,6 +28,7 @@ import { GET, PUT } from "@/app/api/portal/channel-calendar/stay-details/route";
 import { loadChannelStayGuestNames } from "@/lib/channel-calendar/stay-details.server";
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { airbnbBookingEntries } from "@/lib/channel-calendar/property-bookings";
+import { airbnbPayoutLedgerRow, airbnbPayoutPlaceLine, airbnbPayoutRowsFromBookings } from "@/lib/channel-calendar/airbnb-payouts";
 
 const RANGE = { id: "uid-1", sourceUid: "uid-1", summary: "Reserved", start: "2026-10-10", end: "2026-10-12", reservationCode: "HMABCDEFGH", phoneLast4: "1234" };
 const BLOCK = { id: "uid-2", sourceUid: "uid-2", summary: "Airbnb (Not available)", start: "2026-10-20", end: "2026-10-21", hostBlock: true };
@@ -150,5 +151,51 @@ describe("bookings merge", () => {
     expect([...names.get("a")!.entries()]).toEqual([["u1", "One"]]);
     expect(names.get("b")!.get("u1")).toBe("Two");
     expect((await loadChannelStayGuestNames(state.db as never, [])).size).toBe(0);
+  });
+});
+
+describe("Airbnb money on a stay", () => {
+  it("saves phone, nightly, payout and paid-on in one request and returns only what is set", async () => {
+    const res = await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "Juan Angel", guestPhone: "(206) 555-0100", nightlyCents: 13700, payoutCents: 41200, paidAt: "2026-10-16" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      guestName: "Juan Angel", notes: "", guestPhone: "(206) 555-0100", nightlyCents: 13700, payoutCents: 41200, paidAt: "2026-10-16T12:00:00.000Z", currency: "USD",
+    });
+    expect(tables.channel_stay_details[0]).toMatchObject({ guest_phone: "(206) 555-0100", nightly_cents: 13700, payout_cents: 41200 });
+  });
+
+  it("Mark paid (paidAt only) keeps the name, the note and the payout", async () => {
+    await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "Juan Angel", notes: "Late arrival", payoutCents: 41200 });
+    const res = await put({ connectionId: "conn-mine", sourceUid: "uid-1", paidAt: "2026-10-17T09:00:00.000Z" });
+    expect(await res.json()).toMatchObject({ guestName: "Juan Angel", notes: "Late arrival", payoutCents: 41200, paidAt: "2026-10-17T09:00:00.000Z" });
+  });
+
+  it("refuses a bad amount or date and writes nothing", async () => {
+    expect((await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "X", payoutCents: -5 })).status).toBe(400);
+    expect((await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "X", paidAt: "not a date" })).status).toBe(400);
+    expect(tables.channel_stay_details).toHaveLength(0);
+  });
+
+  it("a payout draws in Incoming payments as an Airbnb row and never as a resident charge", async () => {
+    tables.channel_stay_details.push({ connection_id: "conn-mine", source_uid: "uid-1", guest_name: "Juan Angel", payout_cents: 41200, paid_at: null });
+    const properties = await listManagerChannelCalendarBookings(state.db as never, MINE, ["prop-mine"]);
+    const payouts = airbnbPayoutRowsFromBookings(properties);
+    expect(payouts).toHaveLength(1);
+    const ledger = airbnbPayoutLedgerRow(payouts[0]!);
+    expect(ledger).toMatchObject({ chargeKind: "airbnb_payout", residentName: "Airbnb · Juan Angel", lineAmount: "$412.00", bucket: "pending", balanceDue: "$412.00" });
+    expect(ledger.householdChargeId).toBeUndefined();
+    // Last night Oct 12 -> check-out Oct 13 -> due the day after.
+    expect(ledger.dueDate).toBe("Due Oct 14, 2026");
+    expect(airbnbPayoutPlaceLine(payouts[0]!)).toContain("Payout ·");
+
+    tables.channel_stay_details[0]!.paid_at = "2026-10-13T12:00:00.000Z";
+    const paid = airbnbPayoutLedgerRow(airbnbPayoutRowsFromBookings(await listManagerChannelCalendarBookings(state.db as never, MINE, ["prop-mine"]))[0]!);
+    expect(paid).toMatchObject({ bucket: "paid", dueDate: "Paid Oct 13, 2026", balanceDue: "$0.00", amountPaid: "$412.00" });
+  });
+
+  it("a stay without a payout, and a host block, never project", async () => {
+    tables.channel_stay_details.push({ connection_id: "conn-mine", source_uid: "uid-2", guest_name: "Blocked", payout_cents: 5000 });
+    const properties = await listManagerChannelCalendarBookings(state.db as never, MINE, ["prop-mine"]);
+    expect(airbnbPayoutRowsFromBookings(properties)).toHaveLength(0);
   });
 });

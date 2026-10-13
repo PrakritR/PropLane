@@ -36,12 +36,20 @@ export async function PUT(req: Request) {
       sourceUid?: unknown;
       guestName?: unknown;
       notes?: unknown;
+      guestPhone?: unknown;
+      nightlyCents?: unknown;
+      payoutCents?: unknown;
+      paidAt?: unknown;
     };
     const result = await saveChannelStayDetails(ctx.db, ctx.userId, {
       connectionId: String(body.connectionId ?? ""),
       sourceUid: String(body.sourceUid ?? ""),
       guestName: body.guestName,
       notes: body.notes,
+      guestPhone: body.guestPhone,
+      nightlyCents: body.nightlyCents,
+      payoutCents: body.payoutCents,
+      paidAt: body.paidAt,
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json(result.value);
