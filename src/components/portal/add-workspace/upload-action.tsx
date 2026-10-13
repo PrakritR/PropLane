@@ -51,10 +51,12 @@ export function fileMatchesAccept(file: Pick<File, "name" | "type">, accept: str
 
 /**
  * The error a refused pick shows, or null when the file is fine. Size limits stay with each flow's
- * reader, which already refuses an oversize file with its own message.
+ * reader, which already refuses an oversize file with its own message. It NAMES the file for the
+ * same reason `fileRefusalMany` does: the refusal happens here, before the flow's own reader runs,
+ * so an unattributed message is the only thing the manager is left with.
  */
 export function fileRefusal(file: Pick<File, "name" | "type">, accept: string): string | null {
-  return fileMatchesAccept(file, accept) ? null : "That file type isn't supported.";
+  return fileRefusalMany([file], accept);
 }
 
 /**

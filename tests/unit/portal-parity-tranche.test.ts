@@ -44,7 +44,10 @@ describe("resident and vendor dashboard presentation parity", () => {
     expect(moveIn).not.toContain("Shared information from your property manager.");
     expect(moveIn).not.toContain("What this home offers.");
     expect(moveIn).not.toContain("Keys, parking, access codes, and anything to know before arrival.");
-    expect(moveIn).toContain("No room instructions have been added yet.");
+    // Round 3/4: an empty room block is not drawn at all, and the tab says the one empty state
+    // instead of a muted placeholder sentence under a heading.
+    expect(moveIn).not.toContain("No room instructions have been added yet.");
+    expect(moveIn).toContain("Your property manager has not added house info or rules yet.");
     expect(communication).not.toContain("conversation{merged.length === 1 ? \"\" : \"s\"}");
     expect(services).toContain('>Service</p>');
     expect(services).toContain("Pricing is set by your manager and can&apos;t be changed here.");
