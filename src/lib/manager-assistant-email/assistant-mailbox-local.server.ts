@@ -7,6 +7,8 @@ import {
   MAILBOX_LOCAL_PATTERN,
 } from "@/lib/manager-assistant-email/assistant-email-address";
 
+import * as rule from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
+
 const MAILBOX_LOCAL_PREFIX = "assist-";
 
 /** The default-allocation shape only: `assist-<slug>`, for profile-based fallbacks. */
@@ -37,20 +39,40 @@ function baseMailboxLocalFromProfile(fullName: string, email: string): string {
   return `${MAILBOX_LOCAL_PREFIX}manager`;
 }
 
+function compactLetters(value: string): string {
+  return rule.compactLetters(value) as string;
+}
+
 /**
- * Prefer the workspace name as `{slug}@proplane.ai` (no `assist-` prefix).
- * Falls back to the legacy `assist-<profile>` shape when the workspace slug is
- * too short, reserved, or missing.
+ * The one rule for a workspace's work-email local part: the workspace name
+ * compacted to letters+digits ("SEATTLE HOMES" -> `seattlehomes`). When that is
+ * shorter than 3 characters or reserved, the owner's first name is appended.
+ * Returns "" only when nothing usable can be derived. Shared with the backfill
+ * script through workspace-mailbox-local-rule.mjs.
+ */
+export function workspaceMailboxLocalFor(
+  workspaceName: string | null | undefined,
+  ownerFirstName: string | null | undefined,
+): string {
+  return rule.workspaceMailboxLocalFor(workspaceName, ownerFirstName) as string;
+}
+
+function firstNameOf(fullName: string, email: string): string {
+  const first = fullName.trim().split(/\s+/)[0] ?? "";
+  if (compactLetters(first)) return first;
+  return (email.trim().split("@")[0] ?? "").replace(/\+.*/, "");
+}
+
+/**
+ * `<workspace>@domain`, always. Falls back to the legacy `assist-<profile>`
+ * shape only when no workspace name is available at all.
  */
 function baseMailboxLocal(profile: { fullName: string; email: string }, workspaceName?: string | null): string {
-  const fromWorkspace = workspaceName ? slugifyName(workspaceName) : "";
-  if (
-    fromWorkspace.length >= 3 &&
-    isValidMailboxLocal(fromWorkspace) &&
-    !isReservedMailboxLocal(fromWorkspace)
-  ) {
-    return fromWorkspace;
-  }
+  const rule = workspaceMailboxLocalFor(workspaceName, firstNameOf(profile.fullName, profile.email));
+  if (rule) return rule;
+  const fromProfile = compactLetters(firstNameOf(profile.fullName, profile.email));
+  const withName = workspaceMailboxLocalFor("workspace", fromProfile);
+  if (withName) return withName;
   return baseMailboxLocalFromProfile(profile.fullName, profile.email);
 }
 
