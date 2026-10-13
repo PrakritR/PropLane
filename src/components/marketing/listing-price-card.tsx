@@ -78,6 +78,7 @@ export function ListingActionsProvider({
     enabled: quickEligible,
     propertyId: property.id,
     roomId,
+    accountId: eligibility.accountId,
   });
   const [open, setOpen] = useState(false);
   const openQuickApply = useCallback(() => setOpen(true), []);

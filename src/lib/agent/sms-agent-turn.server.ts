@@ -345,7 +345,9 @@ async function recordAssistantReply(
     session_id: session.id,
     landlord_id: session.landlord_id,
     role: "assistant",
-    content: reply,
+    // The transcript is the record of what was SENT, so it carries the same stripped text the
+    // runner returns below - never the model's em dashes on a reply the person read without them.
+    content: stripLongDashes(reply),
     channel: "agent",
     tool_trace: toolTrace,
     trace_id: traceId ?? null,

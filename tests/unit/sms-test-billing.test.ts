@@ -157,6 +157,20 @@ describe("SMS test turn communication usage", () => {
     expect(mocks.recordUsage).not.toHaveBeenCalled();
   });
 
+  it("records the transcript with the same dashes-stripped text it sends", async () => {
+    const db = dbWithTables();
+    const result = await runSmsAgentTurn(db as never, {
+      ...testArgs("can I stay longer?"),
+      precomputedReply: "Checked \u2014 Oct 3\u20135 is open.",
+    });
+
+    expect(result?.reply).toBe("Checked, Oct 3-5 is open.");
+    const assistant = (db.__tables.agent_messages as Array<{ role: string; content: string }>).filter(
+      (row) => row.role === "assistant",
+    );
+    expect(assistant.at(-1)?.content).toBe("Checked, Oct 3-5 is open.");
+  });
+
   it("continues billing an ordinary live SMS turn", async () => {
     const db = dbWithTables();
     const result = await runSmsAgentTurn(db as never, {

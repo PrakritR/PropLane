@@ -39,7 +39,13 @@ export function useQuickApplyProfile(enabled: boolean): { ready: boolean; hasPro
  * Quick apply shows only for a signed-in resident (the public listing's session read) whose account
  * holds a saved application. Everyone else keeps the plain Apply door.
  */
-export function useQuickApplyEligibility(): { ready: boolean; eligible: boolean; identity: QuickApplyIdentity } {
+export function useQuickApplyEligibility(): {
+  ready: boolean;
+  eligible: boolean;
+  identity: QuickApplyIdentity;
+  /** The account every verdict below belongs to: the readiness cache is keyed on it, never shared. */
+  accountId: string;
+} {
   const autofill = useProspectContactAutofill();
   const signedInResident = autofill.ready && Boolean(autofill.userId) && autofill.hasResidentRole;
   const profile = useQuickApplyProfile(signedInResident);
@@ -47,6 +53,7 @@ export function useQuickApplyEligibility(): { ready: boolean; eligible: boolean;
     ready: autofill.ready && (!signedInResident || profile.ready),
     eligible: signedInResident && profile.hasProfile,
     identity: { name: autofill.name, email: autofill.email, phone: autofill.phone },
+    accountId: autofill.userId ?? "",
   };
 }
 
@@ -114,12 +121,17 @@ async function fetchReadiness(propertyId: string): Promise<ListingReadiness> {
   return { base: { kind: "unavailable" }, appliedRooms: {} };
 }
 
-/** One request per listing per half minute, however many buttons on the page ask and whatever room they hold. */
-function readinessFor(propertyId: string): Promise<ListingReadiness> {
-  const hit = readinessCache.get(propertyId);
+/**
+ * One request per listing per half minute, however many buttons on the page ask and whatever room they
+ * hold. The key carries the ACCOUNT: the verdict names the caller's own application ids, so a sign-in
+ * or account switch inside the window reads its own answer, never the previous account's.
+ */
+function readinessFor(accountId: string, propertyId: string): Promise<ListingReadiness> {
+  const key = `${accountId}|${propertyId}`;
+  const hit = readinessCache.get(key);
   if (hit && Date.now() - hit.at < READINESS_TTL_MS) return hit.promise;
   const promise = fetchReadiness(propertyId);
-  readinessCache.set(propertyId, { at: Date.now(), promise });
+  readinessCache.set(key, { at: Date.now(), promise });
   return promise;
 }
 
@@ -133,20 +145,26 @@ export function resetQuickApplyReadiness(): void {
  * (`dryRun`), once per listing. Nothing is saved by it. A named room is answered from the rooms that
  * same verdict already listed as applied to, so changing the room costs nothing.
  */
-export function useQuickApplyReadiness(input: { enabled: boolean; propertyId: string; roomId: string }): QuickApplyReadiness {
-  const { enabled, propertyId, roomId } = input;
-  const key = enabled && propertyId ? propertyId : "";
+export function useQuickApplyReadiness(input: {
+  enabled: boolean;
+  propertyId: string;
+  roomId: string;
+  /** The signed-in account the verdict is asked for (`useQuickApplyEligibility().accountId`). */
+  accountId: string;
+}): QuickApplyReadiness {
+  const { enabled, propertyId, roomId, accountId } = input;
+  const key = enabled && propertyId && accountId ? `${accountId}|${propertyId}` : "";
   const [verdict, setVerdict] = useState<{ key: string; readiness: ListingReadiness } | null>(null);
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    void readinessFor(key).then((readiness) => {
+    void readinessFor(accountId, propertyId).then((readiness) => {
       if (!cancelled) setVerdict({ key, readiness });
     });
     return () => {
       cancelled = true;
     };
-  }, [key]);
+  }, [accountId, key, propertyId]);
   if (!key) return { kind: "unavailable" };
   if (verdict?.key !== key) return { kind: "checking" };
   const applied = roomId ? verdict.readiness.appliedRooms[roomChoiceValue(propertyId, roomId)] : undefined;

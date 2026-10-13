@@ -111,10 +111,14 @@ export function catalogNeighborhoods(listings: MockProperty[]): string[] {
   return [...new Set(listings.map((p) => p.neighborhood?.trim()).filter((n): n is string => Boolean(n)))].slice(0, 60);
 }
 
-/** A catalog name safe to put in the system prompt: control characters and newlines become spaces, 60 chars max. */
+/**
+ * A catalog name safe to put in the system prompt: control characters and newlines become spaces,
+ * double quotes (the prompt's own delimiter around a name) go, 60 chars max.
+ */
 export function sanitizePromptName(name: string): string {
   // eslint-disable-next-line no-control-regex
-  return name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+  const printable = name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
+  return printable.replace(/["\u201c\u201d]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
 export async function listCatalogNeighborhoods(): Promise<string[]> {
@@ -124,7 +128,7 @@ export async function listCatalogNeighborhoods(): Promise<string[]> {
 /** System prompt for the forced extraction call: pure so the alias rules are testable. */
 export function buildHousingSearchSystemPrompt(opts: { todayIso: string; neighborhoods: readonly string[] }): string {
   const list = opts.neighborhoods.length > 0 ? opts.neighborhoods.map(sanitizePromptName).filter(Boolean).join("; ") : "(none listed)";
-  const universityName = opts.neighborhoods.find(isUniversityDistrictName);
+  const universityName = sanitizePromptName(opts.neighborhoods.find(isUniversityDistrictName) ?? "");
   const aliasLine = universityName
     ? `"UW", "U District", "U-District", "University District" and "near campus" all mean "${universityName}". `
     : "";

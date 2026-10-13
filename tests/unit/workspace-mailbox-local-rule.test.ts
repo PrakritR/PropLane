@@ -75,4 +75,16 @@ describe("backfill plan (dry run)", () => {
     const aliased = planRenames([row({})], new Map([["seattlehomes", "someone-else"]]));
     expect(aliased[0].next).toBe("seattlehomes-2");
   });
+  it("never hands a local one workspace was renamed off to another workspace in the same run", () => {
+    // Applying the first plan holds `seattlehomes` as o1's 30-day alias, and an ACTIVE row wins over an
+    // alias on inbound mail: handing it to o2 here would route o1's grace-period mail into o2.
+    const plans = planRenames([
+      row({ id: "e1", ownerId: "o1", mailboxLocal: "seattlehomes", workspaceName: "Alpha Rentals", ownerFirst: "Ann" }),
+      row({ id: "e2", workspaceId: "w2", ownerId: "o2", mailboxLocal: "assist-bob", workspaceName: "Seattle Homes", ownerFirst: "Bob" }),
+    ]);
+    expect(plans.map((p: { id: string; next: string }) => [p.id, p.next])).toEqual([
+      ["e1", "alpharentals"],
+      ["e2", "seattlehomes-2"],
+    ]);
+  });
 });

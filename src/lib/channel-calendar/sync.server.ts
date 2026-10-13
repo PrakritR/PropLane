@@ -257,13 +257,24 @@ export async function upsertChannelCalendarConnection(
     .single();
   if (error) throw new Error(error.message);
   const saved = parseConnectionRow(data as Record<string, unknown>);
-  // A new feed has new event identities, so the old feed's removed-stay tombstones must not
-  // prune its stays (Airbnb reuses one UID for every host block).
-  if (importUrlProvided && (priorImportUrl ?? null) !== (importUrl ?? null)) {
-    await clearChannelStayTombstonesForRoom(db, { propertyId: input.propertyId, roomId: input.roomId, provider });
-  }
+  // The row is already rewritten, so releasing what the old feed imported comes first: its stays,
+  // listing blocks and placeholder residents are what the `priorRanges` read above was taken for,
+  // and nothing below may stand between an unlink and that cleanup.
   if (unlinking) {
     await releaseConnectionImportedStays(db, saved, priorRanges);
+  }
+  // A new feed has new event identities, so the old feed's removed-stay tombstones must not
+  // prune its stays (Airbnb reuses one UID for every host block). Hygiene on an already-committed
+  // row: a read or delete failure here is logged, never thrown past the write it follows.
+  if (importUrlProvided && (priorImportUrl ?? null) !== (importUrl ?? null)) {
+    try {
+      await clearChannelStayTombstonesForRoom(db, { propertyId: input.propertyId, roomId: input.roomId, provider });
+    } catch (e) {
+      console.error(
+        `[channel-calendar] could not clear stay tombstones for ${input.propertyId}/${input.roomId}/${provider}`,
+        e,
+      );
+    }
   }
   return toPublicConnection(saved, browserOrigin);
 }
