@@ -760,3 +760,7 @@ Do not "fix" these without asking:
   next request and the shell shows *No properties are shared with you*
   (`owner-overview.tsx`), so losing the last grant reads as an empty state, not
   a lockout.
+
+## Workspace code and the rail (+)
+
+Every manager invite link also carries a `short_code` (`SH-7K4Q`: two initials + four base32 characters, no 0/O/1/I; `manager_invite_links.short_code`, unique where set). It is an alias of the same row, so expiry, use budget, revocation and unusable reasons are the link's own; `previewInviteLink` / `redeemInviteLink` accept a token, a pasted `/invite/<token>` URL or a code (`parseInviteInput`). `POST /api/pro/invite-links/resolve` is the signed-in, rate-limited, uniform-404 lookup behind the rail (+) popup (Create | Join, `workspace-create-join-dialog.tsx`); `/portal?join=<code>` opens it on Join, prefilled. Invite texts include the code via `workspaceCode`.

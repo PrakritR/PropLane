@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   if (!reveal.ok) return NextResponse.json({ error: reveal.error }, { status: reveal.status });
   const { data: linkRow } = await db
     .from("manager_invite_links")
-    .select("owner_user_id, workspace_id, property_labels")
+    .select("owner_user_id, workspace_id, property_labels, short_code")
     .eq("id", reveal.link.id)
     .maybeSingle();
   if (
@@ -116,6 +116,7 @@ export async function POST(req: Request) {
     workspaceName: standing.workspaceName,
     propertyLabels,
     inviteUrl: inviteLinkUrl(resolveAppOrigin(req), reveal.token),
+    workspaceCode: String(linkRow?.short_code ?? "").trim() || undefined,
     roleLabel,
     reach,
   });

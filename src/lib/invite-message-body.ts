@@ -14,6 +14,8 @@ export type InviteMessageFacts = {
   workspaceName?: string;
   propertyLabels?: string[];
   inviteUrl?: string;
+  /** Workspace code ("SH-7K4Q"), the typeable alias of the link (workspace kind only). */
+  workspaceCode?: string;
   proplaneCode?: string;
   phone?: string;
   email?: string;
@@ -72,6 +74,11 @@ export function formatInviteMessageBody(facts: InviteMessageFacts): string {
   if (url) {
     lines.push("");
     lines.push(`Join: ${url}`);
+  }
+  const workspaceCode = facts.kind === "workspace" ? clean(facts.workspaceCode) : "";
+  if (workspaceCode) {
+    if (!url) lines.push("");
+    lines.push(`Or press + in PropLane and enter code ${workspaceCode}`);
   }
 
   lines.push("");

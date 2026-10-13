@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { WorkspaceContextValue } from "@/components/portal/workspace-provider";
 
 const showToast = vi.fn();
@@ -84,11 +84,35 @@ describe("PortalWorkspaceRail", () => {
     expect(screen.getByRole("button", { name: "Switch workspace: My workspace (Kai)" })).toBeTruthy();
   });
 
-  it("has a dashed + that runs the existing New workspace entry", () => {
+  it("has a dashed + that opens one popup with Create and Join tabs, and Join shows the resolved card", async () => {
     setWorkspaces([workspace("w1", "Seattle Homes")]);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        kind: "manager",
+        ownerName: "Ambika Mago",
+        workspaceName: "SEATTLE HOMES",
+        teamRole: "admin",
+        houseScope: "all",
+        houseCount: 4,
+        canDo: null,
+        unusableReason: null,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
     render(<PortalWorkspaceRail kind="manager" basePath="/portal" name="A" email="a@example.com" />);
-    const add = screen.getByRole("link", { name: "New workspace" });
-    expect(add.getAttribute("href")).toBe("/portal/profile?tab=workspaces&new=1");
+    fireEvent.click(screen.getByRole("button", { name: "Create or join a workspace" }));
+    expect(screen.getByText("Workspace")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Join" }));
+    fireEvent.change(screen.getByPlaceholderText("Paste the invite link or type the workspace code"), {
+      target: { value: "sh-7k4q" },
+    });
+    await waitFor(() => expect(screen.getByText("Ambika Mago")).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledWith("/api/pro/invite-links/resolve", expect.objectContaining({ method: "POST" }));
+    expect(screen.getByText("All houses")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Join SEATTLE HOMES" })).toBeTruthy();
+    vi.unstubAllGlobals();
   });
 
   it("opens the help panel from the help icon", () => {
