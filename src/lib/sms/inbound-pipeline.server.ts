@@ -1,3 +1,4 @@
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { intakeResidentSmsPhotos } from "@/lib/inspections/attachment-intake.server";
 import { after, NextResponse } from "next/server";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
@@ -885,7 +886,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         assistantAgentMessageId: turn.assistantMessageId,
         pendingActionId: turn.pendingActionId,
         turnTraceId: turn.traceId,
-        replyBody: turn.reply,
+        replyBody: stripLongDashes(turn.reply),
       });
       if (!prepared) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
@@ -895,7 +896,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         managerUserId: managerInbound.workNumberOwnerId,
         actorUserId: managerInbound.actorUserId,
         toPhone: fromPhone,
-        text: turn.reply,
+        text: stripLongDashes(turn.reply),
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
@@ -910,7 +911,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           assistantAgentMessageId: turn.assistantMessageId ?? null,
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
-          replyBody: turn.reply,
+          replyBody: stripLongDashes(turn.reply),
           outboxId: null,
         },
         delivered,
@@ -1032,7 +1033,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         assistantAgentMessageId: turn.assistantMessageId,
         pendingActionId: turn.pendingActionId,
         turnTraceId: turn.traceId,
-        replyBody: turn.reply,
+        replyBody: stripLongDashes(turn.reply),
       });
       if (!prepared) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
@@ -1042,7 +1043,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         ownerManagerUserId: managerId,
         residentUserId: residentIdentity.ctx.userId,
         toPhone: fromPhone,
-        text: turn.reply,
+        text: stripLongDashes(turn.reply),
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
@@ -1057,7 +1058,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           assistantAgentMessageId: turn.assistantMessageId ?? null,
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
-          replyBody: turn.reply,
+          replyBody: stripLongDashes(turn.reply),
           outboxId: null,
         },
         delivered,
