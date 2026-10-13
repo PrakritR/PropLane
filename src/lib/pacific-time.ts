@@ -25,10 +25,31 @@ const YMD_FORMATTER_OPTIONS: Intl.DateTimeFormatOptions = {
   day: "2-digit",
 };
 
-/** Parse a date-only string that may be YYYY-MM-DD or M/D/YYYY without mangling it. */
+/**
+ * Parse a date-only string that may be YYYY-MM-DD or M/D/YYYY without mangling it.
+ *
+ * A bare date names a calendar day, not an instant, so it is anchored to the start of
+ * that day IN PACIFIC. `new Date("2026-10-20T00:00:00")` reads the RUNTIME's zone —
+ * Pacific on a laptop, UTC in CI and in a Vercel function — and a UTC midnight formatted
+ * back into Pacific prints the day BEFORE ("Oct 19" for a lease starting Oct 20).
+ */
 function parseDateOnlyString(raw: string): Date {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return new Date(`${raw}T00:00:00`);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+  const parts = iso
+    ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) }
+    : us
+      ? { year: Number(us[3]), month: Number(us[1]), day: Number(us[2]) }
+      : null;
+  // Only a real calendar day is anchored; "2026-13-45" stays an Invalid Date rather than
+  // rolling over into a plausible-looking one.
+  if (parts) {
+    const probe = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    const real =
+      probe.getUTCFullYear() === parts.year &&
+      probe.getUTCMonth() === parts.month - 1 &&
+      probe.getUTCDate() === parts.day;
+    if (real) return new Date(zonedWallTimeMs(parts.year, parts.month, parts.day, 0, PACIFIC_TIME_ZONE));
   }
   return new Date(raw);
 }
