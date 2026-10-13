@@ -11,6 +11,10 @@ export const CONVERSATION_STYLE_RULES = `${THANK_YOU_REPLY_RULE}\n\n${NO_LONG_DA
 export function stripLongDashes<T extends string | null | undefined>(text: T): T {
   if (typeof text !== "string") return text;
   return text
-    .replace(/\s+[–—]\s+/g, ", ")
+    // `(?<!\s)` pins the whitespace run to its first character: without it the
+    // engine retried `\s+[–—]` from every position inside a run, so agent text
+    // with a long run of tabs and no dash cost quadratic time (CodeQL
+    // js/polynomial-redos). The match itself is unchanged.
+    .replace(/(?<!\s)\s+[–—]\s+/g, ", ")
     .replace(/[–—]/g, "-") as T;
 }

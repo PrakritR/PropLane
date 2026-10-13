@@ -270,8 +270,14 @@ export async function upsertChannelCalendarConnection(
     try {
       await clearChannelStayTombstonesForRoom(db, { propertyId: input.propertyId, roomId: input.roomId, provider });
     } catch (e) {
+      // Ids go in as `%s` arguments, never interpolated into the format string:
+      // a `%d` inside a caller-supplied id would otherwise consume the error
+      // argument and garble the log (CodeQL js/tainted-format-string).
       console.error(
-        `[channel-calendar] could not clear stay tombstones for ${input.propertyId}/${input.roomId}/${provider}`,
+        "[channel-calendar] could not clear stay tombstones for %s/%s/%s",
+        input.propertyId,
+        input.roomId,
+        provider,
         e,
       );
     }
