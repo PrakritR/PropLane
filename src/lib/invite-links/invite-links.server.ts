@@ -41,7 +41,11 @@ function storedTeamRole(raw: unknown): TeamRoleId | null {
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import { flatTeamRoleGrant, stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
-import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
+import {
+  describeCoManagerAccessCompact,
+  describeCoManagerPermissions,
+  flatCoManagerPermissionsFromProperty,
+} from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
@@ -713,6 +717,8 @@ export type InviteLinkPreview = {
   houseCount?: number;
   /** "Edit applications · View properties" — the role's reach, in words. */
   canDo?: string | null;
+  /** The same reach as one compact fact — "Edit · Delete · Alerts in every area". */
+  access?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -783,6 +789,14 @@ export async function previewInviteLink(
     workspaceName = String(workspace?.name ?? "").trim() || null;
   }
 
+  const grantedPermissions =
+    kind === "manager"
+      ? stampTeamRolePermissions(storedTeamRole(link.team_role) ?? "custom") ??
+        flatCoManagerPermissionsFromProperty(
+          normalizePropertyCoManagerPermissions(link.property_permissions, link.assigned_property_ids ?? []),
+        )
+      : undefined;
+
   return {
     kind,
     ownerUserId: String(link.owner_user_id),
@@ -796,12 +810,13 @@ export async function previewInviteLink(
       kind === "manager" && storedTeamRole(link.team_role) === "property_owner"
         ? "See income, expenses, occupancy and statements for the houses shared with you, and open documents shared with owners. Nothing can be changed."
         : kind === "manager"
-        ? describeCoManagerPermissions(
-            stampTeamRolePermissions(storedTeamRole(link.team_role) ?? "custom") ??
-              flatCoManagerPermissionsFromProperty(
-                normalizePropertyCoManagerPermissions(link.property_permissions, link.assigned_property_ids ?? []),
-              ),
-          )
+        ? describeCoManagerPermissions(grantedPermissions)
+        : null,
+    access:
+      kind === "manager" && storedTeamRole(link.team_role) === "property_owner"
+        ? "View only"
+        : kind === "manager"
+        ? describeCoManagerAccessCompact(grantedPermissions)
         : null,
     unusableReason: inviteLinkUnusableReason(
       {

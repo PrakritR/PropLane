@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 import { McpAutoContinue } from "@/components/mcp/mcp-auto-continue";
-import { McpConnectHeader, McpConnectNotice, McpConnectShell } from "@/components/mcp/mcp-connect-ui";
+import { McpConnectHead, McpConnectNotice, McpConnectShell } from "@/components/mcp/mcp-connect-ui";
 import { Button } from "@/components/ui/button";
 import { verifyMcpConnected } from "@/lib/mcp/oauth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -39,16 +39,7 @@ export default async function McpConnectedPage({ searchParams }: { searchParams:
   const clientName = payload.clientName || "your app";
   return (
     <McpConnectShell>
-      <McpConnectHeader />
-      <div className="mt-6 flex flex-col items-center text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600" aria-hidden>
-          <Check className="h-6 w-6" strokeWidth={2.25} />
-        </div>
-        <h1 className="mt-4 text-xl font-semibold tracking-tight text-foreground">PropLane is connected</h1>
-        <p className="mt-2 break-words text-sm leading-relaxed text-muted" role="status">
-          {clientName} can now use {payload.workspaceName}
-        </p>
-      </div>
+      <McpConnectHead icon={Check} title="Connected" tone="success" />
       <Button asChild className="mt-6 w-full">
         <a href={payload.destination} rel="noreferrer" data-attr="mcp-connected-return">
           Return to {clientName}
