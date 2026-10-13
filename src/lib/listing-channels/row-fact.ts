@@ -37,3 +37,14 @@ export function automaticChannelFact(args: {
   if (row.state === "held") return listingHoldFact((row.lastError?.split(",") as ListingHoldReason[] | undefined) ?? holdReasons);
   return listingLive ? "Posts when saved" : "Posts when live";
 }
+
+/** The Facebook Page row's reply fact: a plain fact, no pill. */
+export function facebookRepliesFact(live: boolean): string {
+  return live ? "Replies: on" : "Replies: Coming soon";
+}
+
+/** Appends the replies fact to the Facebook Page row only; every other channel is unchanged. */
+export function withRepliesFact(channelId: string, fact: string, live: boolean): string {
+  // A channel that is itself Coming soon says so once; the Replies fact only joins a live Page row.
+  return channelId === "facebook_page" && live ? `${fact} · ${facebookRepliesFact(live)}` : fact;
+}

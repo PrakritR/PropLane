@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
-import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
+import { PortalSettingsGroup, PortalSettingsRow } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { inviteLinkUnusableMessage, type InviteLinkUnusableReason, MANAGER_ROLE_REQUIRED_CODE } from "@/lib/invite-links/invite-link-model";
-import { firstNameFromDisplay, inviteAcceptSubtitle, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
+import { firstNameFromDisplay, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
 import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 
 type Preview = {
@@ -21,8 +21,41 @@ type Preview = {
   houseScope?: "all" | "selected";
   houseCount?: number;
   canDo?: string | null;
+  access?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
+
+
+function initialsOf(label: string): string {
+  const parts = label.split(/[\s@._-]+/).filter(Boolean);
+  const letters = parts.length > 1 ? `${parts[0]![0]}${parts[1]![0]}` : (parts[0] ?? "?").slice(0, 2);
+  return letters.toUpperCase();
+}
+
+/** Initials tile, heading and an optional one-line "who invited you". */
+function InviteHeader({ tile, title, line }: { tile: string; title: string; line?: string }) {
+  return (
+    <div className="flex flex-col items-center text-center" data-attr="invite-link-header">
+      <div
+        className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-primary/10 text-lg font-semibold text-primary"
+        aria-hidden
+        data-attr="invite-link-tile"
+      >
+        {initialsOf(tile)}
+      </div>
+      <h1 className="mt-4 break-words text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+      {line ? <p className="mt-1 text-[15px] text-foreground/80">{line}</p> : null}
+    </div>
+  );
+}
+
+function InviteValue({ attr, children }: { attr: string; children: React.ReactNode }) {
+  return (
+    <span className="block break-words text-[15px] font-medium text-foreground" data-attr={attr}>
+      {children}
+    </span>
+  );
+}
 
 /**
  * The screen an invite link opens.
@@ -212,7 +245,12 @@ export default function InviteLinkClient({ token }: { token: string }) {
   if (notFound) {
     return (
       <AuthCard variant="blend">
-        <AuthPageHeader showLogo title="Invite not found" subtitle="This link is not valid. Ask for a new one." />
+        <InviteHeader tile="PL" title="Invite not found" />
+        <PortalSettingsGroup className="mt-6">
+          <PortalSettingsRow label="Status">
+            <InviteValue attr="invite-link-status">This link is not valid. Ask for a new one.</InviteValue>
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
       </AuthCard>
     );
   }
@@ -225,36 +263,43 @@ export default function InviteLinkClient({ token }: { token: string }) {
     );
   }
 
-  if (preview.unusableReason) {
-    return (
-      <AuthCard variant="blend">
-        <AuthPageHeader
-          showLogo
-          title="This invite is no longer active"
-          subtitle={inviteLinkUnusableMessage(preview.unusableReason)}
-        />
-      </AuthCard>
-    );
-  }
-
   const isVendor = preview.kind === "vendor";
   const isResident = preview.kind === "resident";
   const isManager = preview.kind === "manager";
   const workspaceLabel = preview.workspaceName?.trim() || "workspace";
+  const ownerFirst = firstNameFromDisplay(preview.ownerName);
+  const invitedLine = `${preview.ownerName} invited you`;
   const messageHref = preview.ownerUserId
     ? `/portal/communication?composeToUserId=${encodeURIComponent(preview.ownerUserId)}`
     : `/auth/sign-in?next=${encodeURIComponent(invitePath)}`;
+
+  if (preview.unusableReason) {
+    return (
+      <AuthCard variant="blend">
+        <InviteHeader tile={isManager ? workspaceLabel : preview.ownerName} title="This invite is no longer active" />
+        <PortalSettingsGroup className="mt-6">
+          <PortalSettingsRow label="Status">
+            <InviteValue attr="invite-link-status">{inviteLinkUnusableMessage(preview.unusableReason)}</InviteValue>
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </AuthCard>
+    );
+  }
 
   // A resident's claim is filed, not granted. Ending on "we sent your request"
   // is the truthful screen: nothing about their account has changed yet.
   if (claimed) {
     return (
       <AuthCard variant="blend">
-        <AuthPageHeader
-          showLogo
-          title="Request sent"
-          subtitle={`${preview.ownerName} will confirm you live here and set up your resident portal. You will get an email when they do.`}
-        />
+        <InviteHeader tile={preview.ownerName} title="Request sent" />
+        <PortalSettingsGroup className="mt-6">
+          <PortalSettingsRow label="Next">
+            <InviteValue attr="invite-link-status">{preview.ownerName} confirms you live here</InviteValue>
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Then">
+            <InviteValue attr="invite-link-status-then">You get an email</InviteValue>
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
         <div className="mt-6">
           <Button
             type="button"
@@ -271,11 +316,15 @@ export default function InviteLinkClient({ token }: { token: string }) {
   if (needManagerAccount && isManager) {
     return (
       <AuthCard variant="blend">
-        <AuthPageHeader
-          showLogo
-          title="Create a manager account"
-          subtitle={`You need a manager account to join ${workspaceLabel}. After you create one, we will bring you back to this invite.`}
-        />
+        <InviteHeader tile={workspaceLabel} title="Create a manager account" />
+        <PortalSettingsGroup className="mt-6">
+          <PortalSettingsRow label="Workspace">
+            <InviteValue attr="invite-link-status">{workspaceLabel}</InviteValue>
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Then">
+            <InviteValue attr="invite-link-status-then">Back to this invite</InviteValue>
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
         {error ? <p className="mt-4 text-center text-sm text-rose-600">{error}</p> : null}
         <div className="mt-6 grid gap-3">
           <Button
@@ -299,68 +348,71 @@ export default function InviteLinkClient({ token }: { token: string }) {
     );
   }
 
+  const housesValue =
+    preview.houseScope === "all"
+      ? `All ${preview.houseCount ?? preview.propertyLabels.length}, and any added later`
+      : preview.propertyLabels.length > 0
+        ? preview.propertyLabels.join(" · ")
+        : "Assigned after you join";
+  const propertiesLabel = isResident
+    ? preview.propertyLabels.length === 1
+      ? "Home"
+      : "Homes"
+    : preview.propertyLabels.length === 1
+      ? "Property"
+      : "Properties";
+  const isOwner = preview.teamRole === "property_owner";
+
   return (
     <AuthCard variant="blend">
-      <AuthPageHeader
-        showLogo
-        title={inviteAcceptTitle(preview.kind)}
-        subtitle={inviteAcceptSubtitle({
-          kind: preview.kind,
-          ownerName: preview.ownerName,
-          workspaceName: preview.workspaceName,
-        })}
-      />
+      {isManager ? (
+        <InviteHeader tile={workspaceLabel} title={`Join ${workspaceLabel}`} line={invitedLine} />
+      ) : (
+        <InviteHeader tile={preview.ownerName} title={inviteAcceptTitle(preview.kind)} line={invitedLine} />
+      )}
 
-      {preview.kind === "manager" ? (
-        // What is being accepted: the role, whether the houses are the workspace
-        // itself (so ones added later count) or a list, and the reach in words.
-        <dl className="mt-5 divide-y divide-border rounded-2xl border border-border bg-accent/20 px-4" data-attr="invite-link-terms">
-          {preview.teamRole ? (
-            <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
-              <dt className="text-muted">Role</dt>
-              <dd className="font-semibold text-foreground" data-attr="invite-link-role">{teamRoleListLabel(preview.teamRole)}</dd>
-            </div>
-          ) : null}
-          <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
-            <dt className="text-muted">Houses</dt>
-            <dd className="text-right font-semibold text-foreground" data-attr="invite-link-houses">
-              {preview.houseScope === "all"
-                ? `All houses in ${preview.workspaceName ?? "the workspace"} (${preview.houseCount ?? preview.propertyLabels.length} today, and any added later)`
-                : preview.propertyLabels.length > 0
-                  ? preview.propertyLabels.join(" · ")
-                  : "Assigned after you join"}
-            </dd>
-          </div>
-          {preview.canDo ? (
-            <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
-              <dt className="text-muted">You can</dt>
-              <dd className="text-right text-foreground" data-attr="invite-link-can-do">{preview.canDo}</dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : preview.propertyLabels.length > 0 ? (
-        <div className="mt-5 rounded-2xl border border-border bg-accent/20 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-            {isResident
-              ? preview.propertyLabels.length === 1
-                ? "Home"
-                : "Homes"
-              : preview.propertyLabels.length === 1
-                ? "Property"
-                : "Properties"}
-          </p>
-          <ul className="mt-2 space-y-1 text-sm">
-            {preview.propertyLabels.map((label, i) => (
-              <li key={`${label}-${i}`}>{label}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <div className="mt-6" data-attr="invite-link-terms"><PortalSettingsGroup>
+        {isManager ? (
+          <>
+            {preview.teamRole ? (
+              <PortalSettingsRow label="Role">
+                <InviteValue attr="invite-link-role">{teamRoleListLabel(preview.teamRole)}</InviteValue>
+              </PortalSettingsRow>
+            ) : null}
+            <PortalSettingsRow label="Houses">
+              <InviteValue attr="invite-link-houses">{housesValue}</InviteValue>
+            </PortalSettingsRow>
+            {preview.access || preview.canDo ? (
+              <PortalSettingsRow label="Access">
+                <InviteValue attr="invite-link-can-do">{preview.access ?? preview.canDo}</InviteValue>
+              </PortalSettingsRow>
+            ) : null}
+            {isOwner ? null : (
+              <PortalSettingsRow label="Credits">
+                <InviteValue attr="invite-link-credits">Follow the owner’s plan</InviteValue>
+              </PortalSettingsRow>
+            )}
+          </>
+        ) : (
+          <>
+            {preview.propertyLabels.length > 0 ? (
+              <PortalSettingsRow label={propertiesLabel}>
+                <InviteValue attr="invite-link-houses">{preview.propertyLabels.join(" · ")}</InviteValue>
+              </PortalSettingsRow>
+            ) : null}
+            <PortalSettingsRow label={isResident ? "Next" : "Access"}>
+              <InviteValue attr="invite-link-can-do">
+                {isResident ? `${ownerFirst} confirms it` : "Their vendor directory"}
+              </InviteValue>
+            </PortalSettingsRow>
+          </>
+        )}
+      </PortalSettingsGroup></div>
 
       {error ? <p className="mt-4 text-center text-sm text-rose-600">{error}</p> : null}
 
       <div className="mt-6">
-        {signedIn === false && preview.teamRole === "property_owner" ? (
+        {signedIn === false && isOwner ? (
           <form
             className="grid gap-3"
             data-attr="invite-link-owner-signup"
@@ -426,7 +478,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
                 : `Join ${workspaceLabel}`}
           </Button>
         )}
-        {!isResident && preview.teamRole !== "property_owner" ? (
+        {!isResident && !isOwner ? (
           <Button
             type="button"
             variant="outline"
@@ -438,14 +490,6 @@ export default function InviteLinkClient({ token }: { token: string }) {
           </Button>
         ) : null}
       </div>
-
-      {preview.teamRole === "property_owner" ? null : <p className="mt-4 text-center text-xs text-muted">
-        {isResident
-          ? "This sends a request to your property manager. Nothing on your account changes until they confirm it."
-          : isVendor
-            ? "Accepting adds you to their vendor directory so they can send you services."
-            : "Joining adds this workspace to your portal. Communication credits for work inside it follow the owner’s plan."}
-      </p>}
     </AuthCard>
   );
 }

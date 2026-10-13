@@ -106,3 +106,56 @@ total or rate plus that household's charges, each linking to its own payment
 record. Only a manager-made hold is editable in place (the one combined
 Add/Edit sheet); any other source offers Message and Copy link, and a channel
 reservation also Remove stay.
+
+## Booking alerts and reminders (Oct 12 2026)
+
+- A new / cancelled channel booking is an `action_events` row in the `channel_booking` domain. The
+  domain and category allowlists the bus's own insert has to satisfy are owned by
+  [`../action-event-catalog.md`](../action-event-catalog.md) § Producer contract — a missing
+  `channel_booking` entry there (until `20261013000000`) is why no alert ever went out, so the
+  sync's best-effort catch now logs a warning instead of swallowing the refusal.
+- The notice reads "New Airbnb booking · House · Room N · Oct 13 – Oct 16 (3 nights) · <code>" and links to the
+  booking RECORD page (`bookingRecordUrl`), never the calendar. The Assistant thread shows an "Open booking"
+  action for any notice whose body carries a record link (`bookingRecordPathFromNotice`).
+- Check-in (9:00 PT the day before) and check-out (9:00 PT that morning) reminders ride the existing `booking`
+  reminder kind for channel stays, holds and leases, to the owner and every teammate with the house; a host
+  block ("Airbnb (Not available)") is never reminded. Each is its own subject (`…` and `…:out`), so a re-sweep
+  never double-sends.
+- `update_room_block` (assistant-only, not on MCP) edits a hold's dates, guest, phone and notes with the same
+  overlap rule as `block_room_dates`; the three booking reads accept Calendar at notification or edit.
+
+## Airbnb money (names, payouts)
+
+The Airbnb feed carries no guest name and no money. `channel_stay_details`
+(service-role only, keyed `connection_id + source_uid`, owner-scoped by the
+connection; `20261009190000_channel_stay_details.sql` plus the money columns in
+`20261013020000_channel_stay_details_money.sql`) holds what the manager types or
+Airbnb's emails supply: `guest_name`, `guest_phone`, `notes`, `nightly_cents`,
+`payout_cents`, `paid_at`, `currency`, `source` (`manual` or `airbnb_email`),
+`check_in` / `check_out`. The booking record's Guest (Name, Phone) and Booking
+(Nightly, Payout, Paid on) rows edit them through one popup
+(`BookingsStayDetailsDialog`, one Save, `PUT .../stay-details`): a field left out
+of the request is untouched, a blank clears it, and the row is deleted once it
+holds no name, no note and no money. That route is the only door into the table,
+and its permission gate is owned by [`integrations.md`](integrations.md)
+§ Bookings: one popup connects a channel.
+
+One label rule wherever a guest is drawn — list row, record title, day card,
+payout row (`bookingEntryGuestLabel`): the typed name, else "Airbnb guest · HM…"
+from the reservation code, else the feed summary. Host blocks and every
+non-channel source keep their own label.
+
+A stay with `payout_cents` projects an **Airbnb row in Incoming payments**
+(`src/lib/channel-calendar/airbnb-payouts.ts`, `GET .../channel-calendar/payouts`):
+tile AB, "Airbnb · <guest or code>", "Payout · house · room · dates", fact
+"Paid <date>" or "Due <day after check-out>", figure the payout. It is Pending
+until `paid_at` is set (Mark paid in the row's menu, or a payout email), then
+Paid, and counts in the bucket totals. It is a projection: **never a household
+charge**, so it has no reminders, selection or bulk actions.
+
+Host step to get names and payouts automatically (forward Airbnb mail to the work
+email): see `docs/agents/inbound-email-inbox.md` § Airbnb notifications.
+
+## Short stays on the public listing ("Request to book")
+
+A listing that allows short stays (or has a daily-priced room) puts an Airbnb-style block on its price card (and as its own card on a phone): nightly price, check-in / check-out, Guests, a live "$X × N nights" total, **Request to book** and "Message · text <work number>". Dates narrow the rooms list through `shortStayRoomVerdict` (`src/lib/short-stay-request.ts`; check-out exclusive, anonymous occupancy spans only): taken rooms stay listed, dimmed, with "Booked <range> · free from <date>". **Request to book** posts to `POST /api/public/short-stay-request` (`src/lib/short-stay-request.server.ts`), which re-checks availability server-side (409 when taken, including the capacity trigger's refusal), then saves the same `room_date_block` hold the manager's Add booking sheet saves (guest on the block, `rate` = nightly with `rateBasis: "daily"`, quoted nights and total beside it), texts the guest from the work number, emails them when an address was given, and emits `channel_booking` / `short_stay_requested` to the owner and teammates. Nothing is charged and no resident account is made; the manager confirms in Bookings. Abuse guard: 10 requests a minute per IP, a hidden honeypot, check-in within 180 days, 1 to 28 nights. Coverage: `tests/unit/short-stay-request-lib.test.ts`, `tests/unit/short-stay-request-route.test.ts`, `tests/unit/short-stay-booking-card.test.tsx`.

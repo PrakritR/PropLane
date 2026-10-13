@@ -42,7 +42,7 @@ function labelFor(kind: ReminderSubjectKind, payload: ReminderPayload, subject: 
 
 /** Booking subjects are prefixed (`stay:<id>` / `channel:<connectionId>:<rangeId>`); only a `stay:` id names one page-able booking record. */
 function bookingRecordId(subjectId: string): string | null {
-  if (subjectId.startsWith("stay:")) return subjectId.slice("stay:".length);
+  if (subjectId.startsWith("stay:")) return subjectId.slice("stay:".length).replace(/:out$/, "");
   return null;
 }
 

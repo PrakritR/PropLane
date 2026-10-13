@@ -123,6 +123,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/sync-recurring-rent-charges",
+      "schedule": "0 13 * * *"
+    },
+    {
       "path": "/api/cron/lease-uncountersigned-refund",
       "schedule": "0 7 * * *"
     },

@@ -15,6 +15,9 @@ inventory, and never a separate poll. Zero hides the badge entirely (no `0`).
 Owner: `usePortalNavCounts` (`src/hooks/use-portal-nav-counts.ts`), which
 returns `{ count, tone }` per section — `"alert"` (blue pill) for unread mail
 or an overdue item, `"muted"` (quiet number) for ordinary pending work.
+An admin row that stands for several sections (Accounts, Money, Support) carries
+the **sum** of its tabs' counts, alert if any tab is (`mergeAdminGroupCounts`,
+`src/lib/portals/nav-groups.ts`); each tab keeps its own count in the strip.
 
 ## Expand chevron direction
 

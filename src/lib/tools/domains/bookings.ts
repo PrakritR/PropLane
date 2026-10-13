@@ -3,7 +3,8 @@
  *
  * Reads are built on the same server builders the Bookings page uses
  * (`occupancySnapshotForManager`, `listManagerChannelCalendarBookings`) and are
- * narrowed FIRST to the houses this manager can read the calendar for, in the
+ * narrowed FIRST to the houses this manager can read the calendar for - a Calendar
+ * grant at `notification` counts for the reads (`allowNotification`) - in the
  * active workspace — the snapshot builder itself does not apply a co-manager
  * grant to leases, holds or blocks, so the property list handed to it is the gate.
  *
@@ -11,6 +12,7 @@
  * `portal_schedule_records`) and require Calendar at EDIT on that house.
  */
 import { z } from "zod";
+import { normalizeE164 } from "@/lib/phone-e164";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -131,7 +133,7 @@ async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProp
   }
   // One batched grant read for the whole portfolio: the per-house call issues up
   // to four round trips each, which a 50-house portfolio paid on every tool call.
-  const readable = await managerCalendarReadableProperties(ctx.db, ctx.userId, [...byId.keys()]);
+  const readable = await managerCalendarReadableProperties(ctx.db, ctx.userId, [...byId.keys()], { allowNotification: true });
   const out: ScopedProperty[] = [];
   for (const rec of byId.values()) {
     if (!readable.has(rec.id)) continue;
@@ -699,4 +701,147 @@ export const removeRoomBlockTool = defineWriteTool({
   },
 });
 
-export const managerBookingsTools = [listBookingsTool, checkManagerRoomAvailabilityTool, listRoomBlocksTool, blockRoomDatesTool, removeRoomBlockTool];
+/* ------------------------------------------------------------------------ */
+/* update_room_block                                                        */
+/* ------------------------------------------------------------------------ */
+
+type UpdateBlockInput = {
+  blockId: string;
+  start?: string;
+  end?: string;
+  guestName?: string;
+  phone?: string;
+  notes?: string;
+};
+
+/** The live block, the house it sits on, and the merged next values - all re-derived from actor-scoped data. */
+async function resolveBlockUpdate(ctx: AgentContext, input: UpdateBlockInput) {
+  const { block, property } = await resolveBlockToRemove(ctx, input.blockId);
+  const start = input.start?.trim() || block.checkIn;
+  const end = input.end?.trim() || block.checkOut;
+  if (!isRealDate(start) || !isRealDate(end)) throw new Error("start and end must be real calendar dates as YYYY-MM-DD.");
+  if (end <= start) throw new Error("end is the check-out day (the first day the room is free again) and must be after start.");
+  let phone: string | undefined;
+  if (input.phone !== undefined) {
+    const raw = input.phone.trim();
+    if (raw) {
+      const e164 = normalizeE164(raw);
+      if (!e164) throw new Error("phone must be a valid phone number.");
+      phone = e164;
+    } else {
+      phone = "";
+    }
+  }
+  const next: ResolvedBlock = {
+    property,
+    roomId: block.roomId,
+    roomLabel: block.roomId ? (property.rooms.get(block.roomId) ?? "Room") : "Whole home",
+    start,
+    end,
+    reason: input.notes !== undefined ? input.notes.trim() : block.reason,
+    residentName: input.guestName !== undefined ? input.guestName.trim() : block.residentName,
+  };
+  // Same overlap rule as block_room_dates, against every OTHER block on the house.
+  const others = (await loadBlockRecords(ctx, [property.id])).map(blockFromRecord).filter((b): b is BlockView => b !== null && b.id !== block.id);
+  const conflict = overlappingBlock(others, next);
+  if (conflict) throw new Error(conflictMessage(next, conflict));
+  return { block, next, phone };
+}
+
+export const updateRoomBlockTool = defineWriteTool({
+  name: "update_room_block",
+  description:
+    "Change an existing room block or hold: its dates (`start` first blocked night, `end` check-out day EXCLUSIVE, YYYY-MM-DD), the guest name, the guest phone, or the notes. Pass only what changes. Pass the block id from list_room_blocks or list_bookings. Needs Calendar edit access on that property; refuses dates that overlap another block; blocks that mirror an imported Airbnb or Booking.com stay cannot be changed here.",
+  inputSchema: z
+    .object({
+      blockId: z.string().min(1).describe("Block id from list_room_blocks."),
+      start: z.string().optional().describe("New first blocked night, YYYY-MM-DD."),
+      end: z.string().optional().describe("New check-out day, YYYY-MM-DD, exclusive."),
+      guestName: z.string().max(120).optional().describe("Who the room is held for; empty clears it."),
+      phone: z.string().max(40).optional().describe("The guest's phone; empty clears it."),
+      notes: z.string().max(200).optional().describe("Why the dates are held (shown on the calendar)."),
+    })
+    .strict(),
+  preview: async (ctx, input) => {
+    const { block, next, phone } = await resolveBlockUpdate(ctx, input);
+    const changed = [
+      next.start !== block.checkIn || next.end !== block.checkOut,
+      next.residentName !== block.residentName,
+      phone !== undefined,
+      next.reason !== block.reason,
+    ].some(Boolean);
+    if (!changed) throw new Error("Nothing to change: pass new dates, guest name, phone or notes.");
+    const nights = daysBetween(next.start, next.end);
+    const fields = [
+      { label: "House", value: next.property.title },
+      { label: "Room", value: next.roomLabel },
+      { label: "Dates", value: `${formatDay(next.start)} to ${formatDay(next.end)} (${nights} night${nights === 1 ? "" : "s"}; free again ${formatDay(next.end)})` },
+    ];
+    if (next.residentName) fields.push({ label: "Held for", value: next.residentName });
+    if (phone) fields.push({ label: "Phone", value: phone });
+    if (next.reason) fields.push({ label: "Notes", value: next.reason });
+    return {
+      confirmedInput: { ...input, blockId: block.id },
+      kind: "update_room_block",
+      title: "Change room block",
+      summary: `Change the hold at ${next.property.title} (${next.roomLabel}) to ${formatDay(next.start)} - ${formatDay(next.end)}.`,
+      fields,
+      confirmLabel: "Save changes",
+    };
+  },
+  handler: async (ctx, input) => {
+    const { block, next, phone } = await resolveBlockUpdate(ctx, input);
+    const dedupeKey = `update_room_block:${ctx.landlordId}:${block.id}:${next.start}:${next.end}:${next.residentName}:${phone ?? ""}:${next.reason}`;
+    const audit = await writeAuditLog(ctx, {
+      action: "update_room_block",
+      toolName: "update_room_block",
+      inputSummary: { blockId: block.id, propertyId: next.property.id, start: next.start, end: next.end },
+      dedupeKey,
+    });
+    if (!audit.recorded) {
+      if (audit.duplicate) return { reply: "Already done: that block was updated." };
+      throw new Error("Could not record the action; the block was not changed.");
+    }
+    const { data: existing, error: readError } = await ctx.db
+      .from("portal_schedule_records")
+      .select("row_data")
+      .eq("id", block.id)
+      .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+      .eq("property_id", next.property.id)
+      .limit(1);
+    if (readError) throw new Error(readError.message);
+    const prior = asObject(((existing ?? []) as Array<{ row_data: unknown }>)[0]?.row_data) ?? {};
+    const now = new Date().toISOString();
+    const row: Obj = {
+      ...prior,
+      checkIn: next.start,
+      checkOut: next.end,
+      reason: next.reason,
+      startsAt: `${next.start}T00:00:00`,
+      endsAt: `${next.end}T00:00:00`,
+    };
+    if (next.residentName) row.residentName = next.residentName;
+    else delete row.residentName;
+    if (phone !== undefined) {
+      if (phone) row.residentPhone = phone;
+      else delete row.residentPhone;
+    }
+    const { error } = await ctx.db
+      .from("portal_schedule_records")
+      .update({ starts_at: row.startsAt, ends_at: row.endsAt, row_data: row, updated_at: now })
+      .eq("id", block.id)
+      .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+      .eq("property_id", next.property.id);
+    if (error) {
+      await updateAuditResult(ctx, dedupeKey, { error: "write_failed" }, { clearDedupeKey: true });
+      throw new Error(String(error.message ?? "Could not change that block."));
+    }
+    await updateAuditResult(ctx, dedupeKey, { blockId: block.id });
+    return {
+      reply: `Updated the hold at ${next.property.title} (${next.roomLabel}): ${formatDay(next.start)} to ${formatDay(next.end)}.`,
+      resultSummary: { blockId: block.id },
+    };
+  },
+});
+
+export const managerBookingsTools = [listBookingsTool, checkManagerRoomAvailabilityTool, listRoomBlocksTool, blockRoomDatesTool, updateRoomBlockTool, removeRoomBlockTool];

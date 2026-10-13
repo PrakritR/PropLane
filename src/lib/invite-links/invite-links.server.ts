@@ -17,9 +17,11 @@ import {
   expiryIsoForOption,
   inviteLinkUnusableMessage,
   inviteLinkUnusableReason,
+  generateInviteCode,
   maxUsesForOption,
   MANAGER_ROLE_REQUIRED_CODE,
   normalizeInviteLinkKind,
+  parseInviteInput,
   type InviteLinkKind,
   type InviteLinkUnusableReason,
 } from "@/lib/invite-links/invite-link-model";
@@ -41,7 +43,11 @@ function storedTeamRole(raw: unknown): TeamRoleId | null {
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import { flatTeamRoleGrant, stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
-import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
+import {
+  describeCoManagerAccessCompact,
+  describeCoManagerPermissions,
+  flatCoManagerPermissionsFromProperty,
+} from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
@@ -85,6 +91,8 @@ export type InviteLinkRow = {
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+  /** The short workspace code (`short_code`) a person can type after pressing + in PropLane. */
+  code: string | null;
   teamRole?: TeamRoleId | null;
   /** Manager links only: 'all' = every house in the workspace, now and later. */
   houseScope?: "all" | "selected";
@@ -104,6 +112,7 @@ type DbRow = {
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  short_code?: string | null;
   workspace_id?: string | null;
   workspace_name_snapshot?: string | null;
   house_scope?: string | null;
@@ -163,6 +172,7 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     createdAt: row.created_at,
+    code: row.short_code ?? null,
     teamRole: storedTeamRole(row.team_role),
     houseScope: parseHouseScope(row.house_scope),
     workspacePermissions: normalizeWorkspacePermissions(row.workspace_permissions),
@@ -170,10 +180,10 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
 }
 
 const LINK_COLUMNS =
-  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role, house_scope, workspace_permissions";
+  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, short_code, team_role, house_scope, workspace_permissions";
 
 export type MintInviteLinkResult =
-  | { ok: true; link: InviteLinkRow; token: string }
+  | { ok: true; link: InviteLinkRow; token: string; code: string }
   | { ok: false; status: number; error: string };
 
 /**
@@ -424,9 +434,15 @@ export async function mintInviteLink(
     }
   }
 
-  const { data, error } = await db
-    .from("manager_invite_links")
-    .insert({
+  // The short code is an alias of this row; a collision on the unique index
+  // just draws another one.
+  let code = generateInviteCode(workspaceNameSnapshot);
+  let data: DbRow | null = null;
+  let error: { message?: string; code?: string } | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const res = await db
+      .from("manager_invite_links")
+      .insert({
       id: linkId,
       owner_user_id: ownerUserId,
       kind,
@@ -444,15 +460,21 @@ export async function mintInviteLink(
       team_role: kind === "manager" ? storedTeamRole(input.teamRole) : null,
       house_scope: houseScope,
       workspace_permissions: workspacePermissions,
+      short_code: code,
     })
-    .select(LINK_COLUMNS)
-    .maybeSingle();
+      .select(LINK_COLUMNS)
+      .maybeSingle();
+    data = (res.data as DbRow | null) ?? null;
+    error = res.error;
+    if (!error || error.code !== "23505") break;
+    code = generateInviteCode(workspaceNameSnapshot);
+  }
 
   if (error || !data) {
     return { ok: false, status: 500, error: error?.message ?? "Could not create the invite link." };
   }
   // The only moment the raw token exists outside the opener's URL bar.
-  return { ok: true, link: toInviteLinkRow(data as DbRow), token };
+  return { ok: true, link: toInviteLinkRow(data as DbRow), token, code };
 }
 
 export async function listInviteLinks(
@@ -558,17 +580,21 @@ export async function activeInviteLinkForWorkspace(
   return { ok: true, link: null };
 }
 
-type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string };
+type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string; workspaceNameSnapshot: string | null };
 
 async function loadInviteLinkById(db: SupabaseClient, linkId: string): Promise<InviteLinkRowWithOwner | null> {
   const { data } = await db
     .from("manager_invite_links")
-    .select(`${LINK_COLUMNS}, owner_user_id`)
+    .select(`${LINK_COLUMNS}, owner_user_id, workspace_name_snapshot`)
     .eq("id", linkId.trim())
     .maybeSingle();
   if (!data) return null;
   const row = data as DbRow & { owner_user_id: string };
-  return { ...toInviteLinkRow(row), ownerUserId: String(row.owner_user_id) };
+  return {
+    ...toInviteLinkRow(row),
+    ownerUserId: String(row.owner_user_id),
+    workspaceNameSnapshot: row.workspace_name_snapshot ?? null,
+  };
 }
 
 export type RotateInviteLinkResult =
@@ -606,17 +632,30 @@ export async function rotateInviteLinkToken(
 
   const token = mintToken();
   const tokenCiphertext = tryEncryptInviteToken(token, link.ownerUserId, link.id);
-  const { data, error } = await db
-    .from("manager_invite_links")
-    .update({
-      token_hash: hashInviteLinkToken(token),
-      token_ciphertext: tokenCiphertext,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", link.id)
-    .is("revoked_at", null)
-    .select(LINK_COLUMNS)
-    .maybeSingle();
+  // The workspace code is the same credential as the token — invite texts and emails
+  // carry it, and `redeemInviteLink` resolves it — so rotating redraws both. A
+  // collision on the unique index just draws another code.
+  let code = generateInviteCode(link.workspaceNameSnapshot);
+  let data: DbRow | null = null;
+  let error: { message?: string; code?: string } | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const res = await db
+      .from("manager_invite_links")
+      .update({
+        token_hash: hashInviteLinkToken(token),
+        token_ciphertext: tokenCiphertext,
+        short_code: code,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", link.id)
+      .is("revoked_at", null)
+      .select(LINK_COLUMNS)
+      .maybeSingle();
+    data = (res.data as DbRow | null) ?? null;
+    error = res.error;
+    if (!error || error.code !== "23505") break;
+    code = generateInviteCode(link.workspaceNameSnapshot);
+  }
   if (error || !data) {
     return { ok: false, status: 500, error: "Could not refresh the invite link." };
   }
@@ -713,15 +752,28 @@ export type InviteLinkPreview = {
   houseCount?: number;
   /** "Edit applications · View properties" — the role's reach, in words. */
   canDo?: string | null;
+  /** The same reach as one compact fact — "Edit · Delete · Alerts in every area". */
+  access?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
-async function loadLinkByToken(db: SupabaseClient, token: string) {
-  const { data } = await db
+/** Accepts a raw token, a pasted invite URL or a workspace code; all reach the same row. */
+async function loadLinkByToken(
+  db: SupabaseClient,
+  tokenOrCode: string,
+  opts: { allowCode: boolean } = { allowCode: false },
+) {
+  const parsed = parseInviteInput(tokenOrCode);
+  if (!parsed) return null;
+  if (parsed.kind === "code" && !opts.allowCode) return null;
+  const query = db
     .from("manager_invite_links")
-    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`)
-    .eq("token_hash", hashInviteLinkToken(token))
-    .maybeSingle();
+    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`);
+  const token = parsed.kind === "token" ? parsed.token : "";
+  const { data } = await (parsed.kind === "code"
+    ? query.eq("short_code", parsed.code)
+    : query.eq("token_hash", hashInviteLinkToken(token))
+  ).maybeSingle();
   return (data as (DbRow & { owner_user_id: string }) | null) ?? null;
 }
 
@@ -736,8 +788,9 @@ export async function previewInviteLink(
   db: SupabaseClient,
   token: string,
   now: Date = new Date(),
+  opts: { allowCode: boolean } = { allowCode: false },
 ): Promise<InviteLinkPreview | null> {
-  const link = await loadLinkByToken(db, token);
+  const link = await loadLinkByToken(db, token, opts);
   if (!link) return null;
 
   const [{ data: owner }, { data: properties }] = await Promise.all([
@@ -783,6 +836,14 @@ export async function previewInviteLink(
     workspaceName = String(workspace?.name ?? "").trim() || null;
   }
 
+  const grantedPermissions =
+    kind === "manager"
+      ? stampTeamRolePermissions(storedTeamRole(link.team_role) ?? "custom") ??
+        flatCoManagerPermissionsFromProperty(
+          normalizePropertyCoManagerPermissions(link.property_permissions, link.assigned_property_ids ?? []),
+        )
+      : undefined;
+
   return {
     kind,
     ownerUserId: String(link.owner_user_id),
@@ -796,12 +857,13 @@ export async function previewInviteLink(
       kind === "manager" && storedTeamRole(link.team_role) === "property_owner"
         ? "See income, expenses, occupancy and statements for the houses shared with you, and open documents shared with owners. Nothing can be changed."
         : kind === "manager"
-        ? describeCoManagerPermissions(
-            stampTeamRolePermissions(storedTeamRole(link.team_role) ?? "custom") ??
-              flatCoManagerPermissionsFromProperty(
-                normalizePropertyCoManagerPermissions(link.property_permissions, link.assigned_property_ids ?? []),
-              ),
-          )
+        ? describeCoManagerPermissions(grantedPermissions)
+        : null,
+    access:
+      kind === "manager" && storedTeamRole(link.team_role) === "property_owner"
+        ? "View only"
+        : kind === "manager"
+        ? describeCoManagerAccessCompact(grantedPermissions)
         : null,
     unusableReason: inviteLinkUnusableReason(
       {
@@ -891,7 +953,7 @@ export async function redeemInviteLink(
   const redeemerUserId = input.redeemerUserId.trim();
   if (!redeemerUserId) return { ok: false, status: 401, error: "Sign in to accept this invite." };
 
-  const link = await loadLinkByToken(db, input.token);
+  const link = await loadLinkByToken(db, input.token, { allowCode: true });
   if (!link) return { ok: false, status: 404, error: "That invite link is not valid." };
 
   if (String(link.owner_user_id) === redeemerUserId) {

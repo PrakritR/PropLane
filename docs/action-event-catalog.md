@@ -27,6 +27,12 @@ the domain.
 
 ## Producer contract
 
+- **The database must admit the domain and the category before the code emits them.**
+  `action_events_domain_check` / `action_events_category_check` are allowlists, so a new
+  `ActionEventDomain` or `NotificationCategory` needs a migration widening the matching
+  constraint in the same change — otherwise the insert is rejected and the emitters' best-effort
+  `catch` hides it (`tests/unit/channel-booking-prod-shape.test.ts` fails a domain the latest
+  migration omits).
 - Emit only after the authoritative state write succeeds.
 - Supply a deterministic `eventId` tied to that transition. Stripe event/session
   ids and persisted transition timestamps are preferred.

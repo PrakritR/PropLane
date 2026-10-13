@@ -1,4 +1,5 @@
 import { normalizeE164 } from "@/lib/phone-e164";
+import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
 import { trimmedText } from "@/lib/trimmed-text";
 
 /**
@@ -180,7 +181,7 @@ export function resolveAssistantInboxReplyChannels(    args: {
 export function resolveCommunicationPersonThreadReplyChannels(args: {
   emailAvailable: boolean;
   smsAvailable: boolean;
-  lastInboundChannel?: "email" | "sms" | "proplane" | null;
+  lastInboundChannel?: InboxThreadMessageChannel | null;
   /**
    * Whether an in-app message can reach this person (they have a PropLane
    * account). Omitted means yes. False makes In-app unselectable, so a
@@ -211,7 +212,7 @@ export function resolveCommunicationPersonThreadReplyChannels(args: {
 
 export type ReplyChannelMemory = {
   /** The last inbound channel when the person last chose, so a NEW inbound on a different channel resets it. */
-  inbound: "email" | "sms" | "proplane" | null;
+  inbound: InboxThreadMessageChannel | null;
   flags: InboxReplyChannelFlags;
 };
 
@@ -226,7 +227,7 @@ export function resolveStickyReplyChannels(args: {
   emailAvailable: boolean;
   smsAvailable: boolean;
   proplaneAvailable: boolean;
-  lastInboundChannel: "email" | "sms" | "proplane" | null;
+  lastInboundChannel: InboxThreadMessageChannel | null;
   remembered?: ReplyChannelMemory | null;
 }): InboxReplyChannelFlags {
   const remembered = args.remembered;

@@ -13,6 +13,8 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 /** Read-only invite URL + copy icon — reused in the invite sheet and member editor. */
 export function WorkspaceInviteLinkBox({
   url,
+  code,
+  onCopyCode,
   visible,
   stale,
   roleLabel,
@@ -23,6 +25,9 @@ export function WorkspaceInviteLinkBox({
   awaitingReveal,
 }: {
   url: string | null;
+  /** The workspace code, shown as a plain fact next to the URL when present. */
+  code?: string | null;
+  onCopyCode?: () => void;
   /** When false, the sheet still shows the card but offers Create link instead of the URL. */
   visible?: boolean;
   stale: boolean;
@@ -74,6 +79,21 @@ export function WorkspaceInviteLinkBox({
             <p className="mt-2 break-all font-mono text-xs text-muted" data-attr="workspace-invite-link-url">
               {url}
             </p>
+            {code ? (
+              <div className="mt-1 flex items-center justify-between gap-2" data-attr="workspace-invite-code-row">
+                <span className="font-mono text-xs text-muted" data-attr="workspace-invite-code">
+                  Code {code}
+                </span>
+                {onCopyCode ? (
+                  <PortalIconAction
+                    icon={Copy}
+                    label="Copy workspace code"
+                    onClick={onCopyCode}
+                    data-attr="workspace-invite-code-copy"
+                  />
+                ) : null}
+              </div>
+            ) : null}
             {roleLabel && reach ? (
               <p className="mt-1 text-xs text-muted">
                 This link joins as {roleLabel} · {reach}

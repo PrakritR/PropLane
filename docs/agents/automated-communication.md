@@ -163,3 +163,11 @@ actually sends.
 ## Proving a change
 
 Run the dispatcher locally (`GET /api/cron/dispatch-reminders` with `Authorization: Bearer $CRON_SECRET`) and read `portal_reminder_records` / `action_event_deliveries`. A row that "should have fired" but did not is usually one of: the anchor is already past (reminders queue future sends only), the rule is off, the recipient has no email, or the currency check found the subject moved on.
+
+## Booking check-in / check-out reminders
+
+The `booking` reminder kind is on by default for the owner AND teammates with the house (the one kind whose
+default audience includes `team`, pinned in `reminder-team-scope.test.ts`): 9:00 PT the day before check-in
+and 9:00 PT on check-out morning. Both are swept in `subjects/bookings.server.ts` under one rule; the
+check-out is a second subject (`<id>:out`) with its own anchor, and the message is a finished headline
+(`payload.headline`) with a link to the booking record.

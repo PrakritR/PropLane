@@ -40,6 +40,7 @@ import {
   listBookingsTool,
   listRoomBlocksTool,
   removeRoomBlockTool,
+  updateRoomBlockTool,
 } from "@/lib/tools/domains/bookings";
 import { agentRegistry, buildManagerSmsRegistry } from "@/lib/tools";
 import { API_KEY_PRODUCT_AREAS, API_KEY_TOOL_NAMES, API_KEY_WRITE_TOOL_NAMES } from "@/lib/mcp/capabilities";
@@ -61,7 +62,12 @@ function makeCtx(store: Record<string, Row[]>): AgentContext {
     eq(col: string, val: unknown) { this.filters.push((r) => r[col] === val); return this; }
     in(col: string, vals: unknown[]) { this.filters.push((r) => vals.includes(r[col])); return this; }
     delete() { this.op = "delete"; return this; }
-    update() { return this; }
+    update(patch: Row) {
+      // Apply the patch to the matched rows when the awaited chain resolves.
+      this.patch = patch;
+      return this;
+    }
+    private patch: Row | null = null;
     insert(row: Row) {
       if (this.table === "audit_log" && row.dedupe_key != null && store.audit_log!.some((r) => r.dedupe_key === row.dedupe_key)) {
         return Promise.resolve({ data: null, error: { code: "23505", message: "duplicate" } });
@@ -72,6 +78,7 @@ function makeCtx(store: Record<string, Row[]>): AgentContext {
     then<T>(resolve: (v: { data: Row[]; error: null }) => T) {
       const matched = store[this.table]!.filter((r) => this.filters.every((f) => f(r)));
       if (this.op === "delete") store[this.table] = store[this.table]!.filter((r) => !matched.includes(r));
+      if (this.patch) for (const row of matched) Object.assign(row, this.patch);
       return Promise.resolve({ data: matched, error: null }).then(resolve);
     }
   }
@@ -287,6 +294,41 @@ describe("remove_room_block", () => {
   });
 });
 
+describe("update_room_block", () => {
+  const id = "axis_room_block_manager_a_1";
+
+  it("previews the new dates, guest and phone", async () => {
+    const res = await previewWrite(updateRoomBlockTool, ctx, { blockId: id, start: "2026-11-02", end: "2026-11-06", guestName: "Priya S.", phone: "(206) 555-0101" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.preview.fields).toEqual(
+      expect.arrayContaining([
+        { label: "House", value: "12 Main" },
+        { label: "Room", value: "Room 1" },
+        { label: "Held for", value: "Priya S." },
+        { label: "Phone", value: "+12065550101" },
+      ]),
+    );
+  });
+
+  it("refuses an empty change, bad dates, another manager's block and an overlap with another block", async () => {
+    expect(await previewWrite(updateRoomBlockTool, ctx, { blockId: id })).toMatchObject({ ok: false, error: expect.stringContaining("Nothing to change") });
+    expect(await previewWrite(updateRoomBlockTool, ctx, { blockId: id, start: "2026-11-06", end: "2026-11-02" })).toMatchObject({ ok: false });
+    expect(await previewWrite(updateRoomBlockTool, ctx, { blockId: "axis_room_block_manager_b_9", notes: "x" })).toMatchObject({ ok: false, error: expect.stringContaining("No room block") });
+    store.portal_schedule_records!.push(blockRecord("axis_room_block_manager_a_2", "prop_a", { roomId: "room_1", checkIn: "2026-11-10", checkOut: "2026-11-12", reason: "Other hold" }));
+    expect(await previewWrite(updateRoomBlockTool, ctx, { blockId: id, end: "2026-11-11" })).toMatchObject({ ok: false, error: expect.stringContaining("already blocked") });
+  });
+
+  it("needs Calendar edit and writes the changed fields on confirm", async () => {
+    grants.edit = new Set();
+    expect(await executeWrite(updateRoomBlockTool, ctx, { blockId: id, notes: "Moved" })).toMatchObject({ ok: false, error: expect.stringContaining("permission") });
+    grants.edit = new Set(["prop_a"]);
+    expect((await executeWrite(updateRoomBlockTool, ctx, { blockId: id, start: "2026-11-02", end: "2026-11-07", guestName: "Priya S.", phone: "2065550101", notes: "Late arrival" })).ok).toBe(true);
+    const row = store.portal_schedule_records!.find((r) => r.id === id)!.row_data as Row;
+    expect(row).toMatchObject({ checkIn: "2026-11-02", checkOut: "2026-11-07", residentName: "Priya S.", residentPhone: "+12065550101", reason: "Late arrival" });
+  });
+});
+
 describe("registration", () => {
   const reads = ["list_bookings", "list_room_blocks"];
   const writes = ["block_room_dates", "remove_room_block"];
@@ -315,6 +357,10 @@ describe("registration", () => {
     expect(sms.has("remove_room_block")).toBe(false);
     // A delegated (someone else's number) turn never reaches these tools.
     const delegated = buildManagerSmsRegistry({ mode: "delegated" } as Parameters<typeof buildManagerSmsRegistry>[0]);
-    for (const name of [...reads, ...writes]) expect(delegated.has(name)).toBe(false);
+    // A co-manager on the owner's number reaches the three reads, block_room_dates and the hold editor
+    // update_room_block (each re-checks Calendar at edit in preview AND handler, so correcting the hold
+    // they just placed is in scope), never the destructive remove.
+    for (const name of ["list_bookings", "check_room_availability", "list_room_blocks", "block_room_dates", "update_room_block"]) expect(delegated.has(name)).toBe(true);
+    expect(delegated.has("remove_room_block")).toBe(false);
   });
 });

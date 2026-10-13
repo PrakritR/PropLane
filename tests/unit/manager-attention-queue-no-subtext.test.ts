@@ -6,7 +6,6 @@ const FULL: ManagerAttentionInput = {
   overdueChargeCount: 2,
   overdueBalanceLabel: "$4,765",
   pendingApplicationCount: 3,
-  latestPendingApplicationProperty: "5257 Brooklyn Avenue Northeast",
   managerSignatureLeaseCount: 1,
   pendingTourCount: 1,
   messagingNeedsSetup: true,
@@ -14,7 +13,6 @@ const FULL: ManagerAttentionInput = {
   draftPropertyCount: 2,
   draftsHref: "/portal/properties/drafts",
   unreadConversationCount: 4,
-  latestUnreadSubject: "Leaky tap",
 };
 
 describe("manager attention queue (title and action only)", () => {

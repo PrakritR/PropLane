@@ -8,7 +8,7 @@ import { zillowPostingCounts } from "@/components/portal/integrations-posting-pa
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useListingChannels } from "@/hooks/use-listing-channels";
 import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
-import { automaticChannelFact, shortDate } from "@/lib/listing-channels/row-fact";
+import { automaticChannelFact, shortDate, withRepliesFact } from "@/lib/listing-channels/row-fact";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { listingSiteDetailHref } from "@/lib/portal-detail-routes";
 import { listingPickerLabel, listingPickerNameOf } from "@/lib/listing-channels/listing-picker";
@@ -69,7 +69,7 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
             icon={glyph.icon}
             tone={glyph.tone}
             name={def.label}
-            fact={factFor(def)}
+            fact={withRepliesFact(def.id, factFor(def), status?.channels.find((c) => c.id === def.id)?.availability === "live")}
             factDataAttr={`property-listing-site-fact-${def.id}`}
             dataAttr={`listing-site-row-${def.id}`}
             onOpen={() => setOpenId(def.id)}
@@ -130,7 +130,7 @@ export function WorkspaceListingSitesPanel({ basePath = "/portal" }: { basePath?
             icon={glyph.icon}
             tone={glyph.tone}
             name={def.label}
-            fact={factFor(def)}
+            fact={withRepliesFact(def.id, factFor(def), status?.channels.find((c) => c.id === def.id)?.availability === "live")}
             factDataAttr={`promotion-listing-site-fact-${def.id}`}
             dataAttr={`listing-site-row-${def.id}`}
             onOpen={() => navigate(listingSiteDetailHref(basePath, def.id))}

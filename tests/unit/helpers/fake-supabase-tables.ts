@@ -2,7 +2,7 @@
  * A minimal in-memory stand-in for a Supabase `SupabaseClient`, covering
  * exactly the PostgREST chain shapes the workspace-scoping surfaces under
  * test issue: `select/insert/update/delete/upsert` + `eq/neq/in/is/not/or`
- * filters + `order/limit` (no-ops here) + `single/maybeSingle`/thenable.
+ * filters + `order/limit` (no-ops here), `range` (a real slice) + `single/maybeSingle`/thenable.
  *
  * Not a general Supabase mock — just enough surface for these tests to run
  * real filter logic (including the `col.in.(a,b),col.is.null` `.or()` shape
@@ -86,6 +86,11 @@ class FakeQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
     return this;
   }
   limit(): this {
+    return this;
+  }
+  /** Real paging: a sweep that pages until a short page needs the slice, not a no-op. */
+  range(from: number, to: number): this {
+    this.working = this.working.slice(from, to + 1);
     return this;
   }
   ilike(): this {

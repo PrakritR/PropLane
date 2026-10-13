@@ -1662,3 +1662,13 @@ must explicitly set `NOMINATIM_PROVIDER_URL` and `OVERPASS_PROVIDER_URL` to
 managed or self-hosted HTTPS services; missing or unsafe configuration returns
 an honest unavailable result. Caches and request queues are per server process,
 so they are an egress reduction rather than a distributed quota guarantee.
+
+## Also notify (extra people on the work number)
+
+`workspace_work_number_recipients` (service-role only, no client policy) lists people with no PropLane account who
+get every manager notice the work number sends. The list is keyed on the workspace OWNER, not on a
+workspace id (one list per owner, at most `MAX_WORK_NUMBER_RECIPIENTS` = 10 people). `notifyPropertyScopedManagersFromAgent` fans the
+notice's `externalText` out to each of them as a text FROM the owner's work number (billed to the owner) and an
+email from the work email, never an Assistant thread (`notifyWorkNumberRecipients`). The list is managed by the
+owner (a teammate with Team at edit may read the list, only the owner changes it) (`/api/pro/work-number-recipients`). An addressed co-manager invite also
+texts a verified invitee from the inviter's work number (`notifyCoManagerInviteSent`).

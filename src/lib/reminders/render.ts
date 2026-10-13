@@ -30,6 +30,8 @@ export type ReminderPayload = {
   url?: string | null;
   recipientName?: string | null;
   notes?: string | null;
+  /** One finished line (check-in / check-out reminders): it IS the subject and the body's lead. */
+  headline?: string | null;
   customSubject?: string | null;
   customBody?: string | null;
   amountLabel?: string | null;
@@ -189,6 +191,14 @@ export function renderReminder(input: {
   payload: ReminderPayload;
 }): RenderedReminder {
   const { kind, leadMinutes, payload } = input;
+  const headline = (payload.headline ?? "").trim();
+  if (headline && !(payload.customSubject ?? "").trim() && !(payload.customBody ?? "").trim()) {
+    const link = (payload.url ?? "").trim();
+    return {
+      subject: headline,
+      body: lines([greeting(payload.recipientName), "", headline, link ? "" : null, link ? `Open booking: ${link}` : null, "", "PropLane"]),
+    };
+  }
   const customSubject = (payload.customSubject ?? "").trim();
   const customBody = (payload.customBody ?? "").trim();
   if (customSubject || customBody) {

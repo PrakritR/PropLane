@@ -670,11 +670,14 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     // A stay is prepared for over days — keys, cleaning, a room turn — not
     // minutes, so the lead times sit further out than a tour's.
-    leadMinutes: [3 * DAY, 1 * DAY],
-    timings: ["before:4320", "before:1440"],
-    // Manager-side only: an imported channel booking carries no guest contact,
+    leadMinutes: [1 * DAY],
+    // 9:00 PT the day before check-in (the sweep anchors check-in at 9:00) plus 9:00 PT on the
+    // morning of check-out (its own anchor; see `subjects/bookings.server.ts`).
+    timings: ["before:1440"],
+    // The owner AND every teammate with the house (Calendar alerts), like the booking alert itself.
+    // Manager-side only otherwise: an imported channel booking carries no guest contact,
     // so `counterparty` has nobody to reach. See the note at the top of this file.
-    audience: { manager: true, counterparty: false, team: false, vendor: false },
+    audience: { manager: true, counterparty: false, team: true, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,

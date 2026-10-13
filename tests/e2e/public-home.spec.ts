@@ -169,7 +169,7 @@ test.describe("Public home", () => {
         sidebar: [
           "Dashboard", "Tasks", "Calendar", "Communication",
           "Properties", "Bookings", "Promotion",
-          "Tours", "Application", "Leases", "Forms",
+          "Tours", "Applications", "Leases", "Forms",
           "Residents", "Vendors", "Services",
           "Incoming payments", "Outgoing payments", "Finances", "Documents",
         ],
@@ -271,7 +271,7 @@ test.describe("Public home", () => {
       // Beat 1: the prospect texts and the manager approves the reply in Communication; beat 2: Applications.
       await expect(current).toHaveAttribute("aria-label", "Communication", { timeout: 20_000 });
       await expect(demo).toHaveAttribute("data-demo-beat", "0");
-      await expect(current).toHaveAttribute("aria-label", "Application", { timeout: 30_000 });
+      await expect(current).toHaveAttribute("aria-label", "Applications", { timeout: 30_000 });
       await expect(demo).toHaveAttribute("data-demo-beat", "1");
       // Hovering the window pauses the story.
       await demo.hover();
@@ -534,7 +534,7 @@ test.describe("Public home", () => {
       await goHome(page);
       const demo = page.locator("#rlp-demo-stage");
       await demo.scrollIntoViewIfNeeded();
-      await demo.getByRole("button", { name: "Application", exact: true }).click();
+      await demo.getByRole("button", { name: "Applications", exact: true }).click();
       const main = demo.locator(".rlp-main");
       await expect(main).toHaveAttribute("data-scroll", /more|end/);
       const fade = async () => Number(await main.evaluate((node) => getComputedStyle(node, "::after").opacity));

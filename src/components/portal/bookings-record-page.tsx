@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCentsAsUsd } from "@/lib/money-label-totals";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ExternalLink, Pencil, UserRound } from "lucide-react";
@@ -8,7 +9,7 @@ import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { RecordFactCard, RecordFactRow, RecordRowsCard, type RecordRowItem } from "@/components/portal/portal-record-overview-kit";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { BookingsGuestNameDialog } from "@/components/portal/bookings-guest-name-dialog";
+import { BookingsStayDetailsDialog } from "@/components/portal/bookings-stay-details-dialog";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
@@ -93,11 +94,11 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     const past = guestPastStays(entry, entries, today);
     body = (
       <RecordFactCard title="Guest" dataAttr="booking-guest-card">
-        <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label="Edit name" onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
+        <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label="Edit booking details" onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
         {airbnbStay && entry.reservationCode ? <RecordFactRow label="Reservation" value={<span className="flex items-center gap-1.5">{entry.reservationCode}{airbnbUrl ? <PortalIconAction icon={ExternalLink} label="Open in Airbnb" onClick={() => window.open(airbnbUrl, "_blank", "noopener,noreferrer")} data-attr="booking-open-in-airbnb" /> : null}</span>} /> : null}
         {entry.phoneLast4 ? <RecordFactRow label="Phone ending" value={entry.phoneLast4} /> : null}
         <RecordFactRow label="Email" value={guestEmail || "—"} />
-        <RecordFactRow label="Phone" value={entry.residentPhone || "—"} />
+        <RecordFactRow label="Phone" value={(airbnbStay ? entry.guestPhone : "") || entry.residentPhone || "—"} />
         <RecordFactRow label="Past stays" value={past.count === 0 ? "None yet" : `${past.count} · ${past.latest ? `last ${formatBookingStayRange(past.latest.start, past.latest.end)}` : ""}`} />
       </RecordFactCard>
     );
@@ -127,6 +128,9 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {checkTimes ? <RecordFactRow label="Check-in / out" value={checkTimes} /> : null}
         <RecordFactRow label="Status" value={status} />
         {entry.monthlyRent != null ? <RecordFactRow label="Rent" value={bookingRateLabel(entry)} /> : <RecordFactRow label="Rate" value={bookingRateLabel(entry)} />}
+        {airbnbStay ? <RecordFactRow label="Nightly" value={typeof entry.nightlyCents === "number" ? formatCentsAsUsd(entry.nightlyCents) : "—"} /> : null}
+        {airbnbStay ? <RecordFactRow label="Payout" value={typeof entry.payoutCents === "number" ? <span className="flex items-center gap-1.5">{formatCentsAsUsd(entry.payoutCents)}<PortalIconAction icon={Pencil} label="Edit booking details" onClick={() => setNamingGuest(true)} data-attr="booking-payout-edit" /></span> : <span className="flex items-center gap-1.5">—<PortalIconAction icon={Pencil} label="Edit booking details" onClick={() => setNamingGuest(true)} data-attr="booking-payout-edit" /></span>} /> : null}
+        {airbnbStay ? <RecordFactRow label="Paid on" value={entry.paidAt ? formatBookingPaidOn(entry.paidAt) : "—"} /> : null}
         {entry.securityDeposit != null ? <RecordFactRow label="Deposit" value={bookingMoney(entry.securityDeposit)} /> : null}
         {entry.leaseTerm ? <RecordFactRow label="Lease term" value={entry.leaseTerm} /> : null}
         {entry.lastSyncedAt ? <RecordFactRow label="Last synced" value={new Date(entry.lastSyncedAt).toLocaleString()} /> : null}
@@ -145,8 +149,13 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
       </PortalRecordSectionChrome>
     </PortalRecordDetailPage>
     {removeStayDialog}
-    {namingGuest ? <BookingsGuestNameDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast("Guest name saved"); onRefresh?.(); }} /> : null}
+    {namingGuest ? <BookingsStayDetailsDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast("Booking details saved"); onRefresh?.(); }} /> : null}
     {editing ? <BookingsEditSheet key={bookingEntryKey(entry)} entry={entry} entries={entries} propertyOptions={propertyOptions} onClose={() => setEditing(false)} onSave={onSaveBlock} onSaveStayMeta={onSaveStayMeta} /> : null}
     {cancelling ? <BookingsCancelDialog key={bookingEntryKey(entry)} entry={{ ...entry, residentEmail: entry.residentEmail || resident?.email }} onClose={() => setCancelling(false)} onSave={onSaveBlock} /> : null}
   </>;
+}
+
+function formatBookingPaidOn(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }

@@ -23,7 +23,6 @@ import {
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
   countUnopenedPersistedInbox,
-  loadPersistedInbox,
 } from "@/lib/portal-inbox-storage";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
@@ -137,10 +136,6 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
           .reduce((sum, r) => sum + getPartnerInquiryWindows(r).length, 0),
       0,
     );
-    const inboxThreads = safe(
-      () => loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []).filter((t) => t.folder === "inbox" && t.unread),
-      [],
-    );
     return buildManagerAttentionRows({
       basePath,
       overdueChargeCount: overdueCharges.length,
@@ -148,7 +143,6 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
         overdueCharges.reduce((sum, c) => sum + safe(() => parseMoneyLabel(c.balanceLabel), 0), 0),
       ),
       pendingApplicationCount: pendingApps.length,
-      latestPendingApplicationProperty: pendingApps[0]?.property,
       managerSignatureLeaseCount,
       pendingTourCount,
       messagingNeedsSetup,
@@ -156,7 +150,6 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
       draftPropertyCount: safe(() => readPortfolioSnapshot(userId).draftCount, 0),
       draftsHref: safe(() => propertyListHref(basePath, "drafts"), `${basePath}/properties/drafts`),
       unreadConversationCount: safe(() => countUnopenedPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []), 0),
-      latestUnreadSubject: inboxThreads[0]?.subject,
     }).slice(0, MANAGER_ATTENTION_MAX_ROWS);
   }, [basePath, messagingNeedsSetup, ready, tick, userId]);
 

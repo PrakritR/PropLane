@@ -81,7 +81,7 @@ export type InboxThreadMessage = {
   recordRef?: RecordRef;
 };
 
-export type InboxThreadMessageChannel = "email" | "sms" | "proplane";
+export type InboxThreadMessageChannel = "email" | "sms" | "proplane" | "facebook";
 
 /**
  * An AI-drafted manager reply awaiting explicit manager approval. Stored ONLY on

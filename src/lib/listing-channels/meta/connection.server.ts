@@ -75,6 +75,20 @@ export async function loadMetaConnection(db: SupabaseClient, workspaceId: string
   };
 }
 
+/** The decrypted connection for a Facebook Page id (the webhook knows only the Page). Null when absent or revoked. */
+export async function loadMetaConnectionByPageId(db: SupabaseClient, pageId: string): Promise<MetaConnection | null> {
+  const { data, error } = await db
+    .from("listing_channel_connections")
+    .select("workspace_id")
+    .eq("provider", "meta")
+    .eq("page_id", pageId)
+    .eq("revoked", false)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data?.workspace_id) return null;
+  return loadMetaConnection(db, String(data.workspace_id));
+}
+
 export async function saveMetaConnection(
   db: SupabaseClient,
   args: { workspaceId: string; managerUserId: string; metaUserId: string; page: MetaManagedPage },

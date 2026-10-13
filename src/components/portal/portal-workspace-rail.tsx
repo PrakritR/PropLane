@@ -1,12 +1,12 @@
 "use client";
 
 import { HelpCircle, Plus } from "lucide-react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import { PortalAccountMenu } from "@/components/portal/portal-account-menu";
 import { PortalHelpPanel } from "@/components/portal/portal-help-panel";
+import { WorkspaceCreateJoinDialog } from "@/components/portal/workspace-create-join-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import type { PortalKind } from "@/lib/portal-types";
@@ -30,8 +30,7 @@ const TILE =
  * Manager: one rounded tile per workspace, from the SAME context the workspace
  * switcher menu reads. The active tile is white with a ring; clicking another
  * runs the existing switch (`select`), which re-points every count at that
- * workspace. The dashed + is the existing "New
- * workspace" entry. Resident / vendor / admin: one non-interactive brand tile.
+ * workspace. The dashed + opens the Create | Join workspace popup. Resident / vendor / admin: one non-interactive brand tile.
  *
  * Bottom: Help (opens the existing help + feedback panel, formerly the sidebar
  * footer) and the avatar (the existing account menu, formerly the top bar).
@@ -52,6 +51,18 @@ export function PortalWorkspaceRail({
   const { showToast } = useAppUi();
   const session = usePortalSession();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [dialog, setDialog] = useState<{ tab: "create" | "join"; input: string } | null>(null);
+  // /portal?join=<code> (from an invite email) opens the Join tab prefilled.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("join")?.trim();
+    if (!code) return;
+    setDialog({ tab: "join", input: code });
+    params.delete("join");
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+  }, []);
   const isWorkspacePortal = kind === "manager" || kind === "pro";
   // Settings follows the workspace picked here, so switching while in Settings stays in Settings.
   const inSettings = /\/profile(\/|$)/.test(pathname ?? "");
@@ -116,10 +127,11 @@ export function PortalWorkspaceRail({
         {isWorkspacePortal ? (
           <>
             {workspaceTiles}
-            <Link
-              href="/portal/profile?tab=workspaces&new=1"
-              title="New workspace"
-              aria-label="New workspace"
+            <button
+              type="button"
+              onClick={() => setDialog({ tab: "create", input: "" })}
+              title="Create or join a workspace"
+              aria-label="Create or join a workspace"
               data-attr="portal-rail-new-workspace"
               className={cn(
                 TILE,
@@ -127,7 +139,7 @@ export function PortalWorkspaceRail({
               )}
             >
               <Plus className="size-4" strokeWidth={1.75} aria-hidden />
-            </Link>
+            </button>
           </>
         ) : (
           <span
@@ -160,6 +172,15 @@ export function PortalWorkspaceRail({
           onOpenHelp={() => setHelpOpen(true)}
         />
       </nav>
+
+      {isWorkspacePortal ? (
+        <WorkspaceCreateJoinDialog
+          open={dialog !== null}
+          onClose={() => setDialog(null)}
+          initialTab={dialog?.tab ?? "create"}
+          initialInput={dialog?.input ?? ""}
+        />
+      ) : null}
 
       <PortalHelpPanel
         open={helpOpen}

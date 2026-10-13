@@ -21,7 +21,6 @@ export type ManagerAttentionInput = {
   overdueChargeCount: number;
   overdueBalanceLabel: string;
   pendingApplicationCount: number;
-  latestPendingApplicationProperty?: string | null;
   managerSignatureLeaseCount: number;
   pendingTourCount: number;
   messagingNeedsSetup: boolean;
@@ -29,7 +28,6 @@ export type ManagerAttentionInput = {
   draftPropertyCount: number;
   draftsHref: string;
   unreadConversationCount: number;
-  latestUnreadSubject?: string | null;
 };
 
 export const MANAGER_ATTENTION_MAX_ROWS = 6;

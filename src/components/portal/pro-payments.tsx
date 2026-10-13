@@ -1,5 +1,7 @@
 "use client";
 
+import { airbnbPayoutLedgerRow, isAirbnbPayoutLedgerRow } from "@/lib/channel-calendar/airbnb-payouts";
+import { fetchAirbnbPayouts, type AirbnbPayoutRow } from "@/lib/channel-calendar/client";
 import { useEffect, useMemo, useState, useCallback, type ComponentProps } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -539,6 +541,24 @@ export function ManagerPayments({
     [userId, propertyTick, applicationTick, ledgerDataVersion],
   );
 
+  // Airbnb payouts (typed on the booking or read from Airbnb's emails) draw beside the charges.
+  // They are projections of the channel stay, never household charges.
+  const [airbnbPayouts, setAirbnbPayouts] = useState<AirbnbPayoutRow[]>([]);
+  useEffect(() => {
+    if (direction !== "incoming") return;
+    let cancelled = false;
+    void fetchAirbnbPayouts()
+      .then((payouts) => {
+        if (!cancelled) setAirbnbPayouts(payouts);
+      })
+      .catch(() => {
+        // A failed read leaves the charges as they were: payouts are an addition, not the ledger.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [direction, hcTick]);
+
   const mergedRows = useMemo(() => {
     void ledgerDataVersion;
     const applications = readManagerApplicationRows();
@@ -550,7 +570,7 @@ export function ManagerPayments({
       }),
       applications,
     );
-    return scoped
+    const chargeRows = scoped
       .map((charge) => {
         const ledgerRow = householdChargeToLedgerRow(charge);
         const chargeEmail = charge.residentEmail?.trim().toLowerCase() ?? "";
@@ -563,7 +583,8 @@ export function ManagerPayments({
         const roomNumber = application ? ledgerRoomNumberForApplication(application) : "";
         return roomNumber ? { ...ledgerRow, roomNumber } : ledgerRow;
       });
-  }, [userId, ledgerDataVersion, linkedPaymentPropertyIds]);
+    return [...chargeRows, ...airbnbPayouts.map(airbnbPayoutLedgerRow)];
+  }, [userId, ledgerDataVersion, linkedPaymentPropertyIds, airbnbPayouts]);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -598,6 +619,7 @@ export function ManagerPayments({
   const residentOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const row of mergedRows) {
+      if (isAirbnbPayoutLedgerRow(row)) continue;
       const id = paymentResidentKey(row);
       if (!id || seen.has(id)) continue;
       seen.set(id, row.residentName?.trim() || id);
@@ -919,6 +941,7 @@ export function ManagerPayments({
         reminderScheduleSummary={reminderScheduleSummary}
         reminderAutomationSettings={reminderSettings}
         showUpcomingCharges={showUpcomingCharges}
+        airbnbPayoutRows={airbnbPayouts}
         onOpenReminderSettings={() => navigate(managerSettingsGearHref("reminders", portalBase))}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}

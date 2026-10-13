@@ -37,6 +37,8 @@ export async function sendManagerNoticeEmail(
   db: SupabaseClient,
   input: {
     recipientUserId: string;
+    /** An address that is not a PropLane account (a work-number "Also notify" person); skips the profile read. */
+    toEmail?: string;
     /** The workspace owner whose work email the mail leaves from. */
     ownerUserId: string;
     /** The notice's workspace; null = the owner's default workspace. */
@@ -49,8 +51,14 @@ export async function sendManagerNoticeEmail(
 ): Promise<ManagerNoticeEmailOutcome> {
   let claimId: string | null = null;
   try {
-    const { data: profile } = await db.from("profiles").select("email").eq("id", input.recipientUserId).maybeSingle();
-    const to = String((profile as { email?: unknown } | null)?.email ?? "").trim().toLowerCase();
+    const to = input.toEmail?.trim()
+      ? input.toEmail.trim().toLowerCase()
+      : String(
+          ((await db.from("profiles").select("email").eq("id", input.recipientUserId).maybeSingle()).data as { email?: unknown } | null)
+            ?.email ?? "",
+        )
+          .trim()
+          .toLowerCase();
     if (!to.includes("@")) return { status: "skipped", reason: "no_email" };
 
     if (input.idempotencyKey?.trim()) {

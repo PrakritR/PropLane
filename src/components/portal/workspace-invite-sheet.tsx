@@ -148,6 +148,7 @@ export function WorkspaceInviteSheet({
 
   const [linkId, setLinkId] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [linkCode, setLinkCode] = useState<string | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
   /** The terms the held link (`linkId`) actually carries — null until one is hydrated or minted. */
   const [heldTerms, setHeldTerms] = useState<HeldLinkTerms | null>(null);
@@ -156,6 +157,12 @@ export function WorkspaceInviteSheet({
   const [sending, setSending] = useState(false);
   /** How the invite is delivered — invite link is the default. */
   const [channel, setChannel] = useState<"link" | "phone" | "email" | "code">("link");
+
+  /** Optional contact the Invite link channel delivers to on Create (both when both are given). */
+  const [linkPhone, setLinkPhone] = useState("");
+  const [linkEmail, setLinkEmail] = useState("");
+  const linkPhoneRecipient = useMemo(() => parseInviteRecipient(linkPhone), [linkPhone]);
+  const linkEmailRecipient = useMemo(() => parseInviteRecipient(linkEmail), [linkEmail]);
 
   const recipient = useMemo(() => parseInviteRecipient(sendValue), [sendValue]);
   const canSend =
@@ -216,8 +223,11 @@ export function WorkspaceInviteSheet({
     setWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
     setLinkId(null);
     setLinkUrl(null);
+    setLinkCode(null);
     setHeldTerms(null);
     setSendValue("");
+    setLinkPhone("");
+    setLinkEmail("");
     let cancelled = false;
     setLinkLoading(true);
     void (async () => {
@@ -228,6 +238,7 @@ export function WorkspaceInviteSheet({
         const data = (await res.json().catch(() => ({}))) as {
           link?: {
             id?: string;
+            code?: string | null;
             teamRole?: string | null;
             houseScope?: string | null;
             assignedPropertyIds?: string[];
@@ -264,6 +275,7 @@ export function WorkspaceInviteSheet({
         setCustomPermissions(nextCustomPermissions);
         setWorkspacePermissions(nextWorkspacePermissions);
         setLinkId(link.id);
+        setLinkCode(link.code ?? null);
         setHeldTerms({
           role: nextRole,
           houseScope: nextHouseScope,
@@ -311,14 +323,14 @@ export function WorkspaceInviteSheet({
    * URL when its terms still match; otherwise mints with `replaceActive: true`.
    */
   const resolveLinkForCurrentTerms = async (): Promise<
-    { ok: true; url: string; linkId: string } | { ok: false; error: string }
+    { ok: true; url: string; linkId: string; code: string | null } | { ok: false; error: string }
   > => {
     if (linkId && termsMatchHeldLink) {
-      if (linkUrl) return { ok: true, url: linkUrl, linkId };
+      if (linkUrl) return { ok: true, url: linkUrl, linkId, code: linkCode };
       const result = await revealInviteLinkClient(linkId);
       if (!result.ok) return { ok: false, error: result.error };
       setLinkUrl(result.url);
-      return { ok: true, url: result.url, linkId };
+      return { ok: true, url: result.url, linkId, code: linkCode };
     }
 
     const hadPriorLink = linkId != null;
@@ -340,14 +352,45 @@ export function WorkspaceInviteSheet({
     if (!result.ok) return { ok: false, error: result.error };
     setLinkId(result.linkId);
     setLinkUrl(result.url);
+    setLinkCode(result.code);
     setHeldTerms(currentTerms);
     if (hadPriorLink) {
       showToast("Link updated. Anyone with the old link will need the new one.");
     }
-    return { ok: true, url: result.url, linkId: result.linkId };
+    return { ok: true, url: result.url, linkId: result.linkId, code: result.code };
   };
 
-  /** Mint or reveal the link for current terms and keep the sheet open. */
+  /** Text or email the invite for what is on screen; returns an error message or null when it went. */
+  const deliverInvite = async (
+    kind: "phone" | "email",
+    value: string,
+    link: { url: string; linkId: string; code: string | null },
+  ): Promise<string | null> => {
+    const facts = {
+      kind: "workspace" as const,
+      inviterName,
+      workspaceName: workspace.name,
+      propertyLabels: houseIds.map((id) => workspace.propertyLabels?.[id]?.trim() || id),
+      inviteUrl: link.url,
+      workspaceCode: link.code ?? undefined,
+      roleLabel: roleLabelFor(role),
+      reach,
+    };
+    if (kind === "phone") {
+      const smsResult = await sendWorkspaceInviteSms({ workspaceId: workspace.id, phone: value, linkId: link.linkId });
+      return smsResult.ok ? null : smsResult.error;
+    }
+    const result = await deliverManagerDirectoryMessage(
+      { name: value, email: value, subject: formatInviteMessageSubject(facts), body: formatInviteMessageBody(facts) },
+      false,
+      { viaInbox: false, viaEmail: true, viaSms: false },
+      undefined,
+      {},
+    );
+    return result.ok ? null : result.message;
+  };
+
+  /** Mint or reveal the link for current terms and keep the sheet open. With a phone and/or email, send on Create. */
   const createInviteLinkInSheet = async () => {
     setLinkLoading(true);
     try {
@@ -355,6 +398,27 @@ export function WorkspaceInviteSheet({
       if (!result.ok) {
         showToast(result.error);
         return;
+      }
+      const sent: string[] = [];
+      const failed: string[] = [];
+      if (linkPhoneRecipient.kind === "phone") {
+        const error = await deliverInvite("phone", linkPhoneRecipient.value, result);
+        (error ? failed : sent).push(error ? `text: ${error}` : "texted");
+      }
+      if (linkEmailRecipient.kind === "email") {
+        const error = await deliverInvite("email", linkEmailRecipient.value, result);
+        (error ? failed : sent).push(error ? `email: ${error}` : "emailed");
+      }
+      if (sent.length > 0 || failed.length > 0) {
+        showToast(
+          failed.length > 0
+            ? `Invite ${sent.join(" and ")}${sent.length ? "; " : ""}could not send (${failed.join("; ")}). Copy the link instead.`
+            : `Invite ${sent.join(" and ")} · ${roleLabelFor(role)} · ${reach}`,
+        );
+        if (failed.length === 0) {
+          setLinkPhone("");
+          setLinkEmail("");
+        }
       }
       onChanged();
       onInviteLinkSaved?.();
@@ -425,6 +489,7 @@ export function WorkspaceInviteSheet({
         workspaceName: workspace.name,
         propertyLabels: houseIds.map((id) => workspace.propertyLabels?.[id]?.trim() || id),
         inviteUrl: linkResult.url,
+        workspaceCode: linkResult.code ?? undefined,
         roleLabel,
         reach,
       };
@@ -515,7 +580,26 @@ export function WorkspaceInviteSheet({
           dataAttr="workspace-invite-channel"
         />
 
-        {channel === "link" ? null : (
+        {channel === "link" ? (
+          <>
+            <Input
+              aria-label="Phone number"
+              placeholder="Phone number"
+              value={linkPhone}
+              onChange={(e) => setLinkPhone(e.target.value)}
+              inputMode="tel"
+              data-attr="workspace-invite-link-phone"
+            />
+            <Input
+              aria-label="Email"
+              placeholder="Email"
+              value={linkEmail}
+              onChange={(e) => setLinkEmail(e.target.value)}
+              type="email"
+              data-attr="workspace-invite-link-email"
+            />
+          </>
+        ) : (
           <Input
             aria-label={
               channel === "phone" ? "Phone number" : channel === "email" ? "Email" : "PropLane code"
@@ -564,6 +648,14 @@ export function WorkspaceInviteSheet({
 
         <WorkspaceInviteLinkBox
           url={linkUrl}
+          code={linkCode}
+          onCopyCode={() => {
+            if (!linkCode) return;
+            void navigator.clipboard.writeText(linkCode).then(
+              () => showToast("Workspace code copied."),
+              () => showToast("Could not copy the workspace code."),
+            );
+          }}
           visible={termsMatchHeldLink}
           stale={heldTerms != null && !termsMatchHeldLink}
           awaitingReveal={termsMatchHeldLink && linkId != null && !linkUrl}

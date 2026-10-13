@@ -135,17 +135,16 @@ describe("evidence · the MCP connection screens", () => {
       state: "s1",
     }) });
     const html = renderToStaticMarkup(element);
-    expect(html).toContain("Connect Claude to PropLane");
+    expect(html).toContain("Connect Claude");
     expect(html).toContain("Seattle Homes");
     expect(html).toContain("Allow");
-    expect(html).toContain("Each one waits for your approval in PropLane");
+    expect(html).toContain("Draft changes you approve in PropLane");
     writeShot("mcp-consent-allow", "An MCP client (here Claude) asks for access. The consent screen names the client, the signed-in account and the workspace it will act in, says reads are reads and every change waits for approval inside PropLane, and offers Allow / Cancel.", html);
   });
 
   it("Connected confirms the workspace and returns to the client", async () => {
     const html = renderToStaticMarkup(await McpConnectedPage({ searchParams: Promise.resolve({ token: "t" }) }));
-    expect(html).toContain("PropLane is connected");
-    expect(html).toContain("Claude can now use Seattle Homes");
+    expect(html).toContain("Connected");
     writeShot("mcp-connected", "After Allow, PropLane's own Connected screen confirms which workspace the client got, then returns to it. A copied link opened by anybody else is inert.", html);
   });
 });

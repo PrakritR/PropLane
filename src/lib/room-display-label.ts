@@ -8,15 +8,30 @@
  * shows a room imports it rather than re-deriving it.
  */
 /**
+ * A segment that only a generator writes: a counter (`0001`, `001`), a
+ * timestamp (`1760000000000`), or a random blob (`4f2a9c1e`, `m3k2a9bz`).
+ * A segment a person types — `unit`, `2`, `8th`, `4709A`, `12A` — is not one,
+ * which is what keeps a hyphenated label the manager wrote off the id list.
+ */
+function looksLikeGeneratedSegment(segment: string): boolean {
+  if (/^\d{3,}$/.test(segment)) return true;
+  return segment.length >= 6 && /\d/.test(segment) && /[a-z]/i.test(segment);
+}
+
+/**
  * True for a stored identifier that must never be shown as a place name:
- * `mgr-qa-c3-house-0001`, `prop_4f2a_001`, a UUID. A single word, a name with
- * spaces ("Unit 3") or an ordinary "room-2" is not one.
+ * `mgr-qa-c3-house-0001`, `prop_4f2a_001`, `prop_1760000000000_a1b2c3`, a UUID.
+ * A single word, a name with spaces ("Unit 3"), an ordinary "room-2" and a
+ * hyphenated label a person typed ("unit-2-a", "4709A-8th-Ave") are not ones:
+ * three dash-separated parts alone is how a real place name reads too, so the
+ * id shape has to come from a part no human writes.
  */
 export function looksLikeRawRecordId(value: string | null | undefined): boolean {
   const v = String(value ?? "").trim();
   if (!v || /\s/.test(v)) return false;
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return true;
-  return /^[a-z0-9]+([-_][a-z0-9]+){2,}$/i.test(v) && /\d/.test(v);
+  if (!/^[a-z0-9]+([-_][a-z0-9]+){2,}$/i.test(v)) return false;
+  return v.split(/[-_]/).some(looksLikeGeneratedSegment);
 }
 
 /** A property or place name as the person should read it: a raw id reads as nothing. */

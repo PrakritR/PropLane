@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Check, Pencil, Trash2 } from "lucide-react";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
+import { RecordActionContext } from "@/components/ui/record-action-context";
+import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
 afterEach(cleanup);
 
@@ -26,5 +28,31 @@ describe("adaptive header icon handlers", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
     expect(edit).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("inside a record ⋯ menu every icon action is a named row, not a bare icon button", async () => {
+    const edit = vi.fn();
+    render(
+      <RecordActionContext.Provider
+        value={{
+          scope: "row-1",
+          clear: () => {},
+          actions: (
+            <PortalAdaptiveActionRow actions={[
+              portalIconActionSpec({ id: "edit", label: "Edit", icon: Pencil, onClick: edit }),
+              portalIconActionSpec({ id: "delete", label: "Delete", icon: Trash2, tone: "danger", onClick: () => {} }),
+            ]} />
+          ),
+        }}
+      >
+        <RecordActionMenu label="Service row" activate={() => {}} />
+      </RecordActionContext.Provider>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Service row" }), { key: "ArrowDown" });
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(expect.arrayContaining(["Edit", "Delete"]));
+    for (const item of items) expect(item.querySelector("svg")).not.toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+    expect(edit).toHaveBeenCalledTimes(1);
   });
 });
