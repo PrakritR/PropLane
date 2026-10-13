@@ -31,7 +31,7 @@ import {
   type QuickApplyReadiness,
 } from "@/hooks/use-quick-apply-eligibility";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
-import { listingMonthlyPriceLine } from "@/lib/listing-price-line";
+import { listingMonthlyPriceLine, listingPriceRows } from "@/lib/listing-price-line";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { listingShortStayNightlyFrom } from "@/lib/short-stay-request";
 
@@ -193,9 +193,8 @@ export function ListingPriceCard({
   const stay = useShortStay();
   const actions = useListingActions();
   const priceLine = listingMonthlyPriceLine(rich);
-  const estimated = rich.estimatedMonthlyTotalLabel?.trim() ? formatMoneyInLabel(rich.estimatedMonthlyTotalLabel.trim()) : undefined;
-  const breakdownLines = rich.pricingBreakdown ?? [];
   const nightlyFrom = listingShortStayNightlyFrom(property.listingSubmission);
+  const priceRows = listingPriceRows(rich, property.listingSubmission as Parameters<typeof listingPriceRows>[1], stay?.offered === true ? nightlyFrom : 0, formatMoneyInLabel);
   const segments = stay?.offered === true && nightlyFrom > 0;
   const segment = segments && stay ? stay.segment : "monthly";
   const contact = listingContactRows(property).phone;
@@ -220,18 +219,12 @@ export function ListingPriceCard({
         <ShortStayBookingBlock embedded className="mt-4" quickBook={actions?.quickEligible ? actions.identity : null} />
       ) : (
         <>
-          {estimated || breakdownLines.length > 0 ? (
-            <dl className="mt-3 divide-y divide-border border-y border-border text-sm">
-              {estimated ? (
-                <div className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-muted">Est. with utilities</dt>
-                  <dd className="font-bold tracking-tight text-foreground">{estimated}</dd>
-                </div>
-              ) : null}
-              {breakdownLines.map((line) => (
-                <div key={line.label} className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-muted">{line.label}</dt>
-                  <dd className="font-bold tracking-tight text-foreground">{formatMoneyInLabel(line.value)}</dd>
+          {priceRows.length > 0 ? (
+            <dl className="mt-3 divide-y divide-border border-y border-border text-sm" data-attr="listing-price-rows">
+              {priceRows.map((row) => (
+                <div key={row.key} className="flex items-baseline justify-between gap-3 py-2">
+                  <dt className="text-muted">{row.label}</dt>
+                  <dd className="font-bold tracking-tight text-foreground">{row.value}</dd>
                 </div>
               ))}
             </dl>

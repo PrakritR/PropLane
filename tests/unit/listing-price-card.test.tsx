@@ -92,6 +92,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("price rows", () => {
+  it("lists every price that exists, in order, and none that does not", () => {
+    const sub = {
+      v: 1,
+      securityDeposit: "1000",
+      shortTermRentalsAllowed: true,
+      shortTermDailyCost: "55",
+      rooms: [
+        { id: "r1", name: "Room 1", securityDeposit: "" },
+        { id: "r9", name: "Room 9", securityDeposit: "1500" },
+      ],
+    };
+    render(
+      <ListingDetailSections
+        property={property({ listingSubmission: sub })}
+        rich={rich({
+          pricingBreakdown: [
+            { label: "Application fee", value: "$45" },
+            { label: "Nightly rate", value: "$55/night" },
+            { label: "Parking", value: "$75/mo" },
+          ],
+        })}
+      />,
+    );
+    const rows = Array.from(card().querySelectorAll('[data-attr="listing-price-rows"] > div')).map((r) => r.textContent);
+    expect(rows).toEqual([
+      "Rent$1,050/mo",
+      "Security deposit$1,000",
+      "Deposit · Room 9$1,500",
+      "Application fee$45",
+      "Nightly rate$55/night",
+      "Parking$75/mo",
+    ]);
+  });
+});
+
 describe("price line", () => {
   it("is the stated monthly rent, with no Base rent row", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
