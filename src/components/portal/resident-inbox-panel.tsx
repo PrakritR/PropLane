@@ -1350,6 +1350,7 @@ export const ResidentInboxPanel = forwardRef<
           channel: m.channel,
         },
         lastShownSubject,
+        activeThread.from,
       );
       lastShownSubject = fields.lastShownSubject;
       return {

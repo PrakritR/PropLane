@@ -151,6 +151,7 @@ import {
   filterManagerCommunicationThreads,
   threadMatchesVendorContact,
 } from "@/lib/communication-inbox-filters";
+import { TEAM_ROOT_TEXT } from "@/lib/team-thread-display";
 import { emailReplySubjectFor, inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
@@ -1482,13 +1483,14 @@ export const ManagerInbox = forwardRef<
           channel: m.channel,
         },
         lastEmailSubject,
+        activeThread.from,
       );
       lastEmailSubject = fields.lastShownSubject;
       return {
         id: m.id,
         automated: m.automated,
         eventTitle: m.subject,
-        author: m.from,
+        author: m.body === TEAM_ROOT_TEXT ? "PropLane" : m.from,
         body: fields.body,
         at: m.at,
         direction,
