@@ -1,3 +1,4 @@
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import type { ChannelCalendarImportedRange, ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 
 /**
@@ -22,14 +23,30 @@ export type ChannelStayTombstone = {
   removedAt: string;
 };
 
-/** Identity of a tombstone. Room + channel + UID: a UID is only unique within one feed. */
+/**
+ * Identity of a tombstone. Room + channel + UID: a UID is only unique within one feed.
+ *
+ * A host block ("Airbnb (Not available)") is the exception: Airbnb reuses ONE UID for every
+ * block a host has, across dates and listings, so its identity also carries the dates
+ * (`start|end`). Pass `hostBlock` (or a `summary` that reads as one) with the range's dates.
+ * Reservations (unique UIDs) stay UID-only.
+ */
 export function channelStayTombstoneKey(input: {
   propertyId: string;
   roomId: string;
   provider: string;
   sourceUid: string;
+  start?: string | null;
+  end?: string | null;
+  hostBlock?: boolean;
+  summary?: string | null;
 }): string {
-  return [input.propertyId.trim(), input.roomId.trim(), input.provider.trim(), input.sourceUid.trim()].join("|");
+  const parts = [input.propertyId.trim(), input.roomId.trim(), input.provider.trim(), input.sourceUid.trim()];
+  if (isHostBlockRange({ hostBlock: input.hostBlock, summary: input.summary })) {
+    const start = (input.start ?? "").trim();
+    parts.push(start, (input.end ?? start).trim());
+  }
+  return parts.join("|");
 }
 
 /** The UID a range is identified by (an iCal event with no UID falls back to its derived id). */
@@ -47,7 +64,16 @@ export function pruneTombstonedRanges(
   const dropped: ChannelCalendarImportedRange[] = [];
   for (const range of ranges) {
     const uid = importedRangeUid(range);
-    const hit = uid && tombstoneKeys.has(channelStayTombstoneKey({ ...connection, sourceUid: uid }));
+    const hit = uid && tombstoneKeys.has(
+      channelStayTombstoneKey({
+        ...connection,
+        sourceUid: uid,
+        start: range.start,
+        end: range.end,
+        hostBlock: range.hostBlock,
+        summary: range.summary,
+      }),
+    );
     (hit ? dropped : kept).push(range);
   }
   return { kept, dropped };
