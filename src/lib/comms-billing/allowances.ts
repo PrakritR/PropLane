@@ -27,6 +27,15 @@ export function normalizeCommsPlanTier(raw: string | null | undefined): CommsPla
   return "free";
 }
 
+/**
+ * The tier a plan lookup budgets communication under. A LIVE signup trial has no Communication
+ * (the lock lives in `assertManagerCommunicationAllowed`), so its monthly allowance is the
+ * zero-credit tier's, not Pro's/Business's, whatever entitlement the row otherwise carries.
+ */
+export function commsBudgetTierForPlan(plan: { tier: string | null | undefined; liveSignupTrial?: boolean }): CommsPlanTier {
+  return plan.liveSignupTrial === true ? "free" : normalizeCommsPlanTier(plan.tier);
+}
+
 export function includedAllowanceCents(tier: CommsPlanTier): number | null {
   return COMMS_INCLUDED_ALLOWANCE_CENTS[tier];
 }

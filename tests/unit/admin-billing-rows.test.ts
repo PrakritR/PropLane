@@ -346,3 +346,38 @@ describe("tabs", () => {
     ]);
   });
 });
+
+describe("planSource: the plan with how the account got it", () => {
+  it("names a live trial with its end date", () => {
+    const row = deriveAdminBillingRow(
+      input({ purchase: purchase({ tier: "pro", billing: "trial", paidAt: new Date(NOW - 3 * 86_400_000).toISOString() }) }),
+    );
+    expect(row.onTrial).toBe(true);
+    expect(row.planSource).toMatch(/^Pro trial · ends [A-Z][a-z]{2} \d{1,2}$/);
+  });
+
+  it("shows a waiver code, a staff grant, and paid", () => {
+    expect(
+      deriveAdminBillingRow(input({ purchase: purchase({ tier: "pro", billing: "monthly", paidAt: "2026-08-01T00:00:00Z", promoCode: "FREE100" }) })).planSource,
+    ).toBe("Pro · FREE100");
+    expect(
+      deriveAdminBillingRow(input({ purchase: purchase({ tier: "business", billing: "portal", paidAt: "2026-08-01T00:00:00Z", stripeCheckoutSessionId: "admin_AX1" }) })).planSource,
+    ).toBe("Business · Staff grant");
+    expect(
+      deriveAdminBillingRow(input({ purchase: purchase({ tier: "business", billing: "monthly", paidAt: "2026-08-01T00:00:00Z", stripeSubscriptionId: "sub_1" }) })).planSource,
+    ).toBe("Business · paid");
+  });
+
+  it("Free, unknown and the complimentary override read plainly", () => {
+    expect(deriveAdminBillingRow(input()).planSource).toBe("Free");
+    expect(deriveAdminBillingRow(input({ planReadFailed: true })).planSource).toBe("Plan unknown");
+    expect(
+      deriveAdminBillingRow(
+        input({
+          purchase: purchase({ tier: "pro", billing: "monthly", paidAt: "2026-08-01T00:00:00Z", stripeSubscriptionId: "sub_1" }),
+          overrides: { ...EMPTY_MANAGER_BILLING_OVERRIDES, complimentary: true },
+        }),
+      ).planSource,
+    ).toBe("Pro · Staff grant");
+  });
+});

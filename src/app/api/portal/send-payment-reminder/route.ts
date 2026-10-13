@@ -108,6 +108,12 @@ export async function POST(req: Request) {
     const managerName =
       managerProfile?.full_name?.trim() || managerProfile?.email?.trim() || "Your property manager";
     const capability = await resolvePaymentReminderCapability(db, loaded);
+    if (capability.blocked) {
+      return NextResponse.json(
+        { ok: false, error: capability.blocked.message, code: `communication_${capability.blocked.reason}` },
+        { status: capability.blocked.status },
+      );
+    }
     const smsFromNumber = capability.sms.fromNumber;
 
     const chargeResidentUserId = String(ownedCharge.residentUserId ?? "").trim() || null;

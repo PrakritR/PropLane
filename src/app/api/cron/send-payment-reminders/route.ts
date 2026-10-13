@@ -33,6 +33,7 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
 import { paymentReminderSnapshotMatches, resolveReminderWorkspaceOwner } from "@/lib/payment-reminder-workspace";
 import { loadPaymentReminderChargeForActor } from "@/lib/payment-reminder-capability.server";
+import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 
 export const runtime = "nodejs";
 
@@ -185,6 +186,11 @@ export async function GET(req: Request) {
   for (const [managerId, charges] of chargesByManager) {
     if (managerId === "unknown") continue;
 
+    // A live signup trial has no Communication until it pays. Charges, late fees and the ledger
+    // carry on exactly as before; only the outbound reminder and notice are withheld (and, with an
+    // unreadable plan, retried on the next run rather than guessed at).
+    const communicationAccess = await assertManagerCommunicationAllowed(managerId);
+
     const rentProfiles = profilesByManager.get(managerId) ?? [];
     const eligibleCharges = filterChargesEligibleForPaymentReminders(charges, rentProfiles);
 
@@ -262,6 +268,10 @@ export async function GET(req: Request) {
     const bundledReminders = combineScheduledPaymentMessages(dueReminders);
 
     for (const message of bundledReminders) {
+      if (!communicationAccess.allowed) {
+        skipped++;
+        continue;
+      }
       const chargeIds = scheduledPaymentMessageChargeIds(message);
       const charges = chargeIds
         .map((id) => chargeById.get(id))
@@ -418,7 +428,7 @@ export async function GET(req: Request) {
             }),
           ) as ScheduledMessageOverride | undefined;
 
-          if (settings.lateFeeNoticeEnabled && !sentDedupIds.has(noticeDedupId)) {
+          if (settings.lateFeeNoticeEnabled && communicationAccess.allowed && !sentDedupIds.has(noticeDedupId)) {
             if (residentEmailBudgetLeft(charge.residentEmail)) {
               const result = await deliverPaymentReminder({
                 db,

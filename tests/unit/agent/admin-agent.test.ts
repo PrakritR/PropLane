@@ -64,7 +64,6 @@ const { resolveAdminAgentContext: realResolve } = await vi.importActual<typeof i
   "@/lib/tools/admin/context",
 );
 const { adminAgentRegistry } = await import("@/lib/tools/admin");
-const { subscriberBucketOf } = await import("@/lib/tools/admin/subscribers");
 const { monthWindow, summarizeBalanceTransactions } = await import("@/lib/tools/admin/stripe-reads");
 const { runReadTool } = await import("@/lib/tools/registry");
 
@@ -239,10 +238,14 @@ describe("adminAgentRegistry", () => {
       );
     });
 
-    it("subscriber_counts buckets Paid, Trial, Promo, Free and Comp by the enforced plan", async () => {
+    it("subscriber_counts buckets by the SAME classifier /admin/subscribers renders", async () => {
+      // `promo` holds a Stripe CHECKOUT code on a live subscription: display only, so it is Paid.
+      // `comp` is the complimentary override: a staff grant, so it is the Promo code bucket (the
+      // separate Comp bucket is gone). `free` (no purchase row) and `lapsed` (a run-out trial) are
+      // Free. Same answer `/admin/subscribers` renders for the same accounts.
       expect(await run("subscriber_counts")).toEqual({
         ok: true,
-        data: { paid: 1, trial: 2, promo: 1, free: 2, comp: 1, total: 7 },
+        data: { paid: 2, trial: 2, promo: 1, free: 2, total: 7 },
       });
     });
 
@@ -260,8 +263,11 @@ describe("adminAgentRegistry", () => {
       ]);
     });
 
-    it("never files an unreadable plan into a bucket", () => {
-      expect(subscriberBucketOf({ planUnknown: true } as never, null)).toBeNull();
+    it("never files an unreadable plan into a bucket", async () => {
+      // `deriveAdminBillingRow` reports `planUnknown` only for a failed purchase read, which
+      // `readAllPages` surfaces by throwing - the tool must not answer with a guessed bucket.
+      m.readAllPages.mockRejectedValue(new Error("purchase page read failed"));
+      expect(await run("subscriber_counts")).toMatchObject({ ok: false });
     });
   });
 

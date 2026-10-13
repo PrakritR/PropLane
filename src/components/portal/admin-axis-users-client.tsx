@@ -59,6 +59,8 @@ type TierFilter = "all" | "free" | "pro" | "business";
  */
 type ManagerBillingSummary = {
   planLabel: string;
+  /** Plan with how the account got it ("Pro trial · ends Oct 13"). */
+  planSource: string;
   storedTier: string;
 };
 
@@ -266,21 +268,31 @@ function AdminAccountsList() {
   }, [kind, debouncedQuery, reloadTick]);
 
   // Each manager row's plan (C167) — one bulk read, same route the retired
-  // Billing list used, never a per-row fan-out.
+  // Billing list used, never a per-row fan-out. The read walks every manager in
+  // id chunks and can be slow, and a single timeout used to leave every row on
+  // "Plan —" for good, so one failed attempt is retried before giving up.
   useEffect(() => {
     if (isDemoModeActive() || kind !== "manager") return;
     let cancelled = false;
     void (async () => {
-      try {
-        const res = await fetchWithTimeout("/api/admin/manager-billing", {}, ADMIN_FETCH_TIMEOUT_MS);
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { rows?: { id: string; planLabel: string; storedTier: string }[] };
-        if (cancelled) return;
-        const next: Record<string, ManagerBillingSummary> = {};
-        for (const row of data.rows ?? []) next[row.id] = { planLabel: row.planLabel, storedTier: row.storedTier };
-        setBillingById(next);
-      } catch {
-        // Rows still render; the plan fact just reads "Plan —" until a retry succeeds.
+      for (let attempt = 0; attempt < 2 && !cancelled; attempt += 1) {
+        try {
+          const res = await fetchWithTimeout("/api/admin/manager-billing", {}, ADMIN_FETCH_TIMEOUT_MS);
+          if (cancelled) return;
+          if (!res.ok) continue;
+          const data = (await res.json()) as {
+            rows?: { id: string; planLabel: string; planSource?: string; storedTier: string }[];
+          };
+          if (cancelled) return;
+          const next: Record<string, ManagerBillingSummary> = {};
+          for (const row of data.rows ?? []) {
+            next[row.id] = { planLabel: row.planLabel, planSource: row.planSource ?? row.planLabel, storedTier: row.storedTier };
+          }
+          setBillingById(next);
+          return;
+        } catch {
+          // Rows still render; the plan fact reads "Plan —" until a retry succeeds.
+        }
       }
     })();
     return () => {
@@ -502,7 +514,7 @@ function AdminAccountsList() {
           const billing = row.kind === "manager" ? billingById[row.id] : undefined;
           const facts: PortalEntryRowFact[] = [];
           if (row.kind === "manager") {
-            facts.push({ icon: CreditCard, label: billing?.planLabel ?? "Plan —", srLabel: "Plan" });
+            facts.push({ icon: CreditCard, label: billing?.planSource ?? billing?.planLabel ?? "Plan —", srLabel: "Plan" });
             facts.push({
               icon: Building2,
               label: `${row.workspaceCount ?? 0} ${(row.workspaceCount ?? 0) === 1 ? "workspace" : "workspaces"}`,

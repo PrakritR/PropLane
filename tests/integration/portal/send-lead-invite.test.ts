@@ -37,6 +37,25 @@ vi.mock("@/lib/tour-notification-delivery.server", () => ({
   recordResidentProspectInboxMessage: vi.fn(),
 }));
 
+// A live signup trial has no Communication (the real helper is covered by
+// manager-communication-access.test.ts); here the workspace owner's plan is controllable.
+const communication = vi.hoisted(() => ({
+  access: { allowed: true } as
+    | { allowed: true }
+    | { allowed: false; reason: "trial"; status: 402; message: string },
+  forWorkspace: vi.fn(),
+}));
+vi.mock("@/lib/manager-communication-access.server", () => ({
+  MANAGER_COMMUNICATION_UNREADABLE_MESSAGE: "We could not verify your plan.",
+  assertManagerCommunicationAllowedForWorkspace: async (...args: unknown[]) => {
+    communication.forWorkspace(...args);
+    return communication.access;
+  },
+}));
+vi.mock("@/lib/workspaces/active.server", () => ({
+  resolveActiveWorkspaceFromRequest: async () => ({ id: "ws-owner", ownerUserId: "owner-1", owned: false }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
@@ -47,7 +66,54 @@ import { POST as sendLeadInvite } from "@/app/api/portal/send-lead-invite/route"
 describe("POST /api/portal/send-lead-invite", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    communication.access = { allowed: true };
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it.each([
+    ["email", { to: "prospect@example.com" }],
+    ["sms", { viaEmail: false, viaSms: true, phone: "+15555551234" }],
+  ])("refuses a trial workspace owner with 402 before any %s send", async (_channel, extra) => {
+    communication.access = {
+      allowed: false,
+      reason: "trial",
+      status: 402,
+      message: "Communication is available on a paid plan.",
+    };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "mate-1", email: "mate@example.com" } } }) },
+    } as never);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { role: "manager" }, error: null }),
+          }),
+        }),
+      }),
+    } as never);
+    vi.mocked(getShareablePropertyForUser).mockResolvedValue({
+      id: "mgr-1",
+      title: "Test House",
+      adminPublishLive: true,
+    } as never);
+    vi.mocked(resolveManagerWorkNumber).mockResolvedValue("+15555550100");
+    vi.stubEnv("RESEND_API_KEY", "re_test_key");
+
+    const res = await sendLeadInvite(
+      jsonRequest("http://localhost/api/portal/send-lead-invite", {
+        method: "POST",
+        body: { kind: "tour", propertyId: "mgr-1", ...extra },
+      }),
+    );
+    const { status, data } = await parseJsonResponse<{ error?: string; code?: string }>(res);
+    expect(status).toBe(402);
+    expect(data.error).toBe("Communication is available on a paid plan.");
+    expect(data.code).toBe("communication_trial");
+    // The plan checked is the active workspace's, resolved for the acting teammate.
+    expect(communication.forWorkspace).toHaveBeenCalledWith(expect.anything(), "mate-1", "ws-owner");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendFromManagerWorkNumber).not.toHaveBeenCalled();
   });
 
   it("returns 401 when not authenticated", async () => {

@@ -7,6 +7,7 @@ import {
   loadScheduledInboxMessagesForManager,
   loadScheduledInboxMessagesForResident,
 } from "@/lib/scheduled-inbox-messages.server";
+import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -41,6 +42,23 @@ const WORKSPACE_UNRESOLVED = NextResponse.json(
   },
   { status: 503 },
 );
+
+/**
+ * A live signup trial has no Communication until the account pays, so nothing is scheduled to go
+ * out from its workspace. The plan checked is the workspace OWNER's (a teammate scheduling in a
+ * paid owner's workspace is not held to their own trial). Null means "go ahead".
+ */
+async function trialScheduleRefusal(
+  ctx: { db: PortalActor["db"]; userId: string },
+  workspaceId: string | null,
+): Promise<NextResponse | null> {
+  const access = await assertManagerCommunicationAllowedForWorkspace(ctx.db, ctx.userId, workspaceId);
+  if (access.allowed) return null;
+  return NextResponse.json(
+    { error: access.message, code: `communication_${access.reason}` },
+    { status: access.status },
+  );
+}
 
 type PortalRole = "manager" | "resident";
 
@@ -255,6 +273,8 @@ export async function POST(req: Request) {
 
       const coManagerWorkspace = await composingWorkspaceId(ctx);
       if (!coManagerWorkspace.ok) return WORKSPACE_UNRESOLVED;
+      const coManagerRefusal = await trialScheduleRefusal(ctx, coManagerWorkspace.workspaceId);
+      if (coManagerRefusal) return coManagerRefusal;
 
       const record = await createScheduledInboxMessage(ctx.db, {
         id: generateScheduledInboxMessageId(),
@@ -286,6 +306,8 @@ export async function POST(req: Request) {
 
     const composingWorkspace = await composingWorkspaceId(ctx);
     if (!composingWorkspace.ok) return WORKSPACE_UNRESOLVED;
+    const scheduleRefusal = await trialScheduleRefusal(ctx, composingWorkspace.workspaceId);
+    if (scheduleRefusal) return scheduleRefusal;
 
     const record = await createScheduledInboxMessage(ctx.db, {
       id: generateScheduledInboxMessageId(),

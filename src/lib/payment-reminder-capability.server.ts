@@ -3,6 +3,7 @@ import "server-only";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
 import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
+import { assertManagerCommunicationAllowed, type ManagerCommunicationAccess } from "@/lib/manager-communication-access.server";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { resolvePropertyPayoutOwner } from "@/lib/payments/property-payout-owner.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
@@ -25,6 +26,12 @@ export type PaymentReminderCapability = {
   checkedAt: string;
   email: { available: boolean; reason: string | null };
   sms: { available: boolean; reason: string | null; fromNumber: string | null };
+  /**
+   * Set when the workspace owner may not communicate at all (a live signup trial, or a plan that
+   * could not be read). Both channels are then unavailable and a send route answers with
+   * `blocked.status` instead of the generic 409.
+   */
+  blocked?: Extract<ManagerCommunicationAccess, { allowed: false }>;
 };
 
 /** A charge ID is a lookup key, never permission to send for its owner. */
@@ -85,6 +92,17 @@ export async function resolvePaymentReminderCapability(
   context: PaymentReminderChargeContext,
 ): Promise<PaymentReminderCapability> {
   const { charge, ownerUserId } = context;
+  const access = await assertManagerCommunicationAllowed(ownerUserId);
+  if (!access.allowed) {
+    return {
+      chargeId: String(charge.id ?? ""),
+      ownerUserId,
+      checkedAt: new Date().toISOString(),
+      email: { available: false, reason: access.message },
+      sms: { available: false, reason: access.message, fromNumber: null },
+      blocked: access,
+    };
+  }
   const recipientEmail = String(charge.residentEmail ?? "").trim().toLowerCase();
   const residentUserId = String(charge.residentUserId ?? "").trim();
   const profileQuery = db.from("profiles").select("id, phone, email");

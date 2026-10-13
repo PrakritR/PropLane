@@ -5,6 +5,7 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 
 type Channel = "inbox" | "email" | "sms";
 type Outcome = "submitted" | "failed" | "unknown" | "skipped" | "claimed";
@@ -63,6 +64,13 @@ export async function sendScheduledInboxMessageNow(
       return { ok: false, pending: true, channels, error: reason };
     }
     if (!senderUserId) return await preflightFailure("Scheduled sender is missing.");
+    // A message scheduled by a manager is outbound Communication: held (and failed, not sent) while
+    // the workspace owner is on a live signup trial or the plan cannot be read. A resident writing
+    // to their manager is inbound and is never held here.
+    if (!residentOriginated) {
+      const access = await assertManagerCommunicationAllowedForWorkspace(db, active.managerUserId, active.workspaceId ?? null);
+      if (!access.allowed) return await preflightFailure(`communication_${access.reason}`);
+    }
     const { data: profile } = await db.from("profiles").select("email, full_name").eq("id", senderUserId).maybeSingle();
     const senderEmail = String(profile?.email ?? "").trim().toLowerCase();
     if (!senderEmail || (residentOriginated && senderEmail !== active.senderEmail?.trim().toLowerCase())) {

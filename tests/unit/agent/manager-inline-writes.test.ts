@@ -19,6 +19,14 @@ vi.mock("@/lib/communication/conversation-visibility.server", async (importOrigi
   }),
 }));
 
+// The preview of a message-sending tool asks whether the workspace owner may communicate (a live
+// signup trial may not - manager-trial-outbound-gates.test.ts). This test is about the allow-list,
+// so the owner is on a paid plan.
+vi.mock("@/lib/manager-communication-access.server", () => ({
+  assertManagerCommunicationAllowed: async () => ({ allowed: true }),
+  assertManagerCommunicationAllowedForWorkspace: async () => ({ allowed: true }),
+}));
+
 import { runAgentTurn } from "@/lib/agent/loop";
 import { agentRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";

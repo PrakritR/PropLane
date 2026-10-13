@@ -46,10 +46,13 @@ function LockedFeatureCard({
   featureLabel,
   audience,
   basePath,
+  trial = false,
 }: {
   featureLabel: string;
   audience: "manager" | "resident";
   basePath: string;
+  /** A live signup trial: the account has Pro/Business features except this one, which needs a paid plan. */
+  trial?: boolean;
 }) {
   const manager = audience === "manager";
   return (
@@ -75,8 +78,9 @@ function LockedFeatureCard({
         {manager ? (
           <>
             <span className="native-hide">
-              {featureLabel} is available on Pro and Business plans. Your data stays in place and appears here after
-              you upgrade.
+              {trial
+                ? `${featureLabel} is available on a paid plan. Your data stays in place and appears here after you subscribe.`
+                : `${featureLabel} is available on Pro and Business plans. Your data stays in place and appears here after you upgrade.`}
             </span>
             <span className="native-only">This feature isn&apos;t included on your current plan.</span>
           </>
@@ -93,7 +97,7 @@ function LockedFeatureCard({
               className={primaryCta}
               data-attr="manager-tier-paywall-upgrade"
             >
-              Upgrade to Pro or Business
+              {trial ? "Subscribe" : "Upgrade to Pro or Business"}
             </Link>
           </div>
           <div className="native-only mt-5">
@@ -139,9 +143,11 @@ const TIER_PAYWALL_OVERLAY_CLASS =
 export function PortalTierPaywall({
   basePath,
   featureLabel,
+  trial = false,
 }: {
   basePath: string;
   featureLabel?: string;
+  trial?: boolean;
 }) {
   const label = featureLabel ?? "this feature";
 
@@ -152,7 +158,7 @@ export function PortalTierPaywall({
           <LockedFeaturePreview />
         </div>
         <div className={TIER_PAYWALL_OVERLAY_CLASS}>
-          <LockedFeatureCard featureLabel={label} audience="manager" basePath={basePath} />
+          <LockedFeatureCard featureLabel={label} audience="manager" basePath={basePath} trial={trial} />
         </div>
       </div>
     </ManagerPortalPageShell>

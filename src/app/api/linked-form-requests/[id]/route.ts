@@ -16,6 +16,10 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 import { rateLimit } from "@/lib/rate-limit";
 import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/cosigner-template.server";
 import { openApplicantRow } from "@/lib/security/applicant-identity";
+import {
+  assertManagerCommunicationAllowed,
+  communicationRefusalBody,
+} from "@/lib/manager-communication-access.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -137,6 +141,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
       const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
       if (!isLegitimateEmail(to)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+      // Only a manager reaches this action (`canDo`). A live signup trial has no Communication until it
+      // pays, judged on the request's owning manager, and refused before the link is rotated or sent.
+      const communication = await assertManagerCommunicationAllowed(request.manager_user_id);
+      if (!communication.allowed) {
+        return NextResponse.json(communicationRefusalBody(communication), { status: communication.status });
+      }
       const apiKey = process.env.RESEND_API_KEY?.trim();
       if (!apiKey) return NextResponse.json({ error: "Email delivery is not configured." }, { status: 503 });
       // Emailing the link IS a new hand-off to a named address: whoever holds the old one loses it,

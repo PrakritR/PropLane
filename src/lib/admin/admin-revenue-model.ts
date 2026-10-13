@@ -7,9 +7,12 @@
  * unit-tested with Stripe mocked.
  *
  * Revenue is what PropLane itself earns, and the platform Stripe account also
- * carries pass-through money (resident rent, vendor payments). A charge that
- * cannot be attributed to a PropLane product is `other`: it is listed under All
- * so staff can see it, and never added to gross, fees or refunds.
+ * carries pass-through money (resident rent, vendor payments). Every row lands in
+ * exactly ONE category, so the tab counts add up to All: pass-through resident
+ * money is `rent`, money that only moved between balances is `transfers`, every
+ * refund is `refunds`, and a charge that still cannot be attributed is `other`
+ * (its tab is drawn only when it holds rows). Only the earning categories reach
+ * gross and fees, and only a refund OF those earnings reduces earned and net.
  */
 import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
 import {
@@ -26,6 +29,8 @@ export type RevenueCategory =
   | "service_fees"
   | "payouts"
   | "refunds"
+  | "rent"
+  | "transfers"
   | "other";
 
 /** The tabs, in the order the page draws them. `all` is not a category. */
@@ -35,9 +40,15 @@ export const REVENUE_TABS = [
   { id: "credits", label: "Credits" },
   { id: "numbers", label: "Numbers" },
   { id: "service_fees", label: "Service fees" },
+  { id: "rent", label: "Rent & resident" },
+  { id: "transfers", label: "Transfers" },
   { id: "payouts", label: "Payouts" },
   { id: "refunds", label: "Refunds" },
+  { id: "other", label: "Other" },
 ] as const;
+
+/** Tabs the page hides while they hold no rows (the catch-all stays out of the way until it is needed). */
+export const REVENUE_TABS_HIDDEN_WHEN_EMPTY: readonly RevenueTabId[] = ["other"];
 
 export type RevenueTabId = (typeof REVENUE_TABS)[number]["id"];
 
@@ -80,6 +91,12 @@ export type RevenueRow = {
   payout: { arrivalDate: string | null; bankLast4: string | null; status: string | null } | null;
   /** A refund row's original charge id, when known. */
   chargeId: string | null;
+  /**
+   * A refund row's ORIGINAL charge category, once resolved; null on a refund whose charge could
+   * not be read and on every non-refund row. What decides whether the refund gave back PropLane's
+   * own earnings or pass-through money (a resident's rent).
+   */
+  refundOfCategory?: RevenueCategory | null;
   /** Free-form facts the record page shows (plan, invoice, receipt). */
   invoiceId: string | null;
   hostedInvoiceUrl: string | null;
@@ -143,8 +160,26 @@ export const EMPTY_CLASSIFY_CONTEXT: ClassifyContext = {
 };
 
 const PAYOUT_TYPES = new Set(["payout", "payout_cancel", "payout_failure"]);
-const REFUND_TYPES = new Set(["refund", "payment_refund", "payment_failure_refund"]);
+const REFUND_TYPES = new Set(["refund", "payment_refund", "payment_failure_refund", "application_fee_refund"]);
 const CHARGE_TYPES = new Set(["charge", "payment"]);
+
+/**
+ * Money that moved between balances rather than being earned: Connect / financial-account / balance
+ * transfers and top-ups. Matched on the balance transaction's type or reporting category, never on a
+ * charge's text.
+ */
+function isTransferLike(bt: NormalizedBalanceTransaction): boolean {
+  const type = bt.type.toLowerCase();
+  const reporting = bt.reportingCategory.toLowerCase();
+  return (
+    /transfer|topup|top_up/.test(type) ||
+    /transfer|topup|top_up/.test(reporting) ||
+    (bt.sourceKind === "other" && /\btransfer\b/i.test(bt.description ?? ""))
+  );
+}
+
+/** Checkout purposes of money a resident or applicant paid (rent, fees, deposits), not PropLane revenue. */
+const RENT_PURPOSES = new Set(["household_charge", "rental_application_fee", "application_screening", "linked_form_fee"]);
 
 const TIER_LABEL: Record<string, string> = { pro: "Pro", business: "Business" };
 
@@ -199,6 +234,9 @@ export function classifyCharge(
   if (!purpose && bt.customerId && ctx.subscriptionCustomerIds.has(bt.customerId)) {
     return { category: "subscriptions", title: `Subscription${accountLabel}`, invoice };
   }
+  if (RENT_PURPOSES.has(purpose)) {
+    return { category: "rent", title: `${bt.description?.trim() || "Resident payment"}${accountLabel}`, invoice };
+  }
   return {
     category: "other",
     title: `${bt.description?.trim() || "Payment"}${accountLabel}`,
@@ -250,17 +288,29 @@ export function classifyBalanceTransaction(bt: NormalizedBalanceTransaction, ctx
 
   if (REFUND_TYPES.has(bt.type) || bt.reportingCategory === "refund") {
     const original = bt.chargeId ? ctx.chargeCategory.get(bt.chargeId) : undefined;
-    // A refund of money that was never PropLane's (a resident's rent) is not a PropLane refund.
-    const ours = original ? original.category !== "other" : false;
+    // Every refund lands under Refunds, matched to its charge or not. The summary card's Refunds
+    // figure is the sum of this tab.
     return {
       ...base,
-      category: ours ? "refunds" : "other",
+      category: "refunds",
       title: original ? `Refund - ${original.title}` : `Refund${accountLabel}`,
+      refundOfCategory: original?.category ?? null,
       grossCents: bt.amount,
       feeCents: Math.max(0, bt.fee),
       netCents: bt.net,
       chargeId: bt.chargeId,
       stripePath: bt.chargeId ? `payments/${bt.chargeId}` : null,
+    };
+  }
+
+  if (isTransferLike(bt) && !(CHARGE_TYPES.has(bt.type) || bt.reportingCategory === "charge")) {
+    return {
+      ...base,
+      category: "transfers",
+      title: bt.description?.trim() || bt.type.replace(/_/g, " "),
+      grossCents: bt.amount,
+      feeCents: Math.max(0, bt.fee),
+      netCents: bt.net,
     };
   }
 
@@ -295,11 +345,17 @@ export type RevenueSummary = {
   /** Charges in the PropLane revenue categories. */
   grossCents: number;
   stripeFeesCents: number;
-  /** Money handed back, as a positive number. */
+  /** Money handed back, as a positive number: every refund row, which is what the Refunds tab lists. */
   refundsCents: number;
-  /** gross - refunds - Stripe fees. */
+  /**
+   * The part of {@link RevenueSummary.refundsCents} that gave back PropLane's own earnings. A
+   * refund of pass-through money (a resident's rent) and a refund whose original charge could not
+   * be resolved are not in it, so they never reduce what PropLane earned.
+   */
+  ownRefundsCents: number;
+  /** gross - own refunds - Stripe fees. */
   netCents: number;
-  /** gross - refunds: what the Dashboard calls "Earned". */
+  /** gross - own refunds: what the Dashboard calls "Earned". */
   earnedCents: number;
   /** Earned, split by category. */
   byCategory: Record<"subscriptions" | "credits" | "numbers" | "service_fees", number>;
@@ -310,10 +366,17 @@ export function summarizeRevenue(rows: readonly RevenueRow[]): RevenueSummary {
   let gross = 0;
   let fees = 0;
   let refunds = 0;
+  let ownRefunds = 0;
   const byCategory = { subscriptions: 0, credits: 0, numbers: 0, service_fees: 0 };
   for (const row of rows) {
     if (row.category === "refunds") {
-      refunds += Math.abs(row.grossCents);
+      const handedBack = Math.abs(row.grossCents);
+      refunds += handedBack;
+      // Gross is PropLane's own earnings, so only a refund OF those earnings may reduce it. A rent
+      // refund, and a refund whose original charge never resolved, stay out of Earned and Net.
+      if (row.refundOfCategory && REVENUE_EARNING_CATEGORIES.includes(row.refundOfCategory)) {
+        ownRefunds += handedBack;
+      }
       continue;
     }
     if (!REVENUE_EARNING_CATEGORIES.includes(row.category)) continue;
@@ -325,12 +388,14 @@ export function summarizeRevenue(rows: readonly RevenueRow[]): RevenueSummary {
     grossCents: gross,
     stripeFeesCents: fees,
     refundsCents: refunds,
-    netCents: gross - refunds - fees,
-    earnedCents: gross - refunds,
+    ownRefundsCents: ownRefunds,
+    netCents: gross - ownRefunds - fees,
+    earnedCents: gross - ownRefunds,
     byCategory,
   };
 }
 
+/** Every row is in exactly one category tab, so the tab counts add up to `all`. */
 export function revenueTabCounts(rows: readonly RevenueRow[]): Record<RevenueTabId, number> {
   const counts: Record<RevenueTabId, number> = {
     all: rows.length,
@@ -338,12 +403,13 @@ export function revenueTabCounts(rows: readonly RevenueRow[]): Record<RevenueTab
     credits: 0,
     numbers: 0,
     service_fees: 0,
+    rent: 0,
+    transfers: 0,
     payouts: 0,
     refunds: 0,
+    other: 0,
   };
-  for (const row of rows) {
-    if (row.category !== "other") counts[row.category] += 1;
-  }
+  for (const row of rows) counts[row.category] += 1;
   return counts;
 }
 
@@ -391,6 +457,8 @@ const CATEGORY_LABEL: Record<RevenueCategory, string> = {
   service_fees: "Service fee",
   payouts: "Payout",
   refunds: "Refund",
+  rent: "Rent & resident",
+  transfers: "Transfer",
   other: "Other",
 };
 

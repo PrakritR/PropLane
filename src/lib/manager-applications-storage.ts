@@ -779,6 +779,8 @@ export async function upsertApplicationRowToServerAwait(
   setupHref?: string;
   setupToken?: string;
   welcomeEmailSent?: boolean;
+  /** The welcome was skipped because the workspace owner is on a live signup trial (or the plan could not be read). */
+  communicationBlocked?: "trial" | "plan_unreadable";
   leaseId?: string;
   mailtoHref?: string;
   row?: DemoApplicantRow;
@@ -808,6 +810,7 @@ export async function upsertApplicationRowToServerAwait(
       linkedForms?: IssuedLinkedFormView[];
       existingResidentOnboarding?: {
         welcomeEmailSent?: boolean;
+        communicationBlocked?: "trial" | "plan_unreadable";
         leaseId?: string;
         axisId?: string;
       };
@@ -839,6 +842,7 @@ export async function upsertApplicationRowToServerAwait(
       setupHref,
       setupToken,
       welcomeEmailSent: onboarding?.welcomeEmailSent,
+      communicationBlocked: onboarding?.communicationBlocked,
       leaseId: onboarding?.leaseId,
       row: body?.row,
       linkedForms: Array.isArray(body?.linkedForms) ? body.linkedForms : undefined,

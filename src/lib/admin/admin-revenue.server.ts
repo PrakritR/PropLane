@@ -561,8 +561,8 @@ async function buildMonth(db: SupabaseClient, month: string, deps: RevenueDeps):
   const missing = [...new Set(refunds.map((r) => r.chargeId).filter((id): id is string => Boolean(id)))].filter(
     (id) => !chargeCategory.has(id),
   );
-  // Past the cap the remaining refunds stay unresolved, fall to `other`, and drop out of the refund
-  // total — earned and net would read high with nothing on the page saying so.
+  // Past the cap the remaining refunds keep a generic title (they still count under Refunds), and
+  // the page says the month is truncated.
   if (missing.length > MAX_REFUND_LOOKUPS) truncated = true;
   for (const chargeId of missing.slice(0, MAX_REFUND_LOOKUPS)) {
     try {
@@ -572,7 +572,7 @@ async function buildMonth(db: SupabaseClient, month: string, deps: RevenueDeps):
       const hit = classifyCharge(charge, ctx, label ? ` - ${label}` : "");
       chargeCategory.set(chargeId, { category: hit.category, title: hit.title });
     } catch {
-      // Unresolved: the refund falls to `other` rather than being counted as ours.
+      // Unresolved: the refund keeps a generic title; it still lands under Refunds.
     }
   }
   const refundCtx: ClassifyContext = { ...ctx, chargeCategory };

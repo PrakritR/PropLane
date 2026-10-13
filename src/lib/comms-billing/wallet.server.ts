@@ -4,7 +4,7 @@ import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { ensureDefaultWorkspaceId } from "@/lib/workspaces/active.server";
 import {
   includedAllowanceCents,
-  normalizeCommsPlanTier,
+  commsBudgetTierForPlan,
   type CommsPlanTier,
 } from "./allowances";
 import { isCommsCreditPoolEnabled, unitPriceCentsForMeter, type CommsBillingMeter } from "./rates";
@@ -23,6 +23,8 @@ export type CommsWallet = {
   periodStart: string;
   periodEnd: string;
   paused: boolean;
+  /** True for a live signup trial: no monthly credit, and `evaluateManagerCommsBillingGate` refuses. */
+  liveSignupTrial?: boolean;
 };
 
 /**
@@ -50,7 +52,10 @@ export async function commsPlanBudget(owner: string) {
   const plan = await getEffectiveManagerSkuTier(owner);
   if (!plan.ok)
     throw new Error("We could not verify your communication plan. Try again.");
-  return commsPlanBudgetForTier(normalizeCommsPlanTier(plan.tier));
+  return {
+    ...commsPlanBudgetForTier(commsBudgetTierForPlan(plan)),
+    liveSignupTrial: plan.liveSignupTrial === true,
+  };
 }
 
 export type CommsWalletTotals = {
@@ -221,6 +226,7 @@ export async function loadCommsWallet(
     periodStart: data.period_start,
     periodEnd: data.period_end,
     paused: data.paused === true,
+    liveSignupTrial: budget.liveSignupTrial,
   };
 }
 

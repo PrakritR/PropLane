@@ -6,7 +6,12 @@ import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
 import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
-import { isManagerFreePlan, managerTierDisplayLabel, paidWorkspacePortalTitle } from "@/lib/manager-access";
+import {
+  isManagerFreePlan,
+  managerTierDisplayLabel,
+  paidWorkspacePortalTitle,
+  type ManagerPortalNavTier,
+} from "@/lib/manager-access";
 import {
   getManagerPortalNavSubscriptionTier,
   getManagerPurchaseSku,
@@ -68,7 +73,7 @@ export const buildProPortalDefinition = cache(async (): Promise<{
   showPlanBanner: boolean;
   showPreviewBanner: boolean;
   previewLabel: string | null;
-  subscriptionTier: "free" | "paid" | null;
+  subscriptionTier: ManagerPortalNavTier;
   /** Sidebar header badge: the manager's current plan (Free / Pro / Business). */
   planLabel: string;
   /**

@@ -355,3 +355,14 @@ describe("agent confirm gate (POST /api/agent/chat)", () => {
     expect(fake.auditLog).toHaveLength(0);
   });
 });
+
+// `send_rent_reminder` is a Communication-sending tool, so both its preview and its handler ask
+// whether the workspace OWNER may communicate (a live signup trial may not - see
+// manager-trial-outbound-gates.test.ts). This file is about the confirm gate, so the owner is on a
+// paid plan; the fake service client above models the confirm tables, not `manager_purchases`.
+vi.mock("@/lib/manager-communication-access.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-communication-access.server")>()),
+  assertManagerCommunicationAllowed: vi.fn(async () => ({ allowed: true })),
+  assertManagerCommunicationAllowedForWorkspace: vi.fn(async () => ({ allowed: true })),
+  assertManagerCommunicationAllowedForActiveWorkspace: vi.fn(async () => ({ allowed: true })),
+}));

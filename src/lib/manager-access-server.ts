@@ -3,11 +3,14 @@ import { cache } from "react";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { generateManagerId } from "@/lib/manager-id";
 import {
+  isLiveSignupTrialPurchase,
   isWaiverGrantedManagerPurchase,
   normalizeManagerSkuTier,
   pickBestManagerPurchaseRow,
   resolveEffectiveManagerSkuTier,
   resolveManagerNavLockTierFromPurchase,
+  resolveManagerPortalNavTierFromPurchase,
+  type ManagerPortalNavTier,
   type ManagerSkuTier,
   type ManagerSubscriptionTier,
   type ManagerPurchaseRowRecord,
@@ -206,9 +209,34 @@ const getManagerNavLockTierCached = cache(async (userId: string): Promise<Manage
   }
 });
 
+/**
+ * {@link getManagerNavLockTierCached} with a live signup trial reported as `"trial"`. Only the
+ * manager portal's own nav / section paywall reads this; a resident reading its manager's plan
+ * (`getManagerSubscriptionTierByManagerId`) keeps the plain free | paid | null shape.
+ */
+const getManagerPortalNavOwnTierCached = cache(async (userId: string): Promise<ManagerPortalNavTier> => {
+  try {
+    await syncManagerPurchaseTierStateOnce(userId);
+    const purchase = await getManagerPurchaseRowByUserId(userId);
+    return resolveManagerPortalNavTierFromPurchase({
+      readFailed: purchase.readFailed,
+      hasPurchaseRow: purchase.hasPurchaseRow,
+      tier: purchase.tier,
+      billing: purchase.billing,
+      stripeSubscriptionId: purchase.stripeSubscriptionId,
+      stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
+      promoCode: purchase.promoCode,
+      appleOriginalTransactionId: purchase.appleOriginalTransactionId,
+      paidAt: purchase.paidAt,
+    });
+  } catch {
+    return null;
+  }
+});
+
 const getManagerPortalNavSubscriptionTierCached = cache(
-  async (userId: string): Promise<ManagerSubscriptionTier> => {
-    const ownTier = await getManagerNavLockTierCached(userId);
+  async (userId: string): Promise<ManagerPortalNavTier> => {
+    const ownTier = await getManagerPortalNavOwnTierCached(userId);
     try {
       const supabase = createSupabaseServiceRoleClient();
       const { data: ownedRow } = await supabase
@@ -236,7 +264,7 @@ const getManagerPortalNavSubscriptionTierCached = cache(
 
       const { pickManagerPortalNavSubscriptionTier } = await import("@/lib/manager-access");
       const linkedOwnerTiers = await Promise.all(
-        inviterIds.map((inviterId) => getManagerNavLockTierCached(inviterId)),
+        inviterIds.map((inviterId) => getManagerPortalNavOwnTierCached(inviterId)),
       );
       return pickManagerPortalNavSubscriptionTier(ownTier, false, linkedOwnerTiers);
     } catch {
@@ -253,7 +281,7 @@ const getManagerPortalNavSubscriptionTierCached = cache(
  */
 export async function getManagerPortalNavSubscriptionTier(
   userId: string,
-): Promise<ManagerSubscriptionTier> {
+): Promise<ManagerPortalNavTier> {
   return getManagerPortalNavSubscriptionTierCached(userId);
 }
 
@@ -393,18 +421,37 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
  * exactly as the listing-slot count already does.
  */
 export type ManagerEffectiveSkuTierResult =
-  | { ok: true; tier: ManagerSkuTier | null }
+  | {
+      ok: true;
+      tier: ManagerSkuTier | null;
+      /**
+       * True for a LIVE no-card signup trial (`isLiveSignupTrialPurchase`). Such an account reads
+       * Pro/Business here (every other entitlement is real) but has no Communication until it
+       * pays; the comms wallet gives it a zero allowance and `assertManagerCommunicationAllowed`
+       * refuses its sends. Absent/false for every other plan, including a lapsed trial (Free).
+       */
+      liveSignupTrial?: boolean;
+    }
   | { ok: false; error: string };
 
 export async function getEffectiveManagerSkuTier(userId: string): Promise<ManagerEffectiveSkuTierResult> {
   const row = await getManagerPurchaseRowByUserId(userId);
   if (row.readFailed) return { ok: false, error: "Could not read this account's plan." };
+  const appleManaged = isAppleBilledManagerPurchase(row.billing, row.appleOriginalTransactionId);
   return {
     ok: true,
+    liveSignupTrial: isLiveSignupTrialPurchase({
+      tier: row.tier,
+      billing: row.billing,
+      stripeSubscriptionId: row.stripeSubscriptionId,
+      appleManaged,
+      promoCode: row.promoCode,
+      paidAt: row.paidAt,
+    }),
     tier: resolveEffectiveManagerSkuTier({
       tier: row.tier,
       stripeSubscriptionId: row.stripeSubscriptionId,
-      appleManaged: isAppleBilledManagerPurchase(row.billing, row.appleOriginalTransactionId),
+      appleManaged,
       // A lapsed 14-day signup trial must read Free to every quota, not just to
       // the sidebar. Without these the row's frozen `tier: pro` kept the Pro
       // property cap and the Pro communication allowance forever.

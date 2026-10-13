@@ -107,7 +107,7 @@ const CREDIT_PACKS_TEXT = (() => {
 const FAQ: SiteFaqItem[] = [
   {
     q: "Is the free tier actually free?",
-    a: `Yes. $0, no card, ${RATE_CARD.free.includedDoors} residents, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.`,
+    a: `Yes. $0, no card, ${RATE_CARD.free.includedDoors} residents, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on a paid Pro plan.`,
   },
   {
     q: "Do I need a credit card to try Pro or Business?",
@@ -118,8 +118,8 @@ const FAQ: SiteFaqItem[] = [
     a: "Nothing sends and nothing is charged. Your data stays; add a card to keep Pro, or drop to Free.",
   },
   {
-    q: "Can I get a work number during the trial?",
-    a: "No — a work number is provisioned once a plan is paid (a promo-code plan counts). During the trial the inbox and email work as normal.",
+    q: "Can I message residents during the trial?",
+    a: "Not yet — Communication starts when the plan is paid (a promo-code plan counts). The trial unlocks every other Pro feature, but the inbox, work email, texting and the work number stay locked until you subscribe — anything sent to you is kept and appears there the moment you do. The Free plan keeps the in-app inbox and email.",
   },
   {
     q: "What if I need more than my plan includes?",

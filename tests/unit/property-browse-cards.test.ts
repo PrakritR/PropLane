@@ -173,6 +173,11 @@ describe("buildPropertyBrowseCards", () => {
       } as MockProperty["listingSubmission"],
     });
 
+    // `skipLeaseSeed` because the lease seed is a fire-and-forget
+    // `import("@/lib/lease-pipeline-storage")` inside the writer. These cases read the pipeline
+    // through the mock above, never the seeded store, so letting it run only leaves a floating
+    // promise that resolves after this file's environment is torn down (EnvironmentTeardownError
+    // under load).
     writeManagerApplicationRows([
       {
         id: "resident-1",
@@ -185,7 +190,7 @@ describe("buildPropertyBrowseCards", () => {
           roomNumber: "Room 3",
         },
       } as never,
-    ]);
+    ], { skipLeaseSeed: true });
 
     const rows = filterRoomListings([property], {
       zipRaw: "",
@@ -224,7 +229,7 @@ describe("buildPropertyBrowseCards", () => {
           roomNumber: "Room 3",
         },
       } as never,
-    ]);
+    ], { skipLeaseSeed: true });
     executedLease("resident-1");
 
     const blocked = filterRoomListings([property], {
@@ -272,7 +277,7 @@ describe("buildPropertyBrowseCards", () => {
           roomNumber: "Room 3",
         },
       } as never,
-    ]);
+    ], { skipLeaseSeed: true });
 
     const rows = filterRoomListings([property], {
       zipRaw: "",

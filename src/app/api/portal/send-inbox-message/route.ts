@@ -75,6 +75,7 @@ import { attachmentMetaFromUrls as inboxAttachmentsFromUrls } from "@/lib/inbox-
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
+import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
@@ -550,12 +551,15 @@ export async function POST(req: Request) {
     const senderActsAsAdmin = senderIsAdmin || senderRole === "admin";
 
     let recipients = [...recipientsByEmail.values()];
+    // The workspace a manager send leaves from; also names whose plan the send is held to.
+    let managerSendScope: Awaited<ReturnType<typeof resolveCommunicationScope>> | null = null;
     if (!senderActsAsAdmin) {
       // A manager send is checked against the active workspace and the houses
       // they are granted - "All residents" in workspace A reaches only A.
-      const reach = ["manager", "owner", "pro"].includes(String(senderRole ?? "").trim().toLowerCase())
-        ? recipientReachFromScope(await resolveCommunicationScope(db, user.id, "edit"))
-        : undefined;
+      if (["manager", "owner", "pro"].includes(String(senderRole ?? "").trim().toLowerCase())) {
+        managerSendScope = await resolveCommunicationScope(db, user.id, "edit");
+      }
+      const reach = managerSendScope ? recipientReachFromScope(managerSendScope) : undefined;
       const { allowed } = await filterRecipientsBySenderScope(
         db,
         { id: user.id, email: senderEmail, role: senderRole, isAdmin: false, reach },
@@ -575,6 +579,25 @@ export async function POST(req: Request) {
     // an owner who first signed up as a resident still says "resident". The
     // membership decides, and only for that one recipient.
     recipients = await applyOwnerMessageInboxScope(db, { userId: user.id, role: senderRole }, recipients);
+
+    // A manager on a LIVE signup trial has no Communication until the account pays: refuse the
+    // send before anything is stored or delivered. The plan checked is the workspace OWNER's, so a
+    // teammate acting in a trial owner's workspace is refused and one acting in a paid owner's is
+    // not. Writing to PropLane support stays open, and so does everything inbound (a resident or
+    // vendor writing to this workspace is stored by its own routes, never through here).
+    if (managerSendScope && !recipients.every((r) => isPrimaryAdminRecipientEmail(r.email))) {
+      const access = await assertManagerCommunicationAllowedForWorkspace(
+        db,
+        user.id,
+        managerSendScope.activeWorkspaceId,
+      );
+      if (!access.allowed) {
+        return NextResponse.json(
+          { ok: false, error: access.message, code: `communication_${access.reason}` },
+          { status: access.status },
+        );
+      }
+    }
 
     // One more gate before anything is written: the thread being replied into
     // must belong to the person being messaged. Without it a reply could be

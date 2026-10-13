@@ -114,12 +114,22 @@ describe("classifyBalanceTransaction", () => {
     expect(row.title).toMatch(/^PropLane Number/);
   });
 
-  it("leaves a charge it cannot attribute as other, never as revenue", () => {
+  it("files a resident's rent under Rent & resident, never as revenue", () => {
     const row = classifyBalanceTransaction(
       bt({ customerId: "cus_rent", description: "Rent for unit 4", metadata: { purpose: "household_charge" } }),
       ctx,
     );
+    expect(row.category).toBe("rent");
+    expect(summarizeRevenue([row]).grossCents).toBe(0);
+  });
+
+  it("leaves a charge it cannot attribute as other, never as revenue", () => {
+    const row = classifyBalanceTransaction(
+      bt({ customerId: "cus_x", description: "Mystery", metadata: { purpose: "mystery" } }),
+      ctx,
+    );
     expect(row.category).toBe("other");
+    expect(summarizeRevenue([row]).grossCents).toBe(0);
   });
 
   it("classifies payouts with the bank and arrival date", () => {
@@ -142,7 +152,7 @@ describe("classifyBalanceTransaction", () => {
     expect(row.payout?.arrivalDate).toBe(new Date(1_791_200_000 * 1000).toISOString());
   });
 
-  it("counts a refund of PropLane revenue as a refund, and a refund of rent as other", () => {
+  it("puts every refund under Refunds, whatever the original charge was", () => {
     const refund = bt({ id: "txn_re", type: "refund", reportingCategory: "refund", amount: -4900, fee: 0, net: -4900, sourceKind: "refund", sourceId: "re_1", chargeId: "ch_sub", customerId: null });
     const ours = classifyBalanceTransaction(refund, {
       ...ctx,
@@ -152,11 +162,35 @@ describe("classifyBalanceTransaction", () => {
 
     const rent = classifyBalanceTransaction(refund, {
       ...ctx,
-      chargeCategory: new Map([["ch_sub", { category: "other", title: "Rent" }]]),
+      chargeCategory: new Map([["ch_sub", { category: "rent", title: "Rent" }]]),
     });
-    expect(rent.category).toBe("other");
-    // Unresolved original: never assumed to be ours.
-    expect(classifyBalanceTransaction(refund, ctx).category).toBe("other");
+    expect(rent.category).toBe("refunds");
+    // Unresolved original: still a refund.
+    expect(classifyBalanceTransaction(refund, ctx).category).toBe("refunds");
+  });
+
+  it("an application-fee refund is a refund too", () => {
+    const row = classifyBalanceTransaction(
+      bt({ id: "txn_afr", type: "application_fee_refund", reportingCategory: "fee", amount: -35, fee: 0, net: -35, sourceKind: "other", customerId: null, description: "REFUND FOR APPLICATION FEE" }),
+      ctx,
+    );
+    expect(row.category).toBe("refunds");
+  });
+
+  it("puts balance and financial-account transfers under Transfers", () => {
+    const transfer = classifyBalanceTransaction(
+      bt({ id: "txn_tr", type: "transfer", reportingCategory: "transfer", amount: 7269, fee: 0, net: 7269, sourceKind: "other", sourceId: "tr_1", customerId: null, description: "Automatic balance transfer from Financial Account" }),
+      ctx,
+    );
+    expect(transfer.category).toBe("transfers");
+    const topup = classifyBalanceTransaction(bt({ id: "txn_tu", type: "topup", reportingCategory: "topup", sourceKind: "other", customerId: null }), ctx);
+    expect(topup.category).toBe("transfers");
+  });
+
+  it("puts resident rent and fee charges under Rent & resident", () => {
+    const rent = classifyBalanceTransaction(bt({ id: "txn_rent", customerId: "cus_rent", metadata: { purpose: "household_charge" } }), ctx);
+    expect(rent.category).toBe("rent");
+    expect(classifyBalanceTransaction(bt({ id: "txn_x", customerId: "cus_x", metadata: { purpose: "mystery" } }), ctx).category).toBe("other");
   });
 });
 
@@ -182,6 +216,24 @@ describe("summary, tabs, filters", () => {
     expect(s.byCategory).toMatchObject({ subscriptions: 4900, credits: 2000 });
   });
 
+  it("a refund of money that was never PropLane's never reduces Earned", () => {
+    const rentRefund = classifyBalanceTransaction(
+      bt({ id: "txn_rr", type: "refund", reportingCategory: "refund", amount: -200000, fee: 0, net: -200000, sourceKind: "refund", chargeId: "ch_rent", customerId: null }),
+      { ...ctx, chargeCategory: new Map([["ch_rent", { category: "rent", title: "Rent for unit 4" }]]) },
+    );
+    const unmatched = classifyBalanceTransaction(
+      bt({ id: "txn_ur", type: "refund", reportingCategory: "refund", amount: -100, fee: 0, net: -100, sourceKind: "refund", chargeId: "ch_unknown", customerId: null }),
+      ctx,
+    );
+    const s = summarizeRevenue([...rows, rentRefund, unmatched]);
+    // Both are listed under Refunds...
+    expect(s.refundsCents).toBe(900 + 200000 + 100);
+    // ...and only the refund of a PropLane charge comes off what PropLane earned.
+    expect(s.ownRefundsCents).toBe(900);
+    expect(s.earnedCents).toBe(6000);
+    expect(s.netCents).toBe(6000 - 260);
+  });
+
   it("counts tabs without counting other, and All counts every row", () => {
     expect(revenueTabCounts(rows)).toEqual({
       all: 5,
@@ -189,9 +241,29 @@ describe("summary, tabs, filters", () => {
       credits: 1,
       numbers: 0,
       service_fees: 0,
+      rent: 1,
+      transfers: 0,
       payouts: 1,
       refunds: 1,
+      other: 0,
     });
+  });
+
+  it("tab counts always add up to All, with every row in exactly one tab", () => {
+    const mixed = [
+      ...rows,
+      classifyBalanceTransaction(bt({ id: "txn_tr", type: "transfer", reportingCategory: "transfer", sourceKind: "other", customerId: null }), ctx),
+      classifyBalanceTransaction(bt({ id: "txn_o", customerId: "cus_x", metadata: { purpose: "mystery" } }), ctx),
+      classifyBalanceTransaction(bt({ id: "txn_r", type: "refund", reportingCategory: "refund", amount: -100, fee: 0, net: -100, sourceKind: "refund", chargeId: "ch_unknown", customerId: null }), ctx),
+    ];
+    const { all, ...tabs } = revenueTabCounts(mixed);
+    expect(Object.values(tabs).reduce((a, b) => a + b, 0)).toBe(all);
+    expect(all).toBe(8);
+    expect(tabs.refunds).toBe(2);
+    expect(tabs.transfers).toBe(1);
+    expect(tabs.other).toBe(1);
+    const refundTab = filterRevenueRows(mixed, { tab: "refunds", q: "", source: "all" });
+    expect(summarizeRevenue(mixed).refundsCents).toBe(refundTab.reduce((a, r) => a + Math.abs(r.grossCents), 0));
   });
 
   it("filters by tab, source and text", () => {

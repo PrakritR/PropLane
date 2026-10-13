@@ -32,7 +32,8 @@ on an account with five listings and no paywall anywhere).
   DISPLAYS. Only the signup trial is expired here: a live Stripe subscription or
   Apple grant is authoritative and is never run through date math, and waiver /
   admin / portal grants have their own authorization rules. **A live signup trial
-  is not a paid account** (`billing: trial`); it cannot provision a work number.
+  is not a paid account** (`billing: trial`); it cannot provision a work number
+  and has no Communication at all (§ Communication on a trial).
   A validated promo waiver (FREE100 / `promo_code` on the purchase row) **is
   paid**, same as Stripe or Apple. Managers enter promo codes on checkout (and
   signup), never on the Billing & plan page.
@@ -47,9 +48,9 @@ on an account with five listings and no paywall anywhere).
   into `promo_code` would keep a cancelled FREEFIRST customer on paid access for
   free. The code is read ONLY from the discounts Stripe applied to the session
   (`discounts` / `total_details.breakdown.discounts`); `metadata.promo` is customer
-  free text and is never recorded as a redemption. The admin Subscribers Promo bucket, the account record's Promo fact and
-  the admin assistant's `subscriber_counts` read `stripe_promotion_code`; a waiver
-  account stays where it was counted before. Coverage:
+  free text and is never recorded as a redemption. The admin Subscribers list shows
+  a Checkout code as a display-only "Code X" fact on a Paid row (it never moves the
+  account into the Promo code tab); only a waiver (`promo_code`) or a staff grant does. Coverage:
   `tests/unit/manager-purchase-from-session.test.ts`,
   `admin-subscribers.test.ts`.
   Omitting `billing`
@@ -152,7 +153,8 @@ on an account with five listings and no paywall anywhere).
 The tiers differ on TWO axes: what a plan unlocks (properties, co-managers,
 sections — above) and how much texting, calling and assistant use is included
 each month. The second axis is owned by [comms-billing.md](comms-billing.md):
-every plan includes Communication and a work number; the monthly retail credit
+every PAID plan includes Communication and a work number (a live signup trial
+does not — § Communication on a trial below); the monthly retail credit
 per plan is `COMMS_INCLUDED_ALLOWANCE_CENTS` (`src/lib/comms-billing/allowances.ts`),
 manual top-ups carry forward, and a saved card never authorizes an automatic
 charge. Quotas read only the effective SKU (`getEffectiveManagerSkuTier`).
@@ -209,6 +211,42 @@ failed purchase read cannot be treated as Free. Coverage:
 `tests/unit/manager-trial-portal-checkout.test.ts`,
 `tests/unit/pro-plan-adjust-sheet-doors.test.tsx`.
 
+## Communication on a trial (Oct 11)
+
+A LIVE signup trial (`isLiveSignupTrialPurchase`: `billing: trial`, inside its 14 days, no Stripe /
+Apple / waiver `promo_code`) has every Pro/Business section **except Communication** until it pays or
+holds a waiver / admin / portal grant. The manager nav tier gains a `"trial"` value
+(`ManagerPortalNavTier`; `getManagerPortalNavSubscriptionTier` only - a resident still reads the
+manager's plan as free | paid | null): `portalNavLockKind` gives `communication` an `upsell` lock (a
+live link to the upgrade card) and `render-portal-section` renders `PortalTierPaywall` for it, never a
+redirect. Free and a LAPSED trial are untouched and keep Communication. Outbound is refused on the
+server by ONE helper, `assertManagerCommunicationAllowed(ownerUserId)` (402; 503 and a refusal when
+the plan cannot be read), called on the workspace OWNER's plan (a teammate in a trial owner's workspace
+is refused, one in a paid owner's is not): compose (`send-inbox-message`), scheduled messages (create
+and deliver), the assistant's message tools (`COMMUNICATION_SENDING_TOOLS`), manager SMS, payment
+reminders (route, send-now, cron), assistant-email replies, work-email enrolment, lead invites,
+record-share links and invite-link texts. **Welcome and invite mail is gated too** (the earlier
+exception is closed): a manager-initiated email or text to a resident, applicant or vendor is
+outbound Communication. A route whose only job is the send refuses with the helper's status and
+message (`{ ok:false, error, code: "communication_trial" | "communication_plan_unreadable" }`) BEFORE
+any side effect - `send-resident-welcome`, `send-vendor-invite`, `portal-bookings/invite-resident`
+(`assertManagerCommunicationAllowedForActiveWorkspace`, the active workspace OWNER), the application
+completion reminder and a linked-form `send_email` (the record's owning manager). A route that also
+writes a record keeps the write, skips the message and answers `communicationBlocked: "trial" |
+"plan_unreadable"` - `onboard-existing-resident`, the `existingResidentOnboarding` branch of
+`/api/manager-applications` and the portfolio-import create (`sendInvites` forced off). The assistant
+tools `send_resident_welcome`, `invite_vendor` and `share_property_link` are in
+`COMMUNICATION_SENDING_TOOLS` (refused in preview and handler). Not gated: inbound storage, sign-in /
+reset / magic-link / confirmation mail, lease e-sign signature links and a resident's own signer
+invite, Stripe receipts, admin / system mail, anything the resident, vendor or applicant triggers
+themselves (application started / submitted, cosigner), mail to the manager's own address, and a
+message to PropLane support. Co-manager invites mint a link and send no mail; the invite-link text is
+gated above. Coverage: `manager-trial-communication-lock.test.ts`, `manager-communication-access.test.ts`,
+`send-inbox-message-trial-refusal.test.ts`, `manager-welcome-invite-trial-gate.test.ts`,
+`manager-communication-access-active-workspace.test.ts`, `linked-form-send-email-trial-gate.test.ts`,
+`application-completion-reminder-trial-gate.test.ts`,
+`manager-applications-existing-resident-trial-gate.test.ts`.
+
 ## Workspaces, work numbers and seats
 
 `WORKSPACE_PLAN_ENTITLEMENTS` (`src/lib/workspaces/types.ts`) is the third axis:
@@ -229,10 +267,10 @@ for the extra-workspace, extra-work-number and extra-seat add-ons and how
 
 There is no `/admin/billing` page (it 404s on purpose; see the end of this
 section). What used to be that lens is now two things: **Accounts > Subscribers**
-(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code, free
-or complimentary, and the account record's Billing section for one account's
-plan and overrides. What PropLane itself EARNS is a third, separate thing:
-**Money > Payments** (below). The row derivation described next
+(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code
+(staff grants included) or free, and the account record's Billing section for
+one account's plan and overrides. What PropLane itself EARNS is a third,
+separate thing: **Money > Payments** (below). The row derivation described next
 (`deriveAdminBillingRow`) is shared by all of them.
 
 The original Billing list was a LENS on the accounts already in `/admin/axis-users`,
@@ -406,19 +444,33 @@ section wiring.
 ## Admin Subscribers (Accounts > Subscribers)
 
 `/admin/subscribers` lists every real (non-sandbox) manager in exactly one of
-**Paid · Trial · Promo · Free · Complimentary**, with counts on the tabs.
+**Paid · Trial · Promo code · Free**, with counts on the tabs.
 `classifySubscriber` (`src/lib/admin/admin-subscribers-model.ts`) runs
 `deriveAdminBillingRow`, so the bucket is the plan the product ENFORCES, not a
 second opinion: a lapsed signup trial is **Free**, a live Stripe or Apple grant
 is **Paid**, and an account whose purchase could not be read is counted
-nowhere (never filed as Free). Order, first match wins: Complimentary (the
-staff `complimentary` override, or a `billing: admin|portal` / `admin_` grant
-with no payment behind it) → Trial (`billing: trial`, unexpired) → Promo (paid
-plan + `stripe_promotion_code`, or a `promo_code` waiver) → Paid → Free. A Stripe subscription still inside its
+nowhere (never filed as Free). Order, first match wins: **Promo code** for a
+staff grant (the `complimentary` override, or a `billing: admin|portal` /
+`admin_` grant with no payment behind it; fact "Staff grant") or a payment-waiver
+code (`promo_code` on a paid plan; fact "Code FREE100") → Trial (`billing: trial`,
+unexpired; the row says "ends <date>") → Paid → Free. "Complimentary" used to be
+its own tab; `?tab=complimentary` now opens Promo code. A Stripe Checkout code
+(`stripe_promotion_code`) on a paid Stripe subscription stays **Paid** with a
+display-only "Code X" fact. A Stripe subscription still inside its
 Checkout trial days is **Paid** here because that is what enforcement says; the
 Trial tab is the no-card signup trial. MRR is the sum of the Paid bucket at
 list price (`RATE_CARD` base plan, annual / 12; per-door overage is not
-included).
+included). `?q=CODE` pre-fills the search (the Promo codes page links a waiver
+row to `/admin/subscribers?tab=promo&q=CODE`).
+
+`classifySubscriber` is the ONLY bucket rule: the admin assistant's
+`subscriber_counts` / `trials_ending` (`src/lib/tools/admin/subscribers.ts`) call it
+too, so what staff are told and what the page shows cannot diverge. Rebucketing is a
+change to `admin-subscribers-model.ts`, never a second opinion in the tool.
+
+The Accounts list and the account Overview show the same **plan with its source**
+(`AdminBillingRow.planSource` from `adminPlanSourceLabel`): "Pro trial · ends Oct 13",
+"Pro · FREE100", "Pro · Staff grant", "Business · paid", "Free".
 
 `GET /api/admin/subscribers` reads through paged selects
 (`readAllPages`, stable order, a failed page throws) and id-chunked profile
@@ -440,17 +492,25 @@ charge on a subscription invoice (price ids via `stripe-price-ids.ts`) or from a
 customer holding a PropLane subscription → Subscriptions; the vendor 3% fee
 comes from `platform_revenue_entries` (it is held back from a vendor payment,
 so it is never its own Stripe transaction) → Service fees; payouts; refunds of
-PropLane revenue. **The platform account also carries pass-through money (rent,
-vendor payments): anything not attributable to a PropLane product is `other`,
-listed under All and never added to gross, fees or refunds.** Rows link to the
+PropLane revenue. **Every row lands in exactly one tab and the tab counts add up
+to All** (`revenueTabCounts`, pinned by a unit test): every refund is under
+Refunds (matched to its charge or not); balance / financial-account transfers and
+top-ups are **Transfers**; resident rent and application / screening / linked-form
+charges (checkout `purpose`) are **Rent & resident**; anything still unmatched is
+**Other**, a tab shown only when it has rows. Only the four earning categories
+reach gross and fees; the Refunds card is the sum of the Refunds tab. Rows link to the
 account through `manager_purchases.stripe_customer_id`, the comms billing
 account, or `manager_user_id` metadata. App Store rows are
 `manager_purchases` Apple grants (production environment only), shown "via App
 Store"; Apple's commission is not in our data, so they carry no fee.
 
-Stat strip: Gross (earning categories) · Stripe fees · Net (gross − refunds −
-fees) · Refunds · Next payout. The Dashboard's **Earned this month** is gross −
-refunds; **Profit** is earned − Stripe fees − that month's `platform_expenses`.
+Stat strip: Gross (earning categories) · Stripe fees · Net (gross − own
+refunds − fees) · Refunds (every refund row) · Next payout. "Own refunds"
+(`RevenueSummary.ownRefundsCents`) is the part of the Refunds tab whose original
+charge resolved to an earning category: a refund of pass-through money, and one
+whose charge could not be read, never reduces what PropLane earned. The
+Dashboard's **Earned this month** is gross − own refunds; **Profit** is earned −
+Stripe fees − that month's `platform_expenses`.
 A Stripe failure, a missing `platform_expenses` table or an unreadable
 population is `null` and the Dashboard card is **omitted, never $0**
 (`buildAdminMoneyOverview`). A test-mode key (`sk_test_`) shows the banner. A
@@ -458,10 +518,10 @@ month past 1,500 balance transactions is flagged `truncated` on the page.
 
 ## Admin Money > Promo codes
 
-`/admin/promo-codes` is **Stripe-native: nothing is stored in our database**. A code
-is a Stripe coupon (the discount) plus a Stripe promotion code (the text a customer
-types, its redemption cap, expiry and first-time-only restriction), and the list
-reads both back (`src/lib/admin/admin-promo-codes.server.ts`,
+`/admin/promo-codes` **creates nothing in our database: a code it writes is
+Stripe-native**. A code is a Stripe coupon (the discount) plus a Stripe promotion
+code (the text a customer types, its redemption cap, expiry and first-time-only
+restriction), and the list reads both back (`src/lib/admin/admin-promo-codes.server.ts`,
 `GET/POST/PATCH /api/admin/promo-codes`, each behind `requireAdminRoute()`; a Stripe
 error names request ids and parameters, so it is logged and answered as one generic
 sentence). Checkout accepts the code on every plan through `allow_promotion_codes`;
@@ -483,6 +543,16 @@ restricting one to some plans is the coupon's `applies_to` products
   used the code (best-effort: a failed invoice read shows 0, never a guess).
 - Applying an existing code to one account is the account record's popup, not this
   page (§ Admin Billing above).
+- The list also carries every other code in use, each row "code · kind · N accounts":
+  Stripe coupons no promotion code fronts (read-only, Stripe's redemption count),
+  and **waiver codes**, every distinct `manager_purchases.promo_code` with its
+  distinct-account count plus the built-ins (`FREE100`, `WAIVEPROCESS1`) even at
+  zero. Kinds: Stripe promo code, Stripe coupon, Sign-up waiver, Fee waiver, Staff
+  grant. Active = redeemable now (a waiver equal to `getPaymentWaiverCode()`; a
+  Stripe code valid and active), Inactive = not redeemable, Expired = Stripe says
+  so. A waiver row opens `/admin/subscribers?tab=promo&q=CODE`. The `promo_code`
+  waiver column and `stripe_promotion_code` are never conflated; the + button still
+  creates only Stripe promotion codes.
 
 Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
 `admin-promo-codes.test.ts`, `admin-promo-codes-route.test.ts`,

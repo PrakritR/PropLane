@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  ArrowLeftRight,
   ArrowUpRight,
   Banknote,
   CalendarDays,
@@ -45,6 +46,7 @@ import {
   isRevenueMonth,
   revenueCategoryLabel,
   REVENUE_TABS,
+  REVENUE_TABS_HIDDEN_WHEN_EMPTY,
   revenueTabFromParam,
   shiftMonth,
   stripeDashboardUrl,
@@ -76,6 +78,8 @@ const CATEGORY_ICON: Record<RevenueCategory, LucideIcon> = {
   service_fees: Banknote,
   payouts: Landmark,
   refunds: Undo2,
+  rent: Receipt,
+  transfers: ArrowLeftRight,
   other: CreditCard,
 };
 
@@ -109,7 +113,7 @@ function rowFacts(row: RevenueRow): PortalEntryRowFact[] {
   }
   if (row.source === "app_store") return [{ icon: Smartphone, label: "via App Store", srLabel: "Source" }];
   if (row.source === "ledger") return [{ icon: Banknote, label: "PropLane ledger", srLabel: "Source" }];
-  if (row.category === "refunds" || row.category === "other") return [];
+  if (row.category === "refunds" || row.category === "other" || row.category === "transfers") return [];
   return [
     { icon: Receipt, label: `Stripe fee ${formatAdminUsd(-row.feeCents)}`, srLabel: "Stripe fee" },
     { label: `Net ${formatAdminUsd(row.netCents)}` },
@@ -204,7 +208,9 @@ function AdminPaymentsList() {
   const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
   const nowMonth = currentMonthKey();
 
-  const destinations = REVENUE_TABS.map((t) => ({
+  const destinations = REVENUE_TABS.filter(
+    (t) => !REVENUE_TABS_HIDDEN_WHEN_EMPTY.includes(t.id) || t.id === tab || (data?.counts[t.id] ?? 0) > 0,
+  ).map((t) => ({
     id: t.id,
     label: t.label,
     count: data?.counts[t.id],
