@@ -133,7 +133,7 @@ export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string
         <div data-attr="work-number-also-notify-popup">
           <AddWorkspace
             title="Also notify"
-            steps={[{ id: "person", label: "Person", incomplete: !canSave, summary: name.trim() || "Add a name" }]}
+            steps={[{ id: "person", label: "Person", incomplete: !canSave }]}
             current={0}
             onJump={() => undefined}
             onClose={() => { reset(); setOpen(false); }}
