@@ -127,6 +127,17 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
     if (verdict && !verdict.free) setRoomIdRaw("");
   }, [roomId, verdictFor]);
 
+  // One room is not a choice: the room select only renders from two up, so a single-room
+  // listing has no control anywhere (least of all on a phone) that could pick it. Hold it
+  // for the guest, and let it back in as soon as the dates free it again.
+  useEffect(() => {
+    if (!offered || roomId || rooms.length !== 1) return;
+    const only = rooms[0];
+    if (verdictFor(only.id)?.free === false) return;
+    setRoomIdRaw(only.id);
+    setGuestsRaw((current) => clampGuests(current, only.id));
+  }, [clampGuests, offered, roomId, rooms, verdictFor]);
+
   // `?stay=1` (the short-stay post's link) lands on the date inputs.
   useEffect(() => {
     if (!offered || typeof window === "undefined") return;

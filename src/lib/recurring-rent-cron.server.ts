@@ -4,8 +4,14 @@ import { planRecurringRentCharges } from "@/lib/recurring-rent-sweep";
 import { persistHouseholdChargeRows, type HouseholdChargeWriteRow } from "@/lib/household-charge-persist.server";
 
 /** Hard caps per run: a runaway profile table can never write an unbounded batch. */
-export const SWEEP_MAX_PROFILES = 2000;
+export const SWEEP_MAX_PROFILES = 20_000;
 export const SWEEP_MAX_NEW_CHARGES = 500;
+/**
+ * One read page. The sweep pages to {@link SWEEP_MAX_PROFILES} instead of taking a single
+ * `limit`, because the read order is deterministic: a single page meant the profiles past
+ * it were the same ones skipped every night, and nobody ever billed them.
+ */
+const PROFILE_PAGE_SIZE = 1000;
 const MANAGER_CHARGE_READ_LIMIT = 5000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,20 +42,29 @@ function billableProfile(p: RecurringRentProfile): boolean {
 export async function runRecurringRentSweep(db: SupabaseClient, now: Date = new Date()): Promise<RecurringRentCronResult> {
   const result: RecurringRentCronResult = { managers: 0, profiles: 0, created: 0, skippedHeld: 0, capped: false, errors: [] };
 
-  const { data: profileRows, error: profileError } = await db
-    .from("portal_recurring_rent_profile_records")
-    .select("id, manager_user_id, row_data")
-    .eq("active", true)
-    .order("updated_at", { ascending: true })
-    .limit(SWEEP_MAX_PROFILES);
-  if (profileError) {
-    result.errors.push(`profiles: ${profileError.message}`);
-    return result;
+  type ProfileRow = { id?: unknown; manager_user_id?: unknown; row_data?: unknown };
+  const profileRows: ProfileRow[] = [];
+  for (let from = 0; from < SWEEP_MAX_PROFILES; from += PROFILE_PAGE_SIZE) {
+    const to = Math.min(from + PROFILE_PAGE_SIZE, SWEEP_MAX_PROFILES) - 1;
+    const { data, error: profileError } = await db
+      .from("portal_recurring_rent_profile_records")
+      .select("id, manager_user_id, row_data")
+      .eq("active", true)
+      .order("updated_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (profileError) {
+      result.errors.push(`profiles: ${profileError.message}`);
+      return result;
+    }
+    const page = (data ?? []) as ProfileRow[];
+    profileRows.push(...page);
+    if (page.length < to - from + 1) break;
   }
-  if ((profileRows ?? []).length >= SWEEP_MAX_PROFILES) result.capped = true;
+  if (profileRows.length >= SWEEP_MAX_PROFILES) result.capped = true;
 
   const byManager = new Map<string, RecurringRentProfile[]>();
-  for (const row of profileRows ?? []) {
+  for (const row of profileRows) {
     const managerId = row.manager_user_id ? String(row.manager_user_id) : "";
     if (!managerId || !row.row_data || typeof row.row_data !== "object") continue;
     const profile = { ...(row.row_data as RecurringRentProfile), id: String(row.id), managerUserId: managerId };

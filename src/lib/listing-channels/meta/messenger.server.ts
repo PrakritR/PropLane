@@ -12,6 +12,9 @@ import { taggedListingLink } from "@/lib/listing-channels/post-text";
 import { metaAppLive } from "@/lib/listing-channels/registry";
 import { loadMetaConnectionByPageId, markMetaConnectionRevoked, type MetaConnection } from "@/lib/listing-channels/meta/connection.server";
 import { MetaGraphError, sendMetaPageMessage } from "@/lib/listing-channels/meta/graph.server";
+import { PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES } from "@/lib/portal-sandbox-accounts";
+
+const FACEBOOK_LEAD_EMAIL_SUFFIX = PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES[0];
 
 export const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -96,8 +99,9 @@ export function buildMessengerReplyText(args: { listingTitle: string | null; pho
   return parts.join(" ");
 }
 
+/** The thread key for a Messenger sender. `shouldSkipOutboundEmail` refuses this domain, so no reply is ever mailed to it. */
 function syntheticEmail(psid: string): string {
-  return `facebook-${psid.replace(/[^A-Za-z0-9_-]/g, "")}@facebook.proplane.local`;
+  return `facebook-${psid.replace(/[^A-Za-z0-9_-]/g, "")}${FACEBOOK_LEAD_EMAIL_SUFFIX}`;
 }
 
 async function appendLead(

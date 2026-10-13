@@ -8,9 +8,24 @@ export function isPortalSandboxEmail(email: string | null | undefined): boolean 
   return PORTAL_SANDBOX_EMAIL_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
-/** Skip Resend / external SMTP for sandbox seed accounts (same rule as isPortalSandboxEmail). */
+/**
+ * Addresses PropLane mints itself for a channel that carries no email (a Facebook
+ * Messenger lead is filed as `facebook-<psid>@facebook.proplane.local`). They are a
+ * thread key, never a mailbox: handing one to Resend is a hard bounce charged to the
+ * workspace's own sending domain, so nothing outbound may ever be sent to them.
+ */
+export const PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES = ["@facebook.proplane.local"] as const;
+
+/** A PropLane-minted stand-in address with no mailbox behind it. */
+export function isUndeliverableEmailAddress(email: string | null | undefined): boolean {
+  const normalized = email?.trim().toLowerCase() ?? "";
+  if (!normalized.includes("@")) return false;
+  return PORTAL_UNDELIVERABLE_EMAIL_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
+/** Skip Resend / external SMTP: sandbox seed accounts, and addresses with no mailbox at all. */
 export function shouldSkipOutboundEmail(email: string | null | undefined): boolean {
-  return isPortalSandboxEmail(email);
+  return isPortalSandboxEmail(email) || isUndeliverableEmailAddress(email);
 }
 
 /** Block co-manager / property links that would mix demo sandbox accounts with real portal users. */

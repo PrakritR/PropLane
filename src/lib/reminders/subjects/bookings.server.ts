@@ -71,8 +71,11 @@ export function bookingCheckOutIso(dateKey: string): string | null {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
-function addDay(key: string): string {
-  return new Date(Date.parse(`${key}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+function addDay(key: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(key ?? "").trim())) return null;
+  const ms = Date.parse(`${key}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms + 86_400_000).toISOString().slice(0, 10);
 }
 
 function stayLabel(startKey: string, endKey: string | null): string {

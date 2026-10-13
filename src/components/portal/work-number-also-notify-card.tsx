@@ -5,13 +5,16 @@
  * manager notice the work number sends (bookings, tours, payments) - a text from the work number
  * and an email from the work email. Rows are "name · phone · email" with a ⋯ holding Remove; the
  * round + opens the standard popup (the New property wizard shell) with Name / Phone / Email.
- * Owner or a teammate with Team at edit manages it; the route enforces that, this just asks.
+ * The list belongs to the SELECTED workspace's owner, so a teammate reading someone else's
+ * workspace sees that owner's list (Team at edit) and only the owner gets + / Remove. The
+ * route re-derives both; this just stops offering what it would refuse.
  */
 import { useCallback, useEffect, useState } from "react";
 import { AddWorkspace } from "@/components/portal/add-workspace";
 import { WizardField, WizardSection } from "@/components/portal/add-workspace/parts";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RecordActionContext } from "@/components/ui/record-action-context";
@@ -23,6 +26,10 @@ import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 type Recipient = { id: string; label: string; phone: string | null; email: string | null };
 
 export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string | null }) {
+  const workspaces = useWorkspaces();
+  const active = workspaces?.active ?? null;
+  const owner = (ownerUserId ?? active?.ownerUserId ?? "").trim();
+  const canManage = active ? active.owned : true;
   const [rows, setRows] = useState<Recipient[]>([]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -30,7 +37,7 @@ export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const query = ownerUserId ? `?ownerUserId=${encodeURIComponent(ownerUserId)}` : "";
+  const query = owner ? `?ownerUserId=${encodeURIComponent(owner)}` : "";
 
   const load = useCallback(() => {
     void fetch(`/api/pro/work-number-recipients${query}`, { credentials: "include", cache: "no-store" })
@@ -64,7 +71,7 @@ export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ownerUserId: ownerUserId || undefined, label: name, phone, email }),
+        body: JSON.stringify({ ownerUserId: owner || undefined, label: name, phone, email }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -82,7 +89,7 @@ export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string
   };
 
   const remove = async (id: string) => {
-    await fetch(`/api/pro/work-number-recipients?id=${encodeURIComponent(id)}${ownerUserId ? `&ownerUserId=${encodeURIComponent(ownerUserId)}` : ""}`, {
+    await fetch(`/api/pro/work-number-recipients?id=${encodeURIComponent(id)}${owner ? `&ownerUserId=${encodeURIComponent(owner)}` : ""}`, {
       method: "DELETE",
       credentials: "include",
     }).catch(() => undefined);
@@ -92,7 +99,7 @@ export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string
   return (
     <PortalSettingsSection
       title="Also notify"
-      action={<PortalPrimaryIconAction label="Add person" onClick={() => { reset(); setOpen(true); }} data-attr="work-number-also-notify-add" />}
+      action={canManage ? <PortalPrimaryIconAction label="Add person" onClick={() => { reset(); setOpen(true); }} data-attr="work-number-also-notify-add" /> : undefined}
     >
       {rows.length > 0 ? (
         <PortalSettingsGroup>
@@ -102,19 +109,21 @@ export function WorkNumberAlsoNotifyCard({ ownerUserId }: { ownerUserId?: string
                 <span className="text-sm text-muted">
                   {[row.phone ? formatSmsPhoneLabel(row.phone) || row.phone : null, row.email].filter(Boolean).join(" · ")}
                 </span>
-                <RecordActionContext.Provider
-                  value={{
-                    scope: `also-notify-${row.id}`,
-                    clear: () => {},
-                    actions: (
-                      <Button type="button" variant="danger" data-record-action-id="delete" data-attr="work-number-also-notify-remove" onClick={() => void remove(row.id)}>
-                        Remove
-                      </Button>
-                    ),
-                  }}
-                >
-                  <RecordActionMenu label={row.label} activate={() => {}} />
-                </RecordActionContext.Provider>
+                {canManage ? (
+                  <RecordActionContext.Provider
+                    value={{
+                      scope: `also-notify-${row.id}`,
+                      clear: () => {},
+                      actions: (
+                        <Button type="button" variant="danger" data-record-action-id="delete" data-attr="work-number-also-notify-remove" onClick={() => void remove(row.id)}>
+                          Remove
+                        </Button>
+                      ),
+                    }}
+                  >
+                    <RecordActionMenu label={row.label} activate={() => {}} />
+                  </RecordActionContext.Provider>
+                ) : null}
               </div>
             </PortalSettingsRow>
           ))}

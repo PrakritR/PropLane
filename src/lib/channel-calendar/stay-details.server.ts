@@ -74,9 +74,9 @@ export async function readChannelStayDetails(
 }
 
 /**
- * Save the manager-entered details for one channel stay. The name and note behave as they always did
- * (clear when both are empty). The money fields (`guestPhone`, `nightlyCents`, `payoutCents`, `paidAt`)
- * are patched only when the key is present: undefined leaves the stored value alone, blank clears it.
+ * Save the manager-entered details for one channel stay. Every field is patched only when its key
+ * is present: undefined leaves the stored value alone, blank clears it. A stay left with no name,
+ * no note and no money at all is deleted.
  */
 export async function saveChannelStayDetails(
   db: SupabaseClient,
@@ -105,8 +105,6 @@ export async function saveChannelStayDetails(
   if (!connection.imported_ranges.some((range) => importedRangeUid(range) === sourceUid)) {
     return { ok: false, status: 404, error: "That stay is no longer on the channel calendar." };
   }
-  const moneyKeys = ["guestPhone", "nightlyCents", "payoutCents", "paidAt"] as const;
-  const hasMoneyKey = moneyKeys.some((key) => input[key] !== undefined);
   const patch: Record<string, unknown> = {};
   if (input.guestPhone !== undefined) patch.guest_phone = normalizeStayPhone(input.guestPhone) || null;
   if (input.nightlyCents !== undefined) {
@@ -126,21 +124,18 @@ export async function saveChannelStayDetails(
     patch.paid_at = paidAt;
   }
 
-  let stored: StayRow | null = null;
-  if (hasMoneyKey || input.notes === undefined) {
-    const { data, error } = await db
-      .from("channel_stay_details")
-      .select(STAY_COLUMNS)
-      .eq("connection_id", connection.id)
-      .eq("source_uid", sourceUid)
-      .maybeSingle();
-    if (error) return { ok: false, status: 500, error: "Could not save stay details." };
-    stored = data as StayRow | null;
-  }
-  // A save that sends money only (Mark paid) must not wipe the name it never showed.
-  const guestName = input.guestName === undefined && hasMoneyKey ? normalizeStayGuestName(stored?.guest_name) : normalizeStayGuestName(input.guestName);
-  // A save that sends money but no note must not wipe the note it never showed.
-  const notes = input.notes === undefined && hasMoneyKey ? normalizeStayNotes(stored?.notes) : normalizeStayNotes(input.notes);
+  const { data: storedData, error: storedError } = await db
+    .from("channel_stay_details")
+    .select(STAY_COLUMNS)
+    .eq("connection_id", connection.id)
+    .eq("source_uid", sourceUid)
+    .maybeSingle();
+  if (storedError) return { ok: false, status: 500, error: "Could not save stay details." };
+  const stored = storedData as StayRow | null;
+  // An absent key is "leave it alone" for every field, whatever else the save carried:
+  // a money-only save (Mark paid) and a note-only save both keep the name they never showed.
+  const guestName = input.guestName === undefined ? normalizeStayGuestName(stored?.guest_name) : normalizeStayGuestName(input.guestName);
+  const notes = input.notes === undefined ? normalizeStayNotes(stored?.notes) : normalizeStayNotes(input.notes);
   const merged: StayRow = { ...(stored ?? {}), ...patch } as StayRow;
   const moneyAfter = moneyFromRow(merged);
   const hasMoney = Object.keys(moneyAfter).some((key) => key !== "currency");

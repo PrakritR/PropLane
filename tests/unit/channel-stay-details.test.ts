@@ -76,10 +76,12 @@ describe("stay-details route", () => {
     expect(tables.channel_stay_details[0]).toMatchObject({ connection_id: "conn-mine", source_uid: "uid-1", guest_name: "Maria Lopez", updated_by: MINE });
     const got = await GET(new Request("http://localhost/x?connectionId=conn-mine&sourceUid=uid-1"));
     expect(await got.json()).toEqual({ guestName: "Maria Lopez", notes: "Late arrival" });
-    // Saving again updates the same row; an empty name and note clear it.
+    // Saving again updates the same row, and a key the save does not carry is left alone.
     await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "Maria L." });
     expect(tables.channel_stay_details).toHaveLength(1);
-    await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "" });
+    expect(tables.channel_stay_details[0]).toMatchObject({ guest_name: "Maria L.", notes: "Late arrival" });
+    // Nothing left on the stay at all: the row goes.
+    await put({ connectionId: "conn-mine", sourceUid: "uid-1", guestName: "", notes: "" });
     expect(tables.channel_stay_details).toHaveLength(0);
   });
 

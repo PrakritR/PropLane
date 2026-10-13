@@ -28,7 +28,8 @@ type JoinPreview = {
 type JoinState =
   | { phase: "idle" }
   | { phase: "loading" }
-  | { phase: "missing" }
+  /** `message` carries the route's own refusal (429 "Too many tries", 401 sign-in); absent is the flat 404 miss. */
+  | { phase: "missing"; message?: string }
   | { phase: "found"; preview: JoinPreview };
 
 const DEBOUNCE_MS = 350;
@@ -92,7 +93,10 @@ export function WorkspaceCreateJoinDialog({
         });
         if (mine !== sequence.current) return;
         if (!res.ok) {
-          setJoin({ phase: "missing" });
+          // 404 is the deliberate flat miss. Anything else (rate limited, signed out) is
+          // not "no such workspace" and must not read as one.
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          setJoin({ phase: "missing", ...(res.status === 404 ? {} : { message: body.error || "Could not look that up. Try again." }) });
           return;
         }
         setJoin({ phase: "found", preview: (await res.json()) as JoinPreview });
@@ -148,7 +152,7 @@ export function WorkspaceCreateJoinDialog({
 
   const cardRows = (() => {
     if (join.phase === "loading") return [{ label: "Workspace", value: "Looking up…" }];
-    if (join.phase === "missing") return [{ label: "Result", value: "No workspace matches that" }];
+    if (join.phase === "missing") return [{ label: "Result", value: join.message ?? "No workspace matches that" }];
     if (!preview) return null;
     const rows: Array<{ label: string; value: string }> = [
       { label: "Workspace", value: preview.workspaceName?.trim() || "Workspace" },

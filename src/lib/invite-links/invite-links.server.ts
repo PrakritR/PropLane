@@ -580,17 +580,21 @@ export async function activeInviteLinkForWorkspace(
   return { ok: true, link: null };
 }
 
-type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string };
+type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string; workspaceNameSnapshot: string | null };
 
 async function loadInviteLinkById(db: SupabaseClient, linkId: string): Promise<InviteLinkRowWithOwner | null> {
   const { data } = await db
     .from("manager_invite_links")
-    .select(`${LINK_COLUMNS}, owner_user_id`)
+    .select(`${LINK_COLUMNS}, owner_user_id, workspace_name_snapshot`)
     .eq("id", linkId.trim())
     .maybeSingle();
   if (!data) return null;
   const row = data as DbRow & { owner_user_id: string };
-  return { ...toInviteLinkRow(row), ownerUserId: String(row.owner_user_id) };
+  return {
+    ...toInviteLinkRow(row),
+    ownerUserId: String(row.owner_user_id),
+    workspaceNameSnapshot: row.workspace_name_snapshot ?? null,
+  };
 }
 
 export type RotateInviteLinkResult =
@@ -628,17 +632,30 @@ export async function rotateInviteLinkToken(
 
   const token = mintToken();
   const tokenCiphertext = tryEncryptInviteToken(token, link.ownerUserId, link.id);
-  const { data, error } = await db
-    .from("manager_invite_links")
-    .update({
-      token_hash: hashInviteLinkToken(token),
-      token_ciphertext: tokenCiphertext,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", link.id)
-    .is("revoked_at", null)
-    .select(LINK_COLUMNS)
-    .maybeSingle();
+  // The workspace code is the same credential as the token — invite texts and emails
+  // carry it, and `redeemInviteLink` resolves it — so rotating redraws both. A
+  // collision on the unique index just draws another code.
+  let code = generateInviteCode(link.workspaceNameSnapshot);
+  let data: DbRow | null = null;
+  let error: { message?: string; code?: string } | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const res = await db
+      .from("manager_invite_links")
+      .update({
+        token_hash: hashInviteLinkToken(token),
+        token_ciphertext: tokenCiphertext,
+        short_code: code,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", link.id)
+      .is("revoked_at", null)
+      .select(LINK_COLUMNS)
+      .maybeSingle();
+    data = (res.data as DbRow | null) ?? null;
+    error = res.error;
+    if (!error || error.code !== "23505") break;
+    code = generateInviteCode(link.workspaceNameSnapshot);
+  }
   if (error || !data) {
     return { ok: false, status: 500, error: "Could not refresh the invite link." };
   }

@@ -407,7 +407,7 @@ export function ManagerApiKeysPanel() {
     const res = await fetch("/api/manager/api-keys", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: key.name, transport: "api", scopes: key.scopes, allowedTools: key.allowedTools }),
+      body: JSON.stringify({ name: key.name, transport: key.transport, scopes: key.scopes, allowedTools: key.allowedTools }),
     });
     const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
     if (!res.ok || !body.token) {
@@ -584,7 +584,7 @@ export function ManagerApiKeysPanel() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(`${key.tokenPrefix}…`)}>Copy key prefix</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void rotateKey(key)}>Rotate</DropdownMenuItem>
+                      {key.transport === "api" ? <DropdownMenuItem onSelect={() => void rotateKey(key)}>Rotate</DropdownMenuItem> : null}
                       <DropdownMenuItem className="text-danger" onSelect={() => setPendingDelete({ kind: "key", id: key.id, name: key.name })}>Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
