@@ -210,6 +210,7 @@ export type ChannelStayDetailsInput = {
   /** Omitted fields are left as they are; blank / null clears. */
   guestName?: string;
   guestPhone?: string;
+  notes?: string;
   nightlyCents?: number | null;
   payoutCents?: number | null;
   /** YYYY-MM-DD or ISO; null clears. */

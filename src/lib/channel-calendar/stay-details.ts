@@ -18,6 +18,8 @@ export function normalizeStayNotes(raw: unknown): string {
 /** Money a manager types (or an Airbnb email supplies) for a channel stay. All optional; absent means unset. */
 export type ChannelStayMoney = {
   guestPhone?: string;
+  /** The manager's own note on the stay or host block. */
+  notes?: string;
   nightlyCents?: number;
   payoutCents?: number;
   /** ISO timestamp the payout landed; unset while the payout is still due. */

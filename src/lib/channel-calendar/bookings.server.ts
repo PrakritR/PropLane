@@ -62,7 +62,8 @@ export function normalizeRanges(
     const hostBlock = isHostBlockRange(r);
     const reservationUrl = hostBlock ? null : airbnbReservationUrl(r.reservationCode);
     const guestName = hostBlock ? undefined : guestNames?.get(importedRangeUid(r));
-    const money = hostBlock ? undefined : stayMoney?.get(importedRangeUid(r));
+    const allMoney = stayMoney?.get(importedRangeUid(r));
+    const money = hostBlock ? undefined : allMoney;
     return {
       sourceUid: r.sourceUid,
       start: r.start,
@@ -72,6 +73,7 @@ export function normalizeRanges(
       ...(reservationUrl && r.reservationCode ? { reservationCode: r.reservationCode, reservationUrl } : {}),
       ...(!hostBlock && isPhoneLast4(r.phoneLast4) ? { phoneLast4: r.phoneLast4 } : {}),
       ...(guestName ? { guestName } : {}),
+      ...(allMoney?.notes ? { stayNotes: allMoney.notes } : {}),
       ...(money?.guestPhone ? { guestPhone: money.guestPhone } : {}),
       ...(typeof money?.nightlyCents === "number" ? { nightlyCents: money.nightlyCents } : {}),
       ...(typeof money?.payoutCents === "number" ? { payoutCents: money.payoutCents, currency: money.currency ?? "USD" } : {}),
