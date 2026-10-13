@@ -11,7 +11,7 @@ import type { PortalKind } from "@/lib/portal-types";
  * resident, vendor, and admin all reach it only from the top-right account
  * menu (and, on a phone, the profile menu). It is excluded from sidebar
  * grouping entirely (see `SIDEBAR_EXCLUDED_SECTIONS`). Admin Feedback
- * (`bugs-feedback`) is a standalone Operations item; manager/resident/vendor
+ * (`bugs-feedback`) is a tab of the Support row; manager/resident/vendor
  * feedback stays inside Settings (embedded panel).
  */
 export type NavGroupConfig = { id: string; label: string | null; sections: string[] };
@@ -71,13 +71,140 @@ const PRO_GROUPS: NavGroupConfig[] = [
   { id: "money", label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
 ];
 
+/**
+ * Admin sidebar rows, in order. A grouped row (`accounts`, `money`, `support`)
+ * stands for several sections; every other entry is a section id on its own.
+ */
+export const ADMIN_NAV_ROW_ORDER = [
+  "dashboard",
+  "communication",
+  "accounts",
+  "money",
+  "properties",
+  "support",
+  "growth",
+] as const;
+
+export type AdminSectionTabGroup = { label: string; sections: readonly string[] };
+
+/**
+ * The one source for admin's grouped navigation (portal sweep 1012, round 1):
+ * each group is ONE sidebar row, and its sections are the tabs of the strip
+ * along the top of every page in the group. Section ids, routes and
+ * `adminPortal.sections` are unchanged; this only decides how they are shown.
+ * The first section is the group's row key (the row links to it and is
+ * highlighted on any member). `test-accounts` is operator-only: the layout
+ * drops it from the definition, and every derivation below works from the
+ * sections actually present.
+ */
+export const ADMIN_SECTION_TABS: Record<string, AdminSectionTabGroup> = {
+  accounts: { label: "Accounts", sections: ["axis-users", "subscribers", "test-accounts"] },
+  money: { label: "Money", sections: ["payments", "promo-codes", "finances"] },
+  support: { label: "Support", sections: ["bugs-feedback", "events", "health"] },
+};
+
+/** The group a section is a tab of, or null for a section that is a row on its own. */
+export function adminTabGroupIdFor(section: string): string | null {
+  for (const [id, group] of Object.entries(ADMIN_SECTION_TABS)) {
+    if (group.sections.includes(section)) return id;
+  }
+  return null;
+}
+
+/** The sidebar row key a section belongs to: its group's first section, or itself. */
+export function adminNavRowSection(section: string): string {
+  const id = adminTabGroupIdFor(section);
+  return id ? ADMIN_SECTION_TABS[id]!.sections[0]! : section;
+}
+
+/**
+ * The tab strip for an admin section: its group's label and the member sections
+ * that are actually available (so an operator-only tab never appears for anyone
+ * else), in tab order. Null for Dashboard, Communication, Properties, Growth and
+ * anything else that is not part of a group.
+ */
+export function adminSectionTabsFor(
+  section: string,
+  availableSections: readonly string[],
+): { groupId: string; label: string; sections: string[] } | null {
+  const groupId = adminTabGroupIdFor(section);
+  if (!groupId) return null;
+  const group = ADMIN_SECTION_TABS[groupId]!;
+  const available = new Set(availableSections);
+  const sections = group.sections.filter((id) => available.has(id));
+  if (sections.length === 0) return null;
+  return { groupId, label: group.label, sections };
+}
+
+/**
+ * Fold flat admin nav items into one row per group. The row keeps the first
+ * visible tab's item (href, icon key, prefetch), takes the group's label, and
+ * remembers every member in `groupSections` so it can be active on any of them.
+ * Idempotent: an already-folded row is passed through.
+ */
+export function collapseAdminNavItems<T extends { section: string; label: string }>(
+  items: T[],
+): (T & { groupSections?: string[] })[] {
+  const out: (T & { groupSections?: string[] })[] = [];
+  const done = new Set<string>();
+  for (const item of items) {
+    const groupId = adminTabGroupIdFor(item.section);
+    if (!groupId) {
+      out.push(item);
+      continue;
+    }
+    if (done.has(groupId)) continue;
+    done.add(groupId);
+    const group = ADMIN_SECTION_TABS[groupId]!;
+    const members = items.filter((i) => group.sections.includes(i.section));
+    const existing = members.find((m) => (m as { groupSections?: string[] }).groupSections);
+    if (existing) {
+      out.push(existing as T & { groupSections?: string[] });
+      continue;
+    }
+    const first = group.sections
+      .map((id) => members.find((m) => m.section === id))
+      .find((m): m is T => Boolean(m));
+    if (!first) continue;
+    out.push({
+      ...first,
+      label: group.label,
+      groupSections: group.sections.filter((id) => members.some((m) => m.section === id)),
+    });
+  }
+  return out;
+}
+
+/**
+ * Nav badge counts for the folded admin rows: a grouped row carries the sum of
+ * its members' counts (Support shows the open Meetings and Feedback), alert if
+ * any member is. Counts of the members are left as they are for the tab strip.
+ */
+export function mergeAdminGroupCounts<C extends { count: number; tone: "muted" | "alert" }>(
+  counts: Partial<Record<string, C>>,
+): Partial<Record<string, C>> {
+  const merged: Partial<Record<string, C>> = { ...counts };
+  for (const group of Object.values(ADMIN_SECTION_TABS)) {
+    const rowKey = group.sections[0]!;
+    let total = 0;
+    let alert = false;
+    for (const id of group.sections) {
+      const c = counts[id];
+      if (!c) continue;
+      total += c.count;
+      if (c.tone === "alert" && c.count > 0) alert = true;
+    }
+    merged[rowKey] = { count: total, tone: alert ? "alert" : "muted" } as C;
+  }
+  return merged;
+}
+
 const ADMIN_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard", "communication"] },
-  { id: "accounts", label: "Accounts", sections: ["axis-users", "subscribers", "test-accounts"] },
-  { id: "money", label: "Money", sections: ["payments", "promo-codes", "finances"] },
-  { id: "portfolio", label: "Portfolio", sections: ["properties"] },
-  { id: "support", label: "Support", sections: ["bugs-feedback", "events", "health"] },
-  { id: "marketing", label: "Marketing", sections: ["growth"] },
+  {
+    id: "home",
+    label: null,
+    sections: ADMIN_NAV_ROW_ORDER.map((id) => ADMIN_SECTION_TABS[id]?.sections[0] ?? id),
+  },
 ];
 
 // `move-in` is the resident's "My home" row (label "My home").
@@ -113,6 +240,8 @@ export function groupNavItems<T extends { section: string }>(
   kind: PortalKind,
   items: T[],
 ): GroupedNav<T>[] {
+  // Admin folds its tab groups into one row each; its items always carry a label.
+  if (kind === "admin") items = collapseAdminNavItems(items as unknown as { section: string; label: string }[]) as unknown as T[];
   const bySection = new Map<string, T[]>();
   for (const item of items) {
     const list = bySection.get(item.section) ?? [];
