@@ -25,27 +25,27 @@ function pacific(iso: string, type: string): string {
 }
 
 describe("booking check-in anchor", () => {
-  it("lands at 3pm Pacific on the check-in DATE, in summer (PDT)", () => {
+  it("lands at 9am Pacific on the check-in DATE, in summer (PDT)", () => {
     const iso = bookingCheckInIso("2026-09-18")!;
     expect(iso).not.toBeNull();
     expect(pacific(iso, "day")).toBe("18");
     expect(pacific(iso, "month")).toBe("09");
-    expect(Number(pacific(iso, "hour"))).toBe(15);
-    // PDT is UTC-7, so 3pm local is 22:00Z. A naive parse would give 00:00Z.
-    expect(iso).toBe("2026-09-18T22:00:00.000Z");
+    expect(Number(pacific(iso, "hour"))).toBe(9);
+    // PDT is UTC-7, so 9am local is 16:00Z. A naive parse would give 00:00Z.
+    expect(iso).toBe("2026-09-18T16:00:00.000Z");
   });
 
-  it("still lands at 3pm Pacific in winter (PST), a different UTC offset", () => {
+  it("still lands at 9am Pacific in winter (PST), a different UTC offset", () => {
     const iso = bookingCheckInIso("2027-01-14")!;
     expect(pacific(iso, "day")).toBe("14");
-    expect(Number(pacific(iso, "hour"))).toBe(15);
-    expect(iso).toBe("2027-01-14T23:00:00.000Z");
+    expect(Number(pacific(iso, "hour"))).toBe(9);
+    expect(iso).toBe("2027-01-14T17:00:00.000Z");
   });
 
   it("holds across the spring-forward day", () => {
     const iso = bookingCheckInIso("2027-03-14")!;
     expect(pacific(iso, "day")).toBe("14");
-    expect(Number(pacific(iso, "hour"))).toBe(15);
+    expect(Number(pacific(iso, "hour"))).toBe(9);
   });
 
   it("refuses anything that is not a plain date key", () => {

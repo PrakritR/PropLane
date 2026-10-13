@@ -63,8 +63,12 @@ describe("teamRecipientsScopedToSubject", () => {
 
 describe("reminder audience defaults", () => {
   it("never defaults a subject to the team audience", () => {
+    // `booking` is the one deliberate exception: check-in / check-out reminders go to the same people as
+    // the new-booking alert (owner + teammates with the house and Calendar alerts; the teammate list is
+    // still module- and property-scoped by `loadTeamReminderRecipients`).
+    const TEAM_BY_DESIGN = new Set(["booking"]);
     for (const [kind, rule] of Object.entries(DEFAULT_REMINDER_RULES)) {
-      expect(rule.audience.team, `${kind} must not fan out to the team by default`).toBe(false);
+      expect(rule.audience.team, `${kind} must not fan out to the team by default`).toBe(TEAM_BY_DESIGN.has(kind));
     }
   });
 });

@@ -61,11 +61,11 @@ const CONNECTION = {
   label: "Airbnb · Room B",
   imported_ranges: [
     // Inside the 31-day horizon.
-    { id: "r1", start: "2026-09-18", end: "2026-09-22", summary: "Airbnb (Not available)" },
+    { id: "r1", start: "2026-09-18", end: "2026-09-22", summary: "Reserved" },
     // Already past — reminding after check-in is not a reminder.
-    { id: "r2", start: "2026-09-01", end: "2026-09-03", summary: "Airbnb (Not available)" },
+    { id: "r2", start: "2026-09-01", end: "2026-09-03", summary: "Reserved" },
     // Beyond the horizon, so the sweep stays bounded.
-    { id: "r3", start: "2026-12-01", end: "2026-12-05", summary: "Airbnb (Not available)" },
+    { id: "r3", start: "2026-12-01", end: "2026-12-05", summary: "Reserved" },
   ],
 };
 
@@ -126,7 +126,7 @@ describe("sweepBookingReminders", () => {
   it("queues an imported Airbnb stay and a PropLane move-in, anchored on check-in", async () => {
     await sweepBookingReminders(fakeDb([CONNECTION], [LEASE_ROW]), NOW);
 
-    expect(materialize).toHaveBeenCalledTimes(2);
+    expect(materialize).toHaveBeenCalledTimes(3); // channel check-in + check-out, lease check-in
     const inputs = materialize.mock.calls.map((call) => call[1] as Record<string, unknown>);
 
     const channel = inputs.find((i) => String(i.subjectId).startsWith("channel:"))!;
@@ -134,17 +134,37 @@ describe("sweepBookingReminders", () => {
 
     expect(channel.subjectId).toBe("channel:conn-1:r1");
     expect(channel.kind).toBe("booking");
-    // 3pm Pacific on the 18th, not UTC midnight on the 18th.
-    expect(channel.anchorIso).toBe("2026-09-18T22:00:00.000Z");
+    // 9am Pacific on the 18th, not UTC midnight on the 18th.
+    expect(channel.anchorIso).toBe("2026-09-18T16:00:00.000Z");
 
     expect(stay.subjectId).toBe("stay:lease-9");
-    expect(stay.anchorIso).toBe("2026-09-20T22:00:00.000Z");
+    expect(stay.anchorIso).toBe("2026-09-20T16:00:00.000Z");
+  });
+
+  it("queues the check-out reminder on its own subject, 9:00 PT on the day after the last night", async () => {
+    await sweepBookingReminders(fakeDb([CONNECTION], []), NOW);
+    const inputs = materialize.mock.calls.map((call) => call[1] as { subjectId: string; anchorIso: string; payload: { headline: string; url: string } });
+    const out = inputs.find((i) => i.subjectId === "channel:conn-1:r1:out")!;
+    // Last night Sep 22 -> check-out Sep 23, anchor 9:05 PT (16:05Z); the reminder fires 5 minutes earlier.
+    expect(out.anchorIso).toBe("2026-09-23T16:05:00.000Z");
+    expect(out.payload.headline).toMatch(/^Check-out today/);
+    const settings = materialize.mock.calls.find((c) => (c[1] as { subjectId: string }).subjectId.endsWith(":out"))![2] as { rules: { booking: { timings: string[] } } };
+    expect(settings.rules.booking.timings).toEqual(["before:5"]);
+    const checkIn = inputs.find((i) => i.subjectId === "channel:conn-1:r1")!;
+    expect(checkIn.payload.headline).toMatch(/^Check-in tomorrow/);
+    expect(checkIn.payload.url).toContain("/portal/bookings/airbnb%3A");
+  });
+
+  it("never reminds for a host block", async () => {
+    const block = { ...CONNECTION, imported_ranges: [{ id: "b", start: "2026-09-18", end: "2026-09-22", summary: "Airbnb (Not available)" }] };
+    await sweepBookingReminders(fakeDb([block], []), NOW);
+    expect(materialize).not.toHaveBeenCalled();
   });
 
   it("skips stays that are past or beyond the horizon", async () => {
     await sweepBookingReminders(fakeDb([CONNECTION], []), NOW);
     const ids = materialize.mock.calls.map((call) => (call[1] as { subjectId: string }).subjectId);
-    expect(ids).toEqual(["channel:conn-1:r1"]);
+    expect(ids).toEqual(["channel:conn-1:r1", "channel:conn-1:r1:out"]);
   });
 
   it("sends only to the manager — an imported booking has no guest address", async () => {
@@ -162,10 +182,10 @@ describe("sweepBookingReminders", () => {
 
   it("BUILD-WAVE2 C211: a hand-added / sheet-imported booking (room_date_block) also queues, anchored on check-in", async () => {
     const queued = await sweepBookingReminders(fakeDb([], [], [ROOM_DATE_BLOCK_ROW]), NOW);
-    expect(queued).toBe(1);
+    expect(queued).toBe(2); // check-in + check-out
     const input = materialize.mock.calls[0]![1] as Record<string, unknown>;
     expect(input.subjectId).toBe("block:block-5");
-    expect(input.anchorIso).toBe("2026-09-19T22:00:00.000Z");
+    expect(input.anchorIso).toBe("2026-09-19T16:00:00.000Z");
     expect((input.payload as { title: string }).title).toContain("Priya S.");
   });
 
@@ -181,9 +201,9 @@ describe("sweepBookingReminders", () => {
     bookingOverrideRule = rule(true);
     const overriddenConnection = { ...CONNECTION, id: "conn-override", property_id: OVERRIDE_PROPERTY_ID };
     const queued = await sweepBookingReminders(fakeDb([CONNECTION, overriddenConnection], []), NOW);
-    // Only the overridden house's stay queued — the workspace-scoped one did not.
-    expect(queued).toBe(1);
+    // Only the overridden house's stay queued (check-in + check-out) — the workspace-scoped one did not.
+    expect(queued).toBe(2);
     const ids = materialize.mock.calls.map((call) => (call[1] as { subjectId: string }).subjectId);
-    expect(ids).toEqual(["channel:conn-override:r1"]);
+    expect(ids).toEqual(["channel:conn-override:r1", "channel:conn-override:r1:out"]);
   });
 });

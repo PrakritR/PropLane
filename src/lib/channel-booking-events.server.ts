@@ -21,7 +21,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { channelRangeKey } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
-import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { bookingRecordUrl, channelStayBookingKey } from "@/lib/channel-calendar/booking-record-link";
 import type { ChannelCalendarImportedRange, ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 
 export type ChannelBookingEvent = "channel_booking_created" | "channel_booking_cancelled";
@@ -36,18 +36,17 @@ function monthDay(key: string): string {
   return new Date(dayMs(key)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-/**
- * The booking RECORD page for a channel stay. A booking has no stored id; the record route
- * resolves the legacy key `source:property:room:start:end:summary` (`bookingLegacyEntryKey`).
- */
+/** The booking RECORD page for a channel stay (falls back to nothing else: the record route resolves this key). */
 export function channelBookingRecordUrl(input: {
   provider: ChannelCalendarProvider;
   propertyId: string;
   roomId: string;
   range: Pick<ChannelCalendarImportedRange, "start" | "end" | "summary">;
 }): string {
-  const key = `${input.provider}:${input.propertyId}:${input.roomId}:${input.range.start}:${input.range.end}:${input.range.summary}`;
-  return `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}${bookingRecordHref("/portal", key)}`;
+  return bookingRecordUrl(
+    resolveEmailLinkBaseUrl(),
+    channelStayBookingKey({ provider: input.provider, propertyId: input.propertyId, roomId: input.roomId, ...input.range }),
+  );
 }
 
 /** The stored range ends on its LAST night; the guest checks out the day after. */
