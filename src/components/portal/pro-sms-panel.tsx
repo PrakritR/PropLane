@@ -1026,6 +1026,8 @@ export const ManagerSmsPanel = forwardRef<
   // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
   const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
     recipientEmail: active?.resident.residentEmail?.trim() ?? "",
+    recipientPhone: active?.resident.phone,
+    conversationKey: active?.resident.conversationKey,
     smsAvailable: smsUiEnabled && !active?.resident.sendDisabled,
     enabled: activeCanSchedule,
   });
