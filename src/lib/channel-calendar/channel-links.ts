@@ -56,3 +56,17 @@ export function channelCheckFacts(
     { label: `PropLane checked ${channel}`, value: formatCheckedAt(link.lastSyncedAt, now) || "Not yet" },
   ];
 }
+
+/** One plain status line per room: "Synced · Airbnb 8:04 AM · PropLane 8:00 AM". A part without a timestamp is omitted. */
+export function channelStatusLine(
+  connection: { hasImportUrl?: boolean; lastError?: string | null; lastSyncedAt: string | null; exportLastFetchedAt?: string | null } | null | undefined,
+  now: Date = new Date(),
+  provider: ChannelCalendarProvider = "airbnb",
+): string {
+  const channel = channelCalendarProviderLabel(provider);
+  if (!connection?.hasImportUrl) return "Not linked";
+  const fetched = formatCheckedAt(connection.exportLastFetchedAt ?? null, now);
+  const synced = formatCheckedAt(connection.lastSyncedAt, now);
+  const state = connection.lastError ? `Error: ${connection.lastError}` : fetched ? "Synced" : `Waiting for ${channel}`;
+  return [state, fetched && `${channel} ${fetched}`, synced && `PropLane ${synced}`].filter(Boolean).join(" · ");
+}

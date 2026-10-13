@@ -9,7 +9,6 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,7 +23,7 @@ import {
 import type { ChannelCalendarProvider, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
 import { channelCalendarProviderLabel, isValidChannelImportUrl } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
-import { channelCheckFacts } from "@/lib/channel-calendar/channel-links";
+import { channelStatusLine } from "@/lib/channel-calendar/channel-links";
 import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
 import { channelCalendarUnits, type ChannelCalendarUnit } from "@/lib/channel-calendar/property-units";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -235,10 +234,8 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
               <Input readOnly aria-label={`${row.unit.label} PropLane export link`} value={url} placeholder="Created when you copy it" data-attr="channel-calendar-export-url" />
               <CopyIconAction label="Copy PropLane calendar link" disabled={busy} onCopy={() => run(() => copy(row))} />
             </div>
-            <div data-attr="channel-calendar-room-status" className="flex flex-wrap items-center gap-1.5 text-xs text-muted md:col-start-2 md:col-span-2">
-              {connection?.lastError ? <Badge tone="danger">Feed failed · {connection.lastError}</Badge> : connection?.hasImportUrl ? <Badge tone="success">Linked</Badge> : <Badge>Paste {name} calendar link</Badge>}
-              {copiedKeys[`${row.key}:${channel}`] || connection?.exportUrl ? <Badge tone="success">Copied</Badge> : <Badge>Not yet pasted into {name}</Badge>}
-              {connection?.hasImportUrl ? channelCheckFacts(connection, new Date(), channel).map((fact) => <span key={fact.label} data-attr="channel-calendar-check-fact">{fact.label} · {fact.value}</span>) : null}
+            <div data-attr="channel-calendar-room-status" className="text-xs text-muted md:col-start-2 md:col-span-2">
+              {connection?.lastError ? <><span className="text-danger">Error:</span> {connection.lastError.replace(/^Error:\s*/, "")}{channelStatusLine({ ...connection, lastError: null }, new Date(), channel).replace(/^[^·]*/, "")}</> : channelStatusLine(connection, new Date(), channel)}
             </div>
             <div className="flex md:justify-end">
               <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${row.unit.label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">
