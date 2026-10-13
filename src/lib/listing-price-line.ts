@@ -7,6 +7,7 @@
  * all: the card never prints "$0" or a dash for a price it does not have.
  */
 import type { ListingRichContent } from "@/data/listing-rich-content";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 export type ListingPriceLine = { label: string; amount: number; from: boolean };
@@ -56,4 +57,66 @@ export function listingMonthlyPriceLine(
   const lowest = lowestRoomMonthlyRent(rich);
   if (lowest > 0) return { label: `from ${formatRoomPriceAmount(lowest)} / mo`, amount: lowest, from: true };
   return null;
+}
+
+export type ListingPriceRow = { key: string; label: string; value: string };
+
+type PriceRowsSubmission = {
+  securityDeposit?: string | null;
+  rooms?: Array<{ id?: string; name?: string; securityDeposit?: string | null }> | null;
+} | null | undefined;
+
+const money = (n: number) => formatRoomPriceAmount(n);
+
+/**
+ * The price card's rows table, deterministic: Rent, Security deposit, a Deposit row per room whose deposit
+ * differs from the default, Application fee, Nightly rate, then every other fee the projection carries.
+ * A row exists only when its value does; nothing is invented and no price that exists is hidden.
+ */
+export function listingPriceRows(
+  rich: Pick<ListingRichContent, "startingRentLabel" | "priceRangeLabel" | "floorPlans" | "pricingBreakdown" | "estimatedMonthlyTotalLabel">,
+  sub: PriceRowsSubmission,
+  nightlyFrom: number,
+  formatLabelMoney: (value: string) => string = (v) => v,
+): ListingPriceRow[] {
+  const rows: ListingPriceRow[] = [];
+  const breakdown = rich.pricingBreakdown ?? [];
+  const find = (label: string) => breakdown.find((line) => line.label.trim().toLowerCase() === label.toLowerCase());
+
+  const line = listingMonthlyPriceLine(rich);
+  if (line) rows.push({ key: "rent", label: "Rent", value: `${line.from ? "from " : ""}${money(line.amount)}/mo` });
+
+  const estimated = rich.estimatedMonthlyTotalLabel?.trim();
+  if (estimated) rows.push({ key: "estimated", label: "Est. with utilities", value: formatLabelMoney(estimated) });
+
+  const defaultDeposit = parseMoneyAmount(sub?.securityDeposit ?? "");
+  if (defaultDeposit > 0) {
+    rows.push({ key: "deposit", label: "Security deposit", value: money(defaultDeposit) });
+  } else {
+    const fromFees = find("Security deposit");
+    if (fromFees) rows.push({ key: "deposit", label: "Security deposit", value: formatLabelMoney(fromFees.value) });
+  }
+  for (const room of sub?.rooms ?? []) {
+    const own = parseMoneyAmount(room.securityDeposit ?? "");
+    if (own > 0 && own !== defaultDeposit) {
+      rows.push({ key: `deposit-${room.id ?? room.name}`, label: `Deposit · ${room.name?.trim() || "Room"}`, value: money(own) });
+    }
+  }
+
+  const application = find("Application fee");
+  if (application) rows.push({ key: "application", label: "Application fee", value: formatLabelMoney(application.value) });
+
+  const nightly = find("Nightly rate");
+  if (nightly) rows.push({ key: "nightly", label: "Nightly rate", value: formatLabelMoney(nightly.value) });
+  else if (nightlyFrom > 0) rows.push({ key: "nightly", label: "Nightly rate", value: `from ${money(nightlyFrom)}/night` });
+
+  const handled = (label: string) => {
+    const l = label.trim().toLowerCase();
+    return l === "application fee" || l === "nightly rate" || l === "security deposit" || l.startsWith("deposit ·");
+  };
+  breakdown.forEach((other, index) => {
+    if (handled(other.label) || !other.value?.trim()) return;
+    rows.push({ key: `fee-${index}-${other.label}`, label: other.label, value: formatLabelMoney(other.value) });
+  });
+  return rows;
 }
