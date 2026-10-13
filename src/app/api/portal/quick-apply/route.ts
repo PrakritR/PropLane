@@ -3,6 +3,7 @@ import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { runQuickApply, type QuickApplyInput } from "@/lib/rental-application/quick-apply.server";
+import { applicationWriteErrorResponse } from "@/lib/rental-application/signed-in-application-write.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -57,7 +58,10 @@ export async function POST(req: Request) {
     );
     return NextResponse.json(outcome.body, { status: outcome.status });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not submit the application.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // The shared write's own codes, read exactly as the wizard route reads them: a shared-room
+    // last-bed arbitration is a 409 with `blocked: "capacity"` and a serialization failure is a
+    // retryable 409, never a 500 carrying a raw database message into the sheet.
+    const mapped = applicationWriteErrorResponse(e, "Could not submit the application.");
+    return NextResponse.json(mapped.body, { status: mapped.status });
   }
 }

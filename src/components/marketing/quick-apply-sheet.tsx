@@ -132,6 +132,21 @@ function QuickApplySheetBody({
     [entireHome, sub],
   );
   const needsRoomPick = rooms.length > 1;
+  /**
+   * The listing's credit/background consent question, in the applicant's own sentence (or the
+   * manager's rewording). Shown whenever the listing ASKS it: an optional consent question is still
+   * the applicant's to tick, and the server orders screening only from this box. `ready` below gates
+   * on `screeningRequired`, so an optional box may be left empty and a required one may not.
+   */
+  const screeningLabel = useMemo(
+    () =>
+      sub
+        ? wizardFormFieldLabel(applicationConfigForApplicant(sub, "standard").config, "consentCredit", {
+            applicantDefault: "I consent to a credit and background check",
+          })
+        : undefined,
+    [sub],
+  );
   const screeningRequired = useMemo(
     () => (sub ? isWizardFormFieldRequired(applicationConfigForApplicant(sub, "standard").config, "consentCredit") : false),
     [sub],
@@ -290,9 +305,9 @@ function QuickApplySheetBody({
             Move-in
             <DateField value={moveIn} onChange={setMoveIn} min={pacificTodayKey()} className="mt-1" aria-label="Move-in" />
           </label>
-          {screeningRequired ? (
+          {screeningLabel ? (
             <CheckboxOption
-              label="I consent to a credit and background check"
+              label={screeningLabel}
               checked={consentCredit}
               onChange={setConsentCredit}
               dataAttr="quick-apply-consent-screening"

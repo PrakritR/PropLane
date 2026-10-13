@@ -8,7 +8,14 @@ import { test, expect } from "@playwright/test";
 test.describe("Ladder smoke", () => {
   test("public home loads", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /^propLane$/i }).first()).toBeVisible();
+    // Structural, deliberately not the hero's words: this is the release ladder's
+    // gate, so it must fail when the page does not load, never when marketing
+    // rewrites the headline (how the previous `^propLane$` assertion went stale).
+    // `.first()` is load-bearing: during hydration React briefly has BOTH the
+    // streamed hero and its zero-sized replacement in the DOM, so a strict
+    // locator raises a strict-mode violation — which `expect` does not retry —
+    // on a page that loaded perfectly. Reproduced on ~3 of 8 cold loads.
+    await expect(page.locator("#rlp-hero-title").first()).toBeVisible();
   });
 
   test("sign-in page loads", async ({ page }) => {

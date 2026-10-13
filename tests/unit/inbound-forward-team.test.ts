@@ -30,14 +30,16 @@ function seed() {
   return createFakeDb({
     portal_workspaces: [{ id: WS, owner_user_id: OWNER, is_default: true, name: "Seattle" }],
     account_link_invites: [
-      { inviter_user_id: OWNER, invitee_user_id: "with-house", status: "accepted", workspace_id: WS, team_role: "admin",
+      { inviter_user_id: OWNER, invitee_user_id: "with-house", status: "accepted", workspace_id: WS, team_role: "property_manager",
         assigned_property_ids: [HOUSE], property_co_manager_permissions: { [HOUSE]: { inbox: true } } },
-      { inviter_user_id: OWNER, invitee_user_id: "other-house", status: "accepted", workspace_id: WS, team_role: "admin",
+      { inviter_user_id: OWNER, invitee_user_id: "other-house", status: "accepted", workspace_id: WS, team_role: "property_manager",
         assigned_property_ids: ["house-x"], property_co_manager_permissions: { "house-x": { inbox: true } } },
-      { inviter_user_id: OWNER, invitee_user_id: "stopped", status: "accepted", workspace_id: WS, team_role: "admin",
+      { inviter_user_id: OWNER, invitee_user_id: "stopped", status: "accepted", workspace_id: WS, team_role: "property_manager",
         assigned_property_ids: [HOUSE], property_co_manager_permissions: { [HOUSE]: { inbox: true } } },
-      { inviter_user_id: OWNER, invitee_user_id: "no-module", status: "accepted", workspace_id: WS, team_role: "admin",
+      { inviter_user_id: OWNER, invitee_user_id: "no-module", status: "accepted", workspace_id: WS, team_role: "property_manager",
         assigned_property_ids: [HOUSE], property_co_manager_permissions: { [HOUSE]: { payments: true } } },
+      // A whole-workspace role hears every house, held or not (resolveWorkspaceNoticeRecipients).
+      { inviter_user_id: OWNER, invitee_user_id: "admin-all", status: "accepted", workspace_id: WS, team_role: "admin" },
     ],
     profiles: [
       { id: OWNER, full_name: "Ambika", phone: "+12065550100", phone_verified_at: verified },
@@ -45,6 +47,7 @@ function seed() {
       { id: "other-house", full_name: "Akshaya", phone: "+12065550102", phone_verified_at: verified },
       { id: "stopped", full_name: "Sam", phone: "+12065550103", phone_verified_at: verified },
       { id: "no-module", full_name: "Nia", phone: "+12065550104", phone_verified_at: verified },
+      { id: "admin-all", full_name: "Ada", phone: "+12065550105", phone_verified_at: verified },
     ],
     manager_sms_messages: [{ manager_user_id: OWNER, resident_phone: RESIDENT_PHONE, resident_user_id: "res-1" }],
     sms_outbox: [],
@@ -66,11 +69,11 @@ beforeEach(() => {
 });
 
 describe("forwardInboundToTeammates", () => {
-  it("a resident with a house: the teammate WITH that house gets it from the work number, billed to the owner, 'fwd:<sid>:<member>'; the one without does not", async () => {
+  it("a resident with a house: the teammate WITH that house (and a whole-workspace admin) gets it from the work number, billed to the owner, 'fwd:<sid>:<member>'; a house-scoped one without it does not", async () => {
     const fake = seed();
     fake.tables.profiles!.push({ id: "res-1", full_name: "Aaron" });
     const outcomes = await run(fake as unknown as SupabaseClient);
-    expect(outcomes.filter((o) => o.status === "sent").map((o) => o.memberUserId).sort()).toEqual(["stopped", "with-house"]);
+    expect(outcomes.filter((o) => o.status === "sent").map((o) => o.memberUserId).sort()).toEqual(["admin-all", "stopped", "with-house"]);
     const tos = enqueueOwnerSms.mock.calls.map(([i]) => i.recipientUserId);
     expect(tos).not.toContain("other-house"); // another house
     expect(tos).not.toContain("no-module"); // no Communication on this house
@@ -83,9 +86,12 @@ describe("forwardInboundToTeammates", () => {
     expect(String(first.body)).not.toContain("2065559999"); // never the raw number
   });
 
-  it("an unresolved house is owner-only: nothing goes to teammates", async () => {
-    expect(await run(seed() as unknown as SupabaseClient, { houseId: null })).toEqual([]);
-    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+  it("an unresolved house reaches the role-eligible teammates (admin plus house-scoped roles), never the owner", async () => {
+    const outcomes = await run(seed() as unknown as SupabaseClient, { houseId: null });
+    const tos = enqueueOwnerSms.mock.calls.map(([i]) => i.recipientUserId).sort();
+    expect(tos).toEqual(["admin-all", "no-module", "other-house", "stopped", "with-house"]);
+    expect(tos).not.toContain(OWNER);
+    expect(outcomes.filter((o) => o.status === "sent").length).toBe(5);
   });
 
   it("no MessageSid (nothing to dedupe on) or no sendable line: no teammate texts", async () => {

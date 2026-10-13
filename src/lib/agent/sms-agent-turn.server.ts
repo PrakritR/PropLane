@@ -48,6 +48,7 @@ import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
 import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 
 type Db = SupabaseClient;
 
@@ -344,7 +345,9 @@ async function recordAssistantReply(
     session_id: session.id,
     landlord_id: session.landlord_id,
     role: "assistant",
-    content: reply,
+    // The transcript is the record of what was SENT, so it carries the same stripped text the
+    // runner returns below - never the model's em dashes on a reply the person read without them.
+    content: stripLongDashes(reply),
     channel: "agent",
     tool_trace: toolTrace,
     trace_id: traceId ?? null,
@@ -794,5 +797,9 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
   return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId, toolTrace: result.toolTrace };
   };
-  return execute();
+  // The standing no-em-dash rule lives here, not at each call site: every reply this runner can
+  // produce (model, confirmation, proposal preview, precomputed, rate limit, error) leaves
+  // stripped, so no surface can forget it.
+  const turn = await execute();
+  return turn?.reply ? { ...turn, reply: stripLongDashes(turn.reply) } : turn;
 }

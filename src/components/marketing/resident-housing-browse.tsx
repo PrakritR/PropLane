@@ -266,6 +266,12 @@ function FilterPair({
   );
 }
 
+const BROWSE_BUDGET_BOUNDS = {
+  min: RESIDENT_HOUSING_BUDGET_MIN,
+  max: RESIDENT_HOUSING_BUDGET_MAX,
+  step: RESIDENT_HOUSING_BUDGET_STEP,
+};
+
 /**
  * Every control below is drafted, not applied live: `usePortalFilterDraft` reads/writes a
  * PENDING value scoped to the surrounding `PortalFilterSortSheet` while it is open, and only
@@ -328,10 +334,28 @@ function BrowseFilterPanel({
   const [petsOnly, setPetsOnly] = usePortalFilterDraft(appliedPetsOnly, onApplyPetsOnly, false, "petsOnly");
   const [leaseTypes, setLeaseTypes] = usePortalFilterDraft(appliedLeaseTypes, onApplyLeaseTypes, [] as LeaseTypeId[], "leaseTypes");
 
+  /*
+   * The Ask sits INSIDE this drafted panel, so answering it has to move the drafts too.
+   * Applying only to the page leaves every control here holding what it held before the
+   * question, and the sheet's own "Show N homes" then commits those stale drafts straight
+   * back over the Ask's answer.
+   */
+  function applyChatFilters(applied: HousingChatAppliedFilters) {
+    const next = browseStateFromChatFilters(applied, BROWSE_BUDGET_BOUNDS);
+    setMoveIn(next.moveIn);
+    setMoveOut(next.moveOut);
+    setBudget({ min: next.budgetMin, max: next.budgetMax });
+    setRoomType(next.roomType);
+    setBathroom(next.bathroom);
+    setPetsOnly(next.petsOnly);
+    setLeaseTypes(next.leaseTypes);
+    onApplyChatFilters(applied);
+  }
+
   return (
     <div className="min-w-0 max-w-full overflow-x-hidden px-1">
       <FilterSection label="Describe what you want">
-        <ResidentHousingChat variant="inline" onApplyFilters={onApplyChatFilters} showMatchListings={false} />
+        <ResidentHousingChat variant="inline" onApplyFilters={applyChatFilters} showMatchListings={false} />
       </FilterSection>
 
       <FilterSection label="Sort" inline>
@@ -608,11 +632,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
   }, [filteredCards, query]);
 
   function applyChatFilters(applied: HousingChatAppliedFilters) {
-    const next = browseStateFromChatFilters(applied, {
-      min: RESIDENT_HOUSING_BUDGET_MIN,
-      max: RESIDENT_HOUSING_BUDGET_MAX,
-      step: RESIDENT_HOUSING_BUDGET_STEP,
-    });
+    const next = browseStateFromChatFilters(applied, BROWSE_BUDGET_BOUNDS);
     setMoveIn(next.moveIn);
     setMoveOut(next.moveOut);
     setBudgetMin(next.budgetMin);

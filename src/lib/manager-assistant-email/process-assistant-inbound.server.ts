@@ -159,6 +159,7 @@ async function handleAirbnbNotification(
       ownerUserId: managerUserId,
       workspaceId,
       subject: "Work email",
+      sms: false,
       text: inboundEmailNoticeText({ sender: parsed.fromName?.trim() || senderEmail, subject: parsed.subject, body: inboundText }),
       idempotencyKey: `inbound-email:${parsed.emailId}`,
     });
@@ -401,6 +402,7 @@ export async function processManagerAssistantInboundEmail(
         ownerUserId: managerUserId,
         workspaceId,
         subject: "Work email",
+        sms: false,
         text: inboundEmailNoticeText({ sender: senderName, subject: parsed.subject, body: inboundText }),
         idempotencyKey: `inbound-email:${parsed.emailId}`,
       });
@@ -409,6 +411,7 @@ export async function processManagerAssistantInboundEmail(
           ownerUserId: managerUserId,
           workspaceId,
           subject: "Work email reply",
+          sms: false,
           text: repliedNoticeText(replyText),
           idempotencyKey: `inbound-email-reply:${parsed.emailId}`,
         });

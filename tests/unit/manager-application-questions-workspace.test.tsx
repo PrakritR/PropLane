@@ -267,7 +267,7 @@ describe("⋯ reorder menu", () => {
 
   it("keeps custom questions after typed fields in structurally bound sections", async () => {
     const propertyKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Property")!.standardKey;
-    const roomKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label.startsWith("Room choices"))!.standardKey;
+    const roomKey = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Room")!.standardKey;
     const sub: ManagerListingSubmissionV1 = {
       ...createDefaultListingSubmission(),
       applicationConfigMode: "custom",

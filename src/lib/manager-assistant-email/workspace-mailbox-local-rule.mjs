@@ -8,6 +8,8 @@ export const RESERVED = [
   "support", "admin", "administrator", "postmaster", "abuse", "security", "noreply", "no-reply",
   "donotreply", "assistant", "assist", "reply", "help", "billing", "hello", "info", "contact",
   "sales", "team", "root", "webmaster", "hostmaster", "mailer-daemon", "proplane", "notifications",
+  "stripe", "paypal", "venmo", "zelle", "chase", "wellsfargo", "bankofamerica", "bank", "payments",
+  "invoice", "invoices", "legal", "airbnb", "zillow", "booking", "apple", "google", "microsoft", "amazon", "irs",
 ];
 
 const PATTERN = /^[a-z0-9](?:[a-z0-9.-]{1,30}[a-z0-9])?$/;

@@ -128,6 +128,9 @@ describe("Test workflow resource budget", () => {
     // ubuntu-latest; anything less than this and a genuinely hung suite is killed
     // by GitHub before Playwright's cap can abort and produce a report.
     const HEADROOM = 5;
+    // Minutes the three smoke specs need after the webServer is up. They run
+    // serially at a 60s per-test timeout, so this is a floor, not a target.
+    const SPEC_RUN_FLOOR = 5;
 
     const configured = playwrightConfig.match(/globalTimeout: (\d+) \* 60_000/);
     expect(configured).not.toBeNull();
@@ -141,6 +144,19 @@ describe("Test workflow resource budget", () => {
     expect(smokeOverride, "test:e2e:smoke must set its own --global-timeout").not.toBeNull();
     const smokeMinutes = Number(smokeOverride![1]) / 60_000;
     expect(jobTimeoutMinutes("e2e") - smokeMinutes).toBeGreaterThanOrEqual(HEADROOM);
+
+    // `webServer.timeout` is spent INSIDE that cap: Playwright builds and starts the
+    // server as part of the run. A webServer timeout that eats the whole cap aborts
+    // the suite mid-build with no report at all — the exact failure these pins exist
+    // to prevent — so the specs themselves must keep a floor of their own.
+    const webServerBlock = playwrightConfig.slice(
+      playwrightConfig.indexOf("webServer:"),
+      playwrightConfig.indexOf("projects:"),
+    );
+    const webServerTimeout = webServerBlock.match(/timeout: ([\d_]+),/);
+    expect(webServerTimeout, "webServer must declare its own timeout").not.toBeNull();
+    const webServerMinutes = Number(webServerTimeout![1].replace(/_/g, "")) / 60_000;
+    expect(smokeMinutes - webServerMinutes).toBeGreaterThanOrEqual(SPEC_RUN_FLOOR);
   });
 
   it("keeps failure diagnostics recoverable at zero retries", () => {

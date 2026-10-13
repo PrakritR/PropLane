@@ -366,6 +366,11 @@ export async function runQuickApply(
     role: ctx.role,
     email: ctx.email.trim().toLowerCase(),
     loadProperty,
+    // This verdict IS the submit's fee check: the shared write re-asks the same question of the
+    // same row, so hand it the answer rather than resolving the listing fee, the payment claim and
+    // the household charge row a second time. It stands in only on an exact basis match (see
+    // `reuseApplicationFeeAuthorization`); a miss simply verifies again.
+    priorFeeAuthorization: { row: submittedRow, guard: fee },
   });
   if (!prepared.ok) {
     const fieldErrors = prepared.body.fieldErrors as Record<string, string> | undefined;

@@ -366,6 +366,14 @@ describe("processManagerAssistantInboundEmail", () => {
       expect(calls[1].text).toMatch(/^Replied: /);
     });
 
+    it("never texts the team for an inbound work email (Assistant thread + email only)", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      await processManagerAssistantInboundEmail(db, { ...fromProspect, emailId: "email-sms-off" });
+      const calls = mocks.fanOutWorkspaceNotice.mock.calls.map((c) => c[1]);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const c of calls) expect(c.sms).toBe(false);
+    });
+
     it("sends no Replied: notice when the answer never left", async () => {
       mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
       mocks.deliverManagerEmailReply.mockResolvedValue({ ok: false });

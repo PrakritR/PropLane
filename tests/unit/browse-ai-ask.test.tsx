@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("posthog-js", () => ({ default: { get_distinct_id: () => "d" } }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
-vi.mock("@/hooks/use-public-listings", () => ({ usePublicListings: () => ({ listings: [], loading: false }) }));
+vi.mock("@/hooks/use-public-listings", () => ({
+  usePublicListings: () => ({ listings: [], loading: false, occupancyReady: true }),
+}));
 
+import { ResidentHousingBrowse } from "@/components/marketing/resident-housing-browse";
 import { ResidentHousingChat } from "@/components/marketing/resident-listing-search";
 import { browseStateFromChatFilters, describeChatFilters } from "@/lib/housing-chat-filters";
 
@@ -115,5 +118,37 @@ describe("ResidentHousingChat inline", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+});
+
+describe("the Ask inside the filter sheet", () => {
+  it("survives the sheet's own apply button", async () => {
+    // The Ask lives inside a DRAFTED panel: answering it has to move the drafts as well as
+    // the page, or "Show N homes" commits the controls as they were before the question and
+    // throws the answer away (lease type, budget floor and bedroom all reverted).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          filters: { minBudget: 1400, bedroom: "1", leaseTypes: ["short_term"], neighborhood: "Queen Anne" },
+          matchCount: 1,
+          listings: [],
+        }),
+      }),
+    );
+    render(<ResidentHousingBrowse />);
+    fireEvent.click(document.querySelector('[data-attr="resident-browse-filter-open"]') as Element);
+    fireEvent.change(await screen.findByLabelText("Describe the home you're looking for"), {
+      target: { value: "short term room in Queen Anne, at least $1,400 a month" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(screen.getByText("Understood")).toBeTruthy());
+    expect(screen.getByText("Clear filters (4)")).toBeTruthy();
+
+    const apply = '[data-attr="resident-browse-filter-apply"], [data-attr="portal-filter-save"]';
+    fireEvent.click(document.querySelector(apply) as Element);
+    await waitFor(() => expect(screen.getByText("Clear filters (4)")).toBeTruthy());
   });
 });

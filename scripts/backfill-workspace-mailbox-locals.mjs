@@ -18,9 +18,18 @@ export function pickLocal(base, taken) {
   return candidates.find((c) => c.length <= 32 && !taken.has(c)) ?? null;
 }
 
-/** Pure: plan the renames for rows [{id, workspaceId, ownerId, mailboxLocal, workspaceName, ownerFirst}]. */
+/**
+ * Pure: plan the renames for rows [{id, workspaceId, ownerId, mailboxLocal, workspaceName, ownerFirst}].
+ *
+ * A renamed-away local is NOT free for another workspace: apply() holds it as a 30-day alias for the
+ * workspace that left it, and `resolveAssistantMailboxByLocal` prefers an ACTIVE row over an alias — so
+ * handing it to a different owner in the same run would route the first workspace's grace-period mail
+ * into the second one. The alias map therefore grows as the plan does, exactly as the server path
+ * (`checkWorkspaceAssistantMailboxLocal` -> `findActiveMailboxLocalAlias`) refuses it.
+ */
 export function planRenames(rows, aliasesByLocal = new Map()) {
   const held = new Map(rows.map((r) => [r.mailboxLocal, r.id]));
+  const aliases = new Map(aliasesByLocal);
   const plans = [];
   for (const row of rows) {
     const base = workspaceMailboxLocalFor(row.workspaceName, row.ownerFirst);
@@ -29,11 +38,14 @@ export function planRenames(rows, aliasesByLocal = new Map()) {
     if (matches) continue;
     const taken = new Set();
     for (const [local, id] of held) if (id !== row.id) taken.add(local);
-    for (const [local, owner] of aliasesByLocal) if (owner !== row.ownerId) taken.add(local);
+    for (const [local, owner] of aliases) if (owner !== row.ownerId) taken.add(local);
     const next = pickLocal(base, taken);
     if (!next || next === row.mailboxLocal) continue;
     held.delete(row.mailboxLocal);
     held.set(next, row.id);
+    // The old local becomes this owner's alias; the new one stops being anybody's (apply deletes it).
+    aliases.set(row.mailboxLocal, row.ownerId);
+    if (aliases.get(next) === row.ownerId) aliases.delete(next);
     plans.push({ ...row, next });
   }
   return plans;
@@ -82,9 +94,21 @@ async function main() {
 
   const plans = planRenames(rows, aliasesByLocal);
   console.log(`${apply ? "APPLY" : "DRY RUN"}: ${plans.length} of ${rows.length} workspaces to rename`);
+  let failed = 0;
   for (const p of plans) {
     console.log(`${p.workspaceName || p.workspaceId}: ${p.mailboxLocal} -> ${p.next}`);
     if (!apply) continue;
+    const expires = new Date(now + ALIAS_DAYS * 86400000).toISOString();
+    // Alias first: a failure after this never leaves the old address unrouted.
+    const { error: aliasErr } = await db.from("manager_assistant_email_aliases").upsert(
+      { mailbox_local: p.mailboxLocal, assistant_email_id: p.id, owner_user_id: p.ownerId, released_at: new Date().toISOString(), expires_at: expires },
+      { onConflict: "mailbox_local" },
+    );
+    if (aliasErr) {
+      console.log(`  failed (alias): ${aliasErr.message}`);
+      failed += 1;
+      continue;
+    }
     const { error: upErr } = await db
       .from("manager_assistant_emails")
       .update({ mailbox_local: p.next, updated_at: new Date().toISOString() })
@@ -92,16 +116,18 @@ async function main() {
       .eq("provision_state", "active");
     if (upErr) {
       console.log(`  skipped: ${upErr.message}`);
+      failed += 1;
       continue;
     }
-    const expires = new Date(now + ALIAS_DAYS * 86400000).toISOString();
-    await db.from("manager_assistant_email_aliases").upsert(
-      { mailbox_local: p.mailboxLocal, assistant_email_id: p.id, owner_user_id: p.ownerId, released_at: new Date().toISOString(), expires_at: expires },
-      { onConflict: "mailbox_local" },
-    );
-    await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+    const { error: delErr } = await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+    if (delErr) {
+      console.log(`  failed (alias cleanup): ${delErr.message}`);
+      failed += 1;
+    }
   }
+  if (apply) console.log(`${failed} failed of ${plans.length}`);
 }
+
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((e) => {

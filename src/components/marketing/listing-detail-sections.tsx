@@ -238,6 +238,7 @@ function StickyBar({
   const stay = useShortStay();
   // Exactly one primary and Tour: on the Short stay segment the primary is Request to book, which brings the
   // booking block into view; on Monthly it is the same Quick apply / Continue / Apply the card shows.
+  // `stay.offered` is the card's own predicate, so the bar can never offer a segment the card is not on.
   const shortSegment = stay?.offered === true && stay.segment === "short";
   const from = listingStickyPrice(rich, listingShortStayNightlyFrom(property.listingSubmission), shortSegment);
   const compact = slim ? "!min-h-[44px] !w-auto flex-none !px-4 !py-2" : "!min-h-[44px] !py-2.5 min-w-[7.5rem] flex-1 !px-3";

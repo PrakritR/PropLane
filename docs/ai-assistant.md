@@ -536,6 +536,61 @@ portal or vendor registry, and it has no route of its own (SMS only).
   § PropLane Number owns those conditions.
 - Tests: `resident-personal-agent`, `resident-agent-listing-search`, `resident-agent-number-provisioning`.
 
+### Public browse "Ask" (anonymous, one forced tool, no registry)
+
+The Ask box above `/rent/browse` (`ResidentHousingChat`) is not an agent surface: `POST
+/api/agent/housing-search` makes ONE forced-tool call whose only job is to extract filters, then
+answers from `searchPublicHousing` (`src/lib/tools/domains/public-housing-search.ts`). The model
+never writes prose for the visitor and never sees a listing it did not get from
+`getPublicListings()` — the same `publicListingProjection` every anonymous read runs through
+([`agents/lease-generation.md`](agents/lease-generation.md) § Part 1). The visitor's text is a search
+query, never instructions.
+
+- **The schema is the contract** (`HOUSING_SEARCH_FILTERS_SCHEMA`): `moveIn` / `moveOut`,
+  `minBudget` / `maxBudget`, `leaseTypes` (any of `long_term` · `short_term` · `month_to_month` ·
+  `custom`, from `LEASE_TYPES`), `bedroom`, `bathroom`, `petFriendly`, `neighborhood`. A field is set
+  only when the sentence implies it; nothing is guessed.
+- **Neighborhood is an allowlist, not free text.** `buildHousingSearchSystemPrompt` lists the
+  catalog's own distinct names (`catalogNeighborhoods`, max 60) and the model may only copy one of
+  them; `resolveNeighborhood` still re-matches server-side, with the University District aliases
+  ("UW", "U District", "near campus", …) resolving to whatever the catalog actually spells it.
+- **One catalog read per turn.** `getPublicListings()` is uncached and expensive, so the route calls
+  `loadPublicHousingCatalog()` once and hands that array to both the prompt builder and
+  `searchPublicHousing`.
+- **The page applies every returned field.** `browseStateFromChatFilters`
+  (`src/lib/housing-chat-filters.ts`) is the one reading of the response into browse state — a field
+  the query did not mention resets to its "any" default, so a second Ask never inherits the first
+  one's filters. `describeChatFilters` is the other: the plain facts in the **Understood** row (plus
+  "N homes"). A failed Ask is an inline message with a Retry icon action under the field, never a
+  toast.
+- **Lease type is a browse filter too.** Filters carries a `Lease type` `CheckboxMultiSelect`
+  (any-match: `filterRoomListings` keeps a room offered on ANY selected type, where a room's own
+  non-empty `offeredLeaseTerms` wins over the listing's `allowedLeaseTerms`), and each card prints
+  its lease types as plain glyph facts.
+- Limits: rate limited per IP, traced through `tracePublicToolTurn`. Coverage:
+  `tests/unit/public-housing-search.test.ts`, `tests/unit/housing-search-route.test.ts`,
+  `tests/unit/browse-ai-ask.test.tsx`, `tests/unit/browse-card-facts.test.ts`.
+
+## Standing prompt rules (every conversational surface)
+
+Three rules are shared text, not re-typed per prompt, and
+`tests/unit/extension-request-rule.test.ts` pins all three into the manager portal assistant, manager
+SMS, leasing SMS and resident personal agent prompts.
+
+- **Extension requests check the nights first** (`EXTENSION_REQUEST_RULE_*` in
+  `src/lib/agent/extension-request-rule.ts`): "can I stay longer" calls `check_room_availability`
+  (or `list_bookings` + `list_room_blocks`) for that room and those nights BEFORE answering, names
+  the booked night when one is taken, and never promises an unchecked night. Only the manager
+  surfaces may offer to extend the hold; leasing and the resident agent answer and hand off.
+- **Every thank-you gets a short acknowledgement** (`THANK_YOU_REPLY_RULE`,
+  `src/lib/agent/conversation-style-rules.ts`): a thank-you, goodbye or acknowledgement is answered
+  with one short warm line and is never left unanswered. This is the rule that decides what happens
+  to a bare "thanks" — the leasing agent's `suppress_redundant_reply` is a permission ceiling the
+  server guard enforces if the model ever calls it, never a path the prompt asks for
+  ([`agents/sms-system.md`](agents/sms-system.md) § Leasing listing facts).
+- **No em or en dashes** (`NO_LONG_DASHES_RULE`): the prompts forbid them and `stripLongDashes`
+  rewrites them out of outbound SMS text anyway (spaced dash → comma, range dash → hyphen).
+
 ## Links first (every conversational surface)
 
 PropLane has a page for almost everything a person asks an agent for, so every

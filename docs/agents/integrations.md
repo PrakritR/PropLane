@@ -67,11 +67,13 @@ export link (`isValidChannelImportUrl` per host + path; the error message names
 the exact clicks on that channel's site), so the fetcher can never be pointed at
 an arbitrary target.
 
-**Each room row says where it stands**, because a two-way link is only live once
-BOTH halves are done: the paste state (Linked / "Paste <channel> calendar link" /
-"Feed failed · <error>"), whether PropLane's own export link has been taken yet
-(Copied, or "Not yet pasted into <channel>"), and the two "last checked" facts
-(`channelCheckFacts`, `channel-links.ts`): "Airbnb checked PropLane · 5:42 PM" and "PropLane checked Airbnb · 5:40 PM". Its ⋯ holds Sync now · Feed preview · Disconnect, plus
+**Each room row says where it stands in one plain status line**, never a pill:
+`channelStatusParts` / `channelStatusLine` (`channel-links.ts`) compose it as
+state · the sides that have a timestamp — "Synced · Airbnb 8:04 AM · PropLane
+8:00 AM", "Waiting for Airbnb · PropLane 8:00 AM" before the channel has fetched
+the export feed once, "Not linked" with no import URL pasted, and a red
+"Error:" lead carrying the feed's last error. (The Bookings record page still
+shows the two labelled "last checked" facts through `channelCheckFacts`.) Its ⋯ holds Sync now · Feed preview · Disconnect, plus
 **Copy Airbnb listing pack** on Airbnb only — `buildAirbnbListingPack`
 (`src/lib/channel-calendar/listing-pack.ts`) composes the room's own listing facts
 (32-character title, address, overview, amenities, house rules, a nightly price

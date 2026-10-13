@@ -31,7 +31,9 @@ Pure rules live in `src/lib/workspaces/membership.ts`; server lookups
 
 **A teammate is reached through the workspace, never with a line of their own.**
 Every PropLane Assistant notice for a house goes to the owner and each teammate
-granted that module on it (`notifyPropertyScopedManagersFromAgent`), in the
+granted that module on it (`notifyPropertyScopedManagersFromAgent` over
+`resolveWorkspaceNoticeRecipients` - the role matrix is § Who hears a workspace
+notice), in the
 teammate's own Assistant, texted from the OWNER's work number and billed to the
 OWNER, emailed from the workspace work email. The Team chat is the workspace's
 membership (owner plus accepted, non-property-owner rows for THAT workspace,

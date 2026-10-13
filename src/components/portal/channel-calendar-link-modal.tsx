@@ -23,7 +23,7 @@ import {
 import type { ChannelCalendarProvider, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
 import { channelCalendarProviderLabel, isValidChannelImportUrl } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
-import { channelStatusLine } from "@/lib/channel-calendar/channel-links";
+import { channelStatusParts, type ChannelConnectionStatus } from "@/lib/channel-calendar/channel-links";
 import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
 import { channelCalendarUnits, type ChannelCalendarUnit } from "@/lib/channel-calendar/property-units";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -67,6 +67,32 @@ type LinkGroup = { propertyId: string; label: string; rows: LinkRow[] };
 
 const CHANNEL_OPTIONS = (["airbnb", "booking_com", "vrbo"] as const).map((value) => ({ value, label: channelCalendarProviderLabel(value) }));
 const rowKey = (propertyId: string, roomId: string) => `${propertyId}::${roomId}`;
+
+/** One plain status line, composed from `channelStatusParts` so the red "Error:" is a part, not a cut. */
+function ChannelStatusText({
+  connection,
+  channel,
+}: {
+  connection: ChannelConnectionStatus | null | undefined;
+  channel: ChannelCalendarProvider;
+}) {
+  const status = channelStatusParts(connection, new Date(), channel);
+  const lead = status.error ? (
+    <>
+      <span className="text-danger">Error:</span> {status.error}
+    </>
+  ) : (
+    status.state
+  );
+  return (
+    <>
+      {lead}
+      {status.details.map((part) => (
+        <span key={part}> · {part}</span>
+      ))}
+    </>
+  );
+}
 
 export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
   const [provider, setProvider] = useState<ChannelCalendarProvider | "">(initialProvider ?? "");
@@ -235,7 +261,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
               <CopyIconAction label="Copy PropLane calendar link" disabled={busy} onCopy={() => run(() => copy(row))} />
             </div>
             <div data-attr="channel-calendar-room-status" className="text-xs text-muted md:col-start-2 md:col-span-2">
-              {connection?.lastError ? <><span className="text-danger">Error:</span> {connection.lastError.replace(/^Error:\s*/, "")}{channelStatusLine({ ...connection, lastError: null }, new Date(), channel).replace(/^[^·]*/, "")}</> : channelStatusLine(connection, new Date(), channel)}
+              <ChannelStatusText connection={connection} channel={channel} />
             </div>
             <div className="flex md:justify-end">
               <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${row.unit.label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">

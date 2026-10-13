@@ -69,13 +69,26 @@ export function validateRequired(value: string, label: string): { ok: true } | {
  * an absurd split. Blank is rejected because the value drives both the group
  * roster and the even split of move-in costs.
  */
+export const GROUP_SIZE_MIN = 2;
+export const GROUP_SIZE_MAX = 12;
+
+/**
+ * The value the organizer's 2-12 stepper shows for whatever is stored — a blank left by clearing
+ * the organizer id, or a legacy draft's "1" / "99". The wizard writes this back, so the control and
+ * `validateGroupSize` can never disagree and leave the step refusing a number already on screen.
+ */
+export function normalizeGroupSize(value: string): number {
+  const n = Number.parseInt((value ?? "").trim(), 10);
+  return Math.min(GROUP_SIZE_MAX, Math.max(GROUP_SIZE_MIN, Number.isFinite(n) ? n : GROUP_SIZE_MIN));
+}
+
 export function validateGroupSize(value: string): { ok: true } | { ok: false; message: string } {
   const raw = value.trim();
   if (!raw) return { ok: false, message: "Tell us how many people are applying together." };
   if (!/^\d+$/.test(raw)) return { ok: false, message: "Enter a whole number of people." };
   const n = Number.parseInt(raw, 10);
-  if (n < 2) return { ok: false, message: "A group is 2 or more people. Choose “No” if you are applying alone." };
-  if (n > 12) return { ok: false, message: "That is more people than one application group supports (max 12)." };
+  if (n < GROUP_SIZE_MIN) return { ok: false, message: "A group is 2 or more people. Choose “No” if you are applying alone." };
+  if (n > GROUP_SIZE_MAX) return { ok: false, message: "That is more people than one application group supports (max 12)." };
   return { ok: true };
 }
 

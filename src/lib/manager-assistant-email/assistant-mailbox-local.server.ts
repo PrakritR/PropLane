@@ -64,15 +64,14 @@ function firstNameOf(fullName: string, email: string): string {
 }
 
 /**
- * `<workspace>@domain`, always. Falls back to the legacy `assist-<profile>`
- * shape only when no workspace name is available at all.
+ * `<workspace>@domain`, always. A workspace with no usable name at all falls back to the legacy
+ * `assist-<owner>` shape, derived from the owner's own name or email local part — never a literal
+ * "workspace", which would hand every unnamed workspace the same local part and queue them behind
+ * `workspace-2`, `workspace-3`, … with the owner's name silently discarded.
  */
 function baseMailboxLocal(profile: { fullName: string; email: string }, workspaceName?: string | null): string {
   const rule = workspaceMailboxLocalFor(workspaceName, firstNameOf(profile.fullName, profile.email));
   if (rule) return rule;
-  const fromProfile = compactLetters(firstNameOf(profile.fullName, profile.email));
-  const withName = workspaceMailboxLocalFor("workspace", fromProfile);
-  if (withName) return withName;
   return baseMailboxLocalFromProfile(profile.fullName, profile.email);
 }
 

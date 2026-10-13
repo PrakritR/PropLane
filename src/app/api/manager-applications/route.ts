@@ -14,6 +14,7 @@ import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import {
   anchorServerOwnedSmsConsent,
+  applicationWriteErrorResponse,
   idVariants,
   loadStoredApplicationRecord,
   owesLinkedFormCheck,
@@ -1590,9 +1591,7 @@ export async function POST(req: Request) {
         : { ok: true },
     );
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to save application.";
-    const code = e && typeof e === "object" && "code" in e ? String(e.code) : "";
-    const status = ["P4001", "40001", "40P01"].includes(code) ? 409 : code === "23514" ? 422 : 500;
-    return NextResponse.json({ error: message, ...(code === "P4001" ? { blocked: "capacity" } : {}) }, { status });
+    const mapped = applicationWriteErrorResponse(e, "Failed to save application.");
+    return NextResponse.json(mapped.body, { status: mapped.status });
   }
 }

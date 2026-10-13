@@ -28,6 +28,10 @@ import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/hous
 import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fee";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
+import {
+  canonicalApplicationQuestionId,
+  canonicalStandardApplicationKey,
+} from "@/lib/rental-application/standard-application-key-aliases";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { normalizeOccupancyPrices, type RoomOccupancyPrice } from "@/lib/room-arrangement-pricing";
 import { parseMoneyAmount } from "@/lib/parse-money";
@@ -1731,6 +1735,15 @@ export function customApplicationFieldKeyFromLabel(label: string, taken: Iterabl
   return `${base}-${n}`;
 }
 
+/** Stored built-in "question off" keys, read under today's catalog keys (see the alias module). */
+export function normalizeDisabledStandardApplicationKeys(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+        .map((k) => canonicalStandardApplicationKey(k.trim()))
+    : [];
+}
+
 /** Coerce persisted custom application fields into a clean array (drops malformed rows). */
 export function normalizeCustomApplicationFields(
   raw: unknown,
@@ -1745,7 +1758,8 @@ export function normalizeCustomApplicationFields(
     const o = item as Record<string, unknown>;
     const label = typeof o.label === "string" ? o.label.trim() : "";
     if (!label && !includeIncomplete) continue;
-    const id = typeof o.id === "string" && o.id.trim() ? o.id.trim() : rid("caf");
+    // A built-in override's id is `std-<standardKey>`; a reworded built-in kept the OLD key in it.
+    const id = typeof o.id === "string" && o.id.trim() ? canonicalApplicationQuestionId(o.id.trim()) : rid("caf");
     const type = CUSTOM_APPLICATION_FIELD_TYPES_SET.has(String(o.type))
       ? (o.type as ManagerCustomApplicationFieldType)
       : "text";
@@ -1772,10 +1786,12 @@ export function normalizeCustomApplicationFields(
               .map((v) => v.trim())
         : [];
     const standardKey =
-      typeof o.standardKey === "string" && o.standardKey.trim() ? o.standardKey.trim() : undefined;
+      typeof o.standardKey === "string" && o.standardKey.trim()
+        ? canonicalStandardApplicationKey(o.standardKey.trim())
+        : undefined;
     const replacedStandardKey =
       typeof o.replacedStandardKey === "string" && o.replacedStandardKey.trim()
-        ? o.replacedStandardKey.trim()
+        ? canonicalStandardApplicationKey(o.replacedStandardKey.trim())
         : undefined;
     // Built-in overrides may be dynamic selects (property, rooms) with no fixed option list.
     if (hasOptions && options.length === 0 && !includeIncomplete && !standardKey) continue;
@@ -3081,9 +3097,7 @@ function normalizeManagerListingSubmissionV1Base(
     customApplicationFields: normalizeCustomApplicationFields(
       (sub as { customApplicationFields?: unknown }).customApplicationFields,
     ),
-    disabledStandardApplicationKeys: Array.isArray(sub.disabledStandardApplicationKeys)
-      ? sub.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
-      : [],
+    disabledStandardApplicationKeys: normalizeDisabledStandardApplicationKeys(sub.disabledStandardApplicationKeys),
     applicationConfigMode:
       sub.applicationConfigMode === "standard" || sub.applicationConfigMode === "custom"
         ? sub.applicationConfigMode
@@ -3091,13 +3105,9 @@ function normalizeManagerListingSubmissionV1Base(
     shortTermCustomApplicationFields: normalizeCustomApplicationFields(
       (sub as { shortTermCustomApplicationFields?: unknown }).shortTermCustomApplicationFields,
     ),
-    shortTermDisabledStandardApplicationKeys: Array.isArray(
+    shortTermDisabledStandardApplicationKeys: normalizeDisabledStandardApplicationKeys(
       (sub as { shortTermDisabledStandardApplicationKeys?: unknown }).shortTermDisabledStandardApplicationKeys,
-    )
-      ? (sub as { shortTermDisabledStandardApplicationKeys: unknown[] }).shortTermDisabledStandardApplicationKeys.filter(
-          (k): k is string => typeof k === "string" && k.trim().length > 0,
-        )
-      : [],
+    ),
     shortTermApplicationConfigMode:
       (sub as { shortTermApplicationConfigMode?: unknown }).shortTermApplicationConfigMode === "standard" ||
       (sub as { shortTermApplicationConfigMode?: unknown }).shortTermApplicationConfigMode === "custom"

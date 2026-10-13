@@ -3,6 +3,10 @@ import type {
   ManagerCustomApplicationFieldType,
 } from "@/lib/manager-listing-submission";
 import {
+  canonicalApplicationQuestionId,
+  canonicalStandardApplicationKey,
+} from "@/lib/rental-application/standard-application-key-aliases";
+import {
   applicationWizardStepForSection,
   DEFAULT_CUSTOM_FIELD_SECTION_ID,
   RENTAL_APPLICATION_SECTION_IDS,
@@ -15,7 +19,7 @@ const STANDARD_FIELD_WIZARD_KEYS: Record<string, readonly string[]> = {
   "household:Co-signer planned": ["hasCosigner"],
   "household:Group application": ["applyingAsGroup"],
   "property:Property": ["propertyId"],
-  "property:Room choices (1st – 3rd)": ["roomChoice1", "roomChoice2", "roomChoice3"],
+  "property:Room": ["roomChoice1", "roomChoice2", "roomChoice3"],
   "property:Lease term": ["leaseTerm"],
   "property:Lease start & end dates": ["leaseStart", "leaseEnd"],
   "personal:Full legal name": ["fullLegalName"],
@@ -82,7 +86,7 @@ const STANDARD_FIELD_TYPE_MAP: Record<string, StandardFieldConfig> = {
   "household:Co-signer planned": { type: "select", options: YES_NO_OPTIONS },
   "household:Group application": { type: "select", options: YES_NO_OPTIONS },
   "property:Property": { type: "select" },
-  "property:Room choices (1st – 3rd)": { type: "select" },
+  "property:Room": { type: "select" },
   "property:Lease term": { type: "select" },
   "property:Lease start & end dates": { type: "date" },
   "personal:Full legal name": { type: "text" },
@@ -368,12 +372,15 @@ type VariantConfigSource = {
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+    ? value
+        .filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+        .map(canonicalStandardApplicationKey)
     : [];
 }
 
 function asCustomFields(value: unknown): ManagerCustomApplicationField[] {
-  return Array.isArray(value) ? (value as ManagerCustomApplicationField[]).map((field) => {
+  return Array.isArray(value) ? (value as ManagerCustomApplicationField[]).map((raw) => {
+    const field = canonicalizeSavedQuestion(raw);
     const def = field.standardKey ? CATALOG_BY_KEY.get(field.standardKey) : undefined;
     return def && def.options.length > 0
       ? { ...field, options: builtInAnswerOptions(def.standardKey, field.options, def.options) }
@@ -381,12 +388,22 @@ function asCustomFields(value: unknown): ManagerCustomApplicationField[] {
   }) : [];
 }
 
+/** A saved override row read back under today's key and id, whatever the question was called when it was stored. */
+export function canonicalizeSavedQuestion<T extends { standardKey?: string; id: string }>(field: T): T {
+  if (!field.standardKey) return field;
+  const standardKey = canonicalStandardApplicationKey(field.standardKey);
+  if (standardKey === field.standardKey) return field;
+  return { ...field, standardKey, id: canonicalApplicationQuestionId(field.id) };
+}
+
 function asConfigMode(value: unknown): "standard" | "custom" {
   return value === "custom" ? "custom" : "standard";
 }
 
 function asDisplayOrder(value: unknown): string[] | undefined {
-  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : undefined;
+  return Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === "string" && id.length > 0).map(canonicalApplicationQuestionId)
+    : undefined;
 }
 
 /** Keys left on by the retired four-question long-term default (commit 663844e7). */
@@ -412,11 +429,7 @@ export function isLegacyFourQuestionApplicationDefault(
   if (asCustomFields(sub.customApplicationFields).length > 0) return false;
   // Recognize the historical stored shape before stripping today's required
   // identity fields. Those older rows disabled name, phone, and email too.
-  const disabled = new Set(
-    Array.isArray(sub.disabledStandardApplicationKeys)
-      ? sub.disabledStandardApplicationKeys.filter((key): key is string => typeof key === "string" && key.trim().length > 0)
-      : [],
-  );
+  const disabled = disabledStandardKeysSet(sub);
   if (disabled.size === 0) return false;
   const enabled = STANDARD_APPLICATION_FIELD_CATALOG.filter((def) => !disabled.has(def.standardKey));
   if (enabled.length !== LEGACY_FOUR_QUESTION_ENABLED_STANDARD_KEYS.size) return false;
@@ -605,12 +618,8 @@ export function resolveListingApplicationFields(
     | undefined,
   normalizeSaved: (raw: unknown) => ManagerCustomApplicationField[],
 ): ResolvedApplicationField[] {
-  const disabled = new Set(
-    Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
-      : [],
-  );
-  const saved = normalizeSaved(sub?.customApplicationFields);
+  const disabled = disabledStandardKeysSet(sub);
+  const saved = normalizeSaved(sub?.customApplicationFields).map(canonicalizeSavedQuestion);
   const overridesByKey = new Map(
     saved.filter((f) => f.standardKey).map((f) => [f.standardKey!, f] as const),
   );
@@ -636,9 +645,7 @@ export function resolveListingApplicationFields(
       isStandard: false,
     })),
   ];
-  const displayOrder = Array.isArray((sub as ApplicationConfigSlice | null)?.questionDisplayOrder)
-    ? (sub as ApplicationConfigSlice).questionDisplayOrder!
-    : [];
+  const displayOrder = asDisplayOrder((sub as ApplicationConfigSlice | null)?.questionDisplayOrder) ?? [];
   if (displayOrder.length === 0) return resolved;
   const position = new Map(displayOrder.map((id, index) => [id, index]));
   return resolved.toSorted((left, right) => (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER));
@@ -924,11 +931,7 @@ export function addListingApplicationField(
 function disabledStandardKeysSet(
   sub: { disabledStandardApplicationKeys?: unknown } | null | undefined,
 ): Set<string> {
-  return new Set(
-    Array.isArray(sub?.disabledStandardApplicationKeys)
-      ? sub!.disabledStandardApplicationKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
-      : [],
-  );
+  return new Set(asStringArray(sub?.disabledStandardApplicationKeys));
 }
 
 /** Wizard form keys hidden for this listing (manager removed built-in questions). */

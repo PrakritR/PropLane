@@ -7,8 +7,9 @@ import { tracePublicToolTurn } from "@/lib/observability/langfuse";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import {
   buildHousingSearchSystemPrompt,
+  catalogNeighborhoods,
   HOUSING_SEARCH_FILTERS_SCHEMA,
-  listCatalogNeighborhoods,
+  loadPublicHousingCatalog,
   searchPublicHousing,
 } from "@/lib/tools/domains/public-housing-search";
 import { formatAgentChatUserError } from "@/lib/agent/assistant-turn-error";
@@ -62,9 +63,12 @@ export async function POST(req: Request) {
       input: message,
       run: async ({ llmCall, toolCall }) => {
         const client = new Anthropic();
+        // One catalog read for the whole turn: the prompt's neighborhood list and the
+        // search below share it, so an "Ask" never builds the uncached catalog twice.
+        const catalog = await loadPublicHousingCatalog();
         const system = buildHousingSearchSystemPrompt({
           todayIso,
-          neighborhoods: await listCatalogNeighborhoods(),
+          neighborhoods: catalogNeighborhoods(catalog),
         });
 
         const tools = [
@@ -102,7 +106,7 @@ export async function POST(req: Request) {
         const parsed = HOUSING_SEARCH_FILTERS_SCHEMA.safeParse(toolUse?.input ?? {});
         const rawFilters = parsed.success ? parsed.data : {};
 
-        const searchResult = await searchPublicHousing(rawFilters);
+        const searchResult = await searchPublicHousing(rawFilters, catalog);
         toolCall({ name: TOOL_NAME, input: rawFilters, output: { matchCount: searchResult.matches.length } });
 
         return searchResult;
