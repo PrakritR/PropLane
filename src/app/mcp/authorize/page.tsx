@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { Building2, Eye, ShieldCheck, Unplug } from "lucide-react";
-import { McpConnectHeader, McpConnectNotice, McpConnectShell } from "@/components/mcp/mcp-connect-ui";
+import { Plug } from "lucide-react";
+import { McpConnectHead, McpConnectNotice, McpConnectRows, McpConnectShell } from "@/components/mcp/mcp-connect-ui";
 import { McpSwitchAccountLink } from "@/components/mcp/mcp-switch-account-link";
 import { Button } from "@/components/ui/button";
 import { resolveAgentContext } from "@/lib/tools/context";
@@ -10,18 +10,6 @@ export const metadata = { title: "Connect to PropLane", robots: { index: false, 
 
 type Search = Record<string, string | string[] | undefined>;
 function value(search: Search, key: string): string { const raw = search[key]; return typeof raw === "string" ? raw : ""; }
-
-const CAPABILITIES = [
-  { icon: Eye, text: "Read your properties, residents, bookings, payments and messages" },
-  { icon: ShieldCheck, text: "Draft changes. Each one waits for your approval in PropLane" },
-  { icon: Unplug, text: "Disconnect anytime in Settings → API & MCP" },
-] as const;
-
-function initialsFor(label: string): string {
-  const parts = label.split(/[\s@._-]+/).filter(Boolean);
-  const letters = parts.length > 1 ? `${parts[0]![0]}${parts[1]![0]}` : (parts[0] ?? "?").slice(0, 2);
-  return letters.toUpperCase();
-}
 
 export default async function McpAuthorizePage({ searchParams }: { searchParams: Promise<Search> }) {
   const search = await searchParams;
@@ -50,39 +38,23 @@ export default async function McpAuthorizePage({ searchParams }: { searchParams:
   if (!approval) {
     return <McpConnectNotice title="Connections are unavailable" line="Authorization is temporarily down. Return to the app and try again shortly." />;
   }
-  const { data: profile } = await actor.db.from("profiles").select("full_name").eq("id", actor.userId).maybeSingle();
-  const displayName = String(profile?.full_name ?? "").trim() || actor.email.split("@")[0] || "You";
   const clientName = client.clientName?.trim() || "this app";
   return (
     <McpConnectShell>
-      <McpConnectHeader />
-      <h1 className="mt-6 break-words text-center text-xl font-semibold tracking-tight text-foreground">Connect {clientName} to PropLane</h1>
-      <section aria-label="Signed in as" className="mt-6 rounded-xl border border-border p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary" aria-hidden>{initialsFor(displayName)}</div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
-            <p className="truncate text-sm text-muted">{actor.email}</p>
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-sm text-foreground">
-          <Building2 className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-          <span className="min-w-0 truncate">{workspaceName}</span>
-        </div>
-        <div className="mt-3"><McpSwitchAccountLink returnTo={authorizeUrl} /></div>
-      </section>
-      <ul className="mt-6 space-y-3">
-        {CAPABILITIES.map(({ icon: Icon, text }) => (
-          <li key={text} className="flex items-start gap-3 text-sm leading-snug text-foreground">
-            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-            <span>{text}</span>
-          </li>
-        ))}
-      </ul>
-      <form action="/api/mcp/oauth/approve" method="post" className="mt-6 space-y-2">
+      <McpConnectHead icon={Plug} title={`Connect ${clientName}`} />
+      <McpConnectRows
+        rows={[
+          { label: "Signed in as", value: <>{actor.email} <McpSwitchAccountLink returnTo={authorizeUrl} /></>, attr: "mcp-consent-account" },
+          { label: "Workspace", value: workspaceName, attr: "mcp-consent-workspace" },
+          { label: "App", value: clientName, attr: "mcp-consent-app" },
+          { label: "Can read", value: "Properties · Residents · Bookings · Payments · Messages", attr: "mcp-consent-read" },
+          { label: "Can do", value: "Draft changes you approve in PropLane", attr: "mcp-consent-do" },
+        ]}
+      />
+      <form action="/api/mcp/oauth/approve" method="post" className="mt-6 grid grid-cols-2 gap-3">
         <input type="hidden" name="approval" value={approval} />
-        <Button type="submit" className="w-full" data-attr="mcp-consent-allow">Allow</Button>
-        <Button type="submit" variant="secondary" className="w-full" formAction="/api/mcp/oauth/deny" formNoValidate data-attr="mcp-consent-cancel">Cancel</Button>
+        <Button type="submit" className="order-2 w-full" data-attr="mcp-consent-allow">Allow</Button>
+        <Button type="submit" variant="ghost" className="order-1 w-full" formAction="/api/mcp/oauth/deny" formNoValidate data-attr="mcp-consent-cancel">Cancel</Button>
       </form>
     </McpConnectShell>
   );

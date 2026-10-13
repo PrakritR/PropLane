@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Copy, TriangleAlert, MoreHorizontal } from "lucide-react";
 
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useConfirm } from "@/components/providers/app-ui-provider";
@@ -20,6 +20,7 @@ import {
   toolsForProductAreas,
   type ApiKeyTransport,
 } from "@/lib/mcp/capabilities";
+import { MCP_OAUTH_SCOPE_LABEL } from "@/lib/mcp/oauth-scope-label";
 import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/events";
 
 function SettingsActions({ label, actions }: { label: string; actions: { label: string; run: () => Promise<void>; danger?: boolean }[] }) {
@@ -310,6 +311,8 @@ export function ManagerApiKeysPanel() {
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [claudeStepsOpen, setClaudeStepsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ kind: "key" | "app"; id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -341,7 +344,6 @@ export function ManagerApiKeysPanel() {
     const origin = typeof window === "undefined" ? "https://prop-lane.space" : window.location.origin;
     return JSON.stringify({ baseUrl: `${origin}/api/v1/tools`, headers: { Authorization: `Bearer ${freshToken ?? "YOUR_KEY"}` } }, null, 2);
   }, [freshToken]);
-  const claudeConnection = connections.find((c) => (c.clientName ?? "").toLowerCase().includes("claude"));
   const mcpUrl = useMemo(() => (typeof window === "undefined" ? "https://prop-lane.space" : window.location.origin) + "/api/mcp", []);
 
   const selectedAreaScopes = useMemo(() => productAreaSelectionsForTools(allowedTools), [allowedTools]);
@@ -399,6 +401,32 @@ export function ManagerApiKeysPanel() {
     setKeys((prev) => prev.filter((k) => k.id !== id));
   };
 
+  /** There is no in-place rotate: mint a replacement with the same name and tools, then revoke the old key. */
+  const rotateKey = async (key: ApiKey) => {
+    setError(null);
+    const res = await fetch("/api/manager/api-keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: key.name, transport: "api", scopes: key.scopes, allowedTools: key.allowedTools }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
+    if (!res.ok || !body.token) {
+      setError(body.error ?? "Could not rotate that key.");
+      return;
+    }
+    setFreshToken(body.token);
+    await revokeKey(key.id);
+    await load();
+  };
+
+  const confirmDelete = async () => {
+    const target = pendingDelete;
+    if (!target) return;
+    setPendingDelete(null);
+    if (target.kind === "key") await revokeKey(target.id);
+    else await revokeMcpConnection(target.id);
+  };
+
   const revokeMcpConnection = async (clientId: string) => {
     setError(null);
     const res = await fetch(`/api/manager/mcp-connections/${encodeURIComponent(clientId)}`, { method: "DELETE" });
@@ -409,6 +437,8 @@ export function ManagerApiKeysPanel() {
     setConnections((current) => current.filter((connection) => connection.clientId !== clientId));
   };
 
+  const claudeCommand = `claude mcp add --transport http proplane ${mcpUrl}`;
+
   return (
     <div className="space-y-6" data-attr="settings-api">
       {error ? (
@@ -417,67 +447,27 @@ export function ManagerApiKeysPanel() {
         </p>
       ) : null}
 
-      <PortalSettingsSection title="MCP server"><PortalSettingsGroup>
-        <PortalSettingsRow label="Server URL"><div className="flex min-w-0 items-center gap-2"><code className="max-w-[40vw] truncate text-xs">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div></PortalSettingsRow>
-        <PortalSettingsRow label="Claude">
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="text-xs text-muted" data-attr="settings-mcp-claude-status">{claudeConnection ? `Connected · ${formatWhen(claudeConnection.createdAt)}` : "Not connected yet"}</span>
-            <Button variant="ghost" className="h-9 min-h-0 px-3 text-[13px]" data-attr="settings-mcp-claude-connect" aria-expanded={claudeStepsOpen} onClick={() => setClaudeStepsOpen((open) => !open)}>Connect</Button>
-          </div>
-        </PortalSettingsRow>
-      </PortalSettingsGroup>
-      {claudeStepsOpen ? (
-        <div className="mt-3 space-y-2 px-1" data-attr="settings-mcp-claude-steps">
-          <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
-            <li>Open claude.ai → Settings → Connectors → Add custom connector.</li>
-            <li>Name it PropLane, paste the Server URL above, leave client ID and secret blank, save.</li>
-            <li>Press Connect next to PropLane. You land on PropLane&apos;s &quot;Allow connection&quot; page signed in as this account; press Allow.</li>
-            <li>Back on claude.ai the connector shows Connected. It sees the workspace active here.</li>
-          </ol>
-          <p className="text-xs text-muted">Claude Code: <code>claude mcp add --transport http proplane {mcpUrl}</code></p>
-        </div>
-      ) : null}
-      </PortalSettingsSection>
       {freshToken ? (
-        <PortalSettingsGroup className="border-primary/40">
-          <div className="space-y-3 p-4">
-            <div className="flex items-start gap-2.5">
-              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground">Copy this key now</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                  This is the only time it will be shown. PropLane stores only a hash, so it cannot be
-                  recovered — if you lose it, revoke it and create another.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-lg border border-border bg-foreground/[0.03] px-3 py-2 font-mono text-xs text-foreground">
-                {freshToken}
-              </code>
-              <CopyButton value={freshToken} label="token" />
-            </div>
-            <div>
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-foreground">
-                  REST API configuration
-                </p>
+        <PortalDialog
+          open
+          onClose={() => setFreshToken(null)}
+          title="Copy this key now"
+          primaryAction={{ label: "Done", onClick: () => setFreshToken(null), dataAttr: "api-key-dismiss-token" }}
+        >
+          <div className="p-4" data-attr="api-key-fresh">
+            <PortalSettingsGroup>
+              <PortalSettingsRow label="Key">
+                <div className="flex min-w-0 items-center gap-2">
+                  <code className="max-w-[44vw] truncate font-mono text-xs text-foreground">{freshToken}</code>
+                  <CopyButton value={freshToken} label="token" />
+                </div>
+              </PortalSettingsRow>
+              <PortalSettingsRow label="REST config">
                 <CopyButton value={apiConfig} label="config" />
-              </div>
-              <pre className="overflow-x-auto rounded-lg border border-border bg-foreground/[0.03] px-3 py-2.5 font-mono text-[11px] leading-relaxed text-foreground">
-                {apiConfig}
-              </pre>
-            </div>
-            <Button
-              variant="ghost"
-              className="h-9 min-h-0 px-3 text-[13px]"
-              data-attr="api-key-dismiss-token"
-              onClick={() => setFreshToken(null)}
-            >
-              Done
-            </Button>
+              </PortalSettingsRow>
+            </PortalSettingsGroup>
           </div>
-        </PortalSettingsGroup>
+        </PortalDialog>
       ) : null}
 
       {creating ? (
@@ -519,8 +509,12 @@ export function ManagerApiKeysPanel() {
                 })}
               </div>
             </fieldset>
-            <details className="group rounded-lg border border-border">
-              <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-foreground marker:text-muted">Advanced tools <span className="ml-1 text-xs font-normal text-muted">Choose individual tools</span></summary>
+            <PortalSettingsGroup>
+              <PortalSettingsRow label="Advanced tools">
+                <Button variant="ghost" className="h-9 min-h-0 px-3 text-[13px]" aria-expanded={advancedOpen} data-attr="api-key-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? "Hide" : "Choose"}</Button>
+              </PortalSettingsRow>
+            </PortalSettingsGroup>
+            {advancedOpen ? (
               <div className="max-h-72 space-y-3 overflow-y-auto border-t border-border p-3">
                 {API_KEY_PRODUCT_AREAS.map((area) => (
                   <div key={area.id}><p className="mb-1.5 text-xs font-semibold text-muted">{area.label}</p><div className="grid gap-1 sm:grid-cols-2">
@@ -533,7 +527,7 @@ export function ManagerApiKeysPanel() {
                   </div></div>
                 ))}
               </div>
-            </details>
+            ) : null}
             <div className="flex items-center gap-2">
               <Button
                 className="h-9 min-h-0 px-4 text-[13px]"
@@ -559,49 +553,130 @@ export function ManagerApiKeysPanel() {
         </PortalDialog>
       ) : null}
 
-      <PortalSettingsSection title="API keys"><PortalSettingsGroup>
-        {!loaded ? (
-          <p className="px-4 py-6 text-sm text-muted">Loading…</p>
-        ) : keys.length === 0 ? (
-          <p className="px-4 py-3 text-sm text-muted">No API keys yet</p>
-        ) : (
-          keys.map((key) => (
-            <PortalSettingsRow
-              key={key.id}
-              label={key.name}
-            >
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-xs text-muted" data-attr="api-key-row-value">
-                  <span className="font-mono">{key.tokenPrefix}…</span> · {key.lastUsedAt ? `Used ${formatWhen(key.lastUsedAt)}` : "Never used"}
-                </span>
-                <SettingsActions label={key.name} actions={[{ label: "Revoke", run: () => revokeKey(key.id), danger: true }]} />
-              </div>
-            </PortalSettingsRow>
-          ))
-        )}
-        <button type="button" className="min-h-12 w-full px-4 text-left text-[15px] text-primary" onClick={() => { setCreating(true); setFreshToken(null); }} aria-label="Create API key" data-attr="api-key-create-open">+ Create API key</button>
-      </PortalSettingsGroup></PortalSettingsSection>
-      <PortalSettingsSection title="Webhooks"><ManagerWebhooksBlock /></PortalSettingsSection>
-
-      {loaded && connections.length > 0 ? (
+      <PortalSettingsSection
+        title="API keys"
+        action={
+          <PortalPrimaryIconAction
+            label="Create API key"
+            data-attr="api-key-create-open"
+            onClick={() => {
+              setCreating(true);
+              setFreshToken(null);
+            }}
+          />
+        }
+      >
         <PortalSettingsGroup>
-          <div className="border-b border-border px-4 py-3"><p className="text-sm font-medium text-foreground">Connected MCP clients</p></div>
-          {connections.map((connection) => (
-            <PortalSettingsRow
-              key={connection.clientId}
-              label={connection.clientName || "MCP client"}
-            >
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-xs text-muted" data-attr="mcp-connection-row-value">
-                  Last used {formatWhen(connection.lastUsedAt)}
-                </span>
-                <SettingsActions label={connection.clientName || "MCP client"} actions={[{ label: "Disconnect", run: () => revokeMcpConnection(connection.clientId), danger: true }]} />
-              </div>
-            </PortalSettingsRow>
-          ))}
+          {!loaded ? (
+            <PortalSettingsRow label="Loading…" />
+          ) : keys.length === 0 ? (
+            <PortalSettingsRow label="No keys" />
+          ) : (
+            keys.map((key) => (
+              <PortalSettingsRow key={key.id} label={key.name}>
+                <div className="flex flex-wrap items-center justify-end gap-x-2">
+                  <span className="text-[13px] text-foreground/80" data-attr="api-key-row-value">
+                    {formatWhen(key.createdAt)} · {key.lastUsedAt ? formatWhen(key.lastUsedAt) : "Never used"}
+                  </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <PortalIconAction icon={MoreHorizontal} label={`${key.name} actions`} />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(`${key.tokenPrefix}…`)}>Copy key prefix</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => void rotateKey(key)}>Rotate</DropdownMenuItem>
+                      <DropdownMenuItem className="text-danger" onSelect={() => setPendingDelete({ kind: "key", id: key.id, name: key.name })}>Delete</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </PortalSettingsRow>
+            ))
+          )}
         </PortalSettingsGroup>
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Connected apps">
+        <PortalSettingsGroup>
+          {!loaded ? (
+            <PortalSettingsRow label="Loading…" />
+          ) : connections.length === 0 ? (
+            <PortalSettingsRow label="Claude">
+              <span className="text-[13px] text-foreground/80" data-attr="settings-mcp-claude-status">Not connected</span>
+            </PortalSettingsRow>
+          ) : (
+            connections.map((connection) => (
+              <PortalSettingsRow key={connection.clientId} label={connection.clientName || "MCP client"}>
+                <div className="flex flex-wrap items-center justify-end gap-x-2">
+                  <span className="text-[13px] text-foreground/80" data-attr="mcp-connection-row-value">
+                    {formatWhen(connection.createdAt)} · {MCP_OAUTH_SCOPE_LABEL}
+                  </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <PortalIconAction icon={MoreHorizontal} label={`${connection.clientName || "MCP client"} actions`} />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem className="text-danger" onSelect={() => setPendingDelete({ kind: "app", id: connection.clientId, name: connection.clientName || "MCP client" })}>Disconnect</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </PortalSettingsRow>
+            ))
+          )}
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Claude setup">
+        <PortalSettingsGroup>
+          <PortalSettingsRow label={<button type="button" className="text-left text-[15px] text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary/30" data-attr="settings-mcp-claude-connect" onClick={() => setClaudeStepsOpen(true)}>Claude</button>}>
+            <CopyButton value={claudeCommand} label="claude-setup" />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
+      {claudeStepsOpen ? (
+        <PortalDialog open={claudeStepsOpen} onClose={() => setClaudeStepsOpen(false)} title="Claude setup" primaryAction={null}>
+          <div className="space-y-4 p-4" data-attr="settings-mcp-claude-steps">
+            <PortalSettingsGroup>
+              <PortalSettingsRow label="Server URL">
+                <div className="flex min-w-0 items-center gap-2"><code className="max-w-[48vw] truncate text-xs">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div>
+              </PortalSettingsRow>
+              <PortalSettingsRow label="Claude Code">
+                <div className="flex min-w-0 items-center gap-2"><code className="max-w-[48vw] truncate text-xs">{claudeCommand}</code><CopyButton value={claudeCommand} label="claude-command" /></div>
+              </PortalSettingsRow>
+            </PortalSettingsGroup>
+            <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
+              <li>claude.ai → Settings → Connectors → Add custom connector.</li>
+              <li>Name PropLane, paste the Server URL, leave client ID and secret blank, save.</li>
+              <li>Connect, then Allow.</li>
+            </ol>
+          </div>
+        </PortalDialog>
       ) : null}
 
+      <PortalSettingsSection title="Webhooks"><ManagerWebhooksBlock /></PortalSettingsSection>
+
+      {pendingDelete ? (
+        <PortalDialog
+          open
+          tone="danger"
+          onClose={() => setPendingDelete(null)}
+          title={pendingDelete.kind === "key" ? "Delete API key" : "Disconnect app"}
+          fullScreenMobile={false}
+          primaryAction={{
+            label: pendingDelete.kind === "key" ? "Delete key" : "Disconnect",
+            onClick: () => confirmDelete(),
+            dataAttr: "api-key-delete-confirm",
+          }}
+        >
+          <div className="p-4">
+            <PortalSettingsGroup>
+              <PortalSettingsRow label={pendingDelete.kind === "key" ? "Key" : "App"}>
+                <span className="text-[15px] font-medium text-foreground">{pendingDelete.name}</span>
+              </PortalSettingsRow>
+            </PortalSettingsGroup>
+          </div>
+        </PortalDialog>
+      ) : null}
     </div>
   );
 }
