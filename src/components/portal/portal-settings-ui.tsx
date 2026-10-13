@@ -347,8 +347,13 @@ export function PortalSettingsAutosaveField({
         >
           {label}
         </label>
-        {/* The save state sits inside the control's right edge, so the field itself takes the whole row. */}
-        <div className="relative min-w-0 flex-1 [&_input]:pr-[4.5rem] [&:has(select)>span]:right-9">
+        {/*
+          The save state sits inside the control's right edge, so the field itself takes the whole
+          row. Both control shapes reserve room for it: an `<input>` through its own padding, and
+          the shared select — a `button[aria-haspopup="listbox"]`, never a native `<select>` — on
+          its value text, with the badge nudged left of that trigger's chevron.
+        */}
+        <div className="relative min-w-0 flex-1 [&_input]:pr-[4.5rem] [&:has(button[aria-haspopup='listbox'])>span]:right-9 [&_button[aria-haspopup='listbox']>span]:pr-[4rem]">
           {children}
           <span
             aria-live="polite"
@@ -385,6 +390,7 @@ export function PortalSettingsLinkRow({
   href,
   onClick,
   dataAttr,
+  disabled = false,
 }: {
   label: string;
   value?: string;
@@ -393,6 +399,11 @@ export function PortalSettingsLinkRow({
   href?: string;
   onClick?: () => void;
   dataAttr?: string;
+  /**
+   * The row is holding its place while what it opens is still loading. It reads as not-yet-ready
+   * and refuses the tap, rather than looking live and doing nothing.
+   */
+  disabled?: boolean;
 }) {
   const inner = (
     <>
@@ -414,10 +425,12 @@ export function PortalSettingsLinkRow({
     </>
   );
 
-  const className =
-    "flex min-h-[52px] w-full items-center justify-between gap-4 border-b border-border px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40";
+  const className = cn(
+    "flex min-h-[52px] w-full items-center justify-between gap-4 border-b border-border px-4 py-2.5 text-left transition-colors last:border-0",
+    disabled ? "cursor-default opacity-60" : "hover:bg-accent/40",
+  );
 
-  if (href) {
+  if (href && !disabled) {
     return (
       <Link href={href} className={className} data-attr={dataAttr}>
         {inner}
@@ -426,7 +439,7 @@ export function PortalSettingsLinkRow({
   }
 
   return (
-    <button type="button" onClick={onClick} className={className} data-attr={dataAttr}>
+    <button type="button" onClick={onClick} disabled={disabled} aria-disabled={disabled || undefined} className={className} data-attr={dataAttr}>
       {inner}
     </button>
   );
@@ -476,6 +489,8 @@ export type PortalSettingsNavItem = {
   icon?: ReactNode;
   /** Optional visual grouping for long settings navigations. */
   group?: string;
+  /** Holding its place while the section it opens is still loading — shown, not clickable. */
+  disabled?: boolean;
 };
 
 /**
@@ -542,6 +557,8 @@ export function PortalSettingsNav({
                     key={item.id}
                     type="button"
                     onClick={() => onSelect(item.id)}
+                    disabled={item.disabled}
+                    aria-disabled={item.disabled || undefined}
                     aria-current={active ? "page" : undefined}
                     data-attr={`settings-nav-${item.id}`}
                     className={cn(
@@ -549,6 +566,7 @@ export function PortalSettingsNav({
                       active
                         ? "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
                         : "text-muted hover:bg-[var(--secondary)]/70 hover:text-foreground",
+                      item.disabled && "cursor-default opacity-60 hover:bg-transparent hover:text-muted",
                     )}
                   >
                     {item.icon ? (

@@ -320,6 +320,8 @@ export function ResidentProfilePanel({
   const agentEnabled = agentSnapshot?.enabled === true;
   // The row holds its place while the snapshot loads, so the list below it never shifts when it lands.
   const showAgentRow = agentEnabled || !agentLoaded;
+  // Until the snapshot lands the row is only a placeholder: it opens nothing, so it is not tappable.
+  const agentRowPending = showAgentRow && !agentLoaded;
 
   const groups = useMemo<SettingsGroup[]>(
     () => [
@@ -497,6 +499,7 @@ export function ResidentProfilePanel({
             id: g.id,
             label: g.label,
             icon: <g.icon className="h-4 w-4" />,
+            disabled: g.id === "agent" && agentRowPending,
           }))}
           activeId={paneGroup.id}
           onSelect={openGroup}
@@ -515,6 +518,7 @@ export function ResidentProfilePanel({
                     icon={<g.icon className="h-4 w-4" />}
                     label={g.label}
                     onClick={() => openGroup(g.id)}
+                    disabled={g.id === "agent" && agentRowPending}
                     dataAttr={`settings-open-${g.id}`}
                   />
                 ))}

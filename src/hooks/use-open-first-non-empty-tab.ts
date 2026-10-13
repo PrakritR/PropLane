@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { firstNonEmptyTabToOpen } from "@/lib/portal-default-tab";
 
 /**
@@ -22,7 +22,7 @@ export function useOpenFirstNonEmptyTab<T extends string>({
   ready: boolean;
   hrefFor: (id: T) => string;
 }) {
-  const router = useRouter();
+  const navigate = usePortalNavigate();
   const decided = useRef(false);
   const countsKey = tabs.map((tab) => `${tab.id}:${tab.count ?? 0}`).join("|");
   useEffect(() => {
@@ -33,7 +33,7 @@ export function useOpenFirstNonEmptyTab<T extends string>({
     if (!ready || decided.current) return;
     decided.current = true;
     const next = firstNonEmptyTabToOpen(tabs, activeId, false);
-    if (next) router.replace(hrefFor(next));
+    if (next) navigate(hrefFor(next), { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `countsKey` stands for `tabs`; `hrefFor` is a pure builder
-  }, [urlNamesTab, ready, countsKey, activeId, router]);
+  }, [urlNamesTab, ready, countsKey, activeId, navigate]);
 }

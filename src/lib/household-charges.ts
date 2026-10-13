@@ -1018,8 +1018,12 @@ function writeAll(rows: HouseholdCharge[], silent = false, mirror = true) {
   if (!chargesChanged(memoryCharges, normalized)) return;
   memoryCharges = normalized;
   persistHouseholdStateToSession();
-  householdChargesLastSyncedAt = Date.now();
-  if (mirror) mirrorChargeRows(normalized);
+  // A local-only write never reached the server, so it must not pass for a server read: stamping the
+  // sync clock here would suppress the next unforced `syncHouseholdChargesFromServer` for its TTL.
+  if (mirror) {
+    householdChargesLastSyncedAt = Date.now();
+    mirrorChargeRows(normalized);
+  }
   if (!silent) emit();
 }
 

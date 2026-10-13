@@ -58,6 +58,17 @@ export function fileRefusal(file: Pick<File, "name" | "type">, accept: string): 
 }
 
 /**
+ * The error a multi-file drop shows, or null when every file is fine. It NAMES the files that were
+ * left out: a drop of five documents where two are refused forwards three, and an unattributed
+ * "That file type isn't supported." left no way to tell which two never arrived.
+ */
+export function fileRefusalMany(files: readonly Pick<File, "name" | "type">[], accept: string): string | null {
+  const refused = files.filter((file) => !fileMatchesAccept(file, accept)).map((file) => file.name);
+  if (refused.length === 0) return null;
+  return `That file type isn't supported: ${refused.join(", ")}.`;
+}
+
+/**
  * "Start from a file" — the dashed card at the top of an Add pop-up's first step (captain, Oct 6):
  * upload icon tile, title, and a "Choose file" button. It is the pop-up's
  * one upload entry; `onPick` is that flow's existing reader.
@@ -81,16 +92,15 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
   const acceptsImages = accept.split(",").some((part) => /^(image\/|\.(png|jpe?g|heic|webp)$)/i.test(part.trim()));
   const canCapture = acceptsImages || acceptsPdf;
   const off = Boolean(disabled);
-  /** A wrong type or an oversize file is refused here, with a visible error, before the flow's reader sees it. */
+  /** A wrong type is refused here, with a visible error, before the flow's reader sees it. */
   const accepts = (file: File) => {
     const refusal = fileRefusal(file, accept);
     setScanError(refusal);
     return refusal === null;
   };
   const acceptMany = (files: File[]) => {
-    const refusals = files.map((file) => fileRefusal(file, accept));
-    setScanError(refusals.find((refusal) => refusal !== null) ?? null);
-    return files.filter((_, index) => refusals[index] === null);
+    setScanError(fileRefusalMany(files, accept));
+    return files.filter((file) => fileMatchesAccept(file, accept));
   };
   const capture = async (file: File) => {
     setScanError(null);

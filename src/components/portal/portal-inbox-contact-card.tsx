@@ -183,7 +183,13 @@ export function PortalInboxContactCard({
               )}
               title={box.note && box.noteTone !== "muted" ? `${box.label}: ${box.value} — ${box.note}` : `${box.label}: ${box.value}`}
             >
-              <p className="truncate text-[13px] font-semibold leading-tight text-foreground">{box.label}</p>
+              {/* The actions overlay the box's first line, so the label stops short of them instead of running under them. */}
+              <p
+                className="truncate text-[13px] font-semibold leading-tight text-foreground"
+                style={box.actions?.length ? { paddingRight: `${box.actions.length * 1.625 + 0.25}rem` } : undefined}
+              >
+                {box.label}
+              </p>
               <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs leading-tight text-muted">
                 {box.leading ? (
                   <span className="flex shrink-0 items-center [&_svg]:size-3.5 [&_svg]:text-muted">{box.leading}</span>

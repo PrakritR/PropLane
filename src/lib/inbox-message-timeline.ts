@@ -76,11 +76,23 @@ function clusterPosition(sameDirAsPrev: boolean, sameDirAsNext: boolean): InboxB
   return "single";
 }
 
+/** Attachment identity of a turn — a copy that carries files the kept one does not is not the same turn. */
+function attachmentSignature(message: InboxBubbleMessage): string {
+  return (message.attachments ?? []).map((attachment) => `${attachment.url}\u0000${attachment.name ?? ""}`).join("\u0001");
+}
+
 /**
  * A turn stored twice reads as the paragraph repeated: a thread's opening line (kept with the
  * subject) and the stored message that carries the same words right after it, from the same
- * sender. The later copy is dropped. Only a body long enough to be a real message is compared
- * ("OK" twice in a row is two turns), and only against the turn immediately before it.
+ * sender. The later copy is dropped — but only when NOTHING about the two turns differs except
+ * their id and stamp, the way `dedupeSentCopyRoots` folds a Sent-copy root.
+ *
+ * The inbox is the record of a conversation, so the bar for hiding a turn is that it cannot be a
+ * second real one. An outbound turn is never folded: a send that failed and was retried with the
+ * same words, a scheduled send beside its delivered copy, and the same body sent on two channels
+ * are all genuine turns whose own delivery state is the only thing distinguishing them. Only a
+ * body long enough to be a real message is compared ("OK" twice in a row is two turns), and only
+ * against the turn immediately before it.
  */
 export function dropDuplicateTurns<T extends InboxBubbleMessage>(messages: readonly T[]): T[] {
   const kept: T[] = [];
@@ -90,9 +102,16 @@ export function dropDuplicateTurns<T extends InboxBubbleMessage>(messages: reado
     const duplicate =
       previous !== undefined &&
       body.length >= 16 &&
+      message.direction !== "outbound" &&
       previous.direction === message.direction &&
       (previous.author ?? "") === (message.author ?? "") &&
-      (previous.body ?? "").trim() === body;
+      (previous.authorNote ?? "") === (message.authorNote ?? "") &&
+      (previous.body ?? "").trim() === body &&
+      (previous.channel ?? "") === (message.channel ?? "") &&
+      (previous.delivery ?? "") === (message.delivery ?? "") &&
+      (previous.status ?? "") === (message.status ?? "") &&
+      (previous.readByRecipient ?? false) === (message.readByRecipient ?? false) &&
+      attachmentSignature(previous) === attachmentSignature(message);
     if (!duplicate) kept.push(message);
   }
   return kept;

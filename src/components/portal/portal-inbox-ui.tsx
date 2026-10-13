@@ -1485,6 +1485,7 @@ export function InboxBubble({
   showChannel = false,
   showAvatar = false,
   alignAssistantStart = false,
+  emailNameAsPerson = false,
 }: {
   message: InboxBubbleMessage;
   showAuthor?: boolean;
@@ -1495,6 +1496,12 @@ export function InboxBubble({
   showAvatar?: boolean;
   /** True only for the PropLane Assistant conversation. Kept so callers need not change. */
   alignAssistantStart?: boolean;
+  /**
+   * A bubble whose only known author is an email address reads as the person ("Manager"), the same
+   * opt-in the conversation row takes. Off by default: a multi-party timeline keeps the address, so
+   * two senders who share a local part ("jane@acme.com", "jane@contractor.io") stay distinguishable.
+   */
+  emailNameAsPerson?: boolean;
 }) {
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
@@ -1521,7 +1528,7 @@ export function InboxBubble({
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
   const startsRun = cluster === "single" || cluster === "first" || showAvatar;
-  const author = assistant ? "PropLane" : inboxDisplayName(message.author) || "?";
+  const author = assistant ? "PropLane" : (emailNameAsPerson ? inboxDisplayName(message.author) : message.author) || "?";
   const clock = inboxMessageClock(message.at);
   const bookingNoticePath = assistant ? bookingRecordPathFromNotice(message.body) : null;
 
@@ -1624,10 +1631,13 @@ export function InboxMessageTimeline({
   messages,
   showAuthors = false,
   alignAssistantStart = false,
+  emailNameAsPerson = false,
 }: {
   messages: InboxBubbleMessage[];
   showAuthors?: boolean;
   alignAssistantStart?: boolean;
+  /** Passed to every bubble — see `InboxBubble`. */
+  emailNameAsPerson?: boolean;
 }) {
   const items = buildInboxMessageTimeline(messages);
   return (
@@ -1660,6 +1670,7 @@ export function InboxMessageTimeline({
               showChannel={item.showChannel}
               showAvatar={item.showAvatar}
               alignAssistantStart={alignAssistantStart}
+              emailNameAsPerson={emailNameAsPerson}
             />
           </div>
         ),
@@ -3241,6 +3252,7 @@ export function InboxThreadView({
   messages,
   showAuthors = false,
   alignAssistantStart = false,
+  emailNameAsPerson = false,
   onBack,
   hideIdentityHeader = false,
   headerActions,
@@ -3262,6 +3274,8 @@ export function InboxThreadView({
   showAuthors?: boolean;
   /** Pin PropLane Assistant ice bubbles to the left in that conversation only. */
   alignAssistantStart?: boolean;
+  /** A bubble author known only as an email address reads as the person — see `InboxBubble`. */
+  emailNameAsPerson?: boolean;
   /** Mobile-only back affordance returning to the list. */
   onBack?: () => void;
   /** Hide avatar, title, and subtitle (e.g. resident profile Communication tab). */
@@ -3365,6 +3379,7 @@ export function InboxThreadView({
               messages={messages}
               showAuthors={showAuthors}
               alignAssistantStart={alignAssistantStart}
+              emailNameAsPerson={emailNameAsPerson}
             />
             {afterMessages}
             <div ref={endRef} />
