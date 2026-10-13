@@ -12,8 +12,10 @@ import {
   RESIDENT_HOUSING_INPUT_CLS,
   RESIDENT_ROOM_TYPE_OPTIONS,
   ResidentHousingChat,
-  type HousingChatAppliedFilters,
 } from "@/components/marketing/resident-listing-search";
+import { browseStateFromChatFilters, type HousingChatAppliedFilters } from "@/lib/housing-chat-filters";
+import { LEASE_TYPES, leaseTypeLabel, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { usePublicListings } from "@/hooks/use-public-listings";
 import {
   buildPropertyBrowseCards,
@@ -51,11 +53,6 @@ const SORT_OPTIONS: { id: BrowseSortId; label: string }[] = [
   { id: "price-desc", label: "Price · high to low" },
   { id: "neighborhood", label: "Neighborhood A–Z" },
 ];
-
-function clampBudget(n: number) {
-  const stepped = Math.round(n / RESIDENT_HOUSING_BUDGET_STEP) * RESIDENT_HOUSING_BUDGET_STEP;
-  return Math.min(RESIDENT_HOUSING_BUDGET_MAX, Math.max(RESIDENT_HOUSING_BUDGET_MIN, stepped));
-}
 
 function formatRent(card: PropertyBrowseCard): string {
   const display = card.headlineRent ?? card.rentNumeric;
@@ -142,6 +139,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
     `${card.roomCount} room${card.roomCount === 1 ? "" : "s"}`,
     card.bathCount > 0 ? `${formatBaths(card.bathCount)} ba` : null,
     card.petFriendly ? "Pets OK" : card.bathHint || null,
+    ...card.leaseTypes.map(leaseTypeLabel),
   ].filter((f): f is string => Boolean(f));
   const dotCount = Math.min(5, card.photoUrls.length);
 
@@ -292,6 +290,8 @@ function BrowseFilterPanel({
   setRoomType: onApplyRoomType,
   petsOnly: appliedPetsOnly,
   setPetsOnly: onApplyPetsOnly,
+  leaseTypes: appliedLeaseTypes,
+  setLeaseTypes: onApplyLeaseTypes,
   onApplyChatFilters,
 }: {
   sort: BrowseSortId;
@@ -310,6 +310,8 @@ function BrowseFilterPanel({
   setRoomType: (v: string) => void;
   petsOnly: boolean;
   setPetsOnly: (v: boolean) => void;
+  leaseTypes: LeaseTypeId[];
+  setLeaseTypes: (v: LeaseTypeId[]) => void;
   onApplyChatFilters: (filters: HousingChatAppliedFilters) => void;
 }) {
   const [sort, setSort] = usePortalFilterDraft(appliedSort, onApplySort, "price-asc" as BrowseSortId, "sort");
@@ -324,6 +326,7 @@ function BrowseFilterPanel({
   const [bathroom, setBathroom] = usePortalFilterDraft(appliedBathroom, onApplyBathroom, "any", "bathroom");
   const [roomType, setRoomType] = usePortalFilterDraft(appliedRoomType, onApplyRoomType, "any", "roomType");
   const [petsOnly, setPetsOnly] = usePortalFilterDraft(appliedPetsOnly, onApplyPetsOnly, false, "petsOnly");
+  const [leaseTypes, setLeaseTypes] = usePortalFilterDraft(appliedLeaseTypes, onApplyLeaseTypes, [] as LeaseTypeId[], "leaseTypes");
 
   return (
     <div className="min-w-0 max-w-full overflow-x-hidden px-1">
@@ -417,6 +420,18 @@ function BrowseFilterPanel({
           ),
         }}
       />
+      <FilterSection label="Lease type" inline>
+        <CheckboxMultiSelect
+          label="Lease type"
+          hideLabel
+          options={LEASE_TYPES.map((t) => ({ value: t.id, label: t.label }))}
+          selected={leaseTypes}
+          onChange={(next) => setLeaseTypes(next as LeaseTypeId[])}
+          emptyLabel="Any"
+          dataAttr="resident-browse-lease-type"
+          className="w-[12rem] max-w-full"
+        />
+      </FilterSection>
       <FilterSection label="Pets allowed" inline>
         <label className="relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center">
           <input
@@ -452,6 +467,7 @@ type BrowseFilterApplied = {
   bathroom: string;
   roomType: string;
   petsOnly: boolean;
+  leaseTypes: LeaseTypeId[];
 };
 
 /**
@@ -494,6 +510,7 @@ function BrowseFilterApplyLabel({
           moveIn: draft.moveIn,
           moveOut: draft.moveOut,
           petFriendly: draft.petsOnly || undefined,
+          leaseTypes: draft.leaseTypes,
           neighborhood,
           propertyIds: scopedIds,
         },
@@ -515,6 +532,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
   const [bathroom, setBathroom] = useState("any");
   const [roomType, setRoomType] = useState("any");
   const [petsOnly, setPetsOnly] = useState(false);
+  const [leaseTypes, setLeaseTypes] = useState<LeaseTypeId[]>([]);
   const [neighborhood, setNeighborhood] = useState<string | undefined>(undefined);
   const [query, setQuery] = useState("");
 
@@ -528,6 +546,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     bathroom !== "any",
     roomType !== "any",
     petsOnly,
+    leaseTypes.length > 0,
     Boolean(neighborhood),
   ].filter(Boolean).length;
 
@@ -557,6 +576,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
           moveIn,
           moveOut,
           petFriendly: petsOnly || undefined,
+          leaseTypes,
           neighborhood,
           propertyIds: scopedIds,
         },
@@ -575,6 +595,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
       moveIn,
       moveOut,
       petsOnly,
+      leaseTypes,
       neighborhood,
       scopedIds,
       occupancyReady,
@@ -587,13 +608,20 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
   }, [filteredCards, query]);
 
   function applyChatFilters(applied: HousingChatAppliedFilters) {
-    setMoveIn(applied.moveIn ?? "");
-    setMoveOut(applied.moveOut ?? "");
-    setBudgetMin(RESIDENT_HOUSING_BUDGET_MIN);
-    setBudgetMax(typeof applied.maxBudget === "number" ? clampBudget(applied.maxBudget) : RESIDENT_HOUSING_BUDGET_MAX);
-    setRoomType(applied.bedroom ?? "any");
-    setBathroom(applied.bathroom ?? "any");
-    setNeighborhood(applied.neighborhood);
+    const next = browseStateFromChatFilters(applied, {
+      min: RESIDENT_HOUSING_BUDGET_MIN,
+      max: RESIDENT_HOUSING_BUDGET_MAX,
+      step: RESIDENT_HOUSING_BUDGET_STEP,
+    });
+    setMoveIn(next.moveIn);
+    setMoveOut(next.moveOut);
+    setBudgetMin(next.budgetMin);
+    setBudgetMax(next.budgetMax);
+    setRoomType(next.roomType);
+    setBathroom(next.bathroom);
+    setPetsOnly(next.petsOnly);
+    setLeaseTypes(next.leaseTypes);
+    setNeighborhood(next.neighborhood);
   }
 
   function clearFilters() {
@@ -604,6 +632,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     setBathroom("any");
     setRoomType("any");
     setPetsOnly(false);
+    setLeaseTypes([]);
     setNeighborhood(undefined);
     setSort("price-asc");
   }
@@ -617,6 +646,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     bathroom !== "any" ? bathroom : "",
     roomType !== "any" ? roomType : "",
     petsOnly,
+    leaseTypes,
     neighborhood,
   ]);
 
@@ -646,8 +676,9 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
       bathroom,
       roomType,
       petsOnly,
+      leaseTypes,
     }),
-    [sort, moveIn, moveOut, budgetMin, budgetMax, bathroom, roomType, petsOnly],
+    [sort, moveIn, moveOut, budgetMin, budgetMax, bathroom, roomType, petsOnly, leaseTypes],
   );
 
   return (
@@ -754,6 +785,8 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
             setRoomType={setRoomType}
             petsOnly={petsOnly}
             setPetsOnly={setPetsOnly}
+            leaseTypes={leaseTypes}
+            setLeaseTypes={setLeaseTypes}
             onApplyChatFilters={applyChatFilters}
           />
         </PortalFilterSortSheet>
@@ -789,6 +822,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
                 roomTypeLabel,
                 bathroomLabel,
                 petsOnly ? "Pets OK" : null,
+                leaseTypes.length > 0 ? leaseTypes.map(leaseTypeLabel).join(" / ") : null,
                 query.trim() ? `“${query.trim()}”` : null,
               ]
                 .filter(Boolean)

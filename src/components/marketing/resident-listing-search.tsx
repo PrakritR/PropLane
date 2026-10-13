@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { RotateCcw, Sparkles } from "lucide-react";
 
 import Link from "next/link";
 import posthog from "posthog-js";
@@ -12,6 +12,8 @@ import { parseUSZip } from "@/lib/listings-search";
 import { track } from "@/lib/analytics/track-client";
 import { Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { describeChatFilters, type HousingChatAppliedFilters } from "@/lib/housing-chat-filters";
 
 const ZIP_RADIUS_MILES = 50;
 
@@ -53,15 +55,7 @@ function clampBudget(n: number) {
   return Math.min(BUDGET_MAX, Math.max(BUDGET_MIN, stepped));
 }
 
-export type HousingChatAppliedFilters = {
-  moveIn?: string;
-  moveOut?: string;
-  maxBudget?: number;
-  bedroom?: string;
-  bathroom?: string;
-  zip?: string;
-  neighborhood?: string;
-};
+export type { HousingChatAppliedFilters };
 
 type ChatAppliedFilters = HousingChatAppliedFilters;
 
@@ -293,6 +287,26 @@ function FieldBlock({ label, children, className }: { label: string; children: R
   );
 }
 
+/** The "Understood" row: what the assistant took from the sentence, as plain facts. */
+export function HousingChatUnderstood({ facts }: { facts: string[] }) {
+  return (
+    <div className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1" data-attr="resident-search-ai-understood">
+      <span className="text-[13px] font-bold text-foreground">Understood</span>
+      <span className="min-w-0 break-words text-sm text-foreground">{facts.join(" · ")}</span>
+    </div>
+  );
+}
+
+/** A failed ask, inline under the field (no toast), with a Retry icon action. */
+export function HousingChatError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="mt-2 flex min-w-0 items-center justify-between gap-2" role="alert" data-attr="resident-search-ai-error">
+      <p className="min-w-0 break-words text-sm text-red-500">{message}</p>
+      <PortalIconAction icon={RotateCcw} label="Retry" onClick={onRetry} data-attr="resident-search-ai-retry" />
+    </div>
+  );
+}
+
 type ChatListing = {
   key: string;
   propertyId: string;
@@ -328,15 +342,17 @@ export function ResidentHousingChat({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [summary, setSummary] = useState<string | null>(null);
+  const [understood, setUnderstood] = useState<string[] | null>(null);
   const [listings, setListings] = useState<ChatListing[]>([]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     const message = query.trim();
     if (!message || status === "loading") return;
 
     setStatus("loading");
     setSummary(null);
+    setUnderstood(null);
     track("housing_search_chat_started", { messageLength: message.length });
 
     try {
@@ -361,6 +377,7 @@ export function ResidentHousingChat({
       onApplyFilters(body.filters ?? {});
       setListings(body.listings ?? []);
       setStatus("idle");
+      setUnderstood(describeChatFilters(body.filters ?? {}, typeof body.matchCount === "number" ? body.matchCount : undefined));
       setSummary(
         body.matchCount === 0
           ? "No listings match that yet. Filters were still updated."
@@ -387,6 +404,7 @@ export function ResidentHousingChat({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={resolvedPlaceholder}
+              disabled={status === "loading"}
               aria-label="Describe the home you're looking for"
               data-attr="resident-search-ai-chat-input"
               className={`${inputCls} min-h-[44px] w-full pl-10`}
@@ -403,9 +421,13 @@ export function ResidentHousingChat({
             Ask
           </Button>
         </form>
-        {summary && (
-          <p className={`mt-2 text-sm ${status === "error" ? "text-red-500" : "text-foreground"}`}>{summary}</p>
-        )}
+        {status === "error" && summary ? (
+          <HousingChatError message={summary} onRetry={() => void handleSubmit()} />
+        ) : understood && understood.length > 0 ? (
+          <HousingChatUnderstood facts={understood} />
+        ) : summary ? (
+          <p className="mt-2 text-sm text-foreground">{summary}</p>
+        ) : null}
       </div>
     );
   }
