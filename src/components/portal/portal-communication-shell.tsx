@@ -25,6 +25,7 @@ export function PortalCommunicationShell({
   threadSelected = false,
   hideTitleOnMobileNav = true,
   hideAssistantFab = false,
+  pageFrame = false,
 }: {
   title: string;
   /** One muted line under the page title. Desktop only — the mobile nav bar already names the section. */
@@ -42,6 +43,8 @@ export function PortalCommunicationShell({
   hideTitleOnMobileNav?: boolean;
   /** Hide the floating assistant FAB for the whole Communication tab. */
   hideAssistantFab?: boolean;
+  /** The list pages' header frame (see `ManagerPortalPageShell`). */
+  pageFrame?: boolean;
 }) {
   const resolvedStack =
     controlStack ??
@@ -66,6 +69,7 @@ export function PortalCommunicationShell({
       mobileFlush={mobileThreadReading}
       viewportFillBody
       stickyPageChrome={false}
+      pageFrame={pageFrame}
     >
       {resolvedStack ? (
         <div

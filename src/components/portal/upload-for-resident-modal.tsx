@@ -186,16 +186,11 @@ export function UploadForResidentModal({
 
   const steps = useMemo<AddWorkspaceStep[]>(
     () => [
-      {
-        id: "resident",
-        label: "Resident",
-        incomplete: !residentReady,
-        summary: isNew ? newName.trim() || "New resident" : picked?.name ?? "Choose a resident",
-      },
-      { id: "file", label: "File", incomplete: !parse, summary: file?.name ?? (kind === "lease" ? "Lease PDF" : "Application PDF") },
-      { id: "check", label: "Check", incomplete: !finishReady, summary: parse ? "Review the values" : "Upload a file first" },
+      { id: "resident", label: "Resident", incomplete: !residentReady },
+      { id: "file", label: "File", incomplete: !parse },
+      { id: "check", label: "Check", incomplete: !finishReady },
     ],
-    [residentReady, isNew, newName, picked, parse, file, kind, finishReady],
+    [residentReady, parse, finishReady],
   );
   const stepId = steps[Math.min(step, steps.length - 1)]!.id;
 
@@ -294,7 +289,6 @@ export function UploadForResidentModal({
             </WizardSection>
             <WorkspaceFileCard
               accept="application/pdf,.pdf"
-              chips={[".pdf", "up to 3.5 MB"]}
               dataAttr="upload-for-resident-drop"
               disabled={reading}
               fileName={reading ? "Reading the PDF…" : file?.name ?? null}

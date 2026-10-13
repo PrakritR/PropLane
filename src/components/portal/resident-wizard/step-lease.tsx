@@ -30,8 +30,6 @@ import type { ResidentWizardDerived } from "./derived";
 import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { EditLeaseRecordCards } from "./edit-steps";
 
-/** The lease reader takes a PDF only, up to `MAX_PDF_BYTES` (3.5 MB) in index.tsx. */
-const LEASE_FILE_CHIPS = [".pdf", "up to 3.5 MB"] as const;
 import type { AddPersonForm, LeaseDocumentChoice } from "./state";
 
 const LEASE_DOCUMENT_OPTIONS: { value: LeaseDocumentChoice; label: string; hint: string }[] = [
@@ -144,7 +142,7 @@ export function LeaseStep({
     <StepColumn>
       <StepHeading title="The lease" />
       {editRecord ? null : (
-        <WorkspaceFileCard accept="application/pdf" chips={LEASE_FILE_CHIPS} onPick={onPickLeasePdf} disabled={busy} fileName={form.leaseFileName || null} dataAttr="residents-wizard-lease-upload" inputDataAttr="residents-wizard-lease-pdf-input" label="Upload the lease PDF" />
+        <WorkspaceFileCard accept="application/pdf" onPick={onPickLeasePdf} disabled={busy} fileName={form.leaseFileName || null} dataAttr="residents-wizard-lease-upload" inputDataAttr="residents-wizard-lease-pdf-input" label="Upload the lease PDF" />
       )}
       {editRecord ? (
         <EditLeaseRecordCards

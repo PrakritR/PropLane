@@ -4,7 +4,6 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   diffResidentEdit,
   residentEditRequiresVoidConfirm,
-  residentEditSaveWill,
   resolveResidentEditStage,
   snapshotResidentEditBaseline,
 } from "@/lib/resident-edit-stage";
@@ -70,7 +69,7 @@ describe("resolveResidentEditStage", () => {
   });
 });
 
-describe("residentEditSaveWill", () => {
+describe("residentEditRequiresVoidConfirm", () => {
   const baseline = snapshotResidentEditBaseline({
     name: "A",
     email: "a@x.com",
@@ -93,18 +92,10 @@ describe("residentEditSaveWill", () => {
     application: {},
   });
 
-  it("applicant rent change mentions application terms", () => {
-    const form = { ...baseline, rent: "1100", application: {} };
-    const diff = diffResidentEdit(baseline, form);
-    const will = residentEditSaveWill("applicant", diff);
-    expect(will.some((w) => w.text.includes("Application terms"))).toBe(true);
-    expect(will.some((w) => w.text.includes("No lease or charges"))).toBe(true);
-  });
-
   it("lease_sent requires void confirm when lease terms change", () => {
     const form = { ...baseline, rent: "950", application: {} };
     const diff = diffResidentEdit(baseline, form);
     expect(residentEditRequiresVoidConfirm("lease_sent", diff)).toBe(true);
-    expect(residentEditSaveWill("lease_sent", diff).some((w) => w.text.includes("voided"))).toBe(true);
+    expect(residentEditRequiresVoidConfirm("lease_draft", diff)).toBe(false);
   });
 });

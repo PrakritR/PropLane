@@ -15,8 +15,9 @@ import {
   Mail,
   MessageSquareText,
   Phone,
-  Settings,
+  SlidersHorizontal,
   Sparkles,
+  UserCog,
   UserRound,
   Wrench,
   Zap,
@@ -67,6 +68,8 @@ import { VendorIntegrationsSettings } from "@/components/portal/vendor-integrati
 import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
 import { VendorAiInfoPane } from "@/components/portal/vendor-ai-info-settings";
 
+import { VENDOR_SMS_CONSENT_COPY } from "@/lib/vendor-sms-consent-copy";
+
 const SETTINGS_TAB_PARAM = "tab";
 
 type VendorSettingsGroupId = VendorSettingsPageId;
@@ -81,9 +84,9 @@ type VendorSettingsGroup = {
 const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ className?: string }>> = {
   profile: UserRound,
   security: Lock,
-  preferences: Settings,
+  preferences: SlidersHorizontal,
   feedback: Mail,
-  account: Settings,
+  account: UserCog,
   business: Building2,
   capabilities: Wrench,
   "ai-info": Sparkles,
@@ -454,7 +457,7 @@ export function VendorSettingsPanel() {
         return (
           <>
             {unlinkedBanner}
-            <PortalSettingsSection title="Profile" action={<SectionSaveBadge state={directorySectionState} />}>
+            <PortalSettingsSection action={<SectionSaveBadge state={directorySectionState} />}>
               <PortalSettingsGroup>
                 {profileLoading ? (
                   <div className="px-4 py-4">
@@ -538,9 +541,7 @@ export function VendorSettingsPanel() {
                           onChange={(e) => void commitSmsConsent(e.target.checked)}
                           data-attr="vendor-sms-consent"
                         />
-                        <span>
-                          Text me about jobs at this number. Message and data rates may apply; reply STOP to opt out.
-                        </span>
+                        <span>{VENDOR_SMS_CONSENT_COPY}</span>
                       </label>
                     </div>
                   </PortalSettingsFormBody>

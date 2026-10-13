@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import {
+  smsBubbleSenderLabel,
   MANAGER_SMS_TAB_DEFS,
   normalizeRoleSmsPayload,
   smsMessageBucket,
@@ -33,7 +34,7 @@ function persistOpenedIds(storageKey: string, ids: Set<string>): void {
   window.localStorage.setItem(storageKey, JSON.stringify([...ids]));
 }
 
-function SmsBubble({ msg }: { msg: ManagerSmsMessageRow }) {
+function SmsBubble({ msg, counterpartName }: { msg: ManagerSmsMessageRow; counterpartName?: string }) {
   const inbound = msg.direction === "inbound";
   return (
     <div
@@ -43,10 +44,10 @@ function SmsBubble({ msg }: { msg: ManagerSmsMessageRow }) {
           : "ml-auto border border-primary/25 bg-primary/10 text-foreground"
       }`}
     >
-      <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
-        <span>{inbound ? "Inbound" : "Outbound"}</span>
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
+        <span>{smsBubbleSenderLabel(msg, counterpartName)}</span>
         {isVoiceCallNoteSid(msg.messageSid) ? <span>Call</span> : null}
-        <span className="ml-auto normal-case">{formatPacificDateTime(msg.createdAt)}</span>
+        <span className="ml-auto normal-case">{formatInboxStamp(new Date(msg.createdAt))}</span>
       </div>
       <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
     </div>
@@ -58,11 +59,14 @@ export function RoleSmsPanel({
   apiPath,
   storageScope,
   tabId,
+  counterpartName,
   onBucketCountsChange,
 }: {
   apiPath: string;
   storageScope: string;
   tabId: ManagerSmsBucketId;
+  /** Who the other side of the thread is, shown on what they sent. */
+  counterpartName?: string;
   onBucketCountsChange?: (counts: Record<ManagerSmsBucketId, number>) => void;
 }) {
   const storageKey = `${OPENED_STORAGE_PREFIX}${storageScope}`;
@@ -160,7 +164,7 @@ export function RoleSmsPanel({
             if (msg.direction === "inbound") markOpened(msg.id);
           }}
         >
-          <SmsBubble msg={msg} />
+          <SmsBubble msg={msg} counterpartName={counterpartName} />
         </button>
       ))}
     </div>

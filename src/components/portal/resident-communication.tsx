@@ -71,8 +71,7 @@ import {
   type ManagerSmsBucketId,
   type ManagerSmsMessageRow,
 } from "@/lib/manager-sms-messages";
-import { formatPacificDate } from "@/lib/pacific-time";
-import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { formatInboxStamp, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
   EMPTY_COMMUNICATION_THREAD_FILTERS,
   RECORD_KIND_FILTER_OPTIONS,
@@ -332,7 +331,7 @@ function ResidentUnifiedInbox({
                 subtitle: "Property manager",
                 preview: communicationInboxListPreview(last.body, segment, 80),
                 previewPrefix: last.direction === "outbound" ? "You: " : undefined,
-                time: formatPacificDate(last.createdAt, { hour: "numeric", minute: "2-digit" }),
+                time: formatInboxStamp(new Date(last.createdAt)),
                 unread,
                 sortMs: Date.parse(last.createdAt) || 0,
               },
@@ -481,6 +480,7 @@ function ResidentUnifiedInbox({
             <InboxConversationRow
               key={row.key}
               appearance="flat"
+              emailNameAsPerson
               // A text-only conversation is derived, read-only: nothing to archive.
               trailing={
                 emailThreads.find((t) => t.id === row.threadId)?.smsOnly ? undefined : (
@@ -537,7 +537,13 @@ function ResidentUnifiedInbox({
           <RoleSmsPanel apiPath="/api/resident/sms-conversations" storageScope="resident" tabId={"all" as ManagerSmsBucketId} />
         </div>
       ) : null}
-      <div className={smsSelected ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+      {/* Inline display: the thread pane's own `> div` rule would otherwise win over the `hidden` class and
+          leave the email pane's "Select a conversation" under an open text thread. */}
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        style={smsSelected ? { display: "none" } : undefined}
+        aria-hidden={smsSelected || undefined}
+      >
         <ResidentInboxPanel
           ref={inboxRef}
           tabId={listSegment === "archived" ? "trash" : "all"}

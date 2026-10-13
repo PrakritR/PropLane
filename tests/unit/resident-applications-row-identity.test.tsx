@@ -87,7 +87,8 @@ function submittedRow(id: string, propertyId: string, property: string): DemoApp
 
 /**
  * The row for one application, found the way a resident finds it: by the
- * application id printed on the row. Deliberately NOT a DOM-id selector —
+ * property named on the row (the application's own id is never printed on a
+ * row, so the id maps to its property here). Deliberately NOT a DOM-id selector —
  * these lists render through `DataList`, which emits no per-row `id`, and it
  * should not: the responsive shell renders mobile and desktop trees together,
  * so a shared id would be a duplicate. Selecting on visible text is also the
@@ -95,9 +96,11 @@ function submittedRow(id: string, propertyId: string, property: string): DemoApp
  */
 function applicationRow(id: string): HTMLElement {
   const rows = [...document.querySelectorAll<HTMLElement>('.portal-property-row')];
-  const matches = rows.filter((el) => (el.textContent ?? "").includes(id));
+  const property = ROWS.find((row) => row.id === id)?.property ?? id;
+  const matches = rows.filter((el) => (el.textContent ?? "").includes(property));
   if (matches.length === 0) throw new Error(`row ${id} not rendered`);
-  if (matches.length > 1) throw new Error(`row ${id} matched ${matches.length} rows — ids must be unique`);
+  if (matches.length > 1) throw new Error(`row ${id} matched ${matches.length} rows — property names must be unique`);
+  expect(matches[0].textContent ?? "").not.toContain(id);
   return matches[0];
 }
 
@@ -208,8 +211,12 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
       render(<ResidentApplicationsPanel applyMode />);
     });
 
-    const first = applicationRow("PROPLANE-AAAA0001").textContent ?? "";
-    const second = applicationRow("PROPLANE-BBBB0002").textContent ?? "";
+    // Same property on both rows, so each is found by what makes it different: its status and date.
+    const rowTexts = [...document.querySelectorAll<HTMLElement>(".portal-property-row")].map((el) => el.textContent ?? "");
+    const first = rowTexts.find((text) => text.includes("Started Aug 1")) ?? "";
+    const second = rowTexts.find((text) => text.includes("Submitted Aug 3")) ?? "";
+    expect(first).not.toContain("PROPLANE-AAAA0001");
+    expect(second).not.toContain("PROPLANE-BBBB0002");
     expect(first).toContain("Started Aug 1");
     expect(second).toContain("Submitted Aug 3");
     // Same property and room — the rows still have to read differently.
@@ -221,7 +228,7 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
 it("opens the exact application from View without navigating on menu open", async () => {
   ROWS = [
     submittedRow("PROPLANE-CCCC0003", "mgr-test-cedar", "Cedar Flat"),
-    submittedRow("PROPLANE-DDDD0004", "mgr-test-cedar", "Cedar Flat"),
+    submittedRow("PROPLANE-DDDD0004", "mgr-test-dahlia", "Dahlia Court"),
   ];
   await act(async () => { render(<ResidentApplicationsPanel applyMode />); });
   portalNavigate.mockClear();

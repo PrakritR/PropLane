@@ -3972,6 +3972,22 @@ html[data-theme="light"] .portal-shell .glass-card {
     width: calc(100% + 4rem);
   }
 }
+/* A page that is not a list (Dashboard, Finances, vendor Communication) still opens with the list
+   pages' header band: same x, no extra top padding. Opt-in with `pageFrame` on the page shell. */
+@media (min-width: 1024px) {
+  [data-slot="portal-page-shell"][data-page-frame] > [data-slot="page-header"] {
+    margin: -2rem -2rem 0;
+    padding: 14px 22px 0;
+    background: var(--background);
+  }
+  [data-slot="portal-page-shell"][data-page-frame] > [data-slot="page-header"] + * {
+    margin-top: 1rem;
+  }
+  html[data-portal-sticky-chrome] .portal-main-inner:has(> [data-slot="portal-page-shell"][data-page-frame] > [data-slot="page-header"]),
+  html[data-communication-surface] .portal-main-inner:has(> [data-slot="portal-page-shell"][data-page-frame] > [data-slot="page-header"]) {
+    overflow: visible;
+  }
+}
 /* The bleed's negative margins reach into <main>'s 2rem padding. The sticky-chrome
    and communication surfaces clip .portal-main-inner (overflow: hidden), which cut
    the header's first 2rem off at every desktop width: "romotion", "ll 0", half a +.

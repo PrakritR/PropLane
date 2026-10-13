@@ -106,7 +106,7 @@ describe("Tasks", () => {
     expect(within(dialog).getByText("Assignee")).toBeInTheDocument();
     expect(within(dialog).getByText("Task preview")).toBeInTheDocument();
     expect(finishLabel(dialog)).toBe("Add task");
-    expect(within(dialog).getByText("Notes (optional)")).toBeInTheDocument();
+    expect(within(dialog).getByText("Notes")).toBeInTheDocument();
     expect(within(dialog).getByText("Checklist (one step per line)")).toBeInTheDocument();
     expect(within(dialog).getByText("Attachments (one link per line, optional name first)")).toBeInTheDocument();
     expect(hasFixtureSheet(container)).toBe(false);

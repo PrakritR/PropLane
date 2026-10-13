@@ -198,7 +198,7 @@ export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: V
   );
 
   return (
-    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow pageFrame>
       {state.status === "loading" ? (
         <PortalRecordListSurface loading dataAttr="vendor-balance-loading" />
       ) : state.status === "error" || state.status === "unavailable" ? (
@@ -352,12 +352,21 @@ export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: V
   );
 }
 
+/**
+ * The Held card's note: only a reason the vendor can act on ("Until you add a bank", "Disputed"). The default
+ * "Held by PropLane" is not a sentence under the figure (round 5).
+ */
+function heldNote(figures: ReturnType<typeof deriveVendorFinancesFigures>): string | null {
+  if (figures.heldReasonKind === "proplane") return figures.hasDisputeFreeze ? "Disputed" : null;
+  return figures.heldReason;
+}
+
 /** The balance snapshot's figures, one hairline stat card each (Owed to PropLane only while something is owed). */
 function balanceStats(figures: ReturnType<typeof deriveVendorFinancesFigures>): PortalStat[] {
   const stats: PortalStat[] = [
     { id: "available", label: "Available", value: formatMoney(figures.availableCents, "usd"), dataAttr: "vendor-balance-available" },
     { id: "pending", label: "Pending", value: formatMoney(figures.pendingCents, "usd"), dataAttr: "vendor-balance-pending" },
-    { id: "held", label: "Held", value: formatMoney(figures.heldCents, "usd"), dataAttr: "vendor-balance-held", note: figures.heldReason },
+    { id: "held", label: "Held", value: formatMoney(figures.heldCents, "usd"), dataAttr: "vendor-balance-held", note: heldNote(figures) },
     { id: "on-the-way", label: "On the way", value: formatMoney(figures.onTheWayCents, "usd"), dataAttr: "vendor-balance-on-the-way" },
   ];
   if (figures.owedToPropLaneCents > 0) {

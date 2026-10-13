@@ -1413,21 +1413,17 @@ async function uploadVideoFile(file: File): Promise<string> {
 }
 
 /**
- * One field's label. `required` marks a must-fill with a red asterisk;
- * `optional` prints a muted "Optional" tag so the two are never the same visual
- * weight (a plain optional input used to look identical to a required select).
- * Pass at most one of the two.
+ * One field's label. `required` marks a must-fill with a red asterisk; an optional field
+ * carries no marker at all.
  */
 function FieldLabel({
   children,
   hint,
   required,
-  optional,
 }: {
   children: React.ReactNode;
   hint?: string;
   required?: boolean;
-  optional?: boolean;
 }) {
   // The hint sits INLINE on the same line as the label (round 17) so every field header is
   // one line tall — this keeps controls laid out in a row on a shared baseline instead of
@@ -1439,11 +1435,6 @@ function FieldLabel({
           {children}
           {required ? <span className="text-red-600"> *</span> : null}
         </span>
-        {optional && !required ? (
-          <span className="rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-            Optional
-          </span>
-        ) : null}
         {hint ? <span className="text-[11px] font-normal text-muted">{hint}</span> : null}
       </p>
     </div>
@@ -4498,7 +4489,7 @@ export function ManagerAddListingForm({
                   </div>
                 </GridField>
                 <GridField>
-                  <FieldLabel optional>Original price</FieldLabel>
+                  <FieldLabel>Original price</FieldLabel>
                   <div className="relative">
                     <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted">$</span>
                     <Input
@@ -5173,7 +5164,7 @@ export function ManagerAddListingForm({
             >
               <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <FieldLabel optional>Listing tagline</FieldLabel>
+                <FieldLabel>Listing tagline</FieldLabel>
                 <Input
                   value={sub.tagline}
                   onChange={(e) => setSub((s) => ({ ...s, tagline: e.target.value }))}
@@ -5182,7 +5173,7 @@ export function ManagerAddListingForm({
                 />
               </div>
               <div className="sm:col-span-2">
-                <FieldLabel optional>Also listed as</FieldLabel>
+                <FieldLabel>Also listed as</FieldLabel>
                 <Input
                   value={sub.alsoListedAs}
                   onChange={(e) => setSub((s) => ({ ...s, alsoListedAs: e.target.value }))}
@@ -5195,7 +5186,7 @@ export function ManagerAddListingForm({
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <FieldLabel optional>House overview</FieldLabel>
+                <FieldLabel>House overview</FieldLabel>
                 <Textarea
                   rows={3}
                   value={sub.houseOverview}
@@ -5205,7 +5196,7 @@ export function ManagerAddListingForm({
                 />
               </div>
               <div className="sm:col-span-2">
-                <FieldLabel optional hint="Only if the layout is unusual.">Extra layout note</FieldLabel>
+                <FieldLabel hint="Only if the layout is unusual.">Extra layout note</FieldLabel>
                 <Input
                   value={sub.homeStructureNote}
                   onChange={(e) => setSub((s) => ({ ...s, homeStructureNote: e.target.value }))}
@@ -5214,7 +5205,7 @@ export function ManagerAddListingForm({
                 />
               </div>
               <div className="sm:col-span-2">
-                <FieldLabel optional hint="Keys, parking, access, what to bring.">Move-in instructions</FieldLabel>
+                <FieldLabel hint="Keys, parking, access, what to bring.">Move-in instructions</FieldLabel>
                 <Textarea
                   rows={4}
                   value={sub.houseMoveInInstructions ?? ""}
@@ -5426,7 +5417,7 @@ export function ManagerAddListingForm({
 
 
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
-                  <FieldLabel optional>Payment at signing</FieldLabel>
+                  <FieldLabel>Payment at signing</FieldLabel>
                   {leaseScopeOptions.length === 0 ? (
                     <p className="text-xs text-muted">
                       Pick at least one lease length in Leasing above and it appears here.
@@ -5474,7 +5465,7 @@ export function ManagerAddListingForm({
                 </div>
 
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
-                  <FieldLabel optional>Inspections required</FieldLabel>
+                  <FieldLabel>Inspections required</FieldLabel>
                   {leaseScopeOptions.length === 0 ? (
                     <p className="text-xs text-muted">
                       Pick at least one lease length in Leasing above and it appears here.
@@ -5617,7 +5608,7 @@ export function ManagerAddListingForm({
                     {/* The two codes a listing carries now sit together, under the fee
                         each one waives (PRP-463). */}
                     <GridField>
-                      <FieldLabel optional>Application fee waive code</FieldLabel>
+                      <FieldLabel>Application fee waive code</FieldLabel>
                       <Input
                         aria-label="Application fee waive code"
                         value={sub.applicationFeeWaiverCode ?? ""}
@@ -5894,7 +5885,7 @@ export function ManagerAddListingForm({
                         </Select>
                       </GridField>
                       <GridField>
-                        <FieldLabel optional>Size (sq ft)</FieldLabel>
+                        <FieldLabel>Size (sq ft)</FieldLabel>
                         <Input
                           inputMode="numeric"
                           aria-label={`Size in square feet for ${room.name || `room ${i + 1}`}`}

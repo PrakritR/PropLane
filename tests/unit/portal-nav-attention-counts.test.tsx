@@ -81,6 +81,10 @@ vi.mock("@/lib/household-charges", async (importOriginal) => {
     householdChargeManagerBucket: (c: { bucket: "pending" | "overdue" | "paid" }) => c.bucket,
   };
 });
+// The badge is the Due tab's own count; this suite stubs the classifier and tests the hook's wiring.
+vi.mock("@/lib/resident-payments-due-count", () => ({
+  residentDueRowCount: (rows: Array<{ bucket: string }>) => rows.filter((row) => row.bucket === "overdue").length,
+}));
 vi.mock("@/lib/lease-pipeline-storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/lease-pipeline-storage")>();
   return {
@@ -183,23 +187,23 @@ describe("Resident sidebar counts", () => {
     expect(result.current.lease?.count).toBe(0);
   });
 
-  it("Payments counts due-or-overdue unpaid charges, alert only when one is overdue", () => {
+  it("Payments badge is the Due count: upcoming and paid charges do not add to it", () => {
     residentChargeState.rows = [
       { id: "c1", bucket: "pending" },
       { id: "c2", bucket: "paid" },
     ];
     const { result } = renderHook(() => usePortalNavCounts("resident"));
-    expect(result.current.payments?.count).toBe(1);
+    expect(result.current.payments?.count).toBe(0);
     expect(result.current.payments?.tone).toBe("muted");
   });
 
-  it("Payments turns alert once a charge is overdue", () => {
+  it("Payments turns alert once a charge is due", () => {
     residentChargeState.rows = [
       { id: "c1", bucket: "pending" },
       { id: "c2", bucket: "overdue" },
     ];
     const { result } = renderHook(() => usePortalNavCounts("resident"));
-    expect(result.current.payments?.count).toBe(2);
+    expect(result.current.payments?.count).toBe(1);
     expect(result.current.payments?.tone).toBe("alert");
   });
 

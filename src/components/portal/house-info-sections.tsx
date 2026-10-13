@@ -408,36 +408,3 @@ export function HouseInfoReadSections({ info }: { info: HouseInfoV1 | null | und
     </div>
   );
 }
-
-/**
- * How the portal itself works — Services, Payments, Lease, Inbox.
- *
- * PropLane owns this copy. Before, every manager retyped the same paragraphs
- * into each property's house info, where it went stale the moment the portal
- * changed. It is not a field and never has been a manager's job.
- */
-export function ResidentPortalHelpCard() {
-  return (
-    <section
-      className="rounded-2xl border border-primary/25 bg-[var(--pl-accent-soft)] px-4 py-3"
-      data-attr="resident-portal-help"
-    >
-      <h3 className="mb-1.5 text-sm font-semibold text-foreground">How your portal works</h3>
-      <ul className="space-y-1.5 text-sm leading-relaxed text-foreground">
-        <li>
-          <b>Services</b> — report maintenance or request an add-on. Your property manager is notified automatically,
-          so there is nobody to text.
-        </li>
-        <li>
-          <b>Payments</b> — pay rent and see every charge on your account.
-        </li>
-        <li>
-          <b>Lease</b> — read your terms, and ask to extend when you are ready.
-        </li>
-        <li>
-          <b>Communication</b> — message your property manager. Everything stays documented.
-        </li>
-      </ul>
-    </section>
-  );
-}

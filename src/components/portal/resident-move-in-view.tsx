@@ -6,7 +6,7 @@ import { Check, Circle } from "lucide-react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
 import { ResidentFormsLock } from "@/components/portal/move-in-forms/resident-forms-lock";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
-import { HouseInfoReadSections, ResidentPortalHelpCard } from "@/components/portal/house-info-sections";
+import { HouseInfoReadSections } from "@/components/portal/house-info-sections";
 import { houseInfoIsEmpty } from "@/lib/house-info";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -23,7 +23,7 @@ import { loadInspectionList } from "@/lib/inspections/client";
 import { InspectionsPanel, pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
 import type { ResidentInspectionTypeFilter } from "@/lib/resident-inspections-tabs";
 import { cn } from "@/lib/utils";
-import type { ResidentMoveInResolved, ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
+import { residentMoveInInfoParts, type ResidentMoveInResolved, type ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
   RESIDENT_MOVE_IN_TABS,
@@ -242,7 +242,7 @@ export function InfoTabContent({
   forManager = false,
 }: {
   resolved: ResidentMoveInResolved;
-  /** The manager's resident record: PropLane's "How your portal works" card is resident-facing, so it is left out. */
+  /** The manager's resident record: sibling cards instead of the resident page body, and its own empty copy. */
   forManager?: boolean;
 }) {
   const hasSections = !houseInfoIsEmpty(resolved.houseInfo);
@@ -250,9 +250,6 @@ export function InfoTabContent({
   // The manager's record stacks these as sibling cards, so the resident page-body padding stays out.
   const Body = forManager ? ManagerCardStack : PageBody;
 
-  // "How your portal works" is PropLane's own copy, so it is worth showing even
-  // to a resident whose manager has filled in nothing — it is the one thing on
-  // this tab that is always true.
   if (!hasSections && !hasLegacyText) {
     return (
       <Body>
@@ -260,11 +257,6 @@ export function InfoTabContent({
           icon="default"
           message={forManager ? "No house info or rules added yet." : "Your property manager has not added house info or rules yet."}
         />
-        {forManager ? null : (
-          <div className="mt-4">
-            <ResidentPortalHelpCard />
-          </div>
-        )}
       </Body>
     );
   }
@@ -297,7 +289,6 @@ export function InfoTabContent({
           </section>
         ) : null}
 
-        {forManager ? null : <ResidentPortalHelpCard />}
       </div>
     </Body>
   );
@@ -367,6 +358,9 @@ export function InstructionsTabContent({
       resolved.houseMoveInPhotoDataUrls.length > 0 ||
       Boolean(resolved.houseMoveInVideoDataUrl));
 
+  const hasRoom =
+    Boolean(resolved.instructions) || resolved.moveInPhotoDataUrls.length > 0 || Boolean(resolved.moveInVideoDataUrl);
+
   if (forManager) {
     const room = resolved.instructions || resolved.moveInPhotoDataUrls.length > 0 || resolved.moveInVideoDataUrl;
     const mine = resolved.residentSection;
@@ -418,22 +412,20 @@ export function InstructionsTabContent({
         </section>
       ) : null}
 
-      <section className="mb-6" data-attr="resident-move-in-room-section">
-        {hasHouse ? (
-          <h3 className="mb-1.5 text-sm font-semibold text-foreground">
-            {resolved.roomLabel.trim() ? resolved.roomLabel : "Your room"}
-          </h3>
-        ) : null}
-        <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-          {resolved.instructions ?? (
-            <span className="text-muted">No room instructions have been added yet.</span>
-          )}
-        </div>
-        <ResidentMoveInMediaGallery
-          photoDataUrls={resolved.moveInPhotoDataUrls}
-          videoDataUrl={resolved.moveInVideoDataUrl}
-        />
-      </section>
+      {hasRoom ? (
+        <section className="mb-6" data-attr="resident-move-in-room-section">
+          {hasHouse ? (
+            <h3 className="mb-1.5 text-sm font-semibold text-foreground">
+              {resolved.roomLabel.trim() ? resolved.roomLabel : "Your room"}
+            </h3>
+          ) : null}
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{resolved.instructions}</div>
+          <ResidentMoveInMediaGallery
+            photoDataUrls={resolved.moveInPhotoDataUrls}
+            videoDataUrl={resolved.moveInVideoDataUrl}
+          />
+        </section>
+      ) : null}
 
       {resolved.residentSection ? (
         <section data-attr="resident-move-in-resident-section">
@@ -472,16 +464,26 @@ function ResidentMoveInTabContent({
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
     case "housemates":
       return <><ResidentHousemateSharing /><HousematesTabContent housemates={resolved.housemates} /></>;
-    case "info":
+    case "info": {
       // Arrival details live here now: keys, parking and access codes are house information,
       // and a "Move-in" tab beside "Inspections" read as a second inspection.
+      // One block per part that has content; one empty state when none does.
+      const parts = residentMoveInInfoParts(resolved);
+      if (parts.isEmpty) {
+        return (
+          <PageBody>
+            <PortalDataTableEmpty icon="default" message="Your property manager has not added house info or rules yet." />
+          </PageBody>
+        );
+      }
       return (
         <div className="space-y-6">
-          <InfoTabContent resolved={resolved} />
-          <InstructionsTabContent resolved={resolved} focusRoomId={focusRoomId} />
+          {parts.hasInfo ? <InfoTabContent resolved={resolved} /> : null}
+          {parts.hasArrival ? <InstructionsTabContent resolved={resolved} focusRoomId={focusRoomId} /> : null}
           <AmenitiesSection resolved={resolved} />
         </div>
       );
+    }
     default:
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
   }
@@ -563,8 +565,6 @@ export function ResidentMoveInShell({
             destinations={destinations}
             activeDestinationId={tabId}
             destinationAriaLabel="My home"
-            destinationItemLayout="equal"
-            destinationDenseEqualRow
           />
           {formsLock && tabId === "info" ? (
             <ResidentFormsLock basePath={basePath} formId={formsLock.formId} readFailed={formsLock.readFailed} />

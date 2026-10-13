@@ -17,22 +17,10 @@ import {
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet } from "@/components/portal/payout-withdraw-sheet";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
-import {
-  deriveVendorFinancesFigures,
-  vendorWithdrawableCents,
-  type VendorHeldReasonKind,
-} from "@/lib/vendor-banking/finances";
+import { deriveVendorFinancesFigures, vendorWithdrawableCents } from "@/lib/vendor-banking/finances";
 import { track } from "@/lib/analytics/track-client";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
-
-const HELD_PHRASE: Record<VendorHeldReasonKind, string> = {
-  none: "held",
-  proplane: "held by PropLane",
-  awaiting_bank: "held until you add a bank",
-  awaiting_identity: "held until your identity is verified",
-  releasing: "held, being released to your account",
-};
 
 export function VendorDashboardBalanceCard() {
   const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
@@ -76,7 +64,8 @@ export function VendorDashboardBalanceCard() {
     .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible }));
   const ready = balance.setup.ready && withdrawAccounts.length > 0;
   const heldCents = figures.heldCents;
-  const heldLabel = `${HELD_PHRASE[figures.heldReasonKind]}${figures.hasDisputeFreeze ? " (Disputed)" : ""}`;
+  // Just the fact: why it is held is not a sentence under the balance (round 5).
+  const heldLabel = figures.hasDisputeFreeze ? "held (Disputed)" : "held";
   return (
     <div className="rounded-[10px] border border-border bg-card px-4 py-3.5" data-attr="vendor-dashboard-balance">
       <div className="flex items-start justify-between gap-3">

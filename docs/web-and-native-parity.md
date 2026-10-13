@@ -60,6 +60,8 @@ Portal navigation order has **one source of truth**: the section arrays in `pro.
 
 Do **not** add a second preferred-order list for native. When reordering tabs, update the registry only. To promote or demote which sections get a one-tap primary-bar slot, edit that kind's `NATIVE_BOTTOM_NAV_*_PRIMARY` array in `portal-bottom-nav.ts` — everything not in it still stays reachable via the "more" sheet. **Resident is the exception:** its bar is stage-dependent, so edit `RESIDENT_BOTTOM_NAV_PRIMARY` in `src/lib/resident-portal-nav.ts` (the `NATIVE_BOTTOM_NAV_RESIDENT_*_PRIMARY` constants are derived from it) and keep every promoted tab unlocked at that stage in `STAGE_UNLOCKED_SECTIONS`, or the tab is dead.
 
+Whether a promoted section actually takes a slot is one decision, `portalBottomBarShowsSection` (`src/lib/portals/nav-locks.ts`): a manager's locked rows leave the bar, a resident's stage-locked (`inert`) rows stay so the bar keeps its lifecycle shape, and a row locked by the manager's plan (`notice`) does not take a slot the resident could never use. The sidebar row and the "more" sheet keep their lock either way.
+
 **Pro/manager (Free tier UX):** free operational sections first (`dashboard` … `payments`), then a contiguous paid block (`documents` … `relationships`), then account items (`plan`, `bugs-feedback`), then `profile` (Settings). Only `properties`, `calendar`, `residents`, `documents`, and `inbox` get primary-bar slots; `services` and everything else in the paid block is reachable via the "more" sheet.
 
 **Resident:** free sections first (`dashboard` … `move-in`), then locked sections (`communication`, `documents`, and `services` when approved), then `bugs-feedback` and `profile`.

@@ -139,7 +139,6 @@ export function VendorUploadDocumentWorkspace({
             { label: "Type", value: kind ? VENDOR_DOCUMENT_LABELS[kind] : "Not set", warn: !kind },
             { label: "File", value: file?.name ?? "Not set", warn: !file },
           ]}
-          creates={[{ tone: kind && file ? "yes" : "warn", text: "A compliance file managers can review" }]}
         />
       }
     >

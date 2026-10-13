@@ -43,14 +43,14 @@ function mount(sub: ManagerListingSubmissionV1, isEdit: boolean, onSave = vi.fn(
 afterEach(() => cleanup());
 
 describe("the rail on an edit", () => {
-  it("says what each section holds, not just its name", () => {
+  it("names each section with no caption under it", () => {
     const sub = subWith({ address: "142 Ash St, Seattle, WA 98166" });
     sub.rooms = sub.rooms.map((r, i) => ({ ...r, monthlyRent: 1160 + i * 50 }));
     mount(sub, true);
     const rail = screen.getByRole("navigation", { name: "Listing sections" });
-    expect(rail.textContent).toContain("142 Ash St · By the room");
-    expect(rail.textContent).toMatch(/\d+ rooms? ·/);
-    expect(rail.textContent).toMatch(/\d room/);
+    expect(rail.textContent).toContain("Basics");
+    expect(rail.textContent).not.toContain("142 Ash St · By the room");
+    expect(rail.textContent).not.toMatch(/\d+ rooms? ·/);
   });
 
   it("carries a 'things to finish' card that opens the review, and drops it when nothing is open", () => {

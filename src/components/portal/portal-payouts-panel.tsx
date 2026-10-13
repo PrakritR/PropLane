@@ -159,11 +159,11 @@ export function ScheduleCard({
 }) {
   const nextPayout = formatDate(schedule.nextPayoutAt);
   const options = portal === "vendor" ? VENDOR_SCHEDULE_OPTIONS : SCHEDULE_OPTIONS;
-  const manualLabel = portal === "vendor" ? "Only when I withdraw" : "Manual";
   return (
     <PortalSettingsSection title="Schedule">
       <PortalSettingsGroup>
-        <PortalSettingsRow label="Automatic payout">
+        {/* On a phone the label sits over a full-width select, so "Only when I withdraw" is not clipped. */}
+        <PortalSettingsRow label="Automatic payout" className="max-sm:flex-col max-sm:items-stretch max-sm:justify-center max-sm:gap-1.5 max-sm:py-3">
           <FieldSingleSelect
             label="Automatic payout"
             hideLabel
@@ -173,15 +173,14 @@ export function ScheduleCard({
             dataAttr="payouts-schedule-select"
           />
         </PortalSettingsRow>
-        <PortalSettingsRow label="Next payout">
-          <span className="text-sm text-foreground">
-            {schedule.interval === "manual"
-              ? manualLabel
-              : nextPayout
-                ? `${nextPayout} · ${formatMoney(availableCents, currency)}`
-                : "—"}
-          </span>
-        </PortalSettingsRow>
+        {/* Manual says "Only when I withdraw" already in the select above: no second row repeating it. */}
+        {schedule.interval !== "manual" ? (
+          <PortalSettingsRow label="Next payout">
+            <span className="text-sm text-foreground">
+              {nextPayout ? `${nextPayout} · ${formatMoney(availableCents, currency)}` : "—"}
+            </span>
+          </PortalSettingsRow>
+        ) : null}
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );

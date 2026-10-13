@@ -61,7 +61,6 @@ import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.clien
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 import type { ResidentMaintenanceCategoryLabel } from "@/lib/work-order-taxonomy";
 import type { WorkAssignee } from "@/lib/work-assignment";
-import { formatPortalRowDate } from "@/lib/portal-display-dates";
 import { cn } from "@/lib/utils";
 
 const TOUR_DURATION_OPTIONS = [
@@ -609,23 +608,19 @@ export function ManagerTaskFormModal({
       id: "task",
       label: "Task",
       incomplete: Boolean(invalidReason() && !useServiceIntakeForm),
-      summary: form.title.trim() || form.guestName.trim() || "What to do",
     },
     {
       id: "property",
       label: "Property",
       incomplete: propertyRequired && !form.propertyId,
-      summary: selectedProperty?.label || (propertyRequired ? "Pick a house" : "Optional"),
     },
     {
       id: "when",
       label: "When",
-      summary: formatPortalRowDate(form.scheduleDate || form.dueDate) || (form.urgency === "urgent" ? "Urgent" : "Timing"),
     },
     {
       id: "review",
       label: "Review",
-      summary: editingId ? "Save task" : "Add task",
     },
   ];
   const current = Math.min(stepIdx, steps.length - 1);
@@ -669,7 +664,7 @@ export function ManagerTaskFormModal({
       }}
       dataAttrPrefix="manager-task"
       finishDataAttr="manager-task-save"
-      sidePanel={<PreviewPanel title="Task preview" name={form.title || "Untitled task"} facts={[{ label: "Property", value: selectedProperty?.label || "Not set" }, { label: "Type", value: MANAGER_TASK_FORM_KIND_LABELS[form.taskKind] }]} creates={[]} />}
+      sidePanel={<PreviewPanel title="Task preview" name={form.title || "Untitled task"} facts={[{ label: "Property", value: selectedProperty?.label || "Not set" }, { label: "Type", value: MANAGER_TASK_FORM_KIND_LABELS[form.taskKind] }]} />}
     >
       <div hidden={stepId !== "task"}>
       <div className="pb-4">
@@ -721,7 +716,7 @@ export function ManagerTaskFormModal({
             </div>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-email">
-                Guest email (optional)
+                Guest email
               </label>
               <Input
                 id="manager-task-guest-email"
@@ -734,7 +729,7 @@ export function ManagerTaskFormModal({
             </div>
             <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-phone">
-                Guest phone (optional)
+                Guest phone
               </label>
               <PhoneNumberField
                 id="manager-task-guest-phone"
@@ -788,7 +783,7 @@ export function ManagerTaskFormModal({
         <div hidden={stepId !== "property"}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-property">
-            Property{propertyRequired ? "" : " (optional)"}
+            Property
           </label>
           <Select
             id="manager-task-property"
@@ -852,7 +847,7 @@ export function ManagerTaskFormModal({
         {showResidentPicker ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-resident">
-              Resident{workOrderNeedsResident ? "" : " (optional)"}
+              Resident
             </label>
             <Select
               id="manager-task-resident"
@@ -881,7 +876,7 @@ export function ManagerTaskFormModal({
         {form.propertyId ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-room">
-              Room (optional)
+              Room
             </label>
             <Select
               id="manager-task-room"
@@ -1138,7 +1133,7 @@ export function ManagerTaskFormModal({
         <div hidden={stepId !== "review"}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-notes">
-            Notes (optional)
+            Notes
           </label>
           <textarea
             id="manager-task-notes"

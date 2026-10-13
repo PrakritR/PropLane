@@ -56,7 +56,6 @@ import {
   currentResidentStepOffPath,
   defaultAlsoCreate,
   emptyAddPersonForm,
-  formatMoney,
   thingsToFinish,
   type AddPersonForm,
   type FieldMarkKind,
@@ -66,11 +65,6 @@ const RESIDENT_STEPS = ["contact", "home", "application", "lease", "payments", "
 const PROSPECT_STEPS = ["contact", "home", "tour", "review"] as const;
 const APPLICATION_STEPS = ["contact", "home", "application", "documents", "review"] as const;
 const MAX_PDF_BYTES = 3.5 * 1024 * 1024;
-
-function moneyOr0(raw: string): number {
-  const n = Number(raw.replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
 
 export function AddResidentWizard({
   onClose,
@@ -161,55 +155,45 @@ export function AddResidentWizard({
 
   const steps = useMemo<AddWorkspaceStep[]>(() => {
     const missing = (id: string) => todo.some((t) => t.step === id);
-    const rent = moneyOr0(form.rent);
-    const paidMonths = Object.values(form.paymentMarks).filter((m) => m.status === "paid").length;
     if (mode === "edit") {
-      const appFilled = [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
-      const recordCharges = editContext?.record?.charges ?? [];
-      const chargeCount = recordCharges.length;
-      const paidCharges = recordCharges.filter((c) => c.status === "paid").length;
-      const changed = editContext
-        ? diffResidentEdit(editContext.baseline, { ...form, application: form.application as Record<string, unknown> }).any
-        : false;
       return [
-        { id: "contact", label: "Resident", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
-        { id: "home", label: "Home", incomplete: missing("home"), summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-        { id: "application", label: "Application", summary: appFilled || "On file" },
-        { id: "lease", label: "Lease", incomplete: missing("lease"), summary: rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Rent not set" },
-        { id: "payments", label: "Payments", summary: chargeCount ? `${paidCharges} paid · ${chargeCount - paidCharges} unpaid` : "No charges yet" },
-        { id: "documents", label: "Documents", summary: (editContext?.record?.documents.length ?? 0) + form.documents.length ? `${(editContext?.record?.documents.length ?? 0) + form.documents.length} attached` : "None attached" },
-        { id: "review", label: "Review", summary: changed ? "Changes to save" : "Nothing changed" },
+        { id: "contact", label: "Resident", incomplete: missing("contact") },
+        { id: "home", label: "Home", incomplete: missing("home") },
+        { id: "application", label: "Application" },
+        { id: "lease", label: "Lease", incomplete: missing("lease") },
+        { id: "payments", label: "Payments" },
+        { id: "documents", label: "Documents" },
+        { id: "review", label: "Review" },
       ];
     }
     if (mode === "application") {
-      const appFilled = [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
       return [
-        { id: "contact", label: "Applicant", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who is applying" },
-        { id: "home", label: "Home", incomplete: missing("home"), summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-        { id: "application", label: "Application", offPath: true, summary: appFilled || "The house's questions" },
-        { id: "documents", label: "Documents", offPath: true, summary: form.documents.length ? `${form.documents.length} attached` : "None attached" },
-        { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
+        { id: "contact", label: "Applicant", incomplete: missing("contact") },
+        { id: "home", label: "Home", incomplete: missing("home") },
+        { id: "application", label: "Application", offPath: true },
+        { id: "documents", label: "Documents", offPath: true },
+        { id: "review", label: "Review", incomplete: todo.length > 0 },
       ];
     }
     if (form.kind === "prospect") {
       const tourMode = mode === "tour";
       return [
-        { id: "contact", label: tourMode ? "Guest" : "Prospect", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.phone.trim() || form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
-        { id: "home", label: tourMode ? "Home" : "Interested in", incomplete: tourMode && !form.propertyId, summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-        { id: "tour", label: tourMode ? "When" : "Tour", incomplete: missing("tour"), summary: form.tourFormat === "none" ? "No tour yet" : form.tourDate ? `${form.tourDate} · ${form.tourStart} · ${form.tourFormat === "virtual" ? "virtual" : "in person"}` : "Pick a time" },
-        { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : tourMode ? "Ready to schedule" : "Ready to add" },
+        { id: "contact", label: tourMode ? "Guest" : "Prospect", incomplete: missing("contact") },
+        { id: "home", label: tourMode ? "Home" : "Interested in", incomplete: tourMode && !form.propertyId },
+        { id: "tour", label: tourMode ? "When" : "Tour", incomplete: missing("tour") },
+        { id: "review", label: "Review", incomplete: todo.length > 0 },
       ];
     }
     return [
-      { id: "contact", label: "Resident", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
-      { id: "home", label: "Home", incomplete: missing("home"), summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-      { id: "application", label: "Application", offPath: currentResidentStepOffPath("application", form), summary: form.application.employer || form.application.currentStreet ? [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ") : alsoCreates(form, "application") ? "Nothing yet" : "Off this add" },
-      { id: "lease", label: "Lease", offPath: currentResidentStepOffPath("lease", form), incomplete: alsoCreates(form, "lease") && missing("lease"), summary: rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : alsoCreates(form, "lease") ? "Rent not set" : "Off this add" },
-      { id: "payments", label: "Payments", offPath: currentResidentStepOffPath("payments", form), summary: derived.isAirbnb ? "Nothing billed" : form.billingStart === "next_due" ? "From the next due date" : paidMonths ? `${paidMonths} paid` : alsoCreates(form, "payments") ? "From move-in" : "Off this add" },
-      { id: "documents", label: "Documents", offPath: currentResidentStepOffPath("documents", form), summary: form.documents.length ? `${form.documents.length} attached` : alsoCreates(form, "documents") ? "None attached" : "Off this add" },
-      { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
+      { id: "contact", label: "Resident", incomplete: missing("contact") },
+      { id: "home", label: "Home", incomplete: missing("home") },
+      { id: "application", label: "Application", offPath: currentResidentStepOffPath("application", form) },
+      { id: "lease", label: "Lease", offPath: currentResidentStepOffPath("lease", form), incomplete: alsoCreates(form, "lease") && missing("lease") },
+      { id: "payments", label: "Payments", offPath: currentResidentStepOffPath("payments", form) },
+      { id: "documents", label: "Documents", offPath: currentResidentStepOffPath("documents", form) },
+      { id: "review", label: "Review", incomplete: todo.length > 0 },
     ];
-  }, [form, todo, propertyLabel, derived.listingSays, derived.isShortTerm, derived.isAirbnb, mode, editContext]);
+  }, [form, todo, mode]);
 
   const runSaveEdit = useCallback(() => {
     if (!onSaveEdit) return;
@@ -586,7 +570,7 @@ export function AddResidentWizard({
       discardTitle={mode === "edit" ? "Discard these edits?" : mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
       assistantContext={workspaceTitle}
       assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}
-      headerUpload={mode !== "edit" && (form.kind !== "prospect" || mode === "application") ? { accept: RESIDENT_FILE_ACCEPT, chips: [".pdf", "images", "PDF up to 3.5 MB"], onPick: onPickStartFileFromHeader, disabled: busy, dataAttr: "residents-wizard-header-upload", label: "Upload a file" } : undefined}
+      headerUpload={mode !== "edit" && (form.kind !== "prospect" || mode === "application") ? { accept: RESIDENT_FILE_ACCEPT, onPick: onPickStartFileFromHeader, disabled: busy, dataAttr: "residents-wizard-header-upload", label: "Upload a file" } : undefined}
       railHeader={railHeader}
       sidePanel={
         <ResidentSidePanel

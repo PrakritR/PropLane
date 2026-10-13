@@ -355,7 +355,7 @@ function TourFlow({
                 })}
               </div>
             </Field>
-            <Field label="Notes (optional)">
+            <Field label="Notes">
               <textarea
                 id="tour-notes"
                 rows={3}

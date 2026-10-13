@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FileUp } from "lucide-react";
-import { DOCUMENT_FILE_CHIPS, WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -99,7 +99,6 @@ export function ManagerResidentUploadModal({
       <div className="space-y-4">
         <WorkspaceFileCard
           accept={DOCUMENT_UPLOAD_ACCEPT}
-          chips={DOCUMENT_FILE_CHIPS}
           dataAttr="resident-upload-dropzone"
           disabled={busy}
           onPick={() => undefined}

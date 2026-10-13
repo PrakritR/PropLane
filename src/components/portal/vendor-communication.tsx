@@ -392,6 +392,7 @@ function VendorUnifiedInbox({
               key={row.key}
               appearance="flat"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />}
+              emailNameAsPerson
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -662,6 +663,7 @@ export function VendorCommunication({
 
   return (
     <PortalCommunicationShell
+      pageFrame
       title="Communication"
       hideTitleOnMobileNav
       controlStack={<PortalActiveFilterChips chips={activeFilterChips} />}

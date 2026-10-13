@@ -1,5 +1,5 @@
 // captain (studio, 2026-09-27): Vendor Communication shows exactly one setup
-// banner (the layout's `VendorMessagingSetupBanner`, never a second one on
+// banner (retired in round 5: the nudge is a Dashboard attention row, never one on
 // the page itself) and drops the separate "Email · Disabled" / "SMS ·
 // Disabled" status cards — that status now lives on the work-identity card's
 // own state line instead.
@@ -10,11 +10,9 @@ import { describe, expect, it } from "vitest";
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
 describe("vendor Communication — one banner, no separate Disabled status cards", () => {
-  it("the vendor layout mounts the messaging setup banner exactly once", () => {
+  it("the vendor layout mounts no setup banner (the phone nudge is one Dashboard attention row since round 5)", () => {
     const layout = read("src/app/vendor/layout.tsx");
-    const occurrences = layout.match(/VendorMessagingSetupBanner/g) ?? [];
-    // One import + one render call = 2 occurrences of the identifier.
-    expect(occurrences.length).toBe(2);
+    expect(layout).not.toContain("MessagingSetupBanner");
   });
 
   it("vendor Communication itself never renders a second setup banner", () => {

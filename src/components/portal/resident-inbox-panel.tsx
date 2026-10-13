@@ -1802,6 +1802,7 @@ export const ResidentInboxPanel = forwardRef<
               avatarName={activeThreadAvatarName}
               subtitle={activeThreadSubtitle}
               messages={activeBubbles}
+              emailNameAsPerson
               underHeader={residentScheduledCards}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
@@ -1909,6 +1910,7 @@ export const ResidentInboxPanel = forwardRef<
                 avatarName={activeThreadAvatarName}
                 subtitle={activeThreadSubtitle}
                 messages={activeBubbles}
+                emailNameAsPerson
                 underHeader={residentScheduledCards}
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}

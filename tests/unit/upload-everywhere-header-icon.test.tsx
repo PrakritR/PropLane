@@ -46,7 +46,7 @@ describe("Application step: the step's Start from a file card", () => {
     expect(container.querySelectorAll('[data-attr="residents-wizard-application-upload"]')).toHaveLength(1);
     expect(screen.getByText("Start from a file")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Upload application" })).toBeNull();
-    for (const chip of [".pdf", "images", "PDF up to 3.5 MB"]) expect(screen.getByText(chip)).toBeTruthy();
+    for (const chip of [".pdf", "images", "PDF up to 3.5 MB"]) expect(screen.queryByText(chip)).toBeNull();
     const input = container.querySelector<HTMLInputElement>('[data-attr="residents-wizard-application-upload-input"]');
     expect(input).not.toBeNull();
     const file = new File(["%PDF"], "application.pdf", { type: "application/pdf" });
@@ -96,7 +96,7 @@ describe("Add resident: every step with an upload path carries its own card", ()
     expect(container.querySelectorAll('[data-attr="residents-wizard-lease-upload"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-attr="residents-wizard-lease-pdf-input"]')).toHaveLength(1);
     expect(container.querySelector('[data-attr="residents-wizard-lease-pdf-choose"]')).toBeNull();
-    expect(screen.getByText("up to 3.5 MB")).toBeTruthy();
+    expect(screen.queryByText("up to 3.5 MB")).toBeNull();
     const input = container.querySelector<HTMLInputElement>('[data-attr="residents-wizard-lease-pdf-input"]');
     expect(input!.accept).toBe("application/pdf");
     const file = new File(["%PDF"], "lease.pdf", { type: "application/pdf" });

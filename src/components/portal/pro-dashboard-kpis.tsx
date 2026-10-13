@@ -283,9 +283,21 @@ export function AttentionPanel({
                 <span className="block truncate text-sm font-semibold text-foreground">{row.title}</span>
                 {!hideRowDetail && row.detail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
               </span>
-              <Link href={row.href} className={actionClassName}>
-                {row.actionLabel}
-              </Link>
+              {row.iconAction ? (
+                <Link
+                  href={row.href}
+                  aria-label={row.actionLabel}
+                  title={row.actionLabel}
+                  data-attr={`dashboard-attention-${row.id}-action`}
+                  className="grid size-11 shrink-0 place-items-center rounded-[7px] border border-border bg-card text-foreground transition hover:bg-[var(--secondary)] lg:size-8"
+                >
+                  <ChevronRight className="size-4" aria-hidden />
+                </Link>
+              ) : (
+                <Link href={row.href} className={actionClassName}>
+                  {row.actionLabel}
+                </Link>
+              )}
             </li>
           ))}
         </ul>

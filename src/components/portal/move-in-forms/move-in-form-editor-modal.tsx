@@ -26,7 +26,6 @@ import {
   moveInFormProblemsByStep,
   MOVE_IN_APPLIES_TO_OPTIONS,
   moveInAppliesToValue,
-  questionCountLabel,
   type MoveInAnswerMap,
 } from "@/components/portal/move-in-forms/move-in-form-model";
 import { PropertyFormWizardCard, PropertyFormWizardRow } from "@/components/portal/property-form-wizard-kit";
@@ -175,19 +174,16 @@ export function MoveInFormEditorModal({
     {
       id: "form",
       label: "Form",
-      summary: draft.name.trim() || "Name this form",
       incomplete: problems.form.length > 0,
     },
     {
       id: "questions",
       label: "Questions",
-      summary: questionCountLabel(draft.questions.length),
       incomplete: problems.questions.length > 0,
     },
     {
       id: "who-when",
       label: "Who & when",
-      summary: MOVE_IN_TRIGGER_OPTIONS.find((option) => option.value === draft.trigger)?.label ?? "",
       incomplete: problems.who.length > 0,
     },
   ];
@@ -593,7 +589,7 @@ export function MoveInFormEditorModal({
       discardBody="Discard unsaved changes to this move-in form?"
       assistantContext={mode === "add" ? "Add move-in form" : "Edit move-in form"}
       assistantScopeKey="move-in-form-editor"
-      headerUpload={mode === "add" && canUploadPdf ? { accept: "application/pdf,.pdf", chips: [".pdf", "up to 8 MB"], onPick: pickPdfFromHeader, disabled: uploading || saving, dataAttr: "move-in-form-header-upload", label: "Upload a PDF" } : undefined}
+      headerUpload={mode === "add" && canUploadPdf ? { accept: "application/pdf,.pdf", onPick: pickPdfFromHeader, disabled: uploading || saving, dataAttr: "move-in-form-header-upload", label: "Upload a PDF" } : undefined}
       dataAttrPrefix="move-in-form"
       finishDataAttr="move-in-form-save"
       lastLabel={editorFinishLabel(mode)}

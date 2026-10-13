@@ -183,11 +183,10 @@ export function summarizeVendorTaxYears(lines: TaxLedgerLine[]): VendorTaxYearSu
     });
 }
 
-/** The 1099 line for one tax year — a plain statement of what happens, never a promise PropLane cannot keep. */
+/** The 1099 line for one tax year: a short fact, never a promise PropLane cannot keep. */
 export function form1099StatusLabel(summary: VendorTaxYearSummary, opts: { hasW9: boolean; currentYear: number }): string {
-  const threshold = `$${(summary.thresholdCents / 100).toLocaleString("en-US")}`;
-  if (!summary.overThreshold) return `No 1099 needed — under ${threshold}`;
-  if (!opts.hasW9) return "Add your W-9 so we can file your 1099";
-  if (summary.year >= opts.currentYear) return `We'll file your 1099 for ${summary.year}`;
-  return `1099 filed by PropLane in Jan ${summary.year + 1}`;
+  if (!summary.overThreshold) return "No 1099 needed";
+  if (!opts.hasW9) return "W-9 needed for 1099";
+  if (summary.year >= opts.currentYear) return `1099 in Jan ${summary.year + 1}`;
+  return `1099 filed Jan ${summary.year + 1}`;
 }

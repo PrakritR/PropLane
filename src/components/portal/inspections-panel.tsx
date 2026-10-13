@@ -26,6 +26,7 @@ import { inspectionDetailHref, moveInInspectionsHref, parseServiceRecordTab, res
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { placeLineWithoutRawIds } from "@/lib/room-display-label";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
 import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionRoomProgress, type InspectionSummary } from "@/lib/inspections/model";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -155,18 +156,14 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
   // A room whose own configuration requires this inspection says so on the person's row.
   // A separate "required" banner above the list drew the same resident twice.
   const requiredFor = (residency: InspectionResidency | undefined): boolean => residency?.requiredKinds?.includes(kind) ?? false;
-  // A trailing " · " with nothing after it is worse than no room segment at all — only
-  // append when the raw value resolves to a real room name (never a fabricated one).
-  const roomSuffix = (raw: string | undefined): string => {
-    const label = raw ? inspectionRoomLabel(raw) : "";
-    return label ? ` · ${label}` : "";
-  };
+  // Only a real room name joins the place line (never a fabricated one, never a raw record id).
+  const roomName = (raw: string | undefined): string => (raw ? inspectionRoomLabel(raw) : "");
   const rows: InspectionRow[] = forKind.map(report => {
     const residency = byId.get(report.application_id);
     return {
       key: `report:${report.id}`,
       name: residency?.name || report.resident_name,
-      address: `${residency?.property || report.property_label}${roomSuffix(residency?.room || report.room_label)}`,
+      address: placeLineWithoutRawIds(residency?.property || report.property_label, roomName(residency?.room || report.room_label)),
       tenancy: tenancyLine(residency),
       photos: photoLine(report.photos),
       roomProgress: report.roomProgress,
@@ -183,7 +180,7 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
     rows.push({
       key: `residency:${residency.id}`,
       name: residency.name,
-      address: `${residency.property}${roomSuffix(residency.room)}`,
+      address: placeLineWithoutRawIds(residency.property, roomName(residency.room)),
       tenancy: tenancyLine(residency),
       photos: "No photos yet",
       required: requiredFor(residency),

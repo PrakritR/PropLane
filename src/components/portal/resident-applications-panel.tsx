@@ -76,6 +76,7 @@ import {
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionPublicSite } from "@/lib/public-demo-access";
 import { getPropertyById, propertyAllowsShortTermRental } from "@/lib/rental-application/data";
+import { residentApplicationRowPlaceLine, residentApplicationRowTitle } from "@/lib/resident-application-row-label";
 import {
   publicApplyGateKey,
   publicApplyReturnPath,
@@ -136,7 +137,6 @@ function parseResidentApplicationDetailTab(raw: string | undefined | null): Resi
   }
   return "overview";
 }
-import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
 const APPLICATION_FEE_CHARGE_STATUS_LABEL: Partial<Record<HouseholdCharge["status"], string>> = {
   paid: "Paid",
@@ -239,8 +239,14 @@ function ResidentApplicationDetailWizard({
     void loadPublicPropertyLeadFromServer(propertyId).finally(() => {
       if (!cancelled) setPropertyReady(true);
     });
+    // The catalog read has no timeout of its own: on a slow link the record would sit on
+    // "Loading application…" for good. The form opens with what the application row carries.
+    const giveUp = setTimeout(() => {
+      if (!cancelled) setPropertyReady(true);
+    }, 4000);
     return () => {
       cancelled = true;
+      clearTimeout(giveUp);
     };
   }, [propertyId]);
 
@@ -1094,6 +1100,12 @@ export function ResidentApplicationsPanel({
     );
   };
 
+  const applicationTitleFor = (row: DemoApplicantRow) =>
+    residentApplicationRowTitle(
+      row,
+      getPropertyById(row.propertyId?.trim() || row.application?.propertyId?.trim() || "")?.title ?? null,
+    );
+
   const renderRoutedList = (listRows: DemoApplicantRow[]) => (
     // One card per application, like the manager Properties list: no group header, no status word.
     <div data-attr="resident-applications-list">
@@ -1103,11 +1115,9 @@ export function ResidentApplicationsPanel({
         return (
           <PortalApplicantRecordRow
             key={row.id}
-            name={stripPropertyRoomCountSuffix(row.property || "Property")}
+            name={applicationTitleFor(row)}
             tileIcon={Home}
-            address={[room !== "—" ? `Room ${room}` : "", RESIDENT_TERM_LABELS[residentTermOfRecord(row)], row.id]
-              .filter(Boolean)
-              .join(" · ")}
+            address={residentApplicationRowPlaceLine(room, RESIDENT_TERM_LABELS[residentTermOfRecord(row)])}
             facts={
               when ? (
                 <PortalRowFact icon={CalendarDays} srLabel="Date">
@@ -1403,7 +1413,7 @@ export function ResidentApplicationsPanel({
           title={
             activeCosignerSubmission
               ? activeCosignerSubmission.fullName || "Co-signer application"
-              : stripPropertyRoomCountSuffix(detailRow.property || detailRow.name || "Application")
+              : applicationTitleFor(detailRow)
           }
           subtitle={
             activeCosignerSubmission
@@ -1449,7 +1459,7 @@ export function ResidentApplicationsPanel({
               sections={appSections}
               recordId={detailRow.id}
               activeId={activeAppTab}
-              title={stripPropertyRoomCountSuffix(detailRow.property || detailRow.name || "Application")}
+              title={applicationTitleFor(detailRow)}
               backHref={residentApplicationListHref(basePath, detailRow.bucket as ResidentApplicationBucketId)}
               backLabel="All applications"
               ariaLabel="Application sections"

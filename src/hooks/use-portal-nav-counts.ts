@@ -33,6 +33,8 @@ import {
   readAllServiceRequests,
   SERVICE_REQUESTS_EVENT,
 } from "@/lib/service-requests-storage";
+import { residentPaymentsNavBadge } from "@/lib/resident-payments-tabs";
+import { residentDueRowCount } from "@/lib/resident-payments-due-count";
 import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import { countUnifiedServicesOpen } from "@/lib/unified-service-rows";
 import { countVisibleUnreadCommunication } from "@/lib/communication-inbox-filters";
@@ -74,7 +76,6 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import {
   HOUSEHOLD_CHARGES_EVENT,
-  householdChargeManagerBucket,
   readChargesForResident,
 } from "@/lib/household-charges";
 import {
@@ -418,10 +419,8 @@ export function usePortalNavCounts(
         return countState(pending ? 1 : 0, "muted");
       });
       const payments = safeState(() => {
-        const buckets = readChargesForResident(residentEmail, userId).map((c) => householdChargeManagerBucket(c));
-        const count = buckets.filter((b) => b !== "paid").length;
-        const overdue = buckets.some((b) => b === "overdue");
-        return countState(count, overdue ? "alert" : "muted");
+        const badge = residentPaymentsNavBadge(residentDueRowCount(readChargesForResident(residentEmail, userId)));
+        return countState(badge.count, badge.tone);
       });
       return {
         applications: countState(applications, "muted"),

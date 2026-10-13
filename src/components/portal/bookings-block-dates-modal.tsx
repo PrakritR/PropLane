@@ -392,18 +392,15 @@ export function BookingsBlockDatesModal({
       id: "property",
       label: "Property",
       incomplete: !propertyId,
-      summary: selectedProperty?.label || "Pick a house",
     },
     {
       id: "when",
       label: "When",
       incomplete: !rangeValid || conflicts.length > 0,
-      summary: whenSummary,
     },
     {
       id: "review",
       label: "Review",
-      summary: editingBlockId ? "Save booking" : "Add booking",
     },
   ];
   const current = Math.min(stepIdx, steps.length - 1);

@@ -14,6 +14,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { residentSectionLockedForManagerTier } from "@/lib/manager-access";
+import { usableApplicationPropertyName } from "@/lib/resident-application-row-label";
 import { DashboardGlyphTile } from "@/components/portal/pro-dashboard-kpis";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
 import { DashboardSkeleton } from "@/components/portal/dashboard-skeleton";
@@ -350,7 +352,11 @@ function pillToneForBadgeTone(tone: string): PillTone {
 function applicationRowProperty(row: DemoApplicantRow): string | null {
   const id = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
   const fromCatalog = id ? getPropertyById(id) : undefined;
-  const label = fromCatalog?.buildingName?.trim() || fromCatalog?.title?.trim() || row.property?.split("·")[0]?.trim() || "";
+  const label =
+    fromCatalog?.buildingName?.trim() ||
+    fromCatalog?.title?.trim() ||
+    usableApplicationPropertyName(row.property?.split("·")[0]) ||
+    "";
   return label || null;
 }
 
@@ -452,14 +458,15 @@ export function ResidentDashboard({
   managerSubscriptionTier?: "free" | "paid" | null;
 }) {
   void initialApplicationId;
-  void managerSubscriptionTier;
   const initialEmail = residentEmail.trim().toLowerCase();
   const session = usePortalSession({ userId: residentUserId, email: initialEmail || null });
   const email = session.email?.trim().toLowerCase() || initialEmail;
   const userId = session.userId ?? residentUserId;
   const { residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const { visibility, setVisible, reset } = useResidentDashboardVisibility(userId);
-  const canUseServices = leaseSigned;
+  // A section the manager's plan locks has no tile and no attention rows here: the nav row is
+  // locked, so a live count would lead to a page the resident cannot open.
+  const canUseServices = leaseSigned && !residentSectionLockedForManagerTier("services", managerSubscriptionTier);
   const showHouseDetails = leaseSigned && visibility.houseDetails;
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const customizableSections = useMemo(
@@ -568,7 +575,7 @@ export function ResidentDashboard({
               return street || p.buildingName || p.title || null;
             }
           }
-          const fallback = row.property?.trim() || null;
+          const fallback = usableApplicationPropertyName(row.property) || null;
           if (!fallback) return null;
           return fallback.split("·")[0]?.trim() || fallback;
         })();

@@ -149,7 +149,8 @@ Captain 2026-10-07 (approved plan `dashboard-redesign-1007`): the window the hom
 lookalike of the old one: a dark 40px top strip ("Ask PropLane or search <workspace>", the house mark, no plane),
 an ink workspace rail (workspace tile, help, the account avatar that opens the account menu), a light 248px sidebar
 with collapsible groups bucketed like `PORTAL_NAV_GROUPS` (an unheaded home group, then Portfolio / Leasing / People /
-Money, or My home / Applying / Money for the resident, Work / Money for the vendor; labels are the real nav labels),
+Money, or Applying / Money for the resident (whose My home group is unheaded too — a "My home" heading over the
+My home row said the same word twice), Work / Money for the vendor; labels are the real nav labels),
 flat white content, and the AI assistant as the ONLY right panel (the strip's right icon docks it; its "Needs
 attention" rows are the Dashboard's, counted from them). Match the running portal when you change it. The window's
 pages are the real redesigned components inside `DEMO_PAGE_CLASS` (the real main column's 32px rhythm, which the page

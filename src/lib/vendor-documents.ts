@@ -165,3 +165,11 @@ export function readVendorDocumentDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Documents > Tax lists the tax panel's ONE W-9 row (with its submitted / not-submitted state), so the
+ * empty "Signed W-9" upload placeholder is not a second W-9 row. An uploaded signed W-9 file still lists.
+ */
+export function isVendorDocumentRowHidden(sectionId: string | undefined, kind: VendorDocumentKind, hasDoc: boolean): boolean {
+  return sectionId === "tax" && kind === "w9" && !hasDoc;
+}

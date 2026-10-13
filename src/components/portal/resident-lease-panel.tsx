@@ -5,7 +5,7 @@ import { ListSkeleton } from "@/components/ui/list-skeleton";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Download, Flag, PenLine, RefreshCw, Send, Upload } from "lucide-react";
+import { CalendarClock, Download, Flag, PenLine, RefreshCw, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -79,12 +79,15 @@ import {
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
 import { residentLeaseRenewalStatus } from "@/lib/resident-lease-renewal-status";
+import { formatLeaseDateLabel, formatLeaseRentLabel } from "@/lib/resident-lease-display";
+import { placeNameOrEmpty } from "@/lib/room-display-label";
 import { cn } from "@/lib/utils";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 import { useResidentLeaseSigningFee } from "@/hooks/use-resident-lease-signing-fee";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { useOpenFirstNonEmptyTab } from "@/hooks/use-open-first-non-empty-tab";
 
 /**
  * Phone-only sticky "Sign lease" bar, pinned just above the native/mobile
@@ -130,11 +133,14 @@ export function ResidentLeaseSignStickyBar({
 export function ResidentLeasePanel({
   leaseDetailId,
   bucket = "pending",
+  bucketNamed = true,
   basePath = RESIDENT_PORTAL_BASE_PATH,
   leaseDetailTab,
 }: {
   leaseDetailId?: string;
   bucket?: ResidentLeaseBucketId;
+  /** False when the address names no tab (`/lease`): the list then opens on the first tab with a lease. */
+  bucketNamed?: boolean;
   basePath?: string;
   leaseDetailTab?: string;
 }) {
@@ -172,6 +178,15 @@ export function ResidentLeasePanel({
     () => (showLeaseTerms && pipelineTerm !== leaseTerm ? [] : everyLeaseRow),
     [everyLeaseRow, leaseTerm, pipelineTerm, showLeaseTerms],
   );
+  useOpenFirstNonEmptyTab({
+    tabs: residentLeaseStatusFilterTabs(allLeaseRows)
+      .filter((tab): tab is typeof tab & { id: "pending" | "signed" } => tab.id === "pending" || tab.id === "signed")
+      .map((tab) => ({ id: tab.id, count: tab.count })),
+    activeId: bucket,
+    urlNamesTab: bucketNamed || Boolean(leaseDetailId),
+    ready: axisResolved && Boolean(email),
+    hrefFor: (id) => residentLeaseListHref(basePath, id),
+  });
   const { selectedIds, toggleSelected } = usePortalRowSelection(bucket);
   const bucketRows = useMemo(
     () => filterResidentLeaseDocumentRows(allLeaseRows, bucket),
@@ -703,33 +718,27 @@ export function ResidentLeasePanel({
           {renewalStatus.kind !== "none" ? (
             <div
               className={cn(
-                "mb-3 rounded-2xl border px-4 py-3.5 max-lg:mb-2.5",
-                renewalStatus.kind === "awaiting_signature"
+                "mb-3 flex min-h-11 items-center gap-3 rounded-2xl border px-4 py-2 max-lg:mb-2.5",
+                renewalStatus.kind === "awaiting_signature" || (renewalStatus.kind === "ending" && renewalStatus.soon)
                   ? "portal-banner-pending"
-                  : renewalStatus.kind === "ending" && renewalStatus.soon
-                    ? "portal-banner-pending"
-                    : "border-border bg-accent/30",
+                  : "border-border bg-accent/30",
               )}
               data-attr="resident-lease-renewal-banner"
               data-renewal-kind={renewalStatus.kind}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-[12rem] flex-1">
-                  <p className="text-sm font-semibold text-foreground">{renewalStatus.headline}</p>
-                  <p className="mt-1 text-xs text-muted">{renewalStatus.body}</p>
-                </div>
-                {renewalStatus.kind !== "awaiting_signature" ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className="h-9 min-h-0 shrink-0 rounded-full px-4 text-[13px]"
-                    data-attr="resident-lease-renew-open"
-                    onClick={() => setShowMoveOutModal(true)}
-                  >
-                    {renewalStatus.cta}
-                  </Button>
-                ) : null}
-              </div>
+              <CalendarClock className="size-4 shrink-0 text-muted" aria-hidden />
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{renewalStatus.fact}</p>
+              {renewalStatus.kind !== "awaiting_signature" ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="h-8 min-h-0 shrink-0 rounded-full px-4 text-[13px]"
+                  data-attr="resident-lease-renew-open"
+                  onClick={() => setShowMoveOutModal(true)}
+                >
+                  {renewalStatus.cta}
+                </Button>
+              ) : null}
             </div>
           ) : null}
           <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={leaseSelectionActions} />}>{!email ? (
@@ -807,10 +816,10 @@ export function ResidentLeasePanel({
     kindLabel: "lease",
     recordId: leaseDetailId ?? "lease",
     overviewTiles: [
-      { id: "rent", label: "Rent", value: pipelineRow?.signedRentLabel ?? "—", detail: "per month" },
-      { id: "term", label: "Term", value: pipelineRow?.application?.leaseTerm ?? "—", detail: pipelineRow?.application?.leaseEnd ? `Ends ${pipelineRow.application.leaseEnd}` : undefined },
+      { id: "rent", label: "Rent", value: formatLeaseRentLabel(pipelineRow?.signedRentLabel) ?? "—" },
+      { id: "term", label: "Term", value: pipelineRow?.application?.leaseTerm ?? "—", detail: pipelineRow?.application?.leaseEnd ? `Ends ${formatLeaseDateLabel(pipelineRow.application.leaseEnd)}` : undefined },
       { id: "your-signature", label: "Your signature", value: residentSigned ? "Signed" : "Pending", tone: residentSigned ? "default" : "danger", detail: managerSigned ? "Manager signed" : undefined },
-      { id: "move-in", label: "Move-in", value: pipelineRow?.application?.leaseStart ?? "—" },
+      { id: "move-in", label: "Move-in", value: formatLeaseDateLabel(pipelineRow?.application?.leaseStart) ?? "—" },
     ],
     overviewNeeds: [
       ...(!residentSigned
@@ -852,8 +861,8 @@ export function ResidentLeasePanel({
         title: "Terms",
         action: { label: "Lease document", href: residentLeaseDetailHref(basePath, activeBucket, leaseDetailId ?? "", "lease-document") },
         rows: [
-          { label: "Property", value: documentView.subtitle ?? "—" },
-          { label: "Rent", value: pipelineRow?.signedRentLabel ?? "—" },
+          { label: "Property", value: placeNameOrEmpty(pipelineRow?.unit) || "—" },
+          { label: "Rent", value: formatLeaseRentLabel(pipelineRow?.signedRentLabel) ?? "—" },
         ],
       },
       {

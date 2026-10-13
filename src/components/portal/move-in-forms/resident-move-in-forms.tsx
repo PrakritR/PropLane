@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useOpenFirstNonEmptyTab } from "@/hooks/use-open-first-non-empty-tab";
 import { ArrowLeft, CheckCircle2, Clock, Download, FileText, Lock } from "lucide-react";
 import { MoveInFormQuestionField } from "@/components/move-in-forms/move-in-form-question";
 import { CheckDraw, MoveInProgressBar } from "@/components/move-in-forms/move-in-motion";
@@ -103,10 +104,13 @@ function sortForBucket(forms: MoveInFormSummary[], bucket: ResidentFormsBucket):
 export function ResidentFormsSection({
   basePath = "/resident",
   bucket = "pending",
+  bucketNamed = true,
   formId,
 }: {
   basePath?: string;
   bucket?: ResidentFormsBucket;
+  /** False when the address names no tab (`/forms`): the list then opens on the first tab with rows. */
+  bucketNamed?: boolean;
   /** Open this form (the `/forms/<id>` address). */
   formId?: string;
 }) {
@@ -140,6 +144,18 @@ export function ResidentFormsSection({
     window.addEventListener(MOVE_IN_FORMS_CHANGED, refresh);
     return () => window.removeEventListener(MOVE_IN_FORMS_CHANGED, refresh);
   }, [ready, load]);
+
+  const readyForms = list.status === "ready" ? list.forms : [];
+  useOpenFirstNonEmptyTab({
+    tabs: RESIDENT_FORMS_BUCKETS.map((id) => ({
+      id,
+      count: readyForms.filter((form) => bucketOf(form) === id).length,
+    })),
+    activeId: bucket,
+    urlNamesTab: bucketNamed || Boolean(formId),
+    ready: list.status === "ready",
+    hrefFor: (id) => residentFormsListHref(basePath, id),
+  });
 
   if (formId) {
     return (

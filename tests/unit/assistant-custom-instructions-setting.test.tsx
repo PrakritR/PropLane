@@ -44,11 +44,9 @@ describe("AssistantCustomInstructionsSetting", () => {
     expect(await screen.findByDisplayValue("Keep replies warm.")).toBeTruthy();
     expect(screen.getByText("PropLane Assistant")).toBeTruthy();
     expect(screen.getByLabelText("Custom instructions")).toHaveAttribute("data-attr", "assistant-custom-instructions-input");
-    if (role === "manager") {
-      expect(screen.getByText(/automated leasing text replies/i)).toBeTruthy();
-    } else {
-      expect(screen.queryByText(/automated leasing text replies/i)).toBeNull();
-    }
+    // A label and its control only: no example sentence, no explanatory line (any role).
+    expect(screen.queryByText(/automated leasing text replies/i)).toBeNull();
+    expect(screen.queryByText(/^Example:/)).toBeNull();
   });
 
   it("saves server-backed instructions and reports completion", async () => {

@@ -1489,7 +1489,7 @@ export function ResidentPaymentRecord({
 
 /* ───────────────────────────── Documents ───────────────────────────── */
 
-/** `ResidentAddDocumentModal`: "Add to documents", Choose file · Take photo, "Name (optional)", footer "Save". */
+/** `ResidentAddDocumentModal`: "Add to documents", Choose file · Take photo, "Name", footer "Save". */
 export function ResidentAddDocumentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [file, setFile] = useState<string | null>(null);
   const [label, setLabel] = useState("");
@@ -1530,7 +1530,7 @@ export function ResidentAddDocumentModal({ onClose, onSaved }: { onClose: () => 
             {file ? <p className="min-w-0 truncate text-sm text-muted">{file}</p> : null}
           </div>
           <label className="block">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Name (optional)</span>
+            <span className={MODAL_FIELD_LABEL_CLASS}>Name</span>
             <input
               type="text"
               value={label}

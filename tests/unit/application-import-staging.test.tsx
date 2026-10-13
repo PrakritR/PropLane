@@ -296,15 +296,14 @@ describe("Add application: one header Upload icon on every step", () => {
   }
   const headerInput = () => document.querySelector('[data-attr="property-application-header-upload-input"]') as HTMLInputElement | null;
 
-  it("is the Start from a file card on the first step only, once, with .pdf and size chips", async () => {
+  it("is the Start from a file card on the first step only, once, with no format or size chips", async () => {
     renderAdd("add");
     await screen.findByRole("dialog", { name: "Add application" });
     expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(1);
     expect(headerInput()?.accept).toContain("application/pdf");
     const card = document.querySelector('[data-attr="property-application-header-upload"]')!;
     expect(card.textContent).toContain("Start from a file");
-    expect(card.textContent).toContain(".pdf");
-    expect(card.textContent).toContain("up to 8 MB");
+    expect(card.textContent).not.toContain("up to 8 MB");
     jumpRail("sections");
     expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(0);
     expect(document.querySelectorAll('[data-attr="property-application-start-from-file"] [data-attr$="-upload"]')).toHaveLength(0);

@@ -85,6 +85,8 @@ type BandProps = {
   /** The round blue + - omitted where nothing can be created from this tab. */
   plus?: { label: string; onClick: () => void; dataAttr?: string };
   dataAttr: string;
+  /** Spacing under the band. A page's band must be a DIRECT child of its shell (no wrapper div) to get the list page frame. */
+  className?: string;
 };
 
 /**
@@ -93,9 +95,10 @@ type BandProps = {
  * section is a list, the icons at the top right and the round blue +. It is the Payments header
  * (`PortalListControlStack`, command variant), not a second implementation.
  */
-export function RecordTabBand({ tabs, activeId, onChange, ariaLabel, search, actions, plus, dataAttr }: BandProps) {
+export function RecordTabBand({ tabs, activeId, onChange, ariaLabel, search, actions, plus, dataAttr, className }: BandProps) {
   return (
     <PortalListControlStack
+      className={className}
       variant="command"
       stickyDestinations={false}
       destinationRow={

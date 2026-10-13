@@ -65,7 +65,6 @@ import {
   applyPropertyLeaseDocumentMode,
   documentModeFromLease,
   leaseSourceFromDraft,
-  PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS,
   type PropertyLeaseDocumentMode,
   type PropertyLeaseSource,
 } from "@/lib/property-lease-source";
@@ -301,10 +300,6 @@ export function PropertyLeaseFormModal({
   const typeMeta = useMemo(
     () => PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === kind),
     [kind],
-  );
-  const documentModeMeta = useMemo(
-    () => PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS.find((o) => o.id === documentMode),
-    [documentMode],
   );
 
   const copyLeaseOptions = useMemo(
@@ -899,7 +894,6 @@ export function PropertyLeaseFormModal({
       id: "name",
       label: "Lease",
       incomplete: !label.trim() || (mode === "edit" && applicationLeaseTerms.length === 0),
-      summary: label.trim() || "Name this lease",
     },
     {
       // Lease → Document. Workspace-wide choices live in Settings → Applications &
@@ -908,7 +902,6 @@ export function PropertyLeaseFormModal({
       id: "document",
       label: "Document",
       incomplete: documentMode === "upload" && !draft.leaseTemplateDocUrl,
-      summary: documentModeMeta?.label ?? "Lease document",
     },
     // "Preview" is no longer a separate rail step (P005: 3 steps, not 4) —
     // `htmlPreview` was already passed as `sidePanel` below and rendered on
@@ -1022,7 +1015,7 @@ export function PropertyLeaseFormModal({
       discardTitle="Discard this lease?"
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
-      headerUpload={mode === "add" ? { accept: "application/pdf,.pdf", chips: [".pdf", "up to 8 MB"], onPick: onPickLeaseFromHeader, disabled: templateUploading || parsingLease || saving, dataAttr: "property-lease-header-upload", label: "Upload lease" } : undefined}
+      headerUpload={mode === "add" ? { accept: "application/pdf,.pdf", onPick: onPickLeaseFromHeader, disabled: templateUploading || parsingLease || saving, dataAttr: "property-lease-header-upload", label: "Upload lease" } : undefined}
       sidePanel={htmlPreview}
       lastLabel={mode === "add" ? "Create lease" : "Save"}
       lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
@@ -1186,7 +1179,6 @@ export function PropertyLeaseFormModal({
             <div className="mt-4">
               <ImportFileStrip
                 dataAttr="property-lease-name-upload"
-                chips={[".pdf", "up to 8 MB"]}
                 accept={LEASE_UPLOAD_ACCEPT}
                 busy={templateUploading || parsingLease}
                 state={

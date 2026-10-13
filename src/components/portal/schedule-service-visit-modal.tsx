@@ -255,10 +255,6 @@ export function ScheduleServiceVisitModal({
               { label: "Assigned to", value: assignee?.name ?? "Not set", warn: !assignee },
               { label: "Where", value: propertyLine || "Not set" },
             ]}
-            creates={[
-              { tone: visitWhen && assignee ? "yes" : "warn", text: visitWhen && assignee ? "The visit goes on the calendar" : "Pick a time and who takes it" },
-              { tone: "no", text: assignee?.type === "vendor" ? "The vendor is told" : "The resident is told" },
-            ]}
           />
         ) : undefined
       }

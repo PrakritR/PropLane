@@ -47,7 +47,6 @@ export function PromotionUploadComposer({
           onClick={() => inputRef.current?.click()}
         >
           <span className="text-sm font-semibold text-foreground">Drop or click to upload</span>
-          <span className="text-xs text-muted">JPG, PNG, or PDF · up to 12 MB</span>
         </button>
       )}
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}

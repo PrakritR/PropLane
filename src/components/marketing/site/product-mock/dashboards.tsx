@@ -697,7 +697,7 @@ export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?
       ? [
           {
             id: "bids",
-            title: `${bids.length} ${bids.length === 1 ? "job" : "jobs"} waiting on a bid`,
+            title: `${bids.length} ${bids.length === 1 ? "service" : "services"} waiting on a bid`,
             detail: propertyLabel(bids[0]!),
             actionLabel: "Continue" as const,
             href: "#",

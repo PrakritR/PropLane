@@ -182,7 +182,7 @@ export function LeaseMarkSignedModal({
 
         <label className="flex flex-col gap-0.5">
           <span className={MODAL_FIELD_LABEL_CLASS}>
-            Signed on <span className="font-normal normal-case tracking-normal text-muted">(optional)</span>
+            Signed on
           </span>
           <Input
             type="date"

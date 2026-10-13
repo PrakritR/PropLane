@@ -146,7 +146,7 @@ export function WizardField({
     <label data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className={cn("block", className)}>
       <span className="mb-[5px] flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
         {label}
-        {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
+        {required ? <span className="sr-only"> (required)</span> : null}
         {mark ? <span className="ml-1 inline-flex font-normal">{mark}</span> : null}
       </span>
       {children}
@@ -237,7 +237,6 @@ export type FileStripState =
  */
 export function FileStartStrip({
   state,
-  chips,
   accept,
   onPick,
   onUndo,
@@ -246,7 +245,6 @@ export function FileStartStrip({
   title = "Start from a file",
 }: {
   state: FileStripState;
-  chips: readonly string[];
   accept: string;
   onPick: (file: File) => void;
   onUndo?: () => void;
@@ -327,7 +325,7 @@ export function FileStartStrip({
     );
   }
   if (headerUpload) return null;
-  return <WorkspaceFileCard accept={accept} chips={chips} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
+  return <WorkspaceFileCard accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
 }
 
 export type AttachedDocument = {
@@ -419,9 +417,9 @@ export function ReviewCard({
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <h3 className="text-[14px] font-bold text-foreground">{title}</h3>
         <span className="flex items-center gap-2.5">
-          <WizardChip tone={status === "complete" ? "ok" : status === "incomplete" ? "warn" : "ok"}>
-            {status === "complete" ? "Complete" : status === "incomplete" ? "Incomplete" : "Optional"}
-          </WizardChip>
+          {status === "optional" ? null : (
+            <WizardChip tone={status === "complete" ? "ok" : "warn"}>{status === "complete" ? "Complete" : "Incomplete"}</WizardChip>
+          )}
           <button type="button" onClick={onEdit} className="text-[13px] font-bold text-primary">
             Edit
           </button>
@@ -439,27 +437,22 @@ export function ReviewCard({
   );
 }
 
-export type CreatesItem = { tone: "yes" | "no" | "warn"; text: ReactNode };
-
-/** The side panel: who this is and what adding them creates. */
+/** The side panel: who this is. Facts only — no checklist of what Save will do. */
 export function PreviewPanel({
   title,
   name,
   sub,
   facts,
-  creates,
-  createsHeading = "This will create",
 }: {
-  title: string;
+  /** Omit when the surrounding pop-up already heads the column (a second heading repeats it). */
+  title?: string;
   name: ReactNode;
   sub?: ReactNode;
   facts: { label: string; value: ReactNode; warn?: boolean }[];
-  creates: CreatesItem[];
-  createsHeading?: string;
 }) {
   return (
     <section>
-      <h3 className="mb-2.5 text-xs font-semibold text-muted">{title}</h3>
+      {title ? <h3 className="mb-2.5 text-xs font-semibold text-muted">{title}</h3> : null}
       <div className="rounded-[10px] border border-border bg-card p-3.5">
         <div className="text-[15px] font-bold text-foreground">{name}</div>
         {sub ? <div className="text-[12.5px] text-muted">{sub}</div> : null}
@@ -468,25 +461,6 @@ export function PreviewPanel({
             <div key={f.label} className="min-w-0">
               <span className="block text-[11.5px] text-muted">{f.label}</span>
               <span className={cn("block font-bold", f.warn ? "text-[#a34a06]" : "text-foreground")}>{f.value}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3.5 border-t border-border/60 pt-3">
-          <h4 className="mb-1.5 text-xs font-semibold text-muted">{createsHeading}</h4>
-          {creates.map((c, i) => (
-            <div key={i} className="flex items-start gap-2 py-1 text-[13px] text-foreground">
-              <span
-                className={cn(
-                  "mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full text-[11px] font-black",
-                  c.tone === "yes" && "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]",
-                  c.tone === "no" && "bg-accent text-muted",
-                  c.tone === "warn" && "bg-[#fdf0d5] text-[#a34a06]",
-                )}
-                aria-hidden
-              >
-                {c.tone === "yes" ? "✓" : c.tone === "warn" ? "!" : "–"}
-              </span>
-              <span>{c.text}</span>
             </div>
           ))}
         </div>

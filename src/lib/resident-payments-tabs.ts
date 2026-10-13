@@ -23,3 +23,20 @@ export const RESIDENT_PAYMENTS_TAB_LABELS: Record<"pending" | "overdue" | "paid"
 export function shouldSimplifyResidentPaymentsHeader(totalChargeCount: number): boolean {
   return totalChargeCount <= 1;
 }
+
+/**
+ * The tab Payments opens on, from the tab counts: Due when it has anything, else Upcoming,
+ * else nothing to decide yet. Desktop and phone both call this once the first server read has
+ * landed, so the same resident sees the same tab on both.
+ */
+export function residentPaymentsLandingBucket(counts: { due: number; upcoming: number }): "overdue" | "pending" | null {
+  if (counts.due > 0) return "overdue";
+  if (counts.upcoming > 0) return "pending";
+  return null;
+}
+
+/** The nav badge on Payments: the number the Due tab carries, never every unpaid charge. */
+export function residentPaymentsNavBadge(dueRowCount: number): { count: number; tone: "alert" | "muted" } {
+  const count = Math.max(0, Math.floor(dueRowCount));
+  return { count, tone: count > 0 ? "alert" : "muted" };
+}

@@ -287,7 +287,6 @@ export function DemoVendorQuoteWizard({
             ...(door === "invoice" ? [] : [{ label: "When", value: whenLabel, warn: !when }]),
             { label: door === "invoice" ? "Invoice" : "Bid", value: labor.trim() ? `$${labor}` : "Not set", warn: !labor.trim() },
           ]}
-          creates={[{ tone: job ? "yes" : "warn", text: door === "invoice" ? "An invoice for the manager" : "A bid the manager can approve" }]}
         />
       }
       footer={{ kind: "wizard", lastLabel: title, onFinish: onDone }}
@@ -544,7 +543,7 @@ export function DemoVendorAvailabilityDialog({ onClose, onSaved, focus = "all" }
                 </>
               ) : null}
               <label className="flex min-w-[140px] flex-1 flex-col gap-1 text-[11px] font-medium text-muted">
-                Note (optional)
+                Note
                 <Input type="text" placeholder="e.g. Saturday availability" value={draft.note} onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))} className="h-9 rounded-md text-sm" />
               </label>
               <button
@@ -691,7 +690,6 @@ export function DemoVendorWithdrawDialog({ initialAmountCents, onClose, onDone }
             { label: "Arrives", value: method === "instant" ? "Within 30 minutes" : "1–2 business days" },
             { label: method === "instant" ? "Bank receives" : "Fee", value: method === "instant" ? usd(netCents) : "Free" },
           ]}
-          creates={[{ tone: overBalance || belowMinimum ? "warn" : "yes", text: overBalance ? "Amount is more than is available" : belowMinimum ? "Withdrawals start at $1.00" : "Sent to your payout account" }]}
         />
       }
       primary={{ label: `Withdraw ${usd(amountCents)}`, onClick: onDone, disabled, dataAttr: "withdraw-confirm" }}
@@ -901,7 +899,7 @@ export function DemoVendorW9Dialog({ hasW9, onClose, onDone }: { hasW9: boolean;
           <Input value={draft.legalName} onChange={(e) => set({ legalName: e.target.value })} />
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-          Business name (optional)
+          Business name
           <Input value={draft.businessName} onChange={(e) => set({ businessName: e.target.value })} />
         </label>
         <FieldSingleSelect label="Entity type" value={draft.entityType} onChange={(entityType) => set({ entityType })} options={VENDOR_W9_ENTITY_TYPES.map((entry) => ({ value: entry.value, label: entry.label }))} />
@@ -967,7 +965,6 @@ export function DemoVendorUploadDocumentPopup({ initialKind, onClose, onDone }: 
             { label: "Type", value: VENDOR_DOCUMENT_LABELS[kind] },
             { label: "File", value: fileName || "Not set", warn: !fileName },
           ]}
-          creates={[{ tone: fileName ? "yes" : "warn", text: "A compliance file managers can review" }]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Upload", onFinish: () => onDone(kind) }}

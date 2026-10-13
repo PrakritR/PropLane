@@ -530,14 +530,13 @@ export function ManagerAddOutgoingPaymentModal({
   const amountCents = parsedAmountCents();
   const amountLabel = amountCents > 0 ? money(amountCents) : "Not set";
   const paymentIncomplete = !(amountCents > 0);
-  const payToSummary = payeeCard.name || (payKind === "vendor" ? "Choose a vendor" : "Choose who");
 
   const steps: AddWorkspaceStep[] = invoicePath
-    ? [{ id: "payto", label: "Pay to", summary: payToSummary, incomplete: payToIncomplete }]
+    ? [{ id: "payto", label: "Pay to",incomplete: payToIncomplete }]
     : [
-        { id: "payto", label: "Pay to", summary: payToSummary, incomplete: payToIncomplete },
-        { id: "payment", label: "Payment", summary: paymentIncomplete ? "Amount" : `${categoryLabel} · ${amountLabel}`, incomplete: paymentIncomplete },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "payto", label: "Pay to", incomplete: payToIncomplete },
+        { id: "payment", label: "Payment", incomplete: paymentIncomplete },
+        { id: "review", label: "Review" },
       ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;

@@ -115,7 +115,9 @@ describe("CreateWorkspace", () => {
     const header = document.querySelector("[data-attr='listing-v2-header-upload']")!;
     expect(header.getAttribute("data-state")).toBe("blank");
     expect(screen.getAllByRole("button", { name: "Choose file" })).toHaveLength(1);
-    expect(header.textContent).toContain(".xlsx");
+    // Round 3: the card is its name and the picker — no format or size chips ahead of the pick.
+    expect(header.textContent).toContain("Start from a file");
+    expect(header.textContent).not.toContain(".xlsx");
     expect(document.querySelector("[data-attr='create-file-strip']")).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Listing sections" });
     expect(rail.textContent).not.toContain("Import");
@@ -146,7 +148,11 @@ describe("CreateWorkspace", () => {
     await screen.findByText("400 Pike Street", { selector: "b" });
     expect(document.querySelector("[data-attr='listing-v2-rail-basics']")?.getAttribute("aria-current")).toBe("step");
     expect(document.querySelector("[data-attr='listing-v2-rail-import']")).not.toBeNull();
-    expect(screen.getByRole("navigation", { name: "Listing sections" }).textContent).toContain("owner-messy.xlsx · 1 found");
+    // Round 3: a rail row is a name and a tick — the file name and the found count are not a caption under it.
+    const railAfterImport = screen.getByRole("navigation", { name: "Listing sections" });
+    expect(railAfterImport.textContent).toContain("Import");
+    expect(railAfterImport.textContent).not.toContain("owner-messy.xlsx");
+    expect(railAfterImport.textContent).not.toContain("1 found");
     expect(screen.getAllByText("Imported").length).toBeGreaterThan(0);
     expect(document.querySelector("[data-attr='import-property-switcher']")).toBeNull();
     // Basics is now the second step: Import counts in the progress bar.
@@ -204,8 +210,10 @@ describe("CreateWorkspace", () => {
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
     expect(document.querySelector("[data-attr='listing-v2-rail-add-photos']")).not.toBeNull();
     expect(document.querySelector("[data-attr='listing-v2-rail-finish']")).not.toBeNull();
-    expect(nav.textContent).toContain("By the room");
-    expect(nav.textContent).toMatch(/4 rooms/);
+    // Round 3: the rail names each step and nothing else — no "By the room", no room count caption.
+    expect(nav.textContent).toContain("Rooms");
+    expect(nav.textContent).not.toContain("By the room");
+    expect(nav.textContent).not.toMatch(/4 rooms/);
     expect(nav.textContent).toContain("Draft");
     fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-rooms']")!);
     // Rooms has no Default card (PLAN-0921-1648); its chrome is the "N rooms"
@@ -222,7 +230,7 @@ describe("CreateWorkspace", () => {
     expect(document.querySelector("[data-attr='listing-v2-rail-basics']")?.getAttribute("aria-current")).toBe("step");
   });
 
-  it("Import switcher stays on the Found list and refreshes rail summaries", async () => {
+  it("Import switcher stays on the Found list and leaves the rail uncaptioned", async () => {
     mount();
     await uploadAndWait();
     await userEvent.click(screen.getByLabelText(/Imported property 1 of 2/));
@@ -230,7 +238,9 @@ describe("CreateWorkspace", () => {
     expect(screen.getByText("Found 2 properties")).toBeInTheDocument();
     expect(document.querySelector("[data-attr='import-property-switcher']")!.textContent).toContain("2 of 2");
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
-    expect(nav.textContent).toContain("Whole place");
+    // Round 3: switching the selected draft changes the editor, never a rail caption — there is none.
+    expect(nav.textContent).toContain("Basics");
+    expect(nav.textContent).not.toContain("Whole place");
   });
 
   it("opens a property in the editor with Import behind it on the rail, and the switcher in the header", async () => {

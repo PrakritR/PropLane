@@ -765,6 +765,18 @@ export function LeaseAmendMoveOutModal({
                 {submitting ? "Saving…" : direction === "decrease" ? "Update move-out" : "Extend lease"}
               </Button>
             </ModalFooter>
+          ) : showExtendTypePicker ? (
+            <ModalFooter className="w-full pb-0">
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1 rounded-full"
+                disabled
+                data-attr="lease-extend-pending-choice"
+              >
+                Extend lease
+              </Button>
+            </ModalFooter>
           ) : null}
         </div>
       }

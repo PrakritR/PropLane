@@ -35,6 +35,7 @@ import { WorkspaceDeleteButton } from "@/components/portal/add-workspace/frame";
 import { editorFooterState } from "@/lib/editor-footer-state";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useTabOverflowFade } from "@/components/ui/destination-nav";
+import { DialogTitleProvider, useHeadingRepeatsDialogTitle } from "@/components/ui/dialog-title-context";
 import { PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
 import { PhoneStripOrPicker, PhoneStripPicker, phoneStripFits } from "@/components/ui/phone-strip-picker";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
@@ -252,7 +253,7 @@ export function ListingWorkspace({
             if (target.getAttribute("role") === "combobox" || target.getAttribute("aria-expanded") === "true") return;
             if (onContinue) { event.preventDefault(); onContinue(); }
           }}
-        >{children}</main>
+        ><DialogTitleProvider title={title}>{children}</DialogTitleProvider></main>
         {sidePanel ? (
           <aside
             aria-label="Live panel"
@@ -448,12 +449,6 @@ export type StepRailItem = {
   attention?: number;
   /** A finished step — drawn as a check in the phone step list. Defaults to "opened and nothing missing". */
   done?: boolean;
-  /**
-   * One line of what the section currently says — "2 rooms · 1 with photos",
-   * "From $1,160 a month". The rail then reads as the listing's table of
-   * contents rather than a list of chapter titles.
-   */
-  summary?: ReactNode;
 };
 
 /**
@@ -548,9 +543,6 @@ export function StepRail({
                   ) : null}
                   {warn ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : null}
                 </span>
-                {step.summary ? (
-                  <span className="mt-0.5 hidden truncate text-[12px] font-normal leading-snug text-muted lg:block">{step.summary}</span>
-                ) : null}
               </span>
               {warn ? <span className="sr-only">{step.attention} to look at</span> : null}
             </button>
@@ -840,10 +832,13 @@ export function StepHeading({
    * counts the steps; a third copy in the body was the same fact three times on
    * one screen.
    */
+  // The dialog already says this: a heading that repeats its title is not drawn.
+  const repeatsDialogTitle = useHeadingRepeatsDialogTitle(title);
+  if (repeatsDialogTitle && !action) return null;
   return (
     <div className="mb-3.5 flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
-        <h2 className="text-[16px] font-[650] leading-tight tracking-tight text-foreground">{title}</h2>
+        {repeatsDialogTitle ? null : <h2 className="text-[16px] font-[650] leading-tight tracking-tight text-foreground">{title}</h2>}
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>
@@ -923,7 +918,7 @@ export function Field(props: {
   const caption = (
     <>
       {label}
-      {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
+      {required ? <span className="sr-only"> (required)</span> : null}
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
@@ -2004,7 +1999,7 @@ export function FactRow({
       <span className={cn("flex min-w-0 shrink items-center gap-2 text-[13px] text-foreground", sub ? "font-medium" : "font-semibold")}>
         <span className="truncate">
           {label}
-          {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
+          {required ? <span className="sr-only"> (required)</span> : null}
         </span>
         {own && onReset ? (
           <FactRowReset

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUpFromLine, Calendar, CreditCard, Landmark, Plus } from "lucide-react";
+import { bankAccountLabel } from "@/lib/vendor-banking/bank-label";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
@@ -396,8 +397,8 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
                 <div aria-hidden className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/[0.08] text-primary">
                   {row.kind === "card" ? <CreditCard className="size-5" strokeWidth={1.6} /> : <Landmark className="size-5" strokeWidth={1.6} />}
                 </div>
-                <p className="min-w-0 flex-1 truncate text-[15px] font-normal text-foreground">
-                  {row.label} ····{row.last4}
+                <p className="min-w-0 flex-1 text-[15px] font-normal text-foreground line-clamp-2 break-words">
+                  {bankAccountLabel(row)}
                 </p>
                 {row.default || row.status !== "verified" ? (
                   <span className="shrink-0 text-sm text-muted">
@@ -408,7 +409,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
                   </span>
                 ) : null}
                 {bankRoute === "live" ? (
-                  <BankRowMenu rowId={row.id} label={`${row.label} ····${row.last4}`}>
+                  <BankRowMenu rowId={row.id} label={bankAccountLabel(row)}>
                     {!row.default && row.payable ? (
                       <Button type="button" variant="outline" onClick={() => makeDefault(row.id)} data-attr="payouts-settings-bank-default">
                         Make default
@@ -451,7 +452,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
 
       {/* History — the vendor's payout history lives in Finances → Balance & payouts. */}
       {portal === "manager" ? <PortalSettingsSection title="Payouts"><PortalSettingsGroup>
-          {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: !row.payable }))} /></PortalSettingsRow> : null}
+          {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: bankAccountLabel(row), disabled: !row.payable }))} /></PortalSettingsRow> : null}
         {balance.history.length ? balance.history.map(row => <PortalSettingsRow key={row.id} label={payoutHistoryTitle(row)}>
           <div className="flex items-center justify-end gap-3">
             <span className="inline-flex items-center gap-1 whitespace-nowrap text-sm text-muted">

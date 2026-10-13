@@ -4,7 +4,7 @@ import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/w
 import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { DocumentRow, WizardChip, WizardLine, WizardSection } from "@/components/portal/add-workspace/parts";
 import type { AddPersonForm } from "./state";
-import { RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "./step-contact";
+import { RESIDENT_FILE_ACCEPT } from "./step-contact";
 
 export const RESIDENT_DOCUMENT_KINDS = [
   { value: "application", label: "Application" },
@@ -30,7 +30,7 @@ export function DocumentsStep({
   return (
     <StepColumn>
       <StepHeading title="Documents" />
-      <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={onPickFile} disabled={busy} dataAttr="residents-wizard-documents-upload" inputDataAttr="residents-wizard-documents-input" />
+      <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} onPick={onPickFile} disabled={busy} dataAttr="residents-wizard-documents-upload" inputDataAttr="residents-wizard-documents-input" />
       <WizardSection title="Attached" chip={<WizardChip>private · you and this resident only</WizardChip>} dataAttr="residents-wizard-documents">
         {form.documents.length === 0 ? (
           <WizardLine label="Nothing attached yet — an application, lease, ID photo or proof of income. PDFs are read to fill the sections; images are kept as evidence." />

@@ -1012,15 +1012,29 @@ export function applyHouseholdChargeServerUpdates(updates: HouseholdCharge[]): v
   writeAll(readAll().map((charge) => byId.get(charge.id) ?? charge));
 }
 
-function writeAll(rows: HouseholdCharge[], silent = false) {
+function writeAll(rows: HouseholdCharge[], silent = false, mirror = true) {
   if (!isBrowser()) return;
   const normalized = dedupeCharges(rows);
   if (!chargesChanged(memoryCharges, normalized)) return;
   memoryCharges = normalized;
   persistHouseholdStateToSession();
-  householdChargesLastSyncedAt = Date.now();
-  mirrorChargeRows(normalized);
+  // A local-only write never reached the server, so it must not pass for a server read: stamping the
+  // sync clock here would suppress the next unforced `syncHouseholdChargesFromServer` for its TTL.
+  if (mirror) {
+    householdChargesLastSyncedAt = Date.now();
+    mirrorChargeRows(normalized);
+  }
   if (!silent) emit();
+}
+
+/** A rent-profile change that stays in this browser session: no server write, no charge generation. */
+function writeRentProfilesLocalOnly(rows: RecurringRentProfile[]) {
+  if (!isBrowser()) return;
+  const normalized = dedupeRecurringRentProfiles(rows);
+  if (!rentProfilesChanged(memoryRentProfiles, normalized)) return;
+  memoryRentProfiles = normalized;
+  persistHouseholdStateToSession();
+  emit();
 }
 
 function readRentProfiles(): RecurringRentProfile[] {
@@ -3236,6 +3250,11 @@ export function updatePendingRentAmountForResident(
 }
 
 /** Link charges created with email-only to the signed-in resident account. */
+/**
+ * Stamp the signed-in resident's user id onto the rows already in this browser session. It only
+ * ever runs in the resident portal, where the charge ledger is read-only (the server answers a
+ * resident's write with 403), so it changes the local copy and writes nothing to the server.
+ */
 export function linkHouseholdChargesToResidentUser(email: string, userId: string) {
   const e = email.trim().toLowerCase();
   if (!e || !userId) return;
@@ -3248,7 +3267,7 @@ export function linkHouseholdChargesToResidentUser(email: string, userId: string
     }
     return r;
   });
-  if (changed) writeAll(next);
+  if (changed) writeAll(next, false, false);
 
   const profiles = readRentProfiles();
   let profileChanged = false;
@@ -3259,7 +3278,7 @@ export function linkHouseholdChargesToResidentUser(email: string, userId: string
     }
     return profile;
   });
-  if (profileChanged) writeRentProfiles(nextProfiles);
+  if (profileChanged) writeRentProfilesLocalOnly(nextProfiles);
 }
 
 /**

@@ -1076,6 +1076,7 @@ export const VendorInboxPanel = forwardRef<
               avatarName={activeThreadAvatarName}
               subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
               messages={activeBubbles}
+              emailNameAsPerson
               alignAssistantStart={activeIsAssistantThread}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}

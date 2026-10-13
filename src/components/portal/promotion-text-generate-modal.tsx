@@ -177,7 +177,7 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
       </div>
       <div>
         <label className="text-xs font-semibold text-muted" htmlFor="promotion-text-notes">
-          Notes <span className="font-normal">(optional)</span>
+          Notes
         </label>
         <Textarea
           id="promotion-text-notes"

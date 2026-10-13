@@ -41,7 +41,7 @@ import {
 } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm } from "./state";
-import { RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "./step-contact";
+import { RESIDENT_FILE_ACCEPT } from "./step-contact";
 
 function dateLabel(iso: string | null | undefined): string {
   return iso ? formatPortalListDate(iso) : "";
@@ -320,7 +320,7 @@ export function EditDocumentsStep({
     <StepColumn>
       <StepHeading title="Documents" />
       {onUpload ? (
-        <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={(file) => void onUpload(file)} disabled={busy} dataAttr="residents-wizard-documents-upload" inputDataAttr="residents-wizard-documents-input" />
+        <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} onPick={(file) => void onUpload(file)} disabled={busy} dataAttr="residents-wizard-documents-upload" inputDataAttr="residents-wizard-documents-input" />
       ) : null}
       <WizardSection title="Files" chip={<WizardChip>private · you and this resident only</WizardChip>} dataAttr="residents-wizard-documents">
         {record.documents.length === 0 ? (

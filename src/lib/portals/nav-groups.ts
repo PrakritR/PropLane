@@ -223,10 +223,11 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
   },
 ];
 
-// `move-in` is the resident's "My home" row (label "My home").
+// `move-in` is the resident's "My home" row (label "My home"). Its group carries no heading of its own:
+// a "My home" heading over the "My home" row said the same word twice.
 const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "communication"] },
-  { id: "my-home", label: "My home", sections: ["move-in", "lease", "forms", "services"] },
+  { id: "my-home", label: null, sections: ["move-in", "lease", "forms", "services"] },
   { id: "applying", label: "Applying", sections: ["tour", "applications"] },
   { id: "money", label: "Money", sections: ["payments", "documents"] },
 ];

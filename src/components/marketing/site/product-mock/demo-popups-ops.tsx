@@ -40,7 +40,7 @@ import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-previ
 import { PROMOTION_UPLOAD_ACCEPT } from "@/components/portal/promotion-upload-composer";
 import { TemplateThumb, EMPTY_DRAFT, draftToPreviewRow, type PromotionDraft } from "@/components/portal/promotion-form";
 import { ExpenseTaxStatusToggle } from "@/components/portal/expense-tax-status-toggle";
-import { DOCUMENT_FILE_CHIPS, WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import {
   PreviewPanel,
@@ -318,10 +318,10 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
   const house = OPS_HOUSES.find((h) => h.id === form.houseId);
   const residents = OPS_RESIDENTS.filter((r) => !form.houseId || r.houseId === form.houseId);
   const steps = [
-    { id: "task", label: "Task", summary: form.description.trim() || form.guestName.trim() || "What to do" },
-    { id: "property", label: "Property", summary: house?.label || (propertyRequired ? "Pick a house" : "Optional") },
-    { id: "when", label: "When", summary: form.scheduleDate || form.dueDate || (form.timing === "urgent" ? "As needed" : "Timing") },
-    { id: "review", label: "Review", summary: mode === "edit" ? "Save task" : "Add task" },
+    { id: "task", label: "Task" },
+    { id: "property", label: "Property" },
+    { id: "when", label: "When" },
+    { id: "review", label: "Review" },
   ];
   return (
     <DemoWorkspacePopup
@@ -335,7 +335,6 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
             { label: "Property", value: house?.label || "Not set" },
             { label: "Type", value: OPS_TASK_KIND_OPTIONS.find((k) => k.value === form.kind)?.label ?? "General" },
           ]}
-          creates={[]}
         />
       }
       footer={{ kind: "wizard", lastLabel: mode === "edit" ? "Save task" : "Add task", onFinish: onSaved }}
@@ -351,8 +350,8 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
               {isTour ? (
                 <>
                   <Text id="manager-task-guest-name" label="Guest name" value={form.guestName} onChange={(guestName) => set({ guestName })} placeholder="Jane Smith" />
-                  <Text id="manager-task-guest-email" label="Guest email (optional)" type="email" value={form.guestEmail} onChange={(guestEmail) => set({ guestEmail })} placeholder="jane@example.com" />
-                  <Text id="manager-task-guest-phone" label="Guest phone (optional)" type="tel" value={form.guestPhone} onChange={(guestPhone) => set({ guestPhone })} full />
+                  <Text id="manager-task-guest-email" label="Guest email" type="email" value={form.guestEmail} onChange={(guestEmail) => set({ guestEmail })} placeholder="jane@example.com" />
+                  <Text id="manager-task-guest-phone" label="Guest phone" type="tel" value={form.guestPhone} onChange={(guestPhone) => set({ guestPhone })} full />
                 </>
               ) : (
                 <Text
@@ -371,7 +370,7 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
           <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
             <Pick
               id="manager-task-property"
-              label={propertyRequired ? "Property" : "Property (optional)"}
+              label="Property"
               value={form.houseId}
               onChange={(houseId) => set({ houseId, room: "", residentId: "" })}
               options={houseOptions(propertyRequired ? "Select property" : "No property")}
@@ -381,7 +380,7 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
             {isService || form.kind === "move-in" || form.kind === "move-out" ? (
               <Pick
                 id="manager-task-resident"
-                label={isService ? "Resident" : "Resident (optional)"}
+                label="Resident"
                 value={form.residentId}
                 onChange={(residentId) => set({ residentId })}
                 options={[{ value: "", label: "Select resident" }, ...residents.map((r) => ({ value: r.id, label: `${r.name} · ${houseLabel(r.houseId)}` }))]}
@@ -391,7 +390,7 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
             {form.houseId ? (
               <Pick
                 id="manager-task-room"
-                label="Room (optional)"
+                label="Room"
                 value={form.room}
                 onChange={(room) => set({ room })}
                 options={[{ value: "", label: "No room" }, ...(house?.rooms ?? []).map((room) => ({ value: room, label: room }))]}
@@ -428,7 +427,7 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
           </div>
         ) : (
           <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
-            <Field label="Notes (optional)" htmlFor="manager-task-notes" full>
+            <Field label="Notes" htmlFor="manager-task-notes" full>
               <Textarea id="manager-task-notes" className="min-h-[88px]" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
             </Field>
             <Field label="Checklist (one step per line)" htmlFor="manager-task-checklist" full>
@@ -581,9 +580,9 @@ export function DemoBookingPopup({ onClose, onSaved }: { onClose: () => void; on
   const person = OPS_RESIDENTS.find((r) => r.id === resident);
   const whenSummary = checkIn && checkOut ? `${longDate(checkIn)} – ${longDate(checkOut)}` : "Dates";
   const steps = [
-    { id: "property", label: "Property", summary: house?.label || "Pick a house" },
-    { id: "when", label: "When", summary: whenSummary },
-    { id: "review", label: "Review", summary: "Add booking" },
+    { id: "property", label: "Property" },
+    { id: "when", label: "When" },
+    { id: "review", label: "Review" },
   ];
   return (
     <DemoWorkspacePopup
@@ -901,13 +900,12 @@ export function DemoPromotionNewPopup({ onClose, onSaved, editing }: { onClose: 
   const [draft, setDraft] = useState<PromotionDraft>(() => flyerDraft(editHouse, editDetail ?? OPS_PROMOTION_DETAILS["promo-willow-flyer"]));
   const [format, setFormat] = useState<PromotionTextFormat>(editing ? TEXT_FORMAT_BY_LABEL[editing.kind] ?? "listing_blurb" : "listing_blurb");
   const [fileName, setFileName] = useState<string | null>(editDetail?.fileName ?? null);
-  const kindLabel = PROMO_KIND_OPTIONS.find((k) => k.value === kind)?.label ?? "Promotion";
   const set = (patch: Partial<PromotionDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const lastLabel = editing ? "Save changes" : kind === "flyer" ? "Generate flyer" : kind === "upload" ? "Save promotion" : "Generate promotion text";
   const steps = [
-    { id: "kind", label: "Kind", summary: kindLabel },
-    { id: "content", label: "Content", summary: kind === "upload" ? fileName || "Choose a file" : draft.title || draft.headline || "Listing facts" },
-    { id: "preview", label: "Preview", summary: kindLabel },
+    { id: "kind", label: "Kind" },
+    { id: "content", label: "Content" },
+    { id: "preview", label: "Preview" },
   ];
   const textCopy = { format, hook: draft.headline || draft.title, body: [draft.address, draft.price, draft.sellingPoints, draft.customDetails].filter(Boolean).join("\n\n"), hashtags: "", ctaLine: [draft.cta, draft.contact].filter(Boolean).join(" · ") };
   const preview =
@@ -938,7 +936,6 @@ export function DemoPromotionNewPopup({ onClose, onSaved, editing }: { onClose: 
             {editing ? null : (
               <WorkspaceFileCard
                 accept={PROMOTION_UPLOAD_ACCEPT}
-                chips={["images", ".pdf", "up to 12 MB"]}
                 label="Upload your own"
                 dataAttr="promotion-new-header-upload"
                 fileName={fileName}
@@ -960,7 +957,7 @@ export function DemoPromotionNewPopup({ onClose, onSaved, editing }: { onClose: 
                 <Text id="promotion-flyer-label" label="Property label (shown on flyer)" value={draft.propertyLabel} onChange={(propertyLabel) => set({ propertyLabel })} />
                 <Text id="promotion-flyer-address" label="Address (shown on flyer)" value={draft.address} onChange={(address) => set({ address })} />
                 <Text id="promotion-flyer-name" label="Flyer name" value={draft.title} onChange={(title) => set({ title })} full />
-                <Text id="promotion-flyer-headline" label="Headline idea (optional)" value={draft.headline} onChange={(headline) => set({ headline })} full />
+                <Text id="promotion-flyer-headline" label="Headline idea" value={draft.headline} onChange={(headline) => set({ headline })} full />
                 <Field label="Key selling points / amenities (one per line)" htmlFor="promotion-flyer-points" full>
                   <Textarea id="promotion-flyer-points" rows={4} value={draft.sellingPoints} onChange={(e) => set({ sellingPoints: e.target.value })} />
                 </Field>
@@ -1011,7 +1008,6 @@ export function DemoPromotionNewPopup({ onClose, onSaved, editing }: { onClose: 
                     onClick={() => setFileName("alder-house-kitchen.jpg")}
                   >
                     <span className="text-sm font-semibold text-foreground">Drop or click to upload</span>
-                    <span className="text-xs text-muted">JPG, PNG, or PDF · up to 12 MB</span>
                   </button>
                 )}
               </div>
@@ -1123,14 +1119,13 @@ export function DemoOutgoingAddPopup({ onClose, onSaved }: { onClose: () => void
   const creatingPayee = payKind === "other" && payee === NEW_PAYEE;
   const setNew = (patch: Partial<typeof np>) => setNp((current) => ({ ...current, ...patch }));
   const payeeName = payKind === "vendor" ? vendor?.label ?? "" : payKind === "teammate" ? OPS_TEAMMATES.find((t) => t.value === teammate)?.label.split(" · ")[0] ?? "" : creatingPayee ? np.name : OPS_PAYEES.find((p) => p.value === payee)?.label.split(" · ")[0] ?? "";
-  const payToSummary = payeeName || "Choose who you are paying";
   const categoryLabel = CATEGORY_OPTIONS.find((c) => c.value === category)?.label ?? category;
   const steps = invoicePath
-    ? [{ id: "payto", label: "Pay to", summary: payToSummary }]
+    ? [{ id: "payto", label: "Pay to" }]
     : [
-        { id: "payto", label: "Pay to", summary: payToSummary },
-        { id: "payment", label: "Payment", summary: amount ? `${categoryLabel} · $${amount}` : "Amount" },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "payto", label: "Pay to" },
+        { id: "payment", label: "Payment" },
+        { id: "review", label: "Review" },
       ];
   return (
     <DemoWorkspacePopup
@@ -1435,9 +1430,9 @@ export function DemoExpensePopup({ onClose, onSaved }: { onClose: () => void; on
   const propertyLabel = OPS_HOUSES.find((h) => h.id === property)?.label ?? "Portfolio";
   const vendorLabel = OPS_PAY_VENDORS.find((v) => v.value === vendor)?.label ?? "None";
   const steps = [
-    { id: "what", label: "What", summary: `${categoryLabel} · $${amount}` },
-    { id: "where", label: "Where", summary: `${propertyLabel} · ${vendorLabel}` },
-    { id: "review", label: "Review", summary: "Ready" },
+    { id: "what", label: "What" },
+    { id: "where", label: "Where" },
+    { id: "review", label: "Review" },
   ];
   return (
     <DemoWorkspacePopup
@@ -1452,7 +1447,6 @@ export function DemoExpensePopup({ onClose, onSaved }: { onClose: () => void; on
             { label: "Amount", value: amount ? `$${amount}` : "Not set", warn: !amount },
             { label: "Property", value: propertyLabel },
           ]}
-          creates={[{ tone: "yes", text: "Saves an expense" }]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Save expense", onFinish: onSaved }}
@@ -1496,7 +1490,6 @@ export function DemoExpensePopup({ onClose, onSaved }: { onClose: () => void; on
                 { label: "Property", value: propertyLabel },
                 { label: "Vendor", value: vendorLabel },
               ]}
-              creates={[{ tone: "yes", text: "Saves an expense" }]}
             />
           </StepColumn>
         )
@@ -1515,9 +1508,9 @@ export function DemoIncomePopup({ onClose, onSaved }: { onClose: () => void; onS
   const categoryLabel = INCOME_CATEGORIES.find((c) => c.code === category)?.name ?? category;
   const propertyLabel = OPS_HOUSES.find((h) => h.id === property)?.label ?? "Portfolio";
   const steps = [
-    { id: "what", label: "What", summary: `${categoryLabel} · $${amount}` },
-    { id: "where", label: "Where", summary: propertyLabel },
-    { id: "review", label: "Review", summary: "Ready" },
+    { id: "what", label: "What" },
+    { id: "where", label: "Where" },
+    { id: "review", label: "Review" },
   ];
   return (
     <DemoWorkspacePopup
@@ -1532,7 +1525,6 @@ export function DemoIncomePopup({ onClose, onSaved }: { onClose: () => void; onS
             { label: "Amount", value: amount ? `$${amount}` : "Not set", warn: !amount },
             { label: "Property", value: propertyLabel },
           ]}
-          creates={[{ tone: "yes", text: "Saves an income entry" }]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Save income", onFinish: onSaved }}
@@ -1570,7 +1562,6 @@ export function DemoIncomePopup({ onClose, onSaved }: { onClose: () => void; onS
                 { label: "Amount", value: amount ? `$${amount}` : "—" },
                 { label: "Property", value: propertyLabel },
               ]}
-              creates={[{ tone: "yes", text: "Saves an income entry" }]}
             />
           </StepColumn>
         )
@@ -1648,9 +1639,9 @@ export function DemoUploadDocumentPopup({ onClose, onSaved }: { onClose: () => v
   const [property, setProperty] = useState("");
   const [visibility, setVisibility] = useState("Manager only");
   const steps = [
-    { id: "file", label: "File", summary: fileName ?? "Choose a file" },
-    { id: "details", label: "Details", summary: category },
-    { id: "review", label: "Review", summary: "Ready" },
+    { id: "file", label: "File" },
+    { id: "details", label: "Details" },
+    { id: "review", label: "Review" },
   ];
   return (
     <DemoWorkspacePopup
@@ -1665,7 +1656,6 @@ export function DemoUploadDocumentPopup({ onClose, onSaved }: { onClose: () => v
             { label: "Category", value: category },
             { label: "Visibility", value: visibility },
           ]}
-          creates={[{ tone: "yes", text: "Saves this document" }]}
         />
       }
       footer={{ kind: "wizard", lastLabel: "Upload", onFinish: onSaved }}
@@ -1675,7 +1665,7 @@ export function DemoUploadDocumentPopup({ onClose, onSaved }: { onClose: () => v
       {(step) =>
         step === 0 ? (
           <StepColumn>
-            <WorkspaceFileCard accept={DOCUMENT_UPLOAD_ACCEPT} chips={DOCUMENT_FILE_CHIPS} dataAttr="document-upload-file-card" fileName={fileName} onPick={(file) => setFileName(file?.name ?? "document.pdf")} />
+            <WorkspaceFileCard accept={DOCUMENT_UPLOAD_ACCEPT} dataAttr="document-upload-file-card" fileName={fileName} onPick={(file) => setFileName(file?.name ?? "document.pdf")} />
             <WizardField label="Name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Document name" />
             </WizardField>
@@ -1699,7 +1689,6 @@ export function DemoUploadDocumentPopup({ onClose, onSaved }: { onClose: () => v
                 { label: "Property", value: OPS_HOUSES.find((h) => h.id === property)?.label ?? "Manager-level" },
                 { label: "Visibility", value: visibility },
               ]}
-              creates={[{ tone: "yes", text: "Saves this document" }]}
             />
           </StepColumn>
         )

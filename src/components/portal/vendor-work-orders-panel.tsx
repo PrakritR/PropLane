@@ -1137,39 +1137,38 @@ export function VendorWorkOrdersPanel({
       titleInlineFilter={null}
       compactFilterRow
     >
-      <div className="mb-2 max-lg:mb-1.5">
-        <RecordTabBand
-          dataAttr="vendor-services-band"
-          ariaLabel="Service status"
-          tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count }))}
-          activeId={tabId}
-          onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab | typeof VENDOR_FIND_WORK_TAB))}
-          search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
-          actions={
-            <>
-              <RecordBandFilter
-                dataAttr="vendor-services-band"
-                fields={
-                  isFindWork
-                    ? [
-                        { id: "trade", label: "Trade", anyLabel: "Any trade", value: tradeFilter, options: FIND_WORK_TRADE_OPTIONS, onChange: setTradeFilter },
-                        { id: "distance", label: "Distance", anyLabel: "Any distance", value: distanceFilter, options: FIND_WORK_DISTANCE_OPTIONS, onChange: setDistanceFilter },
-                      ]
-                    : propertyOptions.length > 0
-                      ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
-                      : []
-                }
-              />
-              <VendorSettingsGear
-                section="services"
-                label={servicesSettingsEntry.label}
-                dataAttr={servicesSettingsEntry.dataAttr}
-              />
-            </>
-          }
-          plus={{ label: "Add bid", onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-add" }}
-        />
-      </div>
+      <RecordTabBand
+        className="mb-2 max-lg:mb-1.5"
+        dataAttr="vendor-services-band"
+        ariaLabel="Service status"
+        tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count }))}
+        activeId={tabId}
+        onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab | typeof VENDOR_FIND_WORK_TAB))}
+        search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
+        actions={
+          <>
+            <RecordBandFilter
+              dataAttr="vendor-services-band"
+              fields={
+                isFindWork
+                  ? [
+                      { id: "trade", label: "Trade", anyLabel: "Any trade", value: tradeFilter, options: FIND_WORK_TRADE_OPTIONS, onChange: setTradeFilter },
+                      { id: "distance", label: "Distance", anyLabel: "Any distance", value: distanceFilter, options: FIND_WORK_DISTANCE_OPTIONS, onChange: setDistanceFilter },
+                    ]
+                  : propertyOptions.length > 0
+                    ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
+                    : []
+              }
+            />
+            <VendorSettingsGear
+              section="services"
+              label={servicesSettingsEntry.label}
+              dataAttr={servicesSettingsEntry.dataAttr}
+            />
+          </>
+        }
+        plus={{ label: "Add bid", onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-add" }}
+      />
       {bidsSyncFailed || payoutsSyncFailed ? (
         <p className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="vendor-wo-sync-error">
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.

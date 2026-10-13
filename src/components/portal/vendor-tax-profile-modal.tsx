@@ -137,7 +137,7 @@ export function VendorTaxProfileModal({
             <Input value={draft.legalName} onChange={(e) => setDraft({ ...draft, legalName: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-            Business name (optional)
+            Business name
             <Input value={draft.businessName} onChange={(e) => setDraft({ ...draft, businessName: e.target.value })} />
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-muted">

@@ -45,7 +45,7 @@ import {
   WizardRow,
 } from "@/components/portal/add-workspace/parts";
 import { WorkspaceFileCard, WorkspaceHeaderUploadPresent } from "@/components/portal/add-workspace/upload-action";
-import { ContactStep, RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "@/components/portal/resident-wizard/step-contact";
+import { ContactStep, RESIDENT_FILE_ACCEPT } from "@/components/portal/resident-wizard/step-contact";
 import { HomeStep } from "@/components/portal/resident-wizard/step-home";
 import { ApplicationStep } from "@/components/portal/resident-wizard/step-application";
 import { LeaseStep } from "@/components/portal/resident-wizard/step-lease";
@@ -55,7 +55,6 @@ import { ReviewStep } from "@/components/portal/resident-wizard/step-review";
 import { ResidentSidePanel } from "@/components/portal/resident-wizard/side-panel";
 import type { ResidentWizardDerived } from "@/components/portal/resident-wizard/derived";
 import {
-  alsoCreates,
   currentResidentStepOffPath,
   emptyAddPersonForm,
   formatMoney,
@@ -246,10 +245,6 @@ export function DemoApproveResidentPopup({ row, onClose, onApproved }: { row: Re
             { label: "Rent", value: record.rent ? `${formatMoney(record.rent)} / month` : "Not set" },
             { label: "Message", value: "Email" },
           ]}
-          creates={[
-            { tone: "yes", text: "The applicant is told and a lease can be sent" },
-            { tone: "no", text: "Nothing is charged yet" },
-          ]}
         />
       }
       footer={{ kind: "done", label: "Approve", onDone: onApproved, left: <CancelButton onClick={onClose} dataAttr="approve-application-cancel" /> }}
@@ -338,9 +333,9 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
       "Add charge",
       "Add charge",
       [
-        { id: "who", label: "Who", summary: `${row.name} · ${record.property}` },
-        { id: "amount", label: "Amount", summary: amountLabel ? `${chargeType} · ${amountLabel}` : "Amount" },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "who", label: "Who" },
+        { id: "amount", label: "Amount" },
+        { id: "review", label: "Review" },
       ],
       <PreviewPanel
         title="Charge"
@@ -350,10 +345,6 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
           { label: "Resident", value: row.name },
           { label: "Type", value: chargeType },
           { label: "Amount", value: amountLabel || "Not set", warn: !amountLabel },
-        ]}
-        creates={[
-          { tone: "yes", text: "A charge on their Payments tab" },
-          { tone: "warn", text: "Notice previewed before it sends" },
         ]}
       />,
       (index) => (
@@ -412,9 +403,9 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
       "Add service",
       "Add service",
       [
-        { id: "where", label: "Where", summary: record.place },
-        { id: "service", label: "Service", summary: serviceTitle || "What needs doing" },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "where", label: "Where" },
+        { id: "service", label: "Service" },
+        { id: "review", label: "Review" },
       ],
       <PreviewPanel
         title="Service"
@@ -426,7 +417,6 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
           { label: "Resident", value: row.name },
           { label: "Priority", value: priority },
         ]}
-        creates={[{ tone: "yes", text: "An open service on their Services tab" }]}
       />,
       (index) => (
         <div className="max-w-[560px] space-y-4">
@@ -475,10 +465,10 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
       "Add tour",
       "Add tour",
       [
-        { id: "home", label: "Home", summary: record.property },
-        { id: "when", label: "Date & time", summary: `${tourDate} · ${tourStart}` },
-        { id: "visitor", label: "Visitor", summary: visitor },
-        { id: "review", label: "Review", summary: "Ready" },
+        { id: "home", label: "Home" },
+        { id: "when", label: "Date & time" },
+        { id: "visitor", label: "Visitor" },
+        { id: "review", label: "Review" },
       ],
       <PreviewPanel
         title="Tour"
@@ -487,10 +477,6 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
         facts={[
           { label: "Format", value: tourFormat === "virtual" ? "Virtual" : "In person" },
           { label: "When", value: `${tourDate} · ${tourStart}` },
-        ]}
-        creates={[
-          { tone: "yes", text: "A tour on Tours and your calendar" },
-          { tone: "warn", text: "Confirmation previewed before it sends" },
         ]}
       />,
       (index) => (
@@ -575,7 +561,6 @@ export function DemoResidentActionPopup({ kind, row, onClose, onDone }: { kind: 
         <div className="max-w-[560px] space-y-4">
           <WorkspaceFileCard
             accept={RESIDENT_FILE_ACCEPT}
-            chips={RESIDENT_STEP_FILE_CHIPS}
             fileName={fileName}
             onPick={(file) => setFileName(file.name)}
             dataAttr="add-document-upload"
@@ -694,32 +679,26 @@ export function DemoResidentWizardPopup({
   const propertyLabel = DEMO_WIZARD_PROPERTIES.find((p) => p.id === form.propertyId)?.label ?? null;
   const todo = useMemo(() => thingsToFinish(form, "person"), [form]);
   const missing = (id: string) => todo.some((t) => t.step === id);
-  const rent = Number(form.rent.replace(/[^\d.]/g, "")) || 0;
-  const appFilled = [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ");
-  const homeSummary = propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet";
-  const leaseSummary = rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Rent not set";
-  const contactSummary = form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who they are";
 
   const steps: AddWorkspaceStep[] = useMemo(() => {
-    const off = "Off this add";
     return editing
       ? [
-          { id: "contact", label: "Resident", incomplete: missing("contact"), summary: contactSummary },
-          { id: "home", label: "Home", incomplete: missing("home"), summary: homeSummary },
-          { id: "application", label: "Application", summary: appFilled || "On file" },
-          { id: "lease", label: "Lease", incomplete: missing("lease"), summary: leaseSummary },
-          { id: "payments", label: "Payments", summary: "2 paid · 0 unpaid" },
-          { id: "documents", label: "Documents", summary: "2 attached" },
-          { id: "review", label: "Review", summary: "Nothing changed" },
+          { id: "contact", label: "Resident", incomplete: missing("contact") },
+          { id: "home", label: "Home", incomplete: missing("home") },
+          { id: "application", label: "Application" },
+          { id: "lease", label: "Lease", incomplete: missing("lease") },
+          { id: "payments", label: "Payments" },
+          { id: "documents", label: "Documents" },
+          { id: "review", label: "Review" },
         ]
       : [
-          { id: "contact", label: "Resident", summary: contactSummary },
-          { id: "home", label: "Home", summary: homeSummary },
-          { id: "application", label: "Application", offPath: currentResidentStepOffPath("application", form), summary: appFilled || (alsoCreates(form, "application") ? "Nothing yet" : off) },
-          { id: "lease", label: "Lease", offPath: currentResidentStepOffPath("lease", form), summary: alsoCreates(form, "lease") ? leaseSummary : off },
-          { id: "payments", label: "Payments", offPath: currentResidentStepOffPath("payments", form), summary: derived.isAirbnb ? "Nothing billed" : alsoCreates(form, "payments") ? "From move-in" : off },
-          { id: "documents", label: "Documents", offPath: currentResidentStepOffPath("documents", form), summary: form.documents.length ? `${form.documents.length} attached` : alsoCreates(form, "documents") ? "None attached" : off },
-          { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
+          { id: "contact", label: "Resident" },
+          { id: "home", label: "Home" },
+          { id: "application", label: "Application", offPath: currentResidentStepOffPath("application", form) },
+          { id: "lease", label: "Lease", offPath: currentResidentStepOffPath("lease", form) },
+          { id: "payments", label: "Payments", offPath: currentResidentStepOffPath("payments", form) },
+          { id: "documents", label: "Documents", offPath: currentResidentStepOffPath("documents", form) },
+          { id: "review", label: "Review", incomplete: todo.length > 0 },
         ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, todo, derived.isAirbnb, derived.isShortTerm, editing, propertyLabel]);
@@ -759,7 +738,7 @@ export function DemoResidentWizardPopup({
         return (
           <WorkspaceHeaderUploadPresent.Provider value={!editing}>
             {index === 0 && !editing ? (
-              <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={noop} dataAttr="residents-wizard-header-upload" label="Upload a file" />
+              <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} onPick={noop} dataAttr="residents-wizard-header-upload" label="Upload a file" />
             ) : null}
             {id === "contact" ? <ContactStep form={form} patch={patch} strip={{ kind: "blank" }} onPickFile={noop} onUndoFill={noop} busy={false} mode="person" /> : null}
             {id === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={DEMO_WIZARD_PROPERTIES} /> : null}
@@ -956,25 +935,24 @@ export function DemoVendorFormPopup({
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
 
   const title = mode === "edit" ? "Edit vendor" : seeded ? "Invite vendor" : "Add vendor";
-  const housesSummary = draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property";
   const steps: AddWorkspaceStep[] =
     mode === "edit"
       ? [
-          { id: "vendor", label: "Vendor", summary: draft.name.trim() || "Who they are" },
-          { id: "properties", label: "Properties", summary: housesSummary },
-          { id: "trades", label: "Who can handle", summary: draft.trades.join(", ") || "No trades yet" },
-          { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
-          { id: "review", label: "Review", summary: "Save changes" },
+          { id: "vendor", label: "Vendor" },
+          { id: "properties", label: "Properties" },
+          { id: "trades", label: "Who can handle" },
+          { id: "rates", label: "Typical price" },
+          { id: "review", label: "Review" },
         ]
       : seeded
-        ? [{ id: "properties", label: "Properties", summary: housesSummary }]
+        ? [{ id: "properties", label: "Properties" }]
         : [
-            { id: "invite", label: "Invite by", summary: invitePath === "link" ? "Link" : invitePath === "message" ? "Message" : "PropLane code" },
-            { id: "contact", label: "Contact", summary: draft.name.trim() || "Name and phone" },
-            { id: "properties", label: "Properties", summary: housesSummary },
-            { id: "trades", label: "What they do", summary: draft.trades.join(", ") || "No trades yet" },
-            { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
-            { id: "review", label: "Review", summary: "Invite vendor" },
+            { id: "invite", label: "Invite by" },
+            { id: "contact", label: "Contact" },
+            { id: "properties", label: "Properties" },
+            { id: "trades", label: "What they do" },
+            { id: "rates", label: "Typical price" },
+            { id: "review", label: "Review" },
           ];
   const current = Math.min(step, steps.length - 1);
   const stepId = steps[current]!.id;

@@ -363,7 +363,6 @@ export function ServiceOfferingEditModal({
       id: "service",
       label: "Service",
       incomplete: !resolvedName,
-      summary: resolvedName || "Name this request",
     },
   ];
 

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Bot, Lock, MessageSquareText, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
+import { Bot, Lock, MessageSquareText, Pencil, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -238,9 +239,7 @@ export function ResidentProfilePanel({
       </Button>
     </div>
   ) : (
-    <Button type="button" variant="outline" className="px-4 text-[13px]" onClick={() => setEditing(true)}>
-      Edit
-    </Button>
+    <PortalIconAction icon={Pencil} label="Edit" onClick={() => setEditing(true)} data-attr="resident-profile-edit" />
   );
 
   const personalInfoSection = (
@@ -282,7 +281,7 @@ export function ResidentProfilePanel({
                   id="resident-pf-id"
                   value={formatProplaneIdForDisplay(axisId)}
                   readOnly
-                  className="bg-muted/40 font-mono text-sm"
+                  className="bg-muted/40 text-sm"
                 />
               </div>
             </div>
@@ -299,15 +298,30 @@ export function ResidentProfilePanel({
               label change — but a field captioned "PropLane ID" must never
               read AXIS to the person whose id it is.
             */}
-            <PortalSettingsField label="PropLane ID" value={formatProplaneIdForDisplay(axisId)} mono />
+            <PortalSettingsField
+              label="PropLane ID"
+              value={formatProplaneIdForDisplay(axisId)}
+              action={
+                <CopyIconAction
+                  className="-my-2.5 shrink-0"
+                  label="Copy PropLane ID"
+                  data-attr="resident-profile-copy-id"
+                  onCopy={() => navigator.clipboard?.writeText(formatProplaneIdForDisplay(axisId))}
+                />
+              }
+            />
           </>
         )}
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );
 
-  const { snapshot: agentSnapshot, reload: reloadAgent } = useResidentAgentSnapshot();
+  const { snapshot: agentSnapshot, loaded: agentLoaded, reload: reloadAgent } = useResidentAgentSnapshot();
   const agentEnabled = agentSnapshot?.enabled === true;
+  // The row holds its place while the snapshot loads, so the list below it never shifts when it lands.
+  const showAgentRow = agentEnabled || !agentLoaded;
+  // Until the snapshot lands the row is only a placeholder: it opens nothing, so it is not tappable.
+  const agentRowPending = showAgentRow && !agentLoaded;
 
   const groups = useMemo<SettingsGroup[]>(
     () => [
@@ -323,7 +337,7 @@ export function ResidentProfilePanel({
         description: "Verify your phone for resident texts and the SMS assistant.",
         icon: Smartphone,
       },
-      ...(agentEnabled
+      ...(showAgentRow
         ? [
             {
               id: "agent" as const,
@@ -358,7 +372,7 @@ export function ResidentProfilePanel({
         icon: Settings,
       },
     ],
-    [agentEnabled],
+    [showAgentRow],
   );
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
@@ -392,10 +406,11 @@ export function ResidentProfilePanel({
 
   const openGroup = useCallback(
     (id: string) => {
+      if (id === "agent" && !agentEnabled) return;
       pushedDepthRef.current += 1;
       window.history.pushState(null, "", urlForTab(id));
     },
-    [urlForTab],
+    [agentEnabled, urlForTab],
   );
 
   const backToRoot = useCallback(() => {
@@ -484,6 +499,7 @@ export function ResidentProfilePanel({
             id: g.id,
             label: g.label,
             icon: <g.icon className="h-4 w-4" />,
+            disabled: g.id === "agent" && agentRowPending,
           }))}
           activeId={paneGroup.id}
           onSelect={openGroup}
@@ -502,6 +518,7 @@ export function ResidentProfilePanel({
                     icon={<g.icon className="h-4 w-4" />}
                     label={g.label}
                     onClick={() => openGroup(g.id)}
+                    disabled={g.id === "agent" && agentRowPending}
                     dataAttr={`settings-open-${g.id}`}
                   />
                 ))}

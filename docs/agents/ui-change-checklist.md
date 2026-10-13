@@ -103,9 +103,16 @@ row, field, or choice.
 - **Records** (rooms, bathrooms, shared spaces, fees, bundles) are
   `RecordCard`s of `FactRow`s at every width — nothing scrolls sideways on a
   phone; the website gets the same cards in its wider workspace.
+- **A pop-up is the same rule**, down to its chrome: the step rail is a name and
+  a tick (no caption under it), a field label carries no "Optional" tag (only
+  required keeps its mark), an upload control states no format or size chips —
+  a wrong pick is refused with an error naming the file — and a step heading
+  that only repeats the dialog title is not drawn (§ Pop-ups).
 - Guard: `tests/unit/no-subtext-listing-wizard.test.ts` reads the wizard
   source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
-  sentence of grey text. Billing: `tests/unit/pro-plan-no-subtext.test.ts`.
+  sentence of grey text. Pop-up shell:
+  `tests/unit/popup-shell-no-subtext.test.tsx`. Billing:
+  `tests/unit/pro-plan-no-subtext.test.ts`.
   Inspections list: `tests/unit/inspections-no-progress-subtext.test.ts`.
   Do not site-sweep existing copy unless the surface is in scope.
 

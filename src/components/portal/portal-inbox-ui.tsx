@@ -31,6 +31,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
+import { inboxDisplayName } from "@/lib/inbox-display-name";
 import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
 import { pickInboxColumns, type InboxColumns } from "@/lib/inbox-columns";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -1061,11 +1062,14 @@ export function InboxConversationRow({
   trailing,
   listVariant = "default",
   appearance = "default",
+  emailNameAsPerson = false,
 }: {
   name: string;
   subtitle?: string;
   preview: string;
   time: string;
+  /** A row named only by an email address reads as the person ("Manager"), not the address. */
+  emailNameAsPerson?: boolean;
   /** Manager Communication list — avatar, name, preview, stamp; no property/category line. */
   listVariant?: "default" | "manager";
   /**
@@ -1141,7 +1145,7 @@ export function InboxConversationRow({
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-1.5">
                 <p className={`min-w-0 truncate text-sm leading-tight text-foreground ${unread ? "font-bold" : "font-semibold"}`}>
-                  <span className="truncate">{name}</span>
+                  <span className="truncate">{emailNameAsPerson ? inboxDisplayName(name) : name}</span>
                 </p>
                 <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11.5px] tabular-nums text-muted">
                   {time}
@@ -1222,7 +1226,7 @@ export function InboxConversationRow({
               {!managerList && unread ? (
                 <span className="mr-1.5 inline-block size-2 shrink-0 rounded-full bg-primary align-middle" aria-label="Unread" />
               ) : null}
-              <span className="truncate">{name}</span>
+              <span className="truncate">{emailNameAsPerson ? inboxDisplayName(name) : name}</span>
             </p>
             <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted">
               {time}
@@ -1481,6 +1485,7 @@ export function InboxBubble({
   showChannel = false,
   showAvatar = false,
   alignAssistantStart = false,
+  emailNameAsPerson = false,
 }: {
   message: InboxBubbleMessage;
   showAuthor?: boolean;
@@ -1491,6 +1496,12 @@ export function InboxBubble({
   showAvatar?: boolean;
   /** True only for the PropLane Assistant conversation. Kept so callers need not change. */
   alignAssistantStart?: boolean;
+  /**
+   * A bubble whose only known author is an email address reads as the person ("Manager"), the same
+   * opt-in the conversation row takes. Off by default: a multi-party timeline keeps the address, so
+   * two senders who share a local part ("jane@acme.com", "jane@contractor.io") stay distinguishable.
+   */
+  emailNameAsPerson?: boolean;
 }) {
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
@@ -1517,7 +1528,7 @@ export function InboxBubble({
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
   const startsRun = cluster === "single" || cluster === "first" || showAvatar;
-  const author = assistant ? "PropLane" : message.author || "?";
+  const author = assistant ? "PropLane" : (emailNameAsPerson ? inboxDisplayName(message.author) : message.author) || "?";
   const clock = inboxMessageClock(message.at);
   const bookingNoticePath = assistant ? bookingRecordPathFromNotice(message.body) : null;
 
@@ -1620,10 +1631,13 @@ export function InboxMessageTimeline({
   messages,
   showAuthors = false,
   alignAssistantStart = false,
+  emailNameAsPerson = false,
 }: {
   messages: InboxBubbleMessage[];
   showAuthors?: boolean;
   alignAssistantStart?: boolean;
+  /** Passed to every bubble — see `InboxBubble`. */
+  emailNameAsPerson?: boolean;
 }) {
   const items = buildInboxMessageTimeline(messages);
   return (
@@ -1656,6 +1670,7 @@ export function InboxMessageTimeline({
               showChannel={item.showChannel}
               showAvatar={item.showAvatar}
               alignAssistantStart={alignAssistantStart}
+              emailNameAsPerson={emailNameAsPerson}
             />
           </div>
         ),
@@ -3237,6 +3252,7 @@ export function InboxThreadView({
   messages,
   showAuthors = false,
   alignAssistantStart = false,
+  emailNameAsPerson = false,
   onBack,
   hideIdentityHeader = false,
   headerActions,
@@ -3258,6 +3274,8 @@ export function InboxThreadView({
   showAuthors?: boolean;
   /** Pin PropLane Assistant ice bubbles to the left in that conversation only. */
   alignAssistantStart?: boolean;
+  /** A bubble author known only as an email address reads as the person — see `InboxBubble`. */
+  emailNameAsPerson?: boolean;
   /** Mobile-only back affordance returning to the list. */
   onBack?: () => void;
   /** Hide avatar, title, and subtitle (e.g. resident profile Communication tab). */
@@ -3361,6 +3379,7 @@ export function InboxThreadView({
               messages={messages}
               showAuthors={showAuthors}
               alignAssistantStart={alignAssistantStart}
+              emailNameAsPerson={emailNameAsPerson}
             />
             {afterMessages}
             <div ref={endRef} />

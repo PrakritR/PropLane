@@ -56,7 +56,7 @@ describe("residentLeaseRenewalStatus", () => {
       TODAY,
     );
     expect(status.kind).toBe("awaiting_signature");
-    if (status.kind === "awaiting_signature") expect(status.body).toContain("sign");
+    if (status.kind === "awaiting_signature") expect(status.fact).toBe("Renewal ready to sign");
   });
 
   it("flags an ending lease with an urgent CTA inside 60 days", () => {
@@ -65,9 +65,8 @@ describe("residentLeaseRenewalStatus", () => {
     if (status.kind === "ending") {
       expect(status.daysRemaining).toBe(16);
       expect(status.soon).toBe(true);
-      expect(status.cta).toBe("Renew or extend");
-      expect(status.headline).toContain("January 31, 2027");
-      expect(status.body).toContain("16 days");
+      expect(status.cta).toBe("Extend");
+      expect(status.fact).toBe("Ends Jan 31, 2027");
     }
   });
 
@@ -79,17 +78,16 @@ describe("residentLeaseRenewalStatus", () => {
     expect(status.kind).toBe("ending");
     if (status.kind === "ending") {
       expect(status.soon).toBe(false);
-      expect(status.cta).toBe("Extend lease");
+      expect(status.cta).toBe("Extend");
     }
   });
 
-  it("tells a rollover resident they need do nothing", () => {
+  it("states a rollover as one fact", () => {
     rollsOver.value = true;
     const status = residentLeaseRenewalStatus(lease(), TODAY);
     expect(status.kind).toBe("rolls_over");
     if (status.kind === "rolls_over") {
-      expect(status.headline).toContain("Continues month-to-month");
-      expect(status.body).toContain("do not need to do anything");
+      expect(status.fact).toBe("Continues month-to-month after Jan 31, 2027");
     }
   });
 
@@ -99,6 +97,13 @@ describe("residentLeaseRenewalStatus", () => {
       TODAY,
     );
     expect(status.kind).toBe("month_to_month");
+    if (status.kind === "month_to_month") expect(status.fact).toBe("Month-to-month");
+  });
+
+  it("carries one short fact and no sentence body", () => {
+    const status = residentLeaseRenewalStatus(lease(), TODAY);
+    expect(status).not.toHaveProperty("body");
+    expect(status).not.toHaveProperty("headline");
   });
 
   it("counts days without a timezone slip", () => {

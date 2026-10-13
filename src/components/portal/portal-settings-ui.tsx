@@ -30,7 +30,8 @@ export function PortalSettingsSection({
   children,
   id,
 }: {
-  title: string;
+  /** Omit when the page already carries this heading (a section titled "Profile" under the Profile page repeats it). */
+  title?: string;
   action?: ReactNode;
   children: ReactNode;
   /** Anchor a settings gear links to (`/portal/profile?tab=…#<id>`). */
@@ -42,7 +43,7 @@ export function PortalSettingsSection({
       <section data-slot="settings-section" id={id} className="scroll-mt-4 space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {titleStyle === "heading" ? (
+            {!title ? null : titleStyle === "heading" ? (
               <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
             ) : (
               <h2 className="text-xs font-medium uppercase tracking-[0.06em] text-muted">{title}</h2>
@@ -338,25 +339,34 @@ export function PortalSettingsAutosaveField({
 }) {
   return (
     <div className="border-b border-border/70 px-4 py-3 last:border-0">
-      <div className="flex items-center gap-4">
+      {/* On a phone the label sits over the control (flex-wrap), so the field gets the whole row, not a 100px sliver. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 sm:flex-nowrap">
         <label
           htmlFor={htmlFor}
-          className="w-[7.5rem] shrink-0 text-[13px] text-muted sm:w-36"
+          className="shrink-0 max-sm:basis-full text-[13px] text-muted sm:w-36"
         >
           {label}
         </label>
-        <div className="min-w-0 flex-1">{children}</div>
-        <span
-          aria-live="polite"
-          className="w-16 shrink-0 text-right text-[11.5px] font-semibold tabular-nums"
-        >
-          {state === "saving" ? <span className="text-muted">Saving…</span> : null}
-          {state === "saved" ? <span className="text-[var(--status-confirmed-fg,#15803d)]">Saved</span> : null}
-          {state === "error" ? <span className="text-red-600">Failed</span> : null}
-        </span>
+        {/*
+          The save state sits inside the control's right edge, so the field itself takes the whole
+          row. Both control shapes reserve room for it: an `<input>` through its own padding, and
+          the shared select — a `button[aria-haspopup="listbox"]`, never a native `<select>` — on
+          its value text, with the badge nudged left of that trigger's chevron.
+        */}
+        <div className="relative min-w-0 flex-1 [&_input]:pr-[4.5rem] [&:has(button[aria-haspopup='listbox'])>span]:right-9 [&_button[aria-haspopup='listbox']>span]:pr-[4rem]">
+          {children}
+          <span
+            aria-live="polite"
+            className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-[11.5px] font-semibold tabular-nums"
+          >
+            {state === "saving" ? <span className="text-muted">Saving…</span> : null}
+            {state === "saved" ? <span className="text-[var(--status-confirmed-fg,#15803d)]">Saved</span> : null}
+            {state === "error" ? <span className="text-red-600">Failed</span> : null}
+          </span>
+        </div>
       </div>
       {state === "error" ? (
-        <p className="mt-1.5 pl-[8.5rem] text-[12px] text-red-600 sm:pl-40">
+        <p className="mt-1.5 text-[12px] text-red-600 sm:pl-40">
           {error ?? "Could not save."}{" "}
           {onRetry ? (
             <button
@@ -380,6 +390,7 @@ export function PortalSettingsLinkRow({
   href,
   onClick,
   dataAttr,
+  disabled = false,
 }: {
   label: string;
   value?: string;
@@ -388,6 +399,11 @@ export function PortalSettingsLinkRow({
   href?: string;
   onClick?: () => void;
   dataAttr?: string;
+  /**
+   * The row is holding its place while what it opens is still loading. It reads as not-yet-ready
+   * and refuses the tap, rather than looking live and doing nothing.
+   */
+  disabled?: boolean;
 }) {
   const inner = (
     <>
@@ -409,10 +425,12 @@ export function PortalSettingsLinkRow({
     </>
   );
 
-  const className =
-    "flex min-h-[52px] w-full items-center justify-between gap-4 border-b border-border px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40";
+  const className = cn(
+    "flex min-h-[52px] w-full items-center justify-between gap-4 border-b border-border px-4 py-2.5 text-left transition-colors last:border-0",
+    disabled ? "cursor-default opacity-60" : "hover:bg-accent/40",
+  );
 
-  if (href) {
+  if (href && !disabled) {
     return (
       <Link href={href} className={className} data-attr={dataAttr}>
         {inner}
@@ -421,7 +439,7 @@ export function PortalSettingsLinkRow({
   }
 
   return (
-    <button type="button" onClick={onClick} className={className} data-attr={dataAttr}>
+    <button type="button" onClick={onClick} disabled={disabled} aria-disabled={disabled || undefined} className={className} data-attr={dataAttr}>
       {inner}
     </button>
   );
@@ -471,6 +489,8 @@ export type PortalSettingsNavItem = {
   icon?: ReactNode;
   /** Optional visual grouping for long settings navigations. */
   group?: string;
+  /** Holding its place while the section it opens is still loading — shown, not clickable. */
+  disabled?: boolean;
 };
 
 /**
@@ -537,6 +557,8 @@ export function PortalSettingsNav({
                     key={item.id}
                     type="button"
                     onClick={() => onSelect(item.id)}
+                    disabled={item.disabled}
+                    aria-disabled={item.disabled || undefined}
                     aria-current={active ? "page" : undefined}
                     data-attr={`settings-nav-${item.id}`}
                     className={cn(
@@ -544,6 +566,7 @@ export function PortalSettingsNav({
                       active
                         ? "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
                         : "text-muted hover:bg-[var(--secondary)]/70 hover:text-foreground",
+                      item.disabled && "cursor-default opacity-60 hover:bg-transparent hover:text-muted",
                     )}
                   >
                     {item.icon ? (

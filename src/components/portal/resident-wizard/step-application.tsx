@@ -25,7 +25,7 @@ import {
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
 import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
-import { RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "./step-contact";
+import { RESIDENT_FILE_ACCEPT } from "./step-contact";
 import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
 import { EditApplicationBottomCards, EditApplicationTopCards } from "./edit-steps";
@@ -120,7 +120,7 @@ export function ApplicationStep({
     <StepColumn>
       <StepHeading title="Application" />
       {onPickApplicationFile && !editRecord ? (
-        <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={onPickApplicationFile} disabled={uploadBusy} dataAttr="residents-wizard-application-upload" label="Upload application" />
+        <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} onPick={onPickApplicationFile} disabled={uploadBusy} dataAttr="residents-wizard-application-upload" label="Upload application" />
       ) : null}
       {editRecord ? (
         <EditApplicationTopCards record={editRecord} />
@@ -226,7 +226,7 @@ export function ApplicationStep({
             {on("currentMoveIn") ? text("currentMoveIn", "Lived here from", undefined, "date") : null}
             {on("currentMoveOut") ? text("currentMoveOut", "Lived here to", undefined, "date") : null}
           </WizardRow>
-          {on("currentReasonLeaving") ? <div className="mt-3">{text("currentReasonLeaving", "Reason for leaving", "Optional")}</div> : null}
+          {on("currentReasonLeaving") ? <div className="mt-3">{text("currentReasonLeaving", "Reason for leaving")}</div> : null}
           {bySection("current_address").length ? <CustomQuestions questions={bySection("current_address")} form={form} patch={patch} /> : null}
           {on("prevStreet") && !showPrev ? (
             <AddFoot label="+ Add previous address" onClick={() => patch({ application: { ...a, noPreviousAddress: false, prevStreet: a.prevStreet || " " } })} dataAttr="residents-wizard-app-add-previous" />
@@ -274,7 +274,7 @@ export function ApplicationStep({
             {on("prevMoveIn") ? text("prevMoveIn", "Lived there from", undefined, "date") : null}
             {on("prevMoveOut") ? text("prevMoveOut", "Lived there to", undefined, "date") : null}
           </WizardRow>
-          {on("prevReasonLeaving") ? <div className="mt-3">{text("prevReasonLeaving", "Reason for leaving", "Optional")}</div> : null}
+          {on("prevReasonLeaving") ? <div className="mt-3">{text("prevReasonLeaving", "Reason for leaving")}</div> : null}
           {bySection("previous_address").length ? <CustomQuestions questions={bySection("previous_address")} form={form} patch={patch} /> : null}
         </WizardSection>
       ) : null}
