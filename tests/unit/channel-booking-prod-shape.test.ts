@@ -97,4 +97,19 @@ describe("action_events domain check", () => {
     const latest = readFileSync(`supabase/migrations/${files[files.length - 1]}`, "utf8");
     for (const domain of domains) expect(latest, domain).toContain(`'${domain}'`);
   });
+
+  /**
+   * `domain` was only half the row the database checks. `action_events_category_check`
+   * is the same kind of allow-list on `category`, and a category it does not list is
+   * rejected with 23514 exactly like a missing domain was - swallowed by the same
+   * best-effort catches, so the alert simply never goes out.
+   */
+  it("the latest migration allows the category the booking alert actually emits", async () => {
+    const { db } = syncDb({ ...connection, last_synced_at: "2026-10-13T03:45:00Z", imported_ranges: prior });
+    await syncChannelCalendarConnection(db, "c9");
+    const { category } = emitActionEvent.mock.calls[0]![1] as { category: string };
+    const files = readdirSync("supabase/migrations").filter((f) => readFileSync(`supabase/migrations/${f}`, "utf8").includes("action_events_category_check")).sort();
+    const latest = readFileSync(`supabase/migrations/${files[files.length - 1]}`, "utf8");
+    expect(latest, category).toContain(`'${category}'`);
+  });
 });

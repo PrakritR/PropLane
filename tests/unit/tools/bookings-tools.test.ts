@@ -357,9 +357,10 @@ describe("registration", () => {
     expect(sms.has("remove_room_block")).toBe(false);
     // A delegated (someone else's number) turn never reaches these tools.
     const delegated = buildManagerSmsRegistry({ mode: "delegated" } as Parameters<typeof buildManagerSmsRegistry>[0]);
-    // A co-manager on the owner's number reaches the three reads and block_room_dates (each re-checks
-    // Calendar in preview and handler), never the hold editor or the remove.
-    for (const name of ["list_bookings", "check_room_availability", "list_room_blocks", "block_room_dates"]) expect(delegated.has(name)).toBe(true);
-    for (const name of ["update_room_block", "remove_room_block"]) expect(delegated.has(name)).toBe(false);
+    // A co-manager on the owner's number reaches the three reads, block_room_dates and the hold editor
+    // update_room_block (each re-checks Calendar at edit in preview AND handler, so correcting the hold
+    // they just placed is in scope), never the destructive remove.
+    for (const name of ["list_bookings", "check_room_availability", "list_room_blocks", "block_room_dates", "update_room_block"]) expect(delegated.has(name)).toBe(true);
+    expect(delegated.has("remove_room_block")).toBe(false);
   });
 });
