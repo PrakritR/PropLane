@@ -22,6 +22,9 @@ describe("workspaceMailboxLocalFor", () => {
     expect(workspaceMailboxLocalFor("Team", "Maya")).toBe("teammaya");
     expect(workspaceMailboxLocalFor("Support", "Maya")).toBe("supportmaya");
   });
+  it("never hands out a brand or payment name", () => {
+    expect(workspaceMailboxLocalFor("Stripe", "Maya")).toBe("stripemaya");
+  });
   it("returns empty when nothing usable can be derived", () => {
     expect(workspaceMailboxLocalFor("", "")).toBe("");
     expect(workspaceMailboxLocalFor("--", "")).toBe("");

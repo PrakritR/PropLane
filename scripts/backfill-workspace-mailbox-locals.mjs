@@ -82,9 +82,21 @@ async function main() {
 
   const plans = planRenames(rows, aliasesByLocal);
   console.log(`${apply ? "APPLY" : "DRY RUN"}: ${plans.length} of ${rows.length} workspaces to rename`);
+  let failed = 0;
   for (const p of plans) {
     console.log(`${p.workspaceName || p.workspaceId}: ${p.mailboxLocal} -> ${p.next}`);
     if (!apply) continue;
+    const expires = new Date(now + ALIAS_DAYS * 86400000).toISOString();
+    // Alias first: a failure after this never leaves the old address unrouted.
+    const { error: aliasErr } = await db.from("manager_assistant_email_aliases").upsert(
+      { mailbox_local: p.mailboxLocal, assistant_email_id: p.id, owner_user_id: p.ownerId, released_at: new Date().toISOString(), expires_at: expires },
+      { onConflict: "mailbox_local" },
+    );
+    if (aliasErr) {
+      console.log(`  failed (alias): ${aliasErr.message}`);
+      failed += 1;
+      continue;
+    }
     const { error: upErr } = await db
       .from("manager_assistant_emails")
       .update({ mailbox_local: p.next, updated_at: new Date().toISOString() })
@@ -92,16 +104,18 @@ async function main() {
       .eq("provision_state", "active");
     if (upErr) {
       console.log(`  skipped: ${upErr.message}`);
+      failed += 1;
       continue;
     }
-    const expires = new Date(now + ALIAS_DAYS * 86400000).toISOString();
-    await db.from("manager_assistant_email_aliases").upsert(
-      { mailbox_local: p.mailboxLocal, assistant_email_id: p.id, owner_user_id: p.ownerId, released_at: new Date().toISOString(), expires_at: expires },
-      { onConflict: "mailbox_local" },
-    );
-    await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+    const { error: delErr } = await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+    if (delErr) {
+      console.log(`  failed (alias cleanup): ${delErr.message}`);
+      failed += 1;
+    }
   }
+  if (apply) console.log(`${failed} failed of ${plans.length}`);
 }
+
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((e) => {
