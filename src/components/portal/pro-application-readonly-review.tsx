@@ -271,9 +271,13 @@ export function ManagerApplicationReadonlyReview({
           <ReviewRow k="Lease bundle" v={displayOrDash(getBundleChoiceLabel(form.propertyId, form.bundleId))} />
         ) : isPropertyRentedByRoom(form.propertyId) ? (
           <>
-            <ReviewRow k="1st choice room" v={displayOrDash(roomLabel(form.roomChoice1))} />
-            <ReviewRow k="2nd choice room" v={displayOrDash(roomLabel(form.roomChoice2))} />
-            <ReviewRow k="3rd choice room" v={displayOrDash(roomLabel(form.roomChoice3))} />
+            <ReviewRow k="Room" v={displayOrDash(roomLabel(form.roomChoice1))} />
+            {form.roomChoice2.trim() || form.roomChoice3.trim() ? (
+              <ReviewRow
+                k="Other rooms"
+                v={[form.roomChoice2, form.roomChoice3].filter((v) => v.trim()).map((v) => roomLabel(v)).join(", ")}
+              />
+            ) : null}
           </>
         ) : (
           <ReviewRow k="Unit (whole-home lease)" v={displayOrDash(roomLabel(form.roomChoice1))} />

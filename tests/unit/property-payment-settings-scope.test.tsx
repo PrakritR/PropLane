@@ -122,8 +122,8 @@ describe("the property Pricing tab's Rent & fees card", () => {
     ...over,
   });
 
-  function renderPanel(submission = seeded()) {
-    return render(
+  function renderPanel(submission = seeded(), openFeesTab = true) {
+    const view = render(
       <PropertyPricingPanel
         submission={submission}
         saveTarget={{ mode: "listing", saveId: "p1" } as never}
@@ -133,6 +133,8 @@ describe("the property Pricing tab's Rent & fees card", () => {
         showToast={() => {}}
       />,
     );
+    if (openFeesTab) fireEvent.click(document.querySelector('[data-attr="property-pricing-tab-fees"]')!);
+    return view;
   }
 
   const scopeOf = (field: string) =>
@@ -140,10 +142,19 @@ describe("the property Pricing tab's Rent & fees card", () => {
   const resetOf = (field: string) =>
     document.querySelector<HTMLElement>(`[data-attr="property-payment-reset-${field}"]`);
 
-  it("renders the card on the tab managers actually open", () => {
+  it("keeps the settings off the list tabs and opens them in the fourth Rent & fees tab", () => {
+    renderPanel(seeded(), false);
+    expect(document.querySelector('[data-attr="property-payment-settings"]')).toBeNull();
+    expect(document.querySelector('[data-attr="property-pricing-add"]')).not.toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="property-pricing-tab-fees"]')!);
+    expect(document.querySelector('[data-attr="property-payment-settings"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="property-pricing-add"]')).toBeNull();
+  });
+
+  it("renders the card on the Rent & fees tab", () => {
     renderPanel();
     expect(document.querySelector('[data-attr="property-payment-settings"]')).not.toBeNull();
-    expect(screen.getByText("Rent & fees")).toBeTruthy();
+    expect(screen.getAllByText("Rent & fees").length).toBe(1);
     expect(screen.getByText("Rent due")).toBeTruthy();
     expect(screen.getByText("Late fee amount")).toBeTruthy();
     expect(screen.getByText("Grace days")).toBeTruthy();

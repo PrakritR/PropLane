@@ -308,8 +308,8 @@ ${section("Applicant details", [
 ${section("Property & room", [
   { label: "Property", value: clean(row.property) },
   { label: "Room", value: roomLabel || clean(app.roomChoice1) },
-  { label: "Second choice", value: roomLabel ? "" : clean(app.roomChoice2) },
-  { label: "Third choice", value: roomLabel ? "" : clean(app.roomChoice3) },
+  // Read-only compatibility: old rows may carry extra choices; nothing writes them any more.
+  { label: "Other rooms", value: roomLabel ? "" : [clean(app.roomChoice2), clean(app.roomChoice3)].filter(Boolean).join(", ") },
   {
     label: "Rental type",
     value: app.rentalType === "short_term" ? "Short-term stay" : app.rentalType ? "Standard lease" : "",

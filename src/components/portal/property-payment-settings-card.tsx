@@ -103,7 +103,10 @@ export function PropertyPaymentSettingsCard({
   workspacePayment = null,
   onDraft,
   onCommit,
+  bare = false,
 }: {
+  /** Inside the Pricing "Rent & fees" tab the tab names the list, so no heading repeats it. */
+  bare?: boolean;
   sub: ManagerListingSubmissionV1;
   /** The workspace's saved answers, so a row's scope and its reset use the real default. */
   workspacePayment?: WorkspacePaymentDefaults | null;
@@ -144,8 +147,7 @@ export function PropertyPaymentSettingsCard({
   const coverageCode = sub.serviceFeeWaiverCode ?? "";
   const coverageCodeInvalid = coverageCode.length > 0 && !isProcessingCoverageCodeShape(coverageCode);
 
-  return (
-    <PortalSettingsSection title="Rent & fees">
+  const body = (
       <div data-attr="property-payment-settings">
       <PortalSettingsGroup>
         <PortalSettingsRow label="Rent due">
@@ -276,6 +278,6 @@ export function PropertyPaymentSettingsCard({
         ) : null}
       </PortalSettingsGroup>
       </div>
-    </PortalSettingsSection>
   );
+  return bare ? body : <PortalSettingsSection title="Rent & fees">{body}</PortalSettingsSection>;
 }

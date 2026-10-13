@@ -5,11 +5,13 @@
 // home with no photo never inherits a stock URL outside the demo sandbox.
 import { describe, expect, it } from "vitest";
 import type { MockProperty } from "@/data/types";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
   aggregateRoomRowsToPropertyCards,
   browseCardMatchesQuery,
   buildPropertyBrowseCards,
   classifyRoomAvailability,
+  filterRoomListings,
   shortBathHint,
   type RoomListingRow,
 } from "@/lib/room-listings-catalog";
@@ -40,6 +42,7 @@ function row(overrides: Partial<RoomListingRow> & Pick<RoomListingRow, "roomId">
     priceOverlayLabel: "$1,000",
     availabilityRaw: "Available now",
     mediaSlides: [],
+    leaseTypes: [],
     ...overrides,
   };
 }
@@ -205,5 +208,56 @@ describe("buildPropertyBrowseCards minBudgetNum", () => {
 
     const zeroIsNoFloor = buildPropertyBrowseCards(properties, { filters: { minBudgetNum: 0 } });
     expect(zeroIsNoFloor).toHaveLength(1);
+  });
+});
+
+function leaseHome(
+  id: string,
+  allowedLeaseTerms: string[],
+  rooms: Array<{ id: string; offeredLeaseTerms?: string[] }>,
+): MockProperty {
+  const base = createDefaultListingSubmission();
+  const template = base.rooms[0]!;
+  return mockProperty({
+    id,
+    listingSubmission: {
+      ...base,
+      allowedLeaseTerms,
+      shortTermRentalsAllowed: allowedLeaseTerms.includes("Short-Term Stay"),
+      rooms: rooms.map((r) => ({
+        ...template,
+        id: r.id,
+        name: `Room ${r.id}`,
+        monthlyRent: 900,
+        offeredLeaseTerms: r.offeredLeaseTerms,
+      })),
+    },
+  });
+}
+
+describe("browse lease types", () => {
+  it("a room's own offered types win; an empty override follows the listing", () => {
+    const home = leaseHome("h1", ["Long-term", "Month-to-Month"], [
+      { id: "a", offeredLeaseTerms: ["Short-Term Stay"] },
+      { id: "b" },
+    ]);
+    const rows = filterRoomListings([home], { zipRaw: "", radiusMiles: 50, maxBudgetNum: null, bathroom: "any" });
+    expect(rows.find((r) => r.roomId === "a")!.leaseTypes).toEqual(["short_term"]);
+    expect(rows.find((r) => r.roomId === "b")!.leaseTypes).toEqual(["long_term", "month_to_month"]);
+    const [card] = buildPropertyBrowseCards([home]);
+    expect(card!.leaseTypes).toEqual(["long_term", "short_term", "month_to_month"]);
+  });
+
+  it("keeps a home when ANY selected type is offered and drops it otherwise", () => {
+    const longOnly = leaseHome("long", ["Long-term"], [{ id: "a" }]);
+    const shortOnly = leaseHome("short", ["Short-Term Stay"], [{ id: "a" }]);
+    const homes = [longOnly, shortOnly];
+    const ids = (leaseTypes?: ("long_term" | "short_term" | "month_to_month" | "custom")[]) =>
+      buildPropertyBrowseCards(homes, { filters: { leaseTypes } }).map((c) => c.propertyId).sort();
+    expect(ids(undefined)).toEqual(["long", "short"]);
+    expect(ids([])).toEqual(["long", "short"]);
+    expect(ids(["short_term"])).toEqual(["short"]);
+    expect(ids(["short_term", "long_term"])).toEqual(["long", "short"]);
+    expect(ids(["custom"])).toEqual([]);
   });
 });
