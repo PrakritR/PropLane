@@ -224,6 +224,8 @@ const PUBLIC_ROOM_KEYS = [
   "securityDeposit",
   "rentBasis",
   "dailyRentPrice",
+  // The room's own nightly rate: the short-stay price card quotes the same figure the request books at.
+  "shortTermRent",
   // A prospect must be able to see "1 of 2 beds available" on a shared room.
   "occupancyCapacity",
   // How many beds are actually in the room — a different question from how many

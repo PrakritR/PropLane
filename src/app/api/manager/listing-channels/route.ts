@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isMissingColumnError } from "@/lib/db-missing-column";
 import { LISTING_CHANNEL_DEFS, listingChannels, metaAppConfigured } from "@/lib/listing-channels/registry";
-import { buildListingPostText, listingChannelEligibility, type ListingHoldReason } from "@/lib/listing-channels/post-text";
+import { SHORT_STAY_POST_CHANNELS, buildListingPostText, listingChannelEligibility, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection.server";
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
 import { loadSyncListing, resolveListingPostContact } from "@/lib/listing-channels/sync.server";
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
     ]);
 
     const channels = listingChannels().map((c) => ({ id: c.id, availability: c.availability }));
-    let property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string> } | null = null;
+    let property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string>; shortStayPostTexts: Record<string, string> } | null = null;
     if (propertyId) {
       const owned = await propertyInWorkspace(db, workspace, propertyId);
       if (!owned) return NextResponse.json({ error: "Property not found." }, { status: 404 });
@@ -86,7 +86,13 @@ export async function GET(request: Request) {
           const built = buildListingPostText({ property: listing.projected, origin, contact, channel: def.id, attribution });
           if (built.ok) postTexts[def.id] = built.text;
         }
-        property = { id: propertyId, live: listing.live, holdReasons, postTexts };
+        // The nightly variant, only for the Facebook sites and only when the listing really quotes a nightly rate.
+        const shortStayPostTexts: Record<string, string> = {};
+        for (const channel of SHORT_STAY_POST_CHANNELS) {
+          const built = buildListingPostText({ property: listing.projected, origin, contact, channel, attribution, variant: "short_stay" });
+          if (built.ok) shortStayPostTexts[channel] = built.text;
+        }
+        property = { id: propertyId, live: listing.live, holdReasons, postTexts, shortStayPostTexts };
       }
     }
 

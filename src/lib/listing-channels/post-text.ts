@@ -17,6 +17,7 @@ import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { buildManagerListingUrl } from "@/lib/manager-property-links";
 import { listingChannelDef, type ListingChannelId } from "@/lib/listing-channels/registry";
 import { listingAttributionLine } from "@/lib/listing-attribution";
+import { formatShortStayMoney, listingOffersShortStay, listingShortStayNightlyFrom } from "@/lib/short-stay-request";
 
 export type ListingPostContact = { phone: string | null; email: string | null };
 
@@ -98,7 +99,47 @@ export function taggedLinkFromPostText(text: string): string {
 
 export type ListingPostText =
   | { ok: true; text: string }
-  | { ok: false; reason: "no_work_number" };
+  | { ok: false; reason: "no_work_number" | "no_short_stay" };
+
+/** "standard" is the monthly-rent post; "short_stay" is the nightly one for Facebook Marketplace / Groups. */
+export type ListingPostVariant = "standard" | "short_stay";
+
+/** Channels that offer a "Copy short-stay post" beside the standard one. */
+export const SHORT_STAY_POST_CHANNELS: readonly ListingChannelId[] = ["facebook_marketplace", "facebook_groups"];
+
+/**
+ * "Private room near UW from $55/night · dates open now · Book: <link>?stay=1 · Text <work number> · Email <work email>".
+ * Real facts only: the nightly figure is the lowest the listing quotes, the place is the listing's own
+ * neighborhood. The `?stay=1` link lands on the date inputs of the price card.
+ */
+function buildShortStayPostText(args: {
+  property: MockProperty;
+  origin: string;
+  contact: ListingPostContact;
+  channel: ListingChannelId;
+}): ListingPostText {
+  const { property, origin, contact, channel } = args;
+  const phone = clean(contact.phone);
+  if (!phone) return { ok: false, reason: "no_work_number" };
+  const sub = property.listingSubmission;
+  const nightly = listingShortStayNightlyFrom(sub);
+  if (!sub || !listingOffersShortStay(sub) || nightly <= 0) return { ok: false, reason: "no_short_stay" };
+  const email = clean(contact.email);
+  const rooms = sub.rooms ?? [];
+  const sharedOnly = rooms.length > 0 && rooms.every((room) => (room.occupancyCapacity ?? 1) >= 2);
+  const kind = isEntireHomeListing(sub) ? "Entire home" : sharedOnly ? "Shared room" : "Private room";
+  const place = clean(property.neighborhood) ? ` near ${clean(property.neighborhood)}` : "";
+  const base = `${buildManagerListingUrl(origin, property.id)}?stay=1`;
+  const link = taggedListingLink(base, channel);
+  const parts = [
+    `${kind}${place} from ${formatShortStayMoney(nightly)}/night`,
+    "dates open now",
+    `Book: ${link}`,
+    `Text ${phone}`,
+    email ? `Email ${email}` : "",
+  ].filter(Boolean);
+  return { ok: true, text: parts.join(" · ") };
+}
 
 /**
  * Headline, price, rooms, the first selling points, the public listing link and the work contact.
@@ -112,8 +153,10 @@ export function buildListingPostText(args: {
   contact: ListingPostContact;
   channel: ListingChannelId;
   attribution: boolean;
+  variant?: ListingPostVariant;
 }): ListingPostText {
   const { property, origin, contact, channel, attribution } = args;
+  if (args.variant === "short_stay") return buildShortStayPostText({ property, origin, contact, channel });
   const phone = clean(contact.phone);
   if (!phone) return { ok: false, reason: "no_work_number" };
   const email = clean(contact.email);

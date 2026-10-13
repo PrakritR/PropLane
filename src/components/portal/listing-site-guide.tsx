@@ -106,6 +106,7 @@ export function ListingSiteGuide({
   const metaLive = availability === "live";
   const holdReasons = status?.property?.holdReasons ?? [];
   const postText = status?.property?.postTexts[channelId] ?? "";
+  const shortStayPostText = status?.property?.shortStayPostTexts?.[channelId] ?? "";
   const leads = status?.leadCounts?.[channelId] ?? 0;
   const canManage = status?.canManage ?? false;
 
@@ -145,6 +146,11 @@ export function ListingSiteGuide({
     }
     const ok = await copyTextToClipboard(postText);
     showToast(ok ? `Post copied. Paste it into ${def.label}.` : "Could not copy the post.");
+  };
+
+  const copyShortStayPost = async () => {
+    const ok = await copyTextToClipboard(shortStayPostText);
+    showToast(ok ? `Short-stay post copied. Paste it into ${def.label}.` : "Could not copy the post.");
   };
 
   return (
@@ -237,6 +243,9 @@ export function ListingSiteGuide({
               action={
                 <>
                   <CopyIconAction label="Copy post" data-attr={`listing-site-copy-${def.id}`} disabled={!postText} onCopy={copyPost} />
+                  {shortStayPostText ? (
+                    <CopyIconAction label="Copy short-stay post" data-attr={`listing-site-copy-short-stay-${def.id}`} onCopy={copyShortStayPost} />
+                  ) : null}
                   {selectedId ? (
                     <a
                       href={`/api/manager/listing-channels/photos?propertyId=${encodeURIComponent(selectedId)}`}
