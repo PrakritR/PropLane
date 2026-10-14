@@ -37,7 +37,10 @@ Pricing · Blog · Optional` sections of `- [Title](absolute url): note` lines.
 `/llms-full.txt` is the same pages plus the plan sheet and **every blog post as
 plain text**, figures with their source, and each post's full source list —
 `toPlainText` strips markup but keeps a link's label, so no half-rendered
-markdown reaches a reader.
+markdown reaches a reader. It drops `<` and `>` as characters and never matches
+`<...>` as a tag: a tag-shaped regex needs the closing `>`, so an unterminated
+`<script src=x` would survive it (that is the whole point of CodeQL's
+js/incomplete-multi-character-sanitization).
 
 Both are `text/plain; charset=utf-8`, `revalidate = 3600` with
 `LLMS_CACHE_CONTROL` on the response, and need no database, so neither can fail

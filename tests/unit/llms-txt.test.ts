@@ -50,6 +50,15 @@ describe("/llms-full.txt", () => {
   });
 });
 
+describe("toPlainText", () => {
+  it("leaves no angle bracket behind, terminated tag or not", async () => {
+    const { toPlainText } = await import("@/lib/seo/llms");
+    // An unterminated tag is exactly what a `<...>` tag regex leaves behind.
+    expect(toPlainText("Rent <script src=x rose 4%")).toBe("Rent script src=x rose 4%");
+    expect(toPlainText("**Bold** [label](https://x.test) <b>text</b>")).toBe("Bold label btext/b");
+  });
+});
+
 describe("home page structured data", () => {
   it("embeds valid Organization + SoftwareApplication JSON-LD", async () => {
     const { homeJsonLd, jsonLdString } = await import("@/lib/seo/json-ld");
