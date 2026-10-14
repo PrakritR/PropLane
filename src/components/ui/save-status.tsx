@@ -21,7 +21,20 @@ function clockLabel(ts: number): string {
  * and a sentence there squeezes the title to a word in a narrow popup. Put it
  * under the title instead with `saveErrorReason`.
  */
-export function SaveStatus({ status, className }: { status: AutosaveStatus; className?: string }) {
+export function SaveStatus({
+  status,
+  className,
+  hideInvalidReason = false,
+}: {
+  status: AutosaveStatus;
+  className?: string;
+  /**
+   * Say only "Not saved yet" while a required field holds the write back, instead of naming it. For a
+   * door whose fields carry their own required mark (Add task), the named reason is the same sentence
+   * twice; the mark beside the field is the one that points at what to do.
+   */
+  hideInvalidReason?: boolean;
+}) {
   const { state, reason, savedAt, retry } = status;
   const [showClock, setShowClock] = useState(false);
   useEffect(() => {
@@ -60,7 +73,7 @@ export function SaveStatus({ status, className }: { status: AutosaveStatus; clas
       <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
       {state === "saving" ? "Saving…" : null}
       {state === "saved" ? (showClock && savedAt ? `Saved · ${clockLabel(savedAt)}` : "Saved") : null}
-      {state === "invalid" ? reason ?? "Not saved yet" : null}
+      {state === "invalid" ? (hideInvalidReason ? "Not saved yet" : reason ?? "Not saved yet") : null}
       {state === "error" ? (
         <>
           Couldn&apos;t save —{" "}

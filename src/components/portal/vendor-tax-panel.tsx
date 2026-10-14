@@ -232,7 +232,7 @@ function W9Dialog({ profile, onClose, onSaved }: { profile: VendorW9Profile | nu
           <Input value={draft.legalName} onChange={(e) => set({ legalName: e.target.value })} autoComplete="name" data-attr="vendor-tax-legal-name-input" />
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-          Business name (optional)
+          Business name
           <Input value={draft.businessName} onChange={(e) => set({ businessName: e.target.value })} />
         </label>
         <FieldSingleSelect

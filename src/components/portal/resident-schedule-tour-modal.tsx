@@ -145,11 +145,6 @@ export function ResidentScheduleTourModal({
     <Modal
       open={open}
       title={flowProperty ? "Schedule tour" : "Choose a home to tour"}
-      description={
-        flowProperty
-          ? undefined
-          : "Pick the home you want to visit. You can request a tour time right here without leaving your tour list."
-      }
       onClose={handleClose}
       dense
       assistantContext="Schedule tour"

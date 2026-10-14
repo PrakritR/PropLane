@@ -205,7 +205,7 @@ export function ManagerSecurityDepositsPanel() {
               </div>
             ) : null}
             <div>
-              <label className="text-xs font-semibold text-muted">Memo (optional)</label>
+              <label className="text-xs font-semibold text-muted">Memo</label>
               <Input className="mt-1" value={draft.memo} onChange={(e) => setDraft((d) => ({ ...d, memo: e.target.value }))} />
             </div>
             {previewSplit ? (

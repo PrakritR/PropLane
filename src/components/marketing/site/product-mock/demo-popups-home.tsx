@@ -702,6 +702,8 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
   const [attachments, setAttachments] = useState("");
   const fieldClass = PORTAL_MODAL_FORM_FIELD_CLASS;
   const fullRow = `${PORTAL_MODAL_FORM_FIELD_CLASS} ${PORTAL_MODAL_FORM_FULL_ROW_CLASS}`;
+  // The real modal marks the task's own words required; a tour is named by its guest and a turnover by its kind.
+  const titleRequired = kind !== "tour" && kind !== "check-in" && kind !== "check-out";
   const steps = [
     { id: "task", label: "Task" },
     { id: "property", label: "Property" },
@@ -749,6 +751,13 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-title">
                   Description
+                  {titleRequired ? (
+                    <>
+                      {" "}
+                      <span className="text-rose-500" aria-hidden>*</span>
+                      <span className="sr-only"> (required)</span>
+                    </>
+                  ) : null}
                 </label>
                 <Input id="demo-task-title" aria-label="Task title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Inspect unit, meet vendor, follow up…" data-attr="manager-task-title-input" />
               </div>
@@ -882,13 +891,13 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
               </div>
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-checklist">
-                  Checklist (one step per line)
+                  Checklist
                 </label>
                 <textarea id="demo-task-checklist" className="min-h-[72px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" placeholder={"Check the filter\nPhotograph the unit"} value={checklist} onChange={(e) => setChecklist(e.target.value)} data-attr="manager-task-checklist" />
               </div>
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-attachments">
-                  Attachments (one link per line, optional name first)
+                  Attachments
                 </label>
                 <textarea id="demo-task-attachments" className="min-h-[56px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" placeholder={"Quote https://example.com/quote.pdf"} value={attachments} onChange={(e) => setAttachments(e.target.value)} data-attr="manager-task-attachments" />
               </div>

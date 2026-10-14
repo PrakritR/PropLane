@@ -382,7 +382,7 @@ export const ManagerBankReconciliationPanel = forwardRef<
             </Select>
           </div>
           <div>
-            <label className="text-xs font-semibold text-muted">Last four (optional)</label>
+            <label className="text-xs font-semibold text-muted">Last four</label>
             <Input
               className="mt-1"
               value={accountDraft.lastFour}

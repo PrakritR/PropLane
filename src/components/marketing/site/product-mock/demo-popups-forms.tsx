@@ -4,7 +4,7 @@
  * The three pop-ups the manager Forms page opens, drawn for the home demo from fixture props:
  *
  *  - Send a form (the round +): `SendMoveInFormPopup`'s one step. Resident, Form and Due on the
- *    centre, "What <first> gets" flush right, Cancel and Send in the footer.
+ *    centre, "What <first> gets" flush right, Send alone on the right of the footer.
  *  - A form's record (any row): `MoveInFormViewer`. Rail "Answers · Activity", the resident card, the
  *    answers (completed) or "Not submitted yet" with Remind (pending), "Filled PDF" / "Form" on the right,
  *    Done.
@@ -89,22 +89,12 @@ export function DemoSendFormPopup({ onClose, onSent, presetResidentId }: { onClo
     <DemoWorkspacePopup
       title="Send a form"
       steps={[{ id: "send", label: "Send a form" }]}
-      railHeader={<ResidentCard name={resident.name} place={resident.place} />}
       sidePanel={
         <PanelSection title={`What ${first} gets`}>
           <FormTile name={form.name} detail={due ? `Due ${longDate(due)}` : "No due date"} />
         </PanelSection>
       }
-      footer={{
-        kind: "done",
-        label: "Send",
-        onDone: onSent,
-        left: (
-          <button type="button" onClick={onClose} className="min-h-[44px] rounded-full px-6 text-[13.5px] font-semibold text-muted hover:bg-foreground/5" data-attr="move-in-form-send-cancel">
-            Cancel
-          </button>
-        ),
-      }}
+      footer={{ kind: "done", label: "Send", onDone: onSent }}
       onClose={onClose}
       dataAttr="move-in-form-send-popup"
     >

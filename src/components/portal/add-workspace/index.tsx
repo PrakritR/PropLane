@@ -31,7 +31,7 @@ import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { editorFooterState } from "@/lib/editor-footer-state";
 import { cn } from "@/lib/utils";
-import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
+import { WizardInvalidFields, missingWizardFields } from "./validation";
 import { WorkspaceDeleteButton } from "./frame";
 import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "./upload-action";
 
@@ -43,9 +43,9 @@ export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-worksp
  * A one-step dialog draws no rail: the shell (`ListingWorkspace`, shared with the listing wizard) always
  * renders its section nav, so the single-step case hides that nav and collapses the grid column it held.
  */
-const SINGLE_STEP_NO_RAIL_CLASS =
+export const SINGLE_STEP_NO_RAIL_CLASS =
   "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)]";
-const SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS =
+export const SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS =
   "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_260px]";
 
 export type AddWorkspaceStep = StepRailItem & {
@@ -92,7 +92,6 @@ export function AddWorkspace({
   skipOffPath = false,
   numberedSteps = false,
   hideFooterStepCount = false,
-  hideReadinessCaption = false,
   reviewEditLinks = true,
   tabRail = false,
 }: {
@@ -147,8 +146,6 @@ export function AddWorkspace({
   deleteDisabled?: boolean;
   deleteDataAttr?: string;
   footerNote?: ReactNode;
-  /** Drop the grey "missing field" line above "Step n of N" — the rail's "things to finish" card already says it. */
-  hideReadinessCaption?: boolean;
   /**
    * Sits on top of the workspace without unmounting steps — message preview
    * Back restores the last step with values still filled.
@@ -187,7 +184,8 @@ export function AddWorkspace({
   // A rail with one item has nowhere to go: a one-step dialog draws the body (and any live panel) alone.
   const singleStep = steps.length < 2;
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
-  const [readiness, setReadiness] = useState("");
+  /** Something declared required on this step is still empty — the Next button says so with `aria-disabled`. */
+  const [stepIncomplete, setStepIncomplete] = useState(false);
   const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
   const [visitedSteps, setVisitedSteps] = useState<ReadonlySet<string>>(new Set());
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -264,8 +262,8 @@ export function AddWorkspace({
   }, [close]);
 
   useEffect(() => {
-    const label = summarizeMissingFields(missingWizardFields(workspaceRef.current));
-    setReadiness((previous) => previous === label ? previous : label);
+    const incomplete = missingWizardFields(workspaceRef.current).length > 0;
+    setStepIncomplete((previous) => previous === incomplete ? previous : incomplete);
   }, [children, current]);
 
   useEffect(() => {
@@ -316,7 +314,7 @@ export function AddWorkspace({
           if (target.validity.valid) target.removeAttribute("aria-invalid");
           setValidationError(null);
           const missing = missingWizardFields(workspaceRef.current);
-          setReadiness(summarizeMissingFields(missing));
+          setStepIncomplete(missing.length > 0);
           setInvalidFields((previous) => new Set(missing.filter((field) => previous.has(field.id)).map((field) => field.id)));
         }
       }}>
@@ -361,7 +359,7 @@ export function AddWorkspace({
               ) : null}
             </div>
             <span className="min-w-0 flex-1 text-center text-[13px] text-muted">
-              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness && !hideReadinessCaption ? <span className="mb-0.5 block">{readiness}</span> : null}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
               {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
             <div className="flex items-center gap-2.5">
@@ -393,7 +391,7 @@ export function AddWorkspace({
                   type="button"
                   onClick={goNext}
                   disabled={busy}
-                  aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
+                  aria-disabled={nextDisabled || stepIncomplete || steps[current]?.incomplete || undefined}
                   data-attr={`${dataAttrPrefix}-next`}
                   aria-label={nextPath != null ? `Next: ${steps[nextPath]!.label}` : "Next"}
                   className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted lg:min-h-9"

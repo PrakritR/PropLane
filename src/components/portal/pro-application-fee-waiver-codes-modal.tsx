@@ -216,7 +216,7 @@ export function ManagerApplicationFeeWaiverCodesModal({ open, onClose }: { open:
             <Input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Label (optional, e.g. Referral promo)"
+              placeholder="Label, e.g. Referral promo"
               data-attr="manager-waiver-code-label"
             />
             <Input
@@ -231,7 +231,7 @@ export function ManagerApplicationFeeWaiverCodesModal({ open, onClose }: { open:
               type="date"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
-              placeholder="Expires (optional)"
+              placeholder="Expires"
               data-attr="manager-waiver-code-expires"
             />
           </div>

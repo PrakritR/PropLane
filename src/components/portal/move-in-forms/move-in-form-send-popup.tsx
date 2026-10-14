@@ -9,9 +9,9 @@ import { useEffect, useMemo, useState } from "react";
 import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PanelSection, StepHeading, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { PanelSection, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
-import { MoveInFormFrame, MoveInFormResidentCard } from "@/components/portal/move-in-forms/move-in-form-frame";
+import { MoveInFormFrame } from "@/components/portal/move-in-forms/move-in-form-frame";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { track } from "@/lib/analytics/track-client";
 import { loadInspectionList } from "@/lib/inspections/client";
@@ -22,8 +22,6 @@ import { formatMoveInDate, formatWallDate, pacificDay } from "@/lib/move-in-form
 import { moveInFormDueAt, moveInFormDueFor, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import type { MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
-
-const STEPS = [{ id: "send", label: "Send a form" }] as const;
 
 const roomSuffix = (room: string) => (room.trim() ? ` · ${room.trim()}` : "");
 const residencyPlace = (r: InspectionResidency) => `${r.property}${roomSuffix(inspectionRoomLabel(r.room))}`;
@@ -194,8 +192,7 @@ export function SendMoveInFormPopup({
       assistantContext="Send a form"
       assistantScopeKey="Send a form"
       dataAttr="move-in-form-send-popup"
-      railHeader={residency ? <MoveInFormResidentCard name={residency.name} place={residencyPlace(residency)} /> : null}
-      rail={<StepRail steps={STEPS} current={0} onJump={() => {}} />}
+      singleStep
       sidePanel={
         template && residency ? (
           <PanelSection title={`What ${first || "the resident"} gets`}>
@@ -215,13 +212,10 @@ export function SendMoveInFormPopup({
       }
       footer={
         <>
-          <Button type="button" variant="ghost" className="min-h-[44px] rounded-full px-6" onClick={onClose} data-attr="move-in-form-send-cancel">
-            Cancel
-          </Button>
           <Button
             type="button"
             variant="primary"
-            className="min-h-[44px] rounded-full px-7 text-[14px] font-bold"
+            className="ml-auto min-h-[44px] rounded-full px-7 text-[14px] font-bold"
             disabled={!canSend}
             loading={sending}
             onClick={() => void send()}

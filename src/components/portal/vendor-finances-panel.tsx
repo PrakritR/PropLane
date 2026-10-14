@@ -549,7 +549,7 @@ function SubmitInvoiceModal({
         ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Invoice # (optional)</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Invoice #</span>
             <input
               className={INVOICE_FORM_INPUT}
               value={invoiceNumber}
@@ -559,7 +559,7 @@ function SubmitInvoiceModal({
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">
-              Service {editingInvoice ? "" : "(optional)"}
+              Service
             </span>
             <input
               className={INVOICE_FORM_INPUT}
@@ -625,7 +625,7 @@ function SubmitInvoiceModal({
         </div>
 
         <label className="block space-y-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Memo (optional)</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Memo</span>
           <textarea
             className={`${INVOICE_FORM_INPUT} min-h-16`}
             value={memo}

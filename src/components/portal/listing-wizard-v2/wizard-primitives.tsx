@@ -17,7 +17,7 @@
  *   belongs to; nothing is announced only at the end.
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Camera, Check, Circle, ChevronRight, Eye, RotateCcw, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -101,6 +101,22 @@ export function WizardModal({
  * Below xl the preview moves under the desktop body. Phones show only fields
  * (GAP3); their step navigation is one compact picker.
  */
+/**
+ * The label of the active phone step tab, shared from the rail to the step body, so a step heading that
+ * only repeats the tab the manager just tapped is dropped on the phone. It is read off the rail element
+ * in the same render pass that draws the body: published from the tab row through state instead, every
+ * tap would commit one frame with the duplicate title still on screen before hiding it.
+ */
+const ActiveTabLabelContext = createContext<string | null>(null);
+
+function activeStepTabLabel(rail: ReactNode): string | null {
+  if (!isValidElement(rail) || rail.type !== StepRail) return null;
+  const { steps, current } = rail.props as { steps?: readonly StepRailItem[]; current?: number };
+  // One step draws no tabs (`WizardStepTabs` returns null), so its heading is the only title a phone has.
+  if (!steps || steps.length < 2) return null;
+  return steps[current ?? 0]?.label ?? null;
+}
+
 export function ListingWorkspace({
   title,
   subtitle,
@@ -165,6 +181,7 @@ export function ListingWorkspace({
 }) {
   const [uploadTarget, setUploadTarget] = useState<HTMLDivElement | null>(null);
   const [eyeOpen, setEyeOpen] = useState(false);
+  const activeTabLabel = activeStepTabLabel(rail);
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
    * dropdowns and a save-failed alert dialog that each own Escape for
@@ -253,7 +270,7 @@ export function ListingWorkspace({
             if (target.getAttribute("role") === "combobox" || target.getAttribute("aria-expanded") === "true") return;
             if (onContinue) { event.preventDefault(); onContinue(); }
           }}
-        ><DialogTitleProvider title={title}>{children}</DialogTitleProvider></main>
+        ><DialogTitleProvider title={title}><ActiveTabLabelContext.Provider value={activeTabLabel}>{children}</ActiveTabLabelContext.Provider></DialogTitleProvider></main>
         {sidePanel ? (
           <aside
             aria-label="Live panel"
@@ -834,11 +851,15 @@ export function StepHeading({
    */
   // The dialog already says this: a heading that repeats its title is not drawn.
   const repeatsDialogTitle = useHeadingRepeatsDialogTitle(title);
+  const activeTabLabel = useContext(ActiveTabLabelContext);
   if (repeatsDialogTitle && !action) return null;
+  // On a phone the step tabs already name the active step: the same words again as a heading are dropped
+  // (desktop keeps the big step title; the tabs are `lg:hidden`, so the heading hides below the same breakpoint).
+  const repeatsActiveTab = activeTabLabel != null && activeTabLabel.trim().toLowerCase() === title.trim().toLowerCase();
   return (
-    <div className="mb-3.5 flex items-start justify-between gap-3">
+    <div className={cn("mb-3.5 flex items-start justify-between gap-3", repeatsActiveTab && !action && "max-lg:hidden")}>
       <div className="min-w-0 flex-1">
-        {repeatsDialogTitle ? null : <h2 className="text-[16px] font-[650] leading-tight tracking-tight text-foreground">{title}</h2>}
+        {repeatsDialogTitle ? null : <h2 className={cn("text-[16px] font-[650] leading-tight tracking-tight text-foreground", repeatsActiveTab && "max-lg:hidden")} data-phone-heading-dropped={repeatsActiveTab ? "" : undefined}>{title}</h2>}
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>

@@ -294,8 +294,6 @@ export function PromotionForm({
   const { showToast } = useAppUi();
   const [readingPhotos, setReadingPhotos] = useState(false);
   const isCustom = draft.propertyKey === CUSTOM_PROPERTY_KEY;
-  const selectedTemplate =
-    PROMOTION_TEMPLATE_OPTIONS.find((t) => t.id === draft.template) ?? PROMOTION_TEMPLATE_OPTIONS[0]!;
   // C039: the flyer preview renders live as fields fill in, not only in a
   // separate preview step.
   const previewRow = useMemo(() => draftToPreviewRow(draft), [draft]);
@@ -525,7 +523,6 @@ export function PromotionForm({
             );
           })}
         </div>
-        <p className="mt-1 text-[11px] text-muted">{selectedTemplate.description}</p>
       </div>
       <div className="sm:col-span-2">
         <label className="text-xs font-semibold text-muted">Preview</label>

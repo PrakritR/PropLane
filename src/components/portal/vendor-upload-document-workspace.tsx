@@ -134,7 +134,7 @@ export function VendorUploadDocumentWorkspace({
         <PreviewPanel
           title="Document"
           name={kind ? VENDOR_DOCUMENT_LABELS[kind] : "No type yet"}
-          sub={file?.name ?? "Pick a PDF"}
+          sub={file?.name}
           facts={[
             { label: "Type", value: kind ? VENDOR_DOCUMENT_LABELS[kind] : "Not set", warn: !kind },
             { label: "File", value: file?.name ?? "Not set", warn: !file },

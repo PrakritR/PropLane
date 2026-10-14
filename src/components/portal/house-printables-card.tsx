@@ -172,7 +172,7 @@ export function HousePrintablesCard({
             />
           ) : null}
           <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-muted">Resident (optional)</span>
+            <span className="mb-1 block text-xs font-semibold text-muted">Resident</span>
             <Input
               value={residentName}
               onChange={(e) => setResidentName(e.target.value)}

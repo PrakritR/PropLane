@@ -599,7 +599,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
               </>
             ) : null}
             <label className="flex min-w-[140px] flex-1 flex-col gap-1 text-[11px] font-medium text-muted">
-              Note (optional)
+              Note
               <Input
                 type="text"
                 placeholder="e.g. Saturday availability"

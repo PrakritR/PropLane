@@ -106,7 +106,11 @@ row, field, or choice.
 - **A pop-up is the same rule**, down to its chrome: the step rail is a name and
   a tick (no caption under it), a field label carries no "Optional" tag (only
   required keeps its mark), an upload control states no format or size chips —
-  a wrong pick is refused with an error naming the file — and a step heading
+  a wrong pick is refused with an error naming the file — a full-screen door's
+  footer never carries a standing grey line naming what is still missing (the
+  required mark beside the field is the pointer; only a failed Next names it,
+  once, and a door whose fields carry that mark passes `SaveStatus
+  hideInvalidReason` so the save state does not repeat it) — and a step heading
   that only repeats the dialog title is not drawn (§ Pop-ups).
 - Guard: `tests/unit/no-subtext-listing-wizard.test.ts` reads the wizard
   source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
@@ -114,6 +118,11 @@ row, field, or choice.
   `tests/unit/popup-shell-no-subtext.test.tsx`. Billing:
   `tests/unit/pro-plan-no-subtext.test.ts`.
   Inspections list: `tests/unit/inspections-no-progress-subtext.test.ts`.
+  Labels site-wide: `tests/unit/no-optional-label-suffix.test.ts` fails a label
+  ending `(optional)` anywhere under `src/components` or `src/app` (a
+  `placeholder`'s own words are exempt; the public booking, sign-up, partner and
+  guide forms not yet swept are listed in the test — shorten that list, never
+  add to it).
   Do not site-sweep existing copy unless the surface is in scope.
 
 ## Icon chrome

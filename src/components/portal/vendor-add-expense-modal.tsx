@@ -3,7 +3,7 @@
 /**
  * Outgoing payments > Add expense / Edit expense pop-up (copies the Add property pop-up's shape:
  * a `PortalDialog` with labelled fields, the primary action is the data-commit). Amount, Date,
- * Category, the vendor's own Service (optional), Note and a private Receipt. The expense is saved
+ * Category, the vendor's own Service, Note and a private Receipt. The expense is saved
  * first, then the receipt is attached to it; a receipt that fails to attach leaves the saved
  * expense in place and says so.
  */
@@ -207,7 +207,7 @@ export function VendorAddExpenseModal({
           >
             <Paperclip className="size-4 shrink-0 text-muted" aria-hidden />
             <span className="min-w-0 truncate">
-              {receipt ? receipt.name : expense?.hasReceipt ? "Replace the receipt" : "Upload a photo or PDF"}
+              {receipt ? receipt.name : expense?.hasReceipt ? "Replace the receipt" : "Choose file"}
             </span>
           </button>
           <input
