@@ -23,6 +23,12 @@ const mocks = vi.hoisted(() => ({
   finishCommsCredit: vi.fn(),
   commsTurnKey: vi.fn(),
   partyFacingAnswerHold: vi.fn(),
+  fanOutWorkspaceNotice: vi.fn(),
+}));
+
+vi.mock("@/lib/workspace-team-fanout.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspace-team-fanout.server")>()),
+  fanOutWorkspaceNotice: mocks.fanOutWorkspaceNotice,
 }));
 
 // The auto-reply to a prospect/resident is a paid AI turn: credit is reserved
@@ -172,6 +178,7 @@ describe("processManagerAssistantInboundEmail", () => {
     mocks.reserveCommsCredit.mockResolvedValue({ allowed: true, duplicate: false, state: "reserved" });
     mocks.finishCommsCredit.mockResolvedValue(undefined);
     mocks.partyFacingAnswerHold.mockResolvedValue({ hold: false, reason: null });
+    mocks.fanOutWorkspaceNotice.mockResolvedValue({ notified: 0 });
 
     const insert = vi.fn().mockResolvedValue({ error: null });
     (db.from as ReturnType<typeof vi.fn>).mockReturnValue({ insert });
@@ -344,6 +351,35 @@ describe("processManagerAssistantInboundEmail", () => {
         db,
         expect.objectContaining({ replySent: false }),
       );
+    });
+
+    it("fans the inbound out to the workspace team once, keyed on the inbound id, then the reply as Replied:", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      await processManagerAssistantInboundEmail(db, fromProspect);
+      const calls = mocks.fanOutWorkspaceNotice.mock.calls.map((c) => c[1]);
+      expect(calls[0]).toMatchObject({
+        ownerUserId: "mgr-1",
+        idempotencyKey: `inbound-email:${fromProspect.emailId}`,
+      });
+      expect(calls[0].text).toMatch(/^Work email from /);
+      expect(calls[1]).toMatchObject({ idempotencyKey: `inbound-email-reply:${fromProspect.emailId}` });
+      expect(calls[1].text).toMatch(/^Replied: /);
+    });
+
+    it("never texts the team for an inbound work email (Assistant thread + email only)", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      await processManagerAssistantInboundEmail(db, { ...fromProspect, emailId: "email-sms-off" });
+      const calls = mocks.fanOutWorkspaceNotice.mock.calls.map((c) => c[1]);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const c of calls) expect(c.sms).toBe(false);
+    });
+
+    it("sends no Replied: notice when the answer never left", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.deliverManagerEmailReply.mockResolvedValue({ ok: false });
+      await processManagerAssistantInboundEmail(db, { ...fromProspect, emailId: "email-no-send" });
+      const keys = mocks.fanOutWorkspaceNotice.mock.calls.map((c) => c[1].idempotencyKey);
+      expect(keys).toEqual(["inbound-email:email-no-send"]);
     });
 
     it("still shows the mail in Communication when no reply was produced", async () => {

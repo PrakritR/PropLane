@@ -30,7 +30,8 @@ vi.mock("@/lib/auth/provision-approved-resident", () => ({
 }));
 vi.mock("@/lib/screening/order-screening", () => ({ tryAutoOrderScreening: vi.fn() }));
 // SMS evidence is independent of the separately tested application-fee guard.
-vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
+vi.mock("@/lib/rental-application/application-fee-submit-guard.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rental-application/application-fee-submit-guard.server")>()),
   authorizeApplicationFeeSubmission: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock("@/lib/sms/application-consent.server", () => ({

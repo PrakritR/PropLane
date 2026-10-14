@@ -47,6 +47,13 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
    */
   vendorRecordId?: string | null;
   attestVendorRelationship?: boolean;
+  /**
+   * The workspace this send belongs to. A browser passes nothing and the cookie decides, but a
+   * caller with no cookie (the scheduled-delivery cron, an API key, an assistant turn) MUST name
+   * it: without it `resolveCommunicationScope` narrows to the first workspace, so a thread in the
+   * manager's second workspace finds no conversation and the send fails closed.
+   */
+  workspace?: { id: string | null };
   /** Server-only seam: runs the carrier hand-off (the dispatch) - the local SMS sandbox captures it here. */
   runDispatch?: DispatchRunner;
 }): Promise<SendResult> {
@@ -78,7 +85,12 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   const conversations = args.selectedConversation ? null : await fetchManagerSmsConversations(
     db,
     args.actorUserId,
-    { provisionWorkNumber: false, visibility: "edit", ...(args.scopeManagerIds ? { scopeManagerIdsOverride: args.scopeManagerIds } : {}) },
+    {
+      provisionWorkNumber: false,
+      visibility: "edit",
+      ...(args.scopeManagerIds ? { scopeManagerIdsOverride: args.scopeManagerIds } : {}),
+      ...(args.workspace ? { workspace: args.workspace } : {}),
+    },
   );
   const toDigits = toPhone.replace(/\D/g, "");
   const replyKey = String(body.conversationKey ?? "").trim();

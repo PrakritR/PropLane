@@ -50,8 +50,10 @@ below goes through them.
 ### Custom work email local part
 
 The owner may rename the workspace's mailbox local part in Settings →
-Messaging → Work email (e.g. `assist-jane-smith@…` → `frontdesk@…`) instead of
-living with the auto-generated `assist-<slug>` address. `POST
+Messaging → Work email (e.g. `seattlehomes@…` → `frontdesk@…`) instead of
+living with the allocated one (the workspace-name rule in § The whole team hears
+the work email; only a workspace with no usable name falls back to
+`assist-<owner>`). `POST
 /api/manager/assistant-email` gained two actions:
 `check_address` (`{ action: "check_address", local }`, rate limited, returns
 `available` / `current` / `taken` / `reserved` / `invalid`) and `set_address`
@@ -66,17 +68,25 @@ status). Both go through `checkWorkspaceAssistantMailboxLocal` /
   alphanumeric; never contains `+` (that stays reserved for the legacy
   `assistant+<token>` form).
 - **The reserved list** (`RESERVED_MAILBOX_LOCALS` /
-  `isReservedMailboxLocal`, same file) blocks official-sounding locals
-  (`support`, `admin`, `postmaster`, `assist`, `assistant`, …) at both the
+  `isReservedMailboxLocal`, same file — the `RESERVED` copy in
+  `workspace-mailbox-local-rule.mjs` is pinned equal to it by
+  `tests/unit/workspace-mailbox-local-rule.test.ts`, never edited alone) blocks
+  official-sounding locals (`support`, `admin`, `postmaster`, `assist`,
+  `assistant`, …) **and names a workspace could impersonate someone with**
+  (payment and bank names like `stripe`, `venmo`, `zelle`, `payments`,
+  `invoice`, and platform names like `airbnb`, `apple`, `google`, `irs`) at both the
   write (`checkWorkspaceAssistantMailboxLocal`) and the inbound read
   (`extractAssistantMailboxLocal` skips a reserved local before it is ever
   treated as a mailbox — so `support@…`/`admin@…` still falls through to the
   admin support inbox, never this feature, no matter what the manager scheme
   allows elsewhere).
 - **One address per workspace.** Renaming updates the workspace's existing
-  active row in place; the OLD local part stops resolving the instant the
-  change commits, because inbound resolution reads `mailbox_local` off that
-  same row. There is no grace period and no forwarding.
+  active row in place, because inbound resolution reads `mailbox_local` off that
+  same row. The OLD local part is held for `RELEASED_MAILBOX_ALIAS_DAYS` (30) in
+  `manager_assistant_email_aliases`, so mail still reaches the renamed row for a
+  month and no other workspace can take the name meanwhile; renaming back onto
+  an alias this same owner holds reclaims it outright. Nothing is forwarded
+  anywhere else.
 
 ## How it works
 
@@ -319,3 +329,22 @@ Handling (`handleAirbnbNotification` in `process-assistant-inbound.server.ts`):
 `tests/unit/inbound-email-webhook.test.ts` — signature accept/reject (tamper, wrong
 secret, replay, multi-signature), payload parsing, admin-scope row shape, a valid
 inbound email creating an admin-scope thread, and idempotent re-delivery.
+
+## The whole team hears the work email (Oct 13)
+
+The work email local part is `<workspace>@<domain>`: the workspace name compacted to letters+digits
+(`workspaceMailboxLocalFor`, shared with `scripts/backfill-workspace-mailbox-locals.mjs`); a name under 3 characters or
+reserved appends the owner's first name; collisions take `-2`..`-9`. `node scripts/backfill-workspace-mailbox-locals.mjs`
+is a dry run; `--apply` renames through the Settings semantics and holds each old local as a 30-day alias.
+
+After the owner's inbox mirror, `processManagerAssistantInboundEmail` calls `fanOutWorkspaceNotice` for every non-owner in
+`resolveWorkspaceNoticeRecipients` (module `inbox`, no house): "Work email from <sender> · <subject> · <first 120 chars>",
+keyed `inbound-email:<inbound id>`; the answer the agent actually sent follows as "Replied: ...", keyed
+`inbound-email-reply:<inbound id>`. Each lands in that person's own Assistant thread.
+
+**A work-email notice never becomes a text.** Every one of those calls passes `sms: false`, so the fan-out
+reaches the teammate in-app only: an emailed body is not consented SMS content, a text would bill the owner
+for traffic they never sent, and an inbound email is the one fan-out with no forward path of its own (a
+prospect or resident text still texts, because the forward IS their text —
+[`sms-system.md`](sms-system.md) § Inbound texts reach the whole team by role). Coverage:
+`tests/unit/manager-assistant-email-inbound.test.ts`.

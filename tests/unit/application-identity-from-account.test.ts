@@ -199,7 +199,8 @@ vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 // The fee guard (own coverage in application-fee-submit-guard.test.ts) is recorded, so the test can pin which
 // identity it was asked to verify the fee claim for: the account's, never the body's.
 const feeGuardRows = vi.hoisted(() => [] as Array<{ email?: string }>);
-vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
+vi.mock("@/lib/rental-application/application-fee-submit-guard.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rental-application/application-fee-submit-guard.server")>()),
   authorizeApplicationFeeSubmission: async (_db: unknown, row: { email?: string }) => { feeGuardRows.push({ email: row.email }); return { ok: true }; },
 }));
 

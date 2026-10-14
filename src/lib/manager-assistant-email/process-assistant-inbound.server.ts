@@ -40,6 +40,11 @@ import {
   loadManagerAssistantEmail,
   resolveAssistantMailboxByInboundAddresses,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
+import {
+  fanOutWorkspaceNotice,
+  inboundEmailNoticeText,
+  repliedNoticeText,
+} from "@/lib/workspace-team-fanout.server";
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
 import { mirrorAssistantEmailTurnToInbox } from "@/lib/manager-assistant-email/mirror-assistant-email-to-inbox.server";
 import {
@@ -149,6 +154,14 @@ async function handleAirbnbNotification(
       workspaceId,
       workLine: parsed.toEmails.find((address) => isAssistantEmailAddress([address])) ?? null,
       residentUserId: null,
+    });
+    await fanOutWorkspaceNotice(db, {
+      ownerUserId: managerUserId,
+      workspaceId,
+      subject: "Work email",
+      sms: false,
+      text: inboundEmailNoticeText({ sender: parsed.fromName?.trim() || senderEmail, subject: parsed.subject, body: inboundText }),
+      idempotencyKey: `inbound-email:${parsed.emailId}`,
     });
   } catch (cause) {
     console.error("airbnb notification mirror failed", cause);
@@ -381,6 +394,27 @@ export async function processManagerAssistantInboundEmail(
         });
       } catch (cause) {
         console.error("assistant-email conversation mirror failed", cause);
+      }
+      /* The rest of the workspace team, by role (no house: it is a work-email thread),
+         each in their own Assistant thread. Keyed on the inbound id, so a Resend
+         redelivery notifies nobody twice. */
+      await fanOutWorkspaceNotice(db, {
+        ownerUserId: managerUserId,
+        workspaceId,
+        subject: "Work email",
+        sms: false,
+        text: inboundEmailNoticeText({ sender: senderName, subject: parsed.subject, body: inboundText }),
+        idempotencyKey: `inbound-email:${parsed.emailId}`,
+      });
+      if (replyText && replySent) {
+        await fanOutWorkspaceNotice(db, {
+          ownerUserId: managerUserId,
+          workspaceId,
+          subject: "Work email reply",
+          sms: false,
+          text: repliedNoticeText(replyText),
+          idempotencyKey: `inbound-email-reply:${parsed.emailId}`,
+        });
       }
     };
   }

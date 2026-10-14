@@ -41,6 +41,11 @@ function Probe() {
   );
 }
 
+function PickRoom() {
+  const stay = useShortStay();
+  return <button type="button" onClick={() => stay?.setRoomId("r3")}>pick room 3</button>;
+}
+
 beforeEach(() => vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 }))));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -60,16 +65,45 @@ describe("short-stay booking card", () => {
     expect(container.querySelector('[data-attr="short-stay-block"]')).toBeNull();
   });
 
-  it("shows the nightly price, the live total and the text link; Request to book waits for a room", async () => {
+  it("reads Quick book for a signed-in resident and sends in one tap with their details", async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+      return new Response("{}", { status: 200 });
+    }));
+    render(
+      <ShortStayProvider property={property}>
+        <ShortStayBookingBlock quickBook={{ name: "Dana Resident", email: "dana@example.com", phone: "2065550100" }} />
+        <Probe />
+        <PickRoom />
+      </ShortStayProvider>,
+    );
+    fireEvent.click(screen.getByText("pick dates"));
+    fireEvent.click(screen.getByText("pick room 3"));
+    const quick = screen.getByRole("button", { name: "Quick book" }) as HTMLButtonElement;
+    expect(screen.queryByRole("button", { name: "Request to book" })).toBeNull();
+    await waitFor(() => expect(quick.disabled).toBe(false));
+    fireEvent.click(quick);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]!.body).toMatchObject({ propertyId: "prop-1", roomId: "r3", name: "Dana Resident", phone: "2065550100", email: "dana@example.com" });
+  });
+
+  it("prints no price header of its own (the card's one price line sits above it), and never a dash", () => {
+    render(<ShortStayProvider property={property}><ShortStayBookingBlock /></ShortStayProvider>);
+    expect(screen.queryByText("/ night")).toBeNull();
+    expect(document.body.textContent).not.toContain("—");
+  });
+
+  it("shows the live total and the text link; Request to book waits for a room", async () => {
     render(<ShortStayProvider property={property}><ShortStayBookingBlock /><Probe /></ShortStayProvider>);
-    expect(screen.getByText("/ night")).toBeTruthy();
     const request = screen.getByRole("button", { name: "Request to book" }) as HTMLButtonElement;
     expect(request.disabled).toBe(true);
     fireEvent.click(screen.getByText("pick dates"));
     await waitFor(() => expect(screen.getByText("$55 × 4 nights")).toBeTruthy());
     expect(screen.getByText("$220")).toBeTruthy();
     expect(request.disabled).toBe(true);
-    const text = screen.getByText(/Message · text/);
+    const text = screen.getByText(/^Text \+?1? ?\(?814/);
     expect(text.getAttribute("href")).toMatch(/^sms:/);
+    expect(document.body.textContent).not.toContain("— / night");
   });
 });

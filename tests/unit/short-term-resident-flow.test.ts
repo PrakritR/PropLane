@@ -8,7 +8,6 @@
  */
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
-import { listingTermCtas } from "@/lib/listing-prospect-cta-labels";
 import { buildProspectApplyHref } from "@/lib/prospect-public-nav";
 import {
   HOUSEHOLD_CHARGES_SESSION_KEY,
@@ -52,27 +51,6 @@ import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
 
 describe("listing apply doors", () => {
-  it("offers Apply long term, and Apply short term only when the listing offers short stays", () => {
-    expect(listingTermCtas({ shortStayOffered: false }).map((c) => c.label)).toEqual(["Apply long term"]);
-    expect(listingTermCtas({ shortStayOffered: true }).map((c) => c.label)).toEqual([
-      "Apply long term",
-      "Apply short term",
-    ]);
-  });
-
-  it("always says Apply for both terms, even for a stale lease_first value", () => {
-    expect(listingTermCtas({ shortStayOffered: true, signingOrder: "lease_first" as never }).map((c) => c.label)).toEqual([
-      "Apply long term",
-      "Apply short term",
-    ]);
-  });
-
-  it("only the short door selects the short-term application", () => {
-    const [long, short] = listingTermCtas({ shortStayOffered: true });
-    expect(long!.rentalType).toBe("standard");
-    expect(short!.rentalType).toBe("short_term");
-  });
-
   it("the short door opens the in-portal application for a signed-in resident, and the public one otherwise", () => {
     const signedIn = { ready: true, userId: "u1", hasResidentRole: true };
     const signedOut = { ready: true, userId: null, hasResidentRole: false };
@@ -86,7 +64,12 @@ describe("listing apply doors", () => {
     const source = readFileSync("src/components/marketing/listing-detail-sections.tsx", "utf8");
     expect(source).not.toContain("Book a short stay");
     expect(source).not.toContain("/rent/stay");
-    expect(source).toContain("listingTermCtas");
+    // One Apply door; the long/short pair is gone from the card (Monthly | Short stay is the choice),
+    // and the helper that built it no longer exists anywhere.
+    expect(source).not.toContain("listingTermCtas");
+    expect(source).not.toContain("Apply long term");
+    expect(readFileSync("src/lib/listing-prospect-cta-labels.ts", "utf8")).not.toContain("export function listingTermCtas");
+    expect(readFileSync("src/components/marketing/listing-contact-card.tsx", "utf8")).not.toContain("export function ListingContactCard");
     const stay = readFileSync("src/app/(public)/rent/stay/page.tsx", "utf8");
     expect(stay).toContain("redirect(");
     expect(stay).toContain('rentalType: "short_term"');

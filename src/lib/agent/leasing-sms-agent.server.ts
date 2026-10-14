@@ -30,6 +30,7 @@ import {
   persistProspectTourSchedulingContext,
   schedulingContextPrompt,
 } from "@/lib/prospect-tour-scheduling-context.server";
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 
 type Db = SupabaseClient;
 
@@ -666,7 +667,10 @@ export async function runLeasingSmsAgentTurn(
       candidateContext: [],
     };
   }
-  const reply = quietHandoff ? "" : result!.reply.trim().slice(0, maxReplyChars);
+  // The standing no-em-dash rule, applied once where the prospect-visible reply is finalized, so
+  // every consumer (the durable prepared reply, the carrier send, the reminder, the manager's
+  // "Replied: ..." notice) carries the same stripped text.
+  const reply = quietHandoff ? "" : stripLongDashes(result!.reply).trim().slice(0, maxReplyChars);
   if (!reply && !quietHandoff) {
     console.warn("leasing-sms turn produced no reply", session.id, result?.terminationReason);
     return null;

@@ -1,0 +1,73 @@
+// Schedule from the thread composer: clock tool -> send tooltip "Send at <time>" -> the one scheduled-send route.
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
+import { buildSmsThreadScheduleBody, smsThreadCanSchedule } from "@/lib/sms-thread-schedule";
+
+const read = (p: string) => readFileSync(p, "utf8");
+
+describe("Schedule from thread composer posts a scheduled send", () => {
+  it("labels a set time as 'Oct 14 · 9:00 AM'", () => {
+    expect(formatScheduledLabel("2026-10-14T09:00")).toBe("Oct 14 · 9:00 AM");
+  });
+
+  it("builds the scheduled-inbox-messages body for Text, Email and both", () => {
+    const base = {
+      residentEmail: "Pat@Example.com",
+      residentName: "Pat",
+      text: "See you then",
+      sendAtLocal: "2026-12-14T09:00",
+      nowMs: Date.parse("2026-10-13T00:00:00Z"),
+    };
+    const text = buildSmsThreadScheduleBody({ ...base, viaEmail: false, viaSms: true });
+    expect(text.ok && text.body).toMatchObject({ recipientEmail: "pat@example.com", deliverViaSms: true, deliverViaEmail: false, deliverViaInbox: false });
+    const email = buildSmsThreadScheduleBody({ ...base, viaEmail: true, viaSms: false });
+    expect(email.ok && email.body).toMatchObject({ deliverViaEmail: true, deliverViaSms: false });
+  });
+
+  it("refuses a past time", () => {
+    const r = buildSmsThreadScheduleBody({ residentEmail: "a@b.co", text: "x", viaEmail: false, viaSms: true, sendAtLocal: "2020-01-01T09:00" });
+    expect(r.ok).toBe(false);
+  });
+
+  it("every thread composer passes the send time to the Send icon, and the POST goes to the shared route", () => {
+    for (const f of ["pro-inbox", "pro-sms-panel", "pro-resident-detail-inbox", "resident-inbox-panel"]) {
+      expect(read(`src/components/portal/${f}.tsx`)).toContain("sendAtLabel=");
+    }
+    expect(read("src/components/portal/portal-inbox-ui.tsx")).toContain("`Send at ${sendAtLabel}`");
+    expect(read("src/components/portal/pro-inbox.tsx")).toContain('"/api/portal/scheduled-inbox-messages"');
+    expect(read("src/components/portal/pro-sms-panel.tsx")).toContain('"/api/portal/scheduled-inbox-messages"');
+  });
+
+  /*
+   * The send handler is a `useCallback`. Leaving the schedule state out of its deps froze
+   * "Schedule for later" at whatever it was when one of the listed deps last changed, so a
+   * reply typed BEFORE the clock was pressed went out immediately instead of being scheduled.
+   */
+  it("keeps the send handler's schedule state fresh in every memoized composer", () => {
+    for (const [file, fn] of [
+      ["pro-inbox", "sendActiveReply"],
+      ["pro-resident-detail-inbox", "sendMessage"],
+      ["resident-inbox-panel", "sendActiveReply"],
+    ] as const) {
+      const src = read(`src/components/portal/${file}.tsx`);
+      const start = src.indexOf(`const ${fn} = useCallback(`);
+      expect(start, `${file}: ${fn} is not a useCallback`).toBeGreaterThan(-1);
+      const depsStart = src.indexOf("\n  }, [", start);
+      const deps = src.slice(depsStart, src.indexOf("]);", depsStart));
+      expect(deps, `${file}: ${fn} deps`).toContain("scheduleLater");
+      expect(deps, `${file}: ${fn} deps`).toContain("scheduleSendAt");
+    }
+  });
+
+  it("the clock appears on a phone-only text thread and its schedule body is a phone-only Text", () => {
+    expect(smsThreadCanSchedule(null, "(726) 248-3085")).toBe(true);
+    expect(smsThreadCanSchedule("", "")).toBe(false);
+    const r = buildSmsThreadScheduleBody({
+      residentEmail: null, phone: "(726) 248-3085", text: "Hi", viaEmail: false, viaSms: true,
+      sendAtLocal: "2030-10-14T09:00", conversationKey: "conv-1",
+    });
+    expect(r.ok && r.body).toMatchObject({ recipientEmail: "", recipientPhone: "+17262483085", deliverViaSms: true, deliverViaEmail: false, conversationKey: "conv-1" });
+    expect(read("src/components/portal/pro-sms-panel.tsx")).toContain("smsThreadCanSchedule(active?.resident.residentEmail, active?.resident.phone)");
+  });
+});

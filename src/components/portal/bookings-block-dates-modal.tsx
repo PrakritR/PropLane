@@ -7,7 +7,7 @@ import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
  * Link calendars is its own PortalDialog in channel-calendar-link-modal.tsx.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { Input, Select } from "@/components/ui/input";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
@@ -111,6 +111,10 @@ export function BookingsBlockDatesModal({
   initialPropertyId,
   initialRoomId = "",
   initialDayKey,
+  initialCheckOut,
+  initialResident,
+  initialReason,
+  readsPending = false,
   editingBlock = null,
   entries,
   residentOptions = NO_RESIDENTS,
@@ -126,6 +130,19 @@ export function BookingsBlockDatesModal({
   initialRoomId?: string;
   /** Day the manager clicked in the calendar — becomes check-in, with check-out the next day. */
   initialDayKey?: string | null;
+  /** Check-out to open on (Quick book from an application); absent = the day after check-in. */
+  initialCheckOut?: string | null;
+  /** Someone to hold the room for (Quick book): matched to a resident on the books by email, else a new resident. */
+  initialResident?: { name: string; email: string; phone?: string } | null;
+  /** Pre-filled reason, e.g. "Application AXIS-123". */
+  initialReason?: string;
+  /**
+   * The Bookings reads behind `entries` / `residentOptions` have not all answered yet. Both lists are
+   * the only guard the save has — `entries` is the collision check and `residentOptions` decides
+   * whether the prefilled applicant is a NEW resident (and so gets an account-setup invite) — so while
+   * this is true the sheet opens and fills but will not save.
+   */
+  readsPending?: boolean;
   editingBlock?: PropertyBookingEntry | null;
   /** Everything already on the calendar, for the collision check and the hold list. */
   entries: readonly PropertyBookingEntry[];
@@ -141,6 +158,19 @@ export function BookingsBlockDatesModal({
   /** Rooms linked to a channel, so the review can say Airbnb picks the change up. */
   channelLinks?: readonly ChannelRoomLink[];
 }) {
+  const initialResidentName = initialResident?.name?.trim() ?? "";
+  const initialResidentEmail = initialResident?.email?.trim() ?? "";
+  const initialResidentPhone = initialResident?.phone?.trim() ?? "";
+  /**
+   * The option lists are read inside the reset effect but deliberately NOT among its dependencies: both
+   * are memos whose identity changes while the Bookings reads land (and `propertyOptions` is rebuilt on
+   * every parent render), and re-running the reset would wipe whatever the manager has already typed.
+   * Only `soloPropertyOptionId` — the one thing about them the reset actually decides on — is a dependency.
+   */
+  const residentOptionsRef = useRef(residentOptions);
+  const soloPropertyOptionId = propertyOptions.length === 1 ? propertyOptions[0]!.id : "";
+  /** Who the sheet still owes a match against the resident list, once that list arrives. */
+  const pendingResidentMatch = useRef<{ email: string; name: string } | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [propertyId, setPropertyId] = useState("");
   const [roomChoice, setRoomChoice] = useState("");
@@ -158,20 +188,41 @@ export function BookingsBlockDatesModal({
   /** Set after a NEW resident is saved — keeps the workspace open on a confirmation line instead of closing blind. */
   const [inviteResult, setInviteResult] = useState<string | null>(null);
 
+  // Declared BEFORE the reset effect so the ref is already current when that one reads it in the same commit.
+  useEffect(() => {
+    residentOptionsRef.current = residentOptions;
+  }, [residentOptions]);
+
   useEffect(() => {
     if (!open) return;
-    const property = initialPropertyId || (propertyOptions.length === 1 ? propertyOptions[0]!.id : "");
+    const property = initialPropertyId || soloPropertyOptionId;
     setPropertyId(property);
     setRoomChoice(initialRoomId && property ? `${property}::${initialRoomId}` : "");
     setCheckIn(initialDayKey ?? "");
-    setCheckOut(initialDayKey ? addDaysToDateKey(initialDayKey, 1) : "");
+    setCheckOut(
+      initialDayKey ? (initialCheckOut && initialCheckOut > initialDayKey ? initialCheckOut : addDaysToDateKey(initialDayKey, 1)) : "",
+    );
     setStepIdx(mode === "reserve" && !editingBlock && property && initialDayKey ? 2 : 0);
-    setReason("");
+    setReason(initialReason ?? "");
     setStayDetails(editingBlock?.stayDetails ?? {});
     setResidentChoice("");
     setNewResidentName("");
     setNewResidentEmail("");
     setNewResidentPhone("");
+    pendingResidentMatch.current = null;
+    if (initialResidentName || initialResidentEmail) {
+      const email = initialResidentEmail.toLowerCase();
+      const match = email ? residentOptionsRef.current.find((option) => option.email.toLowerCase() === email) : undefined;
+      if (match) {
+        setResidentChoice(match.key);
+      } else {
+        setResidentChoice(NEW_RESIDENT_CHOICE);
+        setNewResidentName(initialResidentName);
+        setNewResidentEmail(initialResidentEmail);
+        setNewResidentPhone(initialResidentPhone);
+        if (email) pendingResidentMatch.current = { email, name: initialResidentName };
+      }
+    }
     setError(null);
     setBusy(false);
     setInviteResult(null);
@@ -186,9 +237,37 @@ export function BookingsBlockDatesModal({
       setNewResidentName,
       setNewResidentPhone,
       setEditingBlockId,
-      residentOptions,
+      residentOptionsRef.current,
     );
-  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, editingBlock, propertyOptions, residentOptions]);
+    if (editingBlock?.blockId && editingBlock.residentName && !residentOptionsRef.current.some((option) => option.name === editingBlock.residentName)) {
+      pendingResidentMatch.current = { email: "", name: editingBlock.residentName };
+    }
+  }, [open, mode, initialPropertyId, initialRoomId, initialDayKey, initialCheckOut, initialReason, initialResidentName, initialResidentEmail, initialResidentPhone, editingBlock, soloPropertyOptionId]);
+
+  /**
+   * The resident list arrives after the sheet opens. Upgrade a prefilled "new resident" to the person
+   * already on the books once they show up — and only until the manager picks someone themselves.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const pending = pendingResidentMatch.current;
+    if (!pending) return;
+    const match = residentOptions.find((option) =>
+      pending.email ? option.email.toLowerCase() === pending.email : option.name === pending.name,
+    );
+    if (!match) return;
+    pendingResidentMatch.current = null;
+    setResidentChoice(match.key);
+    setNewResidentName("");
+    setNewResidentEmail("");
+    setNewResidentPhone("");
+  }, [open, residentOptions]);
+
+  /** Any manual resident choice settles it — the late list must not overwrite it. */
+  const chooseResident = useCallback((value: string) => {
+    pendingResidentMatch.current = null;
+    setResidentChoice(value);
+  }, []);
 
   const roomOptions = useMemo(
     () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }) : []),
@@ -224,7 +303,7 @@ export function BookingsBlockDatesModal({
   const residentValid =
     !isNewResident || (newResidentName.trim().length > 0 && (newResidentEmail.trim().length > 0 || newResidentPhone.trim().length > 0));
 
-  const canSave = Boolean(propertyId) && rangeValid && conflicts.length === 0 && residentValid && !busy;
+  const canSave = Boolean(propertyId) && rangeValid && conflicts.length === 0 && residentValid && !busy && !readsPending;
 
   const existingBlocks = useMemo(
     () => entries.filter((entry) => entry.source === "block" && entry.blockId),
@@ -303,7 +382,7 @@ export function BookingsBlockDatesModal({
   const workspaceDraft = useWorkspaceDraft({
     scope: `booking:${editingBlock?.blockId ?? initialPropertyId ?? "new"}:${initialRoomId ?? ""}:${initialDayKey ?? ""}`,
     open, value: { stepIdx, propertyId, roomChoice, checkIn, checkOut, reason, residentChoice, newResidentName, newResidentEmail, newResidentPhone, editingBlockId },
-    restore: (saved) => { setStepIdx(saved.stepIdx); setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setCheckIn(saved.checkIn); setCheckOut(saved.checkOut); setReason(saved.reason); setResidentChoice(saved.residentChoice); setNewResidentName(saved.newResidentName); setNewResidentEmail(saved.newResidentEmail); setNewResidentPhone(saved.newResidentPhone); setEditingBlockId(saved.editingBlockId); },
+    restore: (saved) => { pendingResidentMatch.current = null; setStepIdx(saved.stepIdx); setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setCheckIn(saved.checkIn); setCheckOut(saved.checkOut); setReason(saved.reason); setResidentChoice(saved.residentChoice); setNewResidentName(saved.newResidentName); setNewResidentEmail(saved.newResidentEmail); setNewResidentPhone(saved.newResidentPhone); setEditingBlockId(saved.editingBlockId); },
   });
 
   if (!open) return null;
@@ -391,7 +470,7 @@ export function BookingsBlockDatesModal({
                   className={`ml-auto ${FIELD_LINK}`}
                   disabled={busy}
                   data-attr="bookings-block-resident-pick-list"
-                  onClick={() => setResidentChoice("")}
+                  onClick={() => chooseResident("")}
                 >
                   Pick from list instead
                 </button>
@@ -401,7 +480,7 @@ export function BookingsBlockDatesModal({
                   className={`ml-auto ${FIELD_LINK}`}
                   disabled={busy}
                   data-attr="bookings-block-resident-new"
-                  onClick={() => setResidentChoice(NEW_RESIDENT_CHOICE)}
+                  onClick={() => chooseResident(NEW_RESIDENT_CHOICE)}
                 >
                   + New resident
                 </button>
@@ -444,7 +523,7 @@ export function BookingsBlockDatesModal({
             ) : (
               <Select
                 value={residentChoice}
-                onChange={(e) => setResidentChoice(e.target.value)}
+                onChange={(e) => chooseResident(e.target.value)}
                 disabled={busy}
                 aria-label="Resident"
                 data-attr="bookings-block-resident"
@@ -592,6 +671,7 @@ export function BookingsBlockDatesModal({
                     <BookingsRowOverflow
                       label={name}
                       onEditDates={() => {
+                        pendingResidentMatch.current = null;
                         applyEditingBlock(
                           entry,
                           setPropertyId,
@@ -617,6 +697,12 @@ export function BookingsBlockDatesModal({
                 );
               })}
             </ul>
+          ) : null}
+
+          {readsPending ? (
+            <p role="status" className="mt-4 text-sm text-muted" data-attr="bookings-block-reads-pending">
+              Checking the calendar for these dates…
+            </p>
           ) : null}
 
           {error ? (

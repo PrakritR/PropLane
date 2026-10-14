@@ -1,3 +1,4 @@
+import { normalizeE164 } from "@/lib/phone-e164";
 import {
   isUpcomingScheduledInboxMessage,
   isResidentOriginatedScheduledMessage,
@@ -141,23 +142,30 @@ export function scheduledItemsForRecipient(
   manual: ScheduledInboxMessageRecord[],
   automation: ScheduledPaymentMessage[],
   automationDefaults?: ScheduledAutomationChannelDefaults,
+  /** A phone-only conversation has no email: its scheduled Texts match on E.164 phone and/or conversation key. */
+  phoneMatch?: { phone?: string | null; conversationKey?: string | null },
 ): ThreadScheduledItem[] {
   const target = normalizeEmail(recipientEmail);
-  if (!target) return [];
+  const targetPhone = normalizeE164(String(phoneMatch?.phone ?? "").trim());
+  const targetKey = String(phoneMatch?.conversationKey ?? "").trim();
+  if (!target && !targetPhone && !targetKey) return [];
 
   const items: ThreadScheduledItem[] = [];
 
   for (const message of manual) {
     if (message.status !== "scheduled" && message.status !== "sending") continue;
     if (!isUpcomingScheduledInboxMessage(message.sendAt, message.status)) continue;
-    if (normalizeEmail(message.recipientEmail) !== target) continue;
+    const byEmail = Boolean(target) && normalizeEmail(message.recipientEmail) === target;
+    const byPhone = Boolean(targetPhone) && normalizeE164(String(message.recipientPhone ?? "").trim()) === targetPhone;
+    const byKey = Boolean(targetKey) && String(message.conversationKey ?? "").trim() === targetKey;
+    if (!byEmail && !byPhone && !byKey) continue;
     items.push(threadScheduledItemFromManualMessage(message));
   }
 
   for (const message of combineScheduledPaymentMessages(automation)) {
     if (message.status !== "scheduled") continue;
     if (!isUpcomingScheduledInboxMessage(message.sendAt, message.status)) continue;
-    if (normalizeEmail(message.residentEmail) !== target) continue;
+    if (!target || normalizeEmail(message.residentEmail) !== target) continue;
     items.push(threadScheduledItemFromAutomationMessage(message, automationDefaults));
   }
 

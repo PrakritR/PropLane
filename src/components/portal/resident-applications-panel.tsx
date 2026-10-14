@@ -59,6 +59,8 @@ import {
 } from "@/lib/rental-application/application-list-grouping";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
 import { PropertySearchPicker, type PropertySearchOption } from "@/components/marketing/property-search-picker";
+import { QuickApplySheet } from "@/components/marketing/quick-apply-sheet";
+import { useQuickApplyProfile } from "@/hooks/use-quick-apply-eligibility";
 import {
   isPropertyActiveForLeads,
   loadPublicExtraListingsFromServer,
@@ -345,6 +347,9 @@ export function ResidentApplicationsPanel({
   // its own row in this same list — no round-trip out to the browse page.
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickedPropertyId, setPickedPropertyId] = useState<string | null>(null);
+  // Quick apply: with saved answers, the round blue + opens the one-sheet Quick apply instead of the picker.
+  const [quickApplyOpen, setQuickApplyOpen] = useState(false);
+  const quickProfile = useQuickApplyProfile(Boolean(sessionReady && sessionUserId && !demoMode));
   const openHandled = useRef(false);
   // Which application the apply-mode auto-expand has already opened. Guards the
   // effect so it fires ONCE per resolved id and never re-snaps: a background
@@ -640,6 +645,11 @@ export function ResidentApplicationsPanel({
 
 
   const openPropertyPicker = () => {
+    // Quick apply only builds a long-term (`standard`) application, so short term keeps its own picker.
+    if (quickProfile.hasProfile && term !== "short_term") {
+      setQuickApplyOpen(true);
+      return;
+    }
     setPickedPropertyId(null);
     void loadPublicExtraListingsFromServer();
     setPickerOpen(true);
@@ -874,7 +884,22 @@ export function ResidentApplicationsPanel({
     </Modal>
   );
 
+  const quickApplySheet = (
+    <QuickApplySheet
+      open={quickApplyOpen}
+      onClose={() => setQuickApplyOpen(false)}
+      showToast={showToast}
+      navigate={(href) => portalNavigate(href)}
+      onFullApplication={(pid) => {
+        setQuickApplyOpen(false);
+        startApplicationForProperty(pid);
+      }}
+    />
+  );
+
   const propertyPickerModal = (
+    <>
+    {quickApplySheet}
     <Modal
       open={pickerOpen}
       title={term === "short_term" ? "Apply short term to a property" : "Apply to a property"}
@@ -925,6 +950,7 @@ export function ResidentApplicationsPanel({
         ariaLabel="Search properties to apply for"
       />
     </Modal>
+    </>
   );
 
   const applicationWizard = (
@@ -1046,7 +1072,6 @@ export function ResidentApplicationsPanel({
           <GroupShareCallout
             leaderAppId={row.id}
             groupRole="first"
-            groupSize={row.application?.groupSize}
             propertyId={row.propertyId}
             className="rounded-2xl border border-border bg-accent/30 p-5"
             shareable={row.bucket !== "rejected"}

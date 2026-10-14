@@ -39,6 +39,18 @@ describe("inbox email thread display", () => {
     expect(inboxTurnDisplayBody("On my way", "sms")).toBe("On my way");
   });
 
+  it("never shows a subject equal to the thread title", () => {
+    const f = inboxEmailBubbleFields(
+      { body: "x", subject: " team · seattle homes ", channel: "email" },
+      "",
+      "Team · SEATTLE HOMES",
+    );
+    expect(f.subject).toBeUndefined();
+    expect(
+      inboxEmailBubbleFields({ body: "x", subject: "Tour", channel: "email" }, "", "Team · SEATTLE HOMES").subject,
+    ).toBe("Tour");
+  });
+
   it("shows the subject once across Re: replies and prefixes outbound Re:", () => {
     expect(emailSubjectTopic("Re: Tour tomorrow?")).toBe(emailSubjectTopic("Tour tomorrow?"));
     const first = inboxEmailBubbleFields(

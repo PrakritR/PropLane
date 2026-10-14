@@ -91,24 +91,25 @@ describe("manager preview — slim phone sticky bar", () => {
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar).not.toBeNull();
     expect(bar.hasAttribute("data-slim")).toBe(true);
-    expect(bar.textContent).toContain("$1,450/mo");
+    expect(bar.textContent).toContain("$1,450 / mo");
     expect(bar.textContent).toContain("5 rooms · 2 available");
     expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Apply");
     expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toContain("Tour");
     // the full names stay for a screen reader
-    expect(bar.querySelector('[data-attr="listing-web-apply"] .sr-only')?.textContent).toBe("Apply long term");
+    expect(bar.querySelector('[data-attr="listing-web-apply"] .sr-only')?.textContent).toBe("Apply");
     expect(bar.querySelector('[data-attr="listing-web-tour"] .sr-only')?.textContent).toBe("Schedule tour");
     // Email moved into the record header menu
     expect(bar.querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
     expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
   });
 
-  it("leaves the public listing page's own two-row bar as it was", () => {
+  it("keeps the public listing page's own two-row bar: price, then one primary and Schedule tour", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar.hasAttribute("data-slim")).toBe(false);
-    expect(bar.querySelector('[data-attr="listing-sticky-email"]')).not.toBeNull();
-    expect(bar.textContent).toContain("Apply long term");
+    expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
+    expect(bar.textContent).toContain("Apply");
+    expect(bar.textContent).not.toContain("Apply long term");
     expect(bar.textContent).toContain("Schedule tour");
   });
 });

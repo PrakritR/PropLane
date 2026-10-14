@@ -15,6 +15,7 @@ import {
   InboxComposerAiMenu,
   InboxComposerChannelMenu,
   InboxComposerScheduleMenu,
+  formatScheduledLabel,
 } from "@/components/portal/inbox-composer-tools";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
@@ -151,6 +152,7 @@ import {
   filterManagerCommunicationThreads,
   threadMatchesVendorContact,
 } from "@/lib/communication-inbox-filters";
+import { TEAM_ROOT_TEXT } from "@/lib/team-thread-display";
 import { emailReplySubjectFor, inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
@@ -1482,13 +1484,14 @@ export const ManagerInbox = forwardRef<
           channel: m.channel,
         },
         lastEmailSubject,
+        activeThread.from,
       );
       lastEmailSubject = fields.lastShownSubject;
       return {
         id: m.id,
         automated: m.automated,
         eventTitle: m.subject,
-        author: m.from,
+        author: m.body === TEAM_ROOT_TEXT ? "PropLane" : m.from,
         body: fields.body,
         at: m.at,
         direction,
@@ -1821,6 +1824,9 @@ export const ManagerInbox = forwardRef<
     activeEmailAvailable,
     activeSmsAvailable,
     activeProplaneAvailable,
+    scheduleLater,
+    scheduleSendAt,
+    reloadScheduled,
     handleReply,
     showToast,
   ]);
@@ -2651,16 +2657,7 @@ export const ManagerInbox = forwardRef<
               maxLength={!embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined}
               dataAttr="inbox-reply"
               focusSignal={replyFocusSignal}
-              hint={
-                scheduleLater && inboxThreadHasEmail(activeThread.email)
-                  ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}.`
-                  : undefined
-              }
+              sendAtLabel={scheduleLater && inboxThreadHasEmail(activeThread.email) ? formatScheduledLabel(scheduleSendAt) : undefined}
               trailingControls={
                 <>
                   <InboxComposerAiMenu

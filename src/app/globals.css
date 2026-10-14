@@ -2722,6 +2722,13 @@ html[data-portal-sticky-chrome] .portal-list-page-scroll [data-slot="portal-list
   top: 0;
 }
 
+/* A scroll body that holds a sticky command stack carries no top padding of its own (the record page
+   adds pt-3): the stack sticks at the scroller's top edge, so padding above it is a strip rows scroll
+   through, visible above the tabs. The stack sits flush under the record header instead. */
+html[data-portal-sticky-chrome] .portal-list-page-scroll:has([data-slot="portal-list-control-stack"][data-sticky]) {
+  padding-top: 0;
+}
+
 html[data-portal-sticky-chrome] .portal-calendar-toolbar {
   position: sticky;
   top: 0;

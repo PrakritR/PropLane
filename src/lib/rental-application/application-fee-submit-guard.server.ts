@@ -9,9 +9,64 @@ import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { loadManagerApplicationSettings } from "@/lib/manager-application-settings";
 import { resolveApplicationFeeChargePolicy } from "@/lib/rental-application/listing-application-fee-policy";
 
+/**
+ * Why the guard refused. `unpaid` is the only reason that means "money is owed" — `unverifiable` is a
+ * malformed or unreadable row, and a caller must never offer to collect a payment for it.
+ */
+export type ApplicationFeeRefusalReason = "unpaid" | "unverifiable";
+
 export type ApplicationFeeSubmitGuard =
   | { ok: true }
-  | { ok: false; status: 409 | 500; error: string };
+  | { ok: false; status: 409 | 500; error: string; reason: ApplicationFeeRefusalReason };
+
+/**
+ * A verdict this request already produced, with the row it was produced for, so one submit verifies
+ * the fee ONCE. Quick apply has to ask "is a fee owed" before it can decide whether the row it
+ * builds is a submit or a draft, and the shared write then asks the same question of the same row;
+ * without this the listing fee resolution, the payment claim and the household charge row are all
+ * read twice per submit.
+ */
+export type PriorApplicationFeeAuthorization = {
+  row: DemoApplicantRow;
+  guard: ApplicationFeeSubmitGuard;
+};
+
+/** The fee-relevant identity of a row: the same values `authorizeApplicationFeeSubmission` reads. */
+function feeBasisOf(row: DemoApplicantRow): string {
+  const answers = row.application;
+  return JSON.stringify([
+    row.id?.trim() ?? "",
+    row.propertyId?.trim() || answers?.propertyId?.trim() || "",
+    (row.email?.trim() || answers?.email?.trim() || "").toLowerCase(),
+    row.residentUserId ?? null,
+    answers?.applicationTemplateId ?? null,
+    answers?.roomChoice1 ?? null,
+    (answers as { bundleId?: string } | undefined)?.bundleId ?? null,
+    answers?.leaseTerm ?? null,
+    answers?.rentalType ?? null,
+    answers?.applicationFeeWaived ?? null,
+  ]);
+}
+
+/**
+ * The prior verdict when it provably answers this row too, else null — so a miss costs a fresh
+ * verification rather than letting a submit through.
+ *
+ * The fee basis must match exactly, and the prior verdict must have been computed under a manager
+ * constraint at least as tight as this row's: the guard refuses when a claimed manager is not the
+ * listing's owner, so a verdict reached WITHOUT that claim may never stand in for a row that makes
+ * one. A verdict reached with the claim can, because the only extra check it passed is one this row
+ * does not ask for.
+ */
+export function reuseApplicationFeeAuthorization(
+  row: DemoApplicantRow,
+  prior: PriorApplicationFeeAuthorization | undefined,
+): ApplicationFeeSubmitGuard | null {
+  if (!prior || feeBasisOf(prior.row) !== feeBasisOf(row)) return null;
+  const claimed = row.managerUserId?.trim() ?? "";
+  if (claimed && (prior.row.managerUserId?.trim() ?? "") !== claimed) return null;
+  return prior.guard;
+}
 
 /** The applicant's submitted flag is not payment evidence. Resolve the fee
  * from the owned listing and require a waiver or this exact application's
@@ -26,7 +81,7 @@ export async function authorizeApplicationFeeSubmission(
   const email = (row.email?.trim() || row.application?.email?.trim() || "").toLowerCase();
   const answers = row.application;
   if (!applicationId || !propertyId || !email.includes("@") || !answers) {
-    return { ok: false, status: 409, error: "Application fee source cannot be verified." };
+    return { ok: false, status: 409, error: "Application fee source cannot be verified.", reason: "unverifiable" };
   }
   try {
     const resolved = await resolveApplicationFeeProperty(db, {
@@ -38,7 +93,7 @@ export async function authorizeApplicationFeeSubmission(
       rentalType: applicationRentalTypeFor(answers.rentalType),
     }, { allowZeroFee: true });
     if (!resolved.ok || (claimedManagerId && resolved.value.managerUserId !== claimedManagerId)) {
-      return { ok: false, status: 500, error: "Could not verify the listing's application fee." };
+      return { ok: false, status: 500, error: "Could not verify the listing's application fee.", reason: "unverifiable" };
     }
     const managerId = resolved.value.managerUserId;
     if (resolved.value.applicationFeeCents <= 0) return { ok: true };
@@ -67,7 +122,7 @@ export async function authorizeApplicationFeeSubmission(
     if (!claim || claim.status !== "settled" || !claim.stripe_session_id ||
         claim.manager_user_id !== managerId || claim.property_id !== propertyId ||
         claim.resident_email !== email) {
-      return { ok: false, status: 409, error: "Pay this application's fee before submitting." };
+      return { ok: false, status: 409, error: "Pay this application's fee before submitting.", reason: "unpaid" };
     }
     const quote = claim.provider_params as { metadata?: Record<string, string> } | null;
     if (!quote?.metadata || !applicationFeePaymentSatisfiesTemplate({
@@ -83,7 +138,7 @@ export async function authorizeApplicationFeeSubmission(
         rentalType: applicationRentalTypeFor(answers.rentalType),
       },
     })) {
-      return { ok: false, status: 409, error: "This application changed after its fee was paid." };
+      return { ok: false, status: 409, error: "This application changed after its fee was paid.", reason: "unpaid" };
     }
     const { data: charge, error: chargeError } = await db.from("portal_household_charge_records")
       .select("id,manager_user_id,resident_email,property_id,kind,status,row_data")
@@ -94,10 +149,10 @@ export async function authorizeApplicationFeeSubmission(
         charge.resident_email?.trim().toLowerCase() !== email || charge.kind !== "application_fee" ||
         charge.status !== "paid" || paid?.applicationId !== applicationId ||
         paid.stripeCheckoutSessionId !== claim.stripe_session_id) {
-      return { ok: false, status: 409, error: "This application's fee has not settled." };
+      return { ok: false, status: 409, error: "This application's fee has not settled.", reason: "unpaid" };
     }
     return { ok: true };
   } catch {
-    return { ok: false, status: 500, error: "Could not verify the application fee. Try again." };
+    return { ok: false, status: 500, error: "Could not verify the application fee. Try again.", reason: "unverifiable" };
   }
 }

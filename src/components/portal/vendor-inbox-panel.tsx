@@ -928,6 +928,7 @@ export const VendorInboxPanel = forwardRef<
           channel: m.channel,
         },
         lastShownSubject,
+        activeThread.from,
       );
       lastShownSubject = fields.lastShownSubject;
       return {

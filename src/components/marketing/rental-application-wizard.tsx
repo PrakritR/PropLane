@@ -530,7 +530,6 @@ function RentalApplicationWizardInner({
     /** Organizer application id for group invite link on the finish screen. */
     groupLeaderAppId?: string;
     groupRole?: GroupRole;
-    groupSize?: string;
     groupPropertyId?: string;
     hasCosigner?: "yes" | "no" | null;
     /** Forms the template's rules owe after this submit, from the submit response. */
@@ -943,6 +942,16 @@ function RentalApplicationWizardInner({
       "Filled in from your previous application. You still need to enter move-in dates and property choices for this application.",
     );
   }, [savedAutofillProfile, showToast]);
+
+  // Quick apply sends a resident here with `?prefill=1` when their saved answers did not cover this listing:
+  // the tap on Quick apply is the explicit ask, so the saved answers go in once, as the step-2 button would.
+  const quickPrefillDone = useRef(false);
+  const quickPrefillRequested = searchParams.get("prefill") === "1";
+  useEffect(() => {
+    if (!quickPrefillRequested || quickPrefillDone.current || !savedAutofillProfile || autofillApplied) return;
+    quickPrefillDone.current = true;
+    handleApplySavedAutofill();
+  }, [autofillApplied, handleApplySavedAutofill, quickPrefillRequested, savedAutofillProfile]);
 
   const propertyOptions = useMemo(() => {
     void extrasTick;
@@ -2104,7 +2113,6 @@ function RentalApplicationWizardInner({
               ? axisId
               : undefined,
           groupRole: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole : undefined,
-          groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
           groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
           hasCosigner: submittedForm.hasCosigner,
           linkedForms: sync.linkedForms,
@@ -2133,7 +2141,6 @@ function RentalApplicationWizardInner({
             ? axisId
             : undefined,
         groupRole: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole : undefined,
-        groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
         groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
         hasCosigner: submittedForm.hasCosigner,
         linkedForms: sync.linkedForms,
@@ -2731,7 +2738,6 @@ function RentalApplicationWizardInner({
             setupHref={postSubmit.setupHref}
             groupLeaderAppId={postSubmit.groupLeaderAppId}
             groupRole={postSubmit.groupRole}
-            groupSize={postSubmit.groupSize}
             groupPropertyId={postSubmit.groupPropertyId}
             hasCosigner={postSubmit.hasCosigner}
             linkedForms={postSubmit.linkedForms}

@@ -364,8 +364,11 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   `customDeliverViaInbox` for payment-reminder overrides. Bar selection uses
   message identity, so removal of an earlier row never changes the editor. The
   standalone Schedule table is gone from production. Matching is pure:
-  `scheduledItemsForRecipient(email, manual, automation)` in
-  `src/lib/inbox-scheduled-thread.ts`. Edit permissions are unchanged —
+  `scheduledItemsForRecipient(email, manual, automation, defaults, phoneMatch)`
+  in `src/lib/inbox-scheduled-thread.ts` — an email thread matches on the
+  lowercased recipient email, and a **phone-only** thread (a prospect with no
+  account) on its E.164 number or its conversation key, so the pending Text
+  shows in the bar of the thread it was written in. Edit permissions are unchanged —
   resident-originated / resident-side rows are cancel-only (the resident
   scheduled-message route only patches status), so residents pass no `onSaveEdit`.
   `onSaveEdit` MUST reject on failure (see `saveScheduledEdit` in
@@ -467,6 +470,24 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   `tests/unit/inbox-scheduled-thread.test.ts`,
   `tests/unit/inbox-thread-omnichannel.test.tsx`,
   `tests/unit/sms-comm-ui-flag.test.ts`.
+- **Any thread composer can schedule, including a phone-only one** (captain,
+  Oct 13). `smsThreadCanSchedule` accepts a conversation with an email OR a
+  valid E.164 phone, and `buildSmsThreadScheduleBody`
+  (`src/lib/sms-thread-schedule.ts`) builds a Text-only body for the phone-only
+  case: `recipientEmail: ""`, `recipientPhone` (E.164) and the thread's
+  `conversationKey`, with In-app and Email off (choosing anything but Text is
+  refused). `POST /api/portal/scheduled-inbox-messages` re-derives that the
+  number is one of the manager's own editable conversations in the composing
+  workspace before it stores the row, and a later PATCH may move only the time
+  or the words — number, conversation and channel are pinned. Delivery goes out
+  through `sendManagerConversationSms`, the same path, consent gate, billing
+  reserve and work number as a manual reply; because the cron carries no
+  cookie, the stored `workspaceId` is passed explicitly or the conversation
+  lookup would narrow to the manager's first workspace. Coverage:
+  `tests/unit/scheduled-inbox-phone-only-route.test.ts`,
+  `tests/unit/scheduled-inbox-phone-only-dispatch.test.ts`,
+  `tests/unit/scheduled-inbox-phone-only-thread.test.ts`,
+  `tests/unit/thread-composer-schedule.test.tsx`.
 - **A resident schedules from the thread composer, never from New message** —
   the reply composer carries the same clock tool as the manager's
   (`InboxComposerScheduleMenu` in `resident-inbox-panel`), while
@@ -556,8 +577,11 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   to each person's Assistant ([`automated-communication.md`](automated-communication.md)).
   Each line carries `actorUserId`, `from` (the poster's name) and `channel`
   (`proplane` = typed in the app, `sms` = texted to the work number, shown as the
-  "via Text" line); the thread opens with a neutral system line so no first
-  poster is dressed as "Team". Visibility is `conversationVisible`'s team
+  "via Text" line); the thread opens with a neutral system line (`TEAM_ROOT_TEXT`),
+  drawn as authored by **PropLane** rather than by the workspace name on the
+  stored row, so no first poster is dressed as "Team". The thread's own title is
+  never repeated as a message subject either (`inboxEmailBubbleFields` is given
+  the thread title and drops a subject equal to it). Visibility is `conversationVisible`'s team
   branch (membership map `scope.teamWorkspacesByOwner`, active workspace
   narrows); the store query adds those owners through `inboxStoreOwnerIds`,
   never by widening `scope.ownerIds`. The send route re-derives membership from
@@ -1034,4 +1058,4 @@ Public listing contacts, preview contacts, resident manager cards, manager threa
 
 ## Bookings: notices and removed stays (C2-BK4, C2-AB7)
 
-Cancel booking's "Notify guest" sends through the same authorized `POST /api/portal/send-inbox-message` (`booking-cancel-notice.ts`), after the cancel is saved, stamped with a `booking` recordRef; with no email on the stay the checkbox is disabled. A stay brought in by a channel feed is removed with a tombstone (`channel_stay_tombstone` in `portal_schedule_records`, keyed by house, room, channel and the feed's event UID) written by `/api/portal/channel-calendar/stay-tombstones`; the sync prunes tombstoned UIDs before it stores ranges, and Undo restores the carried range. Notes and stay details on a signed-lease or application stay (`booking_stay_meta`) are written by `/api/portal/bookings/stay-meta`, which re-derives the caller's access to the lease/application from the session. The generic schedule-records route refuses both record types.
+Cancel booking's "Notify guest" sends through the same authorized `POST /api/portal/send-inbox-message` (`booking-cancel-notice.ts`), after the cancel is saved, stamped with a `booking` recordRef; with no email on the stay the checkbox is disabled. A stay brought in by a channel feed is removed with a tombstone (`channel_stay_tombstone` in `portal_schedule_records`, keyed by house, room, channel and the feed's event UID) written by `/api/portal/channel-calendar/stay-tombstones`; the sync prunes tombstoned UIDs before it stores ranges, and Undo restores the carried range. A host block ("Airbnb (Not available)") shares one UID with every other block the host has, so its tombstone identity also carries `start|end` (`house|room|channel|uid|start|end`) while a reservation stays UID-only; changing a connection's import URL clears that room's tombstones, and a sync that prunes anything logs `pruned_count`. Notes and stay details on a signed-lease or application stay (`booking_stay_meta`) are written by `/api/portal/bookings/stay-meta`, which re-derives the caller's access to the lease/application from the session. The generic schedule-records route refuses both record types.

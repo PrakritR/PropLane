@@ -52,7 +52,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
     wizardStep: 1,
     standardFields: [
       "Property",
-      "Room choices (1st – 3rd)",
+      "Room",
       "Lease term",
       "Lease start & end dates",
     ],

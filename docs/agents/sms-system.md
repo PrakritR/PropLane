@@ -1187,11 +1187,17 @@ relevant tool-built link. A prospect ready to reserve, pay, or move immediately
 remains a prospect, so the agent never redirects them to resident rent payment
 or claims approval, reservation, or payment.
 
-Reply suppression is limited to a deterministic, standalone acknowledgment
-such as "thanks" or "got it" and requires an outbox row whose status is exactly
-`delivered`. The tool classifies the trusted current inbound text from the
-webhook context. A repeated question, clarification, correction, new fact, or
-availability question always rejects suppression so the model can answer.
+Reply suppression is a permission ceiling, never an instruction: it is limited
+to a deterministic, standalone acknowledgment such as "thanks" or "got it" and
+requires an outbox row whose status is exactly `delivered`. The tool classifies
+the trusted current inbound text from the webhook context. A repeated question,
+clarification, correction, new fact, or availability question always rejects
+suppression so the model can answer. What the agent actually does with a bare
+thank-you is decided by the standing acknowledge-every-thank-you rule in the
+same prompt — a short warm line, not silence — owned by
+[`../ai-assistant.md`](../ai-assistant.md) § Standing prompt rules. The
+deterministic check above stays the fail-closed boundary for any suppression
+call that is still made.
 
 For a high-intent manager-only uncertainty with no useful grounded reply left,
 the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.
@@ -1672,3 +1678,14 @@ notice's `externalText` out to each of them as a text FROM the owner's work numb
 email from the work email, never an Assistant thread (`notifyWorkNumberRecipients`). The list is managed by the
 owner (a teammate with Team at edit may read the list, only the owner changes it) (`/api/pro/work-number-recipients`). An addressed co-manager invite also
 texts a verified invitee from the inviter's work number (`notifyCoManagerInviteSent`).
+
+## Inbound texts reach the whole team by role (Oct 13)
+
+A prospect or resident text is forwarded to the owner's cell as before, and ALSO reaches every teammate the role matrix
+names (`resolveWorkspaceNoticeRecipients`, module `inbox`, house = the resident's house, none for a prospect):
+`forwardInboundToTeammates` texts those with a verified phone under the same consent gate and the shared hourly relay cap,
+and `fanOutWorkspaceNotice` (`src/lib/workspace-team-fanout.server.ts`) drops a "Prospect text: ..." / "Resident text: ..."
+notice, then the agent's answer as "Replied: ...", into each person's OWN Assistant thread
+(`managerAgentNoticeThreadId`), never the Team chat. The notices pass `sms: false` (the forward is their text), keyed
+`inbound-sms:<MessageSid>` / `inbound-sms-reply:<MessageSid>` so a redelivery notifies nobody twice. An unknown house no
+longer means owner-only: property managers, leasing and viewers still hear a no-house event.

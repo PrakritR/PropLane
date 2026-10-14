@@ -22,7 +22,7 @@ import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { bookingCancelLabel, canCancelBooking, isReservedBlock } from "@/lib/channel-calendar/booking-presentation";
-import { channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
+import { channelCheckFacts, channelStatusLine, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey } from "@/lib/room-availability-calendar";
 
@@ -121,5 +121,17 @@ describe("last-checked facts", () => {
       { label: "PropLane checked Airbnb", value: "5:40 PM" },
     ]);
     expect(channelCheckFacts({ lastSyncedAt: null }, now)[0]!.value).toBe("Not yet");
+  });
+});
+
+describe("channel status line", () => {
+  it("is one plain line, omitting a part with no timestamp", () => {
+    const now = new Date("2026-10-09T20:00:00");
+    const at = (h: string) => new Date(`2026-10-09T${h}:00`).toISOString();
+    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: at("08:00"), exportLastFetchedAt: at("08:04") }, now)).toBe("Synced · Airbnb 8:04 AM · PropLane 8:00 AM");
+    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: at("08:00") }, now)).toBe("Waiting for Airbnb · PropLane 8:00 AM");
+    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: null, lastError: "bad feed" }, now)).toBe("Error: bad feed");
+    expect(channelStatusLine({ hasImportUrl: false, lastSyncedAt: null }, now)).toBe("Not linked");
+    expect(channelStatusLine(null, now)).toBe("Not linked");
   });
 });

@@ -164,7 +164,7 @@ describe("application-field-catalog", () => {
       type: "date",
       options: [],
     });
-    expect(catalogField("property", "Room choices (1st – 3rd)")).toMatchObject({
+    expect(catalogField("property", "Room")).toMatchObject({
       type: "select",
       options: [],
     });

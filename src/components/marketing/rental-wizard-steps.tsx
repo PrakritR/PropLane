@@ -1,7 +1,7 @@
 "use client";
 
 import { applicationRentalTypeFor, leaseTermDisplayLabel } from "@/lib/rental-application/lease-terms";
-import { Children, Fragment, isValidElement, useState, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -20,6 +20,7 @@ import {
   applicationFeeWaiverExplanation,
 } from "@/lib/rental-application/application-fee-display";
 import { ApplyFieldRow } from "@/app/(public)/rent/apply/apply-field-row";
+import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize } from "@/app/(public)/rent/apply/apply-validation";
 import {
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
@@ -72,6 +73,7 @@ import type { RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-app
 import { makeApplicationGroupId } from "@/lib/rental-application/application-groups";
 import { openResidentSlotsForApplicationRow } from "@/lib/manager-applications-storage";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
+import { CountStepper } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { parseRoomChoiceValue, roomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { SharedRoomApplyModePanel, type SharedRoomApplyMode } from "@/components/marketing/shared-room-apply-mode-panel";
@@ -756,6 +758,21 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     onApplySavedAutofill,
   } = p;
 
+  // The organizer's group size is a 2-12 stepper, which cannot express a blank or an out-of-range
+  // number — so the stored value is held at whatever the stepper is showing. Without this, clearing
+  // the organizer id (which drops `groupSize`) or resuming a draft saved before the stepper existed
+  // left step 1 refusing with "Tell us how many people are applying together." right beside a
+  // control already reading 2, with - disabled and + the only way out.
+  const organizerGroupSizeFix =
+    step === 1 && form.applicantRole !== "cosigner" && form.applyingAsGroup === "yes" && !form.groupLeaderAppId.trim()
+      ? String(normalizeGroupSize(form.groupSize))
+      : null;
+  useEffect(() => {
+    if (organizerGroupSizeFix !== null && organizerGroupSizeFix !== form.groupSize) {
+      patch({ groupSize: organizerGroupSizeFix });
+    }
+  }, [form.groupSize, organizerGroupSizeFix, patch]);
+
   const listingSub = (() => {
     const prop = getPropertyById(form.propertyId);
     return prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
@@ -922,7 +939,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
       });
     };
     /**
-     * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
+     * The room choice offers only rooms that are ACTUALLY
      * AVAILABLE. This list used to pass `includeUnavailable: true`, so an
      * applicant was asked to rank ten bedrooms most of which they could not
      * have (AXI-167).
@@ -954,7 +971,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const rooms = allRooms.filter(
       (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
     );
-    const roomsWithNone = [{ value: "", label: "None" }, ...rooms];
     const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {
       leaseStart: form.leaseStart,
       leaseEnd: form.leaseEnd,
@@ -1169,64 +1185,32 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         <WizardFieldGate fieldKey="roomChoice1" enabled={showWizardField}>
         {isByRoom && !bundleSelected ? (
         <div className="space-y-2">
-          <Label required={roomQuestion?.required}>{roomQuestion?.label ?? "Room preferences"}</Label>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <span className="mb-1.5 block text-xs font-semibold text-muted">1st choice</span>
-              <div data-wizard-field="roomChoice1">
-                <Select
-                  value={form.roomChoice1}
-                  disabled={!form.propertyId}
-                  onChange={(e) =>
-                    patch(firstChoiceSelectionPatch(e.target.value, {
-                      propertyId: form.propertyId,
-                      leaseTerm: form.leaseTerm,
-                    }))
-                  }
-                  className={errors.roomChoice1 ? "border-red-400 ring-2 ring-red-100" : ""}
-                >
-                <option value="">{form.propertyId ? "Select a room" : "Select a property first"}</option>
-                {firstChoiceRooms.map((o) => (
-                  <option key={o.value} value={o.value} disabled={o.disabled}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-              <FieldError msg={errors.roomChoice1} />
-              </div>
-            </div>
-            <div>
-              <span className="mb-1.5 block text-xs font-semibold text-muted">2nd choice</span>
-              <Select
-                value={form.roomChoice2}
-                disabled={!form.propertyId}
-                onChange={(e) => patch({ roomChoice2: e.target.value })}
-                className={errors.roomChoice2 ? "border-red-400 ring-2 ring-red-100" : ""}
-              >
-                {roomsWithNone.map((o) => (
-                  <option key={o.label + o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-              <FieldError msg={errors.roomChoice2} />
-            </div>
-            <div>
-              <span className="mb-1.5 block text-xs font-semibold text-muted">3rd choice</span>
-              <Select
-                value={form.roomChoice3}
-                disabled={!form.propertyId}
-                onChange={(e) => patch({ roomChoice3: e.target.value })}
-                className={errors.roomChoice3 ? "border-red-400 ring-2 ring-red-100" : ""}
-              >
-                {roomsWithNone.map((o) => (
-                  <option key={`t-${o.label}-${o.value}`} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-              <FieldError msg={errors.roomChoice3} />
-            </div>
+          <Label required={roomQuestion?.required}>{roomQuestion?.label ?? "Room"}</Label>
+          <div data-wizard-field="roomChoice1">
+            <Select
+              aria-label="Room"
+              value={form.roomChoice1}
+              disabled={!form.propertyId}
+              onChange={(e) =>
+                patch({
+                  ...firstChoiceSelectionPatch(e.target.value, {
+                    propertyId: form.propertyId,
+                    leaseTerm: form.leaseTerm,
+                  }),
+                  roomChoice2: "",
+                  roomChoice3: "",
+                })
+              }
+              className={errors.roomChoice1 ? "border-red-400 ring-2 ring-red-100" : ""}
+            >
+              <option value="">{form.propertyId ? "Select a room" : "Select a property first"}</option>
+              {firstChoiceRooms.map((o) => (
+                <option key={o.value} value={o.value} disabled={o.disabled}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <FieldError msg={errors.roomChoice1} />
           </div>
         </div>
         ) : !isByRoom && !entireHome && rooms.length > 1 ? (
@@ -1329,9 +1313,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const joiningGroup = Boolean(form.groupLeaderAppId.trim());
     const organizingGroup = form.applyingAsGroup === "yes" && !joiningGroup;
     const inviteAppId = savedApplicationId.trim();
-    const propertyOffersBundles =
-      form.propertyId.trim().length > 0 &&
-      getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
 
     // Each household question is worded from the template's own question (the stored key never changes), and the
     // pair follows the order the manager gave it. A question the manager deleted is simply not asked.
@@ -1381,6 +1362,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                         groupId: joiningGroup
                           ? form.groupId
                           : form.groupId.trim() || makeApplicationGroupId(),
+                        ...(joiningGroup ? {} : { groupSize: form.groupSize.trim() || "2" }),
                       });
                     }}
                   />
@@ -1388,15 +1370,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
 
                 {form.applyingAsGroup === "yes" ? (
                   <>
-                    <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
-                      One person applies first and gets a Group ID. Everyone else pastes that same
-                      ID below so the manager sees you as one household. Each of you still files your
-                      own application
-                      {propertyOffersBundles
-                        ? ". If you all choose the same lease bundle, move-in costs split evenly across your group; otherwise each person is billed their own charges."
-                        : " and is billed your own charges."}
-                    </p>
-
                     <ApplyFieldRow
                       label="Organizer application ID"
                       optional
@@ -1456,45 +1429,22 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                       never collected anywhere in the UI — only ever read back — so
                       every group read as "size unknown" and no split could be made.
                     */}
-                    <Input
-                      id="groupSize"
-                      type="number"
-                      inputMode="numeric"
-                      min={2}
-                      max={12}
-                      step={1}
-                      placeholder="e.g. 3"
-                      value={form.groupSize}
-                      onChange={(e) => patch({ groupSize: e.target.value })}
-                      className={errors.groupSize ? "border-red-400 ring-2 ring-red-100" : ""}
-                      aria-describedby="groupSizeHelp"
+                    <CountStepper
+                      compact
+                      value={normalizeGroupSize(form.groupSize)}
+                      min={GROUP_SIZE_MIN}
+                      max={GROUP_SIZE_MAX}
+                      label="people in the group"
+                      dataAttr="group-size-stepper"
+                      onChange={(n) => patch({ groupSize: String(n) })}
                     />
-                    <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
-                      Everyone applying together, including you.
-                      {propertyOffersBundles
-                        ? " Move-in costs split evenly when you all choose the same lease bundle; otherwise each person is billed their own charges."
-                        : " Each person is billed their own charges."}
-                    </p>
                   </ApplyFieldRow>
-                ) : null}
-
-                {joiningGroup ? (
-                  <div className="px-4 pb-4 sm:px-5">
-                    <p className="rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted">
-                      You are joining the group started by{" "}
-                      <span className="font-semibold text-foreground">{form.groupLeaderAppId.trim()}</span>. The
-                      organizer declared the group size — you do not need to enter it. Finish your own
-                      application and the manager will see you both on the same household.
-                    </p>
-                  </div>
                 ) : null}
 
                 {organizingGroup && inviteAppId ? (
                   <div className="px-4 pb-4 sm:px-5">
                     <GroupInviteCallout
                       leaderAppId={inviteAppId}
-                      organizerName={form.fullLegalName.trim() || undefined}
-                      groupSize={form.groupSize.trim() || undefined}
                       propertyId={form.propertyId.trim() || undefined}
                       pendingSubmit
                     />
@@ -1530,11 +1480,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                 </ApplyFieldRow>
                 {form.hasCosigner === "yes" && inviteAppId ? (
                   <div className="px-4 pb-4 sm:px-5">
-                    <CosignerInviteCallout
-                      signerAppId={inviteAppId}
-                      signerName={form.fullLegalName.trim() || undefined}
-                      pendingSubmit
-                    />
+                    <CosignerInviteCallout signerAppId={inviteAppId} pendingSubmit />
                   </div>
                 ) : null}
               </>
@@ -2252,9 +2198,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
               <ReviewRow k="Lease bundle" v={reviewBundleLabel} />
             ) : reviewByRoom ? (
               <>
-                <ReviewRow k="1st choice room" v={displayOrDash(roomLabel(form.roomChoice1))} />
-                <ReviewRow k="2nd choice room" v={displayOrDash(roomLabel(form.roomChoice2))} />
-                <ReviewRow k="3rd choice room" v={displayOrDash(roomLabel(form.roomChoice3))} />
+                <ReviewRow k="Room" v={displayOrDash(roomLabel(form.roomChoice1))} />
               </>
             ) : (
               <ReviewRow k="Unit" v={displayOrDash(roomLabel(form.roomChoice1))} />

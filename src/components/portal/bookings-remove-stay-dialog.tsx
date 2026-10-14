@@ -21,7 +21,7 @@ export function BookingsRemoveStayDialog({ entry, onClose, onChanged, remove = r
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const guest = bookingEntryGuestLabel(entry);
-  const ref = { connectionId: entry.connectionId ?? "", sourceUid: entry.sourceUid ?? "" };
+  const ref = { connectionId: entry.connectionId ?? "", sourceUid: entry.sourceUid ?? "", start: entry.start, end: entry.end };
   const run = async (undo: boolean) => {
     setBusy(true); setError("");
     try { await (undo ? restore(ref) : remove(ref)); onChanged(); if (undo) onClose(); else setRemoved(true); }

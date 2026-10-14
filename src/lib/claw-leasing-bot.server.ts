@@ -70,6 +70,7 @@ export {
   looksLikeProspectLeasingCta,
   type LeasingIntent,
 } from "@/lib/claw-leasing-links";
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 
 export { clawMappedManagerEmails } from "@/lib/claw-resident-messaging.server";
 
@@ -1186,8 +1187,9 @@ export async function handleClawLeasingInbound(args: {
       reply: "We could not check that tour update just now. Please try again shortly.",
     }));
     if (tourReply.handled) {
+      const tourReplyBody = stripLongDashes(tourReply.reply);
       const prepared = args.onPreparedReply
-        ? await args.onPreparedReply({ routeKind: "leasing_template", replyBody: tourReply.reply })
+        ? await args.onPreparedReply({ routeKind: "leasing_template", replyBody: tourReplyBody })
         : true;
       if (!prepared) {
         releaseInboundMessageClaims(claimedMessageIds);
@@ -1195,7 +1197,7 @@ export async function handleClawLeasingInbound(args: {
       }
       const send = await replySms({
         to: from,
-        text: tourReply.reply,
+        text: tourReplyBody,
         managerUserId: landlordId,
         workNumber,
         counterpartyRole: "prospect",
@@ -1419,14 +1421,16 @@ export async function handleClawLeasingInbound(args: {
     return { ok: false, intent, replied: false, error: "Leasing agent did not produce a durable outcome." };
   }
 
-  const reply = args.routingReply ?? replyForIntent({
+  // Outbound SMS never carries an em/en dash, whoever wrote it: the agent's reply is stripped where
+  // the turn finalizes it, and the keyword templates and routing lines are stripped here.
+  const reply = stripLongDashes(args.routingReply ?? replyForIntent({
     intent,
     origin,
     propertyId,
     propertyLabel,
     bundleId,
     phone: from,
-  });
+  }));
   const prepared = args.onPreparedReply
     ? await args.onPreparedReply({ routeKind: "leasing_template", replyBody: reply })
     : true;

@@ -49,7 +49,7 @@ import { House, Layers, MoreHorizontal, PanelsTopLeft, ScrollText, ShieldCheck, 
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
-type PricingTab = "rooms" | "bundles" | "whole";
+type PricingTab = "rooms" | "bundles" | "whole" | "fees";
 
 type Props = {
   submission: ManagerListingSubmissionV1;
@@ -183,7 +183,9 @@ export function PropertyPricingPanel({
     ...(showWholeTab
       ? [{ id: "whole" as const, label: "Whole house", count: sub.entireHomeOffered || entireHome ? 1 : 0 }]
       : []),
+    { id: "fees" as const, label: "Rent & fees", count: undefined },
   ];
+  const onFeesTab = tab === "fees";
 
   const emptyCopy =
     tab === "bundles"
@@ -213,7 +215,7 @@ export function PropertyPricingPanel({
         }
         activeDestinationId={tab}
         destinationAriaLabel="Pricing"
-        search={{
+        search={onFeesTab ? undefined : {
           value: query,
           onChange: setQuery,
           placeholder: "Search pricing",
@@ -221,13 +223,15 @@ export function PropertyPricingPanel({
           dataAttr: "property-pricing-search",
         }}
         primary={
-          <PortalPrimaryIconAction label={addLabel} data-attr="property-pricing-add" onClick={addForTab} />
+          onFeesTab ? undefined : <PortalPrimaryIconAction label={addLabel} data-attr="property-pricing-add" onClick={addForTab} />
         }
       />
 
       <PortalRecordListSurface
         isEmpty={
-          tab === "rooms"
+          onFeesTab
+            ? false
+            : tab === "rooms"
             ? filteredRooms.length === 0
             : tab === "bundles"
               ? filteredBundles.length === 0
@@ -334,20 +338,22 @@ export function PropertyPricingPanel({
             }
           />
         ) : null}
+        {onFeesTab ? (
+          <PropertyPaymentSettingsCard
+            bare
+            sub={paymentSub}
+            workspacePayment={workspacePayment}
+            onDraft={(next) => setPaymentPatch(pickPaymentSettings(next))}
+            onCommit={(next) => {
+              const patch = pickPaymentSettings(next);
+              setPaymentPatch(patch);
+              void persist({ ...sub, ...patch }).then((ok) => {
+                if (!ok) setPaymentPatch(null);
+              });
+            }}
+          />
+        ) : null}
       </PortalRecordListSurface>
-
-      <PropertyPaymentSettingsCard
-        sub={paymentSub}
-        workspacePayment={workspacePayment}
-        onDraft={(next) => setPaymentPatch(pickPaymentSettings(next))}
-        onCommit={(next) => {
-          const patch = pickPaymentSettings(next);
-          setPaymentPatch(patch);
-          void persist({ ...sub, ...patch }).then((ok) => {
-            if (!ok) setPaymentPatch(null);
-          });
-        }}
-      />
 
       {subject ? (
         <PropertyRoomPricingWorkspace

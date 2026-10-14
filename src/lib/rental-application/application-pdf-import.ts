@@ -78,7 +78,7 @@ function isThirdPartyIdentityQuestion(label: string): boolean {
 
 function protectedStandardFieldForQuestion(label: string) {
   const prompt = normalize(label);
-  const alias = /^(room choice|room preference|preferred room)/.test(prompt) ? "Room choices (1st – 3rd)"
+  const alias = /^(room choice|room preference|preferred room)/.test(prompt) ? "Room"
     : /^(lease start|lease end|move in date|move out date)/.test(prompt) ? "Lease start & end dates"
     : undefined;
   const standard = alias

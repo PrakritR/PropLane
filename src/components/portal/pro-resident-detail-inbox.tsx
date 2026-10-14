@@ -10,6 +10,7 @@ import {
   InboxComposerAiMenu,
   InboxComposerChannelMenu,
   InboxComposerScheduleMenu,
+  formatScheduledLabel,
 } from "@/components/portal/inbox-composer-tools";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
@@ -873,6 +874,9 @@ export function ResidentDirectChatPane({
     replyViaEmail,
     replyViaProplane,
     replyViaSms,
+    scheduleLater,
+    scheduleSendAt,
+    reloadScheduled,
     showToast,
     smsResident,
     updateDraft,
@@ -1160,16 +1164,7 @@ export function ResidentDirectChatPane({
             maxLength={replyViaSms && !replyViaEmail && !replyViaProplane ? 1600 : undefined}
             dataAttr="resident-direct-chat-compose"
             focusSignal={draftFocusSignal}
-            hint={
-              scheduleLater && emailAvailable
-                ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}.`
-                : undefined
-            }
+            sendAtLabel={scheduleLater && emailAvailable ? formatScheduledLabel(scheduleSendAt) : undefined}
             trailingControls={
               <>
                 <InboxComposerAiMenu

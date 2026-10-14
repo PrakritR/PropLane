@@ -169,6 +169,19 @@ describe("the inbound webhook answers for the workspace", () => {
     expect(route).not.toContain("routingReply");
   });
 
+  it("prospect and resident texts fan out to the workspace team by role (module inbox), replies as Replied:", () => {
+    const pipeline = readFileSync("src/lib/sms/inbound-pipeline.server.ts", "utf8");
+    expect(pipeline).toContain("fanOutWorkspaceNotice");
+    expect(pipeline).toContain("inbound-sms:${messageSid}");
+    expect(pipeline).toContain("inbound-sms-reply:${messageSid}");
+    // The prospect leg now forwards to teammates too (no house), under the same consent gate and cap.
+    expect(pipeline.match(/forwardInboundToTeammates\(db/g)?.length).toBeGreaterThanOrEqual(2);
+    const forward = readFileSync("src/lib/sms/inbound-forward-team.server.ts", "utf8");
+    expect(forward).toContain("resolveWorkspaceNoticeRecipients");
+    expect(forward).toContain('module: "inbox"');
+    expect(forward).toContain("teamRelayCapRemaining");
+  });
+
   it("collapses the texted line to its workspace owner before any resident or leasing lookup", () => {
     const collapse = route.indexOf("resolveWorkspaceOwnerForWorkNumber(db, numberOwnerId");
     expect(collapse).toBeGreaterThan(-1);

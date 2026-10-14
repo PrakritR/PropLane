@@ -51,6 +51,7 @@ import { numberServiceEntitled } from "@/lib/number-subscription/subscription.se
 import type { VendorDeliveryProvider } from "@/lib/vendor-work-identity-delivery.server";
 import { sendFromResidentNumber, residentAgentSendBlocker } from "@/lib/resident-agent-number/deliver.server";
 import type { ResidentAgentNumber } from "@/lib/resident-agent-number/number.server";
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 
 export const RESIDENT_AGENT_SESSION_KIND = "resident_personal_sms";
 export const RESIDENT_AGENT_PORTAL = "resident_agent" as const;
@@ -336,7 +337,9 @@ export async function runResidentPersonalAgentReply(
     return "empty_reply";
   }
 
-  const finalText = fitToSegments(reply.text, RESIDENT_AGENT_MAX_REPLY_SEGMENTS);
+  // The standing no-em-dash rule, applied once before the text is fitted and sent, so the stored
+  // transcript and the segment count match exactly what the resident receives.
+  const finalText = fitToSegments(stripLongDashes(reply.text), RESIDENT_AGENT_MAX_REPLY_SEGMENTS);
   const delivered = await sendAndSettle(db, { number, to: input.from, text: finalText, outKey: k.out, provider: deps.provider });
   if (!delivered) return "not_delivered";
   await recordMessage(db, session, "assistant", finalText, input.messageSid, { toolTrace: reply.toolTrace, traceId: reply.traceId });

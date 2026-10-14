@@ -142,7 +142,7 @@ export function ManagerWorkNumberCard() {
   const phone =
     (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
   const numberLabel = coManager ? "Workspace number" : "Your work number";
-  const emailLabel = coManager ? "Workspace email" : "Your work email";
+  const emailLabel = coManager ? "Workspace email" : "Work email";
   const owner = workspace?.ownerName?.trim() || "your workspace owner";
 
   const numberBox = (() => {

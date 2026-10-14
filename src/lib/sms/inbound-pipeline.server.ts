@@ -1,3 +1,4 @@
+import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { intakeResidentSmsPhotos } from "@/lib/inspections/attachment-intake.server";
 import { after, NextResponse } from "next/server";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
@@ -5,6 +6,7 @@ import { runInlineProspectBurst } from "@/lib/sms/prospect-sms-burst-job.server"
 import { publishDeferredProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
+import { fanOutWorkspaceNotice, repliedNoticeText } from "@/lib/workspace-team-fanout.server";
 import { forwardInboundToTeammates, resolveResidentForwardHouseId } from "@/lib/sms/inbound-forward-team.server";
 import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
@@ -885,7 +887,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         assistantAgentMessageId: turn.assistantMessageId,
         pendingActionId: turn.pendingActionId,
         turnTraceId: turn.traceId,
-        replyBody: turn.reply,
+        replyBody: stripLongDashes(turn.reply),
       });
       if (!prepared) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
@@ -895,7 +897,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         managerUserId: managerInbound.workNumberOwnerId,
         actorUserId: managerInbound.actorUserId,
         toPhone: fromPhone,
-        text: turn.reply,
+        text: stripLongDashes(turn.reply),
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
@@ -910,7 +912,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           assistantAgentMessageId: turn.assistantMessageId ?? null,
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
-          replyBody: turn.reply,
+          replyBody: stripLongDashes(turn.reply),
           outboxId: null,
         },
         delivered,
@@ -1032,7 +1034,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         assistantAgentMessageId: turn.assistantMessageId,
         pendingActionId: turn.pendingActionId,
         turnTraceId: turn.traceId,
-        replyBody: turn.reply,
+        replyBody: stripLongDashes(turn.reply),
       });
       if (!prepared) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
@@ -1042,7 +1044,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         ownerManagerUserId: managerId,
         residentUserId: residentIdentity.ctx.userId,
         toPhone: fromPhone,
-        text: turn.reply,
+        text: stripLongDashes(turn.reply),
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
@@ -1057,7 +1059,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           assistantAgentMessageId: turn.assistantMessageId ?? null,
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
-          replyBody: turn.reply,
+          replyBody: stripLongDashes(turn.reply),
           outboxId: null,
         },
         delivered,
@@ -1096,17 +1098,40 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       }).catch(() => undefined);
       // Teammates with the resident's house get the same forward from the work
       // number. An unresolved house forwards to the owner alone, as before.
+      const residentHouseId = await resolveResidentForwardHouseId(db, {
+        ownerManagerUserId: managerId,
+        residentEmail: residentIdentity.ctx.email,
+      }).catch(() => null);
       await forwardInboundToTeammates(db, {
         managerUserId: managerId,
         workspaceId: workspaceId ?? null,
-        houseId: await resolveResidentForwardHouseId(db, {
-          ownerManagerUserId: managerId,
-          residentEmail: residentIdentity.ctx.email,
-        }),
+        houseId: residentHouseId,
         fromPhone,
         body,
         messageSid,
       }).catch(() => undefined);
+      // The same teammates also hear it in their own Assistant thread (the text above is their
+      // forward; this notice never texts again). Then the agent's answer, as "Replied: ...".
+      await fanOutWorkspaceNotice(db, {
+        ownerUserId: managerId,
+        workspaceId: workspaceId ?? null,
+        propertyId: residentHouseId,
+        subject: "Resident text",
+        text: `Resident text: ${body.replace(/\s+/g, " ").trim().slice(0, 120)}`,
+        idempotencyKey: `inbound-sms:${messageSid}`,
+        sms: false,
+      });
+      if (turn?.reply?.trim()) {
+        await fanOutWorkspaceNotice(db, {
+          ownerUserId: managerId,
+          workspaceId: workspaceId ?? null,
+          propertyId: residentHouseId,
+          subject: "Resident text reply",
+          text: repliedNoticeText(turn.reply),
+          idempotencyKey: `inbound-sms-reply:${messageSid}`,
+          sms: false,
+        });
+      }
     }
     if (turn) return twimlOk();
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
@@ -1116,6 +1141,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   }
 
   let handled;
+  const preparedProspectReply: { text: string | null } = { text: null };
   try {
     // A work number is the WORKSPACE's front door. A co-manager's line leases
     // the owner's houses — tenant records stay with the property owner, the
@@ -1207,8 +1233,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       workNumber,
       service: "SMS",
       durablyClaimed: true,
-      onPreparedReply: (prepared) =>
-        prepareInboundReply(db, {
+      onPreparedReply: (prepared) => {
+        preparedProspectReply.text = prepared.replyBody ?? null;
+        return prepareInboundReply(db, {
           messageSid,
           workerId: inboundWorkerId,
           routeKind: prepared.routeKind,
@@ -1217,7 +1244,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           assistantAgentMessageId: prepared.assistantAgentMessageId,
           turnTraceId: prepared.turnTraceId,
           replyBody: prepared.replyBody,
-        }),
+        });
+      },
     });
   } catch (e) {
     console.error("twilio inbound leasing handler failed", managerId, e);
@@ -1275,6 +1303,35 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       counterpartyRole: "prospect",
     }).catch(() => undefined);
+    // No house yet: the role matrix hands a prospect text to property managers, leasing and viewers
+    // (a text forward under the same consent gate and hourly cap, plus an Assistant notice), and the
+    // leasing agent's auto-reply goes out to them as "Replied: ...".
+    await forwardInboundToTeammates(db, {
+      managerUserId: managerId,
+      workspaceId: workspaceId ?? null,
+      houseId: null,
+      fromPhone,
+      body,
+      messageSid,
+    }).catch(() => undefined);
+    await fanOutWorkspaceNotice(db, {
+      ownerUserId: managerId,
+      workspaceId: workspaceId ?? null,
+      subject: "Prospect text",
+      text: `Prospect text: ${body.replace(/\s+/g, " ").trim().slice(0, 120)}`,
+      idempotencyKey: `inbound-sms:${messageSid}`,
+      sms: false,
+    });
+    if (preparedProspectReply.text?.trim()) {
+      await fanOutWorkspaceNotice(db, {
+        ownerUserId: managerId,
+        workspaceId: workspaceId ?? null,
+        subject: "Prospect text reply",
+        text: repliedNoticeText(preparedProspectReply.text),
+        idempotencyKey: `inbound-sms-reply:${messageSid}`,
+        sms: false,
+      });
+    }
   }
 
   // Belt-and-suspenders for the rare path where the leasing handler resolved no

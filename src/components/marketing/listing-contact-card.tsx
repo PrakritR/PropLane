@@ -38,31 +38,6 @@ export const listingPrimaryCtaClass =
 export const listingSecondaryCtaClass =
   "btn-metallic flex min-h-[48px] w-full items-center justify-center rounded-full px-5 py-3 text-sm font-semibold text-foreground outline-none transition hover:-translate-y-[1px] active:translate-y-0";
 
-/**
- * Text and Email as the same secondary pill as Apply, stacked with the same
- * gap. No card, no trailing link word, no Call row.
- */
-export function ListingContactCard({
-  property,
-  className = "",
-}: {
-  property: Pick<MockProperty, "id" | "buildingName" | "title" | "address" | "contactSmsPhone" | "contactWorkEmail">;
-  className?: string;
-}) {
-  const rows = listingContactRows(property);
-  if (!rows.phone && !rows.email) return null;
-  return (
-    <div className={`space-y-2.5 ${className}`} data-attr="listing-contact-card">
-      {rows.phone ? (
-        <a href={rows.phone.smsHref} className={listingSecondaryCtaClass} data-attr="listing-text-tour">
-          <span className="tabular-nums">Text {rows.phone.label}</span>
-        </a>
-      ) : null}
-      {rows.email ? (
-        <a href={rows.email.href} className={listingSecondaryCtaClass} data-attr="listing-email-tour">
-          Email the manager
-        </a>
-      ) : null}
-    </div>
-  );
-}
+/** The card's tertiary door: the work number as a plain text link under the buttons. */
+export const listingTextLinkClass =
+  "mt-3 flex min-h-[44px] items-center justify-center text-sm font-semibold text-primary tabular-nums outline-none hover:underline focus-visible:underline";

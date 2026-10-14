@@ -78,9 +78,9 @@ describe("Remove stay (channel feed reservation)", () => {
     render(<AppUiProvider><BookingsRemoveStayDialog entry={channel} onClose={onClose} onChanged={onChanged} remove={remove} restore={restore} /></AppUiProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Remove stay" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy());
-    expect(remove).toHaveBeenCalledWith({ connectionId: "conn-1", sourceUid: "uid-marcus" });
+    expect(remove).toHaveBeenCalledWith({ connectionId: "conn-1", sourceUid: "uid-marcus", start: "2099-02-01", end: "2099-02-04" });
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
-    await waitFor(() => expect(restore).toHaveBeenCalledWith({ connectionId: "conn-1", sourceUid: "uid-marcus" }));
+    await waitFor(() => expect(restore).toHaveBeenCalledWith({ connectionId: "conn-1", sourceUid: "uid-marcus", start: "2099-02-01", end: "2099-02-04" }));
     expect(onChanged).toHaveBeenCalledTimes(2);
     expect(onClose).toHaveBeenCalled();
   });

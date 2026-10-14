@@ -2,7 +2,8 @@ import { classifyRoomOpening, earliestRoomOpening } from "@/lib/room-availabilit
 import { getListingRichContent } from "@/data/listing-rich-content";
 import type { ListingFloorCard, ListingRoomRow } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
+import { LEASE_TYPES, leaseTypeIdsFromStored, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 import {
   parseMonthlyRent,
   parseUSZip,
@@ -67,7 +68,26 @@ export type RoomListingRow = {
   shortLeaseNote?: string;
   /** Property-wide room media for search card carousel (Room 1, Room 2, … when uploaded). */
   mediaSlides: RoomListingSlide[];
+  /**
+   * The lease types this room is offered on: its own non-empty `offeredLeaseTerms`, else the
+   * listing's `allowedLeaseTerms`. Empty when the listing says nothing.
+   */
+  leaseTypes: LeaseTypeId[];
 };
+
+/** Lease types per room id for one property (room override wins when non-empty, else the listing's). */
+function propertyRoomLeaseTypes(p: MockProperty): { forRoom: (roomId: string) => LeaseTypeId[] } {
+  const raw = p.listingSubmission;
+  if (!raw || raw.v !== 1) return { forRoom: () => [] };
+  const sub = normalizeManagerListingSubmissionV1(raw);
+  const listingTerms = resolveAllowedLeaseTerms(sub);
+  return {
+    forRoom: (roomId) => {
+      const own = sub.rooms.find((r) => r.id === roomId)?.offeredLeaseTerms;
+      return leaseTypeIdsFromStored(own && own.length > 0 ? own : listingTerms);
+    },
+  };
+}
 
 function streetUpperFromProperty(p: MockProperty): string {
   const first = p.address.split(",")[0]?.trim() ?? p.address;
@@ -429,10 +449,13 @@ export function filterRoomListings(
     neighborhood?: string;
     moveIn?: string;
     moveOut?: string;
+    /** Keep a room offered on ANY of these lease types; empty/undefined means any. */
+    leaseTypes?: readonly LeaseTypeId[];
   },
 ): RoomListingRow[] {
   const centerZip = parseUSZip(opts.zipRaw);
   const hasDateFilter = Boolean(opts.moveIn?.trim() || opts.moveOut?.trim());
+  const wantedLeaseTypes = opts.leaseTypes && opts.leaseTypes.length > 0 ? new Set(opts.leaseTypes) : null;
 
   const rows: RoomListingRow[] = [];
 
@@ -451,7 +474,10 @@ export function filterRoomListings(
       continue;
     }
 
+    const leaseTypesOf = propertyRoomLeaseTypes(p);
     for (const { floor, room } of browseRoomEntries(p, rich)) {
+      const roomLeaseTypes = leaseTypesOf.forRoom(room.id);
+      if (wantedLeaseTypes && !roomLeaseTypes.some((id) => wantedLeaseTypes.has(id))) continue;
       if (
         hasDateFilter &&
         !isRoomChoiceAvailable(`${p.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`, room.availability, {
@@ -517,6 +543,7 @@ export function filterRoomListings(
         availabilityRaw: room.availability,
         shortLeaseNote: room.shortLeaseNote,
         mediaSlides,
+        leaseTypes: roomLeaseTypes,
       });
     }
   }
@@ -576,6 +603,8 @@ export type PropertyBrowseCard = {
   rentMaxNumeric: number | null;
   /** Every distinct uploaded photo on the property, in slide order, for the card's dots. Empty means no genuine photo. */
   photoUrls: string[];
+  /** Union over the property's rooms of the lease types each is offered on (room override wins when non-empty). */
+  leaseTypes: LeaseTypeId[];
 };
 
 export type PropertyBrowseFilters = {
@@ -588,6 +617,8 @@ export type PropertyBrowseFilters = {
   moveOut?: string;
   petFriendly?: boolean;
   neighborhood?: string;
+  /** Keep homes offered on ANY of these lease types; empty/undefined means any. */
+  leaseTypes?: LeaseTypeId[];
   /**
    * Restrict the browse set to exactly these property ids (a shareable "these
    * homes" link — e.g. a manager sending several listings to a prospect). When
@@ -656,6 +687,7 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
         availableNowCount: 0,
         rentMaxNumeric: null,
         photoUrls: [],
+        leaseTypes: [],
       });
       continue;
     }
@@ -691,6 +723,7 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
         if (src && !seen.has(src)) seen.add(src);
       }
     }
+    card.leaseTypes = LEASE_TYPES.filter((t) => rows.some((r) => r.leaseTypes.includes(t.id))).map((t) => t.id);
     card.photoUrls = [...seen];
     if (!card.imageUrl && card.photoUrls[0]) card.imageUrl = card.photoUrls[0];
   }
@@ -744,6 +777,7 @@ export function buildPropertyBrowseCards(
     moveOut: filters.moveOut,
     petFriendly: filters.petFriendly,
     neighborhood: filters.neighborhood,
+    leaseTypes: filters.leaseTypes,
   });
 
   return sortPropertyBrowseCards(aggregateRoomRowsToPropertyCards(roomRows), opts?.sort ?? "price-asc");

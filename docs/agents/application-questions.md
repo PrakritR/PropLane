@@ -60,6 +60,19 @@ draws what it returns.
   reworded but not added, removed or reordered — position *i* stores value *i*.
   The property section's choices (property, rooms, lease term) come from the
   listing, so they are never typed in.
+- **A built-in's `standardKey` is slugged from its LABEL**, so rewording the
+  catalog mints a new key while listings keep storing the old one — in
+  `disabledStandardApplicationKeys`, in a saved override row (`standardKey` /
+  `replacedStandardKey` / the `std-<key>` id) and in `questionDisplayOrder`.
+  Renaming a catalog question therefore means adding an alias in
+  `standard-application-key-aliases.ts`; every stored key and question id is
+  read back through `canonicalStandardApplicationKey` /
+  `canonicalApplicationQuestionId`, so the manager's off switch, relabel,
+  required override and ordering survive the rename instead of reverting to
+  catalog defaults. "Room choices (1st – 3rd)" → **Room** (captain, Oct 13,
+  when the wizard dropped to one room choice —
+  [`shared-room-capacity.md`](shared-room-capacity.md)) is the first alias.
+  Coverage: `tests/unit/legacy-standard-application-keys.test.ts`.
 - **Changing a built-in's type detaches it.** `convertBuiltInQuestion` retires
   the built-in and asks the manager's own question of the new type in its place,
   with a fresh custom key and `replacedStandardKey` pointing back, so the editor
@@ -188,3 +201,55 @@ charges.
   Redeem and the resident lists re-derive a guest's applicant from the verified email.
 - A missed completion hook leaves the row owed, which the manager can mark done —
   it never blocks the form that was actually submitted.
+
+## Quick apply (resident, saved answers)
+
+`POST /api/portal/quick-apply` (`quick-apply.server.ts`) submits a **solo** application to one room from the answers
+the signed-in resident's latest submitted application holds. It is not a second submit path: the row goes through
+`prepareResidentSelfWrite` + `persistApplicationWrite` (`signed-in-application-write.server.ts`), the same pair the
+signed-in branch of `POST /api/manager-applications` uses, so validation, the fee guard, the resident link, linked
+forms, the manager notice, move-in forms and screening (`consentCredit`) are one implementation.
+
+- **Saved answers** are `RESIDENT_APPLICATION_AUTOFILL_KEYS` plus the earlier `customFieldAnswers`. A custom
+  question is answered only by an earlier answer with the same **key and type** (`carryCustomFieldAnswers`),
+  `showIf` respected. Anything still unanswered, or refused by the shared validator, answers `needsWizard` with the
+  keys; the wizard then opens prefilled (`?prefill=1`).
+- **Solo, always.** `applyingAsGroup`, `groupRole`, `groupSize`, `groupId`, `groupLeaderAppId` and `bundleId` are
+  never copied from a past application. Lease type and term come from the listing's offered terms
+  (`defaultStoredTermForKind("long", …)`), never from the last application; a short-stay-only listing goes to the
+  wizard. The template is pinned (`applicationTemplateId` / `Version`).
+- **Re-collected every time:** the move-in date, the "I confirm my saved answers are current" box, the screening
+  consent when the listing asks for it, the listing's **truthfulness certification in its own wording**
+  (`wizardFormFieldLabel(config, "consentTruth")`) when it asks for one, and the typed signature. `consentTruth` is
+  an attestation the manager reads as "Accuracy confirmed" and the PDF prints as acknowledged, so it is recorded
+  only from the applicant's own tick of that sentence — never stamped server-side, and never at all for a listing
+  that does not ask. A listing that requires it and a sheet that could not show it send the applicant to the full
+  application instead. Every one of them gates Submit — a blank move-in
+  would build an empty lease range. One sheet, one Submit (`QuickApplySheet`), and the fixed listing's rooms and
+  screening question are handed down as its `submission` prop (the public route never loads the client catalog, so
+  `getPropertyById` cannot answer for it there).
+- **Long term only.** The sheet always builds `rentalType: "standard"`, so the resident Applications **+** keeps its
+  own picker while the list is on Short term.
+- **Fees are never skipped.** `authorizeApplicationFeeSubmission` runs on the built row; only its
+  `reason: "unpaid"` refusal saves the row as a draft at the last step and answers `needsPayment`. An
+  `"unverifiable"` refusal is an error — never an invoice for a fee that did not actually fail on payment.
+  A draft is not a submission: `tryAutoOrderScreening` refuses a draft-shaped row outright, so an
+  auto-on-submit manager is never billed for a background check on an application nobody has submitted.
+- **One row per person and room.** `findResidentApplicationsForListing` is one read that answers both halves:
+  a live SUBMITTED application for the room is the 409 ("You already applied to this room."), and a live DRAFT for
+  it is the row Quick apply **resumes** — its id, not a fresh one. Minting a new id per attempt would stack
+  "Incomplete" rows no duplicate guard can see (they all skip drafts by design) and orphan a fee claim, which is
+  keyed on the application id.
+- **`dryRun: true`** writes nothing and says what the primary button should read: Quick apply (`ready`), Continue
+  application (`needsWizard` / `needsPayment`) or View application (duplicate). It runs the SAME
+  `validateResidentApplicationRowForPersistence` the submit runs, with the sheet's own fields (move-in, consent,
+  signature) standing in as filled, so the button cannot promise a one-sheet apply the shared write then refuses;
+  and with no room named it is judged on a room the resident has **not** already applied to
+  (`findResidentApplicationsForListing`), never blindly on `rooms[0]`. The public listing asks once per listing and
+  room (`useQuickApplyReadiness`), for a signed-in resident whose
+  `GET /api/portal/resident-application-autofill?exists=1` answers `{ hasProfile: true }` — the existence-only
+  form, because the full payload carries the SSN, the licence and the ID photos and has no business in a public
+  bundle.
+- Limits: signed-in residents only (401 otherwise), 10 submits and 30 dry runs a minute per account.
+- Out of scope: group quick apply, any fee bypass, any change to the wizard's questions. The row carries
+  `quickApplied: true` (a plain fact on the record, never a pill).

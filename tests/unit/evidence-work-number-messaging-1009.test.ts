@@ -92,11 +92,11 @@ function seed() {
     manager_property_records: [{ id: HOUSE, workspace_id: WS, row_data: { title: "5257 Brooklyn Ave" } }],
     account_link_invites: [
       {
-        inviter_user_id: OWNER, invitee_user_id: MATE_HOUSE, status: "accepted", workspace_id: WS, team_role: "admin",
+        inviter_user_id: OWNER, invitee_user_id: MATE_HOUSE, status: "accepted", workspace_id: WS, team_role: "property_manager",
         assigned_property_ids: [HOUSE], property_co_manager_permissions: { [HOUSE]: { payments: true, inbox: true } },
       },
       {
-        inviter_user_id: OWNER, invitee_user_id: MATE_OTHER, status: "accepted", workspace_id: WS, team_role: "admin",
+        inviter_user_id: OWNER, invitee_user_id: MATE_OTHER, status: "accepted", workspace_id: WS, team_role: "property_manager",
         assigned_property_ids: ["house-other"], property_co_manager_permissions: { "house-other": { payments: true, inbox: true } },
       },
     ],
