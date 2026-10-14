@@ -174,6 +174,7 @@ describe("evidence · work-number messaging", () => {
       text: "$1,000.00 was received for 5257 Brooklyn Ave · Room 2.",
       teammateText: "Ambika recorded $1,000.00 for 5257 Brooklyn Ave · Room 2.",
       idempotencyKey: "action-event:payment-1:manager",
+      urgent: true, // the per-person Assistant leg only runs for an urgent event
     } as never);
 
     say("1. ASSISTANT NOTICE — $1,000 recorded on 5257 Brooklyn Ave");
@@ -185,12 +186,14 @@ describe("evidence · work-number messaging", () => {
     dumpMails();
     say();
 
-    const threadIds = (fake.tables.portal_inbox_thread_records ?? []).map((r) => String(r.id)).sort();
+    const threadIds = (fake.tables.portal_inbox_thread_records ?? []).filter((r) => r.thread_type !== "team").map((r) => String(r.id)).sort();
     expect(threadIds).toEqual([`agent_notice_${MATE_HOUSE}__${WS}`, `agent_notice_${OWNER}__${WS}`].sort());
-    expect(texts.map((t) => t.to).sort()).toEqual(["+12065550101", "+12065550111"]);
-    expect(texts.every((t) => t.from === WORK_NUMBER)).toBe(true);
-    // Akshaya does not have the house, so nothing reaches her.
-    expect(texts.some((t) => t.to === "+12065550102")).toBe(false);
+    // The Assistant notices (an urgent event); the Team chat line's own relay is covered by team-chat-notices.test.ts.
+    const assistantTexts = texts.filter((t) => t.purpose !== "team_chat_relay");
+    expect(assistantTexts.map((t) => t.to).sort()).toEqual(["+12065550101", "+12065550111"]);
+    expect(assistantTexts.every((t) => t.from === WORK_NUMBER)).toBe(true);
+    // Akshaya does not have the house, so no Assistant notice reaches her.
+    expect(assistantTexts.some((t) => t.to === "+12065550102")).toBe(false);
     expect(mails.map((m) => m.to).sort()).toEqual(["ambika@example.test", "prakrit@example.test"]);
     expect(mails.every((m) => m.from.includes(WORK_EMAIL))).toBe(true);
   });

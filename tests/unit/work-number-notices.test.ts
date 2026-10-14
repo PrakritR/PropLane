@@ -75,7 +75,9 @@ function seed() {
   });
 }
 
-const threadIds = (fake: ReturnType<typeof seed>) => fake.tables.portal_inbox_thread_records!.map((row) => row.id);
+// Assistant threads only: the Team chat line every notice also posts is covered by team-chat-notices.test.ts.
+const threadIds = (fake: ReturnType<typeof seed>) =>
+  fake.tables.portal_inbox_thread_records!.filter((row) => row.thread_type !== "team").map((row) => row.id);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -194,7 +196,7 @@ describe("notifyPropertyScopedManagersFromAgent: owner + teammates with the hous
     const fake = seed();
     await notifyPropertyScopedManagersFromAgent(fake as never, {
       ownerManagerUserId: OWNER, propertyId: HOUSE, module: "payments",
-      subject: "s", text: "You approved it", teammateText: "Ambika approved it", idempotencyKey: "k3",
+      subject: "s", text: "You approved it", teammateText: "Ambika approved it", idempotencyKey: "k3", urgent: true,
     });
     expect(threadIds(fake).sort()).toEqual([`agent_notice_${OWNER}__${SEATTLE}`, `agent_notice_${TEAMMATE}__${SEATTLE}`].sort());
     const smsTo = sendSms.mock.calls.map(([, input]) => [input.managerUserId, (input.sendFrom as { ownerUserId: string }).ownerUserId]);
@@ -223,11 +225,11 @@ describe("notifyPropertyScopedManagersFromAgent: owner + teammates with the hous
     });
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await notifyPropertyScopedManagersFromAgent(fake as never, {
-      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "payments", subject: "s", text: "t", idempotencyKey: "k5",
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "payments", subject: "s", text: "t", idempotencyKey: "k5", urgent: true,
     });
     expect(threadIds(fake)).toContain(`agent_notice_${OWNER}__${SEATTLE}`);
     await notifyPropertyScopedManagersFromAgent(fake as never, {
-      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "payments", subject: "s", text: "t", idempotencyKey: "k6",
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "payments", subject: "s", text: "t", idempotencyKey: "k6", urgent: true,
       excludeUserIds: [TEAMMATE],
     });
     expect(sendSms.mock.calls.filter(([, input]) => input.dedupeKey === `notice:k6:${TEAMMATE}`)).toHaveLength(0);

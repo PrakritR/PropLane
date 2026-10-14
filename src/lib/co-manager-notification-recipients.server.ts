@@ -260,6 +260,38 @@ export async function loadCoManagerNotificationRecipients(
   return out;
 }
 
+const MODULE_EVENT_LABEL: Partial<Record<CoManagerPermissionId, string>> = {
+  services: "Service request",
+  payments: "Payment",
+  financials: "Payment",
+  leases: "Lease",
+  applications: "Application",
+  calendar: "Tour",
+  residents: "Inspection",
+};
+
+/**
+ * The Team line for a routine notice that came without one: the first line of
+ * the notice the owner receives, at most 160 characters, behind its event label
+ * (the module names it: "Service request", "Payment", "Lease", "Application",
+ * "Tour", "Inspection"; anything else is "Notice"). The id is the notice's own
+ * idempotency key, so a retry posts once. No key = no safe id = no line.
+ */
+function derivedTeamNotice(input: {
+  module: CoManagerPermissionId;
+  subject: string;
+  text: string;
+  idempotencyKey?: string;
+  eventLabel?: string;
+}): { text: string; messageId: string } | null {
+  const key = input.idempotencyKey?.trim();
+  if (!key) return null;
+  const firstLine = (input.text.trim().split(/\r?\n/)[0] ?? "").trim() || input.subject.trim();
+  if (!firstLine) return null;
+  const label = input.eventLabel?.trim() || MODULE_EVENT_LABEL[input.module] || "Notice";
+  return { text: `${label} · ${firstLine.slice(0, 160)}`, messageId: `${key}:team` };
+}
+
 /**
  * Tell the team about something. The owner always gets a PropLane Assistant
  * notice (text to their verified phone, email to their account address).
@@ -275,7 +307,8 @@ export async function loadCoManagerNotificationRecipients(
  * number, billed to the owner via `senderOwnerId`; a teammate is never
  * charged), plus the same Team line.
  *
- * With no `teamNotice` the legacy per-person fan-out runs for everyone.
+ * With no `teamNotice`, a routine notice derives its Team line from the notice
+ * itself (`derivedTeamNotice`): every routine event posts exactly one line.
  *
  * The owner's leg runs first and its failure propagates (the caller retries,
  * every leg is idempotent per `idempotencyKey` + member). A teammate's failure
@@ -303,6 +336,8 @@ export async function notifyPropertyScopedManagersFromAgent(
     urgent?: boolean;
     /** The one Team chat line for this event (built by `buildTeamNoticeLine`); `messageId` makes a retry post once. */
     teamNotice?: { text: string; messageId: string };
+    /** Names the event on a derived Team line when the caller built none ("Tour", "Booking", ...). */
+    eventLabel?: string;
   },
 ): Promise<void> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -310,9 +345,15 @@ export async function notifyPropertyScopedManagersFromAgent(
   const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
     () => null,
   );
-  const teamLineMode = Boolean(input.teamNotice?.text.trim() && input.teamNotice.messageId.trim());
-  // Routine team-line notices reach teammates only through the Team chat.
-  const directToTeammates = !teamLineMode || input.urgent === true;
+  // Routine notices reach teammates only through ONE Team chat line (derived
+  // from the notice itself when the caller did not build one); only an urgent
+  // event notifies each teammate's own Assistant.
+  const urgent = input.urgent === true;
+  const teamNotice =
+    input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
+      ? { text: input.teamNotice.text.trim(), messageId: input.teamNotice.messageId.trim() }
+      : derivedTeamNotice(input);
+  const directToTeammates = urgent;
   const recipientIds = (
     directToTeammates
       ? await resolveWorkspaceNoticeRecipients(db, {
@@ -368,12 +409,12 @@ export async function notifyPropertyScopedManagersFromAgent(
       console.error("extra recipient notice failed", error instanceof Error ? error.name : "unknown");
     }
   }
-  if (teamLineMode && input.teamNotice) {
+  if (teamNotice) {
     await postTeamNoticeLine(db, {
       ownerId,
       workspaceId: noticeWorkspace?.workspaceId || null,
-      text: input.teamNotice.text.trim(),
-      messageId: input.teamNotice.messageId.trim(),
+      text: teamNotice.text,
+      messageId: teamNotice.messageId,
       excludeUserIds: [...excluded],
     });
   }

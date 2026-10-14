@@ -167,6 +167,30 @@ describe("urgent event", () => {
   });
 });
 
+describe("a routine event with no teamNotice from the caller", () => {
+  it("tour booked: one derived Team line (first line, 160 chars, event label), the owner's notice, zero teammate Assistant notices", async () => {
+    const db = seed();
+    const long = `Jo booked a tour of 5257 Brooklyn R2 for Saturday. ${"x".repeat(200)}\nSecond line is dropped.`;
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "calendar", subject: "Tour booked", text: long,
+      idempotencyKey: "action-event:tour-1:booked:team",
+    });
+    expect(landlords()).toEqual([OWNER]);
+    expect(teamLines(db)).toHaveLength(1);
+    const body = teamLines(db)[0]!.body;
+    expect(body.startsWith("Tour · Jo booked a tour of 5257 Brooklyn R2 for Saturday.")).toBe(true);
+    expect(body).not.toContain("Second line");
+    expect(body.length).toBe("Tour · ".length + 160);
+    expect(teamLines(db)[0]).toMatchObject({ id: "action-event:tour-1:booked:team:team", from: "PropLane" });
+    // A retry is still one line.
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "calendar", subject: "Tour booked", text: long,
+      idempotencyKey: "action-event:tour-1:booked:team",
+    });
+    expect(teamLines(db)).toHaveLength(1);
+  });
+});
+
 describe("one-person workspace", () => {
   it("gives the owner the notice and creates no Team thread", async () => {
     const db = seed({ teammates: [] });
