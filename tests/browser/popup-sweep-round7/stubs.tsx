@@ -3,7 +3,6 @@
  * analytics and the assistant strip. Every pop-up, its shell, its labels and the current Tailwind
  * CSS are the real ones.
  */
-import type { ReactNode } from "react";
 
 const APP_UI = { showToast: () => {} };
 const DIRECTORY = { teamMembers: [], vendors: [], ready: true };
@@ -35,7 +34,8 @@ export const useRouter = () => ROUTER;
 export const useSearchParams = () => SEARCH_PARAMS;
 export const useWorkAssignmentDirectory = () => DIRECTORY;
 export const fetchManagerTimeSuggestion = () => Promise.resolve(null);
-export const ModalAssistantStrip = (_props: { children?: ReactNode }) => null;
+/** The real strip takes `contextHint` / `storageScopeKey`; the sweep draws nothing in its place. */
+export const ModalAssistantStrip = () => null;
 export const usePortalAssistantConfig = () => null;
 export const track = () => {};
 export const loadInspectionList = () => Promise.resolve(RESIDENCIES);
