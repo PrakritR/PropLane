@@ -9,7 +9,13 @@ import { MANAGER_SUBSCRIPTION_TRIAL_DAYS } from "@/lib/stripe/subscription-check
  * is a number of its own.
  */
 
-/** Canonical origin for absolute URLs: configured canonical, else a real public app URL, else production. */
+/**
+ * Canonical origin for the crawl surfaces' absolute URLs (llms.txt, JSON-LD).
+ * The precedence itself is owned by `resolveEmailLinkBaseUrl` in `@/lib/app-url`
+ * (see its comment); this is the same rule with an injectable `env`, so a change
+ * there has to move this with it. A `*.vercel.app` candidate is skipped: a
+ * preview build must never advertise itself to a crawler.
+ */
 export function llmsOrigin(env: NodeJS.ProcessEnv = process.env): string {
   for (const raw of [env.NEXT_PUBLIC_CANONICAL_APP_URL, env.NEXT_PUBLIC_APP_URL]) {
     const value = raw?.trim();

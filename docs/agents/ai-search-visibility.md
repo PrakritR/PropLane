@@ -47,9 +47,11 @@ js/incomplete-multi-character-sanitization).
 
 Both are `text/plain; charset=utf-8`, `revalidate = 3600` with
 `LLMS_CACHE_CONTROL` on the response, and need no database, so neither can fail
-a crawl. Links are absolute on `llmsOrigin()`: the configured canonical app URL,
-else a real public app URL, else `PRODUCTION_APP_ORIGIN` — a `*.vercel.app`
-candidate is skipped so a preview build never advertises itself.
+a crawl. Links here and the JSON-LD `url`s are absolute on `llmsOrigin()`,
+which applies the same canonical-origin precedence as an outbound email link.
+That rule is stated once, on `resolveEmailLinkBaseUrl` in `src/lib/app-url.ts`;
+do not restate it here. What it buys a crawl surface: a `*.vercel.app`
+candidate is skipped, so a preview build never advertises itself.
 
 ## `robots.txt` — AI crawlers are named, not implied
 

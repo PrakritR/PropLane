@@ -138,6 +138,10 @@ export function isKnownProductionWebHost(hostname: string): boolean {
  * then NEXT_PUBLIC_APP_URL when it is a non-vercel host (a real custom domain, or
  * localhost for local-dev email testing), otherwise the production domain. It can
  * never return a vercel host.
+ *
+ * This comment is the one statement of that precedence: `llmsOrigin()`
+ * (`@/lib/seo/llms`) applies the same rule to the public crawl surfaces, so a
+ * change here has to move that with it.
  */
 export function resolveEmailLinkBaseUrl(): string {
   for (const raw of [process.env.NEXT_PUBLIC_CANONICAL_APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
