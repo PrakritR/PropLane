@@ -31,7 +31,7 @@ import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { editorFooterState } from "@/lib/editor-footer-state";
 import { cn } from "@/lib/utils";
-import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
+import { WizardInvalidFields, missingWizardFields } from "./validation";
 import { WorkspaceDeleteButton } from "./frame";
 import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "./upload-action";
 
@@ -184,7 +184,8 @@ export function AddWorkspace({
   // A rail with one item has nowhere to go: a one-step dialog draws the body (and any live panel) alone.
   const singleStep = steps.length < 2;
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
-  const [readiness, setReadiness] = useState("");
+  /** Something declared required on this step is still empty — the Next button says so with `aria-disabled`. */
+  const [stepIncomplete, setStepIncomplete] = useState(false);
   const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
   const [visitedSteps, setVisitedSteps] = useState<ReadonlySet<string>>(new Set());
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -261,8 +262,8 @@ export function AddWorkspace({
   }, [close]);
 
   useEffect(() => {
-    const label = summarizeMissingFields(missingWizardFields(workspaceRef.current));
-    setReadiness((previous) => previous === label ? previous : label);
+    const incomplete = missingWizardFields(workspaceRef.current).length > 0;
+    setStepIncomplete((previous) => previous === incomplete ? previous : incomplete);
   }, [children, current]);
 
   useEffect(() => {
@@ -313,7 +314,7 @@ export function AddWorkspace({
           if (target.validity.valid) target.removeAttribute("aria-invalid");
           setValidationError(null);
           const missing = missingWizardFields(workspaceRef.current);
-          setReadiness(summarizeMissingFields(missing));
+          setStepIncomplete(missing.length > 0);
           setInvalidFields((previous) => new Set(missing.filter((field) => previous.has(field.id)).map((field) => field.id)));
         }
       }}>
@@ -390,7 +391,7 @@ export function AddWorkspace({
                   type="button"
                   onClick={goNext}
                   disabled={busy}
-                  aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
+                  aria-disabled={nextDisabled || stepIncomplete || steps[current]?.incomplete || undefined}
                   data-attr={`${dataAttrPrefix}-next`}
                   aria-label={nextPath != null ? `Next: ${steps[nextPath]!.label}` : "Next"}
                   className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted lg:min-h-9"

@@ -271,6 +271,12 @@ export function ManagerTaskFormModal({
   const isCheckIn = form.taskKind === "check-in";
   const isCheckOut = form.taskKind === "check-out";
   const isTurnover = isCheckIn || isCheckOut;
+  /**
+   * The one place the title's requirement is decided: the field's own mark, its `required` (which is what
+   * the shell collects, focuses and scrolls to) and the save gate all read it. A tour is named by its
+   * guest and a turnover by its kind, so neither asks for one.
+   */
+  const titleRequired = !isTour && !isTurnover;
   const workOrderNeedsResident = isWorkOrder && form.workOrderCategory !== "General";
   const showResidentPicker =
     workOrderNeedsResident || (isTurnover && Boolean(form.propertyId));
@@ -455,8 +461,7 @@ export function ManagerTaskFormModal({
       if (!form.scheduleDate || !form.startTime) return "Needs a date and time";
     }
     if (isWorkOrder && workOrderNeedsResident && !form.residentEmail) return "Needs a resident";
-    const hasTitle = Boolean(form.title.trim() || (isTour && form.guestName.trim()) || isTurnover);
-    if (!hasTitle) return isTour ? "Needs a guest name" : "Needs a title";
+    if (titleRequired && !form.title.trim()) return "Needs a title";
     return null;
   }, [
     assignee,
@@ -467,9 +472,9 @@ export function ManagerTaskFormModal({
     form.startTime,
     form.title,
     isTour,
-    isTurnover,
     isWorkOrder,
     propertyRequired,
+    titleRequired,
     useServiceIntakeForm,
     workOrderNeedsResident,
   ]);
@@ -654,7 +659,7 @@ export function ManagerTaskFormModal({
         if (stepId === "property" && propertyRequired && !form.propertyId) return false;
         return true;
       }}
-      saveState={useServiceIntakeForm ? undefined : <SaveStatus status={autosave.state === "invalid" ? { ...autosave, reason: null } : autosave} />}
+      saveState={useServiceIntakeForm ? undefined : <SaveStatus status={autosave} hideInvalidReason />}
       onFinish={() => {
         if (useServiceIntakeForm && serviceFooter) {
           serviceFooter.submit();
@@ -740,13 +745,26 @@ export function ManagerTaskFormModal({
             </div>
           </>
         ) : (
-          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <div
+            className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}
+            data-wizard-field="manager-task-title"
+            data-wizard-label={isWorkOrder ? "Task title" : "Description"}
+            data-wizard-required={titleRequired ? "true" : undefined}
+          >
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
-              {isWorkOrder ? "Task title" : "Description"} <span className="text-rose-500" aria-hidden>*</span>
+              {isWorkOrder ? "Task title" : "Description"}
+              {titleRequired ? (
+                <>
+                  {" "}
+                  <span className="text-rose-500" aria-hidden>*</span>
+                  <span className="sr-only"> (required)</span>
+                </>
+              ) : null}
             </label>
             <Input
               id="manager-task-title"
               aria-label="Task title"
+              required={titleRequired}
               value={form.title}
               onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
               placeholder={

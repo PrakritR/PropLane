@@ -21,7 +21,7 @@ export function MoveInFormFrame({
   saveState,
   onClose,
   headerActions,
-  rail,
+  rail = null,
   railHeader,
   sidePanel,
   footer,
@@ -37,9 +37,9 @@ export function MoveInFormFrame({
   onClose: () => void;
   /** Icon actions beside Ask PropLane (Download PDF, Open in new tab). */
   headerActions?: ReactNode;
-  /** The step rail (viewer) or nothing but the context card (send). */
-  rail: ReactNode;
-  /** The resident context card above the rail. */
+  /** The step rail (the viewer). A `singleStep` door hides the whole nav, so it passes none. */
+  rail?: ReactNode;
+  /** The resident context card above the rail. Hidden with the nav on a `singleStep` door. */
   railHeader?: ReactNode;
   sidePanel?: ReactNode;
   footer: ReactNode;

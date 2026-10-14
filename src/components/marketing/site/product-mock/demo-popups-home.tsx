@@ -702,6 +702,8 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
   const [attachments, setAttachments] = useState("");
   const fieldClass = PORTAL_MODAL_FORM_FIELD_CLASS;
   const fullRow = `${PORTAL_MODAL_FORM_FIELD_CLASS} ${PORTAL_MODAL_FORM_FULL_ROW_CLASS}`;
+  // The real modal marks the task's own words required; a tour is named by its guest and a turnover by its kind.
+  const titleRequired = kind !== "tour" && kind !== "check-in" && kind !== "check-out";
   const steps = [
     { id: "task", label: "Task" },
     { id: "property", label: "Property" },
@@ -749,6 +751,13 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-title">
                   Description
+                  {titleRequired ? (
+                    <>
+                      {" "}
+                      <span className="text-rose-500" aria-hidden>*</span>
+                      <span className="sr-only"> (required)</span>
+                    </>
+                  ) : null}
                 </label>
                 <Input id="demo-task-title" aria-label="Task title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Inspect unit, meet vendor, follow up…" data-attr="manager-task-title-input" />
               </div>

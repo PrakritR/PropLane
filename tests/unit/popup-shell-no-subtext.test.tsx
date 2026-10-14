@@ -237,4 +237,32 @@ describe("a one-step move-in form door draws no step rail", () => {
     expect(source).toMatch(/\bsingleStep\b/);
     expect(source).not.toMatch(/move-in-form-send-cancel/);
   });
+
+  // AGENTS.md "Marketing mocks": the /demo mock depicts the real screen, so it loses the Cancel too.
+  it("the /demo mock of Send a form draws no Cancel either", () => {
+    const source = code(read("src/components/marketing/site/product-mock/demo-popups-forms.tsx"));
+    expect(source).not.toMatch(/move-in-form-send-cancel/);
+  });
+});
+
+describe("Add task: the task's own words are marked required, mock included", () => {
+  const TITLE_MARK = /text-rose-500/;
+  for (const file of [
+    "src/components/portal/pro-task-form-modal.tsx",
+    "src/components/marketing/site/product-mock/demo-popups-home.tsx",
+    "src/components/marketing/site/product-mock/demo-popups-ops.tsx",
+  ]) {
+    it(`${file} marks it`, () => {
+      const source = code(read(file));
+      expect(source).toMatch(TITLE_MARK);
+      // A mark with nothing for a screen reader is decoration: the sr-only word goes with it.
+      expect(source).toMatch(/sr-only"> \(required\)/);
+    });
+  }
+
+  it("the real field is collected by the shell's required-field walk", () => {
+    const source = code(read("src/components/portal/pro-task-form-modal.tsx"));
+    expect(source).toMatch(/data-wizard-required=\{titleRequired \? "true" : undefined\}/);
+    expect(source).toMatch(/required=\{titleRequired\}/);
+  });
 });

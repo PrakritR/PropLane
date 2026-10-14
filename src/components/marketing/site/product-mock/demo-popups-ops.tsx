@@ -189,11 +189,18 @@ export function DemoConfirmDialog({ title, body, confirmLabel, onClose, onConfir
 }
 
 /** One labelled field in a popup form grid, with the real modal label class. */
-function Field({ label, htmlFor, full = false, children }: { label: string; htmlFor?: string; full?: boolean; children: ReactNode }) {
+function Field({ label, htmlFor, full = false, required = false, children }: { label: string; htmlFor?: string; full?: boolean; required?: boolean; children: ReactNode }) {
   return (
     <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, full && PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
       <label className={MODAL_FIELD_LABEL_CLASS} htmlFor={htmlFor}>
         {label}
+        {required ? (
+          <>
+            {" "}
+            <span className="text-rose-500" aria-hidden>*</span>
+            <span className="sr-only"> (required)</span>
+          </>
+        ) : null}
       </label>
       {children}
     </div>
@@ -235,6 +242,7 @@ function Text({
   onChange,
   type = "text",
   full = false,
+  required = false,
   placeholder,
 }: {
   id: string;
@@ -243,10 +251,11 @@ function Text({
   onChange: (next: string) => void;
   type?: string;
   full?: boolean;
+  required?: boolean;
   placeholder?: string;
 }) {
   return (
-    <Field label={label} htmlFor={id} full={full}>
+    <Field label={label} htmlFor={id} full={full} required={required}>
       <Input id={id} type={type} className={type === "date" ? "portal-modal-date-input" : undefined} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </Field>
   );
@@ -314,6 +323,8 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
   const set = (patch: Partial<typeof form>) => setForm((current) => ({ ...current, ...patch }));
   const isTour = form.kind === "tour";
   const isService = form.kind === "service";
+  // Same rule as the real modal: a move in / move out task is named by its kind, so only these ask for words.
+  const titleRequired = form.kind === "general" || isService;
   const propertyRequired = form.kind !== "general";
   const house = OPS_HOUSES.find((h) => h.id === form.houseId);
   const residents = OPS_RESIDENTS.filter((r) => !form.houseId || r.houseId === form.houseId);
@@ -360,6 +371,7 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
                   value={form.description}
                   onChange={(description) => set({ description })}
                   full
+                  required={titleRequired}
                   placeholder={isService ? "Leaky faucet in kitchen" : "Inspect unit, meet vendor, follow up…"}
                 />
               )}

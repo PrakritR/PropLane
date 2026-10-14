@@ -89,22 +89,12 @@ export function DemoSendFormPopup({ onClose, onSent, presetResidentId }: { onClo
     <DemoWorkspacePopup
       title="Send a form"
       steps={[{ id: "send", label: "Send a form" }]}
-      railHeader={<ResidentCard name={resident.name} place={resident.place} />}
       sidePanel={
         <PanelSection title={`What ${first} gets`}>
           <FormTile name={form.name} detail={due ? `Due ${longDate(due)}` : "No due date"} />
         </PanelSection>
       }
-      footer={{
-        kind: "done",
-        label: "Send",
-        onDone: onSent,
-        left: (
-          <button type="button" onClick={onClose} className="min-h-[44px] rounded-full px-6 text-[13.5px] font-semibold text-muted hover:bg-foreground/5" data-attr="move-in-form-send-cancel">
-            Cancel
-          </button>
-        ),
-      }}
+      footer={{ kind: "done", label: "Send", onDone: onSent }}
       onClose={onClose}
       dataAttr="move-in-form-send-popup"
     >

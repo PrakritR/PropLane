@@ -17,7 +17,7 @@
  *   belongs to; nothing is announced only at the end.
  */
 
-import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Camera, Check, Circle, ChevronRight, Eye, RotateCcw, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -102,11 +102,20 @@ export function WizardModal({
  * (GAP3); their step navigation is one compact picker.
  */
 /**
- * The label of the active phone step tab, shared from the tab row (in the rail) to the step body, so a
- * step heading that only repeats the tab the manager just tapped is dropped on the phone.
+ * The label of the active phone step tab, shared from the rail to the step body, so a step heading that
+ * only repeats the tab the manager just tapped is dropped on the phone. It is read off the rail element
+ * in the same render pass that draws the body: published from the tab row through state instead, every
+ * tap would commit one frame with the duplicate title still on screen before hiding it.
  */
 const ActiveTabLabelContext = createContext<string | null>(null);
-const SetActiveTabLabelContext = createContext<((label: string | null) => void) | null>(null);
+
+function activeStepTabLabel(rail: ReactNode): string | null {
+  if (!isValidElement(rail) || rail.type !== StepRail) return null;
+  const { steps, current } = rail.props as { steps?: readonly StepRailItem[]; current?: number };
+  // One step draws no tabs (`WizardStepTabs` returns null), so its heading is the only title a phone has.
+  if (!steps || steps.length < 2) return null;
+  return steps[current ?? 0]?.label ?? null;
+}
 
 export function ListingWorkspace({
   title,
@@ -172,7 +181,7 @@ export function ListingWorkspace({
 }) {
   const [uploadTarget, setUploadTarget] = useState<HTMLDivElement | null>(null);
   const [eyeOpen, setEyeOpen] = useState(false);
-  const [activeTabLabel, setActiveTabLabel] = useState<string | null>(null);
+  const activeTabLabel = activeStepTabLabel(rail);
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
    * dropdowns and a save-failed alert dialog that each own Escape for
@@ -249,7 +258,7 @@ export function ListingWorkspace({
           className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border bg-white p-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-2.5 lg:py-3.5 [html[data-theme=dark]_&]:bg-black/20"
         >
           {railHeader ? <div className="hidden lg:block">{railHeader}</div> : null}
-          <SetActiveTabLabelContext.Provider value={setActiveTabLabel}>{rail}</SetActiveTabLabelContext.Provider>
+          {rail}
           {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
         <main
@@ -589,13 +598,6 @@ export function WizardStepTabs({
   const rowRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
   const overflowStyle = useTabOverflowFade(rowRef, steps.length);
-  const setActiveTabLabel = useContext(SetActiveTabLabelContext);
-  const activeLabel = steps.length > 1 ? (steps[current]?.label ?? null) : null;
-  useEffect(() => {
-    if (!setActiveTabLabel) return;
-    setActiveTabLabel(activeLabel);
-    return () => setActiveTabLabel(null);
-  }, [setActiveTabLabel, activeLabel]);
   useEffect(() => {
     // jsdom has no scrollIntoView; a test that jumps steps must not blow up on it.
     activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "center", behavior: "smooth" });
