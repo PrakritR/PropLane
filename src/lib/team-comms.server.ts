@@ -665,7 +665,11 @@ export async function relayTeamChatMessageToSms(
         recipientPhone: eligibility.phone,
         recipientUserId: member.userId,
         body,
-        // Person-to-person chat: a transactional text, not quiet-hours-held automation.
+        // The chat's own class, for a person's line and for PropLane's routine
+        // notice line alike (both ride this relay since 2026-10-14): a
+        // transactional text, never quiet-hours-held automation. Holding the
+        // notice line overnight is a product decision for the owner doc
+        // (docs/agents/automated-communication.md), not a per-caller override.
         sendClass: "transactional",
         purpose: TEAM_CHAT_RELAY_SMS_PURPOSE,
         counterpartyRole: "manager",
