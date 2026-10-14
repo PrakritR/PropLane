@@ -1,4 +1,5 @@
 import { classifyRoomOpening, earliestRoomOpening } from "@/lib/room-availability-style";
+import { formatNextOpening } from "@/lib/room-availability";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import type { ListingFloorCard, ListingRoomRow } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
@@ -597,6 +598,11 @@ export type PropertyBrowseCard = {
   /** What the card's availability pill says: "Available now", or the earliest later room's own wording. */
   availabilityLabel: string;
   availabilityKind: RoomAvailabilityKind;
+  /**
+   * First day any room frees up (YYYY-MM-DD) when none is open now and at least one has a date;
+   * null otherwise. The card draws it as a calendar-glyph fact, "Next opening Oct 15".
+   */
+  nextOpening: string | null;
   /** Rooms a renter could move into now (see `classifyRoomAvailability`). */
   availableNowCount: number;
   /** Highest headline rent among rooms priced by the same period as the headline, for "$1,000 – $1,300". Equals `headlineRent` when all rooms match. */
@@ -628,7 +634,7 @@ export type PropertyBrowseFilters = {
   propertyIds?: string[] | null;
 };
 
-export type BrowseSortId = "price-asc" | "price-desc" | "neighborhood";
+export type BrowseSortId = "price-asc" | "price-desc" | "neighborhood" | "next-opening";
 
 /**
  * The browse search box: a case-insensitive substring match on the whole
@@ -643,18 +649,35 @@ export function browseCardMatchesQuery(card: Pick<PropertyBrowseCard, "fullAddre
   return address.toLowerCase().includes(q) || (card.neighborhood ?? "").toLowerCase().includes(q);
 }
 
-function cardAvailability(rows: RoomListingRow[]): Pick<PropertyBrowseCard, "availabilityLabel" | "availabilityKind" | "availableNowCount"> {
+function localDayKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** "Next opening Oct 15" for a card, or null when it has no dated opening. */
+export function browseCardNextOpeningLabel(card: Pick<PropertyBrowseCard, "nextOpening">, today: string): string | null {
+  return card.nextOpening ? formatNextOpening(card.nextOpening, today) : null;
+}
+
+function cardAvailability(
+  rows: RoomListingRow[],
+): Pick<PropertyBrowseCard, "availabilityLabel" | "availabilityKind" | "availableNowCount" | "nextOpening"> {
   let nowCount = 0;
   const laterOpenings: string[] = [];
+  let nextOpening: string | null = null;
   for (const row of rows) {
     const kind = classifyRoomAvailability(row.availabilityRaw);
     if (kind === "now") nowCount += 1;
-    else if (kind === "later") laterOpenings.push(row.availabilityRaw);
+    else if (kind === "later") {
+      laterOpenings.push(row.availabilityRaw);
+      const date = classifyRoomOpening(row.availabilityRaw).date;
+      const key = date ? localDayKey(date) : null;
+      if (key && (nextOpening === null || key < nextOpening)) nextOpening = key;
+    }
   }
-  if (nowCount > 0) return { availabilityLabel: "Available now", availabilityKind: "now", availableNowCount: nowCount };
+  if (nowCount > 0) return { availabilityLabel: "Available now", availabilityKind: "now", availableNowCount: nowCount, nextOpening: null };
   const later = earliestRoomOpening(laterOpenings);
-  if (later) return { availabilityLabel: later, availabilityKind: "later", availableNowCount: 0 };
-  return { availabilityLabel: "Not available", availabilityKind: "unavailable", availableNowCount: 0 };
+  if (later) return { availabilityLabel: later, availabilityKind: "later", availableNowCount: 0, nextOpening };
+  return { availabilityLabel: "Not available", availabilityKind: "unavailable", availableNowCount: 0, nextOpening: null };
 }
 
 export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): PropertyBrowseCard[] {
@@ -685,6 +708,7 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
         availabilityLabel: "",
         availabilityKind: "now",
         availableNowCount: 0,
+        nextOpening: null,
         rentMaxNumeric: null,
         photoUrls: [],
         leaseTypes: [],
@@ -739,10 +763,20 @@ export function sortPropertyBrowseCards(cards: PropertyBrowseCard[], sort: Brows
       if (hood !== 0) return hood;
       return compareBrowseCardsByPrice(a, b);
     }
+    if (sort === "next-opening") {
+      const byOpening = nextOpeningSortKey(a).localeCompare(nextOpeningSortKey(b));
+      return byOpening !== 0 ? byOpening : compareBrowseCardsByPrice(a, b);
+    }
     if (sort === "price-desc") return compareBrowseCardsByPrice(b, a);
     return compareBrowseCardsByPrice(a, b);
   });
   return sorted;
+}
+
+/** Open now sorts first, then by the first dated opening; a home with no date goes last. */
+function nextOpeningSortKey(card: PropertyBrowseCard): string {
+  if (card.availabilityKind === "now") return "0000-00-00";
+  return card.nextOpening ?? "9999-99-99";
 }
 
 function compareBrowseCardsByPrice(a: PropertyBrowseCard, b: PropertyBrowseCard): number {

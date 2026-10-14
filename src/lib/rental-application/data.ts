@@ -1,5 +1,6 @@
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
-import { occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
+import { nextDayKey, occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
+import { formatRoomAvailability } from "@/lib/room-availability";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
@@ -469,7 +470,9 @@ export function effectiveRoomAvailabilityLabel(
     if (!currentBlock.end) {
       return currentBlock.source === "resident" ? "Unavailable (occupied)" : "Unavailable (blocked)";
     }
-    return `Unavailable until ${formatAvailabilityDate(currentBlock.end)}`;
+    // The room frees up the day after the block's last day: say when, through the one wording.
+    const todayKey = dateKeyFromDate(today);
+    return formatRoomAvailability({ kind: "from", date: nextDayKey(dateKeyFromDate(currentBlock.end)) }, todayKey);
   }
 
   // Room is available now — find the next upcoming block.
