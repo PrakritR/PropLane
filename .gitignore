@@ -137,3 +137,6 @@ output/
 
 # Scratch browser probes
 .*.tmp.cjs
+
+# Round 7 pop-up sweep screenshots (local evidence output)
+tests/browser/popup-sweep-round7/shots/

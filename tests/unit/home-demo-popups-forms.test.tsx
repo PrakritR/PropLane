@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
 // The home demo's manager Forms tab must behave like the real Forms page (forms-list.tsx): the round + opens the
-// real "Send a form" popup (one step "Send a form", Resident / Form / Due, "What <first> gets" panel, Cancel +
-// Send), a row opens the form's record (Answers · Activity rail, "Not submitted yet" + Remind, or the answers), the row
+// real "Send a form" popup (one step "Send a form", Resident / Form / Due, "What <first> gets" panel, and Send
+// alone — a one-step door dismisses with its X, so it draws no Cancel), a row opens the form's record (Answers ·
+// Activity rail, "Not submitted yet" + Remind, or the answers), the row
 // menu's Edit opens "Edit <form>" (Details · Questions, Save), and nothing ever calls the network. The generic
 // RESIDENT / HOME / STATUS field card must never come back.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,13 +44,14 @@ describe("demo Forms tab matches the real Forms page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add form" }));
     const dialog = await screen.findByRole("dialog", { name: "Send a form" }, { timeout: 15000 });
     expect(screen.queryByRole("status")).toBeNull();
-    // one step, "Send a form", with the resident card on the rail and the right-hand "What <first> gets" panel
+    // one step, "Send a form", with the Resident / Form / Due fields and the right-hand "What <first> gets" panel
     expect(within(dialog).getAllByText("Send a form").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("Resident").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("Form").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("Due").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText(/^What .* gets$/).length).toBeGreaterThan(0);
-    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    // Round 7: a one-step door has no dismiss-only Cancel — the header X is the way out.
+    expect(within(dialog).queryByRole("button", { name: "Cancel" })).toBeNull();
     const send = within(dialog).getByRole("button", { name: "Send" });
     fireEvent.click(send);
     expect(screen.queryByRole("dialog", { name: "Send a form" })).toBeNull();
