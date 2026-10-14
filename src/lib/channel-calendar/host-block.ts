@@ -42,31 +42,71 @@ type EchoCandidate = {
   hostBlock?: boolean;
 };
 
-const LOCAL_OCCUPANT_SOURCES = new Set(["proplane", "hold", "block"]);
-
 /** YYYY-MM-DD plus one day (a channel's re-export can carry the exclusive check-out as its last day). */
 function nextDayKey(key: string): string {
   const [y, m, d] = key.split("-").map(Number);
-  const next = new Date(Date.UTC(y, m - 1, d + 1));
-  return next.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
 
+function prevDayKey(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
+const LOCAL_OCCUPANT_SOURCES = new Set(["proplane", "hold", "block"]);
+
+type Cover = { start: string; end: string | null };
+
 /**
- * Drops a channel's host block ("Airbnb (Not available)") that sits inside a PropLane stay on the
- * same room: that range is PropLane's own export feed coming back from the channel, not a second
- * booking, and drawing it on top of the resident reads as an overbooked room. A host block with no
- * PropLane stay under it (the manager closed dates on the channel itself) is kept.
+ * Drops (or trims) a channel's host block ("Airbnb (Not available)") that PropLane's own occupancy
+ * already covers on the same room. PropLane exports its residents, holds and blocks to the channel
+ * as unavailable and the channel's feed hands them back, so the import draws each stay twice.
+ * The covering set is the union of the non-channel entries of that room (back-to-back residents
+ * together cover one long echo); a host block only partly covered keeps its uncovered remainder as
+ * one entry per gap. A host block with nothing under it (closed on the channel itself) and every
+ * reservation are kept untouched. The raw imported ranges are never edited: this only shapes the
+ * entries the calendar and its tabs draw.
  */
 export function withoutEchoedHostBlocks<T extends EchoCandidate>(entries: readonly T[]): T[] {
   const locals = entries.filter((entry) => LOCAL_OCCUPANT_SOURCES.has(entry.source) && entry.bookingStatus !== "cancelled");
-  return entries.filter((entry) => {
-    if (LOCAL_OCCUPANT_SOURCES.has(entry.source) || !isHostBlockRange(entry)) return true;
-    return !locals.some(
-      (local) =>
-        local.propertyId === entry.propertyId &&
-        (!local.roomId || local.roomId === entry.roomId) &&
-        local.start <= entry.start &&
-        (local.openEnded || entry.end <= nextDayKey(local.end)),
-    );
-  });
+  if (locals.length === 0) return [...entries];
+  const out: T[] = [];
+  for (const entry of entries) {
+    if (LOCAL_OCCUPANT_SOURCES.has(entry.source) || !isHostBlockRange(entry)) {
+      out.push(entry);
+      continue;
+    }
+    const covers: Cover[] = locals
+      .filter((l) => l.propertyId === entry.propertyId && (!l.roomId || l.roomId === entry.roomId))
+      .map((l) => ({ start: l.start, end: l.openEnded ? null : l.end }))
+      .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    const merged: Cover[] = [];
+    for (const c of covers) {
+      const last = merged[merged.length - 1];
+      if (last && (last.end === null || c.start <= nextDayKey(last.end))) {
+        if (last.end !== null && (c.end === null || c.end > last.end)) last.end = c.end;
+      } else merged.push({ ...c });
+    }
+    const pieces: Cover[] = [];
+    let cursor: string | null = entry.start;
+    for (const c of merged) {
+      if (cursor === null) break;
+      if (c.end !== null && c.end < cursor) continue;
+      if (c.start > entry.end) break;
+      if (c.start > cursor) pieces.push({ start: cursor, end: prevDayKey(c.start) });
+      cursor = c.end === null ? null : nextDayKey(c.end);
+      if (cursor !== null && cursor > entry.end) cursor = null;
+    }
+    if (cursor !== null) pieces.push({ start: cursor, end: entry.end });
+    // A channel can re-export the exclusive check-out as a trailing day; that day is not a gap.
+    const tail = pieces[pieces.length - 1];
+    if (tail && tail.start === entry.end && tail.end === entry.end && merged.some((c) => c.end !== null && nextDayKey(c.end) === entry.end)) {
+      pieces.pop();
+    }
+    if (pieces.length === 1 && pieces[0]!.start === entry.start && pieces[0]!.end === entry.end) out.push(entry);
+    else for (const piece of pieces) out.push({ ...entry, start: piece.start, end: piece.end as string });
+  }
+  return out;
 }
+
+export const suppressEchoedHostBlocks = withoutEchoedHostBlocks;

@@ -70,13 +70,14 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const today = dateKey(new Date());
   const base = recordSections("manager", "booking", { basePath });
   const residentHref = bookingResidentHref(entry, basePath, today);
-  const headerActions = base.headerActions.filter((action) => action.id !== "edit" || !channel);
+  const hostBlockStay = entry.source === "airbnb" && isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
+  const headerActions = base.headerActions.filter((action) => action.id !== "edit" || !channel || hostBlockStay);
   const sections = {
     ...base,
     headerActions: residentHref ? [...headerActions, { id: "open-resident", label: "Open resident", icon: UserRound }] : headerActions,
   };
   const onAction = (action: string) => {
-    if (action === "edit") setEditing(true);
+    if (action === "edit") { if (hostBlockStay) setNamingGuest(true); else setEditing(true); }
     if (action === "open-resident" && residentHref) navigate(residentHref);
     if (action === "message") navigate(bookingRecordHref(basePath, bookingId, "communication"));
   };
@@ -135,6 +136,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {entry.leaseTerm ? <RecordFactRow label="Lease term" value={entry.leaseTerm} /> : null}
         {entry.lastSyncedAt ? <RecordFactRow label="Last synced" value={new Date(entry.lastSyncedAt).toLocaleString()} /> : null}
         {airbnbLink ? channelCheckFacts(airbnbLink).map((fact) => <RecordFactRow key={fact.label} label={fact.label} value={fact.value} />) : null}
+        {entry.stayNotes ? <RecordFactRow label="Notes" value={<span className="whitespace-pre-line">{entry.stayNotes}</span>} /> : null}
         {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
         {stayDetailRows.filter(([key]) => key !== "earlyCheckIn" && key !== "lateCheckOut").map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
         {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}

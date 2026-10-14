@@ -1,3 +1,6 @@
+import { iosAppDownloadUrl } from "@/lib/ios-app-download";
+import { homeJsonLd, jsonLdString } from "@/lib/seo/json-ld";
+import { llmsOrigin } from "@/lib/seo/llms";
 import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { SiteFaq } from "@/components/marketing/site/faq";
 import { HOME_FAQ_ITEMS } from "@/components/marketing/site/home-faq-items";
@@ -37,6 +40,10 @@ import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";
 export default function HomePage() {
   return (
     <div className="home-wavy min-h-0 flex-1">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLdString(homeJsonLd(llmsOrigin(), iosAppDownloadUrl())) }}
+      />
       <ResidentLifecycleAtmosphere variant="page" />
       <ResidentLifecyclePrototypes>
         <SiteReplacesStrip />

@@ -39,6 +39,8 @@ export type PropertyBookingEntry = {
   reservationUrl?: string;
   phoneLast4?: string;
   guestName?: string;
+  /** The manager's note on a channel stay or host block. */
+  stayNotes?: string;
   /** Channel stays only - money typed on the booking or read from an Airbnb email. */
   guestPhone?: string;
   nightlyCents?: number;
@@ -427,6 +429,7 @@ export function airbnbBookingEntries(
           ...(range.reservationUrl ? { reservationUrl: range.reservationUrl } : {}),
           ...(range.phoneLast4 ? { phoneLast4: range.phoneLast4 } : {}),
           ...(range.guestName ? { guestName: range.guestName } : {}),
+          ...(range.stayNotes ? { stayNotes: range.stayNotes } : {}),
           ...(range.guestPhone ? { guestPhone: range.guestPhone } : {}),
           ...(typeof range.nightlyCents === "number" ? { nightlyCents: range.nightlyCents } : {}),
           ...(typeof range.payoutCents === "number" ? { payoutCents: range.payoutCents } : {}),

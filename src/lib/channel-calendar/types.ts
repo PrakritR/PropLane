@@ -62,6 +62,8 @@ export type ManagerChannelBookingRange = {
   guestName?: string;
   /** Money typed on the booking or read from an Airbnb email (`channel_stay_details`). */
   guestPhone?: string;
+  /** The manager's note (`channel_stay_details.notes`); also set on a host block. */
+  stayNotes?: string;
   nightlyCents?: number;
   payoutCents?: number;
   /** ISO timestamp the payout landed; absent while it is still due. */

@@ -78,6 +78,20 @@ describe("booking record and actions", () => {
     expect(screen.getByText("Channel")).toBeTruthy();
     expect(screen.getByText("Airbnb · event-uid")).toBeTruthy();
   });
+  it("shows the stay note as a plain Notes row", () => {
+    page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "uid-1", connectionId: "c1", stayNotes: "Late arrival" });
+    expect(screen.getByText("Notes")).toBeTruthy();
+    expect(screen.getByText("Late arrival")).toBeTruthy();
+  });
+  it("a host block opens the stay popup with only Notes", () => {
+    page({ ...block, source: "airbnb", summary: "Airbnb (Not available)", blockId: undefined, sourceUid: "uid-2", connectionId: "c1" });
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-edit"]')!);
+    expect(document.querySelector('[data-attr="booking-stay-details-dialog"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="booking-stay-notes-input"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="booking-stay-name-input"]')).toBeNull();
+    expect(document.querySelector('[data-attr="booking-stay-payout-input"]')).toBeNull();
+    expect(document.querySelector('[data-attr="bookings-edit-sheet"]')).toBeNull();
+  });
   it("resolves previously shared links and replaces them with stable ids", () => {
     render(<AppUiProvider><BookingsRecordPage bookingId={bookingLegacyEntryKey(block)} basePath="/portal" entries={[block]} loading={false} residentOptions={[]} onSaveBlock={noop} onRemoveBlock={noop} showToast={() => {}} /></AppUiProvider>);
     expect(navigate).toHaveBeenCalledWith(bookingRecordHref("/portal", bookingEntryKey(block)));

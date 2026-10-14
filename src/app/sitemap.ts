@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { BLOG_POSTS } from "@/lib/blog/posts";
+import { getPublicListings } from "@/lib/public-listings.server";
 
 const BASE = "https://proplane.ai";
 
@@ -28,7 +29,7 @@ const PATHS = [
   "/app",
 ] as const;
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lastModified = new Date();
   const pages: MetadataRoute.Sitemap = PATHS.map((path) => ({
     url: path ? `${BASE}${path}` : `${BASE}/`,
@@ -47,5 +48,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.6,
     };
   });
-  return [...pages, ...posts];
+  // Live public listings; a catalog failure must never break the sitemap.
+  let listings: MetadataRoute.Sitemap = [];
+  try {
+    listings = (await getPublicListings()).map((p) => ({
+      url: `${BASE}/rent/listings/${encodeURIComponent(p.id)}`,
+      lastModified,
+      changeFrequency: "daily",
+      priority: 0.7,
+    }));
+  } catch {
+    /* sitemap still lists every static page */
+  }
+  return [...pages, ...posts, ...listings];
 }

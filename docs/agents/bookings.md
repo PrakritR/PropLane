@@ -172,3 +172,7 @@ account-setup invite by text or email. So `useManagerBookingEntries` reports `re
 source, not just the first — that is `loading`), the sheet takes it as a prop, and while it is true the
 sheet fills and reads but will not save. Any future host that opens the sheet before its reads land
 passes the same flag.
+
+## Airbnb echoes
+
+PropLane exports its residents, holds and blocks to Airbnb as unavailable, and Airbnb's feed returns them as host blocks ("Airbnb (Not available)"); `suppressEchoedHostBlocks` (`host-block.ts`, applied once in `use-manager-booking-entries.ts`) drops any host block covered by the union of that room's own stays and keeps only the uncovered remainder of a partly covered one, while reservations always draw and the raw `imported_ranges` stay untouched. Occupancy reads the same rule through `echoable` spans in `occupiedBedSpans`, so a covered echo adds no blocked nights and a remainder does; channel booking alerts already skip host blocks.
