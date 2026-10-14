@@ -297,7 +297,10 @@ describe("evidence · notes on a stay and on a host block", () => {
       fireEvent.click(document.querySelector('[data-attr="booking-stay-details-save"]')!);
       await Promise.resolve();
     });
-    expect(saved).toEqual([{ connectionId: "conn-a", sourceUid: "echo-1", notes: "Closed for the owner's own stay." }]);
+    // The UID alone is shared by every block on the feed, so the save carries the RAW range's dates.
+    expect(saved).toEqual([
+      { connectionId: "conn-a", sourceUid: "echo-1", start: "2026-08-01", end: "2026-08-20", notes: "Closed for the owner's own stay." },
+    ]);
   });
 
   it("Remove stay keys a trimmed remainder on the RAW imported range", async () => {

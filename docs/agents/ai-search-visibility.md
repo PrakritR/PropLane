@@ -23,8 +23,10 @@ Guards: `tests/unit/llms-txt.test.ts`, `tests/unit/robots-ai-bots.test.ts`,
 
 Everything these surfaces publish is **derived** from the module that already
 owns it: plan prices and included-resident counts from `RATE_CARD`
-(`src/lib/billing/rate-card.ts`), posts from `BLOG_POSTS`, listing facts from
-`publicListingProjection`'s output, the App Store link from
+(`src/lib/billing/rate-card.ts`), the annual floors and their saving from the
+same card via `annualDiscountPercent` (never a restated "two months free"), the
+trial length from `MANAGER_SUBSCRIPTION_TRIAL_DAYS`, posts from `BLOG_POSTS`,
+listing facts from `publicListingProjection`'s output, the App Store link from
 `iosAppDownloadUrl()`. A number typed into `llms.ts` or `json-ld.ts` by hand is
 a drift bug — an AI assistant quoting a stale price is the whole failure mode
 this rule exists for. `LLMS_SUMMARY` is the one product summary, reused as the
@@ -78,8 +80,11 @@ still lists every static page rather than 500ing a crawl.
   stored blob actually has it and of the right type: publishing `petsAllowed:
   false` off an unanswered question is a fabricated listing fact, the same rule
   as never fabricating a photo. `addressLocality` is the submission's legal
-  `city` — never the browse-only `neighborhood` label — and a page whose
-  catalog read fails renders with no structured data at all.
+  `city` — never the browse-only `neighborhood` label — and `streetAddress` is
+  the street line alone (`listingSubmissionStreetLine`, the decision leases
+  already use), because the stored address normally ends in its own ", City, ST
+  ZIP" and a crawler must not read the locality twice. A page whose catalog read
+  fails renders with no structured data at all.
 - Both serialize through `jsonLdString`, which escapes `<` so no field can close
   the `<script>` tag.
 

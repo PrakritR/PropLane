@@ -4,7 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { managerCanWriteCalendarForProperty, managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import {
+  channelStayDetailsKey,
   normalizeStayCents,
   normalizeStayGuestName,
   normalizeStayNotes,
@@ -14,6 +16,7 @@ import {
   type ChannelStayMoney,
 } from "@/lib/channel-calendar/stay-details";
 import { importedRangeUid } from "@/lib/channel-calendar/stay-tombstones";
+import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
 
 export type StayDetailsResult<T> = { ok: true; value: T } | { ok: false; status: 400 | 403 | 404 | 500; error: string };
 
@@ -21,6 +24,36 @@ export type StayDetailsResult<T> = { ok: true; value: T } | { ok: false; status:
 async function loadConnection(db: SupabaseClient, connectionId: string) {
   const { data } = await db.from("external_calendar_connections").select("*").eq("id", connectionId).maybeSingle();
   return data ? parseConnectionRow(data as Record<string, unknown>) : null;
+}
+
+/**
+ * The `source_uid` one stay's typed details are stored under, or null when this connection no
+ * longer carries that stay.
+ *
+ * The UID in a request is not an identity on its own: a host block shares its UID with every other
+ * block on the feed, so the dates narrow which block is meant and the key is then derived from the
+ * STORED range, never from the dates the caller sent. A reservation still resolves on its UID
+ * alone, with or without dates, so Mark paid and the Airbnb email intake are unchanged.
+ */
+function resolveStayDetailsKey(
+  ranges: readonly ChannelCalendarImportedRange[],
+  sourceUid: string,
+  start: string,
+  end: string,
+): string | null {
+  const candidates = ranges.filter((range) => importedRangeUid(range) === sourceUid);
+  if (candidates.length === 0) return null;
+  const rangeStart = (range: ChannelCalendarImportedRange) => (range.start ?? "").trim();
+  const rangeEnd = (range: ChannelCalendarImportedRange) => (range.end ?? "").trim() || rangeStart(range);
+  const dated = start
+    ? candidates.find((range) => isHostBlockRange(range) && rangeStart(range) === start && rangeEnd(range) === (end || start))
+    : undefined;
+  const range =
+    dated
+    ?? candidates.find((candidate) => !isHostBlockRange(candidate))
+    ?? (candidates.length === 1 ? candidates[0]! : undefined);
+  if (!range) return null;
+  return channelStayDetailsKey({ sourceUid, start: range.start, end: range.end, hostBlock: range.hostBlock, summary: range.summary });
 }
 
 const STAY_COLUMNS = "guest_name, notes, guest_phone, nightly_cents, payout_cents, paid_at, currency, source";
@@ -53,7 +86,7 @@ export function moneyFromRow(row: StayRow | null | undefined): ChannelStayMoney 
 export async function readChannelStayDetails(
   db: SupabaseClient,
   userId: string,
-  input: { connectionId: string; sourceUid: string },
+  input: { connectionId: string; sourceUid: string; start?: string; end?: string },
 ): Promise<StayDetailsResult<ChannelStayDetails>> {
   const connectionId = input.connectionId.trim();
   const sourceUid = input.sourceUid.trim();
@@ -63,11 +96,13 @@ export async function readChannelStayDetails(
   if (!(await managerHasCalendarAccessForProperty(db, userId, connection.property_id))) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
+  // A stay the feed no longer carries has nothing typed to read: answer with the UID's own key.
+  const resolved = resolveStayDetailsKey(connection.imported_ranges, sourceUid, (input.start ?? "").trim(), (input.end ?? "").trim());
   const { data, error } = await db
     .from("channel_stay_details")
     .select(STAY_COLUMNS)
     .eq("connection_id", connection.id)
-    .eq("source_uid", sourceUid)
+    .eq("source_uid", resolved ?? sourceUid)
     .maybeSingle();
   if (error) return { ok: false, status: 500, error: "Could not load stay details." };
   const row = data as StayRow | null;
@@ -85,6 +120,9 @@ export async function saveChannelStayDetails(
   input: {
     connectionId: string;
     sourceUid: string;
+    /** A host block's UID is shared; its dates pick the block the save is about. */
+    start?: string;
+    end?: string;
     guestName?: unknown;
     notes?: unknown;
     guestPhone?: unknown;
@@ -103,9 +141,8 @@ export async function saveChannelStayDetails(
     return { ok: false, status: 403, error: "Forbidden." };
   }
   // Only a stay this connection actually carries can be named.
-  if (!connection.imported_ranges.some((range) => importedRangeUid(range) === sourceUid)) {
-    return { ok: false, status: 404, error: "That stay is no longer on the channel calendar." };
-  }
+  const detailsKey = resolveStayDetailsKey(connection.imported_ranges, sourceUid, (input.start ?? "").trim(), (input.end ?? "").trim());
+  if (!detailsKey) return { ok: false, status: 404, error: "That stay is no longer on the channel calendar." };
   const patch: Record<string, unknown> = {};
   if (input.guestPhone !== undefined) patch.guest_phone = normalizeStayPhone(input.guestPhone) || null;
   if (input.nightlyCents !== undefined) {
@@ -129,7 +166,7 @@ export async function saveChannelStayDetails(
     .from("channel_stay_details")
     .select(STAY_COLUMNS)
     .eq("connection_id", connection.id)
-    .eq("source_uid", sourceUid)
+    .eq("source_uid", detailsKey)
     .maybeSingle();
   if (storedError) return { ok: false, status: 500, error: "Could not save stay details." };
   const stored = storedData as StayRow | null;
@@ -141,14 +178,14 @@ export async function saveChannelStayDetails(
   const moneyAfter = moneyFromRow({ ...merged, notes });
   const hasMoney = Object.keys(moneyAfter).some((key) => key !== "currency" && key !== "notes");
   if (!guestName && !notes && !hasMoney) {
-    const { error } = await db.from("channel_stay_details").delete().eq("connection_id", connection.id).eq("source_uid", sourceUid);
+    const { error } = await db.from("channel_stay_details").delete().eq("connection_id", connection.id).eq("source_uid", detailsKey);
     if (error) return { ok: false, status: 500, error: "Could not save stay details." };
     return { ok: true, value: { guestName: "", notes: "" } };
   }
   const { error } = await db.from("channel_stay_details").upsert(
     {
       connection_id: connection.id,
-      source_uid: sourceUid,
+      source_uid: detailsKey,
       guest_name: guestName || null,
       notes: notes || null,
       ...patch,

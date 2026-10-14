@@ -21,7 +21,7 @@ import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
 import { airbnbReservationUrl, isPhoneLast4 } from "@/lib/channel-calendar/reservation-details";
 import { loadChannelStayDetailRows } from "@/lib/channel-calendar/stay-details.server";
-import type { ChannelStayMoney } from "@/lib/channel-calendar/stay-details";
+import { channelStayDetailsKey, type ChannelStayMoney } from "@/lib/channel-calendar/stay-details";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
@@ -62,7 +62,10 @@ export function normalizeRanges(
     const hostBlock = isHostBlockRange(r);
     const reservationUrl = hostBlock ? null : airbnbReservationUrl(r.reservationCode);
     const guestName = hostBlock ? undefined : guestNames?.get(importedRangeUid(r));
-    const allMoney = stayMoney?.get(importedRangeUid(r));
+    // A host block's details are stored under its UID plus its dates - Airbnb gives every block on
+    // a feed the same UID, so the UID alone would read another block's note onto this one.
+    const detailsKey = channelStayDetailsKey({ sourceUid: importedRangeUid(r), start: r.start, end: r.end, hostBlock, summary: r.summary });
+    const allMoney = stayMoney?.get(detailsKey);
     const money = hostBlock ? undefined : allMoney;
     return {
       sourceUid: r.sourceUid,

@@ -31,13 +31,22 @@ export function BookingsStayDetailsDialog({ entry, onClose, onSaved, save = save
   const [paidOn, setPaidOn] = useState(entry.paidAt ? entry.paidAt.slice(0, 10) : "");
   const [notes, setNotes] = useState(entry.stayNotes ?? "");
   const hostBlock = isHostBlockSummary(entry.summary);
+  // A host block's note is keyed on its UID plus the RAW imported range's dates (the UID alone is
+  // shared by every block on the feed). A visible entry may be the trimmed remainder of an echoed
+  // block, so its own dates would match no stored range.
+  const ref = {
+    connectionId: entry.connectionId ?? "",
+    sourceUid: entry.sourceUid ?? "",
+    start: entry.channelRangeStart ?? entry.start,
+    end: entry.channelRangeEnd ?? entry.end,
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async () => {
     if (hostBlock) {
       setBusy(true); setError("");
       try {
-        await save({ connectionId: entry.connectionId ?? "", sourceUid: entry.sourceUid ?? "", notes });
+        await save({ ...ref, notes });
         onSaved();
         onClose();
       } catch (cause) {
@@ -54,8 +63,7 @@ export function BookingsStayDetailsDialog({ entry, onClose, onSaved, save = save
     setBusy(true); setError("");
     try {
       await save({
-        connectionId: entry.connectionId ?? "",
-        sourceUid: entry.sourceUid ?? "",
+        ...ref,
         guestName: name,
         guestPhone: phone,
         nightlyCents,

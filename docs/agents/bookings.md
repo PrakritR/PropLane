@@ -150,6 +150,16 @@ deliberately not money: `hasMoney` in `saveChannelStayDetails` ignores it, so a
 note-only row is deleted when the note is cleared instead of lingering as an
 empty row.
 
+A host block's details row is keyed on its UID **plus its dates**
+(`channelStayDetailsKey`, the same composite `channelStayTombstoneKey` uses):
+Airbnb gives every block on one feed the same UID, so keying a note on the UID
+alone would draw one block's note on another and let the second save overwrite
+the first. The popup sends the RAW range's dates (`channelRangeStart` /
+`channelRangeEnd` on a trimmed remainder) and the server derives the key from
+its own stored range - the dates in the request only pick which block is meant.
+A reservation keeps its UID-only key, so Mark paid and the Airbnb email intake
+are unchanged.
+
 One label rule wherever a guest is drawn — list row, record title, day card,
 payout row (`bookingEntryGuestLabel`): the typed name, else "Airbnb guest · HM…"
 from the reservation code, else the feed summary. Host blocks and every
@@ -185,4 +195,4 @@ passes the same flag.
 
 ## Airbnb echoes
 
-PropLane exports its residents, holds and blocks to Airbnb as unavailable, and Airbnb's feed returns them as host blocks ("Airbnb (Not available)"); `withoutEchoedHostBlocks` (`host-block.ts`, applied once in `use-manager-booking-entries.ts`) drops any host block covered by the union of that room's own stays and keeps only the uncovered remainder of a partly covered one, while reservations always draw and the raw `imported_ranges` stay untouched. It is literally the same subtraction occupancy runs on `echoable` spans — both call `coveringIntervals` + `uncovered` from `room-occupancy-rule.ts`, so a covered echo adds no blocked nights and a remainder does; there is no second copy to drift. A remainder carries `channelRangeStart`/`channelRangeEnd` (the raw imported range's dates), because a host block's identity is its UID plus those dates and Remove stay / Undo would otherwise 404 on the trimmed ones. Channel booking alerts already skip host blocks.
+PropLane exports its residents, holds and blocks to Airbnb as unavailable, and Airbnb's feed returns them as host blocks ("Airbnb (Not available)"); `withoutEchoedHostBlocks` (`host-block.ts`, applied once in `use-manager-booking-entries.ts`) drops any host block covered by the union of that room's own stays and keeps only the uncovered remainder of a partly covered one, while reservations always draw and the raw `imported_ranges` stay untouched. It is literally the same subtraction occupancy runs on `echoable` spans — both call `coveringIntervals` + `uncovered` from `room-occupancy-rule.ts`, so a covered echo adds no blocked nights and a remainder does; there is no second copy to drift. A remainder carries `channelRangeStart`/`channelRangeEnd` (the raw imported range's dates), because a host block's identity is its UID plus those dates and Remove stay / Undo (and Block notes) would otherwise 404 on the trimmed ones. One uncovered day sitting exactly on a local stay's check-out is the channel re-exporting that exclusive check-out, not a free night, so it never draws - wherever in the block it falls, between two back-to-back residents as much as at the very end. Channel booking alerts already skip host blocks.

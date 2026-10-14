@@ -207,6 +207,12 @@ export async function saveChannelStayGuestName(input: { connectionId: string; so
 export type ChannelStayDetailsInput = {
   connectionId: string;
   sourceUid: string;
+  /**
+   * The RAW imported range's dates. Airbnb gives every host block on a feed the same UID, so a
+   * block's note is keyed on the UID plus these; a reservation needs neither.
+   */
+  start?: string;
+  end?: string;
   /** Omitted fields are left as they are; blank / null clears. */
   guestName?: string;
   guestPhone?: string;

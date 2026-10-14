@@ -1,6 +1,7 @@
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
-import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
+import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { BLOG_POSTS, formatBlogDate, type BlogPost } from "@/lib/blog/posts";
+import { MANAGER_SUBSCRIPTION_TRIAL_DAYS } from "@/lib/stripe/subscription-checkout-session";
 
 /**
  * Plain-text site maps for AI assistants (llmstxt.org). Facts come from the
@@ -33,7 +34,7 @@ export const LLMS_SUMMARY =
   `that drafts work and never sends without the manager's approval. Built in Seattle. ` +
   `Pricing: Free for ${RATE_CARD.free.includedDoors} residents, Pro at ${usd(RATE_CARD.pro.floorMonthlyCents)}/month ` +
   `(${RATE_CARD.pro.includedDoors} residents included), Business at ${usd(RATE_CARD.business.floorMonthlyCents)}/month ` +
-  `(${RATE_CARD.business.includedDoors} residents included); 14-day trial on paid plans, no card required.`;
+  `(${RATE_CARD.business.includedDoors} residents included); ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day trial on paid plans, no card required.`;
 
 type Entry = { title: string; path: string; note: string };
 
@@ -131,10 +132,12 @@ export function buildLlmsFullTxt(origin: string = llmsOrigin(), posts: readonly 
     .join("\n");
   const plans =
     `### Plans\n\n` +
-    `- Free: $0, ${RATE_CARD.free.includedDoors} residents, applications, tours and rent collection.\n` +
+    `- Free: ${usd(RATE_CARD.free.floorMonthlyCents)}, ${RATE_CARD.free.includedDoors} residents, applications, tours and rent collection.\n` +
     `- Pro: ${usd(RATE_CARD.pro.floorMonthlyCents)}/month, ${RATE_CARD.pro.includedDoors} residents included, then ${usd(RATE_CARD.pro.perExtraDoorMonthlyCents ?? 0)} per extra resident.\n` +
     `- Business: ${usd(RATE_CARD.business.floorMonthlyCents)}/month, ${RATE_CARD.business.includedDoors} residents included, then ${usd(RATE_CARD.business.perExtraDoorMonthlyCents ?? 0)} per extra resident.\n` +
-    `- Annual billing is two months free. Paid plans have a 14-day trial with no card required.\n`;
+    `- Annual billing: Pro ${usd(RATE_CARD.pro.floorAnnualCents)}/year (${annualDiscountPercent("pro")}% off monthly), ` +
+    `Business ${usd(RATE_CARD.business.floorAnnualCents)}/year (${annualDiscountPercent("business")}% off monthly).\n` +
+    `- Paid plans have a ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day trial with no card required.\n`;
   return [
     header(),
     `## Pages\n\n${pages}`,

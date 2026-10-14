@@ -1,6 +1,7 @@
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { RATE_CARD } from "@/lib/billing/rate-card";
 import { parseMonthlyRent } from "@/lib/listings-search";
+import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { LLMS_SUMMARY } from "@/lib/seo/llms";
 import type { MockProperty } from "@/data/types";
 
@@ -70,6 +71,10 @@ export function listingJsonLd(property: MockProperty, origin: string = PRODUCTIO
   // neighborhood label (`listingSubmissionCityStateLine`).
   const city = submission?.city?.trim() ?? "";
   const region = (submission?.state?.trim() || property.state?.trim() || "").toUpperCase();
+  // The stored address normally ends in its own ", City, ST ZIP". `streetAddress` is the street
+  // line alone (the decision `listingSubmissionStreetLine` already owns for leases), or a crawler
+  // reads the city, state and ZIP once in it and again beside it.
+  const street = submission ? listingSubmissionStreetLine({ ...submission, address: property.address }) || property.address : property.address;
   return {
     "@context": "https://schema.org",
     "@type": "Accommodation",
@@ -81,7 +86,7 @@ export function listingJsonLd(property: MockProperty, origin: string = PRODUCTIO
     ...(typeof property.petFriendly === "boolean" ? { petsAllowed: property.petFriendly } : {}),
     address: {
       "@type": "PostalAddress",
-      streetAddress: property.address,
+      streetAddress: street,
       ...(property.zip ? { postalCode: property.zip } : {}),
       ...(region ? { addressRegion: region } : {}),
       ...(city ? { addressLocality: city } : {}),

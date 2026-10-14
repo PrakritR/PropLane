@@ -30,6 +30,24 @@ describe("withoutEchoedHostBlocks", () => {
     const out = withoutEchoedHostBlocks([res("2026-10-01", "2026-10-15"), res("2026-10-16", "2026-10-31", { summary: "Akshaya" }), echo("2026-10-01", "2026-10-31")]);
     expect(out.map((e) => e.source)).toEqual(["proplane", "proplane"]);
   });
+  it("hides the check-out echo between two back-to-back residents, not just the trailing one", () => {
+    // PropLane exports each stay with its exclusive check-out, so Airbnb hands back one Oct 1-21
+    // block: Oct 10 (A's check-out) is an INTERIOR gap and Oct 21 (B's) a trailing one.
+    const out = withoutEchoedHostBlocks([
+      res("2026-10-01", "2026-10-09"),
+      res("2026-10-11", "2026-10-20", { summary: "Akshaya" }),
+      echo("2026-10-01", "2026-10-21"),
+    ]);
+    expect(out.map((e) => e.source)).toEqual(["proplane", "proplane"]);
+  });
+  it("keeps a real gap that merely starts on a check-out day", () => {
+    const out = withoutEchoedHostBlocks([
+      res("2026-10-01", "2026-10-09"),
+      res("2026-10-15", "2026-10-20", { summary: "Akshaya" }),
+      echo("2026-10-01", "2026-10-21"),
+    ]);
+    expect(out.filter((e) => e.source === "airbnb").map(range)).toEqual(["2026-10-10..2026-10-14"]);
+  });
   it("ignores another room and keeps an uncovered echo whole", () => {
     expect(withoutEchoedHostBlocks([res("2026-10-01", "2026-10-31", { roomId: "r2" }), echo("2026-10-05", "2026-10-08")])).toHaveLength(2);
   });

@@ -173,6 +173,29 @@ describe("stay notes", () => {
     const money = new Map([["uid-1", moneyFromRow({ notes: "Late arrival" })]]);
     expect(normalizeRanges([RANGE as never], undefined, money)[0]).toMatchObject({ stayNotes: "Late arrival" });
   });
+
+  it("never reads one host block's note onto another block sharing its Airbnb UID", async () => {
+    const { normalizeRanges } = await import("@/lib/channel-calendar/bookings.server");
+    const { moneyFromRow } = await import("@/lib/channel-calendar/stay-details.server");
+    const other = { ...BLOCK, start: "2026-11-02", end: "2026-11-06" };
+    const money = new Map([["uid-2|2026-10-20|2026-10-21", moneyFromRow({ notes: "Owner's own stay" })]]);
+    const [october, november] = normalizeRanges([BLOCK as never, other as never], undefined, money);
+    expect(october).toMatchObject({ stayNotes: "Owner's own stay" });
+    expect(november).not.toHaveProperty("stayNotes");
+  });
+
+  it("saves a host block's note under its UID plus its dates, one row per block", async () => {
+    const block = (start: string, end: string) => ({ ...BLOCK, start, end });
+    tables.external_calendar_connections[0]!.imported_ranges = [block("2026-10-20", "2026-10-21"), block("2026-11-02", "2026-11-06")];
+    await put({ connectionId: "conn-mine", sourceUid: "uid-2", start: "2026-10-20", end: "2026-10-21", notes: "Owner's own stay" });
+    await put({ connectionId: "conn-mine", sourceUid: "uid-2", start: "2026-11-02", end: "2026-11-06", notes: "Bathroom retile" });
+    expect(tables.channel_stay_details.map((row) => [row.source_uid, row.notes])).toEqual([
+      ["uid-2|2026-10-20|2026-10-21", "Owner's own stay"],
+      ["uid-2|2026-11-02|2026-11-06", "Bathroom retile"],
+    ]);
+    // Dates that match no stored block are not a stay this connection carries.
+    expect((await put({ connectionId: "conn-mine", sourceUid: "uid-2", start: "2026-12-01", end: "2026-12-03", notes: "X" })).status).toBe(404);
+  });
 });
 
 describe("Airbnb money on a stay", () => {
