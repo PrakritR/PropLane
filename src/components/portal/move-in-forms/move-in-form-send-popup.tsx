@@ -219,7 +219,7 @@ export function SendMoveInFormPopup({
           <Button
             type="button"
             variant="primary"
-            className="min-h-[44px] rounded-full px-7 text-[14px] font-bold"
+            className="ml-auto min-h-[44px] rounded-full px-7 text-[14px] font-bold"
             disabled={!canSend}
             loading={sending}
             onClick={() => void send()}
