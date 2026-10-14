@@ -144,7 +144,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
   const dotCount = Math.min(5, card.photoUrls.length);
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[var(--shadow-card-hover)]">
+    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition duration-200 ease-(--spring-snappy) hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[var(--shadow-card-hover)] active:translate-y-0 active:scale-[.985] active:duration-75">
       <Link
         href={`/rent/listings/${encodeURIComponent(card.propertyId)}`}
         data-attr="resident-browse-listing-card"

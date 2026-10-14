@@ -518,6 +518,9 @@ html [data-surface="light"] .btn-metallic {
 }
 
 @theme inline {
+  /* Display text is set tighter, small text looser: tracking follows size. */
+  --text-3xl--letter-spacing: -0.02em;
+  --text-4xl--letter-spacing: -0.025em;
   --color-background: var(--background-solid);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
@@ -590,13 +593,18 @@ body {
   outline-offset: 2px;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  letter-spacing: 0;
+/* In the base layer so a tracking utility (`tracking-tight`, the display-size tokens in the
+   @theme block) outranks it. Unlayered, this rule beat every layered utility and rendered
+   about 150 headings at 0. */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    letter-spacing: 0;
+  }
 }
 
 button,
@@ -2285,15 +2293,16 @@ html[data-native] .axis-page-frame > footer {
 /* The phone sheet is full-screen; it only needs to clear the keyboard (set inline) and
    sit above the rest of the chrome. */
 .axis-assistant-sheet {
-  animation: axis-assistant-fade-in 180ms ease-out;
+  /* Rises from the bottom as a spring transition (interruptible, and a drag reuses the same
+     transform); reduced motion keeps the opacity half only (tokens.css). */
+  transition:
+    opacity var(--motion-base) ease-out,
+    transform var(--spring-sheet-duration) var(--spring-sheet);
 }
-
-@keyframes axis-assistant-fade-in {
-  from {
+@starting-style {
+  .axis-assistant-sheet {
     opacity: 0;
-  }
-  to {
-    opacity: 1;
+    transform: translateY(100%);
   }
 }
 
@@ -2596,6 +2605,9 @@ html[data-native] .portal-mobile-nav-bar {
   }
 }
 
+/* Reduced motion: replace travel with a cross-fade, keep the feedback. Slides, scales and
+   keyframed loops stop; opacity and colour still transition (150ms) so a press, a hover and an
+   entrance still read as changes. A press is a background change only, never a scale. */
 @media (prefers-reduced-motion: reduce) {
   .portal-shell *,
   .portal-shell *::before,
@@ -2603,7 +2615,13 @@ html[data-native] .portal-mobile-nav-bar {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-property: opacity, background-color, border-color, color, fill, stroke !important;
+    transition-duration: 150ms !important;
+    transition-delay: 0s !important;
+  }
+  .portal-shell :active {
+    scale: none !important;
+    translate: none !important;
   }
 }
 
