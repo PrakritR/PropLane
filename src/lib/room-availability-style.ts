@@ -32,7 +32,7 @@ export function parseAvailabilityDate(raw: string): Date | null {
   if (!fragment) return null;
   const today = startOfLocalToday();
 
-  const named = fragment.match(new RegExp(`\\b(${MONTHS})[a-z]*\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(\\d{4}))?`, "i"));
+  const named = fragment.match(new RegExp(`\\b(${MONTHS})[a-z]*\\.?\\s+(\\d{1,2})(?!\\d)(?:st|nd|rd|th)?(?:,?\\s*(\\d{4}))?`, "i"));
   if (named) {
     const month = new Date(`${named[1]} 1, 2000`).getMonth();
     const day = Number(named[2]);
