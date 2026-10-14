@@ -89,12 +89,19 @@ export function buildLlmsTxt(origin: string = llmsOrigin(), posts: readonly Blog
   ].join("\n");
 }
 
-/** Markdown reduced to plain text: inline links keep their label, emphasis marks drop. */
+/**
+ * Markdown reduced to plain text: inline links keep their label, emphasis marks drop.
+ *
+ * Angle brackets drop one character at a time, never by matching `<...>` as a tag: a
+ * tag-shaped regex requires the closing `>`, so an unterminated `<script src=x` would
+ * survive it (CodeQL js/incomplete-multi-character-sanitization). Removing the bracket
+ * itself cannot leave markup behind, and blog bodies are repo-authored markdown with no
+ * HTML in them.
+ */
 export function toPlainText(input: string): string {
   return input
-    .replace(/<[^>]+>/g, "")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-    .replace(/[*_`#>]/g, "")
+    .replace(/[*_`#<>]/g, "")
     .replace(/[ \t]+/g, " ")
     .trim();
 }
