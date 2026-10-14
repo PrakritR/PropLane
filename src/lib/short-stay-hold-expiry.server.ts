@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { releaseShortStayHold } from "@/lib/short-stay-booking.server";
+import { decideShortStayHold } from "@/lib/short-stay/hold-decisions.server";
 
 type HoldRow = {
   id: string;
@@ -14,7 +15,7 @@ type HoldRow = {
   };
 };
 
-/** Active short-stay holds whose 15-minute checkout window has passed. */
+/** Active short-stay holds whose window has passed: a guest request's 24 hours, or a legacy checkout's 15 minutes. */
 export async function listExpiredShortStayHolds(db: SupabaseClient, now = new Date()): Promise<string[]> {
   const ids: string[] = [];
   for (let offset = 0; ; offset += 500) {
@@ -68,7 +69,11 @@ export type ShortStayHoldExpiryResult = {
   errors: string[];
 };
 
-/** Release expired checkout holds and cancel their unpaid stay charges. */
+/**
+ * Expire the holds whose window has passed. A guest's request (`stayDetails.source` is a request source)
+ * is answered through `decideShortStayHold` - cancelled, the guest texted, the team told. A legacy
+ * pay-to-hold checkout hold is released and its unpaid stay charge cancelled, as before.
+ */
 export async function expireShortStayHolds(db: SupabaseClient, now = new Date()): Promise<ShortStayHoldExpiryResult> {
   const bookingIds = await listExpiredShortStayHolds(db, now);
   const result: ShortStayHoldExpiryResult = {
@@ -79,6 +84,14 @@ export async function expireShortStayHolds(db: SupabaseClient, now = new Date())
   };
   for (const bookingId of bookingIds) {
     try {
+      const answered = await decideShortStayHold(db, { blockId: bookingId, decision: "expire", now });
+      if (answered.ok) {
+        result.released += 1;
+        continue;
+      }
+      // A read/write failure is retried on the next run; a legacy release must never cancel a guest request.
+      if (answered.status !== 409) throw new Error(answered.error);
+      // Not a guest request (or already answered): fall through to the legacy release, which no-ops on an answered hold.
       await releaseShortStayHold(db, bookingId);
       await cancelPendingChargesForBooking(db, bookingId);
       result.released += 1;

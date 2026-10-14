@@ -32,7 +32,7 @@ export type PropertyBookingEntry = {
   bookingStatus?: "hold" | "confirmed" | "cancelled";
   rate?: number;
   rateBasis?: "daily" | "weekly" | "monthly";
-  stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string };
+  stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string; holdExpiresAt?: string; decision?: string };
   sourceUid?: string;
   /** Channel stays only - Airbnb's reservation code, the link to open it, the guest's phone suffix, and the name the manager typed. */
   reservationCode?: string;

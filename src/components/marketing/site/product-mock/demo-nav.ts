@@ -10,7 +10,11 @@
 import { buildPortalNavItems, type PortalSidebarNavItem } from "@/components/portal/portal-nav-model";
 import { groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
-import { RESIDENT_PORTAL_BASE_PATH, RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
+import {
+  RESIDENT_PORTAL_BASE_PATH,
+  RESIDENT_UNIFIED_PORTAL_SECTIONS,
+  withoutConditionalResidentSections,
+} from "@/lib/portals/resident-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 
@@ -33,7 +37,8 @@ const RESIDENT_DEFINITION: PortalDefinition = {
   basePath: RESIDENT_PORTAL_BASE_PATH,
   title: "Resident Portal",
   accent: "blue",
-  sections: RESIDENT_UNIFIED_PORTAL_SECTIONS,
+  // The fixture account has no stays, so the rows that show what an account HAS are not on the demo.
+  sections: withoutConditionalResidentSections(RESIDENT_UNIFIED_PORTAL_SECTIONS),
 };
 
 const SOURCES: Record<DemoPortal, { kind: PortalKind; definition: PortalDefinition }> = {

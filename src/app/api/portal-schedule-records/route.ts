@@ -10,6 +10,7 @@ import {
   isDedicatedBookingsRecordType,
   roomDateBlockRecordIdPrefix,
 } from "@/lib/portal-schedule-record-scope";
+import { carryGuestStayFields } from "@/lib/short-stay/guest-stays";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
@@ -324,7 +325,12 @@ const route = createJsonRecordRoute({
     if (!existing || user.role === "admin") return record;
     if (!isRoomDateBlockRecordType(String(record.record_type ?? ""))) return record;
     const storedOwner = String(existing.manager_user_id ?? "").trim();
-    return storedOwner ? { ...record, manager_user_id: storedOwner } : record;
+    // The guest's login, their head-count and the hold's 24-hour deadline are server-owned: the booking
+    // editor sends back only the fields it draws, and a save must not strip them (the capacity trigger
+    // weighs a stay by `stayDetails.guests`).
+    const carried = carryGuestStayFields(existing.row_data, record.row_data);
+    const next = carried ? { ...record, row_data: carried } : record;
+    return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
     if (isRoomDateBlockRecordType(String(record.record_type ?? "")) && existing) {

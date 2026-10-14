@@ -13,6 +13,11 @@ export type ResidentPortalNavStage =
    */
   | "application_submitted_forms"
   | "booking_residency"
+  /**
+   * A guest whose only history with PropLane is a short stay (booked from a listing card or the Stays
+   * page): no application, no lease. Stays and Payments (the stay's charge lands there) are the product.
+   */
+  | "short_stay_guest"
   | "post_approval_pre_lease"
   | "post_lease";
 
@@ -21,13 +26,15 @@ export function resolveResidentPortalNavStage(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms">>,
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms" | "hasStays">>,
 ): ResidentPortalNavStage {
   if (access.leaseAccessUnlocked) return "post_lease";
   if (access.applicationApproved) return "post_approval_pre_lease";
   // A booking-created resident has neither row — checked before the ordinary
   // application-submitted branch since they never submitted one.
   if (access.isBookingResidency) return "booking_residency";
+  // A short-stay guest who never applied: their stays are the whole portal.
+  if (access.hasStays && !access.hasCompletedApplicationSubmission) return "short_stay_guest";
   if (access.hasCompletedApplicationSubmission) {
     return access.hasMoveInForms ? "application_submitted_forms" : "application_submitted";
   }
@@ -55,10 +62,31 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
   // bottom-bar tabs at that stage either, so hiding them here needs no
   // separate list.
   booking_residency: ["services", "payments", "dashboard", "communication"],
+  // The phone bar of the guest-only account: Stays · Payments · Messages (+ More).
+  short_stay_guest: ["stays", "payments", "dashboard", "communication"],
   post_lease: ["services", "payments", "dashboard", "communication"],
 };
 
-const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]> = {
+/**
+ * Sections open at EVERY stage (a section that is gated by what the account HAS, not where it is in the
+ * lifecycle): Stays shows for any account with a stay row and is drawn only then (the resident layout
+ * drops it from the sidebar's definition otherwise, and the path guard below requires `hasStays`).
+ * Appended to each stage's list by {@link withStageIndependentSections}, so no stage's table can forget it.
+ */
+const STAGE_INDEPENDENT_SECTIONS = ["stays"] as const;
+
+function withStageIndependentSections(
+  table: Record<ResidentPortalNavStage, readonly string[]>,
+): Record<ResidentPortalNavStage, readonly string[]> {
+  return Object.fromEntries(
+    Object.entries(table).map(([stage, sections]) => [
+      stage,
+      [...sections, ...STAGE_INDEPENDENT_SECTIONS.filter((section) => !sections.includes(section))],
+    ]),
+  ) as unknown as Record<ResidentPortalNavStage, readonly string[]>;
+}
+
+const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]> = withStageIndependentSections({
   pre_approval: ["tour", "applications", "dashboard", "communication", "profile"],
   application_submitted: ["tour", "applications", "dashboard", "communication", "profile"],
   // Same as application_submitted: Forms is not a nav row until approval, but a form sent before it (the
@@ -95,6 +123,8 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "documents",
     "profile",
   ],
+  // A guest with only a stay: Stays + Payments (the stay's charge) and the always-open basics.
+  short_stay_guest: ["tour", "applications", "payments", "dashboard", "communication", "documents", "profile"],
   post_lease: [
     "tour",
     "applications",
@@ -108,7 +138,7 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "documents",
     "profile",
   ],
-};
+});
 
 export function residentBottomNavPrimarySections(stage: ResidentPortalNavStage): readonly string[] {
   return RESIDENT_BOTTOM_NAV_PRIMARY[stage];
@@ -173,7 +203,7 @@ export function isResidentPathAllowedForAccess(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms">>,
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms" | "hasStays">>,
 ): boolean {
   const stage = resolveResidentPortalNavStage(access);
   if (pathname === "/resident/profile" || pathname.startsWith("/resident/profile/")) return true;
@@ -182,6 +212,9 @@ export function isResidentPathAllowedForAccess(
   if (!section) return false;
 
   if (RESIDENT_LEGACY_SECTION_ALIASES.has(section)) return true;
+
+  // Stays: open at every stage, but only an account with a stay row has anything to show there.
+  if (section === "stays") return Boolean(access.hasStays);
 
   if (section === "communication" || pathname.startsWith("/resident/communication/")) {
     return residentSectionUnlockedForStage("communication", stage);
@@ -227,10 +260,12 @@ export function residentPortalHomePath(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasTourLink" | "hasSubmittedApplication"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>,
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasStays">>,
 ): string {
   if (access.leaseAccessUnlocked) return "/resident/dashboard";
   if (access.applicationApproved) return "/resident/dashboard";
+  // A guest who has only stayed lands on their stays (a magic-link sign-in goes through here).
+  if (access.hasStays && !access.hasSubmittedApplication && !access.isBookingResidency) return "/resident/stays";
   // A booking-created account has nothing to review on the dashboard either —
   // move-in details (My home) is the one thing worth landing them on.
   if (access.isBookingResidency) return "/resident/move-in";
