@@ -430,10 +430,10 @@ export function DemoTaskFormPopup({ mode, task, onClose, onSaved }: { mode: "add
             <Field label="Notes" htmlFor="manager-task-notes" full>
               <Textarea id="manager-task-notes" className="min-h-[88px]" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
             </Field>
-            <Field label="Checklist (one step per line)" htmlFor="manager-task-checklist" full>
+            <Field label="Checklist" htmlFor="manager-task-checklist" full>
               <Textarea id="manager-task-checklist" className="min-h-[72px]" placeholder={"Check the filter\nPhotograph the unit"} value={form.checklist} onChange={(e) => set({ checklist: e.target.value })} />
             </Field>
-            <Field label="Attachments (one link per line, optional name first)" htmlFor="manager-task-attachments" full>
+            <Field label="Attachments" htmlFor="manager-task-attachments" full>
               <Textarea id="manager-task-attachments" className="min-h-[56px]" placeholder={"Quote https://example.com/quote.pdf"} value={form.attachments} onChange={(e) => set({ attachments: e.target.value })} />
             </Field>
           </div>

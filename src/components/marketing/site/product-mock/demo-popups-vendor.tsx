@@ -960,7 +960,7 @@ export function DemoVendorUploadDocumentPopup({ initialKind, onClose, onDone }: 
         <PreviewPanel
           title="Document"
           name={VENDOR_DOCUMENT_LABELS[kind]}
-          sub={fileName || "Pick a PDF"}
+          sub={fileName || undefined}
           facts={[
             { label: "Type", value: VENDOR_DOCUMENT_LABELS[kind] },
             { label: "File", value: fileName || "Not set", warn: !fileName },

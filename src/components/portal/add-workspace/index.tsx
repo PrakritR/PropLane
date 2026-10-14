@@ -43,9 +43,9 @@ export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-worksp
  * A one-step dialog draws no rail: the shell (`ListingWorkspace`, shared with the listing wizard) always
  * renders its section nav, so the single-step case hides that nav and collapses the grid column it held.
  */
-const SINGLE_STEP_NO_RAIL_CLASS =
+export const SINGLE_STEP_NO_RAIL_CLASS =
   "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)]";
-const SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS =
+export const SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS =
   "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_260px]";
 
 export type AddWorkspaceStep = StepRailItem & {
@@ -92,7 +92,6 @@ export function AddWorkspace({
   skipOffPath = false,
   numberedSteps = false,
   hideFooterStepCount = false,
-  hideReadinessCaption = false,
   reviewEditLinks = true,
   tabRail = false,
 }: {
@@ -147,8 +146,6 @@ export function AddWorkspace({
   deleteDisabled?: boolean;
   deleteDataAttr?: string;
   footerNote?: ReactNode;
-  /** Drop the grey "missing field" line above "Step n of N" — the rail's "things to finish" card already says it. */
-  hideReadinessCaption?: boolean;
   /**
    * Sits on top of the workspace without unmounting steps — message preview
    * Back restores the last step with values still filled.
@@ -361,7 +358,7 @@ export function AddWorkspace({
               ) : null}
             </div>
             <span className="min-w-0 flex-1 text-center text-[13px] text-muted">
-              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness && !hideReadinessCaption ? <span className="mb-0.5 block">{readiness}</span> : null}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
               {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
             <div className="flex items-center gap-2.5">

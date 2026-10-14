@@ -681,7 +681,7 @@ export function ManagerLegacyServiceIntakeForm({
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-                Price limit (optional)
+                Price limit
                 <Input
                   value={customPriceLimit}
                   onChange={(e) => setCustomPriceLimit(e.target.value)}
@@ -727,7 +727,7 @@ export function ManagerLegacyServiceIntakeForm({
           />
 
           <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Notes (optional)
+            Notes
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

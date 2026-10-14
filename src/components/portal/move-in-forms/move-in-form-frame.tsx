@@ -8,9 +8,11 @@
  * plain Done / Cancel + Send footer, so this wraps the same `ListingWorkspace` shell directly.
  */
 import { useEffect, type ReactNode } from "react";
+import { SINGLE_STEP_NO_RAIL_CLASS, SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS } from "@/components/portal/add-workspace/index";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { ListingWorkspace } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
+import { cn } from "@/lib/utils";
 import { FIELD_SELECT_MENU_DATA_ATTR } from "@/components/ui/field-select-portal-interaction";
 
 export function MoveInFormFrame({
@@ -27,6 +29,7 @@ export function MoveInFormFrame({
   assistantContext,
   assistantScopeKey,
   dataAttr,
+  singleStep = false,
 }: {
   title: string;
   subtitle?: string;
@@ -44,6 +47,8 @@ export function MoveInFormFrame({
   assistantContext: string;
   assistantScopeKey: string;
   dataAttr?: string;
+  /** A one-step door draws no step rail (the same behaviour as `AddWorkspace`'s `singleStep`). */
+  singleStep?: boolean;
 }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -59,7 +64,11 @@ export function MoveInFormFrame({
 
   return (
     <ListingWizardOverlay ariaLabel={title}>
-      <div className="relative h-full w-full" data-attr={dataAttr}>
+      <div
+        className={cn("relative h-full w-full", singleStep && (sidePanel ? SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS : SINGLE_STEP_NO_RAIL_CLASS))}
+        data-attr={dataAttr}
+        data-rail={singleStep ? "none" : undefined}
+      >
         <ListingWorkspace
           title={title}
           subtitle={subtitle}

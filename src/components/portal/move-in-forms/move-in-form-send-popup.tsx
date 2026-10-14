@@ -194,6 +194,7 @@ export function SendMoveInFormPopup({
       assistantContext="Send a form"
       assistantScopeKey="Send a form"
       dataAttr="move-in-form-send-popup"
+      singleStep
       railHeader={residency ? <MoveInFormResidentCard name={residency.name} place={residencyPlace(residency)} /> : null}
       rail={<StepRail steps={STEPS} current={0} onJump={() => {}} />}
       sidePanel={
@@ -215,9 +216,6 @@ export function SendMoveInFormPopup({
       }
       footer={
         <>
-          <Button type="button" variant="ghost" className="min-h-[44px] rounded-full px-6" onClick={onClose} data-attr="move-in-form-send-cancel">
-            Cancel
-          </Button>
           <Button
             type="button"
             variant="primary"

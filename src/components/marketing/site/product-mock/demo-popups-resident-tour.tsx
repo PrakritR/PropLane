@@ -392,7 +392,6 @@ export function ResidentScheduleTourModal({
       open
       presentation="dialog"
       title={home ? "Schedule tour" : "Choose a home to tour"}
-      description={home ? undefined : "Pick the home you want to visit. You can request a tour time right here without leaving your tour list."}
       onClose={onClose}
       dense
       contextPanel={home ? <PopupSubjectCard title={home.title} lines={[`${home.street}, Seattle`, home.rentLabel]} /> : undefined}

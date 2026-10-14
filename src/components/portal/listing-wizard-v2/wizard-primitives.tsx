@@ -17,7 +17,7 @@
  *   belongs to; nothing is announced only at the end.
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Camera, Check, Circle, ChevronRight, Eye, RotateCcw, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -101,6 +101,13 @@ export function WizardModal({
  * Below xl the preview moves under the desktop body. Phones show only fields
  * (GAP3); their step navigation is one compact picker.
  */
+/**
+ * The label of the active phone step tab, shared from the tab row (in the rail) to the step body, so a
+ * step heading that only repeats the tab the manager just tapped is dropped on the phone.
+ */
+const ActiveTabLabelContext = createContext<string | null>(null);
+const SetActiveTabLabelContext = createContext<((label: string | null) => void) | null>(null);
+
 export function ListingWorkspace({
   title,
   subtitle,
@@ -165,6 +172,7 @@ export function ListingWorkspace({
 }) {
   const [uploadTarget, setUploadTarget] = useState<HTMLDivElement | null>(null);
   const [eyeOpen, setEyeOpen] = useState(false);
+  const [activeTabLabel, setActiveTabLabel] = useState<string | null>(null);
   /**
    * Deliberately no document-level Escape handler. The workspace hosts field
    * dropdowns and a save-failed alert dialog that each own Escape for
@@ -241,7 +249,7 @@ export function ListingWorkspace({
           className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border bg-white p-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-2.5 lg:py-3.5 [html[data-theme=dark]_&]:bg-black/20"
         >
           {railHeader ? <div className="hidden lg:block">{railHeader}</div> : null}
-          {rail}
+          <SetActiveTabLabelContext.Provider value={setActiveTabLabel}>{rail}</SetActiveTabLabelContext.Provider>
           {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
         <main
@@ -253,7 +261,7 @@ export function ListingWorkspace({
             if (target.getAttribute("role") === "combobox" || target.getAttribute("aria-expanded") === "true") return;
             if (onContinue) { event.preventDefault(); onContinue(); }
           }}
-        ><DialogTitleProvider title={title}>{children}</DialogTitleProvider></main>
+        ><DialogTitleProvider title={title}><ActiveTabLabelContext.Provider value={activeTabLabel}>{children}</ActiveTabLabelContext.Provider></DialogTitleProvider></main>
         {sidePanel ? (
           <aside
             aria-label="Live panel"
@@ -581,6 +589,13 @@ export function WizardStepTabs({
   const rowRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
   const overflowStyle = useTabOverflowFade(rowRef, steps.length);
+  const setActiveTabLabel = useContext(SetActiveTabLabelContext);
+  const activeLabel = steps.length > 1 ? (steps[current]?.label ?? null) : null;
+  useEffect(() => {
+    if (!setActiveTabLabel) return;
+    setActiveTabLabel(activeLabel);
+    return () => setActiveTabLabel(null);
+  }, [setActiveTabLabel, activeLabel]);
   useEffect(() => {
     // jsdom has no scrollIntoView; a test that jumps steps must not blow up on it.
     activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "center", behavior: "smooth" });
@@ -834,11 +849,15 @@ export function StepHeading({
    */
   // The dialog already says this: a heading that repeats its title is not drawn.
   const repeatsDialogTitle = useHeadingRepeatsDialogTitle(title);
+  const activeTabLabel = useContext(ActiveTabLabelContext);
   if (repeatsDialogTitle && !action) return null;
+  // On a phone the step tabs already name the active step: the same words again as a heading are dropped
+  // (desktop keeps the big step title; the tabs are `lg:hidden`, so the heading hides below the same breakpoint).
+  const repeatsActiveTab = activeTabLabel != null && activeTabLabel.trim().toLowerCase() === title.trim().toLowerCase();
   return (
-    <div className="mb-3.5 flex items-start justify-between gap-3">
+    <div className={cn("mb-3.5 flex items-start justify-between gap-3", repeatsActiveTab && !action && "max-lg:hidden")}>
       <div className="min-w-0 flex-1">
-        {repeatsDialogTitle ? null : <h2 className="text-[16px] font-[650] leading-tight tracking-tight text-foreground">{title}</h2>}
+        {repeatsDialogTitle ? null : <h2 className={cn("text-[16px] font-[650] leading-tight tracking-tight text-foreground", repeatsActiveTab && "max-lg:hidden")} data-phone-heading-dropped={repeatsActiveTab ? "" : undefined}>{title}</h2>}
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>

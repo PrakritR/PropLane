@@ -7,14 +7,20 @@
  *  2. the preview column shows the record — no "This will create" checklist,
  *  3. a field label carries no "Optional" marker (required keeps its own mark),
  *  4. an upload control carries no file-type / size chips (a wrong pick gets an error instead),
- *  5. a step heading that repeats the dialog title is not drawn.
+ *  5. a step heading that repeats the dialog title is not drawn,
+ *  6. on a phone, a step heading that repeats the active step tab is not drawn (desktop keeps it),
+ *  7. a one-step door draws no step rail.
+ *
+ * Approved chrome that stays: the header save state, the "things to finish" card, the footer's
+ * "Step n of N", and a caller-owned preview's "Not set" rows. None of it is subtext.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { DialogTitleProvider } from "@/components/ui/dialog-title-context";
-import { StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ListingWorkspace, StepHeading, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { MoveInFormFrame } from "@/components/portal/move-in-forms/move-in-form-frame";
 
 afterEach(cleanup);
 
@@ -44,6 +50,11 @@ const SHELL_FILES = [
   "src/components/ui/modal.tsx",
   "src/components/ui/popup-form-context.tsx",
   "src/components/ui/wizard-shell.tsx",
+  "src/components/portal/add-workspace/index.tsx",
+  "src/components/portal/add-workspace/frame.tsx",
+  "src/components/portal/portal-dialog.tsx",
+  "src/components/portal/move-in-forms/move-in-form-frame.tsx",
+  "src/components/portal/promotion-form.tsx",
 ];
 
 describe("pop-up step rail: a name and a tick, no caption", () => {
@@ -146,5 +157,84 @@ describe("a step heading that repeats the dialog title is not drawn", () => {
   it("draws every heading outside a dialog", () => {
     render(<StepHeading title="Send a form" />);
     expect(screen.getByRole("heading", { name: "Send a form" })).toBeTruthy();
+  });
+});
+
+describe("phone step heading: dropped when it repeats the active tab", () => {
+  const steps = [
+    { id: "details", label: "Details" },
+    { id: "review", label: "Review" },
+  ];
+  function shell(current: number, headingTitle: string) {
+    return render(
+      <ListingWorkspace title="Add service" rail={<StepRail steps={steps} current={current} onJump={() => {}} />} footer={<span>footer</span>}>
+        <StepHeading title={headingTitle} />
+      </ListingWorkspace>,
+    );
+  }
+
+  it("hides the heading below lg when its text is the active step's label", () => {
+    shell(0, "Details");
+    const heading = screen.getByRole("heading", { name: "Details", hidden: true });
+    expect(heading.className).toContain("max-lg:hidden");
+    expect(heading.parentElement?.parentElement?.className).toContain("max-lg:hidden");
+  });
+
+  it("keeps the heading when it is not the active step's label", () => {
+    shell(0, "Review");
+    const heading = screen.getByRole("heading", { name: "Review", hidden: true });
+    expect(heading.className).not.toContain("max-lg:hidden");
+  });
+
+  it("follows the active step", () => {
+    shell(1, "Details");
+    expect(screen.getByRole("heading", { name: "Details", hidden: true }).className).not.toContain("max-lg:hidden");
+  });
+
+  it("a one-step rail draws no tabs, so the heading stays", () => {
+    render(
+      <ListingWorkspace title="Add service" rail={<StepRail steps={[steps[0]!]} current={0} onJump={() => {}} />} footer={<span>footer</span>}>
+        <StepHeading title="Details" />
+      </ListingWorkspace>,
+    );
+    expect(screen.getByRole("heading", { name: "Details", hidden: true }).className).not.toContain("max-lg:hidden");
+  });
+});
+
+describe("a one-step move-in form door draws no step rail", () => {
+  function frame(singleStep: boolean) {
+    return render(
+      <MoveInFormFrame
+        title="Send a form"
+        onClose={() => {}}
+        rail={<StepRail steps={[{ id: "send", label: "Send a form" }]} current={0} onJump={() => {}} />}
+        footer={<span>footer</span>}
+        assistantContext="Send a form"
+        assistantScopeKey="Send a form"
+        dataAttr="move-in-form-test"
+        singleStep={singleStep}
+      >
+        <p>body</p>
+      </MoveInFormFrame>,
+    );
+  }
+
+  it("collapses the rail column when singleStep", () => {
+    frame(true);
+    const root = document.querySelector("[data-attr='move-in-form-test']")!;
+    expect(root.getAttribute("data-rail")).toBe("none");
+    expect(root.className).toContain("[&_nav[aria-label^=Listing]]:hidden");
+  });
+
+  it("leaves the rail alone otherwise", () => {
+    frame(false);
+    const root = document.querySelector("[data-attr='move-in-form-test']")!;
+    expect(root.getAttribute("data-rail")).toBeNull();
+  });
+
+  it("the Send a form popup passes singleStep and has no dismiss-only Cancel", () => {
+    const source = code(read("src/components/portal/move-in-forms/move-in-form-send-popup.tsx"));
+    expect(source).toMatch(/\bsingleStep\b/);
+    expect(source).not.toMatch(/move-in-form-send-cancel/);
   });
 });

@@ -654,7 +654,7 @@ export function ManagerTaskFormModal({
         if (stepId === "property" && propertyRequired && !form.propertyId) return false;
         return true;
       }}
-      saveState={useServiceIntakeForm ? undefined : <SaveStatus status={autosave} />}
+      saveState={useServiceIntakeForm ? undefined : <SaveStatus status={autosave.state === "invalid" ? { ...autosave, reason: null } : autosave} />}
       onFinish={() => {
         if (useServiceIntakeForm && serviceFooter) {
           serviceFooter.submit();
@@ -742,7 +742,7 @@ export function ManagerTaskFormModal({
         ) : (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
-              {isWorkOrder ? "Task title" : "Description"}
+              {isWorkOrder ? "Task title" : "Description"} <span className="text-rose-500" aria-hidden>*</span>
             </label>
             <Input
               id="manager-task-title"
@@ -1146,7 +1146,7 @@ export function ManagerTaskFormModal({
 
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-checklist">
-            Checklist (one step per line)
+            Checklist
           </label>
           <textarea
             id="manager-task-checklist"
@@ -1165,7 +1165,7 @@ export function ManagerTaskFormModal({
 
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-attachments">
-            Attachments (one link per line, optional name first)
+            Attachments
           </label>
           <textarea
             id="manager-task-attachments"
@@ -1224,21 +1224,6 @@ export function ManagerTaskFormModal({
             </div>
           </div>
         ) : null}
-
-        <p className={cn("text-xs text-muted", PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-          {isTour
-            ? "Saving schedules the tour and adds it to your task list and calendar."
-            : isWorkOrder
-              ? "Saving creates the service request and a linked calendar entry when scheduled."
-              : form.scheduleDate && form.startTime && form.endTime
-                ? "Saving blocks this time on your calendar."
-                : form.dueDate
-                  ? "Due date appears on your calendar as a reminder block."
-                  : "Add a schedule or due date to show this task on your calendar."}
-          {!editingId && (isTour || isWorkOrder && workOrderNeedsResident)
-            ? " You can notify the guest or resident on the next screen."
-            : null}
-        </p>
         </div>
       </>
       ) : null}

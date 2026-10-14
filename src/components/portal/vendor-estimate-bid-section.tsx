@@ -270,13 +270,13 @@ export function VendorEstimateBidSection({
               <div>
                 <label className={LABEL_CLASS} htmlFor="vendor-reply-note">Note</label>
                 {/* TODO(vendor-quick-replies-1006): add the quick-reply menu here (QuickReplyMenu, being built on claude-2-branch-4). */}
-                <Textarea id="vendor-reply-note" placeholder="Optional" value={note} onChange={(e) => setNote(e.target.value)} data-attr="vendor-reply-note" />
+                <Textarea id="vendor-reply-note" value={note} onChange={(e) => setNote(e.target.value)} data-attr="vendor-reply-note" />
               </div>
             ) : null}
             {activeValue === "decline" ? (
               <div>
                 <label className={LABEL_CLASS} htmlFor="vendor-reply-reason">Reason</label>
-                <Textarea id="vendor-reply-reason" placeholder="Optional" value={reason} onChange={(e) => setReason(e.target.value)} data-attr="vendor-reply-reason" />
+                <Textarea id="vendor-reply-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-attr="vendor-reply-reason" />
               </div>
             ) : null}
           </div>

@@ -882,13 +882,13 @@ export function DemoAddTaskPopup({ properties, onClose, onAdded }: { properties:
               </div>
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-checklist">
-                  Checklist (one step per line)
+                  Checklist
                 </label>
                 <textarea id="demo-task-checklist" className="min-h-[72px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" placeholder={"Check the filter\nPhotograph the unit"} value={checklist} onChange={(e) => setChecklist(e.target.value)} data-attr="manager-task-checklist" />
               </div>
               <div className={fullRow}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="demo-task-attachments">
-                  Attachments (one link per line, optional name first)
+                  Attachments
                 </label>
                 <textarea id="demo-task-attachments" className="min-h-[56px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm" placeholder={"Quote https://example.com/quote.pdf"} value={attachments} onChange={(e) => setAttachments(e.target.value)} data-attr="manager-task-attachments" />
               </div>

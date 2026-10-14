@@ -188,7 +188,8 @@ Add applicant, Add lease, …) is the same **full-screen editor**, never a small
 - **Centre:** a step progress bar (desktop only; one segment per rail step, filled up to the current
   one, red for a step the manager pressed Next past while it still needed something — none on a
   one-step door or a tab rail), a big step title (dropped when it only repeats the dialog's own
-  title — `DialogTitleProvider` / `StepHeading`), section cards with two-column fields (required *),
+  title — `DialogTitleProvider` / `StepHeading` — and, on a phone, when it repeats the active step
+  tab), section cards with two-column fields (required *),
   and tile grids, radio cards, stepper rows or a "Start from a file" strip where the step needs them.
 - **Right column:** "<THING> PREVIEW" — the record's facts, and nothing after them: no "THIS WILL
   CREATE" checklist of what the commit will do (round 3 of the portal sweep; guard

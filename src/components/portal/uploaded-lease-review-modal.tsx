@@ -408,7 +408,7 @@ export function UploadedLeaseReviewModal({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={2}
-              placeholder="Optional note recorded with your confirmation"
+              placeholder="Note recorded with your confirmation"
               className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
             />
           )}
@@ -724,7 +724,7 @@ export function UploadedLeaseReviewModal({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder="Optional note recorded with your confirmation"
+            placeholder="Note recorded with your confirmation"
             className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
           />
         )}
