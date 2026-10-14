@@ -10,13 +10,15 @@ import { DEMO_TABS, type DemoPortal } from "@/components/marketing/site/product-
 import { demoPanelIds } from "@/components/marketing/site/product-mock/demo-panels";
 import { PORTAL_NAV_GROUPS, SIDEBAR_EXCLUDED_SECTIONS } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
-import { RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
+import { RESIDENT_UNIFIED_PORTAL_SECTIONS, withoutConditionalResidentSections } from "@/lib/portals/resident-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 import type { PortalKind, PortalSection } from "@/lib/portal-types";
 
 const REAL: Record<DemoPortal, { kind: PortalKind; sections: PortalSection[] }> = {
   manager: { kind: "pro", sections: proPortal.sections },
-  resident: { kind: "resident", sections: RESIDENT_UNIFIED_PORTAL_SECTIONS },
+  // Stays is drawn only for an account that has a stay row; the demo's fixture resident has none, so the
+  // real sidebar it mirrors does not list it either.
+  resident: { kind: "resident", sections: withoutConditionalResidentSections(RESIDENT_UNIFIED_PORTAL_SECTIONS) },
   vendor: { kind: "vendor", sections: vendorPortal.sections },
 };
 

@@ -23,7 +23,11 @@ import {
   PORTAL_SHELL_ROOT_CLASS,
 } from "@/lib/portal-layout-classes";
 import { proPortal } from "@/lib/portals/pro";
-import { RESIDENT_PORTAL_BASE_PATH, RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
+import {
+  RESIDENT_PORTAL_BASE_PATH,
+  RESIDENT_UNIFIED_PORTAL_SECTIONS,
+  withoutConditionalResidentSections,
+} from "@/lib/portals/resident-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 import type { PortalDefinition, PortalSection } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
@@ -60,7 +64,7 @@ const residentPortal: PortalDefinition = {
   basePath: RESIDENT_PORTAL_BASE_PATH,
   title: "Resident Portal",
   accent: "blue",
-  sections: RESIDENT_UNIFIED_PORTAL_SECTIONS,
+  sections: withoutConditionalResidentSections(RESIDENT_UNIFIED_PORTAL_SECTIONS),
 };
 
 /**

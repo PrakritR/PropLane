@@ -13,6 +13,7 @@ import {
 import { isListingChannelId, listingChannelDef } from "@/lib/listing-channels/registry";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
+import { parseGuestStayBucket } from "@/lib/short-stay/guest-stays";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
 import { resolveVendorSettingsTab, vendorSettingsMovedHref } from "@/lib/portals/vendor-settings-pages";
@@ -308,7 +309,7 @@ export async function renderPortalSectionWith(
     AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminPromoCodesPanel,
     AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
-    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
+    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
     VendorFinancesPanel, VendorFinancesPage, VendorWithdrawalDetail,
     VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
@@ -1766,6 +1767,20 @@ export async function renderPortalSectionWith(
         leaseDetailId={leaseDetailId}
         leaseDetailTab={leaseDetailTab}
       />
+    );
+  }
+
+  // Resident Stays: the guest's own short stays, Upcoming | Past (a route each). The path guard above lets
+  // only an account with a stay row in (`hasStays`); a bare address opens Upcoming.
+  if (kind === "resident" && section === "stays") {
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    if (!tabParts?.length) redirect(`${def.basePath}/stays/upcoming`);
+    const staysBucket = parseGuestStayBucket(tabParts[0]);
+    if (!staysBucket) notFound();
+    return (
+      <ManagerPortalPageShell title="Stays" hideTitleOnMobileNav compactFilterRow>
+        <ResidentStaysPanel basePath={def.basePath} bucket={staysBucket} />
+      </ManagerPortalPageShell>
     );
   }
 
