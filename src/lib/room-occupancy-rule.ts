@@ -36,12 +36,12 @@ export function previousDayKey(day: string): string {
   return new Date(Date.parse(`${day}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 }
 
-type Interval = { start: string; end: string | null };
+export type DayInterval = { start: string; end: string | null };
 
 /** The pieces of `span` no `covering` interval touches. `covering` must be sorted and non-overlapping. */
-function uncovered(span: Interval, covering: readonly Interval[]): Interval[] {
+export function uncovered(span: DayInterval, covering: readonly DayInterval[]): DayInterval[] {
   const spanEnd = span.end ?? FAR_FUTURE;
-  const out: Interval[] = [];
+  const out: DayInterval[] = [];
   let cursor: string | null = span.start;
   for (const cover of covering) {
     if (cursor === null) break;
@@ -65,13 +65,22 @@ function occupies(span: RoomBedSpan): boolean {
   return Boolean(span.start) && (span.end === null || span.end === undefined || span.end >= span.start) && (span.count ?? 1) > 0;
 }
 
+/**
+ * The merged, sorted, non-overlapping days these spans hold — the covering set `uncovered`
+ * subtracts. The `occupies` filter is part of the rule: an End typed before its Start must never
+ * distort coverage, or an echo is under-covered and drawn as a phantom block.
+ */
+export function coveringIntervals(spans: readonly RoomBedSpan[]): DayInterval[] {
+  return aggregateRoomOccupancy(spans.filter(occupies)).map(({ start, end }) => ({ start, end }));
+}
+
 /** Anonymous capacity spans for one room: every occupant, minus channel closures echoing another occupant. */
 export function occupiedBedSpans(spans: readonly RoomBedSpan[]): PublicRoomOccupancy["spans"] {
   const usable = spans.filter(occupies);
   const real = usable.filter((span) => !span.echoable);
   const echoes = usable.filter((span) => span.echoable);
   if (echoes.length === 0) return aggregateRoomOccupancy(real);
-  const covering = aggregateRoomOccupancy(real).map(({ start, end }) => ({ start, end }));
+  const covering = coveringIntervals(real);
   const kept = echoes.flatMap((span) =>
     uncovered({ start: span.start, end: span.end }, covering).map((piece) => ({ ...piece, count: span.count ?? 1 })),
   );

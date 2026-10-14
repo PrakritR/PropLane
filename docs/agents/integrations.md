@@ -134,8 +134,9 @@ Airbnb has no public write API, so the two directions are not equally fast:
   the connection still carries.
 - **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
   available)". `isHostBlockRange` keeps that out of the alert diff, and
-  `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when it sits inside a
-  PropLane stay on the same room.
+  `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when that room's own
+  stays cover it, and keeps only the uncovered remainder when they cover part of it —
+  [`bookings.md`](bookings.md) § Airbnb echoes.
 
 ### A channel calendar is a WRITE on the house
 

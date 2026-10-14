@@ -9,6 +9,8 @@
  * "CLOSED - Not available", and reading one of those as a host block would publish an occupied
  * room as free.
  */
+import { coveringIntervals, nextDayKey, uncovered } from "@/lib/room-occupancy-rule";
+
 const HOST_BLOCK_LABELS: ReadonlySet<string> = new Set(["not available", "blocked", "unavailable"]);
 const CHANNEL_WRAPPED = /^[a-z0-9][a-z0-9 .&'’-]*\(([^()]+)\)$/;
 
@@ -40,22 +42,17 @@ type EchoCandidate = {
   bookingStatus?: string;
   summary?: string | null;
   hostBlock?: boolean;
+  /**
+   * Set only on a trimmed remainder: the dates of the RAW imported range it was cut from. A host
+   * block's durable identity is its UID PLUS those dates (Airbnb reuses one UID for every block a
+   * host has - `channelStayTombstoneKey`), so Remove stay and Undo must send these, never the
+   * remainder's own visible dates.
+   */
+  channelRangeStart?: string;
+  channelRangeEnd?: string;
 };
 
-/** YYYY-MM-DD plus one day (a channel's re-export can carry the exclusive check-out as its last day). */
-function nextDayKey(key: string): string {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-}
-
-function prevDayKey(key: string): string {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
-}
-
 const LOCAL_OCCUPANT_SOURCES = new Set(["proplane", "hold", "block"]);
-
-type Cover = { start: string; end: string | null };
 
 /**
  * Drops (or trims) a channel's host block ("Airbnb (Not available)") that PropLane's own occupancy
@@ -65,7 +62,11 @@ type Cover = { start: string; end: string | null };
  * together cover one long echo); a host block only partly covered keeps its uncovered remainder as
  * one entry per gap. A host block with nothing under it (closed on the channel itself) and every
  * reservation are kept untouched. The raw imported ranges are never edited: this only shapes the
- * entries the calendar and its tabs draw.
+ * entries the calendar and its tabs draw, and each remainder carries the raw range's dates so it
+ * stays removable.
+ *
+ * Coverage is `coveringIntervals` + `uncovered` from `room-occupancy-rule` - the same subtraction
+ * the occupancy snapshot runs on `echoable` spans, so the calendar and the room rows cannot drift.
  */
 export function withoutEchoedHostBlocks<T extends EchoCandidate>(entries: readonly T[]): T[] {
   const locals = entries.filter((entry) => LOCAL_OCCUPANT_SOURCES.has(entry.source) && entry.bookingStatus !== "cancelled");
@@ -76,37 +77,29 @@ export function withoutEchoedHostBlocks<T extends EchoCandidate>(entries: readon
       out.push(entry);
       continue;
     }
-    const covers: Cover[] = locals
-      .filter((l) => l.propertyId === entry.propertyId && (!l.roomId || l.roomId === entry.roomId))
-      .map((l) => ({ start: l.start, end: l.openEnded ? null : l.end }))
-      .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
-    const merged: Cover[] = [];
-    for (const c of covers) {
-      const last = merged[merged.length - 1];
-      if (last && (last.end === null || c.start <= nextDayKey(last.end))) {
-        if (last.end !== null && (c.end === null || c.end > last.end)) last.end = c.end;
-      } else merged.push({ ...c });
-    }
-    const pieces: Cover[] = [];
-    let cursor: string | null = entry.start;
-    for (const c of merged) {
-      if (cursor === null) break;
-      if (c.end !== null && c.end < cursor) continue;
-      if (c.start > entry.end) break;
-      if (c.start > cursor) pieces.push({ start: cursor, end: prevDayKey(c.start) });
-      cursor = c.end === null ? null : nextDayKey(c.end);
-      if (cursor !== null && cursor > entry.end) cursor = null;
-    }
-    if (cursor !== null) pieces.push({ start: cursor, end: entry.end });
+    const covering = coveringIntervals(
+      locals
+        .filter((local) => local.propertyId === entry.propertyId && (!local.roomId || local.roomId === entry.roomId))
+        .map((local) => ({ start: local.start, end: local.openEnded ? null : local.end })),
+    );
+    const pieces = uncovered({ start: entry.start, end: entry.end }, covering);
     // A channel can re-export the exclusive check-out as a trailing day; that day is not a gap.
     const tail = pieces[pieces.length - 1];
-    if (tail && tail.start === entry.end && tail.end === entry.end && merged.some((c) => c.end !== null && nextDayKey(c.end) === entry.end)) {
+    if (tail && tail.start === entry.end && tail.end === entry.end && covering.some((c) => c.end !== null && nextDayKey(c.end) === entry.end)) {
       pieces.pop();
     }
     if (pieces.length === 1 && pieces[0]!.start === entry.start && pieces[0]!.end === entry.end) out.push(entry);
-    else for (const piece of pieces) out.push({ ...entry, start: piece.start, end: piece.end as string });
+    else {
+      for (const piece of pieces) {
+        out.push({
+          ...entry,
+          start: piece.start,
+          end: piece.end ?? entry.end,
+          channelRangeStart: entry.channelRangeStart ?? entry.start,
+          channelRangeEnd: entry.channelRangeEnd ?? entry.end,
+        });
+      }
+    }
   }
   return out;
 }
-
-export const suppressEchoedHostBlocks = withoutEchoedHostBlocks;

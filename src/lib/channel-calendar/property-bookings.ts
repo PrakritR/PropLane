@@ -47,6 +47,13 @@ export type PropertyBookingEntry = {
   payoutCents?: number;
   paidAt?: string;
   connectionId?: string;
+  /**
+   * Set only on the uncovered remainder of an echoed host block (`withoutEchoedHostBlocks`): the
+   * dates of the raw imported range this entry was cut from. Remove stay / Undo identify a host
+   * block by UID plus those dates, so they send these in preference to the visible `start`/`end`.
+   */
+  channelRangeStart?: string;
+  channelRangeEnd?: string;
   lastSyncedAt?: string | null;
   applicationId?: string;
   propertyId: string;

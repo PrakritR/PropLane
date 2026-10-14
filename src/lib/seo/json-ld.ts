@@ -62,21 +62,29 @@ export function listingJsonLd(property: MockProperty, origin: string = PRODUCTIO
   const rent = parseMonthlyRent(property.rentLabel ?? "");
   const available = (property.available ?? "").trim();
   const availableNow = /^(now|available|immediately)/i.test(available);
+  // `property_data` is a manager-owned blob that `asProperty` only validates for identity, so every
+  // fact below is published only when it is actually there and of the right type. A crawler reading
+  // `petsAllowed: false` off an unanswered question is a fabricated listing fact.
+  const submission = property.listingSubmission?.v === 1 ? property.listingSubmission : undefined;
+  // A PostalAddress is a formal address: the locality is the legal city, never the browse-only
+  // neighborhood label (`listingSubmissionCityStateLine`).
+  const city = submission?.city?.trim() ?? "";
+  const region = (submission?.state?.trim() || property.state?.trim() || "").toUpperCase();
   return {
     "@context": "https://schema.org",
     "@type": "Accommodation",
     name: property.title,
     url: `${origin}/rent/listings/${encodeURIComponent(property.id)}`,
     ...(property.tagline ? { description: property.tagline } : {}),
-    numberOfBedrooms: property.beds,
-    numberOfBathroomsTotal: property.baths,
-    petsAllowed: property.petFriendly === true,
+    ...(typeof property.beds === "number" ? { numberOfBedrooms: property.beds } : {}),
+    ...(typeof property.baths === "number" ? { numberOfBathroomsTotal: property.baths } : {}),
+    ...(typeof property.petFriendly === "boolean" ? { petsAllowed: property.petFriendly } : {}),
     address: {
       "@type": "PostalAddress",
       streetAddress: property.address,
       ...(property.zip ? { postalCode: property.zip } : {}),
-      ...(property.state ? { addressRegion: property.state } : {}),
-      ...(property.neighborhood ? { addressLocality: property.neighborhood } : {}),
+      ...(region ? { addressRegion: region } : {}),
+      ...(city ? { addressLocality: city } : {}),
       addressCountry: "US",
     },
     ...(rent !== null

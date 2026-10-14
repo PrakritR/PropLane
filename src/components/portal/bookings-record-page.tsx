@@ -151,7 +151,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
       </PortalRecordSectionChrome>
     </PortalRecordDetailPage>
     {removeStayDialog}
-    {namingGuest ? <BookingsStayDetailsDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast("Booking details saved"); onRefresh?.(); }} /> : null}
+    {namingGuest ? <BookingsStayDetailsDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast(hostBlockStay ? "Block notes saved" : "Booking details saved"); onRefresh?.(); }} /> : null}
     {editing ? <BookingsEditSheet key={bookingEntryKey(entry)} entry={entry} entries={entries} propertyOptions={propertyOptions} onClose={() => setEditing(false)} onSave={onSaveBlock} onSaveStayMeta={onSaveStayMeta} /> : null}
     {cancelling ? <BookingsCancelDialog key={bookingEntryKey(entry)} entry={{ ...entry, residentEmail: entry.residentEmail || resident?.email }} onClose={() => setCancelling(false)} onSave={onSaveBlock} /> : null}
   </>;

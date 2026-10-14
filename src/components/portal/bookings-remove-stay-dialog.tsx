@@ -21,7 +21,14 @@ export function BookingsRemoveStayDialog({ entry, onClose, onChanged, remove = r
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const guest = bookingEntryGuestLabel(entry);
-  const ref = { connectionId: entry.connectionId ?? "", sourceUid: entry.sourceUid ?? "", start: entry.start, end: entry.end };
+  // A host block's identity is its UID plus the RAW imported range's dates. A visible entry may be
+  // the trimmed remainder of an echoed block, so its own dates would match no stored range.
+  const ref = {
+    connectionId: entry.connectionId ?? "",
+    sourceUid: entry.sourceUid ?? "",
+    start: entry.channelRangeStart ?? entry.start,
+    end: entry.channelRangeEnd ?? entry.end,
+  };
   const run = async (undo: boolean) => {
     setBusy(true); setError("");
     try { await (undo ? restore(ref) : remove(ref)); onChanged(); if (undo) onClose(); else setRemoved(true); }

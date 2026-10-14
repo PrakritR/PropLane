@@ -1,6 +1,6 @@
 import { PublicListingPageClient } from "@/components/marketing/public-listing-page-client";
 import { ListingSourceCapture } from "@/components/marketing/listing-source-capture";
-import { getPublicListings } from "@/lib/public-listings.server";
+import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
 import { jsonLdString, listingJsonLd } from "@/lib/seo/json-ld";
 import { llmsOrigin } from "@/lib/seo/llms";
 
@@ -9,7 +9,7 @@ export const revalidate = 3600;
 /** Public projection only; any failure renders the page without structured data. */
 async function listingStructuredData(id: string): Promise<string | null> {
   try {
-    const property = (await getPublicListings()).find((p) => p.id === id);
+    const property = (await getCrawlPublicListings()).find((p) => p.id === id);
     return property ? jsonLdString(listingJsonLd(property, llmsOrigin())) : null;
   } catch {
     return null;
