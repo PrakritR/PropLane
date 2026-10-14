@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Heart, Search } from "lucide-react";
+import { CalendarDays, Heart, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   RESIDENT_BATHROOM_OPTIONS,
@@ -24,7 +24,9 @@ import {
   type BrowseSortId,
   type PropertyBrowseCard,
   browseCardMatchesQuery,
+  browseCardNextOpeningLabel,
 } from "@/lib/room-listings-catalog";
+import { pacificTodayKey } from "@/lib/room-availability-range";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
@@ -52,6 +54,7 @@ const SORT_OPTIONS: { id: BrowseSortId; label: string }[] = [
   { id: "price-asc", label: "Price · low to high" },
   { id: "price-desc", label: "Price · high to low" },
   { id: "neighborhood", label: "Neighborhood A–Z" },
+  { id: "next-opening", label: "Next opening" },
 ];
 
 function formatRent(card: PropertyBrowseCard): string {
@@ -106,6 +109,8 @@ function BrowseSkeleton() {
 }
 
 function AvailabilityPill({ card }: { card: PropertyBrowseCard }) {
+  // A dated opening is a plain calendar-glyph fact on the card's facts line, not a pill.
+  if (card.availabilityKind !== "now" && card.nextOpening) return null;
   const tone =
     card.availabilityKind === "now"
       ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
@@ -142,9 +147,10 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
     ...card.leaseTypes.map(leaseTypeLabel),
   ].filter((f): f is string => Boolean(f));
   const dotCount = Math.min(5, card.photoUrls.length);
+  const nextOpeningLabel = card.availabilityKind !== "now" ? browseCardNextOpeningLabel(card, pacificTodayKey()) : null;
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[var(--shadow-card-hover)]">
+    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition duration-200 ease-(--spring-snappy) hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[var(--shadow-card-hover)] active:translate-y-0 active:scale-[.985] active:duration-75">
       <Link
         href={`/rent/listings/${encodeURIComponent(card.propertyId)}`}
         data-attr="resident-browse-listing-card"
@@ -180,6 +186,13 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
           </p>
           <p className="mt-0.5 text-[13px] font-medium text-foreground" data-attr="resident-browse-card-facts">
             {facts.join(" · ")}
+            {nextOpeningLabel ? (
+              <span className="inline-flex items-center gap-1 text-[var(--status-pending-fg)]" data-attr="resident-browse-card-next-opening">
+                {facts.length > 0 ? <span aria-hidden> · </span> : null}
+                <CalendarDays className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                {nextOpeningLabel}
+              </span>
+            ) : null}
           </p>
           <p className="mt-1.5 line-clamp-1 text-sm font-semibold text-foreground">{card.headlineAddress}</p>
           <p className="line-clamp-1 text-xs text-muted">{browseCardNeighborhoodLine(card)}</p>

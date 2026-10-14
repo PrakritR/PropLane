@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
@@ -23,6 +23,12 @@ import {
  * device (`dock-store`). Collapsing returns the full content width, so this
  * aside never reserves a leftover strip.
  *
+ * The aside stays mounted so opening is a motion, not a pop: its width eases
+ * between 0 and the rail width (the content column beside it reflows with it)
+ * while the panel inside keeps its full width and is simply revealed. Closed, it
+ * is `inert` and `aria-hidden`. The panel itself mounts the first time the rail
+ * opens, so a rail nobody opens costs nothing. Reduced motion cross-fades.
+ *
  * `endpoint` MUST be the portal's own role-scoped chat route; it only selects
  * role-shaped copy here, while the surrounding `<AxisAssistant>` provider owns
  * the actual conversation transport.
@@ -43,7 +49,11 @@ export function PortalAssistantRail({
     initAssistantDockState({ collapsed: initialCollapsed });
   }, [initialCollapsed]);
 
-  if (isSmall || collapsed) return null;
+  // The panel mounts on first open and stays, so closing can slide it away with its content.
+  const [hasOpened, setHasOpened] = useState(!collapsed);
+  if (!collapsed && !hasOpened) setHasOpened(true);
+
+  if (isSmall) return null;
 
   function closeRail() {
     collapseAssistantDock();
@@ -52,18 +62,27 @@ export function PortalAssistantRail({
 
   return (
     <aside
-      className="portal-assistant-rail relative z-30 hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-card text-foreground lg:flex"
+      className="portal-assistant-rail relative z-30 hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden bg-card text-foreground transition-[width,opacity] duration-(--spring-gentle-duration) ease-(--spring-gentle) data-[open=false]:opacity-0 lg:flex"
+      style={{ width: collapsed ? 0 : "var(--portal-assistant-rail-width)" }}
       data-attr="portal-assistant-rail"
+      data-open={collapsed ? "false" : "true"}
       aria-label="PropLane Assistant"
+      aria-hidden={collapsed || undefined}
+      inert={collapsed || undefined}
     >
-      <div className="flex min-h-0 flex-1 flex-col" data-attr="dashboard-assistant-dock">
-        <AssistantDockPanel
-          managerName={managerName}
-          endpoint={endpoint}
-          onClose={closeRail}
-          inputId={ASSISTANT_DOCK_INPUT_ID}
-          className="h-full rounded-none border-0 bg-transparent"
-        />
+      <div
+        className="flex h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 flex-col border-l border-border"
+        data-attr="dashboard-assistant-dock"
+      >
+        {hasOpened ? (
+          <AssistantDockPanel
+            managerName={managerName}
+            endpoint={endpoint}
+            onClose={closeRail}
+            inputId={ASSISTANT_DOCK_INPUT_ID}
+            className="h-full rounded-none border-0 bg-transparent"
+          />
+        ) : null}
       </div>
     </aside>
   );

@@ -11,16 +11,40 @@
  * Every consumer reads these through Tailwind's CSS-variable arbitrary-value
  * syntax, e.g. `duration-(--motion-base) ease-(--motion-crossfade)`, so no
  * `@theme` registration is required. `prefers-reduced-motion: reduce`
- * collapses every duration to 0 in one place — the policy from the research
- * (skip the TRIP, never the state change) never needs re-deriving per file.
+ * swaps every slide/scale for a short cross-fade in one place — the policy
+ * (skip the TRIP, keep the feedback) never needs re-deriving per file.
+ *
+ * Springs: the `--spring-*` tokens below are critically damped `linear()`
+ * curves (CSS cannot express a literal spring, but a sampled one is exact),
+ * each with the cubic-bezier it falls back to where `linear()` is missing.
+ * Entrances are plain transitions plus `@starting-style`, so a re-open or a
+ * grab mid-flight redirects from the live value instead of restarting a
+ * keyframe. Nothing overshoots except `--spring-sheet`'s single 0.6% settle,
+ * which only drag surfaces use.
  */
+
+:root {
+  --spring-snappy: ease-out; /* buttons, rows, browse cards, modal + wizard entrances */
+  --spring-gentle: ease-out; /* assistant rail, drawer, large panels */
+  --spring-sheet: cubic-bezier(0.32, 0.72, 0, 1); /* phone sheets, Vaul release */
+  --spring-snappy-duration: 300ms;
+  --spring-gentle-duration: 640ms; /* 400ms response, 640ms span */
+  --spring-sheet-duration: 300ms;
+}
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --spring-snappy: linear(0, 0.162, 0.421, 0.634, 0.781, 0.873, 0.929, 0.96, 0.978, 0.988, 0.994, 0.997, 0.998, 0.999, 1);
+    --spring-gentle: linear(0, 0.162, 0.421, 0.634, 0.781, 0.873, 0.929, 0.96, 0.978, 0.988, 0.994, 0.997, 0.998, 0.999, 1);
+    --spring-sheet: linear(0, 0.172, 0.459, 0.698, 0.855, 0.943, 0.985, 1.002, 1.006, 1.006, 1.004, 1.002, 1.001, 1, 1);
+  }
+}
 
 :root {
   --motion-ease-in: cubic-bezier(0.23, 1, 0.32, 1); /* interior.dev EASE_IN — decelerating arrive */
   --motion-ease-out: cubic-bezier(0.4, 0, 1, 1); /* interior.dev EASE_OUT — accelerating leave */
-  --motion-cell: cubic-bezier(0.34, 1.4, 0.64, 1); /* SPRING_CELL 520/34/.45 — snappy per-glyph */
+  --motion-cell: var(--spring-snappy); /* SPRING_CELL — snappy per-glyph, no overshoot */
   --motion-crossfade: cubic-bezier(0.22, 1, 0.36, 1); /* SPRING_CROSSFADE 260/34/.8 — content swap */
-  --motion-nudge: cubic-bezier(0.3, 1.6, 0.7, 1); /* SPRING_NUDGE 700/46/.5 — micro-nudge */
+  --motion-nudge: var(--spring-snappy); /* SPRING_NUDGE — micro-nudge, no overshoot */
   --motion-fill: cubic-bezier(0.16, 0.8, 0.3, 1); /* SPRING_FILL 210/34/.9 — value catch-up */
   --motion-disclose: cubic-bezier(0.16, 1, 0.3, 1); /* DISCLOSE family — panels opening */
 
@@ -35,56 +59,60 @@
 }
 
 /*
- * The one collapse point: every duration above becomes 0 — the state change
- * (save completed, panel opened, sort applied, value updated) still always
- * happens, only the trip is skipped. Consumers should prefer reading
- * `useReducedMotion()` in JS when they need a boolean (RAF loops, timeouts),
- * and this class + media query for pure-CSS transitions/animations.
+ * The one collapse point: every duration above becomes a 150ms cross-fade and
+ * every spring a plain ease — the state change (save completed, panel opened,
+ * sort applied, value updated) still always happens and still reads as a
+ * change; only the TRIP (slide, scale, travel) is skipped. Consumers should
+ * prefer reading `useReducedMotion()` in JS when they need a boolean (RAF
+ * loops, timeouts), and this class + media query for pure-CSS transitions.
  */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --motion-fast: 0ms;
-    --motion-base: 0ms;
-    --motion-slow: 0ms;
-    --motion-panel: 0ms;
-    --motion-modal-in: 0ms;
-    --motion-modal-out: 0ms;
-    --motion-wiz-in: 0ms;
-    --motion-wiz-out: 0ms;
+    --motion-fast: 150ms;
+    --motion-base: 150ms;
+    --motion-slow: 150ms;
+    --motion-panel: 150ms;
+    --motion-modal-in: 150ms;
+    --motion-modal-out: 150ms;
+    --motion-wiz-in: 150ms;
+    --motion-wiz-out: 150ms;
+    --spring-snappy: ease-out;
+    --spring-gentle: ease-out;
+    --spring-sheet: ease-out;
+    --spring-snappy-duration: 150ms;
+    --spring-gentle-duration: 150ms;
+    --spring-sheet-duration: 150ms;
+  }
+  /* Entrances keep their opacity transition and drop their travel: `transform`
+     is not a transitioned property, so the starting offset is never used. This
+     lives here (not only under `.portal-shell`) because modals portal to body. */
+  .motion-modal-panel-in,
+  .motion-wiz-dir-fwd,
+  .motion-wiz-dir-back,
+  .axis-assistant-sheet,
+  .portal-assistant-rail {
+    transition-property: opacity !important;
+    transition-duration: 150ms !important;
   }
 }
 
 /* ============== M006 — wizard step forward/back direction ============== */
-@keyframes motion-wiz-in-fwd {
-  from {
+/* A transition plus @starting-style, not a keyframe: switching steps again
+   mid-flight redirects from wherever the panel is instead of restarting. */
+.motion-wiz-dir-fwd,
+.motion-wiz-dir-back {
+  transition:
+    opacity var(--motion-panel) ease-out,
+    transform var(--spring-snappy-duration) var(--spring-snappy);
+}
+@starting-style {
+  .motion-wiz-dir-fwd {
     opacity: 0;
     transform: translateX(18px);
   }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes motion-wiz-in-back {
-  from {
+  .motion-wiz-dir-back {
     opacity: 0;
     transform: translateX(-18px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.motion-wiz-dir-fwd {
-  animation: motion-wiz-in-fwd var(--motion-panel) var(--motion-crossfade);
-}
-.motion-wiz-dir-back {
-  animation: motion-wiz-in-back var(--motion-panel) var(--motion-crossfade);
-}
-@media (prefers-reduced-motion: reduce) {
-  .motion-wiz-dir-fwd,
-  .motion-wiz-dir-back {
-    animation: none;
   }
 }
 
@@ -134,50 +162,52 @@
 }
 
 /* ============== M007 — modal exit clone (see inert-boundary.ts) ============== */
+/* Exit keyframes name only their END state: the clone starts from whatever the
+   panel was showing (including a live drag offset), so a drag-dismissed sheet
+   continues its throw instead of snapping back first. */
 @keyframes motion-modal-exit-panel {
-  from {
-    opacity: 1;
-    transform: none;
-  }
   to {
     opacity: 0;
     transform: scale(0.97) translateY(4px);
   }
 }
+/* A drawer leaves the way it came in: back down, mirroring its entrance. */
 @keyframes motion-modal-exit-drawer {
-  from {
-    opacity: 1;
-    transform: none;
-  }
   to {
-    opacity: 0.4;
-    transform: translateX(24px);
+    transform: translateY(100%);
   }
+}
+@keyframes motion-modal-exit-fade {
+  to {
+    opacity: 0;
+  }
+}
+.motion-modal-exit-panel-clone,
+.motion-modal-exit-drawer-clone,
+.motion-modal-exit-fade-clone {
+  transition: none !important;
 }
 .motion-modal-exit-panel-clone {
   animation: motion-modal-exit-panel var(--motion-modal-out) var(--motion-ease-out) forwards;
 }
 .motion-modal-exit-drawer-clone {
-  animation: motion-modal-exit-drawer var(--motion-wiz-out) var(--motion-ease-out) forwards;
+  animation: motion-modal-exit-drawer 260ms var(--motion-ease-out) forwards;
+}
+.motion-modal-exit-fade-clone {
+  animation: motion-modal-exit-fade 150ms ease-out forwards;
 }
 
 /* ============== M007 — modal panel entrance (Dialog.Content has none today) ============== */
-@keyframes motion-modal-in {
-  from {
+/* Transition + @starting-style (see M006): interruptible, spring-eased. */
+.motion-modal-panel-in {
+  transition:
+    opacity var(--motion-modal-in) ease-out,
+    transform var(--spring-snappy-duration) var(--spring-snappy);
+}
+@starting-style {
+  .motion-modal-panel-in {
     opacity: 0;
     transform: scale(0.96) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.motion-modal-panel-in {
-  animation: motion-modal-in var(--motion-modal-in) var(--motion-crossfade);
-}
-@media (prefers-reduced-motion: reduce) {
-  .motion-modal-panel-in {
-    animation: none;
   }
 }
 
@@ -600,5 +630,50 @@ th[aria-sort="descending"] .motion-sort-glyph {
 @media (prefers-reduced-motion: reduce) {
   .motion-lightbox-backdrop {
     animation: none;
+  }
+}
+
+/* ============== Vaul sheets — a 44px padded drag zone ============== */
+/* `handleOnly` makes the 4px pill the only drag surface, which is a thin
+   target for a thumb. An invisible 44px-tall pad around it (the handle is the
+   pointer target for its own pseudo-element) makes the grab forgiving without
+   changing what is drawn. */
+[data-vaul-handle] {
+  position: relative;
+}
+[data-vaul-handle]::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 6rem);
+  height: 2.75rem;
+  transform: translate(-50%, -50%);
+}
+
+/* ============== Reduced transparency / increased contrast ============== */
+/* Sheet scrims and glass go solid for people who asked the OS for less
+   transparency, and darken for people who asked for more contrast. */
+@media (prefers-reduced-transparency: reduce) {
+  .phone-sheet-scrim,
+  .portal-menu-backdrop {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .portal-liquid-glass {
+    background: var(--card, #ffffff) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+@media (prefers-contrast: more) {
+  .phone-sheet-scrim {
+    background: rgb(0 0 0 / 0.7);
+  }
+  .portal-liquid-glass {
+    background: var(--card, #ffffff) !important;
+    border-color: currentColor !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }

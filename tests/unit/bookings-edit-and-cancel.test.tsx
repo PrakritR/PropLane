@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 const entry: PropertyBookingEntry = { source: "block", propertyId: "house", propertyLabel: "House", roomId: "room", roomLabel: "Room", summary: "Guest", residentName: "Guest", residentEmail: "guest@example.test", residentPhone: "+12065550199", isBookingResidency: true, blockId: "block-1", start: "2099-01-01", end: "2099-01-05", rate: 45, rateBasis: "daily", bookingStatus: "confirmed", reason: "A note", stayDetails: { linen: "Delivered", baggage: "Yes" } };
 afterEach(cleanup);
@@ -97,5 +98,30 @@ describe("booking edit and undo", () => {
     const channel: PropertyBookingEntry = { ...entry, source: "airbnb", blockId: undefined, connectionId: "c1", sourceUid: "u1" };
     render(<AppUiProvider><BookingsEditSheet entry={channel} entries={[]} onClose={() => {}} onSave={vi.fn()} onSaveStayMeta={vi.fn()} /></AppUiProvider>);
     expect(screen.queryByRole("button", { name: "Save booking" })).toBeNull();
+  });
+  it("Unblock on a block with nobody attached is a Remove, and Undo puts the hold back", async () => {
+    const reserved: PropertyBookingEntry = { source: "block", propertyId: "house", propertyLabel: "House", roomId: "room", roomLabel: "Room", summary: "Closed", blockId: "block-2", start: "2099-01-01", end: "2099-01-05", bookingStatus: "hold", reason: "Closed" };
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AppUiProvider><BookingsCancelDialog entry={reserved} onClose={() => {}} onSave={onSave} /></AppUiProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ id: "block-2", bookingStatus: "cancelled" });
+    expect(onSave.mock.calls[1][0]).toMatchObject({ id: "block-2", bookingStatus: "hold" });
+  });
+  it("a room_date_block row whose own bookingStatus is cancelled is read as cancelled (calendar, feed and capacity agree)", async () => {
+    const row = { propertyId: "house", roomId: "room", checkIn: "2099-02-01", checkOut: "2099-02-04", reason: "Closed" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rows: [
+      { ...row, id: "a", recordType: "room_date_block", bookingStatus: "cancelled" },
+      { ...row, id: "b", recordType: "room_date_block" },
+      { ...row, id: "c", recordType: "cancelled_room_date_block" },
+    ] }) }));
+    try {
+      const blocks = await fetchRoomDateBlocks();
+      expect(Object.fromEntries(blocks.map((block) => [block.id, block.bookingStatus]))).toEqual({ a: "cancelled", b: "hold", c: "cancelled" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

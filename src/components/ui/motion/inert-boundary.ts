@@ -125,7 +125,9 @@ export function useInertOutsideModalRef<T extends Element>(outerRef: Ref<T> | un
  */
 export function animateModalExitClone(node: HTMLElement | null, kind: "dialog" | "drawer") {
   if (!node || typeof document === "undefined") return;
-  if (prefersReducedMotionNow()) return; // no-op under reduced motion — nothing to animate
+  // A panel marked `motion-exit-bottom` (the phone assistant sheet) leaves the way it came in.
+  if (node.classList.contains("motion-exit-bottom")) kind = "drawer";
+  const reduced = prefersReducedMotionNow();
   const rect = node.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) return; // already hidden/unmounted — nothing to clone
   const clone = node.cloneNode(true) as HTMLElement;
@@ -145,9 +147,20 @@ export function animateModalExitClone(node: HTMLElement | null, kind: "dialog" |
   clone.style.margin = "0";
   clone.style.zIndex = "999";
   clone.style.pointerEvents = "none";
-  clone.classList.add(kind === "drawer" ? "motion-modal-exit-drawer-clone" : "motion-modal-exit-panel-clone");
+  // `rect` already includes any live drag offset, so the clone starts exactly where the panel is.
+  clone.style.transform = "";
+  // The clone is a new node: left alone, its entrance @starting-style would fade it IN first.
+  clone.classList.remove("motion-modal-panel-in", "motion-wiz-dir-fwd", "motion-wiz-dir-back");
+  // Reduced motion cross-fades the clone out; it never travels.
+  clone.classList.add(
+    reduced
+      ? "motion-modal-exit-fade-clone"
+      : kind === "drawer"
+        ? "motion-modal-exit-drawer-clone"
+        : "motion-modal-exit-panel-clone",
+  );
   document.body.appendChild(clone);
-  const ms = kind === "drawer" ? 220 : 160;
+  const ms = reduced ? 160 : kind === "drawer" ? 260 : 160;
   setTimeout(() => {
     if (clone.isConnected) clone.remove();
   }, ms);

@@ -17,7 +17,8 @@ import {
   SpacesInteractive,
 } from "@/components/marketing/listing-detail-tables-client";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
-import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { countRoomsAvailableNow, nextOpeningDate } from "@/lib/public-listing-available-count";
+import { formatNextOpening } from "@/lib/room-availability";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { ListingKeyFacts, deriveListingKeyFacts } from "@/components/marketing/listing-key-facts";
 import { ListingNoPhotoBand, ListingPhotoMosaic } from "@/components/marketing/listing-photo-mosaic";
@@ -346,9 +347,18 @@ export function ListingDetailSections({
     () => (occupancyLoading ? null : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), property.id)),
     [occupancyLoading, rooms, occupancyRows, property.id],
   );
+  // Nothing open today: say when the first room frees up instead of "0 available". Waits with the count while loading.
+  const nextOpeningLabel = useMemo(() => {
+    if (occupancyLoading || availableNow !== 0) return null;
+    const today = pacificTodayKey();
+    const date = nextOpeningDate(rooms, occupancyRows, today, property.id);
+    return date ? formatNextOpening(date, today) : null;
+  }, [occupancyLoading, availableNow, rooms, occupancyRows, property.id]);
   const roomsLine =
     roomCount > 0
-      ? `${roomCount} room${roomCount === 1 ? "" : "s"}${availableNow === null ? "" : ` · ${availableNow} available`}`
+      ? `${roomCount} room${roomCount === 1 ? "" : "s"}${
+          availableNow === null ? "" : ` · ${nextOpeningLabel ?? `${availableNow} available`}`
+        }`
       : null;
   const collapseOnMobile = !expandSectionsOnMobile;
   const embeddedPreview = previewModal || portalEmbedded;
@@ -363,8 +373,8 @@ export function ListingDetailSections({
     typeof rawHouseVideoUrl === "string" && /^https?:\/\//i.test(rawHouseVideoUrl.trim()) ? rawHouseVideoUrl : null;
   const propertyLabel = propertyDisplayLabel(property);
   const facts = useMemo(
-    () => deriveListingKeyFacts(rich, property, availableNow),
-    [rich, property, availableNow],
+    () => deriveListingKeyFacts(rich, property, availableNow, nextOpeningLabel),
+    [rich, property, availableNow, nextOpeningLabel],
   );
   const hasAbout = Boolean(rich.heroTagline?.trim() || rich.heroOverview?.trim());
   // The tiles already say rooms, baths and pets; the ledger keeps only what they do not.

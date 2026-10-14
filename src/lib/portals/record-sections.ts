@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
+  Ban,
   Bell,
   Calendar,
   Camera,
@@ -663,6 +664,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     headerActions: [
       { id: "message", label: "Message", icon: Mail, tone: "primary" },
       { id: "edit", label: "Edit", icon: Pencil },
+      // Unblock (cancel, undoable) and Delete are gated per booking by the page; no ⋯ menu holds them.
+      { id: "unblock", label: "Unblock", icon: Ban },
+      { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     hasDocuments: false,
     hasActivity: false,

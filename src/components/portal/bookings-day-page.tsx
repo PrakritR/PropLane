@@ -69,7 +69,7 @@ export function BookingsDayPage({
   propertyOptions: ManagerPropertyFilterOption[];
   residentOptions: readonly BlockDatesResidentOption[];
   onSaveBlock: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
-  onRemoveBlock: (blockId: string) => Promise<void>;
+  onRemoveBlock: (blockId: string) => Promise<boolean | void>;
   showToast: (message: string) => void;
   /** Close the day dialog — parent navigates back to the calendar tab. */
   onClose?: () => void;

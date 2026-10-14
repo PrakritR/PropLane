@@ -84,3 +84,14 @@ describe("tile and bar share one number", () => {
     expect(deriveListingKeyFacts(rich, property).find((f) => f.id === "rooms")?.label).toBe("3 available now");
   });
 });
+
+describe("deriveListingKeyFacts next opening", () => {
+  it("replaces '0 available now' with the next opening label, and drops a contradicting 'Available now' tile", () => {
+    const rich = { floorPlans: [{ rooms: [room("a")] }], bathrooms: [], priceRangeLabel: "$1,000/mo", startingRentLabel: "" } as unknown as ListingRichContent;
+    const property = { beds: 1, baths: 1, petFriendly: false };
+    const facts = deriveListingKeyFacts(rich, property, 0, "Next opening Oct 15");
+    expect(facts.find((f) => f.id === "rooms")?.label).toBe("Next opening Oct 15");
+    expect(facts.find((f) => f.id === "availability")).toBeUndefined();
+    expect(deriveListingKeyFacts(rich, property, 1, "Next opening Oct 15").find((f) => f.id === "rooms")?.label).toBe("1 available now");
+  });
+});

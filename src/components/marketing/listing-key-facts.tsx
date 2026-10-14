@@ -73,6 +73,8 @@ export function deriveListingKeyFacts(
   property: Pick<MockProperty, "beds" | "baths" | "petFriendly">,
   /** Rooms open today once real occupancy is applied: a number to show, `null` while it loads (sublabel omitted), `undefined` for the static count. */
   availableNowOverride?: number | null,
+  /** "Next opening Oct 15" for a house with nothing open today; shown in place of "0 available now". */
+  nextOpeningLabel?: string | null,
 ): ListingKeyFact[] {
   const facts: ListingKeyFact[] = [];
 
@@ -89,7 +91,12 @@ export function deriveListingKeyFacts(
     facts.push({
       id: "rooms",
       value: `${roomCount} room${roomCount === 1 ? "" : "s"}`,
-      label: rooms.length > 0 && availableNow !== null ? `${availableNow} available now` : undefined,
+      label:
+        rooms.length > 0 && availableNow !== null
+          ? availableNow === 0 && nextOpeningLabel
+            ? nextOpeningLabel
+            : `${availableNow} available now`
+          : undefined,
     });
   }
 
@@ -104,8 +111,12 @@ export function deriveListingKeyFacts(
     });
   }
 
+  // Live occupancy says nothing is open today: the static "Available now" copy would contradict the rooms tile.
+  const liveNoneOpen = typeof availableNowOverride === "number" && availableNowOverride === 0;
   const availability = earliestAvailability(rooms.map((r) => r.availability));
-  if (availability) facts.push({ id: "availability", value: availability });
+  if (availability && !(liveNoneOpen && classifyRoomOpening(availability).kind === "now")) {
+    facts.push({ id: "availability", value: availability });
+  }
 
   if (property.petFriendly) facts.push({ id: "pets", value: "Pets OK" });
 

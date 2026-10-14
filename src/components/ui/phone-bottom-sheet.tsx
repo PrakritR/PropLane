@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import {
+  useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -15,7 +17,10 @@ import { Check, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { FIELD_SELECT_MENU_DATA_ATTR } from "@/components/ui/field-select-portal-interaction";
 import { FIELD_SELECT_MENU_Z_INDEX } from "@/components/ui/field-select-menu";
+import { SHEET_MS, MOTION_EASE, sheetEasing } from "@/components/ui/motion/tokens";
+import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
 import { usePortalSurface } from "@/components/ui/portal-surface";
+import { liveOpacity, liveTranslateY, useSheetDrag } from "@/components/ui/use-sheet-drag";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +42,9 @@ import { cn } from "@/lib/utils";
  *     constants below rather than a hard-coded number at the call site;
  *   - Escape, backdrop tap and a swipe down all close it; focus is trapped inside and
  *     handed back to the trigger.
+ *   - it slides up from the bottom, follows the finger 1:1 with the scrim fading under it,
+ *     and a release inherits the throw's velocity (settle or dismiss); it stays mounted for
+ *     its exit and is interruptible at any point. Reduced motion cross-fades instead.
  */
 
 /** Dims the page, the dialog and its footer. One above the field-select menus (10060). */
@@ -45,8 +53,8 @@ export const PHONE_SHEET_BACKDROP_Z_INDEX = FIELD_SELECT_MENU_Z_INDEX + 10;
 export const PHONE_SHEET_Z_INDEX = PHONE_SHEET_BACKDROP_Z_INDEX + 1;
 /** Hard ceiling on the panel so a long list scrolls inside it. */
 export const PHONE_SHEET_MAX_HEIGHT = "70dvh";
-/** Downward drag (px) past which a release dismisses the sheet. */
-const SWIPE_DISMISS_PX = 72;
+// Release is decided by velocity and projection, not a fixed pixel count:
+// see `resolveSheetRelease` in `src/lib/ui/sheet-release.ts`.
 
 /**
  * True when a select should render as this sheet: a touch device, or a window too narrow
@@ -95,8 +103,83 @@ export function PhoneBottomSheet({
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
-  const dragRef = useRef<{ pointerId: number; startY: number } | null>(null);
-  const [dragY, setDragY] = useState(0);
+  const backdropRef = useRef<HTMLButtonElement | null>(null);
+  const exitingRef = useRef(false);
+  const reducedMotion = useReducedMotion();
+  // Stay mounted through the exit animation; `open` alone no longer decides presence.
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) setMounted(true);
+
+  const drag = useSheetDrag({
+    getPanel: useCallback(() => panelRef.current, []),
+    getScrim: useCallback(() => backdropRef.current, []),
+    onDismiss: () => onCloseRef.current(),
+    reducedMotion,
+  });
+
+  // Entrance: rise from the bottom (or fade under reduced motion). If the sheet is still
+  // leaving, reverse from where it is on screen instead of restarting.
+  useLayoutEffect(() => {
+    if (!open || !mounted) return;
+    const panel = panelRef.current;
+    const backdrop = backdropRef.current;
+    if (!panel || !backdrop || typeof panel.animate !== "function") return;
+    const resumed = exitingRef.current;
+    const fromY = resumed ? liveTranslateY(panel) : panel.offsetHeight;
+    const fromOpacity = resumed ? liveOpacity(backdrop) : 0;
+    exitingRef.current = false;
+    panel.getAnimations().forEach((a) => a.cancel());
+    backdrop.getAnimations().forEach((a) => a.cancel());
+    const easing = sheetEasing();
+    if (reducedMotion) {
+      panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: SHEET_MS.fade, easing: "ease-out" });
+    } else {
+      panel.animate(
+        [{ transform: `translateY(${fromY}px)` }, { transform: "translateY(0px)" }],
+        { duration: SHEET_MS.enter, easing },
+      );
+    }
+    backdrop.animate([{ opacity: fromOpacity }, { opacity: 1 }], { duration: SHEET_MS.fade, easing: "ease-out" });
+    // Only `open` should start an entrance; a reduced-motion flip mid-flight must not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mounted]);
+
+  // Exit: continue from the live offset (a throw keeps its momentum), then unmount.
+  useLayoutEffect(() => {
+    if (open || !mounted) return;
+    const panel = panelRef.current;
+    const backdrop = backdropRef.current;
+    if (!panel || !backdrop || typeof panel.animate !== "function") {
+      setMounted(false);
+      return;
+    }
+    exitingRef.current = true;
+    const fromY = liveTranslateY(panel);
+    const fromOpacity = liveOpacity(backdrop);
+    panel.style.transform = "";
+    backdrop.style.opacity = "";
+    const exit = reducedMotion
+      ? panel.animate([{ opacity: 1 }, { opacity: 0 }], { duration: SHEET_MS.fade, easing: "ease-out", fill: "forwards" })
+      : panel.animate(
+          [{ transform: `translateY(${fromY}px)` }, { transform: "translateY(100%)" }],
+          { duration: SHEET_MS.exit, easing: MOTION_EASE.out, fill: "forwards" },
+        );
+    backdrop.animate([{ opacity: fromOpacity }, { opacity: 0 }], {
+      duration: reducedMotion ? SHEET_MS.fade : SHEET_MS.exit,
+      easing: "ease-out",
+      fill: "forwards",
+    });
+    exit.finished
+      .then(() => {
+        if (!exitingRef.current) return;
+        exitingRef.current = false;
+        setMounted(false);
+      })
+      .catch(() => {
+        // Cancelled by a re-open: the entrance effect owns the sheet again.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mounted]);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -137,14 +220,7 @@ export function PhoneBottomSheet({
     };
   }, [open]);
 
-  if (!open || typeof document === "undefined") return null;
-
-  const endDrag = (pointerId: number, dismiss: boolean) => {
-    if (!dragRef.current || dragRef.current.pointerId !== pointerId) return;
-    dragRef.current = null;
-    setDragY(0);
-    if (dismiss) onCloseRef.current();
-  };
+  if (!mounted || typeof document === "undefined") return null;
 
   const sheet = (
     <div
@@ -157,14 +233,15 @@ export function PhoneBottomSheet({
       className="pointer-events-auto fixed inset-0 flex items-end justify-center"
       // The ROOT owns the layer: without it the sheet paints in document order and a popup
       // (z-[80]) covers it, so the children's z-indexes only order things inside the sheet.
-      style={{ zIndex: PHONE_SHEET_BACKDROP_Z_INDEX }}
+      style={{ zIndex: PHONE_SHEET_BACKDROP_Z_INDEX, pointerEvents: open ? undefined : "none" }}
     >
       <button
+        ref={backdropRef}
         type="button"
         aria-label={`Dismiss ${title}`}
         tabIndex={-1}
         data-phone-sheet-backdrop=""
-        className="absolute inset-0 cursor-default bg-black/50"
+        className="phone-sheet-scrim absolute inset-0 cursor-default bg-black/50"
         style={{ zIndex: PHONE_SHEET_BACKDROP_Z_INDEX, touchAction: "none" }}
         onClick={() => onCloseRef.current()}
       />
@@ -179,27 +256,13 @@ export function PhoneBottomSheet({
         style={{
           zIndex: PHONE_SHEET_Z_INDEX,
           maxHeight: PHONE_SHEET_MAX_HEIGHT,
-          transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
-          transition: dragY > 0 ? "none" : undefined,
         }}
       >
         {/* Handle + title: the swipe-down zone. The close button opts out so it still taps. */}
         <div
           className="shrink-0 select-none"
           style={{ touchAction: "none" }}
-          onPointerDown={(event) => {
-            if ((event.target as Element).closest("button")) return;
-            dragRef.current = { pointerId: event.pointerId, startY: event.clientY };
-            event.currentTarget.setPointerCapture?.(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            if (dragRef.current?.pointerId !== event.pointerId) return;
-            setDragY(Math.max(0, event.clientY - dragRef.current.startY));
-          }}
-          onPointerUp={(event) =>
-            endDrag(event.pointerId, event.clientY - (dragRef.current?.startY ?? event.clientY) > SWIPE_DISMISS_PX)
-          }
-          onPointerCancel={(event) => endDrag(event.pointerId, false)}
+          {...drag}
         >
           <span className="mx-auto mt-2 block h-1 w-10 rounded-full bg-border" aria-hidden />
           <div className="flex min-h-12 items-center gap-3 pl-5 pr-2">
