@@ -243,7 +243,7 @@ export function BookingsDayPage({
                                 {formatBookingStayRange(entry.start, entry.end, entry.openEnded)}
                               </PortalRowFact>
                               <PortalRowFact icon={Tag} srLabel="Source">
-                                {bookingSourceLabel(entry.source)}
+                                {bookingSourceLabel(entry.source, entry.channelLabel)}
                                 {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
                               </PortalRowFact>
                             </>

@@ -1,3 +1,4 @@
+import { isPrivateOrInternalHostname } from "@/lib/channel-calendar/ical-host";
 import {
   CHANNEL_CALENDAR_PROVIDERS,
   type ChannelCalendarProvider,
@@ -17,11 +18,11 @@ const VRBO_ICAL_PATH = /^\/icalendar\/[A-Za-z0-9_-]+\.ics$/i;
  * rendered as nothing at all.
  */
 export class ChannelCalendarInputError extends Error {
-  readonly field: "importUrl";
-  constructor(message: string) {
+  readonly field: "importUrl" | "label";
+  constructor(message: string, field: "importUrl" | "label" = "importUrl") {
     super(message);
     this.name = "ChannelCalendarInputError";
-    this.field = "importUrl";
+    this.field = field;
   }
 }
 
@@ -38,7 +39,28 @@ export function parseChannelCalendarProvider(raw: unknown): ChannelCalendarProvi
   return isChannelCalendarProvider(value) ? value : null;
 }
 
-export function channelCalendarProviderLabel(provider: ChannelCalendarProvider): string {
+/** The server's own cap on checking one Other calendar link before it is saved. */
+export const ICAL_VALIDATE_TIMEOUT_MS = 6_000;
+
+/** The longest site name an "Other calendar" link may carry. */
+export const ICAL_LABEL_MAX_LENGTH = 40;
+
+/** "Houfy", trimmed and collapsed; "" when nothing usable. */
+export function normalizeIcalLabel(raw: unknown): string {
+  return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, ICAL_LABEL_MAX_LENGTH);
+}
+
+/** Two site names are the same link when they match ignoring case. */
+export function icalLabelKey(raw: unknown): string {
+  return normalizeIcalLabel(raw).toLowerCase();
+}
+
+/**
+ * The name shown for a channel. An "Other calendar" link is the site the manager typed
+ * (`label`); every other provider is a fixed name and ignores the label.
+ */
+export function channelCalendarProviderLabel(provider: ChannelCalendarProvider, label?: string | null): string {
+  if (provider === "ical") return normalizeIcalLabel(label) || "Other calendar";
   if (provider === "booking_com") return "Booking.com";
   if (provider === "vrbo") return "Vrbo";
   return "Airbnb";
@@ -80,13 +102,31 @@ export function isValidVrboImportUrl(raw: string): boolean {
   return VRBO_ICAL_PATH.test(url.pathname);
 }
 
+/**
+ * "Other calendar": any https URL whose path ends in .ics or contains /ical/ or /calendar/. No host
+ * allowlist - the site is whatever the manager names - but never a loopback, private or internal host
+ * (DNS is re-checked when the feed is fetched).
+ */
+export function isValidIcalImportUrl(raw: string): boolean {
+  const url = parseHttpsUrl(raw);
+  if (!url) return false;
+  if (url.username || url.password) return false;
+  if (isPrivateOrInternalHostname(url.hostname)) return false;
+  const path = url.pathname.toLowerCase();
+  return path.endsWith(".ics") || path.includes("/ical/") || path.includes("/calendar/");
+}
+
 export function isValidChannelImportUrl(provider: ChannelCalendarProvider, raw: string): boolean {
+  if (provider === "ical") return isValidIcalImportUrl(raw);
   if (provider === "booking_com") return isValidBookingComImportUrl(raw);
   if (provider === "vrbo") return isValidVrboImportUrl(raw);
   return isValidAirbnbImportUrl(raw);
 }
 
 export function channelImportUrlErrorMessage(provider: ChannelCalendarProvider): string {
+  if (provider === "ical") {
+    return "That is not a calendar link. Paste the site's https calendar (iCal) export link - it ends in .ics or contains /ical/ or /calendar/ - and make sure it is not a link to a private or local address.";
+  }
   if (provider === "booking_com") {
     return "That is not a Booking.com calendar link. In Booking.com go to Rates & Availability → Sync calendars → Skip to export, and paste the https://ical.booking.com/v1/export?t=… URL.";
   }

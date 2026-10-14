@@ -226,6 +226,7 @@ export async function GET(
       propertyId: connection.property_id,
       roomId: connection.room_id,
       destination: allChannels ? null : connection.provider,
+      ownConnectionId: connection.id,
       connections: siblings,
       placements: occupancy.importPlacements,
     });

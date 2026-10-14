@@ -65,8 +65,11 @@ the screen from five reads — `channel`, `occupancy`, `applications`, `blocks`,
 `src/lib/auth/fetch-with-timeout.ts`). A read that errors or times out is listed
 in `failedSources`; everything that did load is still drawn, under one compact
 `BookingsLoadFailedBand` ("Some bookings didn't load." · **Retry**, which re-runs
-every source). Do not make a new source fatal to the whole calendar, and do not
-grow a second error surface. Because residents come from the snapshot, a failed
+every source). The `channel` read is the full one (every stay of every linked room); the
+Connect popup and the Integrations rows use the slim variant (`?slim=1`, no stored stays) and
+the server runs its per-house checks in parallel, so a large workspace does not eat the cap
+([`integrations.md`](integrations.md) § Bookings). Do not make a new source fatal to the
+whole calendar, and do not grow a second error surface. Because residents come from the snapshot, a failed
 `applications` or `leases` read is NOT a missing-bookings failure once
 `occupancy` answered — it only cost the enrichment — and so stays out of
 `failedSources` and off the band. Coverage:

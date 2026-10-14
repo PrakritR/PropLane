@@ -49,8 +49,9 @@ export function channelCheckFacts(
   link: { lastSyncedAt: string | null; exportLastFetchedAt?: string | null },
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
+  label?: string | null,
 ): Array<{ label: string; value: string }> {
-  const channel = channelCalendarProviderLabel(provider);
+  const channel = channelCalendarProviderLabel(provider, label);
   return [
     { label: `${channel} checked PropLane`, value: formatCheckedAt(link.exportLastFetchedAt ?? null, now) || "Not yet" },
     { label: `PropLane checked ${channel}`, value: formatCheckedAt(link.lastSyncedAt, now) || "Not yet" },
@@ -81,8 +82,9 @@ export function channelStatusParts(
   connection: ChannelConnectionStatus | null | undefined,
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
+  label?: string | null,
 ): ChannelStatusParts {
-  const channel = channelCalendarProviderLabel(provider);
+  const channel = channelCalendarProviderLabel(provider, label);
   if (!connection?.hasImportUrl) return { state: "Not linked", error: null, details: [] };
   const fetched = formatCheckedAt(connection.exportLastFetchedAt ?? null, now);
   const synced = formatCheckedAt(connection.lastSyncedAt, now);
@@ -101,7 +103,8 @@ export function channelStatusLine(
   connection: ChannelConnectionStatus | null | undefined,
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
+  label?: string | null,
 ): string {
-  const parts = channelStatusParts(connection, now, provider);
+  const parts = channelStatusParts(connection, now, provider, label);
   return [parts.error ? `Error: ${parts.error}` : parts.state, ...parts.details].filter(Boolean).join(" · ");
 }

@@ -31,11 +31,20 @@ export function importedRangesForFeed(input: {
   propertyId: string;
   roomId: string;
   destination: ChannelCalendarProvider | null;
+  /**
+   * The connection whose link this feed is. An "Other calendar" destination leaves out only ITS OWN
+   * imports (a room can hold Houfy and Furnished Finder; Houfy's feed must carry Furnished Finder's
+   * stays), where every other destination leaves out its whole channel.
+   */
+  ownConnectionId?: string;
   connections: readonly FeedConnection[];
   placements: readonly FeedPlacement[];
 }): Range[] {
   const relevant = input.connections.filter(
-    (c) => (input.destination === null || c.provider !== input.destination) && connectionTouchesRoom(c.roomId, input.roomId, input.propertyId),
+    (c) =>
+      (input.destination === null ||
+        (input.destination === "ical" ? c.id !== input.ownConnectionId : c.provider !== input.destination)) &&
+      connectionTouchesRoom(c.roomId, input.roomId, input.propertyId),
   );
   const ids = new Set(relevant.map((c) => c.id));
   const out: Range[] = [];

@@ -56,8 +56,46 @@ vocabulary — is owned by [`bookings.md`](bookings.md).
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
-working and stays manageable. SpareRoom, Furnished Finder and Apartments.com are
-listed as Coming soon so a manager can see what is planned.
+working and stays manageable. SpareRoom and Apartments.com are listed as Coming
+soon so a manager can see what is planned.
+
+**Other calendar** (`provider: "ical"`) is the row for every site without a row of its
+own - Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon, anything
+that publishes an https `.ics`. The manager types the site's name in the popup's **Name**
+field; it is stored in the connection's existing `label` column and is what every label,
+status line, alert ("New Houfy booking") and calendar bar says
+(`channelCalendarProviderLabel(provider, label)`). There is no host allowlist (that is the
+point), so `isValidIcalImportUrl` instead refuses what must never be fetched: http, a path
+that is not `.ics` / `/ical/` / `/calendar/`, credentials in the URL, and loopback, private,
+link-local or internal hosts (`ical-host.ts`). The fetch itself goes through
+`fetchPinnedPublicHttps` (DNS resolved once, every address must be public, the connection is
+pinned to those addresses, each redirect hop re-vetted), and the first response must be
+`text/calendar` or start with `BEGIN:VCALENDAR`. The popup's check icon calls
+`POST /api/portal/channel-calendar/validate` (manager session, rate limited, 6s cap,
+returns the block count never the body). Import, export, sync, tombstones, echo suppression
+and booking alerts are the Airbnb path unchanged.
+
+A room can hold **several** Other calendar links, one per site name (Houfy and Furnished
+Finder): uniqueness is `(property, room, provider)` for the other channels and
+`(property, room, provider, lower(label))` for `ical` (two partial unique indexes,
+`20261014010000_channel_calendar_ical_provider.sql`), and
+`upsertChannelCalendarConnection` matches by hand rather than PostgREST `onConflict`
+(an expression index cannot be targeted). Each link has its own export token, and the
+export feed leaves out only ITS OWN connection's imports (`ownConnectionId` in
+`importedRangesForFeed`): Houfy's feed carries Furnished Finder's stays and the reverse.
+Removed-stay tombstones are keyed by provider, so two `ical` feeds on one room share a
+tombstone namespace (a UID collision across two sites is the only way to cross-prune).
+
+**The popup opens at once.** It used to read every stay of every linked room on open
+(`fetchManagerChannelBookings`, capped at `PORTAL_READ_TIMEOUT_MS`), which on a 28-room
+workspace exceeded 12s and surfaced "That took too long". The Integrations panel now reads
+`?slim=1` (rooms and links, no stored `imported_ranges`, no tombstones, no guest-name
+rows), passes the result to the popup as `initialConnections`, and the popup refreshes
+behind itself: a slow or failed refresh keeps what is shown and never becomes a message.
+The server read (`listManagerChannelCalendarBookings`) runs its per-house access checks and
+property loads in parallel. The cap is not raised; the full read stays the Bookings
+calendar's own ([`bookings.md`](bookings.md)). Coverage:
+`tests/unit/channel-calendar-slim-read.test.ts`, `channel-calendar-ical-modal.test.tsx`.
 
 The popup is **one page, not a wizard**: channel → scope → a paste field per
 unit. Scope is `SegmentedTwo` — **Entire workspace** or **specific properties** —
@@ -253,4 +291,4 @@ Workspace insights product area (`src/lib/mcp/capabilities.ts`).
 
 Coverage for the page itself: `tests/unit/manager-integrations-panel.test.tsx`,
 `integrations-channel-rows.test.tsx`, `integrations-messages-panel.test.tsx`,
-`channel-calendar-link-modal.test.tsx`.
+`channel-calendar-link-modal.test.tsx`, `channel-calendar-ical*.test.ts*`.

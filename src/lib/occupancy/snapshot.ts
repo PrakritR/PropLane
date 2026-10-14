@@ -359,12 +359,12 @@ export function groupStaysByRoom<T extends { roomId: string; roomLabel: string }
   });
 }
 
-export function dayStayDisplayName(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName">): string {
+export function dayStayDisplayName(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName"> & { channelLabel?: string }): string {
   if (occupancyStayKind(entry) === "block") return "Blocked";
   const named = entry.residentName?.trim();
   if (named) return named;
   const raw = entry.summary?.trim() ?? "";
-  if (!raw) return entry.source === "booking_com" ? "Booked (Booking.com)" : entry.source === "vrbo" ? "Booked (Vrbo)" : "Booked (Airbnb)";
+  if (!raw) return entry.source === "booking_com" ? "Booked (Booking.com)" : entry.source === "vrbo" ? "Booked (Vrbo)" : entry.source === "ical" ? `Booked (${entry.channelLabel?.trim() || "Other calendar"})` : "Booked (Airbnb)";
   return raw;
 }
 

@@ -37,11 +37,15 @@ export async function GET(req: Request) {
       ? propertyIdsParam.split(",").map((id) => id.trim()).filter(Boolean)
       : [];
 
+    // `?slim=1` is the Connect popup's and the Integrations row's read: rooms and links without the
+    // stored ranges, so it stays fast however many stays the channels have brought in.
+    const slim = url.searchParams.get("slim") === "1";
     const properties = await listManagerChannelCalendarBookings(
       ctx.db,
       ctx.userId,
       propertyIds,
       resolveRequestOrigin(req),
+      { slim },
     );
     // The payload carries each channel's import URL, which is a bearer secret: it must not sit in
     // any intermediary or browser cache.
