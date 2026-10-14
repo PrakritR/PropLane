@@ -741,7 +741,13 @@ are below; the fourth, `team_inbound_forward`, is the resident forward further d
   update that matches no row means the dispatcher already sent it — that text is
   reported as sent, never as withheld. A member the relay could not text is
   logged by reason (never a phone or a body); the inbound text still completes,
-  because a terminal reason would otherwise retry forever.
+  because a terminal reason would otherwise retry forever. PropLane's own routine
+  team notice rides this same relay and cap (sender the OWNER, body
+  `PropLane: <line>`), skipping the actor and every member the event is not
+  theirs to hear — the per-house / per-module grant and the member's topic
+  switch, owned by
+  [automated-communication.md](automated-communication.md). It keeps the relay's
+  `transactional` class, so that line is not quiet-hour held.
 - **Legacy `team_notice`** keeps the same consent rule (no producer remains).
 
 **A member texting the work number** (`routeManagerInboundText`,

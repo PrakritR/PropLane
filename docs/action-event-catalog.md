@@ -55,13 +55,14 @@ Replays cannot create another consumer row. The same event-derived `messageId`
 is passed through `deliverPortalInboxMessage`, so a retry cannot append the same
 turn twice even if delivery succeeded before the outbox status was committed.
 
-Delivery (for every audience but `team`, and but a `manager` copy of what that
-manager themself did — both are PropLane Assistant notices fanned out to the
-owner and every teammate with the house, never a Team chat post, see
-[`docs/agents/automated-communication.md`](agents/automated-communication.md))
-continues to use one person-pair conversation, Pacific timestamps,
+Delivery continues to use one person-pair conversation, Pacific timestamps,
 server-side recipient authorization, and the durable inbox rules in
-`docs/agents/communication-inbox.md`. Email and SMS follow the recipient's
-category preferences. Deferred and failed rows are retried by
+`docs/agents/communication-inbox.md` — except for the `team` audience, a
+`manager` copy of what that manager themself did, and a teammate's `manager`
+copy of a ROUTINE event. Those three are the owner's own PropLane Assistant
+notice plus ONE PropLane line in the workspace Team chat, with a teammate's own
+Assistant reached only when the event is urgent
+([`docs/agents/automated-communication.md`](agents/automated-communication.md)).
+Email and SMS follow the recipient's category preferences. Deferred and failed rows are retried by
 `retryDueActionEventDeliveries`; automated SMS remains subject to consent and
 quiet hours in the transport layer.

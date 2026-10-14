@@ -30,12 +30,14 @@ Pure rules live in `src/lib/workspaces/membership.ts`; server lookups
 `membership.server.ts`. Coverage: `tests/unit/workspace-membership.test.ts`.
 
 **A teammate is reached through the workspace, never with a line of their own.**
-Every PropLane Assistant notice for a house goes to the owner and each teammate
-granted that module on it (`notifyPropertyScopedManagersFromAgent` over
-`resolveWorkspaceNoticeRecipients` - the role matrix is § Who hears a workspace
-notice), in the
-teammate's own Assistant, texted from the OWNER's work number and billed to the
-OWNER, emailed from the workspace work email. The Team chat is the workspace's
+A ROUTINE notice for a house reaches the owner's own PropLane Assistant and the
+team as ONE PropLane line in the Team chat; only an URGENT one also lands in the
+Assistant of each teammate granted that module on the house
+(`notifyPropertyScopedManagersFromAgent` over `resolveWorkspaceNoticeRecipients`
+- the role matrix is § Who hears a workspace notice). Which notice goes where is
+owned by [`automated-communication.md`](automated-communication.md). Either way a
+teammate is texted from the OWNER's work number and billed to the OWNER, emailed
+from the workspace work email. The Team chat is the workspace's
 membership (owner plus accepted, non-property-owner rows for THAT workspace,
 regardless of house; a Viewer reads only), `account_link_invites.workspace_id`
 being the source, and a property owner is never a member. With no workspace to
@@ -601,9 +603,10 @@ why it cannot work. Coverage: `tests/unit/manager-stripe-payout-context.test.ts`
 ## Who hears a workspace notice (role matrix, Oct 13)
 
 `resolveWorkspaceNoticeRecipients` (`src/lib/workspace-team-recipients.server.ts`) is the one answer, built on
-`resolveWorkspaceTeamMembersWithGrants`. Every automated fan-out (`notifyPropertyScopedManagersFromAgent`) and every
-inbound fan-out (work email, prospect text, resident text) reads it. Permissions stay authoritative: a role with the
-module off at notification level hears nothing.
+`resolveWorkspaceTeamMembersWithGrants`. Every inbound fan-out (work email, prospect text, resident text) reads it, and
+`notifyPropertyScopedManagersFromAgent` reads it for an URGENT event — a routine one reaches the team as one Team chat
+line instead, whose text relay answers to the same matrix through `memberReceivesNotice`. Permissions stay
+authoritative: a role with the module off at notification level hears nothing.
 
 | Role | Events they hear |
 | --- | --- |

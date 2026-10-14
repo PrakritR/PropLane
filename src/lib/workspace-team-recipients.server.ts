@@ -18,8 +18,11 @@ import {
 /**
  * THE one answer to "who in this workspace hears about this event": the owner,
  * plus each accepted teammate whose ROLE and HOUSES say they should. Every
- * automated fan-out (action events, payment reminders, channel bookings) and
- * every inbound fan-out (work email, prospect text, resident text) reads it.
+ * inbound fan-out (work email, prospect text, resident text) reads it, and an
+ * automated fan-out (action events, payment reminders, channel bookings) reads
+ * it for an URGENT event: a routine one names the owner alone and tells the
+ * team with one Team chat line, whose text relay reads this same matrix through
+ * {@link memberReceivesNotice}.
  *
  * Role matrix (docs/agents/co-manager-access.md):
  *  - owner: always.
