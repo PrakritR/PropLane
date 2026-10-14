@@ -17,6 +17,7 @@ read), `src/app/llms.txt/route.ts`, `src/app/llms-full.txt/route.ts`,
 `src/app/robots.ts`, `src/app/sitemap.ts`.
 Guards: `tests/unit/llms-txt.test.ts`, `tests/unit/robots-ai-bots.test.ts`,
 `tests/unit/robots-route.test.ts`, `tests/unit/blog-sitemap.test.ts`,
+`tests/unit/crawl-public-catalog.test.ts`,
 `tests/unit/evidence-ai-search-1013.test.ts`.
 
 ## Never a second copy of a fact
@@ -66,7 +67,10 @@ still serve `Disallow: /` (see deployment-workflow § Search indexing).
 Static marketing paths, `/blog` plus one entry per post (clamped `lastModified`
 — blog.md § Serving the pages), and **one URL per live public listing** read
 through `getCrawlPublicListings()`. A catalog failure is caught: the sitemap
-still lists every static page rather than 500ing a crawl.
+still lists every static page rather than 500ing a crawl. Its URLs are built on
+its own `BASE` (the canonical production host), not `llmsOrigin()`: every
+non-canonical host is `Disallow: /` wholesale (deployment-workflow § Search
+indexing), so the only URLs worth advertising are canonical ones.
 
 ## JSON-LD
 
