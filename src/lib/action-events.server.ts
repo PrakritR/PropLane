@@ -397,8 +397,11 @@ async function deliverProjection(
     }
   }
   // The owner's copy of something a TEAMMATE did reaches the owner as the
-  // normal message below; the other teammates with access to the house still
-  // hear about it, each in their own Assistant (never the actor).
+  // normal message below; the team hears it from the one Team chat line this
+  // leg posts (plus each teammate's own Assistant when the event is urgent).
+  // That line is the team's ONLY routine channel, so it is posted BEFORE the
+  // owner's message and its failure makes this delivery retryable rather than
+  // losing the notice for everyone but the owner.
   if (
     input.recipient.audience === "manager" &&
     !input.retryMode &&
@@ -406,22 +409,31 @@ async function deliverProjection(
     input.recipient.userId === input.managerUserId.trim() &&
     input.senderUserId !== input.recipient.userId
   ) {
-    await notifyPropertyScopedManagersFromAgent(db as Parameters<typeof notifyPropertyScopedManagersFromAgent>[0], {
-      ownerManagerUserId: input.managerUserId.trim(),
-      propertyId: input.propertyId ?? null,
-      module: teamModuleForDomain(input.domain ?? ""),
-      subject: input.rendered.subject,
-      text: teammateNoticeText(text, input.senderName),
-      externalText: teammateNoticeText(input.rendered.smsText ?? text, input.senderName),
-      threadType: "action_event",
-      category: managerNotificationCategoryForEvent(input.category),
-      idempotencyKey: `action-event:${input.eventKey}:manager`,
-      excludeUserIds: [input.recipient.userId, input.senderUserId],
-      urgent: input.urgent,
-      teamNotice: teamNoticeFor(input),
-    }).catch((error: unknown) => {
-      console.error("teammate notice fan-out failed", error instanceof Error ? error.name : "unknown");
-    });
+    try {
+      await notifyPropertyScopedManagersFromAgent(db as Parameters<typeof notifyPropertyScopedManagersFromAgent>[0], {
+        ownerManagerUserId: input.managerUserId.trim(),
+        propertyId: input.propertyId ?? null,
+        module: teamModuleForDomain(input.domain ?? ""),
+        subject: input.rendered.subject,
+        text: teammateNoticeText(text, input.senderName),
+        externalText: teammateNoticeText(input.rendered.smsText ?? text, input.senderName),
+        threadType: "action_event",
+        category: managerNotificationCategoryForEvent(input.category),
+        idempotencyKey: `action-event:${input.eventKey}:manager`,
+        excludeUserIds: [input.recipient.userId, input.senderUserId],
+        urgent: input.urgent,
+        teamNotice: teamNoticeFor(input),
+      });
+    } catch (error) {
+      const updatedAt = input.now.toISOString();
+      const { error: updateError } = await db.from("action_event_deliveries").update({
+        status: "failed", attempts: input.attempts + 1,
+        last_error: error instanceof Error ? error.message : "Team notice failed",
+        next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(), updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
+      return "failed";
+    }
   }
   // A teammate named as a `manager` recipient of a ROUTINE event is told by the
   // Team chat line the owner's leg posts, never by a person-to-person thread

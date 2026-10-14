@@ -105,8 +105,8 @@ export function renderWorkOrderEvent(
   audience: WorkOrderEventAudience,
   facts: WorkOrderEventFacts,
 ): RenderedWorkOrderEvent | null {
-  const ref = facts.reference.trim() || "Work order";
-  const title = facts.title.trim() || "Work order";
+  const ref = facts.reference.trim() || "Service";
+  const title = facts.title.trim() || "Service";
   const at = facts.propertyLabel?.trim() ? ` at ${facts.propertyLabel.trim()}` : "";
   const when = facts.scheduledFor?.trim() || "the scheduled time";
   const vendor = facts.vendorName?.trim() || "the vendor";
@@ -207,7 +207,7 @@ export function renderWorkOrderEvent(
     if (audience === "manager") text = `${ref}: ${money(facts.amountCents)} was marked paid.`;
   }
   if (!text) return null;
-  return { subject: `${ref} · ${title}`, text, smsText: text };
+  return { subject: ref === title ? ref : `${ref} · ${title}`, text, smsText: text };
 }
 
 /** Pure renderer for the vendor's "New task" message (comms-safety-0929). Facts only. */

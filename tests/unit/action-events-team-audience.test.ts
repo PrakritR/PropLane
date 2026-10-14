@@ -143,6 +143,22 @@ describe("action-events: notices reach the team through each person's Assistant"
     expect((deliver.mock.calls[0] as unknown as [unknown, { toUserIds: string[] }])[1].toUserIds).toEqual(["mate-1"]);
   });
 
+  it("marks the owner's delivery failed and retryable when the Team line this leg posts fails", async () => {
+    notifyScoped.mockRejectedValueOnce(new Error("Could not post to the team thread."));
+    const { db, tables } = fakeDb();
+    const result = await emitActionEvent(db, {
+      ...baseInput,
+      senderUserId: "mate-1",
+      senderEmail: "mate@example.com",
+      recipients: [{ audience: "manager", userId: "owner-1", rendered: { subject: "Approved", text: "Alex's application was approved." } }],
+    });
+    expect(result.failed).toBe(1);
+    expect(tables.action_event_deliveries[0]!.status).toBe("failed");
+    expect(tables.action_event_deliveries[0]!.next_attempt_at).toBeTruthy();
+    // The owner's own message is not sent until the line it carries is in, so the retry cannot double-send it.
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it("marks the delivery failed and retryable when the owner's notice fails", async () => {
     notifyScoped.mockRejectedValueOnce(new Error("Manager SMS was not accepted for delivery."));
     const { db, tables } = fakeDb();

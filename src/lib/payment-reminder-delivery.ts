@@ -325,10 +325,18 @@ export async function deliverPaymentReminder(input: {
         url: "/portal/payments",
         idempotencyKey: dedupId,
         // A reminder is never urgent: teammates hear it from the Team chat line.
+        // The chat is read by the whole workspace, so the line names the
+        // resident, never their email address.
         urgent: false,
         teamNotice: {
           messageId: `${dedupId}:team`,
-          text: buildTeamNoticeLine({ domain: "payment", subject: charge.title, who: residentLower, event: "reminder_sent" }),
+          text: buildTeamNoticeLine({
+            domain: "payment",
+            subject: charge.title,
+            place: charge.propertyLabel,
+            who: charge.residentName.trim() || null,
+            event: "reminder_sent",
+          }),
         },
       });
     }

@@ -575,8 +575,10 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   non-property-owner teammate of THAT workspace, regardless of house (a
   Viewer reads, never posts). People type here; PropLane adds one line per
   routine team notice, as "PropLane" (`actorName`), idempotent on
-  `action-event:<eventKey>:team` and relayed by text per each member's
-  team-texting setting. Routine notices to the team are one PropLane line in the Team chat; a teammate's Assistant gets a notice only when the event is urgent; the owner always gets theirs; never a per-teammate conversation. The line format and the urgent rule are in
+  `action-event:<eventKey>:team`. A typed line is relayed by text per each
+  member's team-texting setting; a PropLane line also answers to the member's
+  per-house / per-module notification grant and topic switch before it is
+  texted. Routine action-event notices to the team are one PropLane line in the Team chat; a teammate's Assistant gets a notice only when the event is urgent; the owner always gets theirs; never a per-teammate conversation. The line format and the urgent rule are in
   [`automated-communication.md`](automated-communication.md); coverage
   `tests/unit/team-chat-notices.test.ts`.
   Each line carries `actorUserId`, `from` (the poster's name) and `channel`

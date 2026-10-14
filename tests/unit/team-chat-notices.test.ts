@@ -46,7 +46,7 @@ function invite(userId: string, role: string) {
   };
 }
 
-function seed(opts: { teammates?: string[]; mateTexting?: boolean } = {}) {
+function seed(opts: { teammates?: string[]; mateTexting?: boolean; roles?: Record<string, string> } = {}) {
   const mates = opts.teammates ?? ["khue", "jaarav"];
   return createMemoryDb({
     portal_workspaces: [{ id: "ws-1", owner_user_id: OWNER, name: "Seattle Homes", is_default: true }],
@@ -58,7 +58,7 @@ function seed(opts: { teammates?: string[]; mateTexting?: boolean } = {}) {
         sms_forward_inbound: id === "jaarav" ? opts.mateTexting === true : true,
       })),
     ],
-    account_link_invites: mates.map((id) => invite(id, "property_manager")),
+    account_link_invites: mates.map((id) => invite(id, opts.roles?.[id] ?? "property_manager")),
     portal_inbox_thread_records: [],
     action_events: [],
     action_event_deliveries: [],
@@ -168,26 +168,47 @@ describe("urgent event", () => {
 });
 
 describe("a routine event with no teamNotice from the caller", () => {
-  it("tour booked: one derived Team line (first line, 160 chars, event label), the owner's notice, zero teammate Assistant notices", async () => {
+  it("tour booked: one derived line of the module label plus the SUBJECT, never the owner-addressed body", async () => {
     const db = seed();
-    const long = `Jo booked a tour of 5257 Brooklyn R2 for Saturday. ${"x".repeat(200)}\nSecond line is dropped.`;
+    const body = "You approved it. Jo booked a tour of 5257 Brooklyn R2 for Saturday.\nSecond line is dropped.";
     await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
-      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "calendar", subject: "Tour booked", text: long,
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "calendar", subject: "Tour booked", text: body,
       idempotencyKey: "action-event:tour-1:booked:team",
     });
     expect(landlords()).toEqual([OWNER]);
     expect(teamLines(db)).toHaveLength(1);
-    const body = teamLines(db)[0]!.body;
-    expect(body.startsWith("Tour · Jo booked a tour of 5257 Brooklyn R2 for Saturday.")).toBe(true);
-    expect(body).not.toContain("Second line");
-    expect(body.length).toBe("Tour · ".length + 160);
-    expect(teamLines(db)[0]).toMatchObject({ id: "action-event:tour-1:booked:team:team", from: "PropLane" });
-    // A retry is still one line.
+    // A module is broader than one event, so the label is the module's word, not "Tour".
+    expect(teamLines(db)[0]).toMatchObject({ body: "Schedule · Tour booked", from: "PropLane" });
+    expect(teamLines(db)[0]!.body).not.toContain("You approved it");
+    // The `:manager` and `:team` legs of ONE event derive ONE id, so they post one line.
+    expect(teamLines(db)[0]!.id).toBe("action-event:tour-1:booked:team");
     await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
-      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "calendar", subject: "Tour booked", text: long,
-      idempotencyKey: "action-event:tour-1:booked:team",
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "calendar", subject: "Tour booked", text: body,
+      idempotencyKey: "action-event:tour-1:booked:manager",
     });
     expect(teamLines(db)).toHaveLength(1);
+  });
+
+  it("no subject: the body's first line, capped at 160 characters", async () => {
+    const db = seed();
+    const long = `Jo booked a tour of 5257 Brooklyn R2 for Saturday. ${"x".repeat(200)}\nSecond line is dropped.`;
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "residents", subject: "", text: long,
+      idempotencyKey: "action-event:res-1:welcomed:manager",
+    });
+    const body = teamLines(db)[0]!.body;
+    expect(body.startsWith("Resident · Jo booked a tour of 5257 Brooklyn R2 for Saturday.")).toBe(true);
+    expect(body).not.toContain("Second line");
+    expect(body.length).toBe("Resident · ".length + 160);
+    expect(teamLines(db)[0]!.id).toBe("action-event:res-1:welcomed:team");
+  });
+
+  it("no idempotency key: no safe id, so no line at all", async () => {
+    const db = seed();
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "services", subject: "s", text: "t",
+    });
+    expect(teamThreads(db)).toHaveLength(0);
   });
 });
 
@@ -223,5 +244,26 @@ describe("text relay of the Team line", () => {
     const to = enqueueOwnerSms.mock.calls.map(([input]) => input.recipientUserId).sort();
     expect(to).toEqual(["jaarav", "khue"]);
     expect(enqueueOwnerSms.mock.calls[0]![0]!.body).toBe("PropLane: Service request · x · open");
+  });
+
+  it("still answers to the per-module grant: a bookkeeper is not texted a services line", async () => {
+    const db = seed({ mateTexting: true, roles: { jaarav: "bookkeeper" } });
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "services", subject: "s", text: "t",
+      idempotencyKey: "k", teamNotice: { text: "Service request · x · open", messageId: "action-event:k:team" },
+    });
+    // The line is in the chat both of them read; only the push to a phone is scoped.
+    expect(teamLines(db)).toHaveLength(1);
+    expect(enqueueOwnerSms.mock.calls.map(([input]) => input.recipientUserId)).toEqual(["khue"]);
+  });
+
+  it("still answers to the per-house grant: a teammate off the house is not texted", async () => {
+    const db = seed({ mateTexting: true });
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: "house-elsewhere", module: "services", subject: "s", text: "t",
+      idempotencyKey: "k2", teamNotice: { text: "Service request · x · open", messageId: "action-event:k2:team" },
+    });
+    expect(teamLines(db)).toHaveLength(1);
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
   });
 });
