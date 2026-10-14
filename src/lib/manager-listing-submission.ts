@@ -966,6 +966,13 @@ export type ManagerListingSubmissionV1 = {
   /** When enabled, managers may add off-platform Airbnb occupants (no PropLane billing). */
   airbnbRentalsAllowed?: boolean;
   shortTermRequirements?: string;
+  /**
+   * "Returning guests book instantly" on the Short stay card. Absent reads as ON: a guest with a completed
+   * stay on this listing (and no declined request) is confirmed at once when every night is free; first-timers
+   * always request. Saved on the submission and read by `listingBooksReturningGuestsInstantly`, never
+   * resolved downstream (docs/agents/bookings.md § Guest portal stays).
+   */
+  shortStayInstantBookReturning?: boolean;
   shortTermDailyCost?: string;
   shortTermDeposit?: string;
   /** Move-in fee charged for short-term stays (used to calculate upgrade delta when switching to long-term). */
@@ -3047,6 +3054,7 @@ function normalizeManagerListingSubmissionV1Base(
     shortTermRentalsAllowed: Boolean(sub.shortTermRentalsAllowed),
     airbnbRentalsAllowed: Boolean(sub.airbnbRentalsAllowed),
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
+    ...(typeof sub.shortStayInstantBookReturning === "boolean" ? { shortStayInstantBookReturning: sub.shortStayInstantBookReturning } : {}),
     shortTermDailyCost: typeof sub.shortTermDailyCost === "string" ? sub.shortTermDailyCost : "",
     shortTermDeposit: typeof sub.shortTermDeposit === "string" ? sub.shortTermDeposit : "",
     shortTermPricingMode:

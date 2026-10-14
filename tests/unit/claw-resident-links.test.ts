@@ -29,6 +29,7 @@ describe("claw-resident-links", () => {
     expect(residentPortalPath("move_in")).toBe("/resident/move-in");
     expect(residentPortalPath("inbox")).toBe("/resident/communication/email/unopened");
     expect(residentPortalPath("services")).toBe("/resident/services");
+    expect(residentPortalPath("stays")).toBe("/resident/stays/upcoming");
     expect(residentPortalPath("services_work_orders")).toBe("/resident/services");
     expect(residentPortalPath("apply", { propertyId: "p1", bundleId: "b1" })).toBe(
       "/rent/apply?propertyId=p1&bundle=b1",
@@ -99,6 +100,7 @@ describe("every path the link builders hand out resolves to a real route", () =>
     "services",
     "services_work_orders",
     "applications",
+    "stays",
     "login",
     "signup",
     "browse",

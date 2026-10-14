@@ -26,7 +26,12 @@ function readPath(row: Row, column: string): unknown {
 
 type FakeBuilder = PromiseLike<{ data: unknown; error: unknown; count?: number | null }> & Record<string, unknown>;
 
-export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
+export type FakeDbOptions = {
+  /** Return an error to make a write fail the way the database would (a capacity trigger, a constraint). */
+  failWrite?: (table: string, mode: "insert" | "update" | "upsert" | "delete", payload: Row | Row[] | null) => { code?: string; message?: string } | null;
+};
+
+export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOptions = {}): FakeDb {
   const tables: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((row) => ({ ...row }));
   let counter = 0;
@@ -38,6 +43,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
     let payload: Row | Row[] | null = null;
     let upsertConflict: string[] = [];
     let limitN: number | null = null;
+    let rangeFrom = 0;
     let orderBy: { column: string; ascending: boolean } | null = null;
     let wantsCount = false;
     let head = false;
@@ -46,6 +52,10 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
 
     function execute(): { data: unknown; error: unknown; count?: number | null } {
       const rows = tables[table]!;
+      if (mode !== "select") {
+        const failure = options.failWrite?.(table, mode, payload);
+        if (failure) return { data: null, error: failure };
+      }
       if (mode === "insert") {
         const items = (Array.isArray(payload) ? payload : [payload]) as Row[];
         const created = items.map((item) => ({ id: `${table}-${++counter}`, created_at: new Date().toISOString(), ...item }));
@@ -79,6 +89,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
         out = [...out].sort((a, b) => String(readPath(a, column) ?? "").localeCompare(String(readPath(b, column) ?? "")) * (ascending ? 1 : -1));
       }
       const total = out.length;
+      if (rangeFrom > 0) out = out.slice(rangeFrom);
       if (limitN !== null) out = out.slice(0, limitN);
       return { data: head ? null : out, error: null, count: wantsCount ? total : null };
     }
@@ -87,6 +98,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
         wantsCount = opts?.count === "exact";
         head = opts?.head === true;
+        return builder;
+      },
+      // PostgREST's generic `.filter(column, "eq", value)` (what a `row_data->>key` match uses).
+      filter: (column: string, op: string, value: unknown) => {
+        if (op === "eq") filters.push((row) => readPath(row, column) === value);
         return builder;
       },
       eq: (column: string, value: unknown) => (filters.push((row) => readPath(row, column) === value), builder),
@@ -108,6 +124,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       or: () => builder,
       order: (column: string, opts?: { ascending?: boolean }) => ((orderBy = { column, ascending: opts?.ascending !== false }), builder),
       limit: (n: number) => ((limitN = n), builder),
+      range: (from: number, to: number) => ((rangeFrom = from), (limitN = to - from + 1), builder),
       insert: (row: Row | Row[]) => ((mode = "insert"), (payload = row), builder),
       update: (row: Row) => ((mode = "update"), (payload = row), builder),
       upsert: (row: Row, opts?: { onConflict?: string }) => (

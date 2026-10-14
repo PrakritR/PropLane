@@ -12,7 +12,7 @@ function isAuthorized(req: Request): boolean {
   return req.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 
-/** Releases short-stay date holds after the 15-minute checkout window. */
+/** Expires short-stay holds: a guest request after its 24 hours, a legacy checkout hold after 15 minutes. */
 export async function GET(req: Request) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
