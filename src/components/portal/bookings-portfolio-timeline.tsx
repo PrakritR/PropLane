@@ -66,7 +66,7 @@ function BookingBar({ entry, today, children, className, style, onEdit }: { entr
   const checkout = bookingCheckout(entry);
   const barLabel = entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
   return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${barLabel}, ${status}`}>
-    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : ""}{barLabel}</span>{children}
+    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : entry.source === "ical" ? `${(entry.channelLabel?.trim() || "O").charAt(0).toUpperCase()} · ` : ""}{barLabel}</span>{children}
   </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
     <div className="grid gap-2 p-3 text-sm"><strong>{barLabel}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
     {onEdit && !isChannelBookingSource(entry.source) ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}

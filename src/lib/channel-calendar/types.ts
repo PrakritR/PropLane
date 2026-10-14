@@ -1,4 +1,8 @@
-export const CHANNEL_CALENDAR_PROVIDERS = ["airbnb", "booking_com", "vrbo"] as const;
+/**
+ * `ical` is "Other calendar": any site that publishes a plain https .ics (Houfy, Furnished Finder,
+ * Expedia...). The site's name is the connection's `label`, so a room can hold several.
+ */
+export const CHANNEL_CALENDAR_PROVIDERS = ["airbnb", "booking_com", "vrbo", "ical"] as const;
 export type ChannelCalendarProvider = (typeof CHANNEL_CALENDAR_PROVIDERS)[number];
 
 export const CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX = "channel-import";

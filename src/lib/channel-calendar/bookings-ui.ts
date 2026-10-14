@@ -220,6 +220,7 @@ export function bookingSourceDotClass(source: PropertyBookingEntry["source"]): s
     case "airbnb":
     case "booking_com":
     case "vrbo":
+    case "ical":
       return "bg-[var(--status-pending-fg)]";
     case "hold":
       return "bg-[var(--status-confirmed-fg)]";
@@ -235,6 +236,7 @@ export function bookingSourceBadgeTone(
     case "airbnb":
     case "booking_com":
     case "vrbo":
+    case "ical":
       return "pending";
     case "hold":
       return "confirmed";
@@ -302,8 +304,10 @@ export function bookingDeleteRefusalReason(
   return `${entry.residentName.trim()} is in-house today — move them out before removing this booking.`;
 }
 
-export function bookingSourceLabel(source: PropertyBookingEntry["source"]): string {
+export function bookingSourceLabel(source: PropertyBookingEntry["source"], channelLabel?: string | null): string {
   switch (source) {
+    case "ical":
+      return channelLabel?.trim() || "Other calendar";
     case "airbnb":
       return "Airbnb";
     case "booking_com":

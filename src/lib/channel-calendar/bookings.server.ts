@@ -25,6 +25,10 @@ import { channelStayDetailsKey, type ChannelStayMoney } from "@/lib/channel-cale
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
+/** The connection columns a slim read needs - everything but `imported_ranges`. */
+const SLIM_CONNECTION_COLUMNS =
+  "id,manager_user_id,property_id,room_id,provider,label,import_url,export_token,last_synced_at,last_error,export_last_fetched_at";
+
 function propertyLabelFromRecord(
   propertyId: string,
   property: MockProperty | null,
@@ -85,12 +89,19 @@ export function normalizeRanges(
   });
 }
 
+/**
+ * `slim` is the Connect modal's and the Integrations row's read: the same rooms and links but never
+ * the stored `imported_ranges` (the heaviest column, one JSON array per connection), the removed-stay
+ * tombstones or the guest-name rows. Those only draw the Bookings calendar, which uses the full read.
+ */
 export async function listManagerChannelCalendarBookings(
   db: SupabaseClient,
   userId: string,
   propertyIds: string[],
   browserOrigin?: string,
+  opts: { slim?: boolean } = {},
 ): Promise<ManagerChannelBookingProperty[]> {
+  const slim = opts.slim === true;
   const requestedIds = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
   if (requestedIds.length === 0) return [];
 
@@ -102,10 +113,12 @@ export async function listManagerChannelCalendarBookings(
   const uniqueIds = workspaceScope === null ? requestedIds : requestedIds.filter((id) => workspaceScope.includes(id));
   if (uniqueIds.length === 0) return [];
 
-  const allowed: string[] = [];
-  for (const propertyId of uniqueIds) {
-    if (await managerHasCalendarAccessForProperty(db, userId, propertyId)) allowed.push(propertyId);
-  }
+  // One access check per house, all at once: awaiting them one by one made this read grow with the
+  // portfolio (a 28-room workspace spent most of the Connect popup's 12 seconds right here).
+  const accessible = await Promise.all(
+    uniqueIds.map(async (propertyId) => (await managerHasCalendarAccessForProperty(db, userId, propertyId)) ? propertyId : null),
+  );
+  const allowed = accessible.filter((propertyId): propertyId is string => propertyId !== null);
   if (allowed.length === 0) return [];
 
   // The Airbnb / channel import URL is a bearer secret (anyone holding it reads the
@@ -113,25 +126,36 @@ export async function listManagerChannelCalendarBookings(
   // calendar — the same bar as linking it. View-only teammates see `hasImportUrl`.
   // One decision for every house, in two round trips rather than two per house:
   // this list backs the calendar page's own snapshot read.
-  const canSeeImportUrl = await managerCanWriteCalendarForProperties(db, userId, allowed);
-
-  const { data, error } = await db
-    .from("external_calendar_connections")
-    .select("*")
-    .in("property_id", allowed)
-    .order("property_id", { ascending: true })
-    .order("created_at", { ascending: true });
+  // The writable decision, the connection rows and (in a full read) the tombstones do not depend on
+  // each other.
+  const [canSeeImportUrl, connectionsRead, tombstoneKeys] = await Promise.all([
+    managerCanWriteCalendarForProperties(db, userId, allowed),
+    db
+      .from("external_calendar_connections")
+      .select(slim ? SLIM_CONNECTION_COLUMNS : "*")
+      .in("property_id", allowed)
+      .order("property_id", { ascending: true })
+      .order("created_at", { ascending: true }),
+    // A stay the manager removed never draws, even if a sync that was already in
+    // flight stored it again (C2-AB7).
+    slim ? Promise.resolve(new Set<string>()) : loadChannelStayTombstoneKeys(db, allowed),
+  ]);
+  const { data, error } = connectionsRead;
   if (error) throw new Error(error.message);
 
-  // A stay the manager removed never draws, even if a sync that was already in
-  // flight stored it again (C2-AB7).
-  const tombstoneKeys = await loadChannelStayTombstoneKeys(db, allowed);
-
-  // Manager-entered guest names, one query for every connection in scope.
-  const stayRows = await loadChannelStayDetailRows(
-    db,
-    (data ?? []).map((row) => String((row as { id?: unknown }).id ?? "")),
-  );
+  const connectionRows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+  const recordIds = [...new Set(connectionRows.map((row) => String(row.property_id ?? "")).filter(Boolean))];
+  // Manager-entered guest names (one query for every connection in scope) and every house's record
+  // (once each, all at once rather than one awaited read per house inside the loop below).
+  const [stayRows, propertyEntries] = await Promise.all([
+    slim
+      ? Promise.resolve(new Map() as Awaited<ReturnType<typeof loadChannelStayDetailRows>>)
+      : loadChannelStayDetailRows(db, connectionRows.map((row) => String(row.id ?? ""))),
+    Promise.all(
+      recordIds.map(async (id) => [id, await loadPropertyRecord(db, id)] as [string, Awaited<ReturnType<typeof loadPropertyRecord>>]),
+    ),
+  ]);
+  const propertyCache = new Map(propertyEntries);
   const guestNames = new Map<string, Map<string, string>>();
   for (const [connectionId, byUid] of stayRows) {
     const names = new Map<string, string>();
@@ -139,20 +163,11 @@ export async function listManagerChannelCalendarBookings(
     guestNames.set(connectionId, names);
   }
 
-  const propertyCache = new Map<
-    string,
-    Awaited<ReturnType<typeof loadPropertyRecord>>
-  >();
-
   const byProperty = new Map<string, ManagerChannelBookingRoom[]>();
 
-  for (const raw of data ?? []) {
-    const connection = parseConnectionRow(raw as Record<string, unknown>);
-    let record = propertyCache.get(connection.property_id);
-    if (record === undefined) {
-      record = await loadPropertyRecord(db, connection.property_id);
-      propertyCache.set(connection.property_id, record);
-    }
+  for (const raw of connectionRows) {
+    const connection = parseConnectionRow(slim ? { ...raw, imported_ranges: [] } : raw);
+    const record = propertyCache.get(connection.property_id) ?? null;
 
     const room: ManagerChannelBookingRoom = {
       connectionId: connection.id,
@@ -160,7 +175,7 @@ export async function listManagerChannelCalendarBookings(
       roomLabel: roomLabelFromSubmission(record?.property ?? null, connection.room_id, connection.label),
       provider: connection.provider,
       label: connection.label,
-      ranges: normalizeRanges(
+      ranges: slim ? [] : normalizeRanges(
         pruneTombstonedRanges(
           connection.imported_ranges ?? [],
           { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },

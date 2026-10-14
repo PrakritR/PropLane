@@ -126,7 +126,7 @@ function dominantSourceForDay(
   dayBookings: PropertyBookingEntry[],
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
-  for (const source of ["proplane", "airbnb", "booking_com", "vrbo", "hold", "block"] as const) {
+  for (const source of ["proplane", "airbnb", "booking_com", "vrbo", "ical", "hold", "block"] as const) {
     if (dayBookings.some((b) => bookingVisualSource(b) === source)) return source;
   }
   return null;

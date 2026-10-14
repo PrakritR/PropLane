@@ -18,13 +18,13 @@ import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
  * room is spoken for, not let. `block` — a manager's explicit "not available"
  * range with a reason, reversible from the day detail.
  */
-export type BookingSource = "airbnb" | "booking_com" | "vrbo" | "proplane" | "hold" | "block";
+export type BookingSource = "airbnb" | "booking_com" | "vrbo" | "ical" | "proplane" | "hold" | "block";
 
 /** The sources a channel calendar feed brings in (everything that is neither PropLane's own nor a manager block). */
-export type ChannelBookingSource = "airbnb" | "booking_com" | "vrbo";
+export type ChannelBookingSource = "airbnb" | "booking_com" | "vrbo" | "ical";
 
 export function isChannelBookingSource(source: BookingSource): source is ChannelBookingSource {
-  return source === "airbnb" || source === "booking_com" || source === "vrbo";
+  return source === "airbnb" || source === "booking_com" || source === "vrbo" || source === "ical";
 }
 
 export type PropertyBookingEntry = {
@@ -34,6 +34,8 @@ export type PropertyBookingEntry = {
   rateBasis?: "daily" | "weekly" | "monthly";
   stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string };
   sourceUid?: string;
+  /** "Other calendar" stays only - the site the manager named for the link (Houfy, Furnished Finder). */
+  channelLabel?: string;
   /** Channel stays only - Airbnb's reservation code, the link to open it, the guest's phone suffix, and the name the manager typed. */
   reservationCode?: string;
   reservationUrl?: string;
@@ -426,6 +428,7 @@ export function airbnbBookingEntries(
         if (!start) continue;
         out.push({
           source: room.provider,
+          ...(room.provider === "ical" && room.label?.trim() ? { channelLabel: room.label.trim() } : {}),
           propertyId: property.propertyId,
           propertyLabel: property.propertyLabel,
           roomId: room.roomId,

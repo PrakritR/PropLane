@@ -27,7 +27,7 @@ vi.mock("@/lib/channel-calendar/property-units", () => ({
   ],
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
-  fetchManagerChannelBookings: vi.fn(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: bookings.rooms }]),
+  fetchManagerChannelBookings: vi.fn<(ids: string[], opts?: { slim?: boolean }) => Promise<unknown[]>>(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: bookings.rooms }]),
   fetchRoomExportCalendarUrl: vi.fn(),
 }));
 
@@ -47,15 +47,18 @@ describe("Settings → Integrations → Bookings", () => {
     expect(screen.getByTestId("connect-modal").textContent).toBe("booking_com");
   });
 
-  it("offers Connect on Airbnb and Booking.com, and Coming soon rows for Vrbo, SpareRoom and Furnished Finder", async () => {
+  it("offers Connect on Airbnb and Booking.com and an Other calendar row, with Coming soon rows for Vrbo and SpareRoom", async () => {
     bookings.rooms = [];
     render(<ManagerBookingChannelsPanel />);
     await waitFor(() => expect(document.querySelector('[data-attr="settings-airbnb-manage"]')?.textContent).toBe("Connect"));
     expect(document.querySelector('[data-attr="settings-booking_com-manage"]')?.textContent).toBe("Connect");
     expect(document.querySelector('[data-attr="settings-vrbo-manage"]')).toBeNull();
     const text = document.body.textContent ?? "";
-    for (const name of ["Vrbo", "SpareRoom", "Furnished Finder"]) expect(text).toContain(name);
-    expect(text.match(/Coming soon/g)?.length).toBe(3);
+    for (const name of ["Vrbo", "SpareRoom", "Other calendar"]) expect(text).toContain(name);
+    // Furnished Finder is no longer its own row: it is named on Other calendar, which links any .ics.
+    expect(document.querySelector('[data-attr="settings-furnished-finder-row"]')).toBeNull();
+    expect(document.querySelector('[data-attr="settings-ical-status"]')?.textContent).toBe("Houfy, Furnished Finder, Vrbo, any .ics");
+    expect(text.match(/Coming soon/g)?.length).toBe(2);
     expect(text).not.toContain("Export booking calendar");
   });
 
@@ -65,6 +68,22 @@ describe("Settings → Integrations → Bookings", () => {
     await waitFor(() => expect(document.querySelector('[data-attr="settings-vrbo-status"]')?.textContent).toBe("Connected · 2 rooms"));
     fireEvent.click(document.querySelector('[data-attr="settings-vrbo-manage"]') as HTMLElement);
     expect(screen.getByTestId("connect-modal").textContent).toBe("vrbo");
-    expect((document.body.textContent ?? "").match(/Coming soon/g)?.length).toBe(2);
+    expect((document.body.textContent ?? "").match(/Coming soon/g)?.length).toBe(1);
+  });
+
+  it("counts Other calendar links per site and opens the popup on ical, handing it the loaded rooms", async () => {
+    bookings.rooms = [{ ...room("ical", "r1"), label: "Houfy" }, { ...room("ical", "r1"), connectionId: "ical-r1-ff", label: "Furnished Finder" }, { ...room("ical", "r2"), label: "Houfy" }];
+    render(<ManagerBookingChannelsPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-ical-status"]')?.textContent).toBe("Connected · 3 links · Houfy, Furnished Finder"));
+    fireEvent.click(document.querySelector('[data-attr="settings-ical-manage"]') as HTMLElement);
+    expect(screen.getByTestId("connect-modal").textContent).toBe("ical");
+  });
+
+  it("reads rooms and links only (slim), never the stored stays that made this read time out", async () => {
+    const { fetchManagerChannelBookings } = await import("@/lib/channel-calendar/client");
+    bookings.rooms = [];
+    render(<ManagerBookingChannelsPanel />);
+    await waitFor(() => expect(fetchManagerChannelBookings).toHaveBeenCalled());
+    expect(vi.mocked(fetchManagerChannelBookings).mock.calls[0]![1]).toEqual({ slim: true });
   });
 });
