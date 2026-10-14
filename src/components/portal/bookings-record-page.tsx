@@ -13,7 +13,7 @@ import { BookingsStayDetailsDialog } from "@/components/portal/bookings-stay-det
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
-import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
+import { BookingsDeleteBlockDialog } from "@/components/portal/bookings-delete-block-dialog";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
@@ -22,7 +22,7 @@ import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingDatesLabel, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingResidentHref, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
-import { bookingCancelLabel, bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
+import { bookingRateLabel, bookingRemovalActions, bookingStatusLabel } from "@/lib/channel-calendar/booking-presentation";
 import { airbnbLinkForRoom, channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
@@ -32,12 +32,13 @@ import { dateKey } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
-export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh, channelLinks = [] }: {
+export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh, onRemoveBlock, channelLinks = [] }: {
   bookingId: string; tab?: string; basePath: string; entries: readonly PropertyBookingEntry[]; loading: boolean;
   residentOptions: readonly BlockDatesResidentOption[]; propertyOptions?: readonly ManagerPropertyFilterOption[];
   onSaveBlock: (draft: BlockDatesDraft) => Promise<{ message?: string } | void>;
   onSaveStayMeta?: (meta: StayMeta) => Promise<unknown>;
-  onRemoveBlock: (blockId: string) => Promise<void>; showToast: (message: string) => void;
+  /** Resolves false when the delete failed (the caller already told the manager why). */
+  onRemoveBlock: (blockId: string) => Promise<boolean | void>; showToast: (message: string) => void;
   /** Reload the bookings after a change made outside the block store (a removed channel stay). */
   onRefresh?: () => void;
   /** Rooms linked to a channel - the record says when each side last checked the other. */
@@ -47,6 +48,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const [editing, setEditing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [namingGuest, setNamingGuest] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [removingStay, setRemovingStay] = useState<PropertyBookingEntry | null>(null);
   const entry = entries.find((candidate) => bookingEntryKey(candidate) === bookingId || bookingLegacyEntryKey(candidate) === bookingId);
   useEffect(() => {
@@ -71,13 +73,22 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const base = recordSections("manager", "booking", { basePath });
   const residentHref = bookingResidentHref(entry, basePath, today);
   const hostBlockStay = entry.source === "airbnb" && isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
-  const headerActions = base.headerActions.filter((action) => action.id !== "edit" || !channel || hostBlockStay);
+  // An imported stay's Edit is its notes and money (the stay-details popup); a PropLane block or stay opens the editor.
+  const channelDetailsEditable = channel && Boolean(entry.connectionId && entry.sourceUid);
+  const removal = bookingRemovalActions(entry, today);
+  const headerActions = base.headerActions
+    .filter((action) => action.id !== "edit" || !channel || channelDetailsEditable)
+    .filter((action) => action.id !== "unblock" || removal.unblock)
+    .filter((action) => action.id !== "delete" || removal.deleteBlock || removal.unblockChannel)
+    .map((action) => (action.id === "delete" && removal.unblockChannel ? { ...action, label: "Remove from PropLane" } : action));
   const sections = {
     ...base,
     headerActions: residentHref ? [...headerActions, { id: "open-resident", label: "Open resident", icon: UserRound }] : headerActions,
   };
   const onAction = (action: string) => {
-    if (action === "edit") { if (hostBlockStay) setNamingGuest(true); else setEditing(true); }
+    if (action === "edit") { if (channelDetailsEditable) setNamingGuest(true); else setEditing(true); }
+    if (action === "unblock" && removal.unblock) setCancelling(true);
+    if (action === "delete") { if (removal.deleteBlock) setDeleting(true); else if (removal.unblockChannel) setRemovingStay(entry); }
     if (action === "open-resident" && residentHref) navigate(residentHref);
     if (action === "message") navigate(bookingRecordHref(basePath, bookingId, "communication"));
   };
@@ -145,7 +156,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   }
   return <>
     <PortalRecordDetailPage pageTitle="Bookings" title={name} subtitle={place} avatarName={name} backHref={backHref} backLabel="Back to bookings" hideBackText bareHeader dataAttrBack="booking-detail-back" iconTitleActions pinScrollBody>
-      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" /><BookingsRowOverflow label={name} onCancel={canCancelBooking(entry) ? () => setCancelling(true) : canRemoveChannelStay(entry) ? () => setRemovingStay(entry) : undefined} cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : bookingCancelLabel(entry)} /></PortalRecordActions>
+      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" alwaysInline /></PortalRecordActions>
       <PortalRecordSectionChrome sections={sections} recordId={bookingId} activeId={tab} title={name} subtitle={entry.propertyLabel} backHref={backHref} backLabel="All bookings" ariaLabel="Booking sections" onHeaderAction={onAction}>
         {body}
       </PortalRecordSectionChrome>
@@ -153,6 +164,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     {removeStayDialog}
     {namingGuest ? <BookingsStayDetailsDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast(hostBlockStay ? "Block notes saved" : "Booking details saved"); onRefresh?.(); }} /> : null}
     {editing ? <BookingsEditSheet key={bookingEntryKey(entry)} entry={entry} entries={entries} propertyOptions={propertyOptions} onClose={() => setEditing(false)} onSave={onSaveBlock} onSaveStayMeta={onSaveStayMeta} /> : null}
+    {deleting ? <BookingsDeleteBlockDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setDeleting(false)} onDelete={async (blockId) => { if ((await onRemoveBlock(blockId)) !== false) navigate(backHref); }} /> : null}
     {cancelling ? <BookingsCancelDialog key={bookingEntryKey(entry)} entry={{ ...entry, residentEmail: entry.residentEmail || resident?.email }} onClose={() => setCancelling(false)} onSave={onSaveBlock} /> : null}
   </>;
 }

@@ -41,7 +41,7 @@ describe("booking record tabs", () => {
   });
 
   it("Message leads the header (no check-in details action exists) and Edit follows", () => {
-    expect(recordSections("manager", "booking", {}).headerActions.map((a) => a.id)).toEqual(["message", "edit"]);
+    expect(recordSections("manager", "booking", {}).headerActions.map((a) => a.id)).toEqual(["message", "edit", "unblock", "delete"]);
   });
 
   it("section hrefs point at the booking route", () => {

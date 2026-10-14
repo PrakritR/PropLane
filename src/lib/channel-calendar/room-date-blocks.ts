@@ -60,7 +60,8 @@ function normalizeBlock(raw: unknown): RoomDateBlock | null {
   if (typeof row.checkIn !== "string" || typeof row.checkOut !== "string") return null;
   return {
     openEnded: row.openEnded === true,
-    bookingStatus: row.recordType === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE ? "cancelled" : row.bookingStatus === "confirmed" ? "confirmed" : "hold",
+    // A room_date_block row whose own bookingStatus says cancelled is cancelled too: the feed and capacity already skip it.
+    bookingStatus: row.recordType === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE || row.bookingStatus === "cancelled" ? "cancelled" : row.bookingStatus === "confirmed" ? "confirmed" : "hold",
     ...(typeof row.rate === "number" && Number.isFinite(row.rate) && row.rate >= 0 ? { rate: row.rate } : {}),
     rateBasis: row.rateBasis === "daily" || row.rateBasis === "weekly" ? row.rateBasis : "monthly",
     stayDetails: normalizeStayDetails(row.stayDetails),
