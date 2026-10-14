@@ -41,7 +41,7 @@ import {
 import { filterBookingEntriesByRoom, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { deleteRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
 import { useSaveBookingBlock } from "@/hooks/use-save-booking-block";
-import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
+import { buildManagerPropertyFilterOptions, canRemoveBookingEntry, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { WORKSPACE_SELECTION_EVENT, activeWorkspaceNonDraftPropertyIds, activeWorkspacePropertyIds } from "@/lib/workspaces/selection";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -130,6 +130,12 @@ function useBookingsWorkspace({
   const [cancelEntry, setCancelEntry] = useState<PropertyBookingEntry | null>(null);
   const [removeStayEntry, setRemoveStayEntry] = useState<PropertyBookingEntry | null>(null);
   const [deleteEntry, setDeleteEntry] = useState<PropertyBookingEntry | null>(null);
+
+  // Unblock and Delete need Calendar at edit on the booking's house; the owner always passes (the server enforces the same grant).
+  const canRemoveBooking = useCallback(
+    (entry: PropertyBookingEntry) => canRemoveBookingEntry(userId, entry.propertyId),
+    [userId],
+  );
 
   const scopedPropertyIds = useMemo(() => {
     if (propertyFilters.length === 0) return propertyIds;
@@ -418,6 +424,7 @@ function useBookingsWorkspace({
         onUnblockBooking={setCancelEntry}
         onDeleteBlock={setDeleteEntry}
         onUnblockChannelStay={setRemoveStayEntry}
+        canRemoveBooking={canRemoveBooking}
         onReserveRoomDay={({ propertyId, roomId, dayKey }) => setSheet({ open: true, dayKey, editingBlock: null, reserve: { propertyId, roomId } })}
         onDayClick={goToDayPage}
         selectedDayKey={selectedDayKey}
@@ -539,6 +546,7 @@ function useBookingsWorkspace({
     saveStayDetails,
     removeBlock,
     channelLinks,
+    canRemoveBooking,
   };
 }
 
@@ -630,7 +638,7 @@ export function ManagerBookings({
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
     selectedDayKey: dayKey,
   });
-  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock, channelLinks } = workspace;
+  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock, channelLinks, canRemoveBooking } = workspace;
 
   if (bookingId) {
     return (
@@ -647,6 +655,7 @@ export function ManagerBookings({
         onRefresh={() => setRefreshSignal((n) => n + 1)}
         channelLinks={channelLinks}
         onRemoveBlock={removeBlock}
+        canRemoveBooking={canRemoveBooking}
         showToast={showToast}
       />
     );

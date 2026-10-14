@@ -312,6 +312,7 @@ export function ManagerPortfolioBookingsCalendar({
   onUnblockBooking,
   onDeleteBlock,
   onUnblockChannelStay,
+  canRemoveBooking,
   onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
@@ -334,6 +335,7 @@ export function ManagerPortfolioBookingsCalendar({
   onUnblockBooking?: (entry: PropertyBookingEntry) => void;
   onDeleteBlock?: (entry: PropertyBookingEntry) => void;
   onUnblockChannelStay?: (entry: PropertyBookingEntry) => void;
+  canRemoveBooking?: (entry: PropertyBookingEntry) => boolean;
   /** An empty room-day was clicked: open Mark reserved for that room and night. */
   onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
@@ -358,6 +360,7 @@ export function ManagerPortfolioBookingsCalendar({
       onUnblockBooking={onUnblockBooking}
       onDeleteBlock={onDeleteBlock}
       onUnblockChannelStay={onUnblockChannelStay}
+      canRemoveBooking={canRemoveBooking}
       onReserveRoomDay={onReserveRoomDay}
       preferenceKey={preferenceKey}
       selectedDayKey={selectedDayKey}
@@ -382,6 +385,7 @@ export function ManagerBookingsHub({
   onUnblockBooking,
   onDeleteBlock,
   onUnblockChannelStay,
+  canRemoveBooking,
   onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
@@ -405,6 +409,7 @@ export function ManagerBookingsHub({
   onUnblockBooking?: (entry: PropertyBookingEntry) => void;
   onDeleteBlock?: (entry: PropertyBookingEntry) => void;
   onUnblockChannelStay?: (entry: PropertyBookingEntry) => void;
+  canRemoveBooking?: (entry: PropertyBookingEntry) => boolean;
   /** An empty room-day was clicked: open Mark reserved for that room and night. */
   onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
@@ -555,6 +560,7 @@ export function ManagerBookingsHub({
                   onUnblockBooking={onUnblockBooking}
                   onDeleteBlock={onDeleteBlock}
                   onUnblockChannelStay={onUnblockChannelStay}
+                  canRemoveBooking={canRemoveBooking}
                   onReserveRoomDay={onReserveRoomDay}
                   preferenceKey={preferenceKey}
                   roomFilterId={roomFilterId}

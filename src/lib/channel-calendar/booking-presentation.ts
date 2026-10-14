@@ -53,8 +53,10 @@ export function isNativeBlock(entry: Pick<PropertyBookingEntry, "source" | "bloc
  * The removal actions one bar, row or record offers - the single gate every Bookings surface reads.
  * `unblock` = cancel (undoable, frees the nights), live native blocks only; `deleteBlock` = hard delete,
  * any native block (live, cancelled or ended); `unblockChannel` = tombstone an imported channel stay.
- * A resident stay (lease or application) gets none.
+ * A resident stay (lease or application) gets none. `canRemove` false (viewer below Calendar edit) hides all three.
  */
-export function bookingRemovalActions(entry: PropertyBookingEntry, today = dateKey(new Date())): { unblock: boolean; deleteBlock: boolean; unblockChannel: boolean } {
+export function bookingRemovalActions(entry: PropertyBookingEntry, today = dateKey(new Date()), canRemove = true): { unblock: boolean; deleteBlock: boolean; unblockChannel: boolean } {
+  // A teammate below Calendar `edit` on this house is offered none of them (the server refuses either way).
+  if (!canRemove) return { unblock: false, deleteBlock: false, unblockChannel: false };
   return { unblock: canCancelBooking(entry, today), deleteBlock: isNativeBlock(entry), unblockChannel: canRemoveChannelStay(entry) };
 }

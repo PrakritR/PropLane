@@ -32,7 +32,7 @@ import { dateKey } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
-export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh, onRemoveBlock, channelLinks = [] }: {
+export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh, onRemoveBlock, channelLinks = [], canRemoveBooking }: {
   bookingId: string; tab?: string; basePath: string; entries: readonly PropertyBookingEntry[]; loading: boolean;
   residentOptions: readonly BlockDatesResidentOption[]; propertyOptions?: readonly ManagerPropertyFilterOption[];
   onSaveBlock: (draft: BlockDatesDraft) => Promise<{ message?: string } | void>;
@@ -43,6 +43,8 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   onRefresh?: () => void;
   /** Rooms linked to a channel - the record says when each side last checked the other. */
   channelLinks?: readonly ChannelRoomLink[];
+  /** False when the viewer is below Calendar edit on this house: Unblock, Delete and Remove from PropLane are not offered. */
+  canRemoveBooking?: (entry: PropertyBookingEntry) => boolean;
 }) {
   const navigate = usePortalNavigate();
   const [editing, setEditing] = useState(false);
@@ -75,7 +77,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const hostBlockStay = entry.source === "airbnb" && isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
   // An imported stay's Edit is its notes and money (the stay-details popup); a PropLane block or stay opens the editor.
   const channelDetailsEditable = channel && Boolean(entry.connectionId && entry.sourceUid);
-  const removal = bookingRemovalActions(entry, today);
+  const removal = bookingRemovalActions(entry, today, canRemoveBooking ? canRemoveBooking(entry) : true);
   const headerActions = base.headerActions
     .filter((action) => action.id !== "edit" || !channel || channelDetailsEditable)
     .filter((action) => action.id !== "unblock" || removal.unblock)
