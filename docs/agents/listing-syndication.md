@@ -36,14 +36,17 @@ shape. A third party crawls this feed with no PropLane credential, so it is
 exactly as anonymous as `/api/property-records/public` — never widen it to
 read the raw stored listing.
 
-The mapper does not read the submission's `city` / `state`: it falls back to the
-public `neighborhood` for `<city>` and derives `<state>` from the public ZIP via
-a small USPS ZIP3-prefix table (`stateFromZip`). Both are documented, deliberate
-approximations — not a second path around the allowlist. (Those two fields were
-added to `PUBLIC_SUBMISSION_KEYS` on 2026-10-13 for the public listing page's
-formal JSON-LD address, so they are now projected; switching the mapper to them
-is a feed behavior change and belongs to whoever owns this channel.) Do not
-touch `publicListingProjection` itself to "fix" the mapper.
+**`<city>` / `<state>` are this channel's own approximation, and this is the one
+place that says so.** The mapper maps the public `neighborhood` to `<city>` and
+derives `<state>` from the public ZIP through a small USPS ZIP3-prefix table
+(`stateFromZip`), never the submission's structured `city` / `state`. That is a
+deliberate mapping choice, not a path around the allowlist and not a missing
+input: both fields are on `PUBLIC_SUBMISSION_KEYS` (the public listing page's
+JSON-LD needs a legal city — [`ai-search-visibility.md`](ai-search-visibility.md)
+§ JSON-LD), so the mapper could read them. Mapping them instead changes what
+Zillow · Trulia · HotPads publish for every opted-in listing, so it is a feed
+change decided here, in this section — never a quiet cleanup on the way past,
+and never a change to `publicListingProjection` to "fix" the mapper.
 
 ## Opt-in state lives on the submission, not a new column
 
