@@ -4,8 +4,9 @@
  * The house workspace frame for the two move-in form popups (the submission viewer and Send a
  * form): the same full-screen overlay, header (title, saved state, Ask PropLane, close), rail
  * with a context card, centre, right-hand panel and footer the New property wizard and
- * `AddWorkspace` use. Those two own their own step footer; a viewer and a one-screen send need a
- * plain Done / Cancel + Send footer, so this wraps the same `ListingWorkspace` shell directly.
+ * `AddWorkspace` use. Those two own their own step footer; a viewer needs a plain Done, and the
+ * one-screen send is a `singleStep` door — no rail, no context card above it and Send alone on the
+ * right — so this wraps the same `ListingWorkspace` shell directly.
  */
 import { useEffect, type ReactNode } from "react";
 import { SINGLE_STEP_NO_RAIL_CLASS, SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS } from "@/components/portal/add-workspace/index";

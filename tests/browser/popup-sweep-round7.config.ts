@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
-  testMatch: "popup-sweep-round7/sweep.spec.ts",
+  testMatch: "popup-sweep-round7/*.spec.ts",
   timeout: 90_000,
   workers: 1,
   retries: 0,
