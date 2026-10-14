@@ -51,6 +51,17 @@ export function teamNoticeState(event: string | undefined): string {
   return STATE_BY_EVENT[key] ?? key.replace(/_/g, " ");
 }
 
+/**
+ * A subject is a fact off a row, and a row written before the rename carries
+ * the retired word — as its whole title, or as the "Work order · " prefix the
+ * stored-title matchers still read. The event label already says what this is,
+ * so the word is dropped here rather than read by a person.
+ */
+function serviceSubject(value: string | null | undefined): string {
+  const stripped = (value ?? "").trim().replace(/^work\s*orders?\b[\s·:-]*/i, "").trim();
+  return stripped.toLowerCase() === "work order" ? "" : stripped;
+}
+
 export function buildTeamNoticeLine(input: {
   domain?: string;
   event?: string;
@@ -62,7 +73,7 @@ export function buildTeamNoticeLine(input: {
   who?: string | null;
   urgent?: boolean;
 }): string {
-  const subject = input.subject?.trim();
+  const subject = serviceSubject(input.subject);
   const place = input.place?.trim();
   const who = input.who?.trim();
   const state = teamNoticeState(input.event);

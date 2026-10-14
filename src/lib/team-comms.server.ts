@@ -239,8 +239,9 @@ async function postWorkspaceId(db: SupabaseClient, ownerId: string, workspaceId:
 
 /**
  * Make sure a workspace with two or more people has its Team chat row, so
- * anyone in it can start the conversation (nothing automated ever creates it
- * any more). One cheap existence read on the hot path; the roster is read only
+ * anyone in it can start the conversation — and so PropLane's own routine team
+ * notice has a chat to land its one line in. One cheap existence read on the
+ * hot path; the roster is read only
  * when the chat is missing. Insert-only: a concurrent creator wins, never an
  * overwrite. A solo workspace gets no chat (everything it texts goes to the
  * Assistant). Returns the thread id, or null when none is warranted.

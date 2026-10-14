@@ -323,7 +323,8 @@ function derivedTeamNotice(input: {
  * Urgent: every teammate with notification access to the house ALSO gets the
  * notice in their OWN Assistant thread (text from the WORKSPACE OWNER's work
  * number, billed to the owner via `senderOwnerId`; a teammate is never
- * charged), plus the same Team line.
+ * charged), plus the same Team line — whose text relay skips everyone just
+ * noticed directly, so one event is never two texts on the owner's credit.
  *
  * With no `teamNotice`, a routine notice derives its Team line from the notice
  * itself (`derivedTeamNotice`): every routine event posts exactly one line.
@@ -436,9 +437,49 @@ export async function notifyPropertyScopedManagersFromAgent(
       category: input.category,
       text: teamNotice.text,
       messageId: teamNotice.messageId,
-      excludeUserIds: [...excluded],
+      excludeUserIds: [...excluded, ...recipientIds],
     });
   }
+}
+
+/**
+ * The event's one Team chat line with no Assistant notice of its own: for a
+ * routine event whose only manager-audience recipients are teammates, because
+ * the owner filtered themselves out as the actor. Without this the line would
+ * depend on an owner leg that never runs and the team would hear nothing.
+ *
+ * Idempotent on `messageId` like every other leg, and only the leg that
+ * actually posts relays, so calling this alongside a notice carrying the same
+ * line still posts and texts exactly once.
+ */
+export async function postTeamNoticeLineForEvent(
+  db: ServiceClient,
+  input: {
+    ownerManagerUserId: string;
+    propertyId?: string | null;
+    module: CoManagerPermissionId;
+    category?: ManagerNotificationCategory;
+    teamNotice: { text: string; messageId: string };
+    excludeUserIds?: readonly string[];
+  },
+): Promise<void> {
+  const ownerId = input.ownerManagerUserId.trim();
+  const text = input.teamNotice.text.trim();
+  const messageId = input.teamNotice.messageId.trim();
+  if (!ownerId || !text || !messageId) return;
+  const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
+    () => null,
+  );
+  await postTeamNoticeLine(db, {
+    ownerId,
+    workspaceId: noticeWorkspace?.workspaceId || null,
+    module: input.module,
+    propertyId: input.propertyId ?? null,
+    category: input.category,
+    text,
+    messageId,
+    excludeUserIds: (input.excludeUserIds ?? []).map((id) => id.trim()).filter(Boolean),
+  });
 }
 
 /**
@@ -451,8 +492,9 @@ export async function notifyPropertyScopedManagersFromAgent(
  * per-module notification grant (`memberReceivesNotice` — the same role matrix
  * that keeps a bookkeeper off a maintenance notice and a property manager off a
  * house they do not hold) and the recipient's own topic switch. A grant read
- * that fails narrows to the owner alone, so the relay stays closed rather than
- * widening; an unreadable topic preference is not a refusal and does not skip
+ * that fails narrows to the owner alone — which is `null` here, "relay
+ * nothing", never an empty exclusion list that would text the whole workspace
+ * ungated; an unreadable topic preference is not a refusal and does not skip
  * the member.
  */
 async function teamNoticeRelayExclusions(
@@ -465,12 +507,17 @@ async function teamNoticeRelayExclusions(
     category?: ManagerNotificationCategory;
     excludeUserIds: readonly string[];
   },
-): Promise<string[]> {
+): Promise<string[] | null> {
   const excluded = new Set(input.excludeUserIds.map((id) => id.trim()).filter(Boolean));
   const members = await resolveWorkspaceTeamMembersWithGrants(db, {
     ownerManagerUserId: input.ownerId,
     workspaceId: input.workspaceId,
-  }).catch(() => []);
+  }).catch(() => null);
+  // No readable roster = no role matrix to tell a bookkeeper from the house's
+  // own manager, so nothing is pushed to a phone. An owner-only answer is the
+  // same thing: the read failed back to the owner, and the owner is never
+  // relayed to, so a genuinely solo workspace loses nothing either.
+  if (!members || members.every((member) => member.isOwner)) return null;
   for (const member of members) {
     if (member.isOwner || excluded.has(member.userId)) continue;
     if (!memberReceivesNotice(member, { module: input.module, propertyId: input.propertyId })) {
@@ -497,9 +544,10 @@ async function teamNoticeRelayExclusions(
  * members this event is theirs to hear who have team texting on
  * ({@link teamNoticeRelayExclusions}). No Team chat (fewer than two people) =
  * nothing posted. A failed post throws so the caller retries (the line is
- * idempotent on `messageId`); a relay failure never fails the notice. The owner
- * is never relayed to (their own Assistant notice already texted them) and
- * neither is anyone in `excludeUserIds` (the actor).
+ * idempotent on `messageId`); a relay failure never fails the notice. An
+ * unreadable roster relays to nobody. The owner is never relayed to (their own
+ * Assistant notice already texted them) and neither is anyone in
+ * `excludeUserIds` (the actor, plus anyone already noticed directly).
  */
 async function postTeamNoticeLine(
   db: ServiceClient,
@@ -536,6 +584,7 @@ async function postTeamNoticeLine(
     category: input.category,
     excludeUserIds: input.excludeUserIds,
   });
+  if (!relayExclusions) return;
   await relayTeamChatMessageToSms(db, {
     ownerManagerUserId: input.ownerId,
     workspaceId,

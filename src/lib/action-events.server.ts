@@ -8,7 +8,10 @@ import { DEFAULT_PROPERTY_TIME_ZONE, propertyTimeZoneForZip } from "@/lib/proper
 import { vendorTopicForEvent } from "@/lib/vendor-notification-settings";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
-import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
+import {
+  notifyPropertyScopedManagersFromAgent,
+  postTeamNoticeLineForEvent,
+} from "@/lib/co-manager-notification-recipients.server";
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import type { RecordRef } from "@/lib/portals/record-kinds";
@@ -436,10 +439,14 @@ async function deliverProjection(
     }
   }
   // A teammate named as a `manager` recipient of a ROUTINE event is told by the
-  // Team chat line the owner's leg posts, never by a person-to-person thread
-  // (that thread is keyed on the teammate and owned by the sender, so when the
-  // sender is the owner it shows up in the owner's inbox under the teammate's
-  // name). Urgent events keep the per-person path below.
+  // event's one Team chat line, never by a person-to-person thread (that thread
+  // is keyed on the teammate and owned by the sender, so when the sender is the
+  // owner it shows up in the owner's inbox under the teammate's name). This leg
+  // posts that line itself rather than trusting an owner leg to exist: a caller
+  // that drops the acting owner from its own recipient list (the service-visit
+  // routes do) leaves teammates as the only `manager` recipients, and the line
+  // is idempotent on its `messageId`, so whichever leg runs first posts and
+  // relays it once. Urgent events keep the per-person path below.
   if (
     input.recipient.audience === "manager" &&
     !input.urgent &&
@@ -448,6 +455,24 @@ async function deliverProjection(
     input.recipient.userId !== input.managerUserId.trim()
   ) {
     const updatedAt = input.now.toISOString();
+    try {
+      await postTeamNoticeLineForEvent(db as Parameters<typeof postTeamNoticeLineForEvent>[0], {
+        ownerManagerUserId: input.managerUserId.trim(),
+        propertyId: input.propertyId ?? null,
+        module: teamModuleForDomain(input.domain ?? ""),
+        category: managerNotificationCategoryForEvent(input.category),
+        teamNotice: teamNoticeFor(input),
+        excludeUserIds: [input.senderUserId],
+      });
+    } catch (error) {
+      const { error: updateError } = await db.from("action_event_deliveries").update({
+        status: "failed", attempts: input.attempts + 1,
+        last_error: error instanceof Error ? error.message : "Team notice failed",
+        next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(), updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
+      return "failed";
+    }
     const { error } = await db.from("action_event_deliveries").update({
       status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
       delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,

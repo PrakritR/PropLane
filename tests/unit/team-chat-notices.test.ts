@@ -257,6 +257,48 @@ describe("text relay of the Team line", () => {
     expect(enqueueOwnerSms.mock.calls.map(([input]) => input.recipientUserId)).toEqual(["khue"]);
   });
 
+  it("urgent: a teammate already noticed directly is not texted the line too", async () => {
+    const db = seed({ mateTexting: true });
+    await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
+      ownerManagerUserId: OWNER, propertyId: HOUSE, module: "services", subject: "s", text: "t",
+      idempotencyKey: "k-urgent", urgent: true,
+      teamNotice: { text: "Emergency · Service request · x · open", messageId: "action-event:k-urgent:team" },
+    });
+    expect(landlords()).toEqual(["jaarav", "khue", OWNER].sort());
+    expect(teamLines(db)).toHaveLength(1);
+    // Their own Assistant notice already texted them; the line must not bill the owner a second time.
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable grant roster relays to nobody rather than texting the whole workspace ungated", async () => {
+    const db = seed({ mateTexting: true });
+    vi.resetModules();
+    vi.doMock("@/lib/team-comms.server", async () => {
+      const actual = await vi.importActual<typeof import("@/lib/team-comms.server")>("@/lib/team-comms.server");
+      return {
+        ...actual,
+        resolveWorkspaceTeamMembersWithGrants: async () => {
+          throw new Error("account_link_invites is unavailable");
+        },
+      };
+    });
+    try {
+      const { notifyPropertyScopedManagersFromAgent: notify } = await import(
+        "@/lib/co-manager-notification-recipients.server"
+      );
+      await notify(asDb(db) as never, {
+        ownerManagerUserId: OWNER, propertyId: HOUSE, module: "services", subject: "s", text: "t",
+        idempotencyKey: "k-closed",
+        teamNotice: { text: "Service request · x · open", messageId: "action-event:k-closed:team" },
+      });
+      expect(teamLines(db)).toHaveLength(1);
+      expect(enqueueOwnerSms).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("@/lib/team-comms.server");
+      vi.resetModules();
+    }
+  });
+
   it("still answers to the per-house grant: a teammate off the house is not texted", async () => {
     const db = seed({ mateTexting: true });
     await notifyPropertyScopedManagersFromAgent(asDb(db) as never, {
