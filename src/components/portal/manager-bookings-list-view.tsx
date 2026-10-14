@@ -42,7 +42,9 @@ export function bookingRowSourceLabel(source: PropertyBookingEntry["source"]): s
  * already its source fact. No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
-  return bookingStatusLabel(entry);
+  // The record page says "Blocked" for a live block; the row's source fact already says "Block", so it keeps its "Hold".
+  const label = bookingStatusLabel(entry);
+  return label === "Blocked" ? "Hold" : label;
 }
 
 /**

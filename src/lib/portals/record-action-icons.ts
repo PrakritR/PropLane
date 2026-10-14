@@ -1,5 +1,6 @@
 import {
   Archive,
+  Ban,
   ArrowDown,
   ArrowUp,
   Bell,
@@ -41,6 +42,7 @@ import {
 const RULES: ReadonlyArray<readonly [RegExp, LucideIcon]> = [
   [/^(approve|confirm|accept|mark( as)? (paid|done|complete(d)?)|complete)/i, CheckCircle2],
   [/^(decline|reject|deny|cancel)/i, XCircle],
+  [/^unblock/i, Ban],
   [/^(delete|remove|clear)/i, Trash2],
   [/^(remind|payment reminder)/i, Bell],
   [/^pay\b/i, CreditCard],

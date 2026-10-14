@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
+import { BookingsDeleteBlockDialog } from "@/components/portal/bookings-delete-block-dialog";
 import { saveStayMeta as saveStayMetaRequest } from "@/lib/channel-calendar/stay-meta-client";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
@@ -128,6 +129,7 @@ function useBookingsWorkspace({
   const [calendarsOpen, setCalendarsOpen] = useState(false);
   const [cancelEntry, setCancelEntry] = useState<PropertyBookingEntry | null>(null);
   const [removeStayEntry, setRemoveStayEntry] = useState<PropertyBookingEntry | null>(null);
+  const [deleteEntry, setDeleteEntry] = useState<PropertyBookingEntry | null>(null);
 
   const scopedPropertyIds = useMemo(() => {
     if (propertyFilters.length === 0) return propertyIds;
@@ -173,9 +175,11 @@ function useBookingsWorkspace({
     async (blockId: string) => {
       try {
         await deleteRoomDateBlock(blockId);
-        showToast("Block removed.");
+        showToast("Block deleted.");
+        return true;
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not remove that block.");
+        return false;
       }
     },
     [showToast],
@@ -411,6 +415,9 @@ function useBookingsWorkspace({
         preferenceKey={showPropertyFilter ? "workspace" : propertyIds[0]}
         onAddBooking={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
         onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
+        onUnblockBooking={setCancelEntry}
+        onDeleteBlock={setDeleteEntry}
+        onUnblockChannelStay={setRemoveStayEntry}
         onReserveRoomDay={({ propertyId, roomId, dayKey }) => setSheet({ open: true, dayKey, editingBlock: null, reserve: { propertyId, roomId } })}
         onDayClick={goToDayPage}
         selectedDayKey={selectedDayKey}
@@ -486,6 +493,7 @@ function useBookingsWorkspace({
   const modals = (
     <>
       {removeStayEntry ? <BookingsRemoveStayDialog key={bookingEntryKey(removeStayEntry)} entry={removeStayEntry} onClose={() => setRemoveStayEntry(null)} onChanged={() => onRefreshSignal?.()} /> : null}
+      {deleteEntry ? <BookingsDeleteBlockDialog key={bookingEntryKey(deleteEntry)} entry={deleteEntry} onClose={() => setDeleteEntry(null)} onDelete={removeBlock} /> : null}
       {cancelEntry ? <BookingsCancelDialog key={bookingEntryKey(cancelEntry)} entry={cancelEntry} onClose={() => setCancelEntry(null)} onSave={saveBlock} /> : null}
       {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} onSaveStayMeta={saveStayDetails} /> : null}
       <BookingsBlockDatesModal
