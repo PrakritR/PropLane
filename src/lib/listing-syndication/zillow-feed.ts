@@ -9,11 +9,14 @@
  * listing; that would carry manager-internal fields (house rules, wifi,
  * lease configuration, opt-in state) past the allowlist a second way.
  *
- * A field the projection does not carry (the manager's structured `city` /
- * `state`, entered on the wizard's Basics step) is genuinely unavailable
- * here. `neighborhood` and a ZIP-prefix lookup are the public-safe stand-ins
- * — see {@link cityFromProperty} and {@link stateFromZip} — and are a known,
- * documented approximation, not a workaround for the allowlist.
+ * This mapper does not read the manager's structured `city` / `state` (the
+ * wizard's Basics step). `neighborhood` and a ZIP-prefix lookup are the
+ * stand-ins it uses — see {@link cityFromProperty} and {@link stateFromZip} —
+ * a known, documented approximation, not a workaround for the allowlist. The
+ * two fields joined the projection on 2026-10-13 for the public listing page's
+ * JSON-LD address, so switching to them is now possible; it is a feed behavior
+ * change and belongs to whoever owns this channel
+ * (`docs/agents/listing-syndication.md`).
  */
 import type { MockProperty } from "@/data/types";
 import {
@@ -94,11 +97,10 @@ export function monthlyRentDollarsForSyndication(sub: ManagerListingSubmissionV1
 }
 
 /**
- * Standard USPS ZIP3 prefix ranges. `city`/`state` are structured wizard
- * fields excluded from the public projection (see module doc); a ZIP the
- * projection DOES carry is public knowledge and a defensible, deterministic
- * stand-in for the state Zillow's schema requires. Approximate at the very
- * small number of ZIP3 prefixes split across a state line.
+ * Standard USPS ZIP3 prefix ranges. This mapper takes no structured `state`
+ * (see module doc); the ZIP it does read is public knowledge and a defensible,
+ * deterministic stand-in for the state Zillow's schema requires. Approximate at
+ * the very small number of ZIP3 prefixes split across a state line.
  */
 const ZIP3_STATE_RANGES: readonly [number, number, string][] = [
   [5, 5, "NY"], [6, 9, "PR"], [10, 27, "MA"], [28, 29, "RI"], [30, 38, "NH"], [39, 49, "ME"],
@@ -123,7 +125,7 @@ export function stateFromZip(zip: string | undefined | null): string | null {
   return null;
 }
 
-/** Public-safe stand-in for a legal city: the wizard's structured `city` never reaches this feed. */
+/** Public-safe stand-in for a legal city: this feed never maps the wizard's structured `city`. */
 function cityFromProperty(property: MockProperty): string {
   return property.neighborhood?.trim() || property.buildingName?.trim() || "";
 }

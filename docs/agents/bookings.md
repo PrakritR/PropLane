@@ -105,7 +105,8 @@ when it is resident-backed, Rent · Deposit · Lease term; Payments is the stay
 total or rate plus that household's charges, each linking to its own payment
 record. Only a manager-made hold is editable in place (the one combined
 Add/Edit sheet); any other source offers Message and Copy link, and a channel
-reservation also Remove stay.
+reservation also Remove stay. A host block's Edit is the exception — it opens
+the Block notes popup (§ Airbnb money), never the Add/Edit sheet.
 
 ## Booking alerts and reminders (Oct 12 2026)
 
@@ -139,6 +140,15 @@ of the request is untouched, a blank clears it, and the row is deleted once it
 holds no name, no note and no money. That route is the only door into the table,
 and its permission gate is owned by [`integrations.md`](integrations.md)
 § Bookings: one popup connects a channel.
+
+The popup's last field is a multi-line **Notes** — the manager's own note on the
+stay, under that same one Save, drawn back as the record's Notes fact row
+(`stayNotes`). On a **host block** the popup is the whole Edit action: the record
+keeps its Edit icon (every other channel entry still hides it), the popup opens
+titled **Block notes** with Notes alone, and it saves only `notes`. A note is
+deliberately not money: `hasMoney` in `saveChannelStayDetails` ignores it, so a
+note-only row is deleted when the note is cleared instead of lingering as an
+empty row.
 
 One label rule wherever a guest is drawn — list row, record title, day card,
 payout row (`bookingEntryGuestLabel`): the typed name, else "Airbnb guest · HM…"

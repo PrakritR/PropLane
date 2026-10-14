@@ -124,8 +124,8 @@ Airbnb has no public write API, so the two directions are not equally fast:
   (`HM…`, taken only from a `https://www.airbnb.com/hosting/reservations/details/<code>`
   URL, and the Open-in-Airbnb link is rebuilt from the code — never the raw feed URL) and
   the guest's **phone ending** (last 4). Both show as fact rows on the booking record page;
-  the raw description is never stored. The third is `channel_stay_details` — the name, phone
-  and money a manager types or Airbnb's own notification mail to the work email fills in, owned
+  the raw description is never stored. The third is `channel_stay_details` — the name, phone,
+  note and money a manager types or Airbnb's own notification mail to the work email fills in, owned
   by [`bookings.md`](bookings.md) § Airbnb money (the mail itself:
   [`inbound-email-inbox.md`](inbound-email-inbox.md) § Airbnb notifications). What this tab owns
   is the door: RLS is on with no client policy or grant, so `GET/PUT
