@@ -118,10 +118,29 @@ describe("action-events: notices reach the team through each person's Assistant"
       teammateText: "Owner approved Alex's application.",
       threadType: "action_event",
       idempotencyKey: "action-event:app-1:application_approved:approved:manager",
+      teamNotice: { messageId: "action-event:app-1:application_approved:approved:team" },
     });
+    expect(notifyScoped.mock.calls[0]![1]).not.toHaveProperty("urgent", true);
     expect(postTeamThreadMessage).not.toHaveBeenCalled();
     expect(tables.action_event_deliveries[0]!.status).toBe("delivered");
     expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it("a teammate named as a manager recipient of a routine event gets no person-to-person thread (the Team line covers them); an urgent event keeps it", async () => {
+    const { db, tables } = fakeDb();
+    const recipients = [
+      { audience: "manager" as const, userId: "owner-1", rendered: { subject: "Approved", text: "You approved Alex's application." } },
+      { audience: "manager" as const, userId: "mate-1", rendered: { subject: "Approved", text: "Owner approved Alex's application." } },
+    ];
+    const result = await emitActionEvent(db, { ...baseInput, recipients });
+    expect(result.delivered).toBe(2);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(tables.action_event_deliveries.every((row) => row.status === "delivered")).toBe(true);
+
+    const urgent = await emitActionEvent(db, { ...baseInput, eventId: "app-2:urgent", urgent: true, recipients });
+    expect(urgent.delivered).toBe(2);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect((deliver.mock.calls[0] as unknown as [unknown, { toUserIds: string[] }])[1].toUserIds).toEqual(["mate-1"]);
   });
 
   it("marks the delivery failed and retryable when the owner's notice fails", async () => {

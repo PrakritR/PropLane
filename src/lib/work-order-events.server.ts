@@ -354,6 +354,8 @@ async function workOrderEventImpl(
       title: input.facts.title,
       emergency: input.facts.emergency === true,
       propertyId: input.facts.propertyId?.trim() || null,
+      // The house (and room) the Team chat line names (`team-notice-line.ts`).
+      propertyLabel: input.facts.propertyLabel?.trim() || null,
     },
     recipients: input.recipients.flatMap((recipient) => {
       const rendered = renderWorkOrderEvent(input.event, recipient.audience, input.facts);

@@ -165,4 +165,22 @@ describe("notifyPropertyScopedManagersFromAgent — fans out by role", () => {
     const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort();
     expect(landlords).toEqual(["book", "owner", "pm"]);
   });
+  it("routine with a team line: only the owner's Assistant is noticed; teammates hear it from the Team chat line", async () => {
+    notifyManager.mockClear();
+    await notifyPropertyScopedManagersFromAgent(db() as never, {
+      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k3",
+      teamNotice: { text: "Payment · x · paid", messageId: "action-event:k3:team" },
+    });
+    const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId);
+    expect(landlords).toEqual(["owner"]);
+  });
+  it("urgent with a team line: every teammate with the house is still noticed directly", async () => {
+    notifyManager.mockClear();
+    await notifyPropertyScopedManagersFromAgent(db() as never, {
+      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k4",
+      urgent: true, teamNotice: { text: "Emergency · Payment · x · paid", messageId: "action-event:k4:team" },
+    });
+    const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort();
+    expect(landlords).toEqual(["book", "owner", "pm"]);
+  });
 });

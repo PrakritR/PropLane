@@ -10,6 +10,7 @@ import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
+import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import type { TeamNoticeModule } from "@/lib/team-comms.server";
@@ -37,16 +38,19 @@ export type ActionEventDomain =
   /** A reservation appeared on / vanished from a linked channel calendar (`channel-booking-events.server.ts`). */
   | "channel_booking";
 /**
- * Automated notices never post into the Team chat (the Team chat is for
- * people). A `manager` audience notice reaches the owner AND every teammate
- * with access to the house, each in their own PropLane Assistant
- * (`notifyPropertyScopedManagersFromAgent`). A `team` audience is the same
- * fan-out for events with no manager copy of their own (a tour claimed, an
- * availability change): `recipient.userId` is the OWNING manager's user id, the
- * house comes from the event's `payload.propertyId`, and the Teams module that
- * gates who hears it from the event's domain ({@link teamModuleForDomain}).
- * Where a `manager` copy for the same person exists, the `team` copy is
- * dropped (the manager fan-out already covers the team).
+ * Routine notices to the team are ONE PropLane line in the workspace Team chat
+ * (`team-notice-line.ts`, idempotent on `action-event:<key>:team`); a
+ * teammate's Assistant gets a notice only when the event is urgent (Emergency
+ * priority); the owner always gets theirs; never a per-teammate conversation.
+ * A `manager` audience notice therefore reaches the owner's Assistant and the
+ * Team chat (`notifyPropertyScopedManagersFromAgent`), and a teammate named as
+ * a `manager` recipient is NOT given a person-to-person inbox thread unless the
+ * event is urgent. A `team` audience is the same fan-out for events with no
+ * manager copy of their own (a tour claimed, an availability change):
+ * `recipient.userId` is the OWNING manager's user id, the house comes from the
+ * event's `payload.propertyId`, and the Teams module that gates who hears it
+ * from the event's domain ({@link teamModuleForDomain}). Where a `manager` copy
+ * for the same person exists, the `team` copy is dropped.
  */
 export type ActionEventAudience = "manager" | "resident" | "vendor" | "team";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
@@ -216,6 +220,33 @@ export function teammateNoticeText(text: string, actorName?: string | null): str
 
 type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; submitted: number; deferred: number; failed: number };
 
+/** The Team chat line for an event (one per event; the messageId makes a retry or a second path post once). */
+function teamNoticeFor(input: {
+  eventKey: string;
+  domain?: string;
+  eventType?: string;
+  rendered: ActionEventRendered;
+  payload?: Record<string, unknown> | null;
+  senderName?: string;
+  urgent?: boolean;
+}): { text: string; messageId: string } {
+  const payloadText = (key: string) => {
+    const value = input.payload?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  return {
+    messageId: `action-event:${input.eventKey}:team`,
+    text: buildTeamNoticeLine({
+      domain: input.domain,
+      event: input.eventType,
+      subject: payloadText("title") ?? input.rendered.subject,
+      place: payloadText("propertyLabel"),
+      who: input.senderName,
+      urgent: input.urgent,
+    }),
+  };
+}
+
 async function deliverProjection(
   db: SupabaseClient,
   input: {
@@ -238,6 +269,8 @@ async function deliverProjection(
     eventType?: string;
     urgent?: boolean;
     draftForReview?: boolean;
+    /** The stored event payload: names the subject and house on the Team chat line. */
+    payload?: Record<string, unknown> | null;
     /** The house the event is about (`payload.propertyId`) — routes the team thread and its SMS roster. */
     propertyId?: string | null;
     /** The workspace owner the event belongs to: whose number a vendor text leaves from. */
@@ -251,10 +284,10 @@ async function deliverProjection(
     ? `Several updates were recorded. Open PropLane for the latest status.`
     : input.rendered.text;
   // `team` audience: a notice for the owning manager's TEAM (a tour claimed, an
-  // availability change, a work order accepted). It is never a Team chat line:
-  // it reaches the owner and every teammate with access to the house, each in
-  // their own PropLane Assistant (plus text and email), except the person who
-  // acted. Never digested: a placeholder would mean nothing to a teammate.
+  // availability change, a work order accepted). The owner gets their Assistant
+  // notice and the team gets ONE PropLane line in the Team chat; only an urgent
+  // event also reaches each teammate's own Assistant. The person who acted is
+  // excluded. Never digested: a placeholder would mean nothing to a teammate.
   if (input.recipient.audience === "team" && input.recipient.userId) {
     const updatedAt = input.now.toISOString();
     try {
@@ -269,6 +302,8 @@ async function deliverProjection(
         category: managerNotificationCategoryForEvent(input.category),
         idempotencyKey: `action-event:${input.eventKey}:team`,
         excludeUserIds: [input.senderUserId],
+        urgent: input.urgent,
+        teamNotice: teamNoticeFor(input),
       });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
@@ -324,8 +359,8 @@ async function deliverProjection(
   // is a self-send, which the inbox drops as "No recipients selected". It is
   // really an Assistant notice — the same surface reminders use for the
   // manager — so route it there, where their alert destination applies. The
-  // same notice reaches every teammate with access to the house (their own
-  // Assistant, text from the owner's work number, email), not a Team chat line.
+  // team hears it from one Team chat line (every teammate's Assistant too, when
+  // the event is urgent).
   if (input.recipient.audience === "manager" && input.recipient.userId && input.recipient.userId === input.senderUserId) {
     const updatedAt = input.now.toISOString();
     try {
@@ -342,6 +377,8 @@ async function deliverProjection(
         threadType: "action_event",
         category: managerNotificationCategoryForEvent(input.category),
         idempotencyKey: `action-event:${input.eventKey}:manager`,
+        urgent: input.urgent,
+        teamNotice: teamNoticeFor(input),
       });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
@@ -380,9 +417,31 @@ async function deliverProjection(
       category: managerNotificationCategoryForEvent(input.category),
       idempotencyKey: `action-event:${input.eventKey}:manager`,
       excludeUserIds: [input.recipient.userId, input.senderUserId],
+      urgent: input.urgent,
+      teamNotice: teamNoticeFor(input),
     }).catch((error: unknown) => {
       console.error("teammate notice fan-out failed", error instanceof Error ? error.name : "unknown");
     });
+  }
+  // A teammate named as a `manager` recipient of a ROUTINE event is told by the
+  // Team chat line the owner's leg posts, never by a person-to-person thread
+  // (that thread is keyed on the teammate and owned by the sender, so when the
+  // sender is the owner it shows up in the owner's inbox under the teammate's
+  // name). Urgent events keep the per-person path below.
+  if (
+    input.recipient.audience === "manager" &&
+    !input.urgent &&
+    input.recipient.userId &&
+    input.managerUserId?.trim() &&
+    input.recipient.userId !== input.managerUserId.trim()
+  ) {
+    const updatedAt = input.now.toISOString();
+    const { error } = await db.from("action_event_deliveries").update({
+      status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
+      delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
+    }).eq("id", input.deliveryId);
+    if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+    return "delivered";
   }
   const result = await deliverPortalInboxMessage(db, {
     senderUserId: input.senderUserId,
@@ -659,6 +718,7 @@ export async function emitActionEvent(
       eventType: input.event,
       urgent: input.urgent,
       draftForReview: recipient.draftForReview,
+      payload: input.payload ?? null,
       propertyId,
       managerUserId: input.managerUserId,
       recordRef: serviceRecordRefForEvent(input.domain, input.entityId, input.payload?.title),
@@ -763,6 +823,7 @@ export async function retryDueActionEventDeliveries(
       eventType: event.event_type ? String(event.event_type) : undefined,
       urgent: Boolean((event.payload as { emergency?: unknown } | null)?.emergency),
       draftForReview,
+      payload: (event.payload as Record<string, unknown> | null) ?? null,
       propertyId,
       managerUserId: event.manager_user_id ? String(event.manager_user_id) : null,
       recordRef: serviceRecordRefForEvent(

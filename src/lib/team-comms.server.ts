@@ -15,9 +15,13 @@ import "server-only";
  * Membership is the workspace's: the owner plus every accepted, non-owner-role
  * teammate whose membership row is for THIS workspace (`account_link_invites`
  * is one row per owner, manager and workspace), regardless of which houses
- * they hold. A Viewer reads and is relayed to but does not post. Automated
- * notices (payments, leases, tours) are never posted here: they go to each
- * person's PropLane Assistant. The thread's name is fixed; the poster's name,
+ * they hold. A Viewer reads and is relayed to but does not post. Routine
+ * notices to the team are one PropLane line in the Team chat; a teammate's
+ * Assistant gets a notice only when the event is urgent; the owner always gets
+ * theirs; never a per-teammate conversation. That line is posted with
+ * `actorName: "PropLane"` and a deterministic `messageId`
+ * (`action-event:<eventKey>:team`) by `notifyPropertyScopedManagersFromAgent`,
+ * so a retry posts once. The thread's name is fixed; the poster's name,
  * `actorUserId` and `channel` ride on each message, and the thread opens with a
  * neutral system line so no person's first message is dressed as "Team".
  *
@@ -611,6 +615,8 @@ export async function relayTeamChatMessageToSms(
     messageId: string;
     now?: Date;
     cap?: number;
+    /** Members not to text (an automated line skips the actor, who already knows). */
+    excludeUserIds?: readonly string[];
   },
 ): Promise<TeamSmsRelayOutcome[]> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -624,7 +630,8 @@ export async function relayTeamChatMessageToSms(
   if (!line) return [];
 
   const members = await resolveWorkspaceTeamMembers(db, { ownerManagerUserId: ownerId, workspaceId });
-  const recipients = members.filter((member) => member.userId !== senderId);
+  const skipped = new Set((input.excludeUserIds ?? []).map((id) => id.trim()));
+  const recipients = members.filter((member) => member.userId !== senderId && !skipped.has(member.userId));
   if (recipients.length === 0) return [];
 
   // Per-workspace hourly cap, counted from the outbox itself (durable, shared

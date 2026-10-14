@@ -9,7 +9,15 @@ import {
 } from "@/lib/co-manager-permissions";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
-import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
+import {
+  resolveManagerAssistantWorkspace,
+  userDefaultWorkspaceId,
+} from "@/lib/communication/manager-assistant-workspace.server";
+import {
+  ensureWorkspaceTeamThread,
+  postTeamThreadMessage,
+  relayTeamChatMessageToSms,
+} from "@/lib/team-comms.server";
 import { resolveWorkspaceNoticeRecipients } from "@/lib/workspace-team-recipients.server";
 import { notifyWorkNumberRecipients } from "@/lib/work-number-recipients.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
@@ -253,12 +261,21 @@ export async function loadCoManagerNotificationRecipients(
 }
 
 /**
- * Fan out a PropLane Assistant notice to the owner and every teammate with
- * notification access to the house. Each person gets it in their OWN Assistant
- * thread for the house's workspace, by text to their verified phone and by
- * email to their account address. Teammate texts leave from the WORKSPACE
- * OWNER's work number and are billed to the owner (`senderOwnerId`); a
- * teammate is never charged and never has a line of their own.
+ * Tell the team about something. The owner always gets a PropLane Assistant
+ * notice (text to their verified phone, email to their account address).
+ *
+ * Routine (the default whenever `teamNotice` is given): the teammates hear it
+ * from ONE PropLane line in the workspace Team chat (`teamNotice`, idempotent
+ * on its `messageId`), texted on to each member by their existing team-texting
+ * setting. Nothing lands in a teammate's Assistant or inbox. A workspace of
+ * one person has no Team chat, so the owner's notice is all there is.
+ *
+ * Urgent: every teammate with notification access to the house ALSO gets the
+ * notice in their OWN Assistant thread (text from the WORKSPACE OWNER's work
+ * number, billed to the owner via `senderOwnerId`; a teammate is never
+ * charged), plus the same Team line.
+ *
+ * With no `teamNotice` the legacy per-person fan-out runs for everyone.
  *
  * The owner's leg runs first and its failure propagates (the caller retries,
  * every leg is idempotent per `idempotencyKey` + member). A teammate's failure
@@ -282,6 +299,10 @@ export async function notifyPropertyScopedManagersFromAgent(
     idempotencyKey?: string;
     /** People already served another way (the actor who did the thing). */
     excludeUserIds?: readonly string[];
+    /** Important: teammates are told directly too. Emergency priority / URGENT_REMINDER_KINDS only. */
+    urgent?: boolean;
+    /** The one Team chat line for this event (built by `buildTeamNoticeLine`); `messageId` makes a retry post once. */
+    teamNotice?: { text: string; messageId: string };
   },
 ): Promise<void> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -289,13 +310,18 @@ export async function notifyPropertyScopedManagersFromAgent(
   const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
     () => null,
   );
+  const teamLineMode = Boolean(input.teamNotice?.text.trim() && input.teamNotice.messageId.trim());
+  // Routine team-line notices reach teammates only through the Team chat.
+  const directToTeammates = !teamLineMode || input.urgent === true;
   const recipientIds = (
-    await resolveWorkspaceNoticeRecipients(db, {
-      ownerUserId: ownerId,
-      workspaceId: noticeWorkspace?.workspaceId || null,
-      module: input.module,
-      propertyId: input.propertyId,
-    })
+    directToTeammates
+      ? await resolveWorkspaceNoticeRecipients(db, {
+          ownerUserId: ownerId,
+          workspaceId: noticeWorkspace?.workspaceId || null,
+          module: input.module,
+          propertyId: input.propertyId,
+        })
+      : [{ userId: ownerId }]
   )
     .map((recipient) => recipient.userId)
     .filter((id) => !excluded.has(id));
@@ -342,4 +368,52 @@ export async function notifyPropertyScopedManagersFromAgent(
       console.error("extra recipient notice failed", error instanceof Error ? error.name : "unknown");
     }
   }
+  if (teamLineMode && input.teamNotice) {
+    await postTeamNoticeLine(db, {
+      ownerId,
+      workspaceId: noticeWorkspace?.workspaceId || null,
+      text: input.teamNotice.text.trim(),
+      messageId: input.teamNotice.messageId.trim(),
+      excludeUserIds: [...excluded],
+    });
+  }
+}
+
+/**
+ * One PropLane line in the workspace Team chat, then the text relay to members
+ * with team texting on. No Team chat (fewer than two people) = nothing posted.
+ * A failed post throws so the caller retries (the line is idempotent on
+ * `messageId`); a relay failure never fails the notice. The owner is never
+ * relayed to (their own Assistant notice already texted them) and neither is
+ * anyone in `excludeUserIds` (the actor).
+ */
+async function postTeamNoticeLine(
+  db: ServiceClient,
+  input: { ownerId: string; workspaceId: string | null; text: string; messageId: string; excludeUserIds: readonly string[] },
+): Promise<void> {
+  const workspaceId = input.workspaceId || (await userDefaultWorkspaceId(db, input.ownerId).catch(() => "")) || "";
+  if (!workspaceId) return;
+  const threadId = await ensureWorkspaceTeamThread(db, { ownerManagerUserId: input.ownerId, workspaceId });
+  if (!threadId) return;
+  const posted = await postTeamThreadMessage(db, {
+    ownerManagerUserId: input.ownerId,
+    workspaceId,
+    actorName: "PropLane",
+    text: input.text,
+    messageId: input.messageId,
+    channel: "app",
+  });
+  if (!posted.ok) throw new Error(posted.error);
+  if (!posted.posted) return;
+  await relayTeamChatMessageToSms(db, {
+    ownerManagerUserId: input.ownerId,
+    workspaceId,
+    senderUserId: input.ownerId,
+    senderName: "PropLane",
+    text: input.text,
+    messageId: input.messageId,
+    excludeUserIds: input.excludeUserIds,
+  }).catch((error: unknown) => {
+    console.error("team notice relay failed", error instanceof Error ? error.name : "unknown");
+  });
 }

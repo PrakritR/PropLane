@@ -10,6 +10,7 @@ import {
   type NotificationCategory,
 } from "@/lib/notification-preferences";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
+import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
@@ -323,6 +324,12 @@ export async function deliverPaymentReminder(input: {
         category: "payment_reminders",
         url: "/portal/payments",
         idempotencyKey: dedupId,
+        // A reminder is never urgent: teammates hear it from the Team chat line.
+        urgent: false,
+        teamNotice: {
+          messageId: `${dedupId}:team`,
+          text: buildTeamNoticeLine({ domain: "payment", subject: charge.title, who: residentLower, event: "reminder_sent" }),
+        },
       });
     }
   } catch {
