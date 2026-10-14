@@ -68,10 +68,13 @@ export function roomAvailability(
   return { kind: "unavailable" };
 }
 
+/** `months` on from `day`, clamped to the last day of the target month (Aug 31 + 6 is Feb 28, not Mar 3). */
 function addMonthsKey(day: string, months: number): string {
-  const date = new Date(`${day}T12:00:00Z`);
-  date.setUTCMonth(date.getUTCMonth() + months);
-  return date.toISOString().slice(0, 10);
+  const [year, month, date] = day.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1, 12));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0, 12)).getUTCDate();
+  target.setUTCDate(Math.min(date, lastDay));
+  return target.toISOString().slice(0, 10);
 }
 
 /** "Oct 15", "Jan 4, 2027" in another year, "Sep 2027" more than six months out. */

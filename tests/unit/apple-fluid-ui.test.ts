@@ -96,6 +96,16 @@ describe("sheet release", () => {
     expect(result.dismiss).toBe(false);
   });
 
+  it("holds the panel's CSS transition off while the finger is down", () => {
+    // `.axis-assistant-sheet` transitions `transform`; left on, every pointermove would restart
+    // it and the sheet would ease toward the finger instead of following it.
+    const sheetDrag = read("src/components/ui/use-sheet-drag.ts");
+    expect(sheetDrag).toMatch(/panel\.style\.transition = "none"/);
+    expect(sheetDrag).toMatch(/transition: suppressTransition\(panel\)/);
+    // Every way a drag can end puts it back: dismiss, no-op, reduced motion, settled spring.
+    expect(sheetDrag.match(/restoreTransition\(panel, state\.transition\)/g)?.length).toBe(4);
+  });
+
   it("ties the scrim to the drag", () => {
     expect(scrimOpacityForOffset(0, 400)).toBe(1);
     expect(scrimOpacityForOffset(100, 400)).toBeCloseTo(0.75, 5);
@@ -141,7 +151,14 @@ describe("reduced motion", () => {
     expect(block).not.toMatch(/transition-property:[^;]*transform/);
     expect(block).toMatch(/transition-duration:\s*150ms/);
     expect(block).not.toMatch(/transition-duration:\s*0\.01ms/);
-    expect(block).toMatch(/:active\s*\{[^}]*scale:\s*none/);
+  });
+
+  it("cancels the press scale everywhere, and never the centring translate", () => {
+    const reduced = tokensCss.slice(tokensCss.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reduced).toMatch(/\n\s*:active\s*\{\s*scale:\s*none !important;\s*\}/);
+    // `translate` positions `-translate-x-1/2` elements; resetting it on :active moves them.
+    expect(globalsCss).not.toMatch(/:active\s*\{[^}]*translate:\s*none/);
+    expect(tokensCss).not.toMatch(/:active\s*\{[^}]*translate:\s*none/);
   });
 
   it("collapses nothing to zero in the token file", () => {

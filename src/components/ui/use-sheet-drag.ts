@@ -34,7 +34,29 @@ type DragState = {
   height: number;
   y: number;
   samples: DragSample[];
+  /** The panel's own inline transition, put back when the drag ends. */
+  transition: string;
 };
+
+/**
+ * A panel may carry a CSS `transition: transform …` for its entrance (`.axis-assistant-sheet`).
+ * Every `pointermove` writes a new transform, and each write would start that transition over, so
+ * the sheet would ease toward the finger instead of following it. Suppressed for the drag only.
+ */
+function suppressTransition(panel: HTMLElement): string {
+  const previous = panel.style.transition;
+  panel.style.transition = "none";
+  return previous;
+}
+
+/**
+ * Put the panel's transition back without animating the value it is sitting on: reading a layout
+ * property first commits the current transform as the before-change style.
+ */
+function restoreTransition(panel: HTMLElement, transition: string) {
+  void panel.offsetHeight;
+  panel.style.transition = transition;
+}
 
 /**
  * The one drag-to-dismiss gesture for every phone sheet. The sheet follows the finger 1:1, the
@@ -91,6 +113,7 @@ export function useSheetDrag({
         height,
         y: startOffset,
         samples: [{ t: event.timeStamp, y: startOffset }],
+        transition: suppressTransition(panel),
       };
       if (startOffset > 0) {
         panel.style.transform = `translateY(${startOffset}px)`;
@@ -125,22 +148,30 @@ export function useSheetDrag({
         : resolveSheetRelease({ samples: state.samples, y: state.y, height: state.height });
       if (dismiss) {
         // Leave the inline offset in place: the exit animation continues from it.
+        if (panel) restoreTransition(panel, state.transition);
         onDismissRef.current();
         return;
       }
       if (state.y <= 0 || !panel) {
         apply(0, state.height);
+        if (panel) restoreTransition(panel, state.transition);
         return;
       }
       // Settle: spring from the live offset back to rest, scrim back to full.
       const from = state.y;
       const scrimFrom = scrim ? liveOpacity(scrim) : 1;
       apply(0, state.height);
-      if (typeof panel.animate !== "function" || reducedMotion) return;
-      panel.animate(
+      if (typeof panel.animate !== "function" || reducedMotion) {
+        restoreTransition(panel, state.transition);
+        return;
+      }
+      const settle = panel.animate(
         [{ transform: `translateY(${from}px)` }, { transform: "translateY(0px)" }],
         { duration: SHEET_MS.settle, easing: sheetEasing() },
       );
+      // The CSS transition stays off until the spring lands, so the two never run the same move.
+      const release = () => restoreTransition(panel, state.transition);
+      settle.finished.then(release).catch(release);
       scrim?.animate?.([{ opacity: scrimFrom }, { opacity: 1 }], { duration: SHEET_MS.settle, easing: sheetEasing() });
     },
     [apply, getPanel, getScrim, reducedMotion],

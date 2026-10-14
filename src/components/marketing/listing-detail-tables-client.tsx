@@ -92,15 +92,26 @@ function AvailabilityPill({
 
 
 /**
+ * Occupancy is still loading: a quiet skeleton, never the stale static "Available now". The bar is
+ * decoration, so the fact a sighted reader is waiting on is spoken instead of leaving the cell
+ * empty, and the pulse stops under reduced motion.
+ */
+function RoomAvailabilityLoading({ className = "h-3 w-20" }: { className?: string }) {
+  return (
+    <span className="block" data-attr="listing-room-availability-loading">
+      <span className="sr-only">Checking availability</span>
+      <span className={`block animate-pulse rounded bg-accent/40 motion-reduce:animate-none ${className}`} aria-hidden />
+    </span>
+  );
+}
+
+/**
  * A rooms-table availability cell: a dot and plain text on one line — never a pill (rows carry
  * facts, not badges). A dated tail ("until August 30, 2027") drops to a muted second line so the
  * cell stays narrow enough to leave the Details button on screen.
  */
 function RoomAvailabilityCell({ display }: { display: { text: string; tone: RoomAvailabilityTone } | null }) {
-  // Occupancy still loading: a quiet skeleton, never the stale static "Available now".
-  if (!display) {
-    return <span className="block h-3 w-20 animate-pulse rounded bg-accent/40" data-attr="listing-room-availability-loading" aria-hidden />;
-  }
+  if (!display) return <RoomAvailabilityLoading />;
   const { text, tone } = display;
   const { dot } = roomAvailabilityPillClasses(tone);
   const trimmed = text.trim();
@@ -657,7 +668,7 @@ export function ListingDetailModal({
                         value: statusDisplay ? (
                           <AvailabilityPill text={statusDisplay.text} variant="room" tone={statusDisplay.tone} />
                         ) : (
-                          <span className="block h-3 w-20 animate-pulse rounded bg-accent/40" aria-hidden />
+                          <RoomAvailabilityLoading />
                         ),
                       },
                       ...(state.room.modal.roomNotes?.trim()
@@ -1594,7 +1605,7 @@ export function SpacesInteractive({
                       {availability.text}
                     </span>
                   ) : (
-                    <span className="ml-auto block h-2.5 w-16 animate-pulse rounded bg-accent/40" aria-hidden />
+                    <RoomAvailabilityLoading className="ml-auto h-2.5 w-16" />
                   )}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />

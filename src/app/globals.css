@@ -2619,10 +2619,6 @@ html[data-native] .portal-mobile-nav-bar {
     transition-duration: 150ms !important;
     transition-delay: 0s !important;
   }
-  .portal-shell :active {
-    scale: none !important;
-    translate: none !important;
-  }
 }
 
 .portal-shell select::-ms-expand,

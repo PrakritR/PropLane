@@ -166,7 +166,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     {removeStayDialog}
     {namingGuest ? <BookingsStayDetailsDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setNamingGuest(false)} onSaved={() => { showToast(hostBlockStay ? "Block notes saved" : "Booking details saved"); onRefresh?.(); }} /> : null}
     {editing ? <BookingsEditSheet key={bookingEntryKey(entry)} entry={entry} entries={entries} propertyOptions={propertyOptions} onClose={() => setEditing(false)} onSave={onSaveBlock} onSaveStayMeta={onSaveStayMeta} /> : null}
-    {deleting ? <BookingsDeleteBlockDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setDeleting(false)} onDelete={async (blockId) => { if ((await onRemoveBlock(blockId)) !== false) navigate(backHref); }} /> : null}
+    {deleting ? <BookingsDeleteBlockDialog key={bookingEntryKey(entry)} entry={entry} onClose={() => setDeleting(false)} onDelete={async (blockId) => { const removed = await onRemoveBlock(blockId); if (removed !== false) navigate(backHref); return removed; }} /> : null}
     {cancelling ? <BookingsCancelDialog key={bookingEntryKey(entry)} entry={{ ...entry, residentEmail: entry.residentEmail || resident?.email }} onClose={() => setCancelling(false)} onSave={onSaveBlock} /> : null}
   </>;
 }

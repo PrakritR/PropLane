@@ -132,9 +132,11 @@ function useBookingsWorkspace({
   const [deleteEntry, setDeleteEntry] = useState<PropertyBookingEntry | null>(null);
 
   // Unblock and Delete need Calendar at edit on the booking's house; the owner always passes (the server enforces the same grant).
+  // Until the session resolves there is no grant to read, so the actions stay hidden rather than
+  // offering a Delete that the server will refuse.
   const canRemoveBooking = useCallback(
-    (entry: PropertyBookingEntry) => canRemoveBookingEntry(userId, entry.propertyId),
-    [userId],
+    (entry: PropertyBookingEntry) => authReady && canRemoveBookingEntry(userId, entry.propertyId),
+    [authReady, userId],
   );
 
   const scopedPropertyIds = useMemo(() => {

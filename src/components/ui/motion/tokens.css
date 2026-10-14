@@ -94,6 +94,14 @@
     transition-property: opacity !important;
     transition-duration: 150ms !important;
   }
+  /* A press is a colour change, never a scale. Unscoped because the press states live on the
+     public pages too (`ui/button.tsx`, the browse card), which render outside `.portal-shell`:
+     cancelling the VALUE, not just its transition, is what makes the press not travel. Only
+     `scale` is reset — `translate` carries Tailwind's `-translate-x-1/2` centring, and `:active`
+     matches a pressed element's ancestors as well as the element itself. */
+  :active {
+    scale: none !important;
+  }
 }
 
 /* ============== M006 — wizard step forward/back direction ============== */
