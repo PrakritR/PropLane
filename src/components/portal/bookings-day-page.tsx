@@ -22,6 +22,7 @@ import {
   type BlockDatesDraft,
   type BlockDatesSaveResult,
 } from "@/components/portal/bookings-block-dates-modal";
+import { bookingCancelLabel } from "@/lib/channel-calendar/booking-presentation";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
@@ -263,7 +264,7 @@ export function BookingsDayPage({
                         onMessage={isAvailabilityBlock ? undefined : () => navigate(bookingRecordHref(basePath, key, "communication"))}
                         onCopyLink={() => void copyLink(entry)}
                         onCancel={isBlock ? () => requestDelete(entry) : undefined}
-                        cancelLabel="Remove booking"
+                        cancelLabel={bookingCancelLabel(entry)}
                       >
                         {row}
                       </BookingsRowOverflow>

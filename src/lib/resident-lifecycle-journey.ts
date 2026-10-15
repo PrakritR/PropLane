@@ -43,8 +43,6 @@ export interface ResidentLifecycleInput {
   moveInTotalLabel?: string;
   /** "$45.00" — the application fee, named on the pay button. */
   applicationFeeLabel?: string;
-  /** The property manager's workspace name, for the countersignature wait. */
-  workspaceName?: string;
 }
 
 const LABELS: Record<ResidentLifecycleStepId, string> = {

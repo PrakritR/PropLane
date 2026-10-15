@@ -964,6 +964,16 @@ export function ResidentPaymentsPanel({
     // (a move-in line opens its Move-in total row). Opening never starts a payment; the resident
     // pays from the record. Wait for the first server read so the charge is not "missing" yet.
     if (!initialSyncDone) return;
+    // Resolved against every charge, not only the active band: a link for the other term switches
+    // the Long-term / Short-term band first, then opens the record on the next pass.
+    const linked = charges.find((c) => c.id === payParam);
+    if (linked && showPaymentTerms) {
+      const linkedTerm = residentTermOfCharge(linked, termByApplication);
+      if (linkedTerm !== paymentsTerm) {
+        setPaymentsTerm(linkedTerm);
+        return;
+      }
+    }
     const group = moveInGroups.find((g) => g.items.some((c) => c.id === payParam));
     const target = group ? undefined : rows.find((c) => c.id === payParam);
     if (group || target) landedOnBucket.current = true;
@@ -979,15 +989,21 @@ export function ResidentPaymentsPanel({
     }
   }, [
     basePath,
+    charges,
+    chargeIdProp,
     initialSyncDone,
     moveInGroups,
     payConfirm,
+    paymentsTerm,
     paymentsUnlocked,
     payHeaderAction,
     portalNavigate,
     router,
     rows,
     searchParams,
+    setPaymentsTerm,
+    showPaymentTerms,
+    termByApplication,
     unpaidPayableCharges,
   ]);
 

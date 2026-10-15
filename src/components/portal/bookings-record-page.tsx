@@ -64,7 +64,9 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const name = bookingEntryGuestLabel(entry);
   // An Airbnb stay carries its own reservation code and feed id; the manager can name the guest and open it in Airbnb.
   const airbnbStay = entry.source === "airbnb" && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
-  const airbnbUrl = airbnbStay && entry.reservationUrl?.startsWith("https://www.airbnb.com/hosting/reservations/details/") ? entry.reservationUrl : null;
+  // The record's one "Open in Airbnb" is the header icon, on the same stay the Guest card trusts:
+  // a real imported reservation (never a host block), with a code the sync could parse.
+  const airbnbUrl = airbnbStay ? airbnbOpenUrlForEntry(entry) : null;
   const resident = residentOptions.find((option) => option.email === entry.residentEmail || option.name === entry.residentName || option.name === entry.summary);
   const guestEmail = entry.residentEmail || resident?.email || "";
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
@@ -110,7 +112,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     body = (
       <RecordFactCard title="Guest" dataAttr="booking-guest-card">
         <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label="Edit booking details" onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
-        {airbnbStay && entry.reservationCode ? <RecordFactRow label="Reservation" value={<span className="flex items-center gap-1.5">{entry.reservationCode}{airbnbUrl ? <PortalIconAction icon={ExternalLink} label="Open in Airbnb" onClick={() => window.open(airbnbUrl, "_blank", "noopener,noreferrer")} data-attr="booking-open-in-airbnb" /> : null}</span>} /> : null}
+        {airbnbStay && entry.reservationCode ? <RecordFactRow label="Reservation" value={entry.reservationCode} /> : null}
         {entry.phoneLast4 ? <RecordFactRow label="Phone ending" value={entry.phoneLast4} /> : null}
         <RecordFactRow label="Email" value={guestEmail || "—"} />
         <RecordFactRow label="Phone" value={(airbnbStay ? entry.guestPhone : "") || entry.residentPhone || "—"} />
@@ -159,7 +161,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   }
   return <>
     <PortalRecordDetailPage pageTitle="Bookings" title={name} subtitle={place} avatarName={name} backHref={backHref} backLabel="Back to bookings" hideBackText bareHeader dataAttrBack="booking-detail-back" iconTitleActions pinScrollBody>
-      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" alwaysInline />{airbnbOpenUrlForEntry(entry) ? <PortalIconAction ring icon={ExternalLink} label="Open in Airbnb" data-attr="booking-header-open-in-airbnb" onClick={() => window.open(airbnbOpenUrlForEntry(entry)!, "_blank", "noopener,noreferrer")} /> : null}</PortalRecordActions>
+      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" alwaysInline />{airbnbUrl ? <PortalIconAction ring icon={ExternalLink} label="Open in Airbnb" data-attr="booking-header-open-in-airbnb" onClick={() => window.open(airbnbUrl, "_blank", "noopener,noreferrer")} /> : null}</PortalRecordActions>
       <PortalRecordSectionChrome sections={sections} recordId={bookingId} activeId={tab} title={name} subtitle={entry.propertyLabel} backHref={backHref} backLabel="All bookings" ariaLabel="Booking sections" onHeaderAction={onAction}>
         {body}
       </PortalRecordSectionChrome>

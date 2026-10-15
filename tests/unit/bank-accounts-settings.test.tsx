@@ -171,7 +171,8 @@ describe("Bank row ⋯ menu", () => {
     // The default row offers only Remove, drawn as its icon: no menu, so no Make default.
     expect(screen.queryByRole("button", { name: "Actions for Chase ····1487" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Make default" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove" }).getAttribute("data-attr")).toBe("record-actions-single");
+    // The lone action's tooltip is the bare verb; its accessible name still says which row it is.
+    expect(screen.getByRole("button", { name: "Remove · Chase ····1487" }).getAttribute("data-attr")).toBe("record-actions-single");
     cleanup();
 
     stubFetch({ destinations: [chase, wells] });
@@ -194,7 +195,7 @@ describe("Bank row ⋯ menu", () => {
     stubFetch({ destinations: [chase, wells] });
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText(/Wells Fargo ····9921/);
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove · Chase ····1487" }));
     expect((await screen.findAllByText("Make another account the default before removing this one.")).length).toBeGreaterThan(0);
     const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" });
     expect(confirm).toBeDisabled();

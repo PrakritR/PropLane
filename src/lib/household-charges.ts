@@ -21,6 +21,7 @@ import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
 import {
   entireHomeMonthlyRentAmount,
@@ -673,8 +674,7 @@ export function setHouseholdWriteTimeoutMsForTests(ms: number | null): void {
 }
 
 function householdWriteSignal(): AbortSignal | undefined {
-  if (typeof AbortSignal === "undefined" || typeof AbortSignal.timeout !== "function") return undefined;
-  return AbortSignal.timeout(householdWriteTimeoutMs);
+  return requestTimeoutSignal(householdWriteTimeoutMs);
 }
 
 async function postHouseholdPayloadAwait(body: unknown): Promise<boolean> {

@@ -85,12 +85,21 @@ describe("record ⋯ menu with one item", () => {
     const activate = vi.fn();
     renderOnly(<Button variant="danger" onClick={onClick}>Remove stay</Button>, activate);
     expect(document.querySelector('[data-attr="record-actions-trigger"]')).toBeNull();
-    const icon = screen.getByRole("button", { name: "Remove stay" });
+    // The accessible name carries the row, the way "Actions for Row" did; the tooltip stays the verb.
+    const icon = screen.getByRole("button", { name: "Remove stay · Row" });
     expect(icon.getAttribute("data-slot")).toBe("portal-icon-action");
     expect(icon.className).toContain("text-red-600");
     fireEvent.click(icon);
     expect(activate).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the ⋯ for a lone item whose label has no icon of its own", () => {
+    // `recordActionIcon` falls back to the ⋯ glyph for an uncatalogued label; drawing the lone action
+    // behind it would promise a menu and fire on one tap instead.
+    renderOnly(<Button onClick={() => {}}>Mark as something else</Button>);
+    expect(screen.getByRole("button", { name: "Actions for Row" }).getAttribute("data-attr")).toBe("record-actions-trigger");
+    expect(document.querySelector('[data-slot="portal-icon-action"]')).toBeNull();
   });
 
   it("keeps the ⋯ when there are two or more items", () => {

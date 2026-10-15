@@ -115,7 +115,6 @@ export function ResidentApplicationStatusScreen({
     <>
       <ResidentLifecycleStatusPanel
         input={view.input}
-        workspaceName={contact?.managerName ?? null}
         summary={[
           { label: "Home", value: view.home },
           { label: "Move-in", value: view.moveIn },

@@ -83,4 +83,18 @@ describe("Modal — inert on siblings (M007)", () => {
     expect(menuHost.hasAttribute("inert")).toBe(false);
     document.body.removeChild(menuHost);
   });
+
+  it("still seals a page that merely holds an inline listbox deep inside it", () => {
+    const pageContent = attachPageContent();
+    // An inline (never portaled) combobox list, the shape listing-address-autocomplete renders.
+    pageContent.innerHTML = '<main><form><div><ul role="listbox"><li>5257 Brooklyn Ave</li></ul></div></form></main>';
+
+    render(
+      <Modal open title="Confirm" onClose={() => {}}>
+        Body
+      </Modal>,
+    );
+    expect(pageContent.hasAttribute("inert")).toBe(true);
+    document.body.removeChild(pageContent);
+  });
 });

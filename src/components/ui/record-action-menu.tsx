@@ -8,7 +8,7 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RecordActionContext, RecordActionItemsContext, RecordActionCloseContext } from "./record-action-context";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu";
 import { classifyRecordActionTone, isPostDividerRecordActionId, orderRecordActions, type RecordActionTone } from "@/lib/portals/record-action-order";
-import { recordActionIcon } from "@/lib/portals/record-action-icons";
+import { isPlaceholderRecordActionIcon, recordActionIcon } from "@/lib/portals/record-action-icons";
 
 /** Trailing ⋯ on list rows — shared sitewide (portal lists, DataList overflow, expense rows). */
 export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-[18px] shrink-0 text-muted stroke-[2.25]";
@@ -188,8 +188,9 @@ function singleActionHandler(leaf: ReactElement<ActionLeafProps>): ((event: Mous
  * action is for, and the handlers are built from that selection, so the click runs the handler the
  * row rendered AFTER activating - never the one it closed over before.
  */
-function SingleRecordAction({ label, actionId, tone, disabled, handler, prepare }: {
+function SingleRecordAction({ label, recordLabel, actionId, tone, disabled, handler, prepare }: {
   label: string;
+  recordLabel: string;
   actionId?: string;
   tone: "default" | "primary" | "danger";
   disabled?: boolean;
@@ -202,6 +203,9 @@ function SingleRecordAction({ label, actionId, tone, disabled, handler, prepare 
     <PortalIconAction
       icon={recordActionIcon(label)}
       label={label}
+      // The tooltip stays the bare verb; the accessible name says which row it belongs to, the way
+      // the ⋯ trigger it replaces did ("Actions for <row>").
+      ariaLabel={recordLabel ? `${label} · ${recordLabel}` : label}
       tone={tone}
       disabled={disabled}
       data-attr="record-actions-single"
@@ -249,11 +253,15 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
   // A ⋯ that would hold exactly one item is that item's icon instead: one tap, no menu to open.
   const onlyLeaf = !onOpen && !context.lazy && nonDestructive.length + destructive.length === 1 ? [...nonDestructive, ...destructive][0]! : null;
   const onlyHandler = onlyLeaf ? singleActionHandler(onlyLeaf) : null;
-  if (onlyLeaf && onlyHandler) {
-    const itemLabel = leafLabel(onlyLeaf.props.children).trim() || onlyLeaf.props["data-record-action-id"] || label;
+  const onlyItemLabel = onlyLeaf ? leafLabel(onlyLeaf.props.children).trim() || onlyLeaf.props["data-record-action-id"] || label : "";
+  // An uncatalogued label falls back to the ⋯ glyph, which promises a menu — so it keeps the real
+  // menu instead of firing on one tap behind a glyph that reads as "more".
+  if (onlyLeaf && onlyHandler && !isPlaceholderRecordActionIcon(onlyItemLabel)) {
+    const itemLabel = onlyItemLabel;
     const itemTone = (onlyLeaf.props as Record<string, unknown>)["data-record-action-tone"];
     return <SingleRecordAction
       label={itemLabel}
+      recordLabel={label}
       actionId={onlyLeaf.props["data-record-action-id"]}
       tone={itemTone === "positive" ? "primary" : destructive.includes(onlyLeaf) ? "danger" : "default"}
       disabled={onlyLeaf.props.disabled}

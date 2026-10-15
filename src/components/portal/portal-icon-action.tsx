@@ -110,6 +110,8 @@ export const PortalIconAction = forwardRef<
     icon: LucideIcon;
     /** Accessible name; doubles as the tooltip. "Filter · 2 active" shows as-is. */
     label: string;
+    /** Overrides the accessible name when the tooltip's bare word is not enough on its own (a list row's "Remove stay" needs to say WHICH row). The tooltip still draws `label`. */
+    ariaLabel?: string;
     /** @deprecated The word is never drawn now; kept so call sites need not change. */
     shortLabel?: string;
     /** Draws the glyph in the brand colour (e.g. a "new message" pen). */
@@ -134,18 +136,19 @@ export const PortalIconAction = forwardRef<
   }
 >(function PortalIconAction(
   // `shortLabel` / `iconOnly` are accepted and ignored — see the props above.
-  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, iconSlot, className, type = "button", onMouseEnter, onMouseLeave, onFocus, onBlur, onClick, ...rest },
+  { icon: Icon, label, ariaLabel, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, iconSlot, className, type = "button", onMouseEnter, onMouseLeave, onFocus, onBlur, onClick, ...rest },
   ref,
 ) {
   const tip = useIconTip(label, ring ? "end" : "center");
+  const accessibleName = ariaLabel?.trim() || label;
   return (
     <>
     <button
       ref={ref}
       type={type}
-      aria-label={label}
+      aria-label={accessibleName}
       // A disabled button fires no mouse events, so the instant label can't show; it keeps the native one.
-      title={rest.disabled ? label : undefined}
+      title={rest.disabled ? accessibleName : undefined}
       onMouseEnter={(e: MouseEvent<HTMLButtonElement>) => {
         onMouseEnter?.(e);
         tip.show(e.currentTarget);

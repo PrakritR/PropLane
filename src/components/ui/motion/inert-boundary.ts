@@ -47,13 +47,29 @@ let releaseFns: Array<() => void> = [];
  * DOM), which releases and re-acquires the boundary; the re-acquire walks `document.body` as it is by then and
  * would seal a menu portaled in after the modal opened, leaving it visible and dead to clicks.
  */
-const OPEN_FLOATING_LAYER = '[data-radix-popper-content-wrapper], [role="menu"], [role="listbox"]';
+const OPEN_FLOATING_LAYER =
+  '[data-radix-popper-content-wrapper], [role="menu"][data-state="open"], [role="listbox"][data-state="open"]';
+
+/**
+ * Is this body child a floating layer's own portal container, rather than the page that happens to
+ * hold one inline? A portaled layer sits at the top of its container (Radix's `Portal` div, then the
+ * popper wrapper, then the content), so only the child itself and the two levels under it count. A
+ * blanket subtree search would match the app root — which contains the whole page, inline
+ * `role="listbox"` comboboxes included — and silently exempt every page from the boundary.
+ */
+function isOpenFloatingLayerHost(child: Element): boolean {
+  if (child.matches(OPEN_FLOATING_LAYER)) return true;
+  return Array.prototype.some.call(child.children, (level1: Element) => {
+    if (level1.matches(OPEN_FLOATING_LAYER)) return true;
+    return Array.prototype.some.call(level1.children, (level2: Element) => level2.matches(OPEN_FLOATING_LAYER));
+  });
+}
 
 function applyInert(host: Element): () => void {
   const restores: Array<() => void> = [];
   Array.prototype.forEach.call(document.body.children, (child: Element) => {
     if (child.contains(host)) return;
-    if (child.querySelector(OPEN_FLOATING_LAYER)) return;
+    if (isOpenFloatingLayerHost(child)) return;
     if (child.hasAttribute("inert")) return; // already inert for some other reason — never our job to remove it
     child.setAttribute("inert", "");
     restores.push(() => child.removeAttribute("inert"));

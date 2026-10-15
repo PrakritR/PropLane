@@ -266,11 +266,12 @@ describe("evidence · the booking record names the Airbnb guest", () => {
     expect(card.textContent).toContain("Maria Lopez");
     expect(card.textContent).toContain("HMABCDEFGH");
     expect(card.textContent).toContain("1234");
-    expect(document.querySelector('[data-attr="booking-open-in-airbnb"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="booking-open-in-airbnb"]')).toBeNull();
+    expect(document.querySelector('[data-attr="booking-header-open-in-airbnb"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="booking-guest-name-edit"]')).toBeTruthy();
     writeShot(
       "bookings-record-guest",
-      "Bookings → the Airbnb stay → Guest. The manager-entered name sits next to a pencil that re-opens the name dialog; the reservation code carries an Open in Airbnb action, and the phone's last four digits are shown — the only contact Airbnb discloses.",
+      "Bookings → the Airbnb stay → Guest. The manager-entered name sits next to a pencil that re-opens the name dialog; the reservation code is a plain fact (Open in Airbnb is the record header's one icon), and the phone's last four digits are shown — the only contact Airbnb discloses.",
       view.container.innerHTML,
     );
   });

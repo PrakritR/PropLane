@@ -126,7 +126,7 @@ export function DropdownMenuContent({
             glass && "portal-liquid-glass",
             className,
             // After `className`: a caller's fixed width (w-64) must not survive into the sheet.
-            asSheet && "portal-menu-sheet w-full min-w-0 max-w-none rounded-b-none rounded-t-[20px] px-3 pt-0",
+            asSheet && "w-full min-w-0 max-w-none rounded-b-none rounded-t-[20px] px-3 pt-0",
           )}
           data-menu-sheet={asSheet ? "" : undefined}
           {...props}

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every
- * booking card gets Edit booking + Remove booking. Remove confirms in the
+ * booking card gets Edit booking + the one removal vocabulary (`bookingCancelLabel`:
+ * "Cancel booking" for a named hold, "Delete reservation" for a marked one). It confirms in the
  * PortalDialog shape (destructive red primary, header close action) and refuses
  * outright for an in-house active tenancy.
  */
@@ -60,7 +61,7 @@ describe("BookingsDayPage — card actions", () => {
     navigate.mockClear();
   });
 
-  it("a manager-made hold gets Edit booking and Remove booking", () => {
+  it("a manager-made hold gets Edit booking and Cancel booking", () => {
     render(
       <AppUiProvider>
         <BookingsDayPage
@@ -78,9 +79,9 @@ describe("BookingsDayPage — card actions", () => {
     );
     const menu = openMenu("Actions for Prakrit");
     expect(menu.textContent).toContain("Edit booking");
-    expect(menu.textContent).toContain("Remove booking");
+    expect(menu.textContent).toContain("Cancel booking");
     expect(menu.textContent).not.toContain("Edit dates");
-    expect(menu.textContent).not.toContain("Cancel booking");
+    expect(menu.textContent).not.toContain("Remove booking");
   });
 
   it("Edit booking opens the edit sheet prefilled for that entry", () => {
@@ -113,7 +114,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(nameInput?.value).toBe("Prakrit");
   });
 
-  it("Remove booking on a hold OUTSIDE today's stay opens the confirm dialog and, on confirm, removes", async () => {
+  it("Cancel booking on a hold OUTSIDE today's stay opens the confirm dialog and, on confirm, removes", async () => {
     const onRemoveBlock = vi.fn().mockResolvedValue(undefined);
     const futureHold: PropertyBookingEntry = { ...hold, start: "2026-10-01", end: "2026-10-05" };
     render(
@@ -130,7 +131,7 @@ describe("BookingsDayPage — card actions", () => {
       />,
     );
     const menu = openMenu("Actions for Prakrit");
-    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Remove booking")!;
+    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!;
     // Past the destructive-action settle window (RECORD_ACTION_DESTRUCTIVE_SETTLE_MS)
     // so this click is not the "stray synthetic tap right after opening" it guards against.
     vi.advanceTimersByTime(200);
@@ -163,7 +164,7 @@ describe("BookingsDayPage — card actions", () => {
       />,
     );
     const menu = openMenu("Actions for Prakrit");
-    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Remove booking")!;
+    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(removeButton);
     const confirm = document.querySelector('[data-attr="bookings-day-delete-confirm"]')!;
@@ -190,7 +191,7 @@ describe("BookingsDayPage — card actions", () => {
       />,
     );
     const menu = openMenu("Actions for Prakrit");
-    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Remove booking")!;
+    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(removeButton);
     expect(document.querySelector('[data-attr="bookings-day-delete-confirm"]')).toBeNull();
@@ -198,7 +199,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining("in-house today"));
   });
 
-  it("a signed-lease card jumps to the Lease record and has no Remove booking", () => {
+  it("a signed-lease card jumps to the Lease record and has no removal action", () => {
     render(
       <BookingsDayPage
         dayKey="2026-09-20"
@@ -214,8 +215,8 @@ describe("BookingsDayPage — card actions", () => {
     );
     const menu = openMenu("Actions for Ada Lovelace");
     expect(menu.textContent).toContain("Open lease");
-    expect(menu.textContent).not.toContain("Remove booking");
-    expect(menu.textContent).not.toContain("Delete booking");
+    expect(menu.textContent).not.toContain("Cancel booking");
+    expect(menu.textContent).not.toContain("Delete reservation");
     const openLeaseButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Open lease")!;
     fireEvent.click(openLeaseButton);
     expect(navigate).toHaveBeenCalledTimes(1);

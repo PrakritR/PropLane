@@ -20,16 +20,14 @@ export type ResidentLifecycleSummaryRow = { label: string; value: string };
 export function ResidentLifecycleStatusPanel({
   input,
   summary = [],
-  workspaceName,
 }: {
   input: ResidentLifecycleInput;
   /** "Your move" facts — Home, Move-in, Rent, fee, Contact. Empty rows are left out. */
   summary?: ResidentLifecycleSummaryRow[];
-  workspaceName?: string | null;
 }) {
   const base = input.basePath?.trim() || "/resident";
   const steps = residentLifecycleSteps(input);
-  const action = resolveResidentLifecycleNextAction({ ...input, workspaceName: workspaceName ?? input.workspaceName });
+  const action = resolveResidentLifecycleNextAction(input);
   const allDone = steps.every((step) => step.state === "done") && action.title === "You're all caught up";
   const upcoming = steps.filter((step) => step.state === "upcoming").slice(0, 3);
   const rows = summary.filter((row) => row.value.trim());

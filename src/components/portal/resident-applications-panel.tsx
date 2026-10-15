@@ -127,6 +127,7 @@ import {
   type ResidentApplicationBucketId,
   type ResidentApplicationDetailTabId,
 } from "@/lib/portal-detail-routes";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
@@ -567,7 +568,8 @@ export function ResidentApplicationsPanel({
     void (async () => {
       try {
         // Bounded: a read that never answers must fall through to "Application not found", never "Loading" for good.
-        const res = await fetch("/api/manager-applications?scope=self", { credentials: "include", signal: AbortSignal.timeout(15000) });
+        const signal = requestTimeoutSignal(15000);
+        const res = await fetch("/api/manager-applications?scope=self", { credentials: "include", ...(signal ? { signal } : {}) });
         if (!res.ok || cancelled) return;
         const body = (await res.json().catch(() => null)) as { rows?: DemoApplicantRow[] } | null;
         const hit = (body?.rows ?? []).find(
