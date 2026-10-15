@@ -681,4 +681,10 @@ lease end, a migration billing hold skips the resident, and an imported
 create profiles (the client path still seeds them at approval).
 
 A due label reads "Due by <date>" for a "By <date>" window and "Due <date>" for a
-bare date, from one formatter (`src/lib/charge-due-label.ts`).
+bare date, from one formatter (`src/lib/charge-due-label.ts`). That module owns
+the other two charge-label shapes as well, so no surface hand-formats them:
+`humanizeChargeDate` turns a stored ISO due date into "Oct 7, 2026" (read
+straight off the string — a date-only value is a wall date and is never put
+through `Date`, which would shift it a day west of Greenwich), and
+`formatChargeMoneyLabel` normalizes a stored amount to "$1,800.00". Anything
+that is not an ISO date or a plain amount comes back unchanged.

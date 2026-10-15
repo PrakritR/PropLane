@@ -171,8 +171,8 @@ export function ResidentPaymentMethodsSettingsCard({ basePath = "/resident" }: {
       <ResidentAutopayCard
         onManagePaymentMethods={() => setPaymentMethodModalOpen(true)}
         // Reuses the C248 `?pay=<chargeId>` shortcut — resident-payments-panel.tsx
-        // opens the pay confirmation for this exact charge, rather than this
-        // card duplicating checkout state of its own.
+        // opens this exact charge's record, where the resident pays, rather than
+        // this card duplicating checkout state of its own.
         onPayChargeNow={(chargeId) => router.push(`${basePath}/payments?pay=${encodeURIComponent(chargeId)}`)}
       />
 

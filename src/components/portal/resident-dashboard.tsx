@@ -1053,9 +1053,9 @@ export function ResidentDashboard({
               const overdue = isHouseholdChargeOverdue(charge);
               return (
                 <IssueRow
-                  // C248: `?pay=<chargeId>` skips list -> record -> Pay —
-                  // resident-payments-panel.tsx opens the pay confirmation
-                  // for this exact charge as soon as the page loads.
+                  // C248: `?pay=<chargeId>` skips the list — resident-payments-panel.tsx
+                  // opens this exact charge's record as soon as the page loads, on whichever
+                  // tab holds it. It starts no payment; the resident pays from the record.
                   href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
                   tone={sectionTone}
                   title={charge.title || "Charge"}

@@ -123,8 +123,9 @@ describe("vendor Services matches the real Services page", () => {
     const user = userEvent.setup();
     render(<DemoPanel portal="vendor" tab="work-orders" story={OFFER} />);
     await user.click(tabButton("Completed"));
-    // A completed row has one action, so it is that icon rather than a ⋯.
-    await user.click(await screen.findByRole("button", { name: "Send invoice" }));
+    // A completed row has one action, so it is that icon rather than a ⋯. Its tooltip is the bare
+    // verb; the accessible name also names the row ("Send invoice · <service>"), like the ⋯ it replaces.
+    await user.click(await screen.findByRole("button", { name: /^Send invoice/ }));
     const dialog = await screen.findByRole("dialog", { name: "Request payment" });
     for (const label of ["Service", "Invoice", "Review"]) expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0);
     clickStep(dialog, "Invoice");

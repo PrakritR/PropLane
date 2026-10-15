@@ -176,7 +176,9 @@ describe("Resident sidebar counts", () => {
   });
 
   it("Lease counts 1 only while waiting on the resident's own signature", () => {
-    leaseState.residentLease = { bucket: "resident", status: "Resident Signature Pending" };
+    // Round 8: the badge counts the rows the Lease list actually lists, so the lease has to be one
+    // the resident can see (a shared document) — an unshared row lists nothing and badges nothing.
+    leaseState.residentLease = { id: "lease-1", bucket: "resident", status: "Resident Signature Pending", generatedHtml: "<p>lease</p>", signedLeaseSnapshots: [] };
     const { result } = renderHook(() => usePortalNavCounts("resident"));
     expect(result.current.lease?.count).toBe(1);
   });

@@ -127,7 +127,7 @@ Airbnb has no public write API, so the two directions are not equally fast:
 
 | Direction | How | Speed |
 | --- | --- | --- |
-| PropLane -> Airbnb | The per-room export feed (`/api/calendar/export/<token>.ics`) that Airbnb polls. Mark reserved / Remove on the Bookings calendar writes a `room_date_block`; the feed already carries it (a cancelled block drops out) | Instant in PropLane, then **whenever Airbnb next polls** (a few hours) |
+| PropLane -> Airbnb | The per-room export feed (`/api/calendar/export/<token>.ics`) that Airbnb polls. Mark reserved / Unblock / Delete on the Bookings calendar writes a `room_date_block`; the feed already carries it (a cancelled block drops out) | Instant in PropLane, then **whenever Airbnb next polls** (a few hours) |
 | Airbnb -> PropLane | Our import sync: cron `sync-channel-calendars` every 15 minutes, plus **Sync** / **Sync all** | Up to 15 minutes, or immediate on a manual Sync |
 
 - **Mark reserved.** Clicking an empty room-day (today or later) on the Bookings calendar

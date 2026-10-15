@@ -21,7 +21,8 @@ them; do not invent a variant.
 - Then the inline search, icon-only actions (funnel `Filter`, gear `Settings`), and the round
   blue + right-most.
 - Rows: `PortalPropertyRecordRow` / `PortalRecordListSurface` — title, one fact line, the
-  figure on the right, then **exactly one ⋯ per row**. The ⋯ always offers **Edit** first,
+  figure on the right, then **at most one ⋯ per row** (a lone action is its icon instead — § 2).
+  The ⋯ always offers **Edit** first,
   other actions after, a red destructive action last. If the list surface already gives rows a
   ⋯ (selection via `RowSelectCheckbox` + `bulkActions`), put the row actions there — never a
   second hand-rolled ⋯ next to it.
@@ -142,9 +143,12 @@ They show fewer sections, never a different layout.
   id is never shown as a place or room name — `placeNameOrEmpty` / `looksLikeRawRecordId`
   (`src/lib/room-display-label.ts`) drop the line instead. A fact that only repeats the tab is
   dropped too (a lease's "Draft" on the Draft tab, `leaseStageFactInTab`).
-- **⋯ menu:** a floating card whose heading is the record's name in grey, followed by the
-  record kind's real actions in the real order (`src/lib/portals/record-action-order.ts`).
-  Destructive actions are red and last. On phone it's a bottom sheet. Choosing an item closes the menu.
+- **⋯ menu:** the record kind's real actions in the real order
+  (`src/lib/portals/record-action-order.ts`); destructive actions are red and last, and
+  choosing an item closes the menu. On desktop it is a floating card, on phone a bottom sheet
+  headed by the record's name in grey. A ⋯ that would hold exactly **one** action is drawn as
+  that action's icon instead, with no menu to open. The surface and both rules are owned by
+  [`../portal-ui-system.md`](../portal-ui-system.md) § Per-record actions.
 - **Empty:** icon tile plus one line; no match: "No matches" plus Clear search.
 
 ## 3. Record page (inside pages)

@@ -214,7 +214,10 @@ that one id. Payment's header (`record-payment`, `send-reminder`, `delete`) is
 fully wired in `pro-payments-ledger-panel.tsx` through the same reversible
 paths the row ⋯ menu uses; it has no `edit` — amount edits stay in the row ⋯
 menu's Edit dialog — and `record-payment` is omitted when nothing is left to
-pay.
+pay. The resident's own charge record follows the same rule from the other side:
+`recordSections` drops `pay` from the header once `ctx.paymentOwed === false`, so
+a settled charge offers no Pay in the header, no sticky Pay bar and no Pay in a
+list selection.
 
 A handful of records with real, business-logic-heavy action rows moved off
 the removed `footer` prop onto `PortalRecordActions` directly rather than

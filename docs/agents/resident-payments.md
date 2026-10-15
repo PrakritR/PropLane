@@ -782,8 +782,22 @@ Settings › Account, alongside sign out (`ResidentPaymentMethodsSettingsCard`,
 `resident-payment-methods-settings-card.tsx`) — not in the Payments list,
 which keeps owning charge history and the per-charge Pay flow. A declined
 autopay run's "Pay now" routes to `/resident/payments?pay=<chargeId>`, the
-same shortcut the dashboard's Balance due uses (C248) to open the pay
-confirmation directly.
+same shortcut the dashboard's attention rows use (C248).
+
+**The two `?pay=` forms are not the same shortcut.** `?pay=now` (the dashboard's
+Balance due) opens the pay confirmation for everything owed.
+`?pay=<chargeId>` **deep-links to that charge's own record and starts no
+payment** — it waits for the first server read, switches the Long-term /
+Short-term band and the bucket tab as needed, opens a move-in line as its
+Move-in total row, and falls back to the list for an id it cannot resolve; the
+resident reads the charge and pays from the record — and it suppresses the
+landing-bucket rule, which would otherwise navigate the list out from under it.
+Either form rides through the bare `/payments` redirect
+(`renderPortalSectionWith`) rather than being dropped. A
+settled charge's record offers no Pay at all (`recordSections`' `paymentOwed`),
+and the list's selection actions offer Pay only while something selected is
+still owed. Coverage:
+`tests/unit/resident-payments-dashboard-shortcut.test.tsx`.
 
 ## Autopay: one run per charge, the SAME builder and fee resolver as a manual payment (PLAN-0920-1051 Wave 1)
 

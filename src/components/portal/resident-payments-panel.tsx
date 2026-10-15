@@ -945,11 +945,10 @@ export function ResidentPaymentsPanel({
     openPayConfirm(ids, paymentMethod);
   }, [openPayConfirm, paymentMethod, selectedIds, setSelectedIds, showToast, unpaidPayableCharges]);
 
-  // C248: `?pay=now` (from the dashboard's "Balance due" shortcut) or
-  // `?pay=<chargeId>` (from a specific attention row) opens the pay
-  // confirmation the moment the list is ready to pay it — skipping the
-  // list -> record -> Pay button dance for the single most common resident
-  // action. Cleared from the URL once handled so it never re-fires.
+  // C248, two different shortcuts: `?pay=now` (the dashboard's "Balance due") opens the pay
+  // confirmation for everything owed the moment the list is ready to pay it, while
+  // `?pay=<chargeId>` (a specific attention row) deep-links to that charge's record and starts
+  // no payment. Cleared from the URL once handled so neither re-fires.
   useEffect(() => {
     if (chargeIdProp) return;
     const payParam = searchParams.get("pay");

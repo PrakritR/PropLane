@@ -24,6 +24,15 @@ cookies are scoped per registrable domain, an installed app that updates to a
 build loading the new domain starts with no session and prompts a one-time
 re-login; this is inherent to the domain cutover, not a bug.
 
+**The shell's WKWebView is older than the Mac's Safari, so a browser API the
+desktop has is not a given.** `AbortSignal.timeout` is the case already hit: it
+only landed in Safari 17.4, and calling it unguarded throws *before* `fetch` is
+issued, so the read looks like a refusal rather than a slow answer. Client code
+takes a bounded-fetch signal from `requestTimeoutSignal`
+(`src/lib/fetch-timeout.ts`) — never `AbortSignal.timeout` directly — which
+returns `undefined` on a runtime without it: an unbounded fetch is still a
+fetch. Server-only paths may call the platform API directly.
+
 **Browser visitors on a legacy host ARE redirected — by middleware, not
 Vercel.** `src/middleware.ts` + `src/lib/legacy-host-redirect.ts` send a
 plain browser's top-level page load on `prop-lane.space`, `proplane.space`
