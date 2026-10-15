@@ -178,7 +178,8 @@ describe("recorded payments are not links to a detail page", () => {
     );
     // Every navigation to the charge detail page must sit on the non-recorded
     // branch of that guard — an unguarded one is the dead link this covers.
-    const navigations = src.match(/[^\n]*portalNavigate\(residentChargeDetailHref\([^\n]*/g) ?? [];
+    // (A `?pay=<chargeId>` deep link also routes to a record, with `{ replace: true }` - not a row click.)
+    const navigations = (src.match(/[^\n]*portalNavigate\(residentChargeDetailHref\([^\n]*/g) ?? []).filter((line) => !line.includes("replace: true"));
     expect(navigations).toHaveLength(1);
     expect(src).toMatch(
       /onClick: isRecordedPaymentRow\(row\)\s*\?\s*undefined\s*:\s*\(\) => portalNavigate\(residentChargeDetailHref\(/,

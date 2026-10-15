@@ -54,7 +54,8 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("@/hooks/use-portal-session", () => ({
   usePortalSession: () => ({ ready: true, email: EMAIL, userId: USER_ID, displayName: "Maya Chen" }),
 }));
-vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => (_href: string) => {} }));
+const navigated: string[] = [];
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => (href: string) => { navigated.push(href); } }));
 vi.mock("@/hooks/use-native-platform", () => ({ useNativePlatform: () => null }));
 vi.mock("@/lib/household-charges", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/household-charges")>();
@@ -122,13 +123,13 @@ describe("resident Payments — dashboard pay shortcut (C248)", () => {
     await waitFor(() => expect(replaced).toContain("/resident/payments"));
   });
 
-  it('"?pay=<chargeId>" opens the pay confirmation for that exact charge', async () => {
+  // Round 8: a `?pay=<chargeId>` link opens that charge's record (Opening never starts a payment).
+  it('"?pay=<chargeId>" opens the record for that exact charge', async () => {
     searchParams = new URLSearchParams("pay=rent-oct");
     render(<ResidentPaymentsPanel bucket="pending" />);
 
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("$1,205.00");
-    await waitFor(() => expect(replaced).toContain("/resident/payments"));
+    await waitFor(() => expect(navigated.some((href) => href.includes("rent-oct"))).toBe(true));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("a pay param for a charge id that does not exist opens nothing", async () => {
