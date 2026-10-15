@@ -245,7 +245,18 @@ export function BookAgainSheet({
   const resultFor = (range: ShortStayRangeDraft) => results.find((r) => r.checkIn === range.checkIn && r.checkOut === range.checkOut);
   const action = guestBookAction(results);
   const refusedRanges = results.filter((r) => r.outcome === "unavailable" || r.outcome === "invalid");
-  const total = cart.reduce((sum, range) => sum + shortStayTotal(room?.nightly ?? 0, rangeDaysBetween(range.checkIn, range.checkOut)), 0);
+  // The rail counts what is standing: the cart while choosing, and on the result step the stays that
+  // went through (a booked range leaves the cart, so the cart would read "None yet · 0 nights · $0").
+  const previewStays =
+    phase === "result"
+      ? outcome
+          .filter((row) => row.outcome === "confirmed" || row.outcome === "pending")
+          .map((row) => ({ nights: row.nights, total: row.total ?? 0 }))
+      : cart.map((range) => {
+          const nights = rangeDaysBetween(range.checkIn, range.checkOut);
+          return { nights, total: shortStayTotal(room?.nightly ?? 0, nights) };
+        });
+  const total = previewStays.reduce((sum, stay) => sum + stay.total, 0);
 
   const submit = async () => {
     if (busy || cart.length === 0 || !room) return;
@@ -294,9 +305,9 @@ export function BookAgainSheet({
       name={listing?.propertyLabel ?? "Book again"}
       sub={room ? `${room.label} · ${formatShortStayMoney(room.nightly)} / night` : undefined}
       facts={[
-        { label: "Stays", value: cart.length ? String(cart.length) : "None yet", warn: cart.length === 0 },
+        { label: "Stays", value: previewStays.length ? String(previewStays.length) : "None yet", warn: previewStays.length === 0 },
         { label: "Guests", value: String(guests) },
-        { label: "Nights", value: String(cart.reduce((sum, range) => sum + rangeDaysBetween(range.checkIn, range.checkOut), 0)) },
+        { label: "Nights", value: String(previewStays.reduce((sum, stay) => sum + stay.nights, 0)) },
         { label: "Total", value: formatShortStayMoney(total) },
       ]}
     />
