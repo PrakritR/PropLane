@@ -41,7 +41,8 @@ type StayRow = { record_type?: string | null; row_data?: Record<string, unknown>
 function rowMatchesGuest(row: Record<string, unknown>, who: GuestIdentity): boolean {
   if (who.userId && row.residentUserId === who.userId) return true;
   const email = who.email?.trim().toLowerCase();
-  if (email && typeof row.residentEmail === "string" && row.residentEmail.trim().toLowerCase() === email) return true;
+  // A phone-keyed placeholder login is not an address anyone typed: it never matches a stay's email.
+  if (email && !email.endsWith("@import.proplane.local") && typeof row.residentEmail === "string" && row.residentEmail.trim().toLowerCase() === email) return true;
   if (!who.phoneVerified) return false;
   const phone = normalizeE164(who.phone ?? "");
   return Boolean(phone && normalizeE164(String(row.residentPhone ?? "")) === phone);

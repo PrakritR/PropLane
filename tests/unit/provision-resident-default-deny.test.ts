@@ -3,14 +3,20 @@ vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: v
 
 // Keep the auth-user lookup / role-row writes inert so the test exercises only
 // the inheritance decision. Returning the same id avoids the migrate path.
+const findAuthUserIdByEmail = vi.fn(async (..._args: unknown[]): Promise<string | null> => "user-1");
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({
-  findAuthUserIdByEmail: vi.fn(async () => "user-1"),
+  findAuthUserIdByEmail: (...args: unknown[]) => findAuthUserIdByEmail(...args),
+}));
+const attachInboxThreadsToResident = vi.fn(async (..._args: unknown[]) => undefined);
+vi.mock("@/lib/tour-resident-link.server", () => ({
+  attachInboxThreadsToResident: (...args: unknown[]) => attachInboxThreadsToResident(...args),
 }));
 vi.mock("@/lib/auth/profile-role-row", () => ({
   ensureProfileRoleRow: vi.fn(async () => {}),
 }));
+const migratePortalUserId = vi.fn(async (..._args: unknown[]) => {});
 vi.mock("@/lib/auth/migrate-portal-user-id", () => ({
-  migratePortalUserId: vi.fn(async () => {}),
+  migratePortalUserId: (...args: unknown[]) => migratePortalUserId(...args),
 }));
 
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
@@ -100,5 +106,33 @@ describe("provisionResidentAccountByEmail default-deny", () => {
     if (result.ok) expect(result.linkedApplication).toBe(true);
     expect(captured.upsert?.application_approved).toBe(true);
     expect(captured.upsert?.full_name).toBe("Prior Guest");
+  });
+
+  it("emailProven:false skips every email-keyed inheritance: application, account merge and inbox threads", async () => {
+    vi.clearAllMocks();
+    findAuthUserIdByEmail.mockResolvedValue("victim-user");
+    const { client, captured } = mockSupabase();
+    const result = await provisionResidentAccountByEmail(client as never, {
+      userId: "user-1",
+      email: "guest.12065550142@import.proplane.local",
+      fullName: "Stranger",
+      inheritFromApplication: true,
+      emailProven: false,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.linkedApplication).toBe(false);
+    expect(captured.upsert?.application_approved).toBe(false);
+    expect(captured.upsert?.full_name).toBe("Stranger");
+    expect(findAuthUserIdByEmail).not.toHaveBeenCalled();
+    expect(migratePortalUserId).not.toHaveBeenCalled();
+    expect(attachInboxThreadsToResident).not.toHaveBeenCalled();
+  });
+
+  it("the default (proven) path still attaches the inbox threads", async () => {
+    vi.clearAllMocks();
+    findAuthUserIdByEmail.mockResolvedValue("user-1");
+    const { client } = mockSupabase();
+    await provisionResidentAccountByEmail(client as never, { userId: "user-1", email: "guest@example.com" });
+    expect(attachInboxThreadsToResident).toHaveBeenCalledWith(expect.anything(), "user-1", "guest@example.com");
   });
 });

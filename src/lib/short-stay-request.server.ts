@@ -147,8 +147,8 @@ export async function submitShortStayRequest(
   const login = await ensureGuestLogin(db, { name, phone, email }).catch(() => null);
   // `ensureGuestLogin` keys on the PHONE, so the account it returns is only this submitter's when it
   // was made for this request or when the address they typed IS that account's login address. A typed
-  // email that names someone else's account proves nothing: the link may travel to the phone that
-  // matched it and nowhere else, and the hold is not claimed by that account either.
+  // email proves nothing: the sign-in link goes by text to the typed phone and NEVER by email, and the
+  // hold is not claimed by an account that merely matched the phone.
   const typedEmailOwnsLogin = Boolean(email && login && login.loginEmail === email);
   if (login?.userId && (login.created || typedEmailOwnsLogin) && created.rowData) {
     await linkRowToGuest(db, blockId, created.rowData, login.userId).catch(() => undefined);
@@ -165,7 +165,6 @@ export async function submitShortStayRequest(
     ownerFirstName: ownerName.split(/\s+/)[0] ?? "",
   });
   const textedAck = withGuestSignInLink(ack, login?.signInUrl);
-  const emailedAck = typedEmailOwnsLogin ? textedAck : ack;
   await enqueueOwnerSms(
     {
       managerUserId: ownerId,
@@ -191,7 +190,7 @@ export async function submitShortStayRequest(
           from: await managerOutboundFromHeader(db, ownerId),
           to: [email],
           subject: `Your request: ${roomLabel} at ${propertyLabel}`,
-          text: emailedAck,
+          text: ack, // informational only: the sign-in link is texted, never emailed
         },
         effectSummary: "Short-stay request confirmation email was captured for SMS test mode.",
         metadata: { recipients: 1 },

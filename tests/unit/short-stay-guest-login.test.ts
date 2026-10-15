@@ -38,24 +38,43 @@ describe("the one-time sign-in link", () => {
 describe("ensureGuestLogin", () => {
   const input = { name: "Priya Shah", phone: "+12065550142", email: "priya@example.com" };
 
-  it("creates a resident login for a new guest, gives it the resident role and mints a link", async () => {
+  it("creates a resident login on the PLACEHOLDER, never the typed email, and mints the link for it", async () => {
     const { db, createUser, generateLink } = dbFor({});
     const login = await ensureGuestLogin(db, input);
-    expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: "priya@example.com", email_confirm: true }));
-    expect(provision).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "new-user", phone: "+12065550142", inheritFromApplication: false }));
+    const placeholder = "guest.12065550142@import.proplane.local";
+    expect(createUser).toHaveBeenCalledTimes(1);
+    expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: placeholder, email_confirm: true }));
+    expect(provision).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: "new-user", email: placeholder, phone: "+12065550142", inheritFromApplication: false, emailProven: false }),
+    );
+    expect(JSON.stringify(provision.mock.calls)).not.toContain("priya@example.com");
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(expect.anything(), "new-user", "resident");
-    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "priya@example.com" });
-    expect(login).toMatchObject({ userId: "new-user", created: true });
-    expect(login?.signInUrl).toContain("/auth/confirm?token_hash=hash-for-priya%40example.com&type=magiclink");
+    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: placeholder });
+    expect(login).toMatchObject({ userId: "new-user", created: true, loginEmail: placeholder });
+    expect(login?.signInUrl).toContain("/auth/confirm?token_hash=hash-for-guest.12065550142%40import.proplane.local&type=magiclink");
   });
 
-  it("never logs into an account that merely owns the typed email: a placeholder login is made instead", async () => {
+  it("a victim's email (existing account, applications, inbox threads) is never looked up, attached or used", async () => {
     findAuthUserIdByEmail.mockResolvedValue("victim-user");
     const { db, createUser, generateLink } = dbFor({});
-    const login = await ensureGuestLogin(db, input);
+    const login = await ensureGuestLogin(db, { ...input, email: "victim@example.com" });
+    expect(findAuthUserIdByEmail).not.toHaveBeenCalled();
     expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: "guest.12065550142@import.proplane.local" }));
     expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "guest.12065550142@import.proplane.local" });
+    // The only provisioning call is on the placeholder with every email-keyed inheritance switched off.
+    expect(provision).toHaveBeenCalledTimes(1);
+    const opts = provision.mock.calls[0]![1] as { email: string; emailProven: boolean; inheritFromApplication: boolean };
+    expect(opts).toMatchObject({ email: "guest.12065550142@import.proplane.local", emailProven: false, inheritFromApplication: false });
+    expect(JSON.stringify(provision.mock.calls)).not.toContain("victim@example.com");
     expect(login?.userId).toBe("new-user");
+  });
+
+  it("works with no typed email at all", async () => {
+    const { db, createUser } = dbFor({});
+    const login = await ensureGuestLogin(db, { ...input, email: "" });
+    expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: "guest.12065550142@import.proplane.local" }));
+    expect(login?.created).toBe(true);
   });
 
   it("reuses the resident account that holds this phone: the link goes to that phone's own owner", async () => {

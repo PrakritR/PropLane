@@ -72,12 +72,28 @@ describe("the one-time sign-in link only travels to the phone that keyed it", ()
     expect(hold.residentUserId).toBeUndefined();
   });
 
-  it("emails the link when the typed address IS that account's login, and claims the hold", async () => {
+  it("never emails the link even when the typed address equals that account's login; the hold is still claimed", async () => {
     ensureGuestLogin.mockResolvedValue({ userId: "guest-2", loginEmail: "priya@example.com", created: false, signInUrl: SIGN_IN });
     const db = seedShortStayDb();
     expect(await submitShortStayRequest(db as never, { ...request, email: "Priya@example.com" }, { today: TODAY })).toEqual({ ok: true });
     expect(textedBody()).toContain(SIGN_IN);
-    expect(emailedText()).toContain(SIGN_IN);
+    expect(emailedText()).not.toContain("token_hash");
+    expect(emailedText()).not.toContain("Sign in");
     expect((db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>).residentUserId).toBe("guest-2");
+  });
+
+  it("a brand-new guest's link is texted only: the typed email gets an informational confirmation without it", async () => {
+    ensureGuestLogin.mockResolvedValue({ userId: "guest-new", loginEmail: "guest.12065550142@import.proplane.local", created: true, signInUrl: SIGN_IN });
+    const db = seedShortStayDb();
+    expect(await submitShortStayRequest(db as never, { ...request, email: "victim@example.com" }, { today: TODAY })).toEqual({ ok: true });
+    expect(textedBody()).toContain(SIGN_IN);
+    expect(postResendEmail).toHaveBeenCalledTimes(1);
+    expect(emailedText()).toContain("Got it, Priya");
+    expect(emailedText()).not.toContain("token_hash");
+    expect(emailedText()).not.toContain("Sign in");
+    // The typed email stays on the stay for the host; it is not the login.
+    const hold = db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>;
+    expect(hold.residentEmail).toBe("victim@example.com");
+    expect(hold.residentUserId).toBe("guest-new");
   });
 });
