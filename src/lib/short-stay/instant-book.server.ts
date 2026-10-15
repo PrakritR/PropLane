@@ -18,6 +18,8 @@ import {
   CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
   ROOM_DATE_BLOCK_RECORD_TYPE,
 } from "@/lib/portal-schedule-record-scope";
+import { isPlaceholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
+import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 
 /** Default on: a listing that never saved the switch lets returning guests book instantly. */
 export function listingBooksReturningGuestsInstantly(submission: { shortStayInstantBookReturning?: boolean } | null | undefined): boolean {
@@ -42,7 +44,7 @@ function rowMatchesGuest(row: Record<string, unknown>, who: GuestIdentity): bool
   if (who.userId && row.residentUserId === who.userId) return true;
   const email = who.email?.trim().toLowerCase();
   // A phone-keyed placeholder login is not an address anyone typed: it never matches a stay's email.
-  if (email && !email.endsWith("@import.proplane.local") && typeof row.residentEmail === "string" && row.residentEmail.trim().toLowerCase() === email) return true;
+  if (email && !isPlaceholderImportEmail(email) && typeof row.residentEmail === "string" && row.residentEmail.trim().toLowerCase() === email) return true;
   if (!who.phoneVerified) return false;
   const phone = normalizeE164(who.phone ?? "");
   return Boolean(phone && normalizeE164(String(row.residentPhone ?? "")) === phone);
@@ -70,17 +72,42 @@ export function evaluateReturningGuest(rows: readonly StayRow[], who: GuestIdent
   return completed;
 }
 
-/** Reads the listing's stay rows and answers `evaluateReturningGuest`. A failed read is "not returning" (a hold, never a surprise confirm). */
+/**
+ * The `or()` filter that fetches only the rows `rowMatchesGuest` can match - the same three arms, in
+ * SQL. Null when the guest has no identity at all, which must read no rows rather than the house's.
+ *
+ * Without it the Book-again sheet pulled every stay row of the property, with its whole `row_data`,
+ * on each debounced dry run (120 an hour per guest): a busy house is megabytes of JSONB for one
+ * person picking dates, plus every other guest's contact details in memory. The in-memory matcher
+ * stays the authority, so a widening `ilike` only ever costs a row that is then re-checked.
+ */
+export function returningGuestRowFilter(who: GuestIdentity): string | null {
+  const clauses: string[] = [];
+  const userId = who.userId?.trim();
+  if (userId) clauses.push(`row_data->>residentUserId.eq.${postgrestFilterValue(userId)}`);
+  const email = who.email?.trim().toLowerCase();
+  // `ilike` with no wildcard is an exact, case-insensitive compare: a legacy row may store the
+  // address as the manager typed it.
+  if (email && !isPlaceholderImportEmail(email)) clauses.push(`row_data->>residentEmail.ilike.${postgrestFilterValue(email)}`);
+  const phone = who.phoneVerified ? normalizeE164(who.phone ?? "") : "";
+  if (phone) clauses.push(`row_data->>residentPhone.eq.${postgrestFilterValue(phone)}`);
+  return clauses.length ? clauses.join(",") : null;
+}
+
+/** Reads this guest's stay rows on the listing and answers `evaluateReturningGuest`. A failed read is "not returning" (a hold, never a surprise confirm). */
 export async function guestIsReturning(
   db: SupabaseClient,
   input: { propertyId: string; who: GuestIdentity; today: string },
 ): Promise<boolean> {
+  const scope = returningGuestRowFilter(input.who);
+  if (!scope) return false;
   const { data, error } = await db
     .from("portal_schedule_records")
     .select("record_type, row_data")
     .eq("property_id", input.propertyId)
     .in("record_type", [ROOM_DATE_BLOCK_RECORD_TYPE, CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE])
-    .limit(2000);
+    .or(scope)
+    .limit(500);
   if (error) return false;
   return evaluateReturningGuest((data ?? []) as StayRow[], input.who, input.today);
 }

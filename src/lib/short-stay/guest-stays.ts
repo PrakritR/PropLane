@@ -217,13 +217,19 @@ export function withGuestSignInLink(text: string, signInUrl: string | null | und
 
 /* ─────────────────── what a manager's save must not strip ─────────────────── */
 
-const CARRIED_STAY_DETAIL_KEYS = ["source", "guests", "holdExpiresAt", "decision", "confirmedAt", "decidedAt"] as const;
+const CARRIED_STAY_DETAIL_KEYS = ["guests", "holdExpiresAt", "decision", "confirmedAt", "decidedAt"] as const;
 
 /**
  * The booking editor posts back only the fields it draws. For a guest's stay, the guest's login
  * (`residentUserId`), the head-count the capacity trigger weighs (`stayDetails.guests`), the hold's
  * deadline and how it was answered are server-owned, so a manager's save carries them forward from the
  * stored row. Returns the merged `row_data`, or null when there is nothing to carry (not a guest stay).
+ *
+ * `stayDetails.source` is PINNED rather than merely backfilled: it is what marks the row as a guest's
+ * request, and the editor draws it in an (unchangeable) Source dropdown. A save that overwrote it with
+ * "Direct" left the request unanswerable - Approve/Decline vanish, `decideShortStayHold` refuses it as
+ * already answered, and the expiry cron cancels the nights as an unpaid hold without ever telling the
+ * guest.
  */
 export function carryGuestStayFields(existing: unknown, next: unknown): Record<string, unknown> | null {
   const prior = existing && typeof existing === "object" && !Array.isArray(existing) ? (existing as Record<string, unknown>) : null;
@@ -235,6 +241,8 @@ export function carryGuestStayFields(existing: unknown, next: unknown): Record<s
   for (const key of CARRIED_STAY_DETAIL_KEYS) {
     if (details[key] === undefined && priorDetails[key] !== undefined) details[key] = priorDetails[key];
   }
+  if (isShortStayRequestSource(priorDetails.source)) details.source = priorDetails.source;
+  else if (details.source === undefined && priorDetails.source !== undefined) details.source = priorDetails.source;
   return {
     ...incoming,
     ...(prior.residentUserId && !incoming.residentUserId ? { residentUserId: prior.residentUserId } : {}),

@@ -21,6 +21,7 @@ import {
   ROOM_DATE_BLOCK_RECORD_TYPE,
 } from "@/lib/portal-schedule-record-scope";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { isPlaceholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { pacificTodayKey, rangeDaysBetween } from "@/lib/room-availability-range";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -37,7 +38,7 @@ import {
   type GuestRangeResult,
   type GuestStay,
 } from "@/lib/short-stay/guest-stays";
-import { emitShortStayTeamNotice, loadStayLabels } from "@/lib/short-stay/hold-decisions.server";
+import { emitShortStayTeamNotice, loadOwnerIdentity, loadStayLabels } from "@/lib/short-stay/hold-decisions.server";
 import { guestIsReturning, instantBookStatus, listingBooksReturningGuestsInstantly } from "@/lib/short-stay/instant-book.server";
 import { ensureGuestStayCharge } from "@/lib/short-stay/stay-charge.server";
 import {
@@ -308,6 +309,9 @@ export async function bookGuestStays(
     if (!dryRun) {
       const written = created.flatMap((row) => (row.ok && row.blockId && row.rowData ? [{ ...row, blockId: row.blockId, rowData: row.rowData }] : []));
       const labels = await loadStayLabels(db, propertyId, roomId);
+      // Read once for every range: both notice emitters need the owner's address, and a five-range
+      // request was issuing up to ten identical `profiles` selects.
+      const owner = written.length ? await loadOwnerIdentity(db, listing.ownerId) : { email: "", name: "" };
       for (const row of written) {
         if (row.status === "confirmed") {
           // An instant confirm never passes through the host's Approve, so this is the ONLY call to the
@@ -315,13 +319,12 @@ export async function bookGuestStays(
           // nobody can find. `ensureGuestStayCharge` logs its own `{ ok: false }`; this catches a throw.
           await ensureGuestStayCharge(db, { blockId: row.blockId, ownerId: listing.ownerId, propertyId, propertyLabel: listing.propertyLabel, row: row.rowData })
             .catch(bestEffortFailed("guest stay charge", { blockId: row.blockId, propertyId }));
-          await emitShortStayTeamNotice(db, { event: "short_stay_confirmed", headline: "Short stay confirmed", blockId: row.blockId, ownerId: listing.ownerId, propertyId, row: row.rowData, labels }).catch(() => undefined);
+          await emitShortStayTeamNotice(db, { event: "short_stay_confirmed", headline: "Short stay confirmed", blockId: row.blockId, ownerId: listing.ownerId, propertyId, row: row.rowData, labels, owner }).catch(() => undefined);
         } else {
-          const { data: owner } = await db.from("profiles").select("email, full_name").eq("id", listing.ownerId).maybeSingle();
           await emitShortStayRequestedEvent(db, {
             ownerId: listing.ownerId,
-            ownerEmail: String(owner?.email ?? "").trim().toLowerCase(),
-            ownerName: String(owner?.full_name ?? "").trim(),
+            ownerEmail: owner.email,
+            ownerName: owner.name,
             propertyId,
             roomId,
             blockId: row.blockId,
@@ -392,7 +395,7 @@ async function textGuest(
     },
     db,
   ).catch(() => undefined);
-  if (input.email && !input.email.endsWith("@import.proplane.local") && !shouldSkipOutboundEmail(input.email) && process.env.RESEND_API_KEY?.trim()) {
+  if (input.email && !isPlaceholderImportEmail(input.email) && !shouldSkipOutboundEmail(input.email) && process.env.RESEND_API_KEY?.trim()) {
     await postResendEmail({
       apiKey: process.env.RESEND_API_KEY.trim(),
       actorUserId: input.ownerId,

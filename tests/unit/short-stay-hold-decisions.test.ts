@@ -96,6 +96,15 @@ describe("the host approves a guest's request", () => {
     expect(enqueueOwnerSms).toHaveBeenCalledTimes(1);
   });
 
+  it("raises no charge for a stay with no login: a typed, unverified email is never a payable key", async () => {
+    // The public card's typed address stays on the row and nowhere else - keying `stay_total` on it
+    // would raise the charge in the Payments of whoever really owns that address.
+    const db = seeded(holdRow({ residentUserId: undefined, residentEmail: "typed@example.com" }, { source: "public_short_stay_request" }));
+    const result = await decideShortStayHold(db as never, { blockId: BLOCK, decision: "approve" });
+    expect(result).toMatchObject({ ok: true, outcome: "confirmed", chargeCreated: false });
+    expect(chargeWrites).toHaveLength(0);
+  });
+
   it("never overwrites a charge that already exists for the block (a paid one included)", async () => {
     const db = seeded();
     const { guestStayChargeId } = await import("@/lib/short-stay/stay-charge.server");

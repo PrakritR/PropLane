@@ -20,6 +20,7 @@ import {
   evaluateReturningGuest,
   instantBookStatus,
   listingBooksReturningGuestsInstantly,
+  returningGuestRowFilter,
 } from "@/lib/short-stay/instant-book.server";
 import { bookGuestStays } from "@/lib/short-stay/guest-stays.server";
 import { GUEST, OWNER, PROPERTY, TODAY, completedStay, seedShortStayDb } from "../helpers/short-stay-seed";
@@ -72,6 +73,22 @@ describe("the instant-book rule (pure)", () => {
     // A number typed into Settings is a claim, not an identity: it buys no instant-book standing.
     expect(evaluateReturningGuest([legacy], { phone: "+12065550142" }, TODAY)).toBe(false);
     expect(evaluateReturningGuest([legacy], { phone: "+12065550142", phoneVerified: true }, TODAY)).toBe(true);
+  });
+
+  it("reads only the rows it can match: the house's whole stay history is never pulled", () => {
+    expect(returningGuestRowFilter({ userId: GUEST, email: "priya@example.com", phone: "+12065550142" })).toBe(
+      'row_data->>residentUserId.eq."guest-1",row_data->>residentEmail.ilike."priya@example.com"',
+    );
+    // A verified phone is an identity, an unverified one is not - the same rule `rowMatchesGuest` applies.
+    expect(returningGuestRowFilter({ userId: GUEST, phone: "+12065550142", phoneVerified: true })).toBe(
+      'row_data->>residentUserId.eq."guest-1",row_data->>residentPhone.eq."+12065550142"',
+    );
+    // A phone-keyed placeholder login is nobody's typed address, so it is not a scope either.
+    expect(returningGuestRowFilter({ userId: GUEST, email: "guest.12065550142@import.proplane.local" })).toBe(
+      'row_data->>residentUserId.eq."guest-1"',
+    );
+    // No identity at all must read no rows, never the unfiltered listing.
+    expect(returningGuestRowFilter({})).toBeNull();
   });
 
   it("confirms only when the flag is on AND the guest is returning", () => {

@@ -77,9 +77,9 @@ describe("ensureGuestLogin", () => {
     expect(login?.created).toBe(true);
   });
 
-  it("reuses the resident account that holds this phone: the link goes to that phone's own owner", async () => {
+  it("reuses the resident account whose phone is VERIFIED: the link goes to that phone's proven owner", async () => {
     const { db, createUser, generateLink } = dbFor({
-      profiles: [{ id: "u-priya", email: "p@home.test", phone: "+12065550142" }],
+      profiles: [{ id: "u-priya", email: "p@home.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" }],
       roles: [{ user_id: "u-priya", role: "resident" }],
     });
     const login = await ensureGuestLogin(db, input);
@@ -88,16 +88,50 @@ describe("ensureGuestLogin", () => {
     expect(login).toMatchObject({ userId: "u-priya", created: false });
   });
 
+  it("never signs into an account whose phone is UNVERIFIED: a typed number is a claim, not possession", async () => {
+    // `profiles.phone` is self-edited in Settings; a recycled or mistyped number must not be texted a
+    // link into that resident's lease, payments and documents.
+    const { db, createUser, generateLink } = dbFor({
+      profiles: [{ id: "u-resident", email: "someone@home.test", phone: "+12065550142", phone_verified_at: null }],
+      roles: [{ user_id: "u-resident", role: "resident" }],
+    });
+    const login = await ensureGuestLogin(db, input);
+    const placeholder = "guest.12065550142@import.proplane.local";
+    expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: placeholder }));
+    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: placeholder });
+    expect(login).toMatchObject({ userId: "new-user", created: true, loginEmail: placeholder });
+  });
+
+  it("finds the placeholder it minted for this phone by its login address, even once a resident stores the same number", async () => {
+    const placeholder = "guest.12065550142@import.proplane.local";
+    const { db, createUser, generateLink } = dbFor({
+      profiles: [
+        { id: "u-other", email: "other@home.test", phone: "+12065550142" },
+        { id: "u-guest", email: placeholder, phone: "+12065550142" },
+      ],
+      roles: [{ user_id: "u-guest", role: "resident" }],
+    });
+    const login = await ensureGuestLogin(db, input);
+    expect(createUser).not.toHaveBeenCalled();
+    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: placeholder });
+    expect(login).toMatchObject({ userId: "u-guest", created: false, loginEmail: placeholder });
+  });
+
   it("does not hand a manager who shares the number a resident role from a stranger's booking", async () => {
-    const { db, createUser } = dbFor({ profiles: [{ id: "u-mgr", email: "m@home.test", phone: "+12065550142" }], roles: [{ user_id: "u-mgr", role: "manager" }] });
+    const { db, createUser } = dbFor({ profiles: [{ id: "u-mgr", email: "m@home.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" }], roles: [{ user_id: "u-mgr", role: "manager" }] });
     const login = await ensureGuestLogin(db, input);
     expect(createUser).toHaveBeenCalled();
     expect(login?.userId).toBe("new-user");
     expect(ensureProfileRoleRow).not.toHaveBeenCalledWith(expect.anything(), "u-mgr", "resident");
   });
 
-  it("gives up (no link, no account) when two accounts claim the phone or the account service refuses", async () => {
-    const two = dbFor({ profiles: [{ id: "a", email: "a@x.test", phone: "+12065550142" }, { id: "b", email: "b@x.test", phone: "+12065550142" }] });
+  it("gives up (no link, no account) when two accounts claim the VERIFIED phone or the account service refuses", async () => {
+    const two = dbFor({
+      profiles: [
+        { id: "a", email: "a@x.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" },
+        { id: "b", email: "b@x.test", phone: "+12065550142", phone_verified_at: "2026-09-02T00:00:00Z" },
+      ],
+    });
     expect(await ensureGuestLogin(two.db, input)).toBeNull();
     expect(two.createUser).not.toHaveBeenCalled();
     const refused = dbFor({});

@@ -68,13 +68,13 @@ export async function ensureGuestStayCharge(
   if (!facts) return chargeNotRaised(input.blockId, "no_rate");
   const residentUserId = typeof input.row.residentUserId === "string" ? input.row.residentUserId.trim() : "";
 
-  // Payments finds a charge by the guest's LOGIN address, which is not always the email they typed.
-  let residentEmail = "";
-  if (residentUserId) {
-    const { data: profile } = await db.from("profiles").select("email").eq("id", residentUserId).maybeSingle();
-    residentEmail = String(profile?.email ?? "").trim().toLowerCase();
-  }
-  if (!residentEmail && typeof input.row.residentEmail === "string") residentEmail = input.row.residentEmail.trim().toLowerCase();
+  // Payments finds a charge by `resident_user_id` OR `resident_email`, so both keys have to name the
+  // guest's own LOGIN - never the address they typed into the public card. That address is unverified:
+  // keying a payable charge on it would raise it in the Payments of whoever really owns the address.
+  // A stay with no login (`ensureGuestLogin` could not name one) therefore raises nothing and says so.
+  if (!residentUserId) return chargeNotRaised(input.blockId, "no_guest");
+  const { data: profile } = await db.from("profiles").select("email").eq("id", residentUserId).maybeSingle();
+  const residentEmail = String(profile?.email ?? "").trim().toLowerCase();
   if (!residentEmail) return chargeNotRaised(input.blockId, "no_guest");
 
   const chargeId = guestStayChargeId(input.blockId);
@@ -87,7 +87,7 @@ export async function ensureGuestStayCharge(
     createdAt: new Date().toISOString(),
     residentEmail,
     residentName: typeof input.row.residentName === "string" && input.row.residentName.trim() ? input.row.residentName.trim() : "Guest",
-    residentUserId: residentUserId || null,
+    residentUserId,
     propertyId: input.propertyId,
     propertyLabel: input.propertyLabel,
     managerUserId: input.ownerId,

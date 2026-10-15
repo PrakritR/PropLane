@@ -145,12 +145,12 @@ export async function submitShortStayRequest(
   // A guest without a login gets one, and the confirmation text carries the one-time sign-in link
   // (`token_hash`, never a PKCE code) so the Stays page becomes theirs.
   const login = await ensureGuestLogin(db, { name, phone, email }).catch(() => null);
-  // `ensureGuestLogin` keys on the PHONE, so the account it returns is only this submitter's when it
-  // was made for this request or when the address they typed IS that account's login address. A typed
-  // email proves nothing: the sign-in link goes by text to the typed phone and NEVER by email, and the
-  // hold is not claimed by an account that merely matched the phone.
-  const typedEmailOwnsLogin = Boolean(email && login && login.loginEmail === email);
-  if (login?.userId && (login.created || typedEmailOwnsLogin) && created.rowData) {
+  // `ensureGuestLogin` only ever returns an account this PHONE provably owns - the placeholder login
+  // minted for the number, or one whose `profiles.phone` is verified - so the hold is stamped with it
+  // whenever there is one. That stamp is the stay's only identity: `listGuestStays` reads it, and
+  // `ensureGuestStayCharge` refuses to raise a charge without it rather than key one on the typed,
+  // unverified email (which stays on the row for the host's copy and nothing else).
+  if (login?.userId && created.rowData) {
     await linkRowToGuest(db, blockId, created.rowData, login.userId).catch(() => undefined);
   }
   const { data: owner } = await db.from("profiles").select("email, full_name").eq("id", ownerId).maybeSingle();

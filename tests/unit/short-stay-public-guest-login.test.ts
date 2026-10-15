@@ -60,16 +60,19 @@ describe("a public request from a guest with no login", () => {
 });
 
 describe("the one-time sign-in link only travels to the phone that keyed it", () => {
-  it("a stranger's email never receives the link, and the hold is not claimed by that account", async () => {
-    // `ensureGuestLogin` matched an EXISTING account on the typed phone; the typed email is someone else's.
-    ensureGuestLogin.mockResolvedValue({ userId: "victim-1", loginEmail: "victim@example.com", created: false, signInUrl: SIGN_IN });
+  it("the typed email never receives the link, and the stay is claimed by the account the phone owns", async () => {
+    // `ensureGuestLogin` only ever returns an account the TYPED PHONE provably owns (the placeholder it
+    // minted for the number, or one whose `profiles.phone` is verified - `short-stay-guest-login.test.ts`),
+    // so the stay is stamped with it while the typed address stays on the row and gets no link.
+    ensureGuestLogin.mockResolvedValue({ userId: "guest-phone", loginEmail: "proven@example.com", created: false, signInUrl: SIGN_IN });
     const db = seedShortStayDb();
-    expect(await submitShortStayRequest(db as never, { ...request, email: "attacker@example.com" }, { today: TODAY })).toEqual({ ok: true });
+    expect(await submitShortStayRequest(db as never, { ...request, email: "typed@example.com" }, { today: TODAY })).toEqual({ ok: true });
     expect(textedBody()).toContain(SIGN_IN);
     expect(emailedText()).not.toContain("token_hash");
     expect(emailedText()).not.toContain("Sign in");
     const hold = db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>;
-    expect(hold.residentUserId).toBeUndefined();
+    expect(hold.residentUserId).toBe("guest-phone");
+    expect(hold.residentEmail).toBe("typed@example.com");
   });
 
   it("never emails the link even when the typed address equals that account's login; the hold is still claimed", async () => {

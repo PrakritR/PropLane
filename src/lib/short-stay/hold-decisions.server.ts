@@ -129,6 +129,11 @@ export async function decideShortStayHold(
   return { ok: true, outcome: decision === "approve" ? "confirmed" : "cancelled", decision, chargeCreated };
 }
 
+export async function loadOwnerIdentity(db: SupabaseClient, ownerId: string): Promise<{ email: string; name: string }> {
+  const { data } = await db.from("profiles").select("email, full_name").eq("id", ownerId).maybeSingle();
+  return { email: String(data?.email ?? "").trim().toLowerCase(), name: String(data?.full_name ?? "").trim() };
+}
+
 export async function loadStayLabels(db: SupabaseClient, propertyId: string, roomId: string): Promise<{ propertyLabel: string; roomLabel: string }> {
   const fallback = { propertyLabel: "the house", roomLabel: "your room" };
   if (!propertyId) return fallback;
@@ -224,14 +229,16 @@ export async function emitShortStayTeamNotice(
     propertyId: string;
     row: Record<string, unknown>;
     labels: { propertyLabel: string; roomLabel: string };
+    /** The owner's address and name when the caller already read them (one read per request, not per range). */
+    owner?: { email: string; name: string };
   },
 ): Promise<void> {
   const { event, headline, blockId, ownerId, propertyId, row, labels } = input;
   const checkIn = String(row.checkIn ?? "");
   const checkOut = String(row.checkOut ?? "");
   const nights = Number(row.quotedNights) || 0;
-  const { data: owner } = await db.from("profiles").select("email, full_name").eq("id", ownerId).maybeSingle();
-  const ownerEmail = String(owner?.email ?? "").trim().toLowerCase();
+  const owner = input.owner ?? (await loadOwnerIdentity(db, ownerId));
+  const ownerEmail = owner.email;
   if (!ownerEmail) return;
   const guestName = typeof row.residentName === "string" ? row.residentName : "Guest";
   const stayLabel = `${shortStayRangeLabel(checkIn, checkOut)} (${nights} ${nights === 1 ? "night" : "nights"})`;
@@ -246,7 +253,7 @@ export async function emitShortStayTeamNotice(
     category: "tours",
     senderUserId: ownerId,
     senderEmail: ownerEmail,
-    senderName: String(owner?.full_name ?? "").trim() || undefined,
+    senderName: owner.name || undefined,
     payload: { propertyId, roomId: String(row.roomId ?? ""), blockId, start: checkIn, end: checkOut, nights },
     templateContext: { propertyTitle: labels.propertyLabel, roomLabel: labels.roomLabel, stayLabel, url },
     recipients: [{ audience: "manager", userId: ownerId, rendered: { subject: headline, text: `${line}\n\n${url}`, smsText: `${line}\n${url}` } }],

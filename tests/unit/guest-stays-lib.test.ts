@@ -126,8 +126,14 @@ describe("a manager's save does not strip what the server owns", () => {
     expect(next.guests).toBe(3);
     expect(next.stayDetails).toEqual({ linen: "Requested", source: "guest_portal", guests: 3, holdExpiresAt: "2026-10-15T00:00:00Z" });
   });
-  it("never overrides a value the save sets, and leaves a manager's own booking alone", () => {
-    expect((carryGuestStayFields(stored, { stayDetails: { source: "Airbnb" } })!.stayDetails as Record<string, unknown>).source).toBe("Airbnb");
+  it("pins a request's source: a save cannot un-mark it and leave the request unanswerable", () => {
+    expect((carryGuestStayFields(stored, { stayDetails: { source: "Airbnb" } })!.stayDetails as Record<string, unknown>).source).toBe("guest_portal");
+  });
+  it("never overrides another value the save sets, and leaves a manager's own booking alone", () => {
+    expect((carryGuestStayFields(stored, { stayDetails: { linen: "Delivered" } })!.stayDetails as Record<string, unknown>).linen).toBe("Delivered");
+    // A manager's own stay keeps its editable source; only a guest's request is pinned.
+    const manual = { residentUserId: GUEST, stayDetails: { source: "Direct" } };
+    expect((carryGuestStayFields(manual, { stayDetails: { source: "Airbnb" } })!.stayDetails as Record<string, unknown>).source).toBe("Airbnb");
     expect(carryGuestStayFields({ roomId: "r1", stayDetails: { source: "Direct" } }, { stayDetails: {} })).toBeNull();
     expect(carryGuestStayFields(null, {})).toBeNull();
   });
