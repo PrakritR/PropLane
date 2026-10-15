@@ -9,7 +9,7 @@ page shows. It deliberately owns nothing else — do not restate these here:
 
 | Also about Bookings, owned elsewhere | Owner |
 | --- | --- |
-| Connecting a channel, the two-way Airbnb link, Mark reserved / Remove, blocking a room as a Calendar write | [`integrations.md`](integrations.md) § Bookings: one popup connects a channel |
+| Connecting a channel, the two-way Airbnb link, Mark reserved, blocking a room as a Calendar write | [`integrations.md`](integrations.md) § Bookings: one popup connects a channel |
 | Counting beds, host blocks, capacity arbitration, the public availability endpoint | [`shared-room-capacity.md`](shared-room-capacity.md) |
 | Which viewer may read a resident's money off a stay | [`co-manager-access.md`](co-manager-access.md) § Calendar shows the stay |
 | The record-page and day-page shells themselves | [`record-page.md`](record-page.md) § The day page pattern |
@@ -75,11 +75,14 @@ grow a second error surface. Because residents come from the snapshot, a failed
 ## Status is derived from the dates, never stored
 
 `bookingStatusLabel` (`booking-presentation.ts`) is the label a row or record
-prints — **Hold · Confirmed · In-house · Checked out · Cancelled** — and
+prints — **Hold · Confirmed · In-house · Checked out · Cancelled**, plus
+**Blocked** for a live block with nobody attached (§ Blocks) — and
 `calendarStatus` (`bookings-calendar-view.ts`) the one a calendar cell colours,
-which adds **Blocked** and names the channel for an imported stay. Both derive
-from the entry's own dates against today: an approved applicant whose dates have
-started is **In-house**, not holding the room. The label is a plain fact on a
+which says the same **Blocked** and names the channel for an imported stay. Both
+derive from the entry's own dates against today: an approved applicant whose
+dates have started is **In-house**, not holding the room. A list row maps that
+one word back to **Hold** (`bookingRowStatusFact`), because the row's source
+fact already says Block. The label is a plain fact on a
 row, never a pill (AGENTS.md § Portal UI system) — and Confirmed says nothing at
 all, because it is the default.
 
@@ -104,14 +107,14 @@ with a bucket keyword or a day key. Record tabs are `BOOKING_DETAIL_TABS`:
 when it is resident-backed, Rent · Deposit · Lease term; Payments is the stay
 total or rate plus that household's charges, each linking to its own payment
 record. Only a manager-made hold is editable in place (the one combined
-Add/Edit sheet); any other source offers Message and Copy link, and a channel
-reservation also Remove stay. A host block's Edit is the exception — it opens
-the Block notes popup (§ Airbnb money), never the Add/Edit sheet.
+Add/Edit sheet). The record's actions are header icons only — no ⋯ (§ Blocks);
+a list row keeps its own. An imported stay's Edit is the exception: it opens the
+notes-and-money popup (§ Airbnb money), never the Add/Edit sheet.
 
 ## Blocks: Unblock and Delete (Oct 14 2026)
 
 **Unblock = cancel (undoable, frees nights everywhere); Delete = hard delete, native blocks only; imported bars are tombstoned, never deleted.**
-`bookingRemovalActions` (`booking-presentation.ts`) is the one gate the calendar bar's popover and the record page's header read: a live native block (source `block`, has `blockId`, not cancelled, not ended) offers Unblock (`BookingsCancelDialog`, with Undo) and Delete (`BookingsDeleteBlockDialog`, a danger confirm, then `deleteRoomDateBlock`); a cancelled or ended native block offers Delete only; an imported Airbnb / Booking.com bar offers "Unblock in PropLane" on the bar and "Remove from PropLane" on the record (`BookingsRemoveStayDialog`, a restorable tombstone) and no Delete; a resident stay (lease, application) offers neither. The record header is icon actions only (Message, Edit, Unblock, Delete, Open resident); there is no ⋯ menu. A live block with nobody attached reads **Blocked** (`bookingStatusLabel`), **Cancelled** only after Unblock. No new route: the server refuses cancelling an ended block (409) but lets a cancelled or ended block be deleted, and ownership stays `managerCanWriteCalendarForProperty`. A `room_date_block` row whose `row_data.bookingStatus` is `cancelled` is read as cancelled by the client (`normalizeBlock`) and the occupancy snapshot, as the export feed and capacity already did. Coverage: `tests/unit/bookings-block-actions.test.tsx`.
+`bookingRemovalActions` (`booking-presentation.ts`) is the one gate the calendar bar's popover and the record page's header read: a live native block (source `block`, has `blockId`, not cancelled, not ended) offers Unblock (`BookingsCancelDialog`, with Undo) and Delete (`BookingsDeleteBlockDialog`, a danger confirm, then `deleteRoomDateBlock`); a cancelled or ended native block offers Delete only; an imported Airbnb / Booking.com bar offers "Unblock in PropLane" on the bar and "Remove from PropLane" on the record (`BookingsRemoveStayDialog`, a restorable tombstone) and no Delete; a resident stay (lease, application) offers neither. The record header is icon actions only (Message, Edit, Unblock, Delete, Open resident); there is no ⋯ menu. A live block with nobody attached reads **Blocked** (`bookingStatusLabel`), **Cancelled** only after Unblock; a list row keeps saying Hold (§ Status). No new route: the server refuses cancelling an ended block (409) but lets a cancelled or ended block be deleted, and ownership stays `managerCanWriteCalendarForProperty`. All three are also hidden from a teammate below Calendar `edit` on that house, and while the session is still resolving — `canRemoveBookingEntry` (`manager-portfolio-access.ts`) is the client's read of the same grant the server enforces, so nothing is offered that the write would refuse (coverage: `tests/unit/bookings-removal-permission.test.tsx`). A `room_date_block` row whose `row_data.bookingStatus` is `cancelled` is read as cancelled by the client (`normalizeBlock`) and the occupancy snapshot, as the export feed and capacity already did. Coverage: `tests/unit/bookings-block-actions.test.tsx`.
 
 ## Booking alerts and reminders (Oct 12 2026)
 

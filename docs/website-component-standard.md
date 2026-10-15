@@ -305,7 +305,7 @@ Distinguish:
 - Dialogs and sheets: 200–250ms.
 - Do not use `transition: all`.
 - Do not replay list-entry animations after filtering or refetching.
-- Respect `prefers-reduced-motion` with an instant fallback.
+- Respect `prefers-reduced-motion` by dropping the travel, not the feedback: slides, scales and loops stop, while opacity and colour still transition (150ms) so the state change still reads. The one collapse point is `src/components/ui/motion/tokens.css`.
 
 ## 18. Analytics and observability
 

@@ -96,11 +96,12 @@ Airbnb has no public write API, so the two directions are not equally fast:
   opens `BookingsBlockDatesModal` with `mode="reserve"`: house, room and night
   prefilled, titled "Mark reserved", one **Save**. A room linked to Airbnb adds the fact
   row "Airbnb · Updates when Airbnb next checks PropLane" (`airbnbLinkForRoom`).
-- **Remove.** A manager block can be cancelled until its last night has passed,
-  **including one that already started** (`canCancelBooking`); a block with nobody
-  attached is labelled "Remove" (`isReservedBlock`, `bookingCancelLabel`) in the row and
-  record-page ⋯, behind the destructive confirm in `BookingsCancelDialog`. A resident (hold
-  or lease) is never removed here.
+- **Unblock / Delete.** Taking a block back off the calendar — who may, what each
+  action does and where it is offered — is owned by
+  [`bookings.md`](bookings.md) § Blocks. What matters to the channel: both free the
+  nights in the export feed (a cancelled block drops out of it, a deleted row is gone),
+  so Airbnb reopens them at its next poll. A resident (hold or lease) is never removed
+  here.
 - **Airbnb checked PropLane.** The export route stamps
   `external_calendar_connections.export_last_fetched_at` when the request's User-Agent
   contains "Airbnb" (`stampExportFetch`, `export-fetch-stamp.ts`): best-effort, never
