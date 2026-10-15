@@ -9,6 +9,7 @@
  * and the response sniffing); this is the data path behind the Connect popup. Set
  * `ICAL_WALKTHROUGH_TRANSCRIPT=<path>` to write the narrated walkthrough out as evidence.
  */
+import { writeFileSync } from "node:fs";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -50,7 +51,6 @@ const FF_RANGE = { id: "ff-1", sourceUid: "ff-1", summary: "Reserved", start: "2
 afterAll(() => {
   const out = process.env.ICAL_WALKTHROUGH_TRANSCRIPT?.trim();
   if (!out) return;
-  const { writeFileSync } = require("node:fs") as typeof import("node:fs");
   writeFileSync(out, `${lines.join("\n")}\n`, "utf8");
 });
 

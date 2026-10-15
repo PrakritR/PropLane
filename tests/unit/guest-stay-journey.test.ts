@@ -17,6 +17,7 @@
  * so a "taken" night is a row that is really there. Set `GUEST_STAY_JOURNEY_TRANSCRIPT=<path>` to write
  * the narrated walkthrough out as evidence.
  */
+import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createFakeDb, type Row } from "../helpers/fake-table-db";
 
@@ -168,7 +169,7 @@ function build() {
   return Object.assign(fake, { auth: { admin } });
 }
 
-let db = build();
+const db = build();
 const blocks = () => (db.tables.portal_schedule_records ?? []) as Array<Row & { row_data: Record<string, unknown> }>;
 const blockFor = (checkIn: string) => blocks().find((row) => row.row_data.checkIn === checkIn)!;
 const profile = (id: string) => (db.tables.profiles ?? []).find((row) => row.id === id) as Record<string, unknown> | undefined;
@@ -191,7 +192,6 @@ beforeAll(() => {
 afterAll(() => {
   const out = process.env.GUEST_STAY_JOURNEY_TRANSCRIPT?.trim();
   if (!out) return;
-  const { writeFileSync } = require("node:fs") as typeof import("node:fs");
   writeFileSync(out, `${lines.join("\n")}\n`, "utf8");
 });
 

@@ -104,7 +104,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // ---- WS5: shared-tour claim + availability, team-only ----
   { domain: "tour", event: "claimed", area: "tours", label: "Tour claimed by a teammate", audiences: ["team"], placeholders: ["guestName", "propertyTitle", "whenLabel", "claimedByName"] },
   { domain: "availability", event: "changed", area: "tours", label: "Availability changed", audiences: ["team"], placeholders: ["changedByName", "summary"] },
-  // ---- Channel bookings (Airbnb / Booking.com / Vrbo calendar sync) ----
+  // ---- Channel bookings (any linked channel calendar: Airbnb / Booking.com / Vrbo / Other calendar) ----
   { domain: "channel_booking", event: "channel_booking_created", area: "tours", label: "New channel booking", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   { domain: "channel_booking", event: "channel_booking_cancelled", area: "tours", label: "Channel booking cancelled", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
