@@ -109,13 +109,19 @@ function RoomAvailabilityLoading({ className = "h-3 w-20" }: { className?: strin
  * A rooms-table availability cell: a dot and plain text on one line — never a pill (rows carry
  * facts, not badges). A dated tail ("until August 30, 2027") drops to a muted second line so the
  * cell stays narrow enough to leave the Details button on screen.
+ *
+ * The tail is matched by its PREPOSITION or by its own date shape, never the preposition alone:
+ * `formatRoomAvailability` deliberately drops "from" for an opening more than six months out
+ * ("Available Oct 2027" reads better than "Available from Oct 2027"), which left that wording with
+ * no keyword to break on — it stayed one line and the 16%-wide column truncated it to
+ * "Available O…", so a renter could not read the month without hovering for the title tooltip.
  */
 function RoomAvailabilityCell({ display }: { display: { text: string; tone: RoomAvailabilityTone } | null }) {
   if (!display) return <RoomAvailabilityLoading />;
   const { text, tone } = display;
   const { dot } = roomAvailabilityPillClasses(tone);
   const trimmed = text.trim();
-  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\))$/i.exec(trimmed);
+  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\)|[A-Za-z]{3,9}\s+\d{1,4}(?:,\s*\d{4})?)$/i.exec(trimmed);
   const head = match ? match[1] : trimmed;
   const tail = match ? match[2] : null;
   return (

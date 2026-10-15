@@ -200,6 +200,10 @@
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.1"
   },
+  "overrides": {
+    "@radix-ui/react-dismissable-layer": "1.1.14",
+    "@radix-ui/react-focus-scope": "1.1.11"
+  },
   "devDependencies": {
     "@capacitor/android": "^8.4.1",
     "@capacitor/cli": "^8.4.1",
