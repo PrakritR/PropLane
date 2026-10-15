@@ -76,7 +76,7 @@ describe("PropertyHouseDetailsListPanel", () => {
     // the old second line repeated "Furnished · Fully furnished" next to a bare "1"
     expect(row.textContent).not.toMatch(/Furnished.*Furnished/);
     expect(row.querySelectorAll("p")).toHaveLength(1); // the title; no second summary sentence under the facts
-    expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
+    expect(row.querySelectorAll('button[aria-label^="Actions for"], [data-attr="record-actions-single"]')).toHaveLength(1);
   });
 
   it("every list row on every tab has exactly one ⋯", () => {
@@ -86,7 +86,7 @@ describe("PropertyHouseDetailsListPanel", () => {
       const rows = container.querySelectorAll(".portal-property-row");
       expect(rows.length, tab).toBeGreaterThan(0);
       rows.forEach((row) => {
-        expect(row.querySelectorAll('button[aria-label^="Actions for"]'), `${tab} row`).toHaveLength(1);
+        expect(row.querySelectorAll('button[aria-label^="Actions for"], [data-attr="record-actions-single"]'), `${tab} row`).toHaveLength(1);
         expect(row.querySelector('[data-slot="portal-row-icon-tile"]'), `${tab} tile`).toBeTruthy();
       });
     }

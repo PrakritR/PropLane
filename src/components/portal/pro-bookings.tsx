@@ -41,6 +41,7 @@ import {
 import { filterBookingEntriesByRoom, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { deleteRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
 import { useSaveBookingBlock } from "@/hooks/use-save-booking-block";
+import { canDeleteReservation } from "@/lib/channel-calendar/booking-presentation";
 import { buildManagerPropertyFilterOptions, canRemoveBookingEntry, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { WORKSPACE_SELECTION_EVENT, activeWorkspaceNonDraftPropertyIds, activeWorkspacePropertyIds } from "@/lib/workspaces/selection";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -194,6 +195,15 @@ function useBookingsWorkspace({
   );
 
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
+
+  // Stable identities: the calendar's bars are memoized, so opening a dialog (a state change here) redraws none of them.
+  const editBooking = useCallback((entry: PropertyBookingEntry) => setSheet({ open: true, dayKey: null, editingBlock: entry }), []);
+  /**
+   * "Delete reservation" / "Cancel booking" from a list row or the Edit sheet's footer: dates marked reserved (nobody attached)
+   * are deleted outright at any date through the Delete confirm; a block held for a named person keeps the Unblock (cancel) dialog.
+   */
+  const deleteOrCancel = useCallback((entry: PropertyBookingEntry) => { if (canDeleteReservation(entry)) setDeleteEntry(entry); else setCancelEntry(entry); }, []);
+  const deleteFromEdit = useCallback((entry: PropertyBookingEntry) => { setSheet({ open: false, dayKey: null, editingBlock: null }); deleteOrCancel(entry); }, [deleteOrCancel]);
 
   const counts = useMemo(() => {
     const listCounts = countBookingsByListBucket(entries, todayKey);
@@ -422,7 +432,7 @@ function useBookingsWorkspace({
         calendarOnly
         preferenceKey={showPropertyFilter ? "workspace" : propertyIds[0]}
         onAddBooking={() => setSheet({ open: true, dayKey: null, editingBlock: null })}
-        onEditBooking={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
+        onEditBooking={editBooking}
         onUnblockBooking={setCancelEntry}
         onDeleteBlock={setDeleteEntry}
         onUnblockChannelStay={setRemoveStayEntry}
@@ -451,7 +461,7 @@ function useBookingsWorkspace({
           });
         }}
         onEditBlock={(entry) => setSheet({ open: true, dayKey: null, editingBlock: entry })}
-        onDeleteBlock={setCancelEntry}
+        onDeleteBlock={deleteOrCancel}
         onRemoveStay={setRemoveStayEntry}
         bulkActions={listBulkActions}
         basePath={basePath ?? "/portal"}
@@ -504,7 +514,7 @@ function useBookingsWorkspace({
       {removeStayEntry ? <BookingsRemoveStayDialog key={bookingEntryKey(removeStayEntry)} entry={removeStayEntry} onClose={() => setRemoveStayEntry(null)} onChanged={() => onRefreshSignal?.()} /> : null}
       {deleteEntry ? <BookingsDeleteBlockDialog key={bookingEntryKey(deleteEntry)} entry={deleteEntry} onClose={() => setDeleteEntry(null)} onDelete={removeBlock} /> : null}
       {cancelEntry ? <BookingsCancelDialog key={bookingEntryKey(cancelEntry)} entry={cancelEntry} onClose={() => setCancelEntry(null)} onSave={saveBlock} /> : null}
-      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} onSaveStayMeta={saveStayDetails} /> : null}
+      {sheet.open && sheet.editingBlock ? <BookingsEditSheet key={bookingEntryKey(sheet.editingBlock)} entry={sheet.editingBlock} entries={rawEntries} propertyOptions={propertyOptions} onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })} onSave={saveBlock} onSaveStayMeta={saveStayDetails} onDelete={deleteFromEdit} /> : null}
       <BookingsBlockDatesModal
         open={sheet.open && !sheet.editingBlock}
         onClose={() => setSheet({ open: false, dayKey: null, editingBlock: null })}

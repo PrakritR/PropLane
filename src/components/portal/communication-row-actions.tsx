@@ -81,6 +81,8 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
     <RecordActionContext.Provider value={{
       scope: `${archived}:${row.key}`,
       clear: bulk.selection.clearSelection,
+      // Edit appears only once the row is selected, so the item count is unknown until the ⋯ opens.
+      lazy: true,
       actions: placeholderArchive
         ? <>{placeholderArchive}</>
         : permitted && (archiveOrRestore || canEdit || canClearAssistant) ? <>

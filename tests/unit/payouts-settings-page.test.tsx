@@ -135,7 +135,8 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
     await waitFor(() => expect(screen.getAllByText(/Chase Checking/).length).toBeGreaterThan(0));
-    expect(screen.getByRole("button", { name: /Actions for/ })).toBeInTheDocument();
+    // One bank is the default row, whose only action (Remove) is drawn as its icon.
+    expect(document.querySelector('[data-attr="record-actions-trigger"], [data-attr="record-actions-single"]')).toBeTruthy();
   });
 
   it("passes the live destination's real id to the Withdraw sheet, so a real destinationId reaches create", async () => {

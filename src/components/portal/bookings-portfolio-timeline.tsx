@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useSyncExternalStore, useState, type ReactNode } from "react";
+import { Fragment, memo, useMemo, useSyncExternalStore, useState, type ReactNode } from "react";
 import { ArrowUpRight, Ban, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
@@ -70,15 +70,20 @@ export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[
 export function BookingsCalendarLegend() {
   return <ul className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-1 pt-2 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
 }
+/**
+ * One bar and its info popover. The popover is NON-modal with no scrim: it is a light card, so opening it
+ * never locks the page (no `pointer-events: none` on <body>) and a dialog opened from an item cannot inherit one.
+ * Memoized, and every prop a bar takes is stable across a parent render, so opening a modal redraws no bar.
+ */
 type BookingBarHandlers = { onEdit?: (entry: PropertyBookingEntry) => void; onUnblock?: (entry: PropertyBookingEntry) => void; onDeleteBlock?: (entry: PropertyBookingEntry) => void; onUnblockChannelStay?: (entry: PropertyBookingEntry) => void; canRemove?: (entry: PropertyBookingEntry) => boolean };
-function BookingBar({ entry, today, children, className, style, onEdit, onUnblock, onDeleteBlock, onUnblockChannelStay, canRemove }: { entry: PropertyBookingEntry; today: string; children?: ReactNode; className?: string; style?: React.CSSProperties } & BookingBarHandlers) {
+const BookingBar = memo(function BookingBar({ entry, today, children, className, style, onEdit, onUnblock, onDeleteBlock, onUnblockChannelStay, canRemove }: { entry: PropertyBookingEntry; today: string; children?: ReactNode; className?: string; style?: React.CSSProperties } & BookingBarHandlers) {
   const removal = bookingRemovalActions(entry, today, canRemove ? canRemove(entry) : true);
   const status = calendarStatus(entry, today);
   const checkout = bookingCheckout(entry);
   const barLabel = entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
-  return <DropdownMenu><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${barLabel}, ${status}`}>
+  return <DropdownMenu modal={false}><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${barLabel}, ${status}`}>
     <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : entry.source === "ical" ? `${(entry.channelLabel?.trim() || "O").charAt(0).toUpperCase()} · ` : ""}{barLabel}</span>{children}
-  </button></DropdownMenuTrigger><DropdownMenuContent align="start" className="max-w-[calc(100vw-2rem)]">
+  </button></DropdownMenuTrigger><DropdownMenuContent align="start" backdrop={false} className="max-w-[calc(100vw-2rem)]">
     <div className="grid gap-2 p-3 text-sm"><strong>{barLabel}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
     {onEdit && !isChannelBookingSource(entry.source) ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
     {removal.unblock && onUnblock ? <DropdownMenuItem onSelect={() => onUnblock(entry)} data-attr="bookings-bar-unblock"><Ban />Unblock</DropdownMenuItem> : null}
@@ -86,7 +91,7 @@ function BookingBar({ entry, today, children, className, style, onEdit, onUnbloc
     {removal.deleteBlock && onDeleteBlock ? <DropdownMenuItem onSelect={() => onDeleteBlock(entry)} data-attr="bookings-bar-delete"><Trash2 />Delete</DropdownMenuItem> : null}
     <DropdownMenuItem asChild><Link href={bookingRecordHref("/portal", bookingEntryKey(entry))}><ArrowUpRight />Open booking</Link></DropdownMenuItem>
   </DropdownMenuContent></DropdownMenu>;
-}
+});
 
 /**
  * `bedsTotal` / `roomCapacity` both re-enter `getPropertyById`, which reads the
@@ -148,8 +153,43 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
     const capacities = cachedOccupancyCapacities();
     return new Map(propertyIds.map(propertyId => [propertyId, calendarOccupancySummary(entries.filter(entry => entry.propertyId === propertyId), rangeDays, [propertyId], capacities)] as const));
   }, [entries, propertyIds, rangeDays]);
-  const capacities = cachedOccupancyCapacities();
-  const roomEntries = (mine: PropertyBookingEntry[], roomId: string) => mine.filter(entry => !entry.roomId || entry.roomId === roomId);
+  // The grid's figures - lanes, occupancy strips, conflict rings, bar geometry - are derived once from the
+  // data and the range, so opening a dialog (or a popover) never recomputes them.
+  const layout = useMemo(() => {
+    const capacities = cachedOccupancyCapacities();
+    const firstDay = days[0]!, lastDay = days.at(-1)!;
+    return propertyIds.map(propertyId => {
+      const mine = entries.filter(entry => entry.propertyId === propertyId);
+      const property = getPropertyById(propertyId);
+      const allRooms = propertyRooms(propertyId, mine);
+      const rooms = allRooms.filter(room => !roomFilterId || room.id === roomFilterId);
+      const propertyName = mine[0]?.propertyLabel || property?.title || "Untitled listing";
+      // A whole home (one bookable row) is a single row under its own name: no separate
+      // property strip above a "Whole home" row that repeats it. Read from the house's own
+      // rooms, never the filtered list: narrowing to one room of a multi-room house does not
+      // turn that house into a whole home.
+      const single = allRooms.length === 1;
+      const strip = single ? [] : days.map(day => calendarOccupancy(mine, view === "year" ? calendarRange("month", day) : [day], propertyId, capacities));
+      return {
+        propertyId, property, propertyName, single, strip,
+        rooms: rooms.map(room => {
+          const all = mine.filter(entry => !entry.roomId || entry.roomId === room.id);
+          const visible = all.filter(entry => entry.start <= lastDay && (entry.openEnded || entry.end >= firstDay));
+          const lanes = bookingLanes(visible);
+          const capacity = capacities.roomCapacity(propertyId, room.id);
+          const minHeight = Math.max(62, 18 + (Math.max(0, ...lanes.map(row => row.lane)) + 1) * 34);
+          const monthPercents = view === "year" ? days.map(month => calendarOccupancy(all, calendarRange("month", month), propertyId, { bedsTotal: () => capacity, roomCapacity: () => capacity })) : [];
+          const bars = view === "week" || view === "month" ? lanes.map(({ entry, lane }) => {
+            const start = Math.max(0, dayDiff(entry.start, firstDay));
+            const end = entry.openEnded ? days.length : Math.min(days.length, dayDiff(bookingCheckout(entry)!, firstDay));
+            const conflict = days.some(day => bookingActiveOn(entry, day) && occupancyCell(all, day, capacity).conflicts);
+            return { entry, conflict, style: { top: 9 + lane * 34, left: `calc(${start / days.length * 100}% + 2px)`, width: `calc(${(end - start) / days.length * 100}% - 4px)` } satisfies React.CSSProperties };
+          }) : [];
+          return { room, all, minHeight, monthPercents, bars };
+        }),
+      };
+    });
+  }, [entries, propertyIds, days, view, roomFilterId]);
   return <div className="flex min-w-0 flex-col gap-3" data-attr="bookings-portfolio-timeline" data-view={view}>
     <div className="flex flex-wrap items-center gap-2"><PortalIconAction icon={ChevronLeft} label={`Previous ${view}`} onClick={() => next(-1)} /><PortalIconAction icon={ChevronRight} label={`Next ${view}`} onClick={() => next(1)} /><strong className="text-sm">{rangeTitle}</strong><button type="button" className="rounded-full border border-border px-3 py-1 text-sm" onClick={() => setAnchor(todayKey)}>Today</button><FieldSingleSelect label="Calendar view" value={view} onChange={(next) => changeView(next as BookingCalendarView)} options={BOOKING_CALENDAR_VIEWS.map((option) => ({ value: option, label: option[0]!.toUpperCase() + option.slice(1) }))} /></div>
     <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
@@ -157,22 +197,12 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
       <div className="max-w-full overflow-x-auto" data-attr="bookings-calendar-scroll"><div style={{ minWidth: `calc(9rem + ${days.length * colWidth}px)` }}>
         <div className="flex"><div className={labelClass}>Room</div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => <button type="button" key={day} data-attr={`portfolio-booking-day-${day}`} aria-label={`Open ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => view === "year" ? drill(day) : props.onOpenDay?.(day)} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`}><span className="text-[10px] uppercase text-muted">{dateLabel(day, view === "year" ? { year: "numeric" } : { weekday: "short" })}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full ${day === todayKey ? "bg-primary text-white" : ""}`}>{dateLabel(day, view === "year" ? { month: "short" } : { day: "numeric" })}</strong></button>)}</div></div>
         <div className="sticky left-0 flex max-w-[calc(100vw-4rem)] flex-wrap gap-x-3 gap-y-1 border-b border-border p-3 text-sm" data-attr="bookings-calendar-summary">{summaryParts.map(part => <span key={part}>{part}</span>)}</div>
-        {propertyIds.map(propertyId => {
-          const mine = entries.filter(entry => entry.propertyId === propertyId);
-          const property = getPropertyById(propertyId);
-          const allRooms = propertyRooms(propertyId, mine);
-          const rooms = allRooms.filter(room => !roomFilterId || room.id === roomFilterId);
-          const propertyName = mine[0]?.propertyLabel || property?.title || "Untitled listing";
-          // A whole home (one bookable row) is a single row under its own name: no separate
-          // property strip above a "Whole home" row that repeats it. Read from the house's own
-          // rooms, never the filtered list: narrowing to one room of a multi-room house does not
-          // turn that house into a whole home.
-          const single = allRooms.length === 1;
+        {layout.map(({ propertyId, property, propertyName, single, strip, rooms }) => {
           const band = bands.get(propertyId)!;
-          return <Fragment key={propertyId}>{single ? null : <><div className="flex" data-attr={`bookings-timeline-property-${propertyId}`}><div className={`${labelClass} bg-accent/30 font-semibold`} title={property?.address}><span>{propertyName}</span><span className="font-normal text-muted" data-attr="bookings-property-occupied">{band.peak} of {band.beds} occupied · {band.percent}%</span></div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => { const percent = calendarOccupancy(mine, view === "year" ? calendarRange("month", day) : [day], propertyId, capacities); return <div key={day} title={`${percent}% occupied`} className="flex min-h-9 items-center px-px"><div className="h-1.5 w-full rounded" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .8 * percent / 100 : .03})` }} /></div>; })}</div></div></>}
-          {rooms.map(room => { const all = roomEntries(mine, room.id); const visible = all.filter(entry => entry.start <= days.at(-1)! && (entry.openEnded || entry.end >= days[0]!)); const lanes = bookingLanes(visible); const capacity = capacities.roomCapacity(propertyId, room.id); return <div className="flex" key={room.id} data-attr={single ? `bookings-timeline-property-${propertyId}` : undefined}><div className={labelClass} title={property?.address}><span className="font-semibold">{single ? propertyName : room.label}</span>{single && room.label && room.label !== "Whole home" && room.label !== propertyName ? <span className="text-muted">{room.label}</span> : null}{room.rent ? <span className="text-muted">{room.rent}</span> : null}</div><div className="relative flex-1 border-b border-border" style={{ minHeight: Math.max(62, 18 + (Math.max(0,...lanes.map(row => row.lane)) + 1) * 34) }}>
-          {view === "year" ? <div style={gridStyle}>{days.map(month => { const percent = calendarOccupancy(all, calendarRange("month", month), propertyId, { bedsTotal: () => capacity, roomCapacity: () => capacity }); return <button type="button" key={month} onClick={() => drill(month)} title={`${room.label} · ${dateLabel(month, { month: "long" })}: ${percent}% occupied`} className="min-h-16 border-r border-border text-xs font-semibold" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .75 * percent / 100 : 0})` }}>{percent ? `${percent}%` : ""}</button>; })}</div> : view === "day" ? <div className="flex min-h-16 gap-2 p-2">{all.filter(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor).map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} onUnblock={onUnblockBooking} onDeleteBlock={onDeleteBlock} onUnblockChannelStay={onUnblockChannelStay} canRemove={props.canRemoveBooking} className="min-w-0 flex-1"><span className="block text-[11px]">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span></BookingBar>)}{!all.some(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor) ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div> : <><div className="absolute inset-0" style={gridStyle}>{days.map(day => { const cellClass = `border-r border-border/40 ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`; const free = !!onReserveRoomDay && day >= todayKey && !all.some(entry => bookingActiveOn(entry, day)); return free ? <button type="button" key={day} className={`${cellClass} hover:bg-primary/10 focus-visible:bg-primary/10`} data-attr="bookings-calendar-empty-cell" data-day={day} data-room={room.id} aria-label={`Mark ${single ? propertyName : room.label} reserved on ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => onReserveRoomDay({ propertyId, roomId: room.id, dayKey: day })} /> : <div key={day} className={cellClass} />; })}</div>{lanes.map(({entry,lane}) => { const start = Math.max(0, dayDiff(entry.start, days[0]!)); const end = entry.openEnded ? days.length : Math.min(days.length, dayDiff(bookingCheckout(entry)!, days[0]!)); const conflict = days.some(day => bookingActiveOn(entry, day) && occupancyCell(all, day, capacity).conflicts); return <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} onUnblock={onUnblockBooking} onDeleteBlock={onDeleteBlock} onUnblockChannelStay={onUnblockChannelStay} canRemove={props.canRemoveBooking} className={`absolute h-8 overflow-hidden ${conflict ? "ring-2 ring-red-500" : ""}`} style={{ top: 9 + lane * 34, left: `calc(${start / days.length * 100}% + 2px)`, width: `calc(${(end-start) / days.length * 100}% - 4px)` }} />; })}</>}
-          </div></div>; })}</Fragment>;
+          return <Fragment key={propertyId}>{single ? null : <><div className="flex" data-attr={`bookings-timeline-property-${propertyId}`}><div className={`${labelClass} bg-accent/30 font-semibold`} title={property?.address}><span>{propertyName}</span><span className="font-normal text-muted" data-attr="bookings-property-occupied">{band.peak} of {band.beds} occupied · {band.percent}%</span></div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map((day, index) => { const percent = strip[index]!; return <div key={day} title={`${percent}% occupied`} className="flex min-h-9 items-center px-px"><div className="h-1.5 w-full rounded" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .8 * percent / 100 : .03})` }} /></div>; })}</div></div></>}
+          {rooms.map(({ room, all, minHeight, monthPercents, bars }) => <div className="flex" key={room.id} data-attr={single ? `bookings-timeline-property-${propertyId}` : undefined}><div className={labelClass} title={property?.address}><span className="font-semibold">{single ? propertyName : room.label}</span>{single && room.label && room.label !== "Whole home" && room.label !== propertyName ? <span className="text-muted">{room.label}</span> : null}{room.rent ? <span className="text-muted">{room.rent}</span> : null}</div><div className="relative flex-1 border-b border-border" style={{ minHeight }}>
+          {view === "year" ? <div style={gridStyle}>{days.map((month, index) => { const percent = monthPercents[index]!; return <button type="button" key={month} onClick={() => drill(month)} title={`${room.label} · ${dateLabel(month, { month: "long" })}: ${percent}% occupied`} className="min-h-16 border-r border-border text-xs font-semibold" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .75 * percent / 100 : 0})` }}>{percent ? `${percent}%` : ""}</button>; })}</div> : view === "day" ? <div className="flex min-h-16 gap-2 p-2">{all.filter(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor).map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} onUnblock={onUnblockBooking} onDeleteBlock={onDeleteBlock} onUnblockChannelStay={onUnblockChannelStay} canRemove={props.canRemoveBooking} className="min-w-0 flex-1"><span className="block text-[11px]">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span></BookingBar>)}{!all.some(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor) ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div> : <><div className="absolute inset-0" style={gridStyle}>{days.map(day => { const cellClass = `border-r border-border/40 ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`; const free = !!onReserveRoomDay && day >= todayKey && !all.some(entry => bookingActiveOn(entry, day)); return free ? <button type="button" key={day} className={`${cellClass} hover:bg-primary/10 focus-visible:bg-primary/10`} data-attr="bookings-calendar-empty-cell" data-day={day} data-room={room.id} aria-label={`Mark ${single ? propertyName : room.label} reserved on ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => onReserveRoomDay({ propertyId, roomId: room.id, dayKey: day })} /> : <div key={day} className={cellClass} />; })}</div>{bars.map(({ entry, conflict, style }) => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} onUnblock={onUnblockBooking} onDeleteBlock={onDeleteBlock} onUnblockChannelStay={onUnblockChannelStay} canRemove={props.canRemoveBooking} className={`absolute h-8 overflow-hidden ${conflict ? "ring-2 ring-red-500" : ""}`} style={style} />)}</>}
+          </div></div>)}</Fragment>;
         })}
       </div></div>
     </div>

@@ -64,13 +64,13 @@ describe("booking record and actions", () => {
     page();
     fireEvent.click(document.querySelector('[data-attr="record-header-action-edit"]')!);
     expect(document.querySelector('[data-attr="bookings-edit-sheet"]')).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save booking" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
   it("shows a locked editor for a lease", () => {
     page({ ...block, source: "proplane", blockId: undefined, leaseId: "lease-1" });
     fireEvent.click(document.querySelector('[data-attr="record-header-action-edit"]')!);
     expect(document.querySelector('[data-attr="bookings-edit-sheet"]')).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save booking" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
   it("keeps channel records read-only and identifies a calendar UID honestly", () => {
     page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "event-uid" });

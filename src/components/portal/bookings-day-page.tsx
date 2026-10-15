@@ -10,11 +10,12 @@
  */
 
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Tag } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Lock, Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingRemovalPreview } from "@/components/portal/booking-removal-preview";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { RecordActionContext } from "@/components/ui/record-action-context";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
   BookingsBlockDatesModal,
@@ -32,7 +33,7 @@ import {
 } from "@/lib/channel-calendar/bookings-ui";
 import { dayOccupancy, dayOccupancyFromLookup, type OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
-import { dayStayDisplayName, groupStaysByRoom } from "@/lib/occupancy/snapshot";
+import { dayStayDisplayName, groupStaysByRoom, isAvailabilityBlockRow } from "@/lib/occupancy/snapshot";
 import { bookingRecordHref, managerBookingDayHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
@@ -168,6 +169,9 @@ export function BookingsDayPage({
         title={dayTitle(dayKey)}
         size="wizard"
         primaryAction={null}
+        // A list, not a form: no left rail and no "Preview · No changes" box to squeeze the rows.
+        contextPanel={null}
+        preview={null}
         dismissBlocked={deleting}
         dataAttr="bookings-day-detail-modal"
         headerAction={
@@ -204,23 +208,50 @@ export function BookingsDayPage({
         >
           {groups.map((group) => (
             <div key={group.propertyId} data-attr={`bookings-day-group-${group.propertyId}`}>
-              <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted sm:px-4">
-                <span className="truncate">{group.propertyLabel}</span>
-                <span className="shrink-0 tabular-nums">
+              <div className="flex items-baseline justify-between gap-3 border-b border-border/60 px-3 pb-1.5 pt-3.5 sm:px-4" data-attr="bookings-day-group-header">
+                <span className="min-w-0 truncate text-[14px] font-semibold text-foreground">{group.propertyLabel}</span>
+                <span className="shrink-0 text-[13px] font-semibold tabular-nums text-muted">
                   {group.occupancy.occupied} of {group.occupancy.rooms} beds
                 </span>
               </div>
               {group.rooms.map((room) => (
                 <div key={room.roomId || room.roomLabel} data-attr={`bookings-day-room-${room.roomId || "home"}`}>
-                  <p className="px-3 pt-2 text-[12px] font-semibold text-foreground sm:px-4" data-attr="bookings-day-room-heading">
-                    {room.roomLabel}
-                  </p>
                   {room.stays.map((entry) => {
                     const key = bookingEntryKey(entry);
                     const name = dayStayDisplayName(entry);
                     const isBlock = entry.source === "block" && Boolean(entry.blockId);
-                    const placeLine = [entry.propertyLabel, entry.roomLabel].filter(Boolean).join(" · ");
+                    const isAvailabilityBlock = isAvailabilityBlockRow(entry);
+                    // The house is the group header, so the place line is just the room.
+                    const placeLine = entry.roomLabel || "Whole home";
                     const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
+                    const row = (
+                      <PortalApplicantRecordRow
+                        name={name}
+                        tileIcon={isAvailabilityBlock ? Lock : undefined}
+                        tileLabel={name.replace(/\s*·\s*/g, " ")}
+                        address={placeLine}
+                        facts={
+                          <>
+                            <PortalRowFact icon={CalendarDays} srLabel="Stay">
+                              {formatBookingStayRange(entry.start, entry.end, entry.openEnded)}
+                            </PortalRowFact>
+                            <PortalRowFact icon={Tag} srLabel="Source">
+                              {bookingSourceLabel(entry.source, entry.channelLabel)}
+                              {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
+                            </PortalRowFact>
+                          </>
+                        }
+                        onOpen={() => navigate(bookingRecordHref(basePath, key))}
+                        omitActionView
+                        dataAttr={`bookings-day-row-${key}`}
+                        onSelectedChange={() => {}}
+                      />
+                    );
+                    // Nobody to message on an availability block. The row itself opens the booking,
+                    // so a ⋯ appears only when it would hold two or more actions.
+                    const actionCount =
+                      (isBlock || openTarget ? 1 : 0) + (isAvailabilityBlock ? 0 : 1) + 1 + (isBlock ? 1 : 0);
+                    if (actionCount < 2) return <RecordActionContext.Provider key={key} value={null}>{row}</RecordActionContext.Provider>;
                     return (
                       <BookingsRowOverflow
                         key={key}
@@ -229,30 +260,12 @@ export function BookingsDayPage({
                           isBlock ? () => openEdit(entry) : openTarget ? () => navigate(openTarget.href) : undefined
                         }
                         editDatesLabel={isBlock ? "Edit booking" : openTarget?.label}
-                        onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
+                        onMessage={isAvailabilityBlock ? undefined : () => navigate(bookingRecordHref(basePath, key, "communication"))}
                         onCopyLink={() => void copyLink(entry)}
                         onCancel={isBlock ? () => requestDelete(entry) : undefined}
                         cancelLabel="Remove booking"
                       >
-                        <PortalApplicantRecordRow
-                          name={name}
-                          address={placeLine}
-                          facts={
-                            <>
-                              <PortalRowFact icon={CalendarDays} srLabel="Stay">
-                                {formatBookingStayRange(entry.start, entry.end, entry.openEnded)}
-                              </PortalRowFact>
-                              <PortalRowFact icon={Tag} srLabel="Source">
-                                {bookingSourceLabel(entry.source, entry.channelLabel)}
-                                {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
-                              </PortalRowFact>
-                            </>
-                          }
-                          onOpen={() => navigate(bookingRecordHref(basePath, key))}
-                          omitActionView
-                          dataAttr={`bookings-day-row-${key}`}
-                          onSelectedChange={() => {}}
-                        />
+                        {row}
                       </BookingsRowOverflow>
                     );
                   })}

@@ -95,9 +95,9 @@ describe("removing a block", () => {
       expect(canCancelBooking(entry({ source, blockId: source === "airbnb" ? undefined : "x", start: "2026-09-12", end: "2026-09-14" }), TODAY_KEY)).toBe(false);
     }
   });
-  it("a block with nobody attached is labelled Remove, one with a resident Cancel booking", () => {
+  it("a block with nobody attached is labelled Delete reservation, one with a resident Cancel booking", () => {
     expect(isReservedBlock(entry())).toBe(true);
-    expect(bookingCancelLabel(entry())).toBe("Remove");
+    expect(bookingCancelLabel(entry())).toBe("Delete reservation");
     expect(bookingCancelLabel(entry({ residentName: "Maya" }))).toBe("Cancel booking");
   });
   it("Remove asks for a destructive confirm and saves the block as cancelled", async () => {

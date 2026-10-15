@@ -23,6 +23,7 @@ import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry 
 import { bookingDatesLabel, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingResidentHref, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingRateLabel, bookingRemovalActions, bookingStatusLabel } from "@/lib/channel-calendar/booking-presentation";
+import { airbnbOpenUrlForEntry } from "@/lib/channel-calendar/reservation-code";
 import { airbnbLinkForRoom, channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
@@ -158,7 +159,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   }
   return <>
     <PortalRecordDetailPage pageTitle="Bookings" title={name} subtitle={place} avatarName={name} backHref={backHref} backLabel="Back to bookings" hideBackText bareHeader dataAttrBack="booking-detail-back" iconTitleActions pinScrollBody>
-      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" alwaysInline /></PortalRecordActions>
+      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" alwaysInline />{airbnbOpenUrlForEntry(entry) ? <PortalIconAction ring icon={ExternalLink} label="Open in Airbnb" data-attr="booking-header-open-in-airbnb" onClick={() => window.open(airbnbOpenUrlForEntry(entry)!, "_blank", "noopener,noreferrer")} /> : null}</PortalRecordActions>
       <PortalRecordSectionChrome sections={sections} recordId={bookingId} activeId={tab} title={name} subtitle={entry.propertyLabel} backHref={backHref} backLabel="All bookings" ariaLabel="Booking sections" onHeaderAction={onAction}>
         {body}
       </PortalRecordSectionChrome>

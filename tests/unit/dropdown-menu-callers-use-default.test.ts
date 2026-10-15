@@ -1,9 +1,9 @@
 /**
  * @vitest-environment node
  *
- * No menu opts back out of the liquid default. The single allowed
- * `backdrop={false}` is the application-question menu that lives inside a
- * full-page modal (its overlay is the blur); `glass={false}` is never used.
+ * No menu opts back out of the liquid default. The allowed
+ * `backdrop={false}` are the application-question menu that lives inside a
+ * full-page modal (its overlay is the blur) and the Bookings bar popover; `glass={false}` is never used.
  */
 import { execSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -21,6 +21,8 @@ describe("dropdown menus keep the liquid default", () => {
     // macOS and CI, so compare the set of files rather than grep's ordering.
     expect(out.map((l) => l.replace(/:\d+:.*$/, "")).sort()).toEqual([
       "src/components/portal/application-form-builder.tsx",
+      // The Bookings bar popover is a light, non-modal info card: no scrim, no page lock.
+      "src/components/portal/bookings-portfolio-timeline.tsx",
       // The shared question editor's ⋯ menu lives in the same full-page editor modals.
       "src/components/portal/question-editor/question-sections-editor.tsx",
     ]);

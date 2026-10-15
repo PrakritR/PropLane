@@ -51,7 +51,7 @@ describe("HousePrintablesCard", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0]!.textContent).toContain("Public · no codes");
     expect(rows[2]!.textContent).toContain("Private · has codes");
-    rows.forEach((row) => expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1));
+    rows.forEach((row) => expect(row.querySelectorAll('button[aria-label^="Actions for"], [data-attr="record-actions-single"]')).toHaveLength(1));
   });
 
   it("kinds narrows the rows: House details omits the Door card (its home is Promotion)", () => {

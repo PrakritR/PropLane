@@ -152,7 +152,7 @@ export function PortalRecordListSurface({
   return (
     <RowSelectionModeContext.Provider value={selectable ? false : null}>
       <PortalRecordShareHost>
-      <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}` } : null}>
+      <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}`, lazy: true } : null}>
       <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr} data-slot="portal-record-list-surface">
         {listControls ? (
           // A whole header card (Move-in, House details) spans the row, left-justified
