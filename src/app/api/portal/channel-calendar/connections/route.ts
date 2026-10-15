@@ -86,6 +86,7 @@ export async function GET(req: Request) {
     const connections = await listChannelCalendarConnections(ctx.db, propertyId, browserOrigin);
     return NextResponse.json({ connections });
   } catch (e) {
+    if (isChannelCalendarInputError(e)) return NextResponse.json({ error: e.message, field: e.field }, { status: 400 });
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed." }, { status: 500 });
   }
 }

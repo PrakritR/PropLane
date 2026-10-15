@@ -36,7 +36,7 @@ function parseTombstoneRow(rowData: unknown): ChannelStayTombstone | null {
   const o = rowData as Record<string, unknown>;
   const propertyId = String(o.propertyId ?? "").trim();
   const sourceUid = String(o.sourceUid ?? "").trim();
-  const provider = o.provider === "booking_com" || o.provider === "vrbo" ? o.provider : "airbnb";
+  const provider = o.provider === "booking_com" || o.provider === "vrbo" || o.provider === "ical" ? o.provider : "airbnb";
   if (!propertyId || !sourceUid) return null;
   const range = (o.range ?? {}) as Record<string, unknown>;
   return {

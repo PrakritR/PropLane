@@ -11,6 +11,7 @@ import {
   RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS,
   RESIDENT_APPROVED_PORTAL_SECTIONS,
   RESIDENT_LIMITED_PORTAL_SECTIONS,
+  RESIDENT_UNIFIED_PORTAL_SECTIONS,
 } from "@/lib/portals/resident-sections";
 
 const CASES = [
@@ -37,6 +38,8 @@ const CASES = [
         ...RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS.map((s) => s.section),
         ...RESIDENT_LIMITED_PORTAL_SECTIONS.map((s) => s.section),
         ...RESIDENT_APPROVED_PORTAL_SECTIONS.map((s) => s.section),
+        // Stays exists only in the unified catalog (drawn for an account that owns a stay row).
+        ...RESIDENT_UNIFIED_PORTAL_SECTIONS.map((s) => s.section),
       ]),
     ],
     sidebarShowsProfile: false,
@@ -180,7 +183,7 @@ describe("phase 1 regroup: headings and exact order per portal", () => {
 
   it("resident: home, My home (no heading: it would repeat its own first row), Applying, Money", () => {
     expect(headings("resident")).toEqual([
-      [null, ["dashboard", "communication"]],
+      [null, ["dashboard", "stays", "communication"]],
       [null, ["move-in", "lease", "forms", "services"]],
       ["Applying", ["tour", "applications"]],
       ["Money", ["payments", "documents"]],

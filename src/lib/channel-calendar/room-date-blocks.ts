@@ -46,7 +46,7 @@ function normalizeStayDetails(raw: unknown): RoomDateBlock["stayDetails"] {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const values = raw as Record<string, unknown>;
   const result: NonNullable<RoomDateBlock["stayDetails"]> = {};
-  for (const key of ["source", "linen", "baggage", "earlyCheckIn", "lateCheckOut"] as const) {
+  for (const key of ["source", "linen", "baggage", "earlyCheckIn", "lateCheckOut", "holdExpiresAt", "decision"] as const) {
     if (typeof values[key] === "string") result[key] = values[key].trim();
   }
   return result;

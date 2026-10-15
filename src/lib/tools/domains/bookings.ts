@@ -227,6 +227,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   airbnb: "Airbnb",
   booking_com: "Booking.com",
   vrbo: "Vrbo",
+  ical: "Other calendar",
 };
 
 function providerLabel(provider: string): string {

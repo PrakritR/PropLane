@@ -1,12 +1,16 @@
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 
 /** User-facing label for an imported channel event summary. */
+export type GuestLabelSource = "airbnb" | "booking_com" | "vrbo" | "ical";
+
 export function bookingGuestLabel(
   summary: string | null | undefined,
-  source: "airbnb" | "booking_com" | "vrbo" = "airbnb",
+  source: GuestLabelSource = "airbnb",
+  channelLabel?: string | null,
 ): string {
   const raw = summary?.trim() ?? "";
-  const channel = source === "booking_com" ? "Booking.com" : source === "vrbo" ? "Vrbo" : "Airbnb";
+  const channel =
+    source === "booking_com" ? "Booking.com" : source === "vrbo" ? "Vrbo" : source === "ical" ? channelLabel?.trim() || "Other calendar" : "Airbnb";
   const fallback = `Booked (${channel})`;
   if (!raw) return fallback;
   const lower = raw.toLowerCase();
@@ -19,16 +23,22 @@ export function bookingGuestLabel(
 export function bookingGuestShortLabel(
   summary: string | null | undefined,
   maxLen = 10,
-  source: "airbnb" | "booking_com" | "vrbo" = "airbnb",
+  source: GuestLabelSource = "airbnb",
+  channelLabel?: string | null,
 ): string {
-  const label = bookingGuestLabel(summary, source);
+  const label = bookingGuestLabel(summary, source, channelLabel);
   if (label.length <= maxLen) return label;
   return `${label.slice(0, maxLen - 1)}…`;
+}
+
+function isGuestLabelSource(source: string): source is GuestLabelSource {
+  return source === "airbnb" || source === "booking_com" || source === "vrbo" || source === "ical";
 }
 
 type GuestLabelEntry = {
   summary: string | null | undefined;
   source: string;
+  channelLabel?: string | null;
   guestName?: string | null;
   reservationCode?: string | null;
 };
@@ -39,7 +49,7 @@ type GuestLabelEntry = {
  * "Reserved". Null when there is nothing better than the existing label (host blocks, other sources).
  */
 export function bookingEntryNamedLabel(entry: GuestLabelEntry): string | null {
-  if (entry.source !== "airbnb" && entry.source !== "booking_com" && entry.source !== "vrbo") return null;
+  if (!isGuestLabelSource(entry.source)) return null;
   const raw = entry.summary?.trim() ?? "";
   if (raw && isHostBlockSummary(raw)) return null;
   const typed = entry.guestName?.trim();
@@ -55,8 +65,8 @@ export function bookingEntryNamedLabel(entry: GuestLabelEntry): string | null {
  * Host blocks and every non-channel source keep their own label.
  */
 export function bookingEntryGuestLabel(entry: GuestLabelEntry): string {
-  if (entry.source !== "airbnb" && entry.source !== "booking_com" && entry.source !== "vrbo") {
+  if (!isGuestLabelSource(entry.source)) {
     return entry.summary ?? "";
   }
-  return bookingEntryNamedLabel(entry) ?? bookingGuestLabel(entry.summary, entry.source);
+  return bookingEntryNamedLabel(entry) ?? bookingGuestLabel(entry.summary, entry.source, entry.channelLabel);
 }

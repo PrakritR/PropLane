@@ -2308,6 +2308,13 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
               placeholder="Minimum nights, ID, no parties…"
             />
           </Field>
+          <Field group label="Booking">
+            <CheckboxOption
+              label="Returning guests book instantly"
+              checked={sub.shortStayInstantBookReturning !== false}
+              onChange={(next) => patch({ shortStayInstantBookReturning: next })}
+            />
+          </Field>
         </>
       ) : null}
     </>

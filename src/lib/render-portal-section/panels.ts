@@ -30,6 +30,7 @@ import type { VendorCommunication } from "@/components/portal/vendor-communicati
 import type { ResidentPaymentsPanel } from "@/components/portal/resident-payments-panel";
 import type { ResidentDocumentsPanel } from "@/components/portal/resident-documents-panel";
 import type { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
+import type { ResidentStaysPanel } from "@/components/portal/resident-stays-panel";
 import type { ResidentTourPanel } from "@/components/portal/resident-tour-panel";
 import type { ResidentLeasePanel } from "@/components/portal/resident-lease-panel";
 import type { ResidentProfileSection } from "@/components/portal/resident-profile-section";
@@ -101,6 +102,7 @@ export type PortalPanels = Partial<{
   ResidentPaymentsPanel: typeof ResidentPaymentsPanel;
   ResidentDocumentsPanel: typeof ResidentDocumentsPanel;
   ResidentApplicationsPanel: typeof ResidentApplicationsPanel;
+  ResidentStaysPanel: typeof ResidentStaysPanel;
   ResidentTourPanel: typeof ResidentTourPanel;
   ResidentLeasePanel: typeof ResidentLeasePanel;
   ResidentProfileSection: typeof ResidentProfileSection;

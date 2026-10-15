@@ -17,6 +17,7 @@ import {
   ListTodo,
   FileText,
   LogIn,
+  Luggage,
   Megaphone,
   MessageSquare,
   MessagesSquare,
@@ -88,6 +89,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   relationships: UserCog,
   "move-in": LogIn,
   forms: FileText,
+  stays: Luggage,
   promotion: Megaphone,
   app: Smartphone,
 };

@@ -13,6 +13,7 @@ export type ResidentSmsLinkKind =
   | "services"
   | "services_work_orders"
   | "applications"
+  | "stays"
   | "login"
   | "signup"
   | "browse"
@@ -41,6 +42,8 @@ export function residentPortalPath(
       return "/resident/services";
     case "applications":
       return "/resident/applications";
+    case "stays":
+      return "/resident/stays/upcoming";
     case "login":
       // `/auth/sign-in` is the real route; `/auth/login` 404s. Every resident
       // onboarding email and SMS routes through here, so a wrong token here is a
@@ -161,6 +164,7 @@ const LINK_LABEL: Record<ResidentSmsLinkKind, string> = {
   services: "Services",
   services_work_orders: "Services",
   applications: "Applications",
+  stays: "Your stays",
   login: "Sign in",
   signup: "Create account",
   browse: "Browse homes",

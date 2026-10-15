@@ -148,12 +148,13 @@ export async function fetchOccupancySnapshot(input: {
 
 export async function fetchManagerChannelBookings(
   propertyIds: string[],
+  opts: { slim?: boolean } = {},
 ): Promise<ManagerChannelBookingProperty[]> {
   const ids = propertyIds.filter(Boolean);
-  const query =
-    ids.length > 0
-      ? `?propertyIds=${encodeURIComponent(ids.join(","))}`
-      : "";
+  const params = new URLSearchParams();
+  if (ids.length > 0) params.set("propertyIds", ids.join(","));
+  if (opts.slim) params.set("slim", "1");
+  const query = params.size > 0 ? `?${params}` : "";
   const res = await fetchWithTimeout(
     `/api/portal/channel-calendar/bookings${query}`,
     { credentials: "include" },
@@ -257,3 +258,26 @@ export async function fetchAirbnbPayouts(): Promise<AirbnbPayoutRow[]> {
   if (!res.ok) throw new Error(data.error ?? "Could not load Airbnb payouts.");
   return data.payouts ?? [];
 }
+
+export type ValidateChannelImportResult = { ok: true; eventCount: number } | { ok: false; error: string };
+
+/** Checks an "Other calendar" link on the server (public host, answers with a calendar) before it is saved. */
+export async function validateChannelImportUrl(url: string): Promise<ValidateChannelImportResult> {
+  const res = await fetchWithTimeout(
+    "/api/portal/channel-calendar/validate",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    },
+    VALIDATE_CHANNEL_IMPORT_TIMEOUT_MS,
+  );
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; eventCount?: number; error?: string };
+  if (res.status === 429) return { ok: false, error: "Too many checks. Wait a minute and try again." };
+  if (data.ok) return { ok: true, eventCount: data.eventCount ?? 0 };
+  return { ok: false, error: data.error ?? "Could not check that link." };
+}
+
+/** The server gives up on a feed after 6s; the browser waits a beat longer for the answer. */
+const VALIDATE_CHANNEL_IMPORT_TIMEOUT_MS = 8_000;

@@ -95,7 +95,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     if (action === "message") navigate(bookingRecordHref(basePath, bookingId, "communication"));
   };
   const place = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
-  const channelLabel = channel ? [bookingSourceLabel(entry.source), entry.sourceUid].filter(Boolean).join(" · ") : sourceTarget ? "" : entry.stayDetails?.source || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source));
+  const channelLabel = channel ? [bookingSourceLabel(entry.source, entry.channelLabel), entry.sourceUid].filter(Boolean).join(" · ") : sourceTarget ? "" : entry.stayDetails?.source || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source, entry.channelLabel));
   const stayDetailRows = Object.entries(entry.stayDetails ?? {}).filter(([key, value]) => key !== "source" && value);
   const checkTimes = [entry.stayDetails?.earlyCheckIn && `Check-in ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Check-out ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ");
   const status = bookingStatusLabel(entry);
@@ -138,7 +138,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         <RecordFactRow label="Dates" value={`${range}${entry.openEnded ? " · open-ended" : ` · ${nights} ${nights === 1 ? "night" : "nights"}`}`} />
         <RecordFactRow label="Where" value={place} />
         {channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
-        {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? (entry.applicationId ? "Resident" : "Application") : bookingSourceLabel(entry.source)}</Link>} /> : null}
+        {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? (entry.applicationId ? "Resident" : "Application") : bookingSourceLabel(entry.source, entry.channelLabel)}</Link>} /> : null}
         {checkTimes ? <RecordFactRow label="Check-in / out" value={checkTimes} /> : null}
         <RecordFactRow label="Status" value={status} />
         {entry.monthlyRent != null ? <RecordFactRow label="Rent" value={bookingRateLabel(entry)} /> : <RecordFactRow label="Rate" value={bookingRateLabel(entry)} />}

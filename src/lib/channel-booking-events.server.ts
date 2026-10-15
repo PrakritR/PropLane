@@ -61,9 +61,9 @@ export function channelBookingStay(start: string, lastNight: string): { label: s
 
 export function renderChannelBookingEvent(
   event: ChannelBookingEvent,
-  facts: { provider: ChannelCalendarProvider; propertyLabel?: string; roomLabel?: string; start: string; end: string; reservationCode?: string },
+  facts: { provider: ChannelCalendarProvider; channelLabel?: string | null; propertyLabel?: string; roomLabel?: string; start: string; end: string; reservationCode?: string },
 ): { subject: string; text: string; smsText: string } {
-  const channel = channelCalendarProviderLabel(facts.provider);
+  const channel = channelCalendarProviderLabel(facts.provider, facts.channelLabel);
   const lead = event === "channel_booking_created" ? `New ${channel} booking` : `${channel} booking cancelled`;
   const place = [facts.propertyLabel?.trim(), facts.roomLabel?.trim()].filter(Boolean);
   const code = facts.reservationCode?.trim();
@@ -80,6 +80,8 @@ export async function emitChannelBookingEvent(
     propertyId: string;
     roomId: string;
     provider: ChannelCalendarProvider;
+    /** The site name of an "Other calendar" link. */
+    channelLabel?: string | null;
     propertyLabel?: string;
     roomLabel?: string;
     range: ChannelCalendarImportedRange;
@@ -110,7 +112,7 @@ export async function emitChannelBookingEvent(
       end: input.range.end,
       nights: stay.nights,
       // Whatever the channel exposes ("Reserved" when it hides the guest); no contact data is in the feed.
-      guestLabel: bookingGuestLabel(input.range.summary, input.provider),
+      guestLabel: bookingGuestLabel(input.range.summary, input.provider, input.channelLabel),
     },
     templateContext: { propertyTitle: input.propertyLabel ?? "", roomLabel: input.roomLabel ?? "", stayLabel: stay.label, url },
     recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } }],

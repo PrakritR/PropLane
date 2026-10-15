@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, MoreHorizontal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Check, MoreHorizontal, RotateCw } from "lucide-react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -19,9 +19,10 @@ import {
   saveChannelCalendarConnection,
   syncAllChannelCalendarConnections,
   syncChannelCalendarConnection,
+  validateChannelImportUrl,
 } from "@/lib/channel-calendar/client";
-import type { ChannelCalendarProvider, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
-import { channelCalendarProviderLabel, isValidChannelImportUrl } from "@/lib/channel-calendar/airbnb-url";
+import type { ChannelCalendarProvider, ManagerChannelBookingProperty, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
+import { channelCalendarProviderLabel, icalLabelKey, ICAL_LABEL_MAX_LENGTH, isValidChannelImportUrl, normalizeIcalLabel } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
 import { channelStatusParts, type ChannelConnectionStatus } from "@/lib/channel-calendar/channel-links";
 import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
@@ -45,6 +46,12 @@ type Props = {
   propertyOptions: ManagerPropertyFilterOption[];
   /** The channel the opener already knows (the Integrations rows). Without it the page starts with a Channel dropdown. */
   initialProvider?: ChannelCalendarProvider;
+  /**
+   * The rooms and links the opener already loaded (the Integrations panel). With them the popup opens
+   * at once and refreshes behind itself; a slow or failed refresh keeps what is shown and never
+   * becomes a timeout message.
+   */
+  initialConnections?: readonly ManagerChannelBookingProperty[];
   showToast: (message: string) => void;
   onChanged?: () => void;
   onClose: () => void;
@@ -65,18 +72,20 @@ type LinkRow = {
 
 type LinkGroup = { propertyId: string; label: string; rows: LinkRow[] };
 
-const CHANNEL_OPTIONS = (["airbnb", "booking_com", "vrbo"] as const).map((value) => ({ value, label: channelCalendarProviderLabel(value) }));
+const CHANNEL_OPTIONS = (["airbnb", "booking_com", "vrbo", "ical"] as const).map((value) => ({ value, label: channelCalendarProviderLabel(value) }));
 const rowKey = (propertyId: string, roomId: string) => `${propertyId}::${roomId}`;
 
 /** One plain status line, composed from `channelStatusParts` so the red "Error:" is a part, not a cut. */
 function ChannelStatusText({
   connection,
   channel,
+  label,
 }: {
   connection: ChannelConnectionStatus | null | undefined;
   channel: ChannelCalendarProvider;
+  label?: string | null;
 }) {
-  const status = channelStatusParts(connection, new Date(), channel);
+  const status = channelStatusParts(connection, new Date(), channel, label);
   const lead = status.error ? (
     <>
       <span className="text-danger">Error:</span> {status.error}
@@ -94,19 +103,33 @@ function ChannelStatusText({
   );
 }
 
-export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
+type LinkCheck = { state: "checking" } | { state: "ok"; text: string } | { state: "bad"; text: string };
+
+export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, initialConnections, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
   const [provider, setProvider] = useState<ChannelCalendarProvider | "">(initialProvider ?? "");
-  const [connections, setConnections] = useState<Map<string, ManagerChannelBookingRoom>>(new Map());
+  // The raw rooms and links; the per-row map below is derived from them for the channel (and, for Other calendar, site) in view.
+  const [linked, setLinked] = useState<readonly ManagerChannelBookingProperty[]>(initialConnections ?? []);
+  const [siteName, setSiteName] = useState("");
+  const [checks, setChecks] = useState<Record<string, LinkCheck>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [copiedKeys, setCopiedKeys] = useState<Record<string, boolean>>({});
   const [exports, setExports] = useState<Record<string, string>>({});
+  // With links handed in there is nothing to wait for: the read below only refreshes them.
   const [loading, setLoading] = useState(false);
+  const haveInitial = Boolean(initialConnections);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{ room: string; events: ReturnType<typeof parseIcsCalendar> } | null>(null);
   const [disconnect, setDisconnect] = useState<{ id: string; label: string } | null>(null);
   const channel: ChannelCalendarProvider = provider || "airbnb";
-  const name = channelCalendarProviderLabel(channel);
+  const isIcal = channel === "ical";
+  const site = isIcal ? normalizeIcalLabel(siteName) : "";
+  const name = channelCalendarProviderLabel(channel, site);
+  const connections = useMemo(() => connectionMap(linked, channel, site), [linked, channel, site]);
+  const knownSites = useMemo(
+    () => [...new Set(linked.flatMap((p) => p.rooms.filter((r) => r.provider === "ical" && r.label?.trim()).map((r) => r.label!.trim())))],
+    [linked],
+  );
 
   // Linking, unlinking and syncing need the Calendar module at edit, so the picker (and with it the "Entire
   // workspace" scope) lists only the properties the caller may write. The server re-checks every write.
@@ -143,23 +166,28 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   );
   const rows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
 
+  const linkedRef = useRef(linked);
+  useEffect(() => { linkedRef.current = linked; }, [linked]);
   useEffect(() => {
     if (!active) return;
     const ids = scopeKey ? scopeKey.split("\n") : [];
-    if (!ids.length) { setConnections(new Map()); return; }
+    if (!ids.length) { setLinked([]); return; }
     let stopped = false;
-    setLoading(true);
+    // Only a popup opened WITHOUT links waits on this read. One opened with them (or that already
+    // has them from an earlier pass) refreshes silently: a slow read leaves what is on screen alone.
+    if (!haveInitial && linkedRef.current.length === 0) setLoading(true);
     setError("");
-    fetchManagerChannelBookings(ids)
-      .then((properties) => { if (!stopped) setConnections(connectionMap(properties, channel)); })
-      .catch((e: unknown) => { if (!stopped) setError(e instanceof Error ? e.message : "Could not load calendars."); })
+    // Rooms and links only (no stored stays): the heavy part of the Bookings read that used to time out here.
+    fetchManagerChannelBookings(ids, { slim: true })
+      .then((properties) => { if (!stopped) setLinked(properties); })
+      .catch((e: unknown) => { if (!stopped && !haveInitial && linkedRef.current.length === 0) setError(e instanceof Error ? e.message : "Could not load calendars."); })
       .finally(() => { if (!stopped) setLoading(false); });
     return () => { stopped = true; };
-  }, [active, scopeKey, channel]);
+  }, [active, scopeKey, haveInitial]);
 
   const refresh = async () => {
     const ids = scopeKey ? scopeKey.split("\n") : [];
-    setConnections(connectionMap(ids.length ? await fetchManagerChannelBookings(ids) : [], channel));
+    setLinked(ids.length ? await fetchManagerChannelBookings(ids, { slim: true }) : []);
     onChanged?.();
   };
   const run = async (action: () => Promise<void>) => {
@@ -167,13 +195,15 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     try { await action(); } catch (e) { setError(e instanceof Error ? e.message : "Calendar action failed."); }
     finally { setBusy(false); }
   };
+  const exportKey = (row: LinkRow) => `${row.key}:${channel}${isIcal ? `:${icalLabelKey(site)}` : ""}`;
   const exportFor = async (row: LinkRow) => {
-    const key = `${row.key}:${channel}`;
-    const url = exports[key] || connections.get(row.key)?.exportUrl || await fetchRoomExportCalendarUrl({ propertyId: row.propertyId, roomId: row.unit.id, roomLabel: row.unit.label, provider: channel });
+    const key = exportKey(row);
+    if (isIcal && !site) throw new Error("Name the site first, such as Houfy.");
+    const url = exports[key] || connections.get(row.key)?.exportUrl || await fetchRoomExportCalendarUrl({ propertyId: row.propertyId, roomId: row.unit.id, roomLabel: isIcal ? site : row.unit.label, provider: channel });
     setExports((old) => ({ ...old, [key]: url }));
     return url;
   };
-  const urlFor = (row: LinkRow) => exports[`${row.key}:${channel}`] || connections.get(row.key)?.exportUrl || "";
+  const urlFor = (row: LinkRow) => exports[exportKey(row)] || connections.get(row.key)?.exportUrl || "";
   const openPreview = async (row: LinkRow) => {
     const response = await fetch(await exportFor(row), { credentials: "omit", cache: "no-store" });
     if (!response.ok) throw new Error("Could not load feed preview.");
@@ -181,7 +211,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     if (!body.includes("BEGIN:VCALENDAR")) throw new Error("The export did not return a calendar feed.");
     setPreview({ room: row.unit.label, events: parseIcsCalendar(body) });
   };
-  const copy = async (row: LinkRow) => { await navigator.clipboard.writeText(await exportFor(row)); setCopiedKeys((old) => ({ ...old, [`${row.key}:${channel}`]: true })); showToast("PropLane calendar link copied."); };
+  const copy = async (row: LinkRow) => { await navigator.clipboard.writeText(await exportFor(row)); setCopiedKeys((old) => ({ ...old, [exportKey(row)]: true })); showToast("PropLane calendar link copied."); };
   const copyListingPack = async (row: LinkRow) => {
     const pack = buildAirbnbListingPack({ propertyId: row.propertyId, roomId: row.unit.id });
     await navigator.clipboard.writeText(pack.text);
@@ -212,7 +242,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     const failures: string[] = [];
     for (const row of pending) {
       try {
-        const connection = await saveChannelCalendarConnection({ propertyId: row.propertyId, roomId: row.unit.id, provider: channel, label: row.unit.label, importUrl: draftOf(row) || null });
+        const connection = await saveChannelCalendarConnection({ propertyId: row.propertyId, roomId: row.unit.id, provider: channel, label: isIcal ? site : row.unit.label, importUrl: draftOf(row) || null });
         if (connection.hasImportUrl) await syncChannelCalendarConnection(connection.id);
       } catch (e) { failures.push(`${row.unit.label}: ${e instanceof Error ? e.message : "Save failed"}`); }
     }
@@ -222,9 +252,21 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     else { showToast(pending.length > 0 && pending.every(clearedOf) ? "Calendar link removed." : "Calendars saved and synced."); }
   });
 
+  // "Other calendar" can be checked from the server before it is saved: public host, a real calendar.
+  const checkLink = async (row: LinkRow) => {
+    setChecks((old) => ({ ...old, [row.key]: { state: "checking" } }));
+    try {
+      const result = await validateChannelImportUrl(draftOf(row) || shownOf(row).trim());
+      setChecks((old) => ({ ...old, [row.key]: result.ok ? { state: "ok", text: `Valid calendar · ${result.eventCount} ${result.eventCount === 1 ? "block" : "blocks"}` } : { state: "bad", text: result.error } }));
+    } catch {
+      // A check that cannot finish says so; saving is not gated on it.
+      setChecks((old) => ({ ...old, [row.key]: { state: "bad", text: "Could not check that link in time. Try again." } }));
+    }
+  };
   const statusOf = (row: LinkRow) => clearedOf(row) ? "Link will be removed" : draftOf(row) ? (isBad(row) ? "Link not valid" : "Ready to connect") : connections.get(row.key)?.hasImportUrl ? "Connected" : "Not connected";
+  const needsName = isIcal && !site;
   const stepsDef: AddWorkspaceStep[] = [
-    { id: "link", label: "Link", incomplete: invalid || !provider },
+    { id: "link", label: "Link", incomplete: invalid || !provider || needsName },
   ];
   const errorAlert = error ? <p role="alert" className="mb-4 text-sm text-danger">{error}</p> : null;
   const gridClass = "md:grid md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.5fr)_minmax(0,1.3fr)_auto] md:items-start md:gap-3";
@@ -233,7 +275,12 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     <StepHeading title="Link" />
     {errorAlert}
     <div className="mb-5 space-y-4">
-      {!initialProvider ? <FieldSingleSelect label="Channel" dataAttr="channel-calendar-link-provider" value={provider} placeholder="Pick a channel…" disabled={busy} options={CHANNEL_OPTIONS} onChange={(next) => { if (next !== provider) setDrafts({}); setProvider(next as ChannelCalendarProvider); }} /> : null}
+      {!initialProvider ? <FieldSingleSelect label="Channel" dataAttr="channel-calendar-link-provider" value={provider} placeholder="Pick a channel…" disabled={busy} options={CHANNEL_OPTIONS} onChange={(next) => { if (next !== provider) { setDrafts({}); setChecks({}); } setProvider(next as ChannelCalendarProvider); }} /> : null}
+      {isIcal ? <div className="space-y-1.5">
+        <label htmlFor="channel-calendar-site-name" className="text-sm font-medium">Name</label>
+        <Input id="channel-calendar-site-name" value={siteName} maxLength={ICAL_LABEL_MAX_LENGTH} list="channel-calendar-site-names" disabled={busy} placeholder="Houfy, Furnished Finder…" onChange={(e) => setSiteName(e.target.value)} data-attr="channel-calendar-site-name" />
+        <datalist id="channel-calendar-site-names">{knownSites.map((known) => <option key={known} value={known} />)}</datalist>
+      </div> : null}
     </div>
     {loading ? <p role="status">Loading linked rooms…</p> : rows.length === 0 ? <p>This workspace has no rooms listed.</p> : <div className="space-y-5" data-attr="channel-calendar-link-table">
       <div className={`hidden text-xs font-medium text-muted ${gridClass}`}><span>Room</span><span>{name} calendar link</span><span>PropLane link</span><span className="w-9" /></div>
@@ -251,9 +298,12 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Input id={`channel-import-${row.key}`} type="url" aria-label={`${row.unit.label} ${name} calendar link`} aria-invalid={bad} value={shownOf(row)} disabled={busy} placeholder={`Paste ${name} calendar link`} onChange={(e) => setDrafts({ ...drafts, [row.key]: e.target.value })} data-attr="channel-calendar-link-import-url" />
+                {isIcal && shownOf(row).trim() && !bad ? <PortalIconAction icon={checks[row.key]?.state === "bad" ? RotateCw : Check} label={checks[row.key]?.state === "bad" ? "Check link again" : "Check link"} disabled={busy || checks[row.key]?.state === "checking"} onClick={() => void checkLink(row)} data-attr="channel-calendar-check-link" /> : null}
                 {shownOf(row).trim() ? <CopyIconAction label={`Copy ${name} calendar link`} disabled={busy} onCopy={async () => { await navigator.clipboard.writeText(shownOf(row).trim()); showToast(`${name} calendar link copied.`); }} /> : null}
               </div>
               {bad ? <p role="alert" className="text-sm text-danger">Enter a valid {name} calendar link.</p> : null}
+              {checks[row.key]?.state === "ok" ? <p role="status" className="text-sm">{(checks[row.key] as { text: string }).text}</p> : null}
+              {checks[row.key]?.state === "bad" ? <p role="alert" className="text-sm text-danger">{(checks[row.key] as { text: string }).text}</p> : null}
               {connection?.lastError ? <p role="alert" className="text-sm text-danger">{connection.lastError}</p> : null}
             </div>
             <div className="flex items-center gap-2">
@@ -261,7 +311,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
               <CopyIconAction label="Copy PropLane calendar link" disabled={busy} onCopy={() => run(() => copy(row))} />
             </div>
             <div data-attr="channel-calendar-room-status" className="text-xs text-muted md:col-start-2 md:col-span-2">
-              <ChannelStatusText connection={connection} channel={channel} />
+              <ChannelStatusText connection={connection} channel={channel} label={site} />
             </div>
             <div className="flex md:justify-end">
               <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${row.unit.label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">
@@ -301,7 +351,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
       dataAttrPrefix="channel-calendar-link"
       finishDataAttr="channel-calendar-link-save"
       lastLabel="Save"
-      lastDisabled={loading || !provider || invalid || pending.length === 0}
+      lastDisabled={loading || !provider || invalid || needsName || pending.length === 0}
       busy={busy}
       dangerAction={<Button variant="ghost" disabled={busy || loading || rows.length === 0} data-attr="channel-calendar-sync-all" onClick={() => void syncAll()}>Sync all now</Button>}
       hideFooterStepCount
@@ -318,9 +368,11 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
 }
 
 /** One connection per (property, room) for the channel being linked, keyed like a table row. */
-function connectionMap(properties: { propertyId: string; rooms: ManagerChannelBookingRoom[] }[], channel: ChannelCalendarProvider): Map<string, ManagerChannelBookingRoom> {
+function connectionMap(properties: readonly { propertyId: string; rooms: ManagerChannelBookingRoom[] }[], channel: ChannelCalendarProvider, site = ""): Map<string, ManagerChannelBookingRoom> {
   const map = new Map<string, ManagerChannelBookingRoom>();
-  for (const property of properties) for (const room of property.rooms) if (room.provider === channel) map.set(rowKey(property.propertyId, room.roomId), room);
+  // Other calendar: a room can hold one link per site name, so a row shows only the named site's.
+  const want = icalLabelKey(site);
+  for (const property of properties) for (const room of property.rooms) if (room.provider === channel && (channel !== "ical" || icalLabelKey(room.label) === want)) map.set(rowKey(property.propertyId, room.roomId), room);
   return map;
 }
 

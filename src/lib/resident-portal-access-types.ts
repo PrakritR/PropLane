@@ -38,6 +38,11 @@ export type ResidentPortalAccessState = {
    * table; absent reads as nothing blocked.
    */
   blockingFormsPending?: BlockingFormsPending;
+  /**
+   * True when this login has at least one short-stay row (a `room_date_block` carrying their
+   * `residentUserId`, whatever its outcome). Unlocks the Stays section at every stage; absent reads as false.
+   */
+  hasStays?: boolean;
   /** Both manager and resident have signed the active lease. */
   leaseSigned: boolean;
   /** Full workspace (services, payments, move-in) — requires a signed lease. */
