@@ -35,7 +35,7 @@ A read-only view a manager grants per house from **Settings → Workspaces**, by
 
 ### Resident portal (`/resident`)
 
-Rent & utility payments (card incl. Apple Pay / Google Pay, or bank/ACH — captured by PropLane on Stripe and paid out to the manager), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services, inbox, lease & receipts. Full workspace unlocks after lease approval.
+Rent & utility payments (card incl. Apple Pay / Google Pay, or bank/ACH — captured by PropLane on Stripe and paid out to the manager), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services, inbox, lease & receipts, and **Stays** (Upcoming | Past short stays, with **Book again** on a past one). Full workspace unlocks after lease approval.
 
 ### Vendor portal (`/vendor`)
 
