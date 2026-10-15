@@ -531,7 +531,7 @@ function useBookingsWorkspace({
         entries={rawEntries}
         residentOptions={residentOptions}
         onSave={saveBlock}
-        onDeleteBlock={removeBlock}
+        onDeleteBlock={deleteOrCancel}
       />
       <ChannelCalendarLinkModal
         entries={rawEntries}
@@ -705,7 +705,6 @@ export function ManagerBookings({
           propertyOptions={propertyOptions}
           residentOptions={residentOptions}
           onSaveBlock={saveBlock}
-          onRemoveBlock={removeBlock}
           onDeleteBlock={deleteOrCancel}
           showToast={showToast}
           onClose={() => navigate(managerBookingListHref(basePath, "calendar"))}

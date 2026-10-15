@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { Input, Select } from "@/components/ui/input";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
+import { bookingCancelLabel } from "@/lib/channel-calendar/booking-presentation";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   MODAL_FIELD_LABEL_CLASS,
@@ -149,7 +150,11 @@ export function BookingsBlockDatesModal({
   /** People the room can be held for. Empty is fine — "New resident" still works. */
   residentOptions?: readonly BlockDatesResidentOption[];
   onSave: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
-  onDeleteBlock?: (blockId: string) => Promise<boolean | void>;
+  /**
+   * The one removal decision, owned by the host: a marked reservation goes to the Delete confirm,
+   * a block held for a named person to the cancel dialog. Absent = the hold list offers no removal.
+   */
+  onDeleteBlock?: (entry: PropertyBookingEntry) => void;
   /**
    * "reserve" is a click on an empty room-day: titled Mark reserved, opens on the
    * review step with the house, room and night already filled, and saves with one press.
@@ -687,11 +692,8 @@ export function BookingsBlockDatesModal({
                         );
                         setStepIdx(1);
                       }}
-                      onCancel={
-                        onDeleteBlock && entry.blockId
-                          ? () => void onDeleteBlock(entry.blockId!)
-                          : undefined
-                      }
+                      onCancel={onDeleteBlock && entry.blockId ? () => onDeleteBlock(entry) : undefined}
+                      cancelLabel={bookingCancelLabel(entry)}
                     />
                   </li>
                 );

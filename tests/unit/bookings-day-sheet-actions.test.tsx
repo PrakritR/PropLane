@@ -3,9 +3,9 @@
  * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every booking card gets
  * Edit booking + the one removal vocabulary (`bookingCancelLabel`: "Cancel booking" for a
  * named hold, "Delete reservation" for a marked one), and the removal hands the entry to the
- * SAME router the list row and the Edit sheet use, so the word always names what happens — a
- * named hold is soft-cancelled, never hard-deleted from here. An in-house active tenancy is
- * refused outright.
+ * SAME router the list row and the Edit sheet use — so the word always names what happens, a
+ * named hold is soft-cancelled rather than hard-deleted, and the day pop-up offers neither
+ * more nor less than the list row for the same booking.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -73,8 +73,7 @@ describe("BookingsDayPage — card actions", () => {
           propertyOptions={propertyOptions}
           residentOptions={[]}
           onSaveBlock={async () => {}}
-          onRemoveBlock={async () => {}}
-        onDeleteBlock={() => {}}
+          onDeleteBlock={() => {}}
           showToast={() => {}}
         />
       </AppUiProvider>,
@@ -97,8 +96,7 @@ describe("BookingsDayPage — card actions", () => {
           propertyOptions={propertyOptions}
           residentOptions={[]}
           onSaveBlock={async () => {}}
-          onRemoveBlock={async () => {}}
-        onDeleteBlock={() => {}}
+          onDeleteBlock={() => {}}
           showToast={() => {}}
         />
       </AppUiProvider>,
@@ -117,8 +115,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(nameInput?.value).toBe("Prakrit");
   });
 
-  it("Cancel booking on a named hold OUTSIDE today's stay hands the entry to the shared router, never a hard delete", () => {
-    const onRemoveBlock = vi.fn();
+  it("Cancel booking on a named hold hands the entry to the shared router, never a hard delete", () => {
     const onDeleteBlock = vi.fn();
     const futureHold: PropertyBookingEntry = { ...hold, start: "2026-10-01", end: "2026-10-05" };
     render(
@@ -130,7 +127,6 @@ describe("BookingsDayPage — card actions", () => {
         propertyOptions={propertyOptions}
         residentOptions={[]}
         onSaveBlock={async () => {}}
-        onRemoveBlock={onRemoveBlock}
         onDeleteBlock={onDeleteBlock}
         showToast={() => {}}
       />,
@@ -143,7 +139,6 @@ describe("BookingsDayPage — card actions", () => {
     fireEvent.click(removeButton);
 
     expect(onDeleteBlock).toHaveBeenCalledWith(futureHold);
-    expect(onRemoveBlock).not.toHaveBeenCalled();
     expect(document.querySelector('[data-attr="bookings-day-delete-confirm"]')).toBeNull();
   });
 
@@ -165,7 +160,6 @@ describe("BookingsDayPage — card actions", () => {
         propertyOptions={propertyOptions}
         residentOptions={[]}
         onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
         onDeleteBlock={onDeleteBlock}
         showToast={() => {}}
       />,
@@ -179,7 +173,7 @@ describe("BookingsDayPage — card actions", () => {
     expect(onDeleteBlock).toHaveBeenCalledWith(reservation);
   });
 
-  it("refuses to remove an in-house-today booking instead of reaching the router", () => {
+  it("an in-house-today hold reaches the same router, exactly as the list row does", () => {
     const onDeleteBlock = vi.fn();
     const showToast = vi.fn();
     render(
@@ -191,7 +185,6 @@ describe("BookingsDayPage — card actions", () => {
         propertyOptions={propertyOptions}
         residentOptions={[]}
         onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
         onDeleteBlock={onDeleteBlock}
         showToast={showToast}
       />,
@@ -200,8 +193,8 @@ describe("BookingsDayPage — card actions", () => {
     const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(removeButton);
-    expect(onDeleteBlock).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith(expect.stringContaining("in-house today"));
+    expect(onDeleteBlock).toHaveBeenCalledWith(hold);
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   it("a signed-lease card jumps to the Lease record and has no removal action", () => {
@@ -214,7 +207,6 @@ describe("BookingsDayPage — card actions", () => {
         propertyOptions={propertyOptions}
         residentOptions={[]}
         onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
         onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
@@ -239,7 +231,6 @@ describe("BookingsDayPage — card actions", () => {
         propertyOptions={propertyOptions}
         residentOptions={[]}
         onSaveBlock={async () => {}}
-        onRemoveBlock={async () => {}}
         onDeleteBlock={() => {}}
         showToast={() => {}}
       />,

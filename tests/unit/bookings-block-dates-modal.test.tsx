@@ -216,7 +216,7 @@ describe("BookingsBlockDatesModal — resident", () => {
         ]}
         residentOptions={RESIDENTS}
         onSave={async () => {}}
-        onDeleteBlock={async () => {}}
+        onDeleteBlock={() => {}}
       />
       </AppUiProvider>,
     );
@@ -225,7 +225,9 @@ describe("BookingsBlockDatesModal — resident", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Sep 20/i }), { key: "ArrowDown" });
     const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
     expect(menu.textContent).toContain("Edit");
-    expect(menu.textContent).toContain("Cancel booking");
+    // Nobody attached, so the hold list says what the removal does: a hard Delete, not a cancel.
+    expect(menu.textContent).toContain("Delete reservation");
+    expect(menu.textContent).not.toContain("Cancel booking");
     expect(menu.textContent).not.toContain("View");
     expect(menu.textContent).not.toContain("Blocked");
   });

@@ -287,23 +287,6 @@ export function bookingResidentHref(
   return residentDetailHref(basePath, tab, id, "overview");
 }
 
-/**
- * Why a booking cannot be deleted right now, or `null` when it can. No
- * existing rule covers this yet, so the fallback is the plain one the
- * captain asked for: a hold with a resident attached that is in-house TODAY
- * is an active tenancy, not a reservation to cancel — the manager moves the
- * resident out first.
- */
-export function bookingDeleteRefusalReason(
-  entry: Pick<PropertyBookingEntry, "residentName" | "start" | "end" | "openEnded">,
-  todayKey: string,
-): string | null {
-  if (!entry.residentName?.trim()) return null;
-  const inHouseToday = entry.openEnded ? entry.start <= todayKey : entry.start <= todayKey && entry.end >= todayKey;
-  if (!inHouseToday) return null;
-  return `${entry.residentName.trim()} is in-house today — move them out before removing this booking.`;
-}
-
 export function bookingSourceLabel(source: PropertyBookingEntry["source"], channelLabel?: string | null): string {
   switch (source) {
     case "ical":

@@ -25,7 +25,6 @@ import { bookingCancelLabel, canRemoveBooking } from "@/lib/channel-calendar/boo
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
-  bookingDeleteRefusalReason,
   bookingEntryKey,
   bookingOpenTarget,
   bookingSourceLabel,
@@ -58,7 +57,6 @@ export function BookingsDayPage({
   propertyOptions,
   residentOptions,
   onSaveBlock,
-  onRemoveBlock,
   onDeleteBlock,
   showToast,
   onClose,
@@ -71,7 +69,6 @@ export function BookingsDayPage({
   propertyOptions: ManagerPropertyFilterOption[];
   residentOptions: readonly BlockDatesResidentOption[];
   onSaveBlock: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
-  onRemoveBlock: (blockId: string) => Promise<boolean | void>;
   /**
    * The one removal decision, owned by the parent: a marked reservation goes to the Delete confirm,
    * a block held for a named person to the cancel dialog — the same router the list row and the
@@ -123,15 +120,6 @@ export function BookingsDayPage({
   const openEdit = (entry: PropertyBookingEntry) => {
     setEditingBlock(entry);
     setSheetOpen(true);
-  };
-
-  const requestRemoval = (entry: PropertyBookingEntry) => {
-    const refusal = bookingDeleteRefusalReason(entry, todayKey);
-    if (refusal) {
-      showToast(refusal);
-      return;
-    }
-    onDeleteBlock(entry);
   };
 
   const copyLink = async (entry: PropertyBookingEntry) => {
@@ -253,7 +241,7 @@ export function BookingsDayPage({
                         editDatesLabel={isBlock ? "Edit booking" : openTarget?.label}
                         onMessage={isAvailabilityBlock ? undefined : () => navigate(bookingRecordHref(basePath, key, "communication"))}
                         onCopyLink={() => void copyLink(entry)}
-                        onCancel={removable ? () => requestRemoval(entry) : undefined}
+                        onCancel={removable ? () => onDeleteBlock(entry) : undefined}
                         cancelLabel={bookingCancelLabel(entry)}
                       >
                         {row}
@@ -277,7 +265,7 @@ export function BookingsDayPage({
         entries={entries}
         residentOptions={residentOptions}
         onSave={onSaveBlock}
-        onDeleteBlock={onRemoveBlock}
+        onDeleteBlock={onDeleteBlock}
       />
     </>
   );
