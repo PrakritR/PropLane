@@ -7,10 +7,15 @@ deferral, and retry. This file owns the producer and consumer contract only — 
 event names, audiences and categories are read from the code, never copied here.
 
 **Which events exist** — `AUTOMATED_MESSAGE_CATALOG` in
-`src/lib/automated-messages-settings.ts` is the one enumeration of every
-`(domain, event)` with its audiences and settings area, and the read-only
-"What PropLane sends" list is built from it so it cannot drift
+`src/lib/automated-messages-settings.ts` is where every `(domain, event)` is
+enumerated with its audiences and settings area; the read-only "What PropLane
+sends" list and the default-copy preview (`automated-messages-defaults.server.ts`)
+are both built from it, so neither can drift from it
 ([`docs/agents/automated-communication.md`](agents/automated-communication.md)).
+The catalog gates no delivery — absent means "on, default copy" — so an event
+that emits without an entry still sends while appearing on no surface a manager
+can see. A new `(domain, event)` therefore belongs in the catalog in the same
+change that starts emitting it.
 `ACTION_EVENT_CATALOG` in `src/lib/domain-action-events.server.ts` is the typed
 subset that file's renderers cover (`payment`, `lease`, `application`,
 `service_request`, plus the `work_order` names). Emission itself is per-domain —

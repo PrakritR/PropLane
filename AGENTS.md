@@ -416,9 +416,11 @@ Serve route **never** answers `inline`. On native, intercept the click
 (`isNativeRuntimeSync()` only) and share the blob. Read the file name from
 `?path=`, never the URL's last segment. `.pdf` is a suffix test.
 
-# Emailed auth links are `token_hash`, never a PKCE `code`
+# Out-of-band auth links are `token_hash`, never a PKCE `code`
 
-Emailed links use `verifyOtp` (`/auth/confirm?token_hash=…`). Never
+Every link sent out of band — emailed, or texted (the guest short-stay sign-in
+link) — uses `verifyOtp` (`/auth/confirm?token_hash=…`): a PKCE `code` is bound to
+the browser that asked for it, and such a link is opened somewhere else. Never
 `supabase.auth.resetPasswordForEmail`. `/auth/confirm` derives destination from
 `type` alone. The reset route is not an account-existence oracle.
 `RESEND_API_KEY` is load-bearing.
