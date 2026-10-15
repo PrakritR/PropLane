@@ -219,6 +219,13 @@ describe("deliverPaymentReminder", () => {
       category: "payment_reminders",
       url: "/portal/payments",
       idempotencyKey: "payment_reminder_managed_test",
+      // Routine: teammates hear it from one PropLane line in the Team chat.
+      // The whole workspace reads that chat, so the line names the resident, never their email.
+      urgent: false,
+      teamNotice: {
+        messageId: "payment_reminder_managed_test:team",
+        text: "Payment · July rent · Oak House · Resident · reminder sent",
+      },
     });
   });
 

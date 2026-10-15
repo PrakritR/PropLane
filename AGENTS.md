@@ -416,9 +416,11 @@ Serve route **never** answers `inline`. On native, intercept the click
 (`isNativeRuntimeSync()` only) and share the blob. Read the file name from
 `?path=`, never the URL's last segment. `.pdf` is a suffix test.
 
-# Emailed auth links are `token_hash`, never a PKCE `code`
+# Out-of-band auth links are `token_hash`, never a PKCE `code`
 
-Emailed links use `verifyOtp` (`/auth/confirm?token_hash=…`). Never
+Every link sent out of band — emailed, or texted (the guest short-stay sign-in
+link) — uses `verifyOtp` (`/auth/confirm?token_hash=…`): a PKCE `code` is bound to
+the browser that asked for it, and such a link is opened somewhere else. Never
 `supabase.auth.resetPasswordForEmail`. `/auth/confirm` derives destination from
 `type` alone. The reset route is not an account-existence oracle.
 `RESEND_API_KEY` is load-bearing.
@@ -460,7 +462,7 @@ answer. Fail closed to `true`.
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
 | Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |
-| Communication | `docs/agents/communication-inbox.md` | One inbox; one conversation per person per workspace (conversation key, created only by `resolve_or_create_conversation`); authorize then append; `formatInboxStamp`; never `inline`; one Assistant per person per workspace and one human Team chat per workspace (`team-thread:<owner>:ws:<workspace>`, relayed by text, never an automated notice) |
+| Communication | `docs/agents/communication-inbox.md` | One inbox; one conversation per person per workspace (conversation key, created only by `resolve_or_create_conversation`); authorize then append; `formatInboxStamp`; never `inline`; one Assistant per person per workspace and one Team chat per workspace (`team-thread:<owner>:ws:<workspace>`, relayed by text): people type there, and PropLane adds ONE line per routine team notice (`buildTeamNoticeLine`, idempotent on `action-event:<key>:team`); a teammate's Assistant is noticed only when the event is urgent, the owner always is, and a notice never opens a per-teammate conversation |
 | Record pages | docs/agents/record-page.md | Residents standard; header icons per section; no footer or toolbar; picker on phone |
 | Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |
 | Plan entitlements | `docs/agents/plan-entitlements.md` | `resolveEffectiveManagerSkuTier` is the only plan a quota may read |
@@ -470,16 +472,18 @@ answer. Fail closed to `true`.
 | Inspections | `docs/agents/inspections.md` | Residency-scoped; a completed report is permanently locked |
 | Shared-room capacity | `docs/agents/shared-room-capacity.md` | One bed unless set; last bed is arbitrated in the database (409) |
 | Bookings surface | `docs/agents/bookings.md` | One `PropertyBookingEntry` shape for every source; residents are drawn from the occupancy snapshot and the slower applications/lease reads only enrich the same stay; five reads at a 12s cap and a failed one never blanks the calendar; status is derived from the dates |
+| Guest portal stays | `docs/agents/bookings.md` § Guest portal stays | One core writes every short-stay row (`createShortStayRows`); the public route and the guest route both call it, and a hold always expires (24h, `holdExpiresAt`); the guest is the session, never the body; a confirmed stay raises one `stay_total` charge, idempotent on the block id; Stays is open at every stage but drawn only for a login that owns a stay row |
 | Group applications | `docs/agents/group-applications.md` | Several independent apps + shared `AXISGRP-…` id; a group never blocks |
 | Rent basis | `docs/agents/rent-basis.md` | `rentBasis` alone; daily never wins unless the manager set it |
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
 | Marketing mocks | `docs/agents/marketing-mocks.md` | Depict a real screen; derive counts from the rows drawn |
 | Public blog | `docs/agents/blog.md` | A figure is quoted as its source states it, one source per claim; posts are prerendered and a stat tile always links its source |
+| AI search visibility | `docs/agents/ai-search-visibility.md` | `/llms.txt`, `/llms-full.txt`, robots' named AI crawlers, the sitemap's listing URLs and the pages' JSON-LD are all derived from the module that owns each fact (rate card, blog posts, `publicListingProjection`) — never a hand-typed copy; one hourly public-catalog read feeds both, and a listing fact absent from the blob is never published |
 | House printables | `docs/agents/house-printables.md` | The public page and both public printables render only `HOUSE_PUBLIC_SECTIONS`; a code or password never becomes a URL |
 | Listing wizard defaults | `docs/agents/listing-wizard-defaults.md` | A record follows the Default card per field; the card is saved on the submission, never resolved downstream; counts make the cards |
 | Property import | `docs/agents/portfolio-import.md` | The drafts are the import; the model answers only through the tool and cites rows; rent is what the tenant pays, never market rent |
 | Address prefill | `docs/agents/listing-prefill.md` | Facts from RentCast only; never fetch a listing page — ad text arrives by paste; default-only fill with marks and undo; nothing sets the rent |
-| Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice that reaches the owner and every teammate the role matrix names (`resolveWorkspaceNoticeRecipients`; text from the owner's work number, billed to the owner; email from the work email), never a Team chat line; cross-party copies send as the manager; nothing automates a regulated notice |
+| Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice for the owner; routine notices on the ACTION-EVENT bus reach the team as one PropLane line in the Team chat; a teammate's Assistant gets a notice only when the event is urgent; the owner always gets theirs; never a per-teammate conversation (a bus notice names a teammate through `resolveWorkspaceNoticeRecipients` only when urgent — an inbound forward still reads it for every event; text from the owner's work number, billed to the owner; email from the work email); a reminder-rule `team` row is still that teammate's own Assistant notice, scoped to their houses and modules; the Team line's text relay answers to the same grant and topic gates; cross-party copies send as the manager; nothing automates a regulated notice |
 | Listing syndication | `docs/agents/listing-syndication.md` | Official APIs and feeds only, never scraping or headless posting; every post is one builder over `publicListingProjection` facts plus the workspace work number and work email (no work number = nothing posts); a listing missing a street address or a real photo is held with a reason, never given a placeholder; Facebook Page/Instagram stay "Coming soon" until `META_APP_LIVE=1` |
 | Vendor services | `docs/agents/vendor-marketplaces.md` | Outside marketplaces are plain public links the manager opens, never scraped or API-called; every URL curl-verified; an account row is a label plus an https link, never a credential, and only the service-role route reads it |
 | Integrations page | `docs/agents/integrations.md` | One page (Messages · Bookings · Posting · Google), a new channel is a row on it; linking/unlinking/syncing a channel calendar needs Calendar at `edit`; the export feed URL is built on the canonical server origin (request origin only for localhost outside production); Facebook Marketplace stays Copy post only (the post now carries the work number and email), Facebook Page auto-post connects once per workspace in Posting and stays Coming soon until the Meta app is approved |

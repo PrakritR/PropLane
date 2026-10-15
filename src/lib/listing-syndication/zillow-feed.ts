@@ -9,11 +9,13 @@
  * listing; that would carry manager-internal fields (house rules, wifi,
  * lease configuration, opt-in state) past the allowlist a second way.
  *
- * A field the projection does not carry (the manager's structured `city` /
- * `state`, entered on the wizard's Basics step) is genuinely unavailable
- * here. `neighborhood` and a ZIP-prefix lookup are the public-safe stand-ins
- * — see {@link cityFromProperty} and {@link stateFromZip} — and are a known,
- * documented approximation, not a workaround for the allowlist.
+ * `<city>` / `<state>` are mapped from `neighborhood` and a ZIP-prefix lookup
+ * — see {@link cityFromProperty} and {@link stateFromZip} — and not from the
+ * projection's structured `city` / `state`, which it does carry. That is a
+ * deliberate feed choice, not a workaround for the allowlist; changing it
+ * changes what every opted-in listing publishes, so decide it in
+ * `docs/agents/listing-syndication.md` § The feed is a projection of the
+ * public payload first.
  */
 import type { MockProperty } from "@/data/types";
 import {
@@ -94,11 +96,10 @@ export function monthlyRentDollarsForSyndication(sub: ManagerListingSubmissionV1
 }
 
 /**
- * Standard USPS ZIP3 prefix ranges. `city`/`state` are structured wizard
- * fields excluded from the public projection (see module doc); a ZIP the
- * projection DOES carry is public knowledge and a defensible, deterministic
- * stand-in for the state Zillow's schema requires. Approximate at the very
- * small number of ZIP3 prefixes split across a state line.
+ * Standard USPS ZIP3 prefix ranges. The ZIP is public knowledge and a
+ * deterministic stand-in for the state Zillow's schema requires (see module
+ * doc for why this feed derives it). Approximate at the very small number of
+ * ZIP3 prefixes split across a state line.
  */
 const ZIP3_STATE_RANGES: readonly [number, number, string][] = [
   [5, 5, "NY"], [6, 9, "PR"], [10, 27, "MA"], [28, 29, "RI"], [30, 38, "NH"], [39, 49, "ME"],
@@ -123,7 +124,7 @@ export function stateFromZip(zip: string | undefined | null): string | null {
   return null;
 }
 
-/** Public-safe stand-in for a legal city: the wizard's structured `city` never reaches this feed. */
+/** This feed's stand-in for a legal city; it deliberately does not map the structured `city`. */
 function cityFromProperty(property: MockProperty): string {
   return property.neighborhood?.trim() || property.buildingName?.trim() || "";
 }

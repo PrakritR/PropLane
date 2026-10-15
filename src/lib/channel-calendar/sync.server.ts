@@ -6,9 +6,13 @@ import {
   ChannelCalendarInputError,
   channelCalendarProviderLabel,
   channelImportUrlErrorMessage,
+  icalLabelKey,
   isValidChannelImportUrl,
   normalizeChannelImportUrl,
+  normalizeIcalLabel,
 } from "@/lib/channel-calendar/airbnb-url";
+import { isPrivateOrInternalHostname } from "@/lib/channel-calendar/ical-host";
+import { fetchPinnedPublicHttps, NonPublicHostError } from "@/lib/sheet-sync/public-host.server";
 import {
   buildExportCalendarUrl,
   mergeChannelImportedRanges,
@@ -92,48 +96,97 @@ async function readCappedText(res: Response, maxBytes: number): Promise<string> 
   return text + decoder.decode();
 }
 
+/** "Other calendar" redirects may land on any https site, but never on a private or internal host. */
+function isSafeIcalRedirect(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && !url.username && !url.password && !isPrivateOrInternalHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** A calendar answers `text/calendar` or opens with BEGIN:VCALENDAR; HTML and JSON do neither. */
+export function looksLikeIcalResponse(contentType: string | null, body: string): boolean {
+  if ((contentType ?? "").toLowerCase().includes("text/calendar")) return body.includes("BEGIN:VCALENDAR");
+  return body.replace(/^\uFEFF/, "").trimStart().startsWith("BEGIN:VCALENDAR");
+}
+
 /**
  * Fetches a channel's iCal export. The stored URL passed `isValidChannelImportUrl`, but the provider
  * may answer with a redirect, and `redirect: "follow"` would carry the server to any host it names.
  * Redirects are followed by hand (at most three), and every `Location` must itself be a valid
  * HTTPS import URL for the same provider. The body is read as a stream and abandoned at 2 MB.
+ *
+ * "Other calendar" (`ical`) has no host allowlist, so it is fetched through the pinned public-host
+ * client instead: the name is resolved once, every address must be public, and the connection is
+ * made to exactly those addresses (no DNS rebinding). Each redirect hop is re-vetted the same way.
+ *
+ * `timeoutMs` is the budget for the WHOLE fetch, not per hop: every hop is given only what is left of
+ * it, so a slow host cannot hold a request for hop-count times the caller's deadline (the manager's
+ * check gives up at 8s and the validate route promises 6s).
  */
-export async function fetchChannelIcs(importUrl: string, provider: ChannelCalendarProvider): Promise<string> {
+export async function fetchChannelIcs(
+  importUrl: string,
+  provider: ChannelCalendarProvider,
+  opts: { label?: string | null; timeoutMs?: number } = {},
+): Promise<string> {
+  const timeoutMs = opts.timeoutMs ?? IMPORT_FETCH_TIMEOUT_MS;
+  const name = channelCalendarProviderLabel(provider, opts.label);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), IMPORT_FETCH_TIMEOUT_MS);
-  try {
-    let target = importUrl;
-    for (let hop = 0; ; hop++) {
-      const res = await fetch(target, {
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  const isIcal = provider === "ical";
+  const get = async (target: string): Promise<Response> => {
+    if (!isIcal) {
+      return fetch(target, {
         signal: controller.signal,
         headers: { Accept: "text/calendar, text/plain, */*" },
         redirect: "manual",
         cache: "no-store",
       });
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`Could not reach the ${name} calendar link.`);
+    try {
+      return await fetchPinnedPublicHttps(target, {
+        headers: { accept: "text/calendar, text/plain, */*" },
+        timeoutMs: remaining,
+        totalTimeoutMs: remaining,
+      });
+    } catch (e) {
+      if (e instanceof NonPublicHostError) throw new Error(`${name} calendar link points at a private or internal address.`);
+      throw new Error(`Could not reach the ${name} calendar link.`);
+    }
+  };
+  try {
+    let target = importUrl;
+    for (let hop = 0; ; hop++) {
+      const res = await get(target);
       if (res.status >= 300 && res.status < 400) {
         await res.body?.cancel().catch(() => undefined);
         const location = res.headers.get("location");
         if (!location || hop >= IMPORT_MAX_REDIRECTS) {
-          throw new Error(`${channelCalendarProviderLabel(provider)} calendar redirected too many times.`);
+          throw new Error(`${name} calendar redirected too many times.`);
         }
         let next: string;
         try {
           next = new URL(location, target).toString();
         } catch {
-          throw new Error(`${channelCalendarProviderLabel(provider)} calendar redirected to an invalid address.`);
+          throw new Error(`${name} calendar redirected to an invalid address.`);
         }
-        if (!isValidChannelImportUrl(provider, next)) {
-          throw new Error(`${channelCalendarProviderLabel(provider)} calendar redirected to an address outside its own calendar links.`);
+        if (isIcal ? !isSafeIcalRedirect(next) : !isValidChannelImportUrl(provider, next)) {
+          throw new Error(`${name} calendar redirected to an address outside its own calendar links.`);
         }
         target = next;
         continue;
       }
       if (!res.ok) {
         await res.body?.cancel().catch(() => undefined);
-        throw new Error(`${channelCalendarProviderLabel(provider)} calendar returned ${res.status}.`);
+        throw new Error(`${name} calendar returned ${res.status}.`);
       }
       const text = await readCappedText(res, IMPORT_MAX_BYTES);
-      if (!text.includes("BEGIN:VCALENDAR")) {
+      if (isIcal ? !looksLikeIcalResponse(res.headers.get("content-type"), text) : !text.includes("BEGIN:VCALENDAR")) {
         throw new Error("Response was not a valid calendar file.");
       }
       return text;
@@ -198,6 +251,33 @@ export async function listChannelCalendarConnections(
   return (data ?? []).map((row) => toPublicConnection(parseConnectionRow(row as Record<string, unknown>), browserOrigin));
 }
 
+type ConnectionKey = {
+  propertyId: string;
+  roomId: string;
+  provider: ChannelCalendarProvider;
+  /** Only an "Other calendar" key carries one: the site name is part of its identity. */
+  label?: string | null;
+};
+
+/**
+ * One room holds one connection per (channel), except "Other calendar", which holds one per site
+ * name (Houfy and Furnished Finder on the same room). The match is by hand rather than PostgREST's
+ * `onConflict`: the ical uniqueness is an expression index (`lower(coalesce(label,''))`), which an
+ * upsert cannot target.
+ */
+async function findConnectionRow(db: SupabaseClient, key: ConnectionKey): Promise<Record<string, unknown> | null> {
+  const { data } = await db
+    .from("external_calendar_connections")
+    .select("*")
+    .eq("property_id", key.propertyId)
+    .eq("room_id", key.roomId)
+    .eq("provider", key.provider);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (key.provider !== "ical") return rows[0] ?? null;
+  const want = icalLabelKey(key.label);
+  return rows.find((row) => icalLabelKey(row.label) === want) ?? null;
+}
+
 export async function upsertChannelCalendarConnection(
   db: SupabaseClient,
   input: {
@@ -211,6 +291,11 @@ export async function upsertChannelCalendarConnection(
   browserOrigin?: string,
 ) {
   const provider = input.provider ?? "airbnb";
+  // An "Other calendar" link IS the site it names: no name, no link.
+  const label = provider === "ical" ? normalizeIcalLabel(input.label) : input.label?.trim() || "";
+  if (provider === "ical" && !label) {
+    throw new ChannelCalendarInputError("Name the site this calendar is for, such as Houfy.", "label");
+  }
   const importUrlProvided = Object.prototype.hasOwnProperty.call(input, "importUrl");
   let importUrl: string | null | undefined = undefined;
   if (importUrlProvided) {
@@ -226,14 +311,16 @@ export async function upsertChannelCalendarConnection(
     throw new Error("Property not found.");
   }
 
-  const exportToken = await resolveRoomExportToken(db, input.propertyId, input.roomId, provider);
+  const key: ConnectionKey = { propertyId: input.propertyId, roomId: input.roomId, provider, label };
+  const existing = await findConnectionRow(db, key);
+  const exportToken = existing?.export_token ? String(existing.export_token) : mintChannelCalendarExportToken();
   const now = new Date().toISOString();
   const unlinking = importUrlProvided && importUrl === null;
   // Read the stays this feed had imported BEFORE the row is rewritten: unlinking
   // has to take their listing blocks and placeholder residents with them.
-  const priorImportUrl = importUrlProvided ? await loadConnectionImportUrl(db, input.propertyId, input.roomId, provider) : null;
-  const priorRanges = unlinking
-    ? await loadConnectionImportedRanges(db, input.propertyId, input.roomId, provider)
+  const priorImportUrl = importUrlProvided && typeof existing?.import_url === "string" && existing.import_url.trim() ? existing.import_url.trim() : null;
+  const priorRanges = unlinking && Array.isArray(existing?.imported_ranges)
+    ? (existing.imported_ranges as ChannelCalendarImportedRange[])
     : [];
 
   const payload = {
@@ -241,7 +328,7 @@ export async function upsertChannelCalendarConnection(
     property_id: input.propertyId,
     room_id: input.roomId,
     provider,
-    label: input.label?.trim() || null,
+    label: label || null,
     ...(importUrlProvided ? { import_url: importUrl } : {}),
     // Unlinking leaves nothing to re-sync, so the stays this feed imported go with the link —
     // otherwise they keep drawing on the calendar and blocking beds with no source to refresh them.
@@ -250,11 +337,16 @@ export async function upsertChannelCalendarConnection(
     updated_at: now,
   };
 
-  const { data, error } = await db
-    .from("external_calendar_connections")
-    .upsert(payload, { onConflict: "property_id,room_id,provider" })
-    .select("*")
-    .single();
+  const write = (id: string | null) =>
+    id
+      ? db.from("external_calendar_connections").update(payload).eq("id", id).select("*").single()
+      : db.from("external_calendar_connections").insert(payload).select("*").single();
+  let { data, error } = await write(existing ? String(existing.id) : null);
+  if (error && !existing && (error as { code?: string }).code === "23505") {
+    // A concurrent save made the same link first; fold into it instead of failing the second click.
+    const raced = await findConnectionRow(db, key);
+    if (raced) ({ data, error } = await write(String(raced.id)));
+  }
   if (error) throw new Error(error.message);
   const saved = parseConnectionRow(data as Record<string, unknown>);
   // The row is already rewritten, so releasing what the old feed imported comes first: its stays,
@@ -283,41 +375,6 @@ export async function upsertChannelCalendarConnection(
     }
   }
   return toPublicConnection(saved, browserOrigin);
-}
-
-async function loadConnectionImportUrl(
-  db: SupabaseClient,
-  propertyId: string,
-  roomId: string,
-  provider: ChannelCalendarProvider,
-): Promise<string | null> {
-  const { data } = await db
-    .from("external_calendar_connections")
-    .select("import_url")
-    .eq("property_id", propertyId)
-    .eq("room_id", roomId)
-    .eq("provider", provider)
-    .maybeSingle();
-  const url = (data as { import_url?: unknown } | null)?.import_url;
-  return typeof url === "string" && url.trim() ? url.trim() : null;
-}
-
-/** The ranges a connection currently holds, read by its natural key (the row may not exist yet). */
-async function loadConnectionImportedRanges(
-  db: SupabaseClient,
-  propertyId: string,
-  roomId: string,
-  provider: ChannelCalendarProvider,
-): Promise<ChannelCalendarImportedRange[]> {
-  const { data } = await db
-    .from("external_calendar_connections")
-    .select("imported_ranges")
-    .eq("property_id", propertyId)
-    .eq("room_id", roomId)
-    .eq("provider", provider)
-    .maybeSingle();
-  const ranges = (data as { imported_ranges?: unknown } | null)?.imported_ranges;
-  return Array.isArray(ranges) ? (ranges as ChannelCalendarImportedRange[]) : [];
 }
 
 /**
@@ -469,15 +526,15 @@ export async function syncChannelCalendarConnection(
   const connection = parseConnectionRow(row as Record<string, unknown>);
   const importUrl = connection.import_url?.trim();
   if (!importUrl) {
-    throw new Error(`Add a ${channelCalendarProviderLabel(connection.provider)} import URL before syncing.`);
+    throw new Error(`Add a ${channelCalendarProviderLabel(connection.provider, connection.label)} import URL before syncing.`);
   }
   if (!isValidChannelImportUrl(connection.provider, importUrl)) {
-    throw new Error(`Stored import URL is not a valid ${channelCalendarProviderLabel(connection.provider)} calendar link.`);
+    throw new Error(`Stored import URL is not a valid ${channelCalendarProviderLabel(connection.provider, connection.label)} calendar link.`);
   }
 
   const now = new Date().toISOString();
   try {
-    const icsText = await fetchChannelIcs(importUrl, connection.provider);
+    const icsText = await fetchChannelIcs(importUrl, connection.provider, { label: connection.label });
     // C2-AB7: a stay the manager removed is not stored again, so neither Bookings
     // nor the public room calendar nor the occupancy snapshot ever see it back.
     const tombstoneKeys = await loadChannelStayTombstoneKeys(db, [connection.property_id]);
@@ -569,6 +626,7 @@ export async function syncChannelCalendarConnection(
         propertyId: connection.property_id,
         roomId: connection.room_id,
         provider: connection.provider,
+        channelLabel: connection.provider === "ical" ? connection.label : null,
         propertyLabel: record.property.buildingName?.trim() || record.property.title?.trim() || undefined,
         roomLabel: room?.name?.trim() || connection.label?.trim() || undefined,
       };
@@ -593,26 +651,6 @@ export async function syncChannelCalendarConnection(
   }
 }
 
-async function resolveRoomExportToken(
-  db: SupabaseClient,
-  propertyId: string,
-  roomId: string,
-  provider: ChannelCalendarProvider,
-): Promise<string> {
-  const { data: sameProvider } = await db
-    .from("external_calendar_connections")
-    .select("export_token")
-    .eq("property_id", propertyId)
-    .eq("room_id", roomId)
-    .eq("provider", provider)
-    .maybeSingle();
-  if (sameProvider?.export_token) return String(sameProvider.export_token);
-
-  // A link belongs to one (room, channel): the channel is the site it is pasted into, and the feed
-  // leaves that channel's own bookings out. Sharing a sibling's token would make that impossible.
-  return mintChannelCalendarExportToken();
-}
-
 /**
  * One PropLane export link per (room, channel) - reuses the existing token when present.
  * `destination` is the site the link is pasted into. "other" (any site without a channel of its own) has no channel of
@@ -632,14 +670,20 @@ export async function ensureRoomExportCalendarUrl(
   const destination = input.destination ?? "airbnb";
   const provider: ChannelCalendarProvider = destination === "other" ? "airbnb" : destination;
   const suffix = destination === "other" ? "?channels=all" : "";
-  let query = db
-    .from("external_calendar_connections")
-    .select("export_token")
-    .eq("property_id", input.propertyId)
-    .eq("room_id", input.roomId);
-  if (destination !== "other") query = query.eq("provider", provider);
-  const { data: existing } = await query.limit(1);
-  const token = existing?.[0]?.export_token;
+  let token: unknown;
+  if (provider === "ical" && destination !== "other") {
+    // One link per site name: Houfy's feed is not Furnished Finder's.
+    token = (await findConnectionRow(db, { propertyId: input.propertyId, roomId: input.roomId, provider, label: input.label }))?.export_token;
+  } else {
+    let query = db
+      .from("external_calendar_connections")
+      .select("export_token")
+      .eq("property_id", input.propertyId)
+      .eq("room_id", input.roomId);
+    if (destination !== "other") query = query.eq("provider", provider);
+    const { data: existing } = await query.limit(1);
+    token = existing?.[0]?.export_token;
+  }
   if (token) return `${buildExportCalendarUrl(String(token), browserOrigin)}${suffix}`;
 
   const record = await loadPropertyRecord(db, input.propertyId);

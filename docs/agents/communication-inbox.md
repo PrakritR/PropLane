@@ -573,8 +573,15 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   (`src/lib/team-comms.server.ts`, pure id helpers in `team-thread-id.ts`),
   named "Team · <workspace name>". Members are the owner plus every accepted
   non-property-owner teammate of THAT workspace, regardless of house (a
-  Viewer reads, never posts). Automated notices are never posted here; they go
-  to each person's Assistant ([`automated-communication.md`](automated-communication.md)).
+  Viewer reads, never posts). People type here; PropLane adds one line per
+  routine team notice, as "PropLane" (`actorName`), idempotent on
+  `action-event:<eventKey>:team`. A typed line is relayed by text per each
+  member's team-texting setting; a PropLane line also answers to the member's
+  per-house / per-module notification grant and topic switch before it is
+  texted. Which events post a line, its format, and when a teammate is noticed
+  directly instead are owned by
+  [`automated-communication.md`](automated-communication.md); coverage
+  `tests/unit/team-chat-notices.test.ts`.
   Each line carries `actorUserId`, `from` (the poster's name) and `channel`
   (`proplane` = typed in the app, `sms` = texted to the work number, shown as the
   "via Text" line); the thread opens with a neutral system line (`TEAM_ROOT_TEXT`),

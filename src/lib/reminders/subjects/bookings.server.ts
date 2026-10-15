@@ -134,7 +134,13 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
       // A host's own block closes dates; no guest checks in or out of it.
       if (isHostBlockRange({ hostBlock: range.hostBlock === true ? true : undefined, summary: String(range.summary ?? "") })) continue;
       const end = String(range.end ?? "").trim() || null;
-      const provider = str(row, "provider") === "booking_com" ? "booking_com" : str(row, "provider") === "vrbo" ? "vrbo" : "airbnb";
+      const rawProvider = str(row, "provider");
+      const provider = rawProvider === "booking_com" || rawProvider === "vrbo" || rawProvider === "ical" ? rawProvider : "airbnb";
+      // On an `ical` connection `label` is the SITE's name ("Houfy"), not a room's: it names the
+      // channel in the guest line and never the place. `loadPlaceNames` resolves the house and room
+      // from the listing submission; the fallback is the property id, as a room block's already is.
+      const channelLabel = provider === "ical" ? str(row, "label") : null;
+      const placeLabel = provider === "ical" ? null : str(row, "label");
       const code = String(range.reservationCode ?? "").trim();
       stays.push({
         managerUserId,
@@ -144,11 +150,11 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
         checkInKey: start,
         // The stored range ends on its LAST night; the guest leaves the day after.
         checkOutKey: end ? addDay(end) : null,
-        guestName: bookingGuestLabel(String(range.summary ?? ""), provider),
+        guestName: bookingGuestLabel(String(range.summary ?? ""), provider, channelLabel),
         propertyId: str(row, "property_id"),
-        propertyLabel: str(row, "label") ?? str(row, "property_id") ?? "your listing",
+        propertyLabel: placeLabel ?? str(row, "property_id") ?? "your listing",
         roomId: str(row, "room_id") ?? undefined,
-        roomLabel: str(row, "label") ?? undefined,
+        roomLabel: placeLabel ?? undefined,
         ...(code ? { reservationCode: code } : {}),
         recordKey: channelStayBookingKey({
           provider,

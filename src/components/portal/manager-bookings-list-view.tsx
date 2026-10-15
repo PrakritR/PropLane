@@ -42,7 +42,9 @@ export function bookingRowSourceLabel(source: PropertyBookingEntry["source"]): s
  * already its source fact. No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
-  return bookingStatusLabel(entry);
+  // The record page says "Blocked" for a live block; the row's source fact already says "Block", so it keeps its "Hold".
+  const label = bookingStatusLabel(entry);
+  return label === "Blocked" ? "Hold" : label;
 }
 
 /**
@@ -133,9 +135,9 @@ export function ManagerBookingsListView({
                   <>
                     <PortalRowFact icon={CalendarDays} srLabel="Dates">{bookingDatesLabel(entry, true)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
-                    {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.stayDetails.earlyCheckIn || entry.stayDetails.lateCheckOut) ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
+                    {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.stayDetails.earlyCheckIn || entry.stayDetails.lateCheckOut) ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source, entry.channelLabel), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
                     {entry.phoneLast4 ? <PortalRowFact icon={Phone} srLabel="Phone">{`Phone ending ${entry.phoneLast4}`}</PortalRowFact> : null}
-                    {isChannelBookingSource(entry.source) ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
+                    {isChannelBookingSource(entry.source) ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source, entry.channelLabel)}</PortalRowFact> : null}
                   </>
                 }
                 checked={selectedKeys.has(key)}

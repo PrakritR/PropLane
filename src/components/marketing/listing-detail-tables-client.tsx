@@ -29,13 +29,14 @@ import {
 import { useProspectListingHrefs } from "@/hooks/use-prospect-listing-hrefs";
 import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-cta-labels";
 import { getRoomUnavailabilityWindows, LISTING_ROOM_CHOICE_SEP, type RoomUnavailabilityWindow } from "@/lib/rental-application/data";
-import { roomAvailabilityPillClasses, roomAvailabilityTone } from "@/lib/room-availability-style";
+import { roomAvailabilityPillClasses, roomAvailabilityTone, type RoomAvailabilityTone } from "@/lib/room-availability-style";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
 import { ColumnHelp } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-room-display";
 import { normalizeRoomOccupancyCapacity, type OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
-import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
+import { findPublicRoomOccupancy, roomAvailabilityDisplay } from "@/lib/public-listing-available-count";
+import { pacificTodayKey } from "@/lib/room-availability-range";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
 import { useShortStay } from "@/components/marketing/short-stay-booking";
 import { ListingSharedRoomBeds } from "@/components/marketing/listing-shared-room-beds";
@@ -54,9 +55,17 @@ const LISTING_FLOOR_CARD =
 const LISTING_DETAIL_BUTTON =
   "listing-detail-control inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35 hover:text-primary sm:min-h-0";
 
-function AvailabilityPill({ text, variant = "default" }: { text: string; variant?: "default" | "room" }) {
+function AvailabilityPill({
+  text,
+  variant = "default",
+  tone: toneOverride,
+}: {
+  text: string;
+  variant?: "default" | "room";
+  tone?: RoomAvailabilityTone;
+}) {
   if (variant === "room") {
-    const tone = roomAvailabilityTone(text);
+    const tone = toneOverride ?? roomAvailabilityTone(text);
     const { wrap, dot } = roomAvailabilityPillClasses(tone);
     return (
       <span
@@ -83,15 +92,36 @@ function AvailabilityPill({ text, variant = "default" }: { text: string; variant
 
 
 /**
+ * Occupancy is still loading: a quiet skeleton, never the stale static "Available now". The bar is
+ * decoration, so the fact a sighted reader is waiting on is spoken instead of leaving the cell
+ * empty, and the pulse stops under reduced motion.
+ */
+function RoomAvailabilityLoading({ className = "h-3 w-20" }: { className?: string }) {
+  return (
+    <span className="block" data-attr="listing-room-availability-loading">
+      <span className="sr-only">Checking availability</span>
+      <span className={`block animate-pulse rounded bg-accent/40 motion-reduce:animate-none ${className}`} aria-hidden />
+    </span>
+  );
+}
+
+/**
  * A rooms-table availability cell: a dot and plain text on one line — never a pill (rows carry
  * facts, not badges). A dated tail ("until August 30, 2027") drops to a muted second line so the
  * cell stays narrow enough to leave the Details button on screen.
+ *
+ * The tail is matched by its PREPOSITION or by its own date shape, never the preposition alone:
+ * `formatRoomAvailability` deliberately drops "from" for an opening more than six months out
+ * ("Available Oct 2027" reads better than "Available from Oct 2027"), which left that wording with
+ * no keyword to break on — it stayed one line and the 16%-wide column truncated it to
+ * "Available O…", so a renter could not read the month without hovering for the title tooltip.
  */
-function RoomAvailabilityCell({ text }: { text: string }) {
-  const tone = roomAvailabilityTone(text);
+function RoomAvailabilityCell({ display }: { display: { text: string; tone: RoomAvailabilityTone } | null }) {
+  if (!display) return <RoomAvailabilityLoading />;
+  const { text, tone } = display;
   const { dot } = roomAvailabilityPillClasses(tone);
   const trimmed = text.trim();
-  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\))$/i.exec(trimmed);
+  const match = /^(.*?)\s+((?:until|from|on|starting|through|by)\s+.+|\(.+\)|[A-Za-z]{3,9}\s+\d{1,4}(?:,\s*\d{4})?)$/i.exec(trimmed);
   const head = match ? match[1] : trimmed;
   const tail = match ? match[2] : null;
   return (
@@ -492,7 +522,7 @@ export function ListingDetailModal({
   const messageLabel = listingMessageLabel(textEnabled);
   const stageWebMessageCompose = textEnabled ? undefined : stageMessageCompose;
   const messageCtaExtras = { onClick: stageWebMessageCompose };
-  const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
+  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(listingPropertyId);
   const roomApplyHref = (roomId: string) =>
     buildRentalApplyHref({ propertyId: listingPropertyId, listingRoomId: roomId });
 
@@ -552,6 +582,12 @@ export function ListingDetailModal({
               const occ = findPublicRoomOccupancy(occupancyRows, listingPropertyId, state.room.id);
               const openBeds = publicRoomOpenBedCount(capacity, occ?.spans ?? []);
               const bedSlots = publicBedSlotsForRoom(state.room, openBeds);
+              const statusDisplay = roomAvailabilityDisplay(
+                state.room,
+                { rows: occupancyRows, loading: occupancyLoading, failed: occupancyFailed },
+                pacificTodayKey(),
+                listingPropertyId,
+              );
               return (
                 <>
                   <ListingModalHeader title={state.room.name} />
@@ -635,7 +671,11 @@ export function ListingDetailModal({
                       {
                         key: "status",
                         label: "Status",
-                        value: <AvailabilityPill text={state.room.availability} variant="room" />,
+                        value: statusDisplay ? (
+                          <AvailabilityPill text={statusDisplay.text} variant="room" tone={statusDisplay.tone} />
+                        ) : (
+                          <RoomAvailabilityLoading />
+                        ),
                       },
                       ...(state.room.modal.roomNotes?.trim()
                         ? [
@@ -1383,7 +1423,13 @@ export function SpacesInteractive({
   const [modal, setModal] = useState<ModalState>(null);
   type RoomFilter = "all" | "private" | "shared";
   const [roomFilter, setRoomFilter] = useState<RoomFilter>("all");
-  const { rooms: occupancyRows } = useListingPublicOccupancy(listingPropertyId);
+  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(listingPropertyId);
+  const todayKey = pacificTodayKey();
+  const availabilityFor = useCallback(
+    (room: ListingRoomRow) =>
+      roomAvailabilityDisplay(room, { rows: occupancyRows, loading: occupancyLoading, failed: occupancyFailed }, todayKey, listingPropertyId),
+    [occupancyRows, occupancyLoading, occupancyFailed, todayKey, listingPropertyId],
+  );
   // Short-stay dates picked on the price card narrow this list: rooms free for the nights can be picked,
   // the rest stay in place, dimmed, saying when they free up.
   const stay = useShortStay();
@@ -1507,7 +1553,7 @@ export function SpacesInteractive({
                     <td className={`${SPACE_TD} ${SPACE_TD_CLIP} text-muted`} title={floorLabel}>{floorLabel}</td>
                     <td className={`${SPACE_TD} ${SPACE_TD_CLIP} text-muted`} title={roomBathLabel(room)}>{roomBathLabel(room)}</td>
                     <td className={`${SPACE_TD} overflow-hidden`}>
-                      <RoomAvailabilityCell text={room.availability} />
+                      <RoomAvailabilityCell display={availabilityFor(room)} />
                     </td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-right ${LISTING_TABLE_MONEY}`}>
                       {capacity >= 2
@@ -1535,6 +1581,7 @@ export function SpacesInteractive({
           <div className={SPACE_ROWS_MOBILE}>
             {filteredRooms.map(({ room, floorLabel }) => {
               const verdict = stayVerdict(room.id);
+              const availability = availabilityFor(room);
               return (
               <button
                 key={room.id}
@@ -1559,9 +1606,13 @@ export function SpacesInteractive({
                 </span>
                 <span className="shrink-0 text-right">
                   <span className={`block text-sm ${LISTING_TABLE_MONEY}`}>{roomRentCell(room)}</span>
-                  <span className={`block text-[11px] font-semibold ${roomAvailabilityTextClasses(roomAvailabilityTone(room.availability))}`}>
-                    {room.availability}
-                  </span>
+                  {availability ? (
+                    <span className={`block text-[11px] font-semibold ${roomAvailabilityTextClasses(availability.tone)}`}>
+                      {availability.text}
+                    </span>
+                  ) : (
+                    <RoomAvailabilityLoading className="ml-auto h-2.5 w-16" />
+                  )}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
               </button>

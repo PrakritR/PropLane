@@ -24,8 +24,8 @@ describe("Bookings empty calendar", () => {
     expect(reload).toContain("return;");
   });
 
-  it("ranks Booking.com and Vrbo imports with other channel stays on the year grid", () => {
+  it("ranks Booking.com, Vrbo and Other calendar imports with other channel stays on the year grid", () => {
     const calendar = src("src/components/portal/pro-portfolio-bookings-calendar.tsx");
-    expect(calendar).toContain('["proplane", "airbnb", "booking_com", "vrbo", "hold", "block"]');
+    expect(calendar).toContain('["proplane", "airbnb", "booking_com", "vrbo", "ical", "hold", "block"]');
   });
 });

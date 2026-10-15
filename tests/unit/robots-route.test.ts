@@ -34,10 +34,10 @@ describe("robots route", () => {
     headersMock.mockResolvedValue(new Headers({ host: "proplane.ai" }));
     const robots = (await import("@/app/robots")).default;
     const body = await robots();
-    expect(body.rules).toMatchObject({
+    expect((body.rules as unknown[])[0]).toMatchObject({
       userAgent: "*",
       allow: "/",
-      disallow: ["/portal/", "/resident/", "/vendor/", "/admin/", "/api/", "/auth/"],
+      disallow: ["/portal/", "/resident/", "/vendor/", "/admin/", "/api/", "/auth/", "/invite/", "/mcp/"],
     });
     expect(body.sitemap).toBe("https://proplane.ai/sitemap.xml");
     expect(body.host).toBe("https://proplane.ai");
@@ -52,6 +52,6 @@ describe("robots route", () => {
     const robots = (await import("@/app/robots")).default;
     const body = await robots();
     expect(body.host).toBe("https://proplane.ai");
-    expect(body.rules).toMatchObject({ allow: "/" });
+    expect((body.rules as unknown[])[0]).toMatchObject({ allow: "/" });
   });
 });

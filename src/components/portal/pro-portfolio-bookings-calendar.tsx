@@ -126,7 +126,7 @@ function dominantSourceForDay(
   dayBookings: PropertyBookingEntry[],
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
-  for (const source of ["proplane", "airbnb", "booking_com", "vrbo", "hold", "block"] as const) {
+  for (const source of ["proplane", "airbnb", "booking_com", "vrbo", "ical", "hold", "block"] as const) {
     if (dayBookings.some((b) => bookingVisualSource(b) === source)) return source;
   }
   return null;
@@ -309,6 +309,10 @@ export function ManagerPortfolioBookingsCalendar({
   onDayClick,
   onAddBooking,
   onEditBooking,
+  onUnblockBooking,
+  onDeleteBlock,
+  onUnblockChannelStay,
+  canRemoveBooking,
   onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
@@ -328,6 +332,10 @@ export function ManagerPortfolioBookingsCalendar({
   onDayClick?: (dayKey: string) => void;
   onAddBooking?: () => void;
   onEditBooking?: (entry: PropertyBookingEntry) => void;
+  onUnblockBooking?: (entry: PropertyBookingEntry) => void;
+  onDeleteBlock?: (entry: PropertyBookingEntry) => void;
+  onUnblockChannelStay?: (entry: PropertyBookingEntry) => void;
+  canRemoveBooking?: (entry: PropertyBookingEntry) => boolean;
   /** An empty room-day was clicked: open Mark reserved for that room and night. */
   onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
@@ -349,6 +357,10 @@ export function ManagerPortfolioBookingsCalendar({
       onDayClick={onDayClick}
       onAddBooking={onAddBooking}
       onEditBooking={onEditBooking}
+      onUnblockBooking={onUnblockBooking}
+      onDeleteBlock={onDeleteBlock}
+      onUnblockChannelStay={onUnblockChannelStay}
+      canRemoveBooking={canRemoveBooking}
       onReserveRoomDay={onReserveRoomDay}
       preferenceKey={preferenceKey}
       selectedDayKey={selectedDayKey}
@@ -370,6 +382,10 @@ export function ManagerBookingsHub({
   onDayClick,
   onAddBooking,
   onEditBooking,
+  onUnblockBooking,
+  onDeleteBlock,
+  onUnblockChannelStay,
+  canRemoveBooking,
   onReserveRoomDay,
   preferenceKey,
   selectedDayKey,
@@ -390,6 +406,10 @@ export function ManagerBookingsHub({
   onDayClick?: (dayKey: string) => void;
   onAddBooking?: () => void;
   onEditBooking?: (entry: PropertyBookingEntry) => void;
+  onUnblockBooking?: (entry: PropertyBookingEntry) => void;
+  onDeleteBlock?: (entry: PropertyBookingEntry) => void;
+  onUnblockChannelStay?: (entry: PropertyBookingEntry) => void;
+  canRemoveBooking?: (entry: PropertyBookingEntry) => boolean;
   /** An empty room-day was clicked: open Mark reserved for that room and night. */
   onReserveRoomDay?: (target: { propertyId: string; roomId: string; dayKey: string }) => void;
   preferenceKey?: string;
@@ -537,6 +557,10 @@ export function ManagerBookingsHub({
                   onOpenDay={openDay}
                   onAddBooking={onAddBooking}
                   onEditBooking={onEditBooking}
+                  onUnblockBooking={onUnblockBooking}
+                  onDeleteBlock={onDeleteBlock}
+                  onUnblockChannelStay={onUnblockChannelStay}
+                  canRemoveBooking={canRemoveBooking}
                   onReserveRoomDay={onReserveRoomDay}
                   preferenceKey={preferenceKey}
                   roomFilterId={roomFilterId}

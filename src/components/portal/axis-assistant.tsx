@@ -13,6 +13,8 @@ import {
 } from "react";
 
 import { ModalShell } from "@/components/ui/modal";
+import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
+import { useSheetDrag } from "@/components/ui/use-sheet-drag";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { MANAGER_ASSISTANT_ENDPOINT } from "@/components/portal/assistant-panel-chrome";
@@ -37,6 +39,33 @@ import {
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 
 const AxisAssistantPresenceContext = createContext(false);
+
+/**
+ * The phone sheet's drag grip: a centred pill over the sheet's top edge. Dragging it moves the
+ * whole sheet 1:1 and a release dismisses or settles by velocity (the same gesture as every
+ * other phone sheet, `useSheetDrag`). It is centred and narrow so the header's own buttons
+ * on either side stay tappable.
+ */
+function AssistantSheetGrip({ onDismiss }: { onDismiss: () => void }) {
+  const gripRef = useRef<HTMLDivElement | null>(null);
+  const reducedMotion = useReducedMotion();
+  const drag = useSheetDrag({
+    getPanel: useCallback(() => gripRef.current?.closest<HTMLElement>(".axis-assistant-sheet") ?? null, []),
+    onDismiss,
+    reducedMotion,
+  });
+  return (
+    <div
+      ref={gripRef}
+      {...drag}
+      data-attr="assistant-sheet-grip"
+      aria-hidden
+      className="absolute left-1/2 top-0 z-10 flex h-5 w-24 -translate-x-1/2 touch-none select-none items-start justify-center pt-1.5"
+    >
+      <span className="block h-1 w-10 rounded-full bg-border" />
+    </div>
+  );
+}
 
 type SmsTestCapabilityPayload = {
   targets: Array<{
@@ -119,10 +148,11 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
       hideOverlay
       stackClassName="axis-assistant-root fixed inset-0 z-[65]"
       centerClassName="contents"
-      panelClassName="axis-assistant-sheet fixed inset-x-0 top-0 z-[66] flex flex-col overflow-hidden overscroll-contain bg-background outline-none"
+      panelClassName="axis-assistant-sheet fixed inset-x-0 top-0 z-[66] flex flex-col overflow-hidden overscroll-contain bg-background outline-none motion-exit-bottom"
       panelStyle={{ bottom: keyboardInset > 0 ? `${keyboardInset}px` : 0 }}
       ariaLabel="PropLane Assistant"
     >
+      <AssistantSheetGrip onDismiss={closeSheet} />
       <AssistantDockPanel
         managerName={managerName}
         endpoint={endpoint}

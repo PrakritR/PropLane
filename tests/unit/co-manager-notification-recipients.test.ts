@@ -150,17 +150,35 @@ describe("notifyPropertyScopedManagersFromAgent — fans out by role", () => {
       account_link_invites: [invite("pm", "property_manager"), invite("book", "bookkeeper"), invite("away", "viewer", { assigned_property_ids: ["prop-z"] })],
     });
 
-  it("a house-less event now reaches property managers, not just the owner", async () => {
+  it("urgent: a house-less event reaches property managers, not just the owner", async () => {
     notifyManager.mockClear();
     await notifyPropertyScopedManagersFromAgent(db() as never, {
-      ownerManagerUserId: "owner", module: "inbox", subject: "s", text: "t", idempotencyKey: "k1",
+      ownerManagerUserId: "owner", module: "inbox", subject: "s", text: "t", idempotencyKey: "k1", urgent: true,
     });
     expect(notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort()).toEqual(["away", "owner", "pm"]); // a viewer on another house still hears a no-house event
   });
-  it("a payments event reaches the bookkeeper too, and a teammate off the house hears nothing", async () => {
+  it("urgent: a payments event reaches the bookkeeper too, and a teammate off the house hears nothing", async () => {
     notifyManager.mockClear();
     await notifyPropertyScopedManagersFromAgent(db() as never, {
-      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k2",
+      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k2", urgent: true,
+    });
+    const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort();
+    expect(landlords).toEqual(["book", "owner", "pm"]);
+  });
+  it("routine with a team line: only the owner's Assistant is noticed; teammates hear it from the Team chat line", async () => {
+    notifyManager.mockClear();
+    await notifyPropertyScopedManagersFromAgent(db() as never, {
+      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k3",
+      teamNotice: { text: "Payment · x · paid", messageId: "action-event:k3:team" },
+    });
+    const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId);
+    expect(landlords).toEqual(["owner"]);
+  });
+  it("urgent with a team line: every teammate with the house is still noticed directly", async () => {
+    notifyManager.mockClear();
+    await notifyPropertyScopedManagersFromAgent(db() as never, {
+      ownerManagerUserId: "owner", propertyId: "prop-a", module: "payments", subject: "s", text: "t", idempotencyKey: "k4",
+      urgent: true, teamNotice: { text: "Emergency · Payment · x · paid", messageId: "action-event:k4:team" },
     });
     const landlords = notifyManager.mock.calls.map((c) => (c as unknown as [unknown, { landlordId: string }])[1].landlordId).sort();
     expect(landlords).toEqual(["book", "owner", "pm"]);

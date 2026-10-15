@@ -10,8 +10,9 @@ import { cleanup, render } from "@testing-library/react";
 import { SpacesInteractive } from "@/components/marketing/listing-detail-tables-client";
 import type { ListingFloorCard, ListingRoomRow } from "@/data/listing-rich-content";
 
+const occupancy = vi.hoisted(() => ({ current: { rooms: [] } as { rooms: unknown[]; loading?: boolean; failed?: boolean } }));
 vi.mock("@/hooks/use-listing-public-occupancy", () => ({
-  useListingPublicOccupancy: () => ({ rooms: [] }),
+  useListingPublicOccupancy: () => occupancy.current,
 }));
 vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
   useProspectContactAutofill: () => ({ contact: null, loading: false }),
@@ -38,6 +39,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  occupancy.current = { rooms: [] };
 });
 
 describe("listing rooms table columns", () => {
@@ -74,5 +76,20 @@ describe("listing rooms table columns", () => {
     expect(Number(widthOf("Rent"))).toBeGreaterThanOrEqual(14); // "$10,502/mo" clears the Details button
     expect(Number(widthOf("Room"))).toBeGreaterThanOrEqual(25);
     expect(Number(widthOf("Floor"))).toBeGreaterThanOrEqual(14); // "2nd floor" never truncates
+  });
+
+  // A far-off opening reads "Available Oct 2027" — `formatRoomAvailability` drops "from" past six
+  // months — so the cell has no preposition to break on and the 16% column clipped it to
+  // "Available O…". The date belongs on the second line, same as "from Apr 1, 2027".
+  it.each([
+    ["Available Oct 2027", "Oct 2027"],
+    ["Available from Apr 1, 2027", "from Apr 1, 2027"],
+  ])("drops the date in %s onto its own line", (availability, tail) => {
+    occupancy.current = { rooms: [], failed: true };
+    render(<SpacesInteractive floorPlans={[{ ...floors[0]!, rooms: [{ ...room, availability }] }]} bathrooms={[]} sharedSpaces={[]} listingPropertyId="p1" />);
+    const cell = document.querySelector('td [data-attr="listing-room-availability"]')!;
+    const lines = [...cell.children].map((node) => node.textContent!.trim());
+    expect(lines).toEqual(["Available", tail]);
+    expect(cell.getAttribute("title")).toBe(availability);
   });
 });

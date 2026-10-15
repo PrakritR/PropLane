@@ -43,7 +43,7 @@ by `src/lib/listing-syndication/zillow-feed.ts`.
 | `Listing@propertyType` | `listingSubmission` | `house` for an entire-home listing, otherwise `apartment` |
 | `name` | `property.title`, else `listingSubmission.buildingName` | |
 | `street` | `property.address` | |
-| `city` | `property.neighborhood`, else `property.buildingName` | Approximation: the structured city is not on the public projection |
+| `city` | `property.neighborhood`, else `property.buildingName` | Approximation; the mapper does not read the submission's structured city — `docs/agents/listing-syndication.md` § The feed is a projection of the public payload |
 | `state` | `property.zip` via ZIP3 prefix table | Approximation; null when the ZIP is not recognised |
 | `zip` | `property.zip` | |
 | `lat` / `lng` | `property.mapLat` / `property.mapLng` | Only when present |

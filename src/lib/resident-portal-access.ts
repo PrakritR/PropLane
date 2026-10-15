@@ -1,5 +1,9 @@
 import { cache } from "react";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
+import {
+  CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
+  ROOM_DATE_BLOCK_RECORD_TYPE,
+} from "@/lib/portal-schedule-record-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentHasTourLinks } from "@/lib/tour-resident-link.server";
 import { loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
@@ -28,6 +32,7 @@ function emptyAccessState(managerSubscriptionTier: ManagerSubscriptionTier): Res
     leaseSigned: false,
     leaseAccessUnlocked: false,
     isBookingResidency: false,
+    hasStays: false,
     fullPortalAccess: false,
     managerSubscriptionTier,
   };
@@ -198,6 +203,25 @@ export async function loadResidentLeaseSignedStatus(email: string, managerUserId
   });
 }
 
+/**
+ * Does this login own a short-stay row (any outcome: confirmed, pending, declined, expired)? One indexed
+ * read on `row_data->>residentUserId` (migration 20261014090000). A failed read is "no stays": the Stays
+ * row stays hidden rather than the whole portal failing.
+ */
+async function residentHasStays(db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db
+      .from("portal_schedule_records")
+      .select("id")
+      .in("record_type", [ROOM_DATE_BLOCK_RECORD_TYPE, CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE])
+      .filter("row_data->>residentUserId", "eq", userId)
+      .limit(1);
+    return !error && (data ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 const loadResidentPortalAccessStateCached = cache(
   async (
     userId: string | null,
@@ -219,10 +243,11 @@ const loadResidentPortalAccessStateCached = cache(
       .select("row_data, updated_at, resident_email, manager_user_id")
       .eq("resident_email", email);
     if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
-    const [applicationResult, leaseSigned, hasTourLink] = await Promise.all([
+    const [applicationResult, leaseSigned, hasTourLink, hasStays] = await Promise.all([
       applicationQuery.order("updated_at", { ascending: false }),
       loadResidentLeaseSignedStatus(email, managerUserId ?? undefined),
       userId ? residentHasTourLinks(db, userId, email) : Promise.resolve(false),
+      userId ? residentHasStays(db, userId) : Promise.resolve(false),
     ]);
     const applicationRows = applicationResult.data;
 
@@ -325,6 +350,7 @@ const loadResidentPortalAccessStateCached = cache(
       leaseSigned,
       leaseAccessUnlocked,
       isBookingResidency,
+      hasStays,
       fullPortalAccess: leaseSigned,
       managerSubscriptionTier,
     };

@@ -1,7 +1,12 @@
 import type { MetadataRoute } from "next";
 import { BLOG_POSTS } from "@/lib/blog/posts";
+import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
 
 const BASE = "https://proplane.ai";
+
+// The listing half of this file is a Supabase read; crawlers hit /sitemap.xml freely, so the whole
+// response is cached for an hour like /llms.txt and the listing pages it advertises.
+export const revalidate = 3600;
 
 /** Public marketing URLs Google should index on the canonical host. */
 const PATHS = [
@@ -28,7 +33,7 @@ const PATHS = [
   "/app",
 ] as const;
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lastModified = new Date();
   const pages: MetadataRoute.Sitemap = PATHS.map((path) => ({
     url: path ? `${BASE}${path}` : `${BASE}/`,
@@ -47,5 +52,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.6,
     };
   });
-  return [...pages, ...posts];
+  // Live public listings; a catalog failure must never break the sitemap.
+  let listings: MetadataRoute.Sitemap = [];
+  try {
+    listings = (await getCrawlPublicListings()).map((p) => ({
+      url: `${BASE}/rent/listings/${encodeURIComponent(p.id)}`,
+      lastModified,
+      changeFrequency: "daily",
+      priority: 0.7,
+    }));
+  } catch {
+    /* sitemap still lists every static page */
+  }
+  return [...pages, ...posts, ...listings];
 }

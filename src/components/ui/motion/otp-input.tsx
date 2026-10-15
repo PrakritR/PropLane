@@ -4,7 +4,7 @@
  * M017 — OTP input primitive (built, NOT wired to a live surface).
  *
  * PropLane has no verification-code entry anywhere, mocked or real —
- * AGENTS.md: "Emailed auth links are `token_hash`, never a `code`." A
+ * AGENTS.md: "Out-of-band auth links are `token_hash`, never a PKCE `code`." A
  * page-by-page pass found nothing to attach this to (see
  * ~/proplane-mock-kit/review-0927/studio-motion.md "Not wired" and this
  * batch's own report). Built as a complete, ready primitive — full

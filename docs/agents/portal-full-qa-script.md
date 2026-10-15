@@ -270,13 +270,12 @@ Tabs: library, templates, applications, leases, income-documents, expense-docume
 
 Sign in as **resident@test.proplane.local**. Nav **varies by stage** — see `src/lib/resident-portal-nav.ts`.
 
-### Stage detection (do all three if you can seed or impersonate)
+### Stage detection (walk every stage you can seed or impersonate)
 
-| Stage | Unlocked sections | Locked (inert) |
-| --- | --- | --- |
-| Pre-approval (application submitted, not approved) | Tour, Application, Dashboard, Communication, Settings | Lease, Payments, My home, Services, Documents (most) |
-| Pre-lease (approved, lease not fully signed) | + Lease, Payments, Documents | Services, My home until signed |
-| Post-sign (fully signed lease) | Full nav including Services, My home | — |
+`STAGE_UNLOCKED_SECTIONS` and `RESIDENT_BOTTOM_NAV_PRIMARY` in
+`src/lib/resident-portal-nav.ts` are the one list of stages and what each one
+unlocks — read them there rather than from a copy, and check the portal against
+them. A locked row is visible and inert, never a dead link.
 
 **Regression:** Manager+resident same account must not show empty lease while Applications says Approved.
 
@@ -342,7 +341,17 @@ Tabs: application, lease, receipts, other
 - [ ] Notification preferences
 - [ ] Sign out
 
-### 2.11 Resident — global chrome
+### 2.11 Stays (`/resident/stays/{upcoming|past}`) — any account that owns a stay row
+
+Contract: `docs/agents/bookings.md` § Guest portal stays.
+
+- [ ] Upcoming | Past tabs; the row is absent (and the URL refused) for a login with no stay
+- [ ] Book again on a past stay opens the sheet with quick picks and the taken-nights calendar
+- [ ] Several date ranges in one request: a taken range is refused (409) on its own, the rest still go
+- [ ] A returning guest on an instant-book listing is confirmed; anyone else gets a 24h hold
+- [ ] A confirmed stay raises exactly one `stay_total` charge in Payments (no second one on re-confirm)
+
+### 2.12 Resident — global chrome
 
 - [ ] Bottom nav primary tabs match unlocked stage (`tests/unit/resident-portal-nav.test.ts`)
 - [ ] Locked nav rows are inert, not dead links

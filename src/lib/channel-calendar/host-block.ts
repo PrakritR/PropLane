@@ -9,6 +9,8 @@
  * "CLOSED - Not available", and reading one of those as a host block would publish an occupied
  * room as free.
  */
+import { coveringIntervals, nextDayKey, uncovered, type DayInterval } from "@/lib/room-occupancy-rule";
+
 const HOST_BLOCK_LABELS: ReadonlySet<string> = new Set(["not available", "blocked", "unavailable"]);
 const CHANNEL_WRAPPED = /^[a-z0-9][a-z0-9 .&'’-]*\(([^()]+)\)$/;
 
@@ -40,33 +42,82 @@ type EchoCandidate = {
   bookingStatus?: string;
   summary?: string | null;
   hostBlock?: boolean;
+  /**
+   * Set only on a trimmed remainder: the dates of the RAW imported range it was cut from. A host
+   * block's durable identity is its UID PLUS those dates (Airbnb reuses one UID for every block a
+   * host has - `channelStayTombstoneKey`), so Remove stay and Undo must send these, never the
+   * remainder's own visible dates.
+   */
+  channelRangeStart?: string;
+  channelRangeEnd?: string;
 };
 
 const LOCAL_OCCUPANT_SOURCES = new Set(["proplane", "hold", "block"]);
 
-/** YYYY-MM-DD plus one day (a channel's re-export can carry the exclusive check-out as its last day). */
-function nextDayKey(key: string): string {
-  const [y, m, d] = key.split("-").map(Number);
-  const next = new Date(Date.UTC(y, m - 1, d + 1));
-  return next.toISOString().slice(0, 10);
+/**
+ * A channel re-exports a local stay's exclusive check-out as one extra closed day, so an uncovered
+ * single day sitting exactly on a covering stay's check-out is that echo, not a gap — wherever in
+ * the block it falls. Between two back-to-back residents (A to the 9th, B from the 11th, exported
+ * as one block) it is an interior gap, not a trailing one, and it must not draw either.
+ */
+function withoutCheckOutEchoes(pieces: readonly DayInterval[], covering: readonly DayInterval[]): DayInterval[] {
+  const checkOutDays = new Set(covering.filter((c) => c.end !== null).map((c) => nextDayKey(c.end!)));
+  if (checkOutDays.size === 0) return [...pieces];
+  return pieces.filter((piece) => !(piece.end === piece.start && checkOutDays.has(piece.start)));
 }
 
 /**
- * Drops a channel's host block ("Airbnb (Not available)") that sits inside a PropLane stay on the
- * same room: that range is PropLane's own export feed coming back from the channel, not a second
- * booking, and drawing it on top of the resident reads as an overbooked room. A host block with no
- * PropLane stay under it (the manager closed dates on the channel itself) is kept.
+ * Drops (or trims) a channel's host block ("Airbnb (Not available)") that PropLane's own occupancy
+ * already covers on the same room. PropLane exports its residents, holds and blocks to the channel
+ * as unavailable and the channel's feed hands them back, so the import draws each stay twice.
+ * The covering set is the union of the non-channel entries of that room (back-to-back residents
+ * together cover one long echo); a host block only partly covered keeps its uncovered remainder as
+ * one entry per gap. A host block with nothing under it (closed on the channel itself) and every
+ * reservation are kept untouched. The raw imported ranges are never edited: this only shapes the
+ * entries the calendar and its tabs draw, and each remainder carries the raw range's dates so it
+ * stays removable.
+ *
+ * Coverage is `coveringIntervals` + `uncovered` from `room-occupancy-rule` - the same subtraction
+ * the occupancy snapshot runs on `echoable` spans, so the calendar and the room rows cannot drift.
  */
 export function withoutEchoedHostBlocks<T extends EchoCandidate>(entries: readonly T[]): T[] {
   const locals = entries.filter((entry) => LOCAL_OCCUPANT_SOURCES.has(entry.source) && entry.bookingStatus !== "cancelled");
-  return entries.filter((entry) => {
-    if (LOCAL_OCCUPANT_SOURCES.has(entry.source) || !isHostBlockRange(entry)) return true;
-    return !locals.some(
-      (local) =>
-        local.propertyId === entry.propertyId &&
-        (!local.roomId || local.roomId === entry.roomId) &&
-        local.start <= entry.start &&
-        (local.openEnded || entry.end <= nextDayKey(local.end)),
+  if (locals.length === 0) return [...entries];
+  // One covering set per room, not per host block: the subtraction is the same for every block on
+  // the same (property, room), and a portfolio re-derives this on every calendar recompute.
+  const coveringByRoom = new Map<string, DayInterval[]>();
+  const coveringForRoom = (propertyId: string, roomId: string): DayInterval[] => {
+    const key = `${propertyId}\u0000${roomId}`;
+    const cached = coveringByRoom.get(key);
+    if (cached) return cached;
+    const built = coveringIntervals(
+      locals
+        .filter((local) => local.propertyId === propertyId && (!local.roomId || local.roomId === roomId))
+        .map((local) => ({ start: local.start, end: local.openEnded ? null : local.end })),
     );
-  });
+    coveringByRoom.set(key, built);
+    return built;
+  };
+  const out: T[] = [];
+  for (const entry of entries) {
+    if (LOCAL_OCCUPANT_SOURCES.has(entry.source) || !isHostBlockRange(entry)) {
+      out.push(entry);
+      continue;
+    }
+    const covering = coveringForRoom(entry.propertyId, entry.roomId);
+    const pieces = withoutCheckOutEchoes(uncovered({ start: entry.start, end: entry.end }, covering), covering);
+    if (pieces.length === 1 && pieces[0]!.start === entry.start && pieces[0]!.end === entry.end) out.push(entry);
+    else {
+      for (const piece of pieces) {
+        out.push({
+          ...entry,
+          start: piece.start,
+          end: piece.end ?? entry.end,
+          channelRangeStart: entry.channelRangeStart ?? entry.start,
+          channelRangeEnd: entry.channelRangeEnd ?? entry.end,
+        });
+      }
+    }
+  }
+  return out;
 }

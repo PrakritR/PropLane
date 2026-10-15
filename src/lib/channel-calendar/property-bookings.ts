@@ -18,13 +18,13 @@ import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
  * room is spoken for, not let. `block` — a manager's explicit "not available"
  * range with a reason, reversible from the day detail.
  */
-export type BookingSource = "airbnb" | "booking_com" | "vrbo" | "proplane" | "hold" | "block";
+export type BookingSource = "airbnb" | "booking_com" | "vrbo" | "ical" | "proplane" | "hold" | "block";
 
 /** The sources a channel calendar feed brings in (everything that is neither PropLane's own nor a manager block). */
-export type ChannelBookingSource = "airbnb" | "booking_com" | "vrbo";
+export type ChannelBookingSource = "airbnb" | "booking_com" | "vrbo" | "ical";
 
 export function isChannelBookingSource(source: BookingSource): source is ChannelBookingSource {
-  return source === "airbnb" || source === "booking_com" || source === "vrbo";
+  return source === "airbnb" || source === "booking_com" || source === "vrbo" || source === "ical";
 }
 
 export type PropertyBookingEntry = {
@@ -32,19 +32,30 @@ export type PropertyBookingEntry = {
   bookingStatus?: "hold" | "confirmed" | "cancelled";
   rate?: number;
   rateBasis?: "daily" | "weekly" | "monthly";
-  stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string };
+  stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string; holdExpiresAt?: string; decision?: string };
   sourceUid?: string;
+  /** "Other calendar" stays only - the site the manager named for the link (Houfy, Furnished Finder). */
+  channelLabel?: string;
   /** Channel stays only - Airbnb's reservation code, the link to open it, the guest's phone suffix, and the name the manager typed. */
   reservationCode?: string;
   reservationUrl?: string;
   phoneLast4?: string;
   guestName?: string;
+  /** The manager's note on a channel stay or host block. */
+  stayNotes?: string;
   /** Channel stays only - money typed on the booking or read from an Airbnb email. */
   guestPhone?: string;
   nightlyCents?: number;
   payoutCents?: number;
   paidAt?: string;
   connectionId?: string;
+  /**
+   * Set only on the uncovered remainder of an echoed host block (`withoutEchoedHostBlocks`): the
+   * dates of the raw imported range this entry was cut from. Remove stay / Undo identify a host
+   * block by UID plus those dates, so they send these in preference to the visible `start`/`end`.
+   */
+  channelRangeStart?: string;
+  channelRangeEnd?: string;
   lastSyncedAt?: string | null;
   applicationId?: string;
   propertyId: string;
@@ -417,6 +428,7 @@ export function airbnbBookingEntries(
         if (!start) continue;
         out.push({
           source: room.provider,
+          ...(room.provider === "ical" && room.label?.trim() ? { channelLabel: room.label.trim() } : {}),
           propertyId: property.propertyId,
           propertyLabel: property.propertyLabel,
           roomId: room.roomId,
@@ -427,6 +439,7 @@ export function airbnbBookingEntries(
           ...(range.reservationUrl ? { reservationUrl: range.reservationUrl } : {}),
           ...(range.phoneLast4 ? { phoneLast4: range.phoneLast4 } : {}),
           ...(range.guestName ? { guestName: range.guestName } : {}),
+          ...(range.stayNotes ? { stayNotes: range.stayNotes } : {}),
           ...(range.guestPhone ? { guestPhone: range.guestPhone } : {}),
           ...(typeof range.nightlyCents === "number" ? { nightlyCents: range.nightlyCents } : {}),
           ...(typeof range.payoutCents === "number" ? { payoutCents: range.payoutCents } : {}),

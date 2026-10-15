@@ -15,9 +15,13 @@ import "server-only";
  * Membership is the workspace's: the owner plus every accepted, non-owner-role
  * teammate whose membership row is for THIS workspace (`account_link_invites`
  * is one row per owner, manager and workspace), regardless of which houses
- * they hold. A Viewer reads and is relayed to but does not post. Automated
- * notices (payments, leases, tours) are never posted here: they go to each
- * person's PropLane Assistant. The thread's name is fixed; the poster's name,
+ * they hold. A Viewer reads and is relayed to but does not post. Routine
+ * notices to the team are one PropLane line in the Team chat; a teammate's
+ * Assistant gets a notice only when the event is urgent; the owner always gets
+ * theirs; never a per-teammate conversation. That line is posted with
+ * `actorName: "PropLane"` and a deterministic `messageId`
+ * (`action-event:<eventKey>:team`) by `notifyPropertyScopedManagersFromAgent`,
+ * so a retry posts once. The thread's name is fixed; the poster's name,
  * `actorUserId` and `channel` ride on each message, and the thread opens with a
  * neutral system line so no person's first message is dressed as "Team".
  *
@@ -235,8 +239,9 @@ async function postWorkspaceId(db: SupabaseClient, ownerId: string, workspaceId:
 
 /**
  * Make sure a workspace with two or more people has its Team chat row, so
- * anyone in it can start the conversation (nothing automated ever creates it
- * any more). One cheap existence read on the hot path; the roster is read only
+ * anyone in it can start the conversation — and so PropLane's own routine team
+ * notice has a chat to land its one line in. One cheap existence read on the
+ * hot path; the roster is read only
  * when the chat is missing. Insert-only: a concurrent creator wins, never an
  * overwrite. A solo workspace gets no chat (everything it texts goes to the
  * Assistant). Returns the thread id, or null when none is warranted.
@@ -611,6 +616,8 @@ export async function relayTeamChatMessageToSms(
     messageId: string;
     now?: Date;
     cap?: number;
+    /** Members not to text (an automated line skips the actor, who already knows). */
+    excludeUserIds?: readonly string[];
   },
 ): Promise<TeamSmsRelayOutcome[]> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -624,7 +631,8 @@ export async function relayTeamChatMessageToSms(
   if (!line) return [];
 
   const members = await resolveWorkspaceTeamMembers(db, { ownerManagerUserId: ownerId, workspaceId });
-  const recipients = members.filter((member) => member.userId !== senderId);
+  const skipped = new Set((input.excludeUserIds ?? []).map((id) => id.trim()));
+  const recipients = members.filter((member) => member.userId !== senderId && !skipped.has(member.userId));
   if (recipients.length === 0) return [];
 
   // Per-workspace hourly cap, counted from the outbox itself (durable, shared
@@ -657,7 +665,11 @@ export async function relayTeamChatMessageToSms(
         recipientPhone: eligibility.phone,
         recipientUserId: member.userId,
         body,
-        // Person-to-person chat: a transactional text, not quiet-hours-held automation.
+        // The chat's own class, for a person's line and for PropLane's routine
+        // notice line alike (both ride this relay since 2026-10-14): a
+        // transactional text, never quiet-hours-held automation. Holding the
+        // notice line overnight is a product decision for the owner doc
+        // (docs/agents/automated-communication.md), not a per-caller override.
         sendClass: "transactional",
         purpose: TEAM_CHAT_RELAY_SMS_PURPOSE,
         counterpartyRole: "manager",

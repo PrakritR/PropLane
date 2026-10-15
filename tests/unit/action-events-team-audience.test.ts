@@ -6,10 +6,12 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({
   deliverPortalInboxMessage: (...args: unknown[]) => deliver(...(args as [])),
 }));
 
-// Automated notices go to each person's PropLane Assistant, never into the Team chat.
+// The owner gets their Assistant notice; the team gets ONE PropLane line.
 const notifyScoped = vi.fn(async (..._args: unknown[]) => undefined);
+const postTeamNoticeLineForEvent = vi.fn(async (..._args: unknown[]) => undefined);
 vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
   notifyPropertyScopedManagersFromAgent: (...args: unknown[]) => notifyScoped(...args),
+  postTeamNoticeLineForEvent: (...args: unknown[]) => postTeamNoticeLineForEvent(...args),
 }));
 const postTeamThreadMessage = vi.fn(async () => ({ ok: true as const, posted: true }));
 vi.mock("@/lib/team-comms.server", () => ({
@@ -80,6 +82,8 @@ describe("action-events: notices reach the team through each person's Assistant"
   beforeEach(() => {
     notifyScoped.mockClear();
     notifyScoped.mockResolvedValue(undefined);
+    postTeamNoticeLineForEvent.mockClear();
+    postTeamNoticeLineForEvent.mockResolvedValue(undefined);
     postTeamThreadMessage.mockClear();
     deliver.mockClear();
     queueActionEventDraftForReview.mockClear();
@@ -118,9 +122,74 @@ describe("action-events: notices reach the team through each person's Assistant"
       teammateText: "Owner approved Alex's application.",
       threadType: "action_event",
       idempotencyKey: "action-event:app-1:application_approved:approved:manager",
+      teamNotice: { messageId: "action-event:app-1:application_approved:approved:team" },
     });
+    expect(notifyScoped.mock.calls[0]![1]).not.toHaveProperty("urgent", true);
     expect(postTeamThreadMessage).not.toHaveBeenCalled();
     expect(tables.action_event_deliveries[0]!.status).toBe("delivered");
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it("a teammate named as a manager recipient of a routine event gets no person-to-person thread (the Team line covers them); an urgent event keeps it", async () => {
+    const { db, tables } = fakeDb();
+    const recipients = [
+      { audience: "manager" as const, userId: "owner-1", rendered: { subject: "Approved", text: "You approved Alex's application." } },
+      { audience: "manager" as const, userId: "mate-1", rendered: { subject: "Approved", text: "Owner approved Alex's application." } },
+    ];
+    const result = await emitActionEvent(db, { ...baseInput, recipients });
+    expect(result.delivered).toBe(2);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(tables.action_event_deliveries.every((row) => row.status === "delivered")).toBe(true);
+
+    const urgent = await emitActionEvent(db, { ...baseInput, eventId: "app-2:urgent", urgent: true, recipients });
+    expect(urgent.delivered).toBe(2);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect((deliver.mock.calls[0] as unknown as [unknown, { toUserIds: string[] }])[1].toUserIds).toEqual(["mate-1"]);
+  });
+
+  // The acting owner drops themselves from their own recipient list (the
+  // service-visit routes do), so the teammates are the ONLY manager recipients
+  // and no owner leg runs. The line is the team's only routine channel, so this
+  // leg posts it rather than marking the delivery delivered and sending nothing.
+  it("posts the one Team line when the acting owner is not a recipient, and keeps the delivery retryable if that fails", async () => {
+    const { db, tables } = fakeDb();
+    const recipients = [
+      { audience: "manager" as const, userId: "mate-1", rendered: { subject: "Approved", text: "Owner approved Alex's application." } },
+    ];
+    const result = await emitActionEvent(db, { ...baseInput, recipients });
+    expect(result.delivered).toBe(1);
+    expect(notifyScoped).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(postTeamNoticeLineForEvent).toHaveBeenCalledTimes(1);
+    expect(postTeamNoticeLineForEvent.mock.calls[0]![1]).toMatchObject({
+      ownerManagerUserId: "owner-1",
+      propertyId: "house-1",
+      module: "applications",
+      teamNotice: { messageId: "action-event:app-1:application_approved:approved:team" },
+      excludeUserIds: ["owner-1"],
+    });
+
+    postTeamNoticeLineForEvent.mockRejectedValueOnce(new Error("Could not post to the team thread."));
+    const failed = await emitActionEvent(db, { ...baseInput, eventId: "app-3:line-failed", recipients });
+    expect(failed.failed).toBe(1);
+    const row = tables.action_event_deliveries.at(-1)!;
+    expect(row.status).toBe("failed");
+    expect(row.next_attempt_at).toBeTruthy();
+  });
+
+  it("marks the owner's delivery failed and retryable when the Team line this leg posts fails", async () => {
+    notifyScoped.mockRejectedValueOnce(new Error("Could not post to the team thread."));
+    const { db, tables } = fakeDb();
+    const result = await emitActionEvent(db, {
+      ...baseInput,
+      senderUserId: "mate-1",
+      senderEmail: "mate@example.com",
+      recipients: [{ audience: "manager", userId: "owner-1", rendered: { subject: "Approved", text: "Alex's application was approved." } }],
+    });
+    expect(result.failed).toBe(1);
+    expect(tables.action_event_deliveries[0]!.status).toBe("failed");
+    expect(tables.action_event_deliveries[0]!.next_attempt_at).toBeTruthy();
+    // The owner's own message is not sent until the line it carries is in, so the retry cannot double-send it.
     expect(deliver).not.toHaveBeenCalled();
   });
 

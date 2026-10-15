@@ -84,6 +84,12 @@ export async function provisionResidentAccountByEmail(
     fullName?: string | null;
     phone?: string | null;
     inheritFromApplication?: boolean;
+    /**
+     * Has the caller proved control of `email`? Defaults to true (today's behaviour). `false` means the
+     * address is a claim or a placeholder: no application inheritance, no merging of another account
+     * that owns the address, no attaching the address's inbox threads.
+     */
+    emailProven?: boolean;
   },
 ): Promise<ProvisionResidentResult> {
   if (await pendingAccountRecovery(supabase, opts.userId)) return { ok: false, status: 409, error: "Sign in to recover your saved account or start fresh before continuing setup." };
@@ -98,11 +104,12 @@ export async function provisionResidentAccountByEmail(
   // Default-deny: only an explicit opt-in (proven email control) looks up the
   // application at all. Otherwise `matchingApplication` stays null and every
   // downstream field treats it as a clean, un-inheriting profile.
+  const emailProven = opts.emailProven !== false;
   const matchingApplication =
-    opts.inheritFromApplication === true ? await findApplicationByEmail(supabase, normalEmail) : null;
+    emailProven && opts.inheritFromApplication === true ? await findApplicationByEmail(supabase, normalEmail) : null;
   const linkedApplication = Boolean(matchingApplication);
 
-  const existingAuthId = await findAuthUserIdByEmail(supabase, normalEmail);
+  const existingAuthId = emailProven ? await findAuthUserIdByEmail(supabase, normalEmail) : null;
   if (existingAuthId && existingAuthId !== opts.userId) {
     await migratePortalUserId(supabase, existingAuthId, opts.userId);
   }
@@ -152,6 +159,6 @@ export async function provisionResidentAccountByEmail(
   }
 
   await ensureProfileRoleRow(supabase, opts.userId, "resident");
-  await attachInboxThreadsToResident(supabase, opts.userId, normalEmail).catch(() => undefined);
+  if (emailProven) await attachInboxThreadsToResident(supabase, opts.userId, normalEmail).catch(() => undefined);
   return { ok: true, axisId, linkedApplication };
 }

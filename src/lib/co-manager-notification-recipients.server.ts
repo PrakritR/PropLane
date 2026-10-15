@@ -9,8 +9,21 @@ import {
 } from "@/lib/co-manager-permissions";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
-import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
-import { resolveWorkspaceNoticeRecipients } from "@/lib/workspace-team-recipients.server";
+import {
+  resolveManagerAssistantWorkspace,
+  userDefaultWorkspaceId,
+} from "@/lib/communication/manager-assistant-workspace.server";
+import {
+  ensureWorkspaceTeamThread,
+  postTeamThreadMessage,
+  relayTeamChatMessageToSms,
+  resolveWorkspaceTeamMembersWithGrants,
+} from "@/lib/team-comms.server";
+import { resolveManagerNotificationChannels } from "@/lib/manager-notification-routing.server";
+import {
+  memberReceivesNotice,
+  resolveWorkspaceNoticeRecipients,
+} from "@/lib/workspace-team-recipients.server";
 import { notifyWorkNumberRecipients } from "@/lib/work-number-recipients.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -253,12 +266,68 @@ export async function loadCoManagerNotificationRecipients(
 }
 
 /**
- * Fan out a PropLane Assistant notice to the owner and every teammate with
- * notification access to the house. Each person gets it in their OWN Assistant
- * thread for the house's workspace, by text to their verified phone and by
- * email to their account address. Teammate texts leave from the WORKSPACE
- * OWNER's work number and are billed to the owner (`senderOwnerId`); a
- * teammate is never charged and never has a line of their own.
+ * The module names the event on a derived line. A module is broader than an
+ * event, so the label is the module's own word — `calendar` carries tours,
+ * tasks and bookings alike, and `residents` carries welcomes, move-outs and
+ * inspections — never the name of one of the events inside it.
+ */
+const MODULE_EVENT_LABEL: Partial<Record<CoManagerPermissionId, string>> = {
+  services: "Service request",
+  payments: "Payment",
+  financials: "Payment",
+  leases: "Lease",
+  applications: "Application",
+  calendar: "Schedule",
+  residents: "Resident",
+  documents: "Document",
+  inbox: "Message",
+};
+
+/**
+ * The Team line for a routine notice that came without one: the notice's
+ * SUBJECT behind its event label (the module names it, {@link
+ * MODULE_EVENT_LABEL}; anything else is "Notice"). The subject is a fact, where
+ * the body is addressed to the owner ("You approved it…") and reads as the
+ * muted sentence the no-subtext rule forbids — so the body's first line is only
+ * the fallback for a notice with no subject, capped at 160 characters.
+ *
+ * The id is the notice's own idempotency key with its audience suffix dropped,
+ * so the `:manager` and `:team` legs of ONE event derive ONE line.
+ * No key = no safe id = no line.
+ */
+function derivedTeamNotice(input: {
+  module: CoManagerPermissionId;
+  subject: string;
+  text: string;
+  idempotencyKey?: string;
+  eventLabel?: string;
+}): { text: string; messageId: string } | null {
+  const key = input.idempotencyKey?.trim().replace(/:(manager|team)$/, "");
+  if (!key) return null;
+  const fact = input.subject.trim() || (input.text.trim().split(/\r?\n/)[0] ?? "").trim();
+  if (!fact) return null;
+  const label = input.eventLabel?.trim() || MODULE_EVENT_LABEL[input.module] || "Notice";
+  return { text: `${label} · ${fact.slice(0, 160)}`, messageId: `${key}:team` };
+}
+
+/**
+ * Tell the team about something. The owner always gets a PropLane Assistant
+ * notice (text to their verified phone, email to their account address).
+ *
+ * Routine (the default whenever `teamNotice` is given): the teammates hear it
+ * from ONE PropLane line in the workspace Team chat (`teamNotice`, idempotent
+ * on its `messageId`), texted on to each member by their existing team-texting
+ * setting. Nothing lands in a teammate's Assistant or inbox. A workspace of
+ * one person has no Team chat, so the owner's notice is all there is.
+ *
+ * Urgent: every teammate with notification access to the house ALSO gets the
+ * notice in their OWN Assistant thread (text from the WORKSPACE OWNER's work
+ * number, billed to the owner via `senderOwnerId`; a teammate is never
+ * charged), plus the same Team line — whose text relay skips everyone just
+ * noticed directly, so one event is never two texts on the owner's credit.
+ *
+ * With no `teamNotice`, a routine notice derives its Team line from the notice
+ * itself (`derivedTeamNotice`): every routine event posts exactly one line.
  *
  * The owner's leg runs first and its failure propagates (the caller retries,
  * every leg is idempotent per `idempotencyKey` + member). A teammate's failure
@@ -282,6 +351,12 @@ export async function notifyPropertyScopedManagersFromAgent(
     idempotencyKey?: string;
     /** People already served another way (the actor who did the thing). */
     excludeUserIds?: readonly string[];
+    /** Important: teammates are told directly too. Emergency priority / URGENT_REMINDER_KINDS only. */
+    urgent?: boolean;
+    /** The one Team chat line for this event (built by `buildTeamNoticeLine`); `messageId` makes a retry post once. */
+    teamNotice?: { text: string; messageId: string };
+    /** Names the event on a derived Team line when the caller built none ("Tour", "Booking", ...). */
+    eventLabel?: string;
   },
 ): Promise<void> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -289,13 +364,24 @@ export async function notifyPropertyScopedManagersFromAgent(
   const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
     () => null,
   );
+  // Routine notices reach teammates only through ONE Team chat line (derived
+  // from the notice itself when the caller did not build one); only an urgent
+  // event notifies each teammate's own Assistant.
+  const urgent = input.urgent === true;
+  const teamNotice =
+    input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
+      ? { text: input.teamNotice.text.trim(), messageId: input.teamNotice.messageId.trim() }
+      : derivedTeamNotice(input);
+  const directToTeammates = urgent;
   const recipientIds = (
-    await resolveWorkspaceNoticeRecipients(db, {
-      ownerUserId: ownerId,
-      workspaceId: noticeWorkspace?.workspaceId || null,
-      module: input.module,
-      propertyId: input.propertyId,
-    })
+    directToTeammates
+      ? await resolveWorkspaceNoticeRecipients(db, {
+          ownerUserId: ownerId,
+          workspaceId: noticeWorkspace?.workspaceId || null,
+          module: input.module,
+          propertyId: input.propertyId,
+        })
+      : [{ userId: ownerId }]
   )
     .map((recipient) => recipient.userId)
     .filter((id) => !excluded.has(id));
@@ -342,4 +428,172 @@ export async function notifyPropertyScopedManagersFromAgent(
       console.error("extra recipient notice failed", error instanceof Error ? error.name : "unknown");
     }
   }
+  if (teamNotice) {
+    await postTeamNoticeLine(db, {
+      ownerId,
+      workspaceId: noticeWorkspace?.workspaceId || null,
+      module: input.module,
+      propertyId: input.propertyId ?? null,
+      category: input.category,
+      text: teamNotice.text,
+      messageId: teamNotice.messageId,
+      excludeUserIds: [...excluded, ...recipientIds],
+    });
+  }
+}
+
+/**
+ * The event's one Team chat line with no Assistant notice of its own: for a
+ * routine event whose only manager-audience recipients are teammates, because
+ * the owner filtered themselves out as the actor. Without this the line would
+ * depend on an owner leg that never runs and the team would hear nothing.
+ *
+ * Idempotent on `messageId` like every other leg, and only the leg that
+ * actually posts relays, so calling this alongside a notice carrying the same
+ * line still posts and texts exactly once.
+ */
+export async function postTeamNoticeLineForEvent(
+  db: ServiceClient,
+  input: {
+    ownerManagerUserId: string;
+    propertyId?: string | null;
+    module: CoManagerPermissionId;
+    category?: ManagerNotificationCategory;
+    teamNotice: { text: string; messageId: string };
+    excludeUserIds?: readonly string[];
+  },
+): Promise<void> {
+  const ownerId = input.ownerManagerUserId.trim();
+  const text = input.teamNotice.text.trim();
+  const messageId = input.teamNotice.messageId.trim();
+  if (!ownerId || !text || !messageId) return;
+  const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
+    () => null,
+  );
+  await postTeamNoticeLine(db, {
+    ownerId,
+    workspaceId: noticeWorkspace?.workspaceId || null,
+    module: input.module,
+    propertyId: input.propertyId ?? null,
+    category: input.category,
+    text,
+    messageId,
+    excludeUserIds: (input.excludeUserIds ?? []).map((id) => id.trim()).filter(Boolean),
+  });
+}
+
+/**
+ * Members an automated line must NOT be pushed to a phone for: the actor, plus
+ * anyone this event is not theirs to hear.
+ *
+ * The line itself sits in the workspace's one shared chat, which every member
+ * reads. The TEXT is a push the workspace owner pays for, so it still answers
+ * to the two gates every other automated notice answers to: the per-house /
+ * per-module notification grant (`memberReceivesNotice` — the same role matrix
+ * that keeps a bookkeeper off a maintenance notice and a property manager off a
+ * house they do not hold) and the recipient's own topic switch. A grant read
+ * that fails narrows to the owner alone — which is `null` here, "relay
+ * nothing", never an empty exclusion list that would text the whole workspace
+ * ungated; an unreadable topic preference is not a refusal and does not skip
+ * the member.
+ */
+async function teamNoticeRelayExclusions(
+  db: ServiceClient,
+  input: {
+    ownerId: string;
+    workspaceId: string;
+    module: CoManagerPermissionId;
+    propertyId?: string | null;
+    category?: ManagerNotificationCategory;
+    excludeUserIds: readonly string[];
+  },
+): Promise<string[] | null> {
+  const excluded = new Set(input.excludeUserIds.map((id) => id.trim()).filter(Boolean));
+  const members = await resolveWorkspaceTeamMembersWithGrants(db, {
+    ownerManagerUserId: input.ownerId,
+    workspaceId: input.workspaceId,
+  }).catch(() => null);
+  // No readable roster = no role matrix to tell a bookkeeper from the house's
+  // own manager, so nothing is pushed to a phone. An owner-only answer is the
+  // same thing: the read failed back to the owner, and the owner is never
+  // relayed to, so a genuinely solo workspace loses nothing either.
+  if (!members || members.every((member) => member.isOwner)) return null;
+  for (const member of members) {
+    if (member.isOwner || excluded.has(member.userId)) continue;
+    if (!memberReceivesNotice(member, { module: input.module, propertyId: input.propertyId })) {
+      excluded.add(member.userId);
+      continue;
+    }
+    if (!input.category) continue;
+    const channels = await resolveManagerNotificationChannels(
+      db,
+      member.userId,
+      input.category,
+      null,
+      input.workspaceId,
+      undefined,
+      { ownerUserId: input.ownerId, workspaceId: input.workspaceId },
+    ).catch(() => null);
+    if (channels && !channels.categoryEnabled) excluded.add(member.userId);
+  }
+  return [...excluded];
+}
+
+/**
+ * One PropLane line in the workspace Team chat, then the text relay to the
+ * members this event is theirs to hear who have team texting on
+ * ({@link teamNoticeRelayExclusions}). No Team chat (fewer than two people) =
+ * nothing posted. A failed post throws so the caller retries (the line is
+ * idempotent on `messageId`); a relay failure never fails the notice. An
+ * unreadable roster relays to nobody. The owner is never relayed to (their own
+ * Assistant notice already texted them) and neither is anyone in
+ * `excludeUserIds` (the actor, plus anyone already noticed directly).
+ */
+async function postTeamNoticeLine(
+  db: ServiceClient,
+  input: {
+    ownerId: string;
+    workspaceId: string | null;
+    module: CoManagerPermissionId;
+    propertyId?: string | null;
+    category?: ManagerNotificationCategory;
+    text: string;
+    messageId: string;
+    excludeUserIds: readonly string[];
+  },
+): Promise<void> {
+  const workspaceId = input.workspaceId || (await userDefaultWorkspaceId(db, input.ownerId).catch(() => "")) || "";
+  if (!workspaceId) return;
+  const threadId = await ensureWorkspaceTeamThread(db, { ownerManagerUserId: input.ownerId, workspaceId });
+  if (!threadId) return;
+  const posted = await postTeamThreadMessage(db, {
+    ownerManagerUserId: input.ownerId,
+    workspaceId,
+    actorName: "PropLane",
+    text: input.text,
+    messageId: input.messageId,
+    channel: "app",
+  });
+  if (!posted.ok) throw new Error(posted.error);
+  if (!posted.posted) return;
+  const relayExclusions = await teamNoticeRelayExclusions(db, {
+    ownerId: input.ownerId,
+    workspaceId,
+    module: input.module,
+    propertyId: input.propertyId,
+    category: input.category,
+    excludeUserIds: input.excludeUserIds,
+  });
+  if (!relayExclusions) return;
+  await relayTeamChatMessageToSms(db, {
+    ownerManagerUserId: input.ownerId,
+    workspaceId,
+    senderUserId: input.ownerId,
+    senderName: "PropLane",
+    text: input.text,
+    messageId: input.messageId,
+    excludeUserIds: relayExclusions,
+  }).catch((error: unknown) => {
+    console.error("team notice relay failed", error instanceof Error ? error.name : "unknown");
+  });
 }

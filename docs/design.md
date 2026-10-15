@@ -330,9 +330,9 @@ Mono uppercase section label + “View all” accent link. Rows: name, sub-line,
 | `fade-up` | 0.45s | Hero stagger |
 | `reveal-on-view` | 0.55s | Scroll reveals |
 
-**Reduced motion:** All ambient animation (`chrome-flow`, `chrome-shift`, `sheen-sweep`, `landing-hero-cells`, orb drift, page-enter) halts under `prefers-reduced-motion: reduce` — static frame retained.
+**Reduced motion:** All ambient animation (`chrome-flow`, `chrome-shift`, `sheen-sweep`, `landing-hero-cells`, orb drift, page-enter) halts under `prefers-reduced-motion: reduce` — static frame retained. The product-wide collapse policy (drop the travel, keep the state change as a 150ms opacity/colour cross-fade; a press becomes a colour change, never a scale) and every duration, easing and `linear()` spring token are owned by `src/components/ui/motion/tokens.css` — read it before adding a timing of your own.
 
-Interactive feedback: `active:scale-[0.99]`, 200ms transitions on buttons and nav.
+Interactive feedback: a press is `active:scale-[0.97]` settling in 75ms, over 200ms hover/transition easing on the shared `--spring-snappy` token (`ui/button.tsx`, rows, browse cards).
 
 ---
 

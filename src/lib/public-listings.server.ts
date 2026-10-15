@@ -120,6 +120,11 @@ const PUBLIC_SUBMISSION_KEYS = [
   "buildingName",
   "address",
   "zip",
+  // The legal city and state of an address whose street line and ZIP are already published here.
+  // They disclose nothing new and a public formal address (listing JSON-LD) needs them, because
+  // `neighborhood` is a browse-only label and never a legal city.
+  "city",
+  "state",
   "neighborhood",
   "homeStructureNote",
   "listingPropertyTypeId",

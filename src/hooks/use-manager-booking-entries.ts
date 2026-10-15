@@ -53,6 +53,7 @@ const BOOKING_CALENDAR_SOURCES = new Set<PropertyBookingEntry["source"]>([
   "airbnb",
   "booking_com",
   "vrbo",
+  "ical",
   "block",
 ]);
 

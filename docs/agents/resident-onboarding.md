@@ -75,6 +75,15 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
 - **Phone is required** on `/auth/resident-setup` (both password and — via the
   application snapshot — the Google path). `provisionResidentAccountByEmail`
   prefers the caller-confirmed phone over the application's.
+- **An unproven address is never an identity.** `provisionResidentAccountByEmail`
+  takes `emailProven` (default `true`, today's behaviour); `false` says the address
+  is a claim or a placeholder, so the call makes no application link, does not merge
+  an auth user that already owns the address, and attaches none of that address's
+  inbox threads. The one caller passing `false` today is the guest short-stay
+  booking, which mints a resident login keyed on the guest's PHONE and never on the
+  email they typed — a door into the portal that does not go through the apply
+  surface above, owned by [`bookings.md`](bookings.md) § Guest portal stays and not
+  restated here.
 - **The setup token is a claim capability — it only leaves via email**, except the
   guest wizard's in-session handoff (the submitter proved email ownership by
   completing the application in that session). `POST /api/auth/resident-setup-link`

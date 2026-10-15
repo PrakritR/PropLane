@@ -56,8 +56,46 @@ vocabulary — is owned by [`bookings.md`](bookings.md).
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
-working and stays manageable. SpareRoom, Furnished Finder and Apartments.com are
-listed as Coming soon so a manager can see what is planned.
+working and stays manageable. SpareRoom is listed as Coming soon so a manager can
+see what is planned.
+
+**Other calendar** (`provider: "ical"`) is the row for every site without a row of its
+own - Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon, anything
+that publishes an https `.ics`. The manager types the site's name in the popup's **Name**
+field; it is stored in the connection's existing `label` column and is what every label,
+status line, alert ("New Houfy booking") and calendar bar says
+(`channelCalendarProviderLabel(provider, label)`). There is no host allowlist (that is the
+point), so `isValidIcalImportUrl` instead refuses what must never be fetched: http, a path
+that is not `.ics` / `/ical/` / `/calendar/`, credentials in the URL, and loopback, private,
+link-local or internal hosts (`ical-host.ts`). The fetch itself goes through
+`fetchPinnedPublicHttps` (DNS resolved once, every address must be public, the connection is
+pinned to those addresses, each redirect hop re-vetted), and the first response must be
+`text/calendar` or start with `BEGIN:VCALENDAR`. The popup's check icon calls
+`POST /api/portal/channel-calendar/validate` (manager session, rate limited, 6s cap,
+returns the block count never the body). Import, export, sync, tombstones, echo suppression
+and booking alerts are the Airbnb path unchanged.
+
+A room can hold **several** Other calendar links, one per site name (Houfy and Furnished
+Finder): uniqueness is `(property, room, provider)` for the other channels and
+`(property, room, provider, lower(label))` for `ical` (two partial unique indexes,
+`20261014010000_channel_calendar_ical_provider.sql`), and
+`upsertChannelCalendarConnection` matches by hand rather than PostgREST `onConflict`
+(an expression index cannot be targeted). Each link has its own export token, and the
+export feed leaves out only ITS OWN connection's imports (`ownConnectionId` in
+`importedRangesForFeed`): Houfy's feed carries Furnished Finder's stays and the reverse.
+Removed-stay tombstones are keyed by provider, so two `ical` feeds on one room share a
+tombstone namespace (a UID collision across two sites is the only way to cross-prune).
+
+**The popup opens at once.** It used to read every stay of every linked room on open
+(`fetchManagerChannelBookings`, capped at `PORTAL_READ_TIMEOUT_MS`), which on a 28-room
+workspace exceeded 12s and surfaced "That took too long". The Integrations panel now reads
+`?slim=1` (rooms and links, no stored `imported_ranges`, no tombstones, no guest-name
+rows), passes the result to the popup as `initialConnections`, and the popup refreshes
+behind itself: a slow or failed refresh keeps what is shown and never becomes a message.
+The server read (`listManagerChannelCalendarBookings`) runs its per-house access checks and
+property loads in parallel. The cap is not raised; the full read stays the Bookings
+calendar's own ([`bookings.md`](bookings.md)). Coverage:
+`tests/unit/channel-calendar-slim-read.test.ts`, `channel-calendar-ical-modal.test.tsx`.
 
 The popup is **one page, not a wizard**: channel → scope → a paste field per
 unit. Scope is `SegmentedTwo` — **Entire workspace** or **specific properties** —
@@ -96,11 +134,12 @@ Airbnb has no public write API, so the two directions are not equally fast:
   opens `BookingsBlockDatesModal` with `mode="reserve"`: house, room and night
   prefilled, titled "Mark reserved", one **Save**. A room linked to Airbnb adds the fact
   row "Airbnb · Updates when Airbnb next checks PropLane" (`airbnbLinkForRoom`).
-- **Remove.** A manager block can be cancelled until its last night has passed,
-  **including one that already started** (`canCancelBooking`); a block with nobody
-  attached is labelled "Remove" (`isReservedBlock`, `bookingCancelLabel`) in the row and
-  record-page ⋯, behind the destructive confirm in `BookingsCancelDialog`. A resident (hold
-  or lease) is never removed here.
+- **Unblock / Delete.** Taking a block back off the calendar — who may, what each
+  action does and where it is offered — is owned by
+  [`bookings.md`](bookings.md) § Blocks. What matters to the channel: both free the
+  nights in the export feed (a cancelled block drops out of it, a deleted row is gone),
+  so Airbnb reopens them at its next poll. A resident (hold or lease) is never removed
+  here.
 - **Airbnb checked PropLane.** The export route stamps
   `external_calendar_connections.export_last_fetched_at` when the request's User-Agent
   contains "Airbnb" (`stampExportFetch`, `export-fetch-stamp.ts`): best-effort, never
@@ -124,8 +163,8 @@ Airbnb has no public write API, so the two directions are not equally fast:
   (`HM…`, taken only from a `https://www.airbnb.com/hosting/reservations/details/<code>`
   URL, and the Open-in-Airbnb link is rebuilt from the code — never the raw feed URL) and
   the guest's **phone ending** (last 4). Both show as fact rows on the booking record page;
-  the raw description is never stored. The third is `channel_stay_details` — the name, phone
-  and money a manager types or Airbnb's own notification mail to the work email fills in, owned
+  the raw description is never stored. The third is `channel_stay_details` — the name, phone,
+  note and money a manager types or Airbnb's own notification mail to the work email fills in, owned
   by [`bookings.md`](bookings.md) § Airbnb money (the mail itself:
   [`inbound-email-inbox.md`](inbound-email-inbox.md) § Airbnb notifications). What this tab owns
   is the door: RLS is on with no client policy or grant, so `GET/PUT
@@ -134,8 +173,9 @@ Airbnb has no public write API, so the two directions are not equally fast:
   the connection still carries.
 - **Echo suppression.** Airbnb mirrors PropLane's own export back as "Airbnb (Not
   available)". `isHostBlockRange` keeps that out of the alert diff, and
-  `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when it sits inside a
-  PropLane stay on the same room.
+  `withoutEchoedHostBlocks` (`host-block.ts`) hides it in Bookings when that room's own
+  stays cover it, and keeps only the uncovered remainder when they cover part of it —
+  [`bookings.md`](bookings.md) § Airbnb echoes.
 
 ### A channel calendar is a WRITE on the house
 
@@ -252,4 +292,4 @@ Workspace insights product area (`src/lib/mcp/capabilities.ts`).
 
 Coverage for the page itself: `tests/unit/manager-integrations-panel.test.tsx`,
 `integrations-channel-rows.test.tsx`, `integrations-messages-panel.test.tsx`,
-`channel-calendar-link-modal.test.tsx`.
+`channel-calendar-link-modal.test.tsx`, `channel-calendar-ical*.test.ts*`.

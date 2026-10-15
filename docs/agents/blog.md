@@ -44,4 +44,7 @@ Guards: `tests/unit/blog-posts.test.ts`, `tests/unit/blog-pages.test.tsx`,
 - `src/app/sitemap.ts` lists `/blog` plus one entry per post. A post's date may
   be ahead of today (staggered publish calendar), so a post's `lastModified` is
   clamped to now — crawlers distrust a future `lastmod`.
+- Posts are also handed to AI assistants: `/llms.txt` links every post and
+  `/llms-full.txt` carries each one as plain text with its figures and sources,
+  both derived from `BLOG_POSTS` — [`ai-search-visibility.md`](ai-search-visibility.md).
 - The blog is reachable from the public navbar Resources menu and the footer.

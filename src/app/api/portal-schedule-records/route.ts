@@ -10,6 +10,7 @@ import {
   isDedicatedBookingsRecordType,
   roomDateBlockRecordIdPrefix,
 } from "@/lib/portal-schedule-record-scope";
+import { carryGuestStayFields } from "@/lib/short-stay/guest-stays";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
@@ -321,10 +322,18 @@ const route = createJsonRecordRoute({
   // move the row onto them. `buildUpsert` pins every non-admin write to the caller, so the stored
   // owner is restored here for an UPDATE; an INSERT is stamped in `atomicWrite` instead.
   reconcileExisting: (record, user, existing) => {
-    if (!existing || user.role === "admin") return record;
+    if (!existing) return record;
     if (!isRoomDateBlockRecordType(String(record.record_type ?? ""))) return record;
+    // The guest's login, their head-count, the request's source and the hold's 24-hour deadline are
+    // server-owned: the booking editor sends back only the fields it draws, and a save must not strip
+    // them (the capacity trigger weighs a stay by `stayDetails.guests`, and the expiry cron and the
+    // Approve/Decline answer both read `stayDetails`). A platform admin edits a guest stay through the
+    // same editor, so the carry runs before the owner-restore below is skipped for them.
+    const carried = carryGuestStayFields(existing.row_data, record.row_data);
+    const next = carried ? { ...record, row_data: carried } : record;
+    if (user.role === "admin") return next;
     const storedOwner = String(existing.manager_user_id ?? "").trim();
-    return storedOwner ? { ...record, manager_user_id: storedOwner } : record;
+    return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
     if (isRoomDateBlockRecordType(String(record.record_type ?? "")) && existing) {

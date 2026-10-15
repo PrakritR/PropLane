@@ -192,7 +192,9 @@ The row measures the space it has and folds the overflow into ⋯
 its own narrow width back as the space available and stays folded; a kind whose set
 is short and fixed therefore opts out of that measurement on desktop with
 `keepInlineOnDesktop` on `PortalRecordHeaderIconActions` and keeps every icon inline
-from `lg` up. Below `lg` the measured row stays.
+from `lg` up. Below `lg` the measured row stays — unless the kind passes
+`alwaysInline` (Bookings, whose header is its only home for Unblock and Delete now
+that it carries no ⋯), which keeps every icon inline at every width.
 
 ## Known gap
 

@@ -149,7 +149,7 @@ export function BookingsBlockDatesModal({
   /** People the room can be held for. Empty is fine — "New resident" still works. */
   residentOptions?: readonly BlockDatesResidentOption[];
   onSave: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
-  onDeleteBlock?: (blockId: string) => Promise<void>;
+  onDeleteBlock?: (blockId: string) => Promise<boolean | void>;
   /**
    * "reserve" is a click on an empty room-day: titled Mark reserved, opens on the
    * review step with the house, room and night already filled, and saves with one press.

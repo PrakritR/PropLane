@@ -43,6 +43,7 @@ export function PortalRecordHeaderIconActions({
   onAction,
   primaryId,
   keepInlineOnDesktop = false,
+  alwaysInline = false,
 }: {
   actions: RecordSections["headerActions"];
   onAction?: (actionId: string) => void;
@@ -54,6 +55,8 @@ export function PortalRecordHeaderIconActions({
    * with a short, fixed action set opts out of that measurement on desktop. Below `lg` the measured row stays.
    */
   keepInlineOnDesktop?: boolean;
+  /** Show every icon inline at every width, never folding into ⋯ (a short, fixed action set). */
+  alwaysInline?: boolean;
 }) {
   const lgUp = useLgUp();
   if (allActions.length === 0) return null;
@@ -66,7 +69,7 @@ export function PortalRecordHeaderIconActions({
     <PortalAdaptiveActionRow
       align="end"
       gapPx={6}
-      maxVisible={keepInlineOnDesktop && lgUp ? actions.length : undefined}
+      maxVisible={alwaysInline || (keepInlineOnDesktop && lgUp) ? actions.length : undefined}
       actions={actions.map((action, index) => ({
         id: action.id,
         tone: index === filledIndex && action.tone !== "danger" ? "primary" : action.tone,

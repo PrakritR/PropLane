@@ -61,7 +61,9 @@ Staging (`staging-prop-lane.space`), `*.vercel.app` previews, and every other
 host serve `Disallow: /` plus `X-Robots-Tag: noindex, nofollow`
 (`src/lib/seo/public-crawl-host.ts`). After a domain cutover, clear stale SERP
 rows in Google Search Console → Removals for the old hosts (robots alone can
-lag for days).
+lag for days). What a crawler that IS allowed receives — the named AI-crawler
+rules, `/llms.txt`, the sitemap's listing URLs and the pages' JSON-LD — is owned
+by [`ai-search-visibility.md`](ai-search-visibility.md).
 
 If Production deployments stay on an old commit:
 

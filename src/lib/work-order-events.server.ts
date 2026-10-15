@@ -98,6 +98,16 @@ export type RenderedWorkOrderEvent = { subject: string; text: string; smsText: s
 const money = (cents: number | undefined) =>
   typeof cents === "number" && Number.isFinite(cents) ? `$${(cents / 100).toFixed(2)}` : "the submitted amount";
 
+/**
+ * A reference or title that is only the retired word is no name at all. Dozens
+ * of call sites substitute the literal "Work order" for a row with none, and a
+ * stored row written before the rename carries it as its own title, so the one
+ * renderer every audience reads is where it is spent — a person never reads
+ * "work order" even when that is what the row says.
+ */
+const serviceName = (value: string): string =>
+  value.trim().toLowerCase() === "work order" ? "" : value.trim();
+
 /** Pure renderer. It receives only facts allowed for this audience, preventing
  * resident notes/contact details from leaking into vendor or manager messages. */
 export function renderWorkOrderEvent(
@@ -105,14 +115,14 @@ export function renderWorkOrderEvent(
   audience: WorkOrderEventAudience,
   facts: WorkOrderEventFacts,
 ): RenderedWorkOrderEvent | null {
-  const ref = facts.reference.trim() || "Work order";
-  const title = facts.title.trim() || "Work order";
+  const ref = serviceName(facts.reference) || "Service";
+  const title = serviceName(facts.title) || "Service";
   const at = facts.propertyLabel?.trim() ? ` at ${facts.propertyLabel.trim()}` : "";
   const when = facts.scheduledFor?.trim() || "the scheduled time";
   const vendor = facts.vendorName?.trim() || "the vendor";
   // The vendor-facing messages of comms-safety-0929 always say "service".
-  const serviceRef = facts.reference.trim() || "Service";
-  const serviceTitle = facts.title.trim() || "Service";
+  const serviceRef = serviceName(facts.reference) || "Service";
+  const serviceTitle = serviceName(facts.title) || "Service";
   let text: string | null = null;
 
   const note = facts.note?.trim();
@@ -207,7 +217,7 @@ export function renderWorkOrderEvent(
     if (audience === "manager") text = `${ref}: ${money(facts.amountCents)} was marked paid.`;
   }
   if (!text) return null;
-  return { subject: `${ref} · ${title}`, text, smsText: text };
+  return { subject: ref === title ? ref : `${ref} · ${title}`, text, smsText: text };
 }
 
 /** Pure renderer for the vendor's "New task" message (comms-safety-0929). Facts only. */
@@ -354,6 +364,8 @@ async function workOrderEventImpl(
       title: input.facts.title,
       emergency: input.facts.emergency === true,
       propertyId: input.facts.propertyId?.trim() || null,
+      // The house (and room) the Team chat line names (`team-notice-line.ts`).
+      propertyLabel: input.facts.propertyLabel?.trim() || null,
     },
     recipients: input.recipients.flatMap((recipient) => {
       const rendered = renderWorkOrderEvent(input.event, recipient.audience, input.facts);

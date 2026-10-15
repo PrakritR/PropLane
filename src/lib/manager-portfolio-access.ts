@@ -624,3 +624,14 @@ export const MANAGER_PORTFOLIO_REFRESH_EVENTS = [
   "storage",
   MANAGER_APPLICATIONS_EVENT,
 ] as const;
+
+/**
+ * Whether the viewer may Unblock / Delete a booking on `propertyId`: Calendar at
+ * `edit` or above. The owner always may; an unknown viewer or house is not
+ * gated here (the server refuses the write either way), matching the payments
+ * panel's offer-what-may-be-used rule.
+ */
+export function canRemoveBookingEntry(userId: string | null | undefined, propertyId: string | undefined): boolean {
+  if (!userId || !propertyId?.trim()) return true;
+  return hasLinkedPropertyModuleLevel(userId, propertyId, "calendar", "edit");
+}

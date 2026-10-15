@@ -7,9 +7,11 @@ import "server-only";
  * the diff of the connection's stored ranges finds a reservation that is new
  * or gone. Delivery is the bus's own manager path - the same one a confirmed
  * tour takes: `emitActionEvent` -> `deliverProjection` ->
- * `notifyPropertyScopedManagersFromAgent` (the PropLane Assistant notice for the
- * owner and every teammate with the house, which follows each recipient's alert
- * destination and so reaches the work number's SMS). Nothing here changes delivery.
+ * `notifyPropertyScopedManagersFromAgent` (the owner's own PropLane Assistant
+ * notice, which follows their alert destination and so reaches the work
+ * number's SMS, plus one PropLane line in the workspace Team chat for the team;
+ * a booking is routine, so no teammate is noticed directly). Nothing here
+ * changes delivery.
  *
  * Idempotent: the event id is the connection + the stay, so a re-run sync (or a
  * retry after a failed save) never notifies twice.
@@ -59,9 +61,9 @@ export function channelBookingStay(start: string, lastNight: string): { label: s
 
 export function renderChannelBookingEvent(
   event: ChannelBookingEvent,
-  facts: { provider: ChannelCalendarProvider; propertyLabel?: string; roomLabel?: string; start: string; end: string; reservationCode?: string },
+  facts: { provider: ChannelCalendarProvider; channelLabel?: string | null; propertyLabel?: string; roomLabel?: string; start: string; end: string; reservationCode?: string },
 ): { subject: string; text: string; smsText: string } {
-  const channel = channelCalendarProviderLabel(facts.provider);
+  const channel = channelCalendarProviderLabel(facts.provider, facts.channelLabel);
   const lead = event === "channel_booking_created" ? `New ${channel} booking` : `${channel} booking cancelled`;
   const place = [facts.propertyLabel?.trim(), facts.roomLabel?.trim()].filter(Boolean);
   const code = facts.reservationCode?.trim();
@@ -78,6 +80,8 @@ export async function emitChannelBookingEvent(
     propertyId: string;
     roomId: string;
     provider: ChannelCalendarProvider;
+    /** The site name of an "Other calendar" link. */
+    channelLabel?: string | null;
     propertyLabel?: string;
     roomLabel?: string;
     range: ChannelCalendarImportedRange;
@@ -108,7 +112,7 @@ export async function emitChannelBookingEvent(
       end: input.range.end,
       nights: stay.nights,
       // Whatever the channel exposes ("Reserved" when it hides the guest); no contact data is in the feed.
-      guestLabel: bookingGuestLabel(input.range.summary, input.provider),
+      guestLabel: bookingGuestLabel(input.range.summary, input.provider, input.channelLabel),
     },
     templateContext: { propertyTitle: input.propertyLabel ?? "", roomLabel: input.roomLabel ?? "", stayLabel: stay.label, url },
     recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } }],
