@@ -566,7 +566,8 @@ export function ResidentApplicationsPanel({
     setDetailLoading(true);
     void (async () => {
       try {
-        const res = await fetch("/api/manager-applications?scope=self", { credentials: "include" });
+        // Bounded: a read that never answers must fall through to "Application not found", never "Loading" for good.
+        const res = await fetch("/api/manager-applications?scope=self", { credentials: "include", signal: AbortSignal.timeout(15000) });
         if (!res.ok || cancelled) return;
         const body = (await res.json().catch(() => null)) as { rows?: DemoApplicantRow[] } | null;
         const hit = (body?.rows ?? []).find(
@@ -576,6 +577,8 @@ export function ResidentApplicationsPanel({
         replaceManagerApplicationRowInCache(hit);
         setFetchedDetailRow(hit);
         setTick((t) => t + 1);
+      } catch {
+        // A timed-out or failed read is the same as "not found" below.
       } finally {
         if (!cancelled) setDetailLoading(false);
       }

@@ -57,7 +57,7 @@ export function VendorRowMenu({
       >
         <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[13rem]">
+      <DropdownMenuContent align="end" rowSheet className="min-w-[13rem]">
         <DropdownMenuLabel className="max-w-[16rem] truncate text-xs font-medium text-muted">{label}</DropdownMenuLabel>
         {regular.map((item) => (
           <DropdownMenuItem

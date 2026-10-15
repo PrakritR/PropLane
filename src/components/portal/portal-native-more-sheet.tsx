@@ -1,7 +1,7 @@
 "use client";
 
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
-import { PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
+import { NavLockIcon, PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
 import { useNativeChrome } from "@/hooks/use-is-native-app";
 import { isCrossPortalNavigation, portalNavClick } from "@/lib/portal-nav-client";
 import { portalMobileLinkPrefetchEnabled } from "@/lib/portal-nav-prefetch";
@@ -90,34 +90,20 @@ function MoreNavRow({
   const router = useRouter();
   const pathname = usePathname();
   const nativeChrome = useNativeChrome();
+  // Same split as the desktop sidebar (`portalNavLockKind`): an upsell / notice lock stays a live
+  // link to the page desktop links to; an inert lock is a dead row with nothing to follow.
   const inert = Boolean(item.locked) && !item.lockedNavigable;
-
-  return (
-    <Link
-      href={inert ? "#" : item.href}
-      prefetch={inert ? false : portalMobileLinkPrefetchEnabled()}
-      onClick={(e) => {
-        if (inert) {
-          e.preventDefault();
-          return;
-        }
-        portalNavClick(router, item.href, {
-          preferFullNavigation: nativeChrome && isCrossPortalNavigation(pathname, item.href),
-        })(e);
-        onNavigate();
-      }}
-      className={`portal-pressable flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition active:opacity-90 ${
-        active
-          ? "bg-primary/10 text-primary"
-          : inert
-            ? "cursor-not-allowed text-muted/80"
-            : item.locked
-              ? "text-muted/80 hover:bg-accent/70"
-              : "text-foreground hover:bg-accent/70"
-      }`}
-      aria-label={item.locked ? `${item.label} (locked)` : item.label}
-      aria-disabled={inert ? true : undefined}
-    >
+  const rowClass = `portal-pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition active:opacity-90 ${
+    active
+      ? "bg-primary/10 text-primary"
+      : inert
+        ? "cursor-not-allowed text-muted/80"
+        : item.locked
+          ? "text-muted/80 hover:bg-accent/70"
+          : "text-foreground hover:bg-accent/70"
+  }`;
+  const body = (
+    <>
       {showNavIcons ? (
         <span className={`shrink-0 ${item.locked ? "opacity-60" : ""}`} aria-hidden>
           <PortalNavIcon section={item.section} sectionTabId={item.sectionTabId} active={active} />
@@ -127,7 +113,43 @@ function MoreNavRow({
       {!item.locked && (item.count ?? 0) > 0 ? (
         <PortalNavCountBadge count={item.count ?? 0} tone={moreSheetCountTone(item)} />
       ) : null}
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted/60" aria-hidden />
+      {item.locked ? (
+        <NavLockIcon className="h-3.5 w-3.5 shrink-0 text-muted" />
+      ) : (
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted/60" aria-hidden />
+      )}
+    </>
+  );
+  const ariaLabel = item.locked ? `${item.label} (locked)` : item.label;
+
+  if (inert) {
+    return (
+      <button
+        type="button"
+        className={rowClass}
+        aria-label={ariaLabel}
+        aria-disabled="true"
+        data-nav-lock="inert"
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <Link
+      href={item.href}
+      prefetch={portalMobileLinkPrefetchEnabled()}
+      onClick={(e) => {
+        portalNavClick(router, item.href, {
+          preferFullNavigation: nativeChrome && isCrossPortalNavigation(pathname, item.href),
+        })(e);
+        onNavigate();
+      }}
+      className={rowClass}
+      aria-label={ariaLabel}
+    >
+      {body}
     </Link>
   );
 }

@@ -2920,14 +2920,14 @@ function RentalApplicationWizardInner({
             <div
               className={
                 embedded
-                  ? "rental-wizard-actions rental-wizard-actions--pinned mt-6 flex flex-col-reverse gap-3 border-t border-border pt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+                  ? "rental-wizard-actions rental-wizard-actions--pinned mt-6 flex flex-row items-center justify-between gap-3 border-t border-border pt-3 sm:flex-wrap sm:pt-6"
                   : "rental-wizard-actions rental-wizard-actions--pinned mt-8 flex flex-col-reverse gap-3 border-t border-border pt-6 sm:mt-10 sm:flex-row sm:items-center sm:justify-between sm:pt-8"
               }
             >
               <Button
                 type="button"
                 variant="outline"
-                className={embedded ? PORTAL_DETAIL_BTN : "w-full min-h-[48px] sm:w-auto sm:min-w-[120px]"}
+                className={embedded ? `${PORTAL_DETAIL_BTN} max-sm:flex-1` : "w-full min-h-[48px] sm:w-auto sm:min-w-[120px]"}
                 onClick={handleBack}
               >
                 {step <= 1
@@ -2941,7 +2941,7 @@ function RentalApplicationWizardInner({
               <Button
                 type="button"
                 variant="primary"
-                className={embedded ? undefined : "w-full min-h-[48px] sm:w-auto sm:min-w-[200px]"}
+                className={embedded ? "max-sm:flex-1" : "w-full min-h-[48px] sm:w-auto sm:min-w-[200px]"}
                 data-attr="rental-wizard-continue"
                 onClick={handleContinue}
                 disabled={

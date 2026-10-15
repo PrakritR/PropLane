@@ -56,7 +56,7 @@ export function PortalRowMenu({
       >
         <MoreHorizontal className={iconClassName ?? RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" rowSheet>
         {regular.map((item) => (
           <DropdownMenuItem key={item.id} disabled={item.disabled} data-attr={item.dataAttr} onSelect={item.onSelect}>
             {item.label}

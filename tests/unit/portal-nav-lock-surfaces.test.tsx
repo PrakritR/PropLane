@@ -52,12 +52,12 @@ describe("More sheet honours the lock split", () => {
     expect(row.getAttribute("aria-disabled")).toBeNull();
   });
 
-  it("an inert lock goes nowhere and is marked disabled", () => {
+  it("an inert lock is a dead button: no href, marked disabled", () => {
     renderSheet([
       { section: "lease", label: "Lease", href: "/resident/lease", locked: true },
     ]);
-    const row = screen.getByRole("link", { name: /Lease \(locked\)/ });
-    expect(row.getAttribute("href")).toBe("#");
+    const row = screen.getByRole("button", { name: /Lease \(locked\)/ });
+    expect(row.getAttribute("href")).toBeNull();
     expect(row.getAttribute("aria-disabled")).toBe("true");
   });
 

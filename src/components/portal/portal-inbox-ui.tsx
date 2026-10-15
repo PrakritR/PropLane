@@ -3111,10 +3111,8 @@ export function InboxScheduledThreadList({
 /** Right-pane placeholder shown when no conversation is selected. */
 export function InboxThreadEmpty({
   title = "Select a conversation",
-  hint = "Choose a message on the left to read it and reply here.",
 }: {
   title?: string;
-  hint?: string;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
@@ -3122,7 +3120,6 @@ export function InboxThreadEmpty({
         <PortalEmptyIcon kind="inbox" className="h-6 w-6" />
       </div>
       <p className="mt-4 text-sm font-semibold text-foreground">{title}</p>
-      {hint ? <p className="mt-1 max-w-xs text-xs text-muted">{hint}</p> : null}
     </div>
   );
 }

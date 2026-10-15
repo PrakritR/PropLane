@@ -141,7 +141,10 @@ export function prefetchPortalData(kind: PortalKind, userId?: string | null): Pr
     // empty until the resident opens those pages themselves. Both go through
     // the same coalesced refreshers the dashboard already uses, so this is a
     // no-op TTL hit rather than extra egress once the dashboard has fetched.
+    // The Application badge and the lease authorization read the resident's own application rows
+    // too: without them in the mirror the badge only appeared on pages that happened to sync them.
     residentPrefetchPromise = Promise.allSettled([
+      syncManagerApplicationsFromServer({ selfScope: true }),
       syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY),
       syncHouseholdChargesFromServer(false, { skipReconcile: true }),
       syncLeasePipelineFromServer(),

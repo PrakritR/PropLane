@@ -96,6 +96,7 @@ import {
   splitShareLabel,
   moneyLabel,
 } from "@/lib/bundle-group/bundle-cost-split";
+import { formatChargeMoneyLabel, humanizeChargeDate } from "@/lib/charge-due-label";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 
@@ -1579,6 +1580,10 @@ function parseDueDateLabelToDate(label: string | undefined): Date | null {
   if (!raw) return null;
   // Strip display prefixes like "By " or "Before " before attempting to parse
   const stripped = raw.replace(/^(by|before)\s+/i, "").trim();
+  // A date-only ISO value is a Pacific wall date: build it in local time, never as UTC midnight
+  // (which reads as the day before west of Greenwich).
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(stripped);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), 12, 0, 0, 0);
   const parsed = new Date(stripped);
   if (Number.isNaN(parsed.getTime())) return null;
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0, 0);
@@ -1796,12 +1801,12 @@ function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()
  * receipt carries one, else the charge's own amount. Never the zero balance.
  */
 export function residentChargeAmountLabel(charge: HouseholdCharge): string {
-  if (charge.status !== "paid") return charge.balanceLabel;
+  if (charge.status !== "paid") return formatChargeMoneyLabel(charge.balanceLabel);
   const paid = charge.paidAmountCents;
   if (typeof paid === "number" && Number.isSafeInteger(paid) && paid > 0) {
     return `$${(paid / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
-  return charge.amountLabel || charge.balanceLabel;
+  return formatChargeMoneyLabel(charge.amountLabel || charge.balanceLabel);
 }
 
 /** A manual bank PI may still need microdeposit verification; the charge alone cannot attest clearing. */
@@ -1821,8 +1826,15 @@ export function residentChargeCountsAsDue(charge: HouseholdCharge, now = new Dat
   return isHouseholdChargeOverdue(charge, now);
 }
 
+/** The Payments tab a charge's row lives on: paid history, what is due now, or what is still upcoming (incl. bank-clearing). */
+export function residentChargeBucket(charge: HouseholdCharge, now = new Date()): "overdue" | "pending" | "paid" {
+  if (charge.status === "paid") return "paid";
+  if (charge.status === "processing") return "pending";
+  return residentChargeCountsAsDue(charge, now) ? "overdue" : "pending";
+}
+
 export function chargeDueLabel(charge: HouseholdCharge): string {
-  if (charge.dueDateLabel?.trim()) return charge.dueDateLabel.trim();
+  if (charge.dueDateLabel?.trim()) return humanizeChargeDate(charge.dueDateLabel);
   if (
     (charge.kind === "rent" || (charge.kind === "utilities" && charge.recurringRentProfileId)) &&
     charge.rentMonth

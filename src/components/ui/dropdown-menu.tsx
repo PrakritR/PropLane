@@ -5,10 +5,43 @@ import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
+import { usePortalSurface } from "@/components/ui/portal-surface";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
+
+/** Downward drag (px) on the grab handle past which a release closes a row sheet. */
+const MENU_SHEET_SWIPE_DISMISS_PX = 48;
+
+/**
+ * The grab handle of a row menu drawn as a bottom sheet. Dragging it down closes the sheet by
+ * sending the menu its own Escape (Radix listens for it on the document), so no open state has
+ * to be threaded through every caller.
+ */
+function MenuSheetHandle() {
+  const startY = React.useRef<number | null>(null);
+  return (
+    <div
+      aria-hidden
+      data-menu-sheet-handle=""
+      className="flex h-6 shrink-0 cursor-grab touch-none items-center justify-center"
+      onPointerDown={(event) => {
+        startY.current = event.clientY;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      }}
+      onPointerUp={(event) => {
+        const from = startY.current;
+        startY.current = null;
+        if (from !== null && event.clientY - from >= MENU_SHEET_SWIPE_DISMISS_PX) {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        }
+      }}
+    >
+      <span className="h-1 w-10 rounded-full bg-border" />
+    </div>
+  );
+}
 
 /**
  * Every dropdown menu is liquid glass over a blurred page.
@@ -27,14 +60,25 @@ export function DropdownMenuContent({
   backdrop = true,
   glass = true,
   collisionPadding,
+  rowSheet = false,
+  children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /**
+   * A record row's ⋯ menu. On a phone (touch, or no room for a popover) it is drawn as a bottom
+   * sheet with a grab handle instead of a floating card: a card anchored beside the trigger
+   * overflows a 390px screen, drags the page sideways and clips the row it came from. Desktop
+   * keeps the anchored popover.
+   */
+  rowSheet?: boolean;
   /** Blur and dim the page behind the menu. Off only inside a modal. */
   backdrop?: boolean;
   /** The translucent liquid surface. Off only for a deliberately flat menu. */
   glass?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const surface = usePortalSurface("toolbar");
+  const asSheet = rowSheet && surface === "sheet";
   const resolvedCollisionPadding =
     collisionPadding ?? {
       top: 12 + insets.top,
@@ -49,7 +93,11 @@ export function DropdownMenuContent({
           <div
             // Just under the menu itself (z-[10060]) so it blurs whatever the
             // menu opened over — the page, or a modal or full-page workspace.
-            className="portal-menu-backdrop fixed inset-0 z-[10050] animate-in fade-in-0 pointer-events-none motion-reduce:animate-none"
+            className={cn(
+              "portal-menu-backdrop fixed inset-0 z-[10050] animate-in fade-in-0 motion-reduce:animate-none",
+              // A sheet's backdrop is a real tap-to-close surface that also dims the page.
+              asSheet ? "bg-black/35" : "pointer-events-none",
+            )}
             data-testid="dropdown-menu-backdrop"
             aria-hidden
           />
@@ -77,9 +125,15 @@ export function DropdownMenuContent({
             "motion-reduce:animate-none motion-reduce:transition-none",
             glass && "portal-liquid-glass",
             className,
+            // After `className`: a caller's fixed width (w-64) must not survive into the sheet.
+            asSheet && "portal-menu-sheet w-full min-w-0 max-w-none rounded-b-none rounded-t-[20px] px-3 pt-0",
           )}
+          data-menu-sheet={asSheet ? "" : undefined}
           {...props}
-        />
+        >
+          {asSheet ? <MenuSheetHandle /> : null}
+          {children}
+        </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </>
   );

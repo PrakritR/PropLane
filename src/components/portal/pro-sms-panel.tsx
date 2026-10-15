@@ -1348,7 +1348,7 @@ export const ManagerSmsPanel = forwardRef<
     controlledActiveId ? (
       <InboxThreadSkeleton />
     ) : (
-      <InboxThreadEmpty hint="Choose a conversation on the left, or use New message above." />
+      <InboxThreadEmpty />
     )
   ) : (
     <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>

@@ -23,3 +23,36 @@ export function formatChargeDueLabel(label: string): string {
   if (DISPLAY_DATE.test(t)) return `Due ${t}`;
   return t;
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const ISO_DATE = /^(by\s+|before\s+)?(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/i;
+
+/**
+ * A stored ISO date ("2026-10-07", optionally with a By / Before prefix or a time part) as the
+ * product's display date ("Oct 7, 2026"). The calendar date is read straight from the string - a
+ * date-only value is a wall date, so it is never run through `Date` and shifted by a timezone.
+ * Anything that is not an ISO date comes back trimmed and unchanged.
+ */
+export function humanizeChargeDate(label: string): string {
+  const t = label.trim();
+  const m = ISO_DATE.exec(t);
+  if (!m) return t;
+  const month = Number(m[3]);
+  const day = Number(m[4]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return t;
+  const prefix = m[1] ? (m[1].trim().toLowerCase() === "by" ? "By " : "Before ") : "";
+  return `${prefix}${MONTHS[month - 1]} ${day}, ${m[2]}`;
+}
+
+const MONEY_LABEL = /^(-)?\s*\$?\s*(-)?(\d[\d,]*(?:\.\d+)?)$/;
+
+/** "$1800.00" / "1800" as "$1,800.00". A label that is not a plain amount comes back unchanged. */
+export function formatChargeMoneyLabel(label: string): string {
+  const t = label.trim();
+  const m = MONEY_LABEL.exec(t);
+  if (!m) return label;
+  const n = Number(m[3]!.replace(/,/g, ""));
+  if (!Number.isFinite(n)) return label;
+  const body = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${m[1] || m[2] ? "-" : ""}$${body}`;
+}

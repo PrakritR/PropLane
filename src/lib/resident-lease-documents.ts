@@ -29,6 +29,15 @@ export function residentLeaseStatusFilterTabs(
   ];
 }
 
+/**
+ * The Lease sidebar badge: the Pending tab's row count, from the SAME row builder the Lease list
+ * renders. A lease row the resident cannot see yet (no document, not shared) lists nothing, so it
+ * must badge nothing — counting the row's bucket/status instead showed "1" over an empty list.
+ */
+export function residentPendingLeaseRowCount(row: LeasePipelineRow | null): number {
+  return buildResidentLeaseDocumentRows(row).filter((entry) => entry.filterBucket === "pending").length;
+}
+
 export function filterResidentLeaseDocumentRows(
   rows: ResidentLeaseDocumentRow[],
   filter: ResidentLeaseStatusFilter,

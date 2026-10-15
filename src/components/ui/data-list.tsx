@@ -110,7 +110,7 @@ function DataListOverflowMenu({ actions }: { actions: DataListRowAction[] }) {
       >
         <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" rowSheet>
         {actions.map((action) => (
           <DropdownMenuItem
             key={action.id}

@@ -1944,10 +1944,7 @@ export function ManagerUnifiedInbox({
         }}
       />
     ) : (
-      <InboxThreadEmpty
-        title="Select a conversation"
-        hint=""
-      />
+      <InboxThreadEmpty title="Select a conversation" />
     );
 
   // The right-hand contact column restates what the open conversation already carries; it

@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { Check } from "lucide-react";
 import { compactLifecycleLabel, type ResidentLifecycleStep } from "@/lib/resident-lifecycle-journey";
 
@@ -13,11 +14,20 @@ export function ResidentLifecycleCompactTracker({
   variant?: "compact" | "full";
 }) {
   const full = variant === "full";
+  // Phone, compact: six columns share the card, but the CURRENT step prints its full label
+  // ("Application received", "Pay move-in") where the rest print a short word, so it gets the wider
+  // column. Every label then sits under its own number and wraps inside that column.
+  const compactColumns = steps
+    .map((step) => (step.state === "current" ? "minmax(0,1.35fr)" : "minmax(0,1fr)"))
+    .join(" ");
   return (
     <ol
       className={`grid list-none p-0 ${
-        full ? "grid-cols-1 gap-0 sm:grid-cols-6 sm:gap-2" : "grid-cols-6 gap-1 [html[data-native]_&]:gap-0.5"
+        full
+          ? "grid-cols-1 gap-0 sm:grid-cols-6 sm:gap-2"
+          : "grid-cols-6 gap-1 max-sm:gap-0.5 max-sm:[grid-template-columns:var(--jr-cols)] [html[data-native]_&]:gap-0.5"
       }`}
+      style={full ? undefined : ({ "--jr-cols": compactColumns } as CSSProperties)}
       data-jr-track
       aria-hidden={full ? undefined : true}
     >
@@ -57,7 +67,7 @@ export function ResidentLifecycleCompactTracker({
           >
             {step.state === "done" ? <Check className="size-3.5" strokeWidth={3} aria-hidden /> : index + 1}
           </span>
-          <span className="flex min-w-0 flex-col gap-px">
+          <span className="flex w-full min-w-0 flex-col gap-px">
             {full ? (
               <>
                 <b
@@ -70,7 +80,7 @@ export function ResidentLifecycleCompactTracker({
               </>
             ) : (
               <b
-                className="min-w-0 max-w-full text-[10.5px] font-extrabold leading-tight tracking-tight [html[data-native]_&]:text-[10px]"
+                className="block w-full min-w-0 max-w-full text-[10px] font-extrabold leading-tight tracking-tight [overflow-wrap:anywhere] max-[374px]:text-[9px] sm:text-[10.5px] [html[data-native]_&]:text-[10px]"
                 style={step.state === "current" ? { color: "var(--primary)" } : undefined}
               >
                 {compactLifecycleLabel(step)}

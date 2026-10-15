@@ -242,12 +242,10 @@ export function PortalListDetailPane({
 
 export function PortalListDetailPlaceholder({
   title = "Select an item",
-  hint = "Choose a row on the left to view details.",
 }: {
   title?: string;
-  hint?: string;
 }) {
-  return <InboxThreadEmpty title={title} hint={hint} />;
+  return <InboxThreadEmpty title={title} />;
 }
 
 /** Page chrome for list-detail manager sections (mirrors Communication shell). */

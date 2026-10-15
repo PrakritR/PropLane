@@ -2696,7 +2696,9 @@ html[data-portal-sticky-chrome] .portal-main-inner {
   min-height: 0 !important;
   flex: 1 1 0% !important;
   flex-direction: column;
-  overflow: hidden;
+  /* `clip`, never `hidden`: a hidden box is still a scroll container, and the full-bleed rows poke
+     into its padding, so a focus scroll (a row's ⋯ opening) slid the whole page 8px sideways. */
+  overflow: clip;
   height: auto;
   max-height: 100%;
 }
@@ -3716,6 +3718,27 @@ html[data-native] [data-listing-subnav] {
 .record-action-menu [role="menuitem"][data-record-action-tone="positive"] { color: #12805c; font-weight: 600; }
 .record-action-menu [role="menuitem"][data-record-action-tone="negative"],
 .record-action-menu [role="menuitem"][data-record-action-tone="destructive"] { color: var(--red, #d92d20); }
+/* A row's ⋯ menu on a phone is a bottom sheet (DropdownMenuContent `rowSheet`): Radix still owns
+   focus, keys and dismissal, but its popper wrapper is pinned to the screen's bottom edge instead
+   of floating beside the trigger, so it can never overflow the viewport or shift the page. */
+[data-radix-popper-content-wrapper]:has(> [data-menu-sheet]) {
+  position: fixed !important;
+  inset: auto 0 0 0 !important;
+  transform: none !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+[data-menu-sheet] {
+  max-height: min(70dvh, 28rem) !important;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)) !important;
+  border-bottom: 0 !important;
+  background: var(--card) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+[data-menu-sheet][data-state="open"] { animation: menu-sheet-in 220ms cubic-bezier(.22, 1, .36, 1) both !important; }
+@keyframes menu-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { [data-menu-sheet][data-state="open"] { animation: none !important; } }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
 /* Desktop menus are floating cards (approved shell redesign): solid white, one
    1px border, the popover shadow, and no blurred scrim behind them. */

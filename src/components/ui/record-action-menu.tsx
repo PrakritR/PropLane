@@ -228,7 +228,7 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
           event.stopPropagation();
         }}
         align="end"
-
+        rowSheet
         aria-label={`Actions for ${label}`}
         data-attr="record-actions-menu"
         className="record-action-menu z-[10060] max-h-[min(var(--radix-dropdown-menu-content-available-height),28rem)] w-64 overflow-y-auto"

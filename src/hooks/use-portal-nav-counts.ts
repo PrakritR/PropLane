@@ -33,6 +33,7 @@ import {
   readAllServiceRequests,
   SERVICE_REQUESTS_EVENT,
 } from "@/lib/service-requests-storage";
+import { residentPendingLeaseRowCount } from "@/lib/resident-lease-documents";
 import { residentPaymentsNavBadge } from "@/lib/resident-payments-tabs";
 import { residentDueRowCount } from "@/lib/resident-payments-due-count";
 import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
@@ -415,8 +416,7 @@ export function usePortalNavCounts(
       const lease = safeState(() => {
         const axisId = approvedApplicationAxisIdForResidentEmail(residentEmail);
         const row = findLeaseForResidentEmail(residentEmail, { residentAxisId: axisId });
-        const pending = row?.bucket === "resident" && row.status === "Resident Signature Pending";
-        return countState(pending ? 1 : 0, "muted");
+        return countState(residentPendingLeaseRowCount(row), "muted");
       });
       const payments = safeState(() => {
         const badge = residentPaymentsNavBadge(residentDueRowCount(readChargesForResident(residentEmail, userId)));

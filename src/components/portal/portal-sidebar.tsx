@@ -3,7 +3,7 @@
 import type { ManagerPortalNavTier } from "@/lib/manager-access";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
-import { PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
+import { NavLockIcon, PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
 import {
   PortalNativeMoreNavButton,
   PortalNativeMoreSheet,
@@ -110,24 +110,6 @@ function navLinkClass(active: boolean, locked?: boolean, unread?: boolean) {
         : unread
           ? "font-[650] text-foreground hover:bg-[rgba(17,24,39,0.045)]"
           : "font-normal text-[#3c414b] hover:bg-[rgba(17,24,39,0.045)]",
-  );
-}
-
-function NavLockIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-    </svg>
   );
 }
 

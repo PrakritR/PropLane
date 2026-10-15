@@ -206,6 +206,8 @@ export type RecordSectionContext = {
   /** service — an add-on request or a maintenance work order share the one rail. */
   serviceKind?: "request" | "work-order";
   serviceBucket?: ServiceRequestBucketId | WorkOrderBucketId;
+  /** resident payment — false once the charge is paid or otherwise settled: its record offers no Pay. Omitted = owed. */
+  paymentOwed?: boolean;
 };
 
 type OwnGroup = { label: string; ids: Array<{ id: string; label: string }> };
@@ -989,8 +991,12 @@ export function recordSections(
     groups.push({ label: "", items: trioItems });
   }
 
+  const baseHeaderActions = (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions;
+  // Pay belongs to a charge that is still owed; a settled charge's header never offers it.
   const headerActions = orderHeaderActions(
-    (activeSectionId && def.sectionActions?.[activeSectionId]) || def.headerActions,
+    role === "resident" && kind === "payment" && ctx.paymentOwed === false
+      ? baseHeaderActions.filter((a) => a.id !== "pay")
+      : baseHeaderActions,
   );
 
   return {

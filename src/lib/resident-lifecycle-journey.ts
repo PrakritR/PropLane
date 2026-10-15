@@ -124,7 +124,6 @@ export function residentLifecycleSteps(input: ResidentLifecycleInput): ResidentL
 
 export interface ResidentLifecycleNextAction {
   title: string;
-  detail: string;
   href: string;
   ctaLabel: string;
   urgent: boolean;
@@ -134,18 +133,16 @@ export interface ResidentLifecycleNextAction {
 
 /**
  * The one next action, worded as the studio journey does (journey-0930): what
- * to do, one sentence on why, and a button that names the amount when money is
- * the step. Move-in costs are payable the moment the resident signs; the
- * countersignature is the last wait.
+ * to do and a button that names the amount when money is the step. Title and
+ * button only: no sentence under the title. Move-in costs are payable the
+ * moment the resident signs; the countersignature is the last wait.
  */
 export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput): ResidentLifecycleNextAction {
   const base = input.basePath?.trim() || "/resident";
-  const manager = input.workspaceName?.trim() || "your manager";
 
   if (input.applicationDeclined) {
     return {
       title: "Application not approved",
-      detail: `Message ${input.workspaceName?.trim() || "your property manager"} if you have questions.`,
       href: `${base}/communication`,
       ctaLabel: "Message",
       who: "Property manager",
@@ -157,7 +154,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
     const fee = input.applicationFeeLabel?.trim();
     return {
       title: "Pay the application fee",
-      detail: `${fee ? `${fee} sends it for review. ` : ""}Your card was declined.`,
       href: `${base}/applications`,
       ctaLabel: fee ? `Pay ${fee}` : "Pay fee",
       who: "You",
@@ -168,7 +164,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
   if (!input.applicationSubmitted) {
     return {
       title: "Finish your application",
-      detail: "Submit it to move this forward.",
       href: `${base}/applications`,
       ctaLabel: "Continue application",
       who: "You",
@@ -180,7 +175,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
     const fee = input.applicationFeeLabel?.trim();
     return {
       title: "Pay the application fee",
-      detail: fee ? `${fee} sends it for review.` : "Your application is not complete until the fee is paid.",
       href: `${base}/applications`,
       ctaLabel: fee ? `Pay ${fee}` : "Pay fee",
       who: "You",
@@ -191,7 +185,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
   if (!input.applicationApproved) {
     return {
       title: "Application under review",
-      detail: "You'll get an email and a text when it's decided.",
       href: `${base}/applications`,
       ctaLabel: "View application",
       who: "Property manager",
@@ -202,7 +195,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
   if (!input.residentSignedLease) {
     return {
       title: "Review and sign your lease",
-      detail: "Then pay your move-in costs in the same visit.",
       href: `${base}/sign-and-pay`,
       ctaLabel: "Review & sign",
       who: "You",
@@ -214,7 +206,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
     const total = input.moveInTotalLabel?.trim();
     return {
       title: "Pay your move-in costs",
-      detail: total ? `${total} covers your deposit, first month and any fees.` : "Deposit and move-in fees are due before move-in.",
       href: `${base}/sign-and-pay`,
       ctaLabel: total ? `Pay ${total}` : "Pay move-in",
       who: "You",
@@ -225,7 +216,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
   if (!input.managerCountersigned) {
     return {
       title: "Waiting for your countersignature",
-      detail: `Your move-in costs are paid. Your home opens once ${manager} countersigns.`,
       href: `${base}/lease`,
       ctaLabel: "View lease",
       who: "Property manager",
@@ -236,7 +226,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
   if (!input.movedIn) {
     return {
       title: "Get ready to move in",
-      detail: "Door code and house rules appear in Move-in.",
       href: `${base}/move-in`,
       ctaLabel: "Open move-in",
       who: "You",
@@ -246,7 +235,6 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
 
   return {
     title: "You're all caught up",
-    detail: "Nothing needs your attention right now.",
     href: `${base}/move-in`,
     ctaLabel: "Open your home",
     who: "You",

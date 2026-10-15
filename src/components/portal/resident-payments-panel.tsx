@@ -1,6 +1,6 @@
 "use client";
 
-import { formatChargeDueLabel, looksLikeDueDate } from "@/lib/charge-due-label";
+import { formatChargeDueLabel, formatChargeMoneyLabel, looksLikeDueDate } from "@/lib/charge-due-label";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { recordDelightMoment } from "@/lib/native/app-review";
@@ -48,6 +48,7 @@ import { useNativePlatform } from "@/hooks/use-native-platform";
 import {
   chargeDueLabel,
   residentChargeAmountLabel,
+  residentChargeBucket,
   residentChargeListDueLabel,
   residentChargeCountsAsDue,
   compareChargesByDueDate,
@@ -697,13 +698,16 @@ export function ResidentPaymentsPanel({
     // Decided only after the first server read: the cached rows alone can show Upcoming while the
     // Due rows are still on their way, which sent a phone to Upcoming and a desktop to Due.
     if (landedOnBucket.current || !email || chargeIdProp || resolvedBucketProp === "paid" || !initialSyncDone) return;
+    // A `?pay=<chargeId>` link is routed straight to that charge's record below, never to a landing tab.
+    const payTarget = searchParams.get("pay");
+    if (payTarget && payTarget !== "now") return;
     const landing = residentPaymentsLandingBucket({ due: overdueRows.length, upcoming: upcomingPendingRows.length });
     if (!landing) return;
     landedOnBucket.current = true;
     if (landing !== resolvedBucketProp) {
       portalNavigate(residentChargesListHref(basePath, landing), { replace: true });
     }
-  }, [basePath, chargeIdProp, email, initialSyncDone, portalNavigate, resolvedBucketProp, overdueRows.length, upcomingPendingRows.length]);
+  }, [basePath, chargeIdProp, email, initialSyncDone, portalNavigate, resolvedBucketProp, searchParams, overdueRows.length, upcomingPendingRows.length]);
 
   const statusTabs = useMemo(
     () =>
@@ -953,24 +957,36 @@ export function ResidentPaymentsPanel({
     if (payParam === "now") {
       if (unpaidPayableCharges.length === 0) return;
       payHeaderAction();
-    } else {
-      const targetIds = filterChargesForPayMethod(charges.filter((c) => c.id === payParam && isPayableHouseholdCharge(c))).map(
-        (c) => c.id,
-      );
-      if (targetIds.length === 0) return;
-      openPayConfirm(targetIds, paymentMethod);
+      router.replace(`${basePath}/payments`);
+      return;
     }
-    router.replace(`${basePath}/payments`);
+    // `?pay=<chargeId>` opens that charge exactly as tapping its row does, on whichever tab holds it
+    // (a move-in line opens its Move-in total row). Opening never starts a payment; the resident
+    // pays from the record. Wait for the first server read so the charge is not "missing" yet.
+    if (!initialSyncDone) return;
+    const group = moveInGroups.find((g) => g.items.some((c) => c.id === payParam));
+    const target = group ? undefined : rows.find((c) => c.id === payParam);
+    if (group || target) landedOnBucket.current = true;
+    if (group) {
+      portalNavigate(
+        residentChargeDetailHref(basePath, group.overdue ? "overdue" : "pending", group.id),
+        { replace: true },
+      );
+    } else if (target) {
+      portalNavigate(residentChargeDetailHref(basePath, residentChargeBucket(target), target.id), { replace: true });
+    } else {
+      router.replace(`${basePath}/payments`);
+    }
   }, [
     basePath,
-    charges,
-    chargeIdProp,
-    openPayConfirm,
+    initialSyncDone,
+    moveInGroups,
     payConfirm,
-    paymentMethod,
     paymentsUnlocked,
     payHeaderAction,
+    portalNavigate,
     router,
+    rows,
     searchParams,
     unpaidPayableCharges,
   ]);
@@ -1112,7 +1128,7 @@ export function ResidentPaymentsPanel({
         ) : null}
         {payable && rowPayIds.length > 0 ? (
           <p className="mb-4 text-sm text-muted">
-            Tap <span className="font-semibold text-foreground">Pay {row.balanceLabel}</span> above to pay through
+            Tap <span className="font-semibold text-foreground">Pay {formatChargeMoneyLabel(row.balanceLabel)}</span> above to pay through
             PropLane secure checkout, or message your manager if something looks wrong.
           </p>
         ) : row.status !== "processing" && row.status !== "paid" && !achPayable ? (
@@ -1182,7 +1198,7 @@ export function ResidentPaymentsPanel({
               openPayConfirm(rowPayIds, paymentMethod);
             }}
           >
-            Pay {row.balanceLabel}
+            Pay {formatChargeMoneyLabel(row.balanceLabel)}
           </Button>
         ) : null}
       </PortalTableDetailActions>
@@ -1245,8 +1261,14 @@ export function ResidentPaymentsPanel({
     </Button>
   ) : null;
 
+  // Pay is offered only while a selected charge is still owed (the same payable set Pay all and the
+  // record's Pay button use). A paid or otherwise settled row's ⋯ never carries it.
+  const selectionHasOwedCharge = useMemo(
+    () => unpaidPayableCharges.some((c) => selectedIds.has(c.id)),
+    [selectedIds, unpaidPayableCharges],
+  );
   const paySelectionActions = useMemo((): PortalAdaptiveAction[] => {
-    if (selectedIds.size === 0) return [];
+    if (selectedIds.size === 0 || !selectionHasOwedCharge) return [];
     return [
       {
         id: "pay",
@@ -1269,7 +1291,7 @@ export function ResidentPaymentsPanel({
         ),
       },
     ];
-  }, [payHeaderAction, selectedIds.size]);
+  }, [payHeaderAction, selectedIds.size, selectionHasOwedCharge]);
 
   const paymentsLockedEmpty = Boolean(email) && !paymentsUnlocked;
 
@@ -1526,7 +1548,7 @@ export function ResidentPaymentsPanel({
       title="Pay charges"
       contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
       previewLabel="Payment preview"
-      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${charge.title}`, value: charge.balanceLabel })), { label: "Amount due", value: confirmTotalLabel }]} />}
+      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${charge.title}`, value: formatChargeMoneyLabel(charge.balanceLabel) })), { label: "Amount due", value: confirmTotalLabel }]} />}
       scrollableContent
       panelClassName={payModalCheckoutReady ? MODAL_LARGE_PANEL_CLASS : "max-w-lg"}
     >
@@ -1658,7 +1680,7 @@ export function ResidentPaymentsPanel({
                     {item.status === "processing" ? residentChargeListDueLabel(item) : chargeDueLabel(item)}
                   </p>
                 </div>
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{item.balanceLabel}</span>
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{formatChargeMoneyLabel(item.balanceLabel)}</span>
               </li>
             ))}
           </ul>
@@ -1683,8 +1705,8 @@ export function ResidentPaymentsPanel({
 
   if (chargeIdProp && detailCharge) {
     const activeChargeTab = parseResidentPaymentDetailTab(chargeDetailTab);
-    const chargeSections = recordSections("resident", "payment", { basePath, bucket });
     const chargePayable = isPayableHouseholdCharge(detailCharge);
+    const chargeSections = recordSections("resident", "payment", { basePath, bucket, paymentOwed: chargePayable });
     const chargeStickyPayIds = filterChargesForPayMethod([detailCharge]).map((c) => c.id);
     return (
       <>
@@ -1728,7 +1750,7 @@ export function ResidentPaymentsPanel({
                     { id: "amount", label: "Amount", value: residentChargeAmountLabel(detailCharge) },
                     { id: "due", label: "Due", value: chargeDueLabel(detailCharge), tone: bucket === "overdue" ? "danger" : "default" },
                     { id: "status", label: "Status", value: detailCharge.status },
-                    { id: "balance", label: "Balance", value: detailCharge.balanceLabel },
+                    { id: "balance", label: "Balance", value: formatChargeMoneyLabel(detailCharge.balanceLabel) },
                   ],
                   overviewNeeds: chargePayable
                     ? [{ id: "pay", title: "Pay this charge", detail: "Card or bank — fee shown before you confirm", onClick: () => openPayConfirm([detailCharge.id], paymentMethod) }]
@@ -1758,7 +1780,7 @@ export function ResidentPaymentsPanel({
         </PortalRecordDetailPage>
         {chargePayable && chargeStickyPayIds.length > 0 ? (
           <ResidentPaymentStickyPayBar
-            label={`Pay ${detailCharge.balanceLabel}`}
+            label={`Pay ${formatChargeMoneyLabel(detailCharge.balanceLabel)}`}
             onClick={() => openPayConfirm(chargeStickyPayIds, paymentMethod)}
           />
         ) : null}
@@ -1809,7 +1831,7 @@ export function ResidentPaymentsPanel({
         />
         {paymentsCards}
         {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}
-        <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
+        <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={paySelectionActions.length > 0 ? <PortalAdaptiveActionRow actions={paySelectionActions} /> : undefined}>{paymentsBody}</PortalRecordListSurface>
       </ManagerPortalPageShell>
 
       {paymentModals}

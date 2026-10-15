@@ -72,8 +72,8 @@ import {
 } from "@/lib/service-requests-storage";
 import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
+import { buildActiveCommunicationThreads } from "@/lib/communication-active-rows";
 import {
-  countUnopenedPersistedInbox,
   loadPersistedInbox,
   PORTAL_INBOX_CHANGED_EVENT,
   RESIDENT_INBOX_STORAGE_KEY,
@@ -422,11 +422,6 @@ export function ResidentJourneyBanner({
           >
             {action.title}
           </span>
-          {action.detail ? (
-            <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
-              {action.detail}
-            </span>
-          ) : null}
         </span>
         <span
           className="shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold text-white"
@@ -651,10 +646,13 @@ export function ResidentDashboard({
     const serviceRequests = email ? readServiceRequestsForResident(email) : [];
     const serviceItems = servicePreviewItems(serviceRequests, workOrders);
 
-    const inboxThreads = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK).filter(
-      (t) => t.folder === "inbox" && t.unread,
-    );
-    const inbox = countUnopenedPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK);
+    // The Active list's own rows (same builder the Communication page and the sidebar badge use),
+    // so the tile, this section and the badge always agree: no assistant, no SMS notices.
+    const inboxThreads = buildActiveCommunicationThreads(
+      loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK),
+      { portal: "resident", viewerId: residentUserId, smsUiEnabled: false },
+    ).filter((t) => t.folder === "inbox" && t.unread);
+    const inbox = inboxThreads.length;
 
     const charges = email ? readChargesForResident(email, residentUserId) : [];
     // Tenancy is decided on everything the resident is billed, but what the

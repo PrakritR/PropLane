@@ -56,12 +56,9 @@ export function ResidentLifecycleStatusPanel({
           )}
           {allDone ? "All done" : youTurn ? "Your turn" : `${action.who} is on it`}
         </span>
-        <h2 className="mb-1 mt-2 text-2xl font-extrabold tracking-[-0.02em] max-sm:text-[21px]">
+        <h2 className="mb-4 mt-2 text-2xl font-extrabold tracking-[-0.02em] max-sm:text-[21px]">
           {allDone ? "You’re moved in" : action.title}
         </h2>
-        <p className="mb-4 text-sm text-muted">
-          {allDone ? "Your home, payments and documents are in the menu." : action.detail}
-        </p>
         <div className="flex flex-wrap gap-2.5">
           <Button asChild variant="primary">
             <Link href={allDone ? `${base}/move-in` : action.href}>{allDone ? "Open my home" : action.ctaLabel}</Link>

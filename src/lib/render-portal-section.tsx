@@ -1661,7 +1661,10 @@ export async function renderPortalSectionWith(
         legacyStatus === "overdue" || legacyStatus === "paid" || legacyStatus === "pending"
           ? legacyStatus
           : "pending";
-      redirect(`${def.basePath}/payments/${bucket}`);
+      // `?pay=<chargeId|now>` (the dashboard's overdue / Balance due links) rides through this redirect:
+      // dropping it left the resident on a list with nothing opened.
+      const payParam = typeof searchParams?.pay === "string" && searchParams.pay ? searchParams.pay : undefined;
+      redirect(`${def.basePath}/payments/${bucket}${payParam ? searchSuffix(undefined, { pay: payParam }) : ""}`);
     }
     // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
     if (tabParts.length > 3) notFound();
