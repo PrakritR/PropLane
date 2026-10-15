@@ -531,7 +531,7 @@ function useBookingsWorkspace({
         entries={rawEntries}
         residentOptions={residentOptions}
         onSave={saveBlock}
-        onDeleteBlock={deleteOrCancel}
+        onRemoveBooking={deleteOrCancel}
       />
       <ChannelCalendarLinkModal
         entries={rawEntries}

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
 import { useManagerBookingEntries } from "@/hooks/use-manager-booking-entries";
 import { useSaveBookingBlock } from "@/hooks/use-save-booking-block";
+import { deleteRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
 import type { QuickBookPrefill } from "@/lib/channel-calendar/quick-book";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 
@@ -55,6 +56,7 @@ export function ApplicationQuickBook({
       entries={entries}
       residentOptions={residentOptions}
       onSave={saveBlock}
+      onDeleteBlock={(blockId) => deleteRoomDateBlock(blockId)}
     />
   );
 }

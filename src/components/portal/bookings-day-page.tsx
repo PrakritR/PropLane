@@ -265,7 +265,7 @@ export function BookingsDayPage({
         entries={entries}
         residentOptions={residentOptions}
         onSave={onSaveBlock}
-        onDeleteBlock={onDeleteBlock}
+        onRemoveBooking={onDeleteBlock}
       />
     </>
   );

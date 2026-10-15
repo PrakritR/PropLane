@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { Input, Select } from "@/components/ui/input";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
-import { bookingCancelLabel } from "@/lib/channel-calendar/booking-presentation";
+import { bookingCancelLabel, canRemoveBooking } from "@/lib/channel-calendar/booking-presentation";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   MODAL_FIELD_LABEL_CLASS,
@@ -120,6 +120,7 @@ export function BookingsBlockDatesModal({
   entries,
   residentOptions = NO_RESIDENTS,
   onSave,
+  onRemoveBooking,
   onDeleteBlock,
   mode = "add",
   channelLinks = NO_CHANNEL_LINKS,
@@ -152,9 +153,15 @@ export function BookingsBlockDatesModal({
   onSave: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   /**
    * The one removal decision, owned by the host: a marked reservation goes to the Delete confirm,
-   * a block held for a named person to the cancel dialog. Absent = the hold list offers no removal.
+   * a block held for a named person to the cancel dialog. The hold list gates on
+   * `canRemoveBooking` first, exactly as the list row, the day row and the Edit sheet's footer do.
    */
-  onDeleteBlock?: (entry: PropertyBookingEntry) => void;
+  onRemoveBooking?: (entry: PropertyBookingEntry) => void;
+  /**
+   * Legacy: delete the block outright by id, with no confirm. Only Quick book (which renders no
+   * removal dialogs of its own) still uses it, and only when `onRemoveBooking` is absent.
+   */
+  onDeleteBlock?: (blockId: string) => Promise<boolean | void>;
   /**
    * "reserve" is a click on an empty room-day: titled Mark reserved, opens on the
    * review step with the house, room and night already filled, and saves with one press.
@@ -692,8 +699,16 @@ export function BookingsBlockDatesModal({
                         );
                         setStepIdx(1);
                       }}
-                      onCancel={onDeleteBlock && entry.blockId ? () => onDeleteBlock(entry) : undefined}
-                      cancelLabel={bookingCancelLabel(entry)}
+                      onCancel={
+                        onRemoveBooking
+                          ? canRemoveBooking(entry)
+                            ? () => onRemoveBooking(entry)
+                            : undefined
+                          : onDeleteBlock && entry.blockId
+                            ? () => void onDeleteBlock(entry.blockId!)
+                            : undefined
+                      }
+                      cancelLabel={onRemoveBooking ? bookingCancelLabel(entry) : undefined}
                     />
                   </li>
                 );

@@ -22,6 +22,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 
 import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
+import { RECORD_ACTION_DESTRUCTIVE_SETTLE_MS } from "@/components/ui/record-action-menu";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const PROPERTY = [{ id: "h1", label: "4709A 8th Ave NE" }];
@@ -191,7 +192,21 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(body).not.toMatch(/\bReason\b/);
   });
 
-  it("lists existing holds with Edit dates and Cancel, not a Blocked or View pill", () => {
+  const SEP_HOLD = {
+    source: "block" as const,
+    propertyId: "h1",
+    propertyLabel: "4709A 8th Ave NE",
+    roomId: "r1",
+    roomLabel: "Room 1",
+    summary: "Sep hold",
+    start: "2026-09-20",
+    end: "2026-09-21",
+    statusLabel: "Blocked",
+    blockId: "block-1",
+    reason: "Repairs",
+  };
+
+  function openHoldList(extra: Partial<React.ComponentProps<typeof BookingsBlockDatesModal>>, entry = SEP_HOLD) {
     const view = render(
       <AppUiProvider>
       <BookingsBlockDatesModal
@@ -199,37 +214,56 @@ describe("BookingsBlockDatesModal — resident", () => {
         onClose={() => {}}
         propertyOptions={PROPERTY}
         initialPropertyId="h1"
-        entries={[
-          {
-            source: "block",
-            propertyId: "h1",
-            propertyLabel: "4709A 8th Ave NE",
-            roomId: "r1",
-            roomLabel: "Room 1",
-            summary: "Sep hold",
-            start: "2026-09-20",
-            end: "2026-09-21",
-            statusLabel: "Blocked",
-            blockId: "block-1",
-            reason: "Repairs",
-          },
-        ]}
+        entries={[entry]}
         residentOptions={RESIDENTS}
         onSave={async () => {}}
-        onDeleteBlock={() => {}}
+        {...extra}
       />
       </AppUiProvider>,
     );
     goToReview();
-    expect(attr(view, "bookings-sheet-existing-blocks")).not.toBeNull();
+    return view;
+  }
+
+  async function holdMenu() {
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Sep 20/i }), { key: "ArrowDown" });
-    const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
+    // Past the destructive-action settle window, so the click below is not the stray synthetic tap it guards against.
+    await new Promise((resolve) => setTimeout(resolve, RECORD_ACTION_DESTRUCTIVE_SETTLE_MS + 20));
+    return document.body.querySelector('[data-attr="record-actions-menu"]')!;
+  }
+
+  it("lists existing holds with Edit dates and the router's own label, not a Blocked or View pill", async () => {
+    const onRemoveBooking = vi.fn();
+    const view = openHoldList({ onRemoveBooking });
+    expect(attr(view, "bookings-sheet-existing-blocks")).not.toBeNull();
+    const menu = await holdMenu();
     expect(menu.textContent).toContain("Edit");
     // Nobody attached, so the hold list says what the removal does: a hard Delete, not a cancel.
     expect(menu.textContent).toContain("Delete reservation");
     expect(menu.textContent).not.toContain("Cancel booking");
     expect(menu.textContent).not.toContain("View");
     expect(menu.textContent).not.toContain("Blocked");
+    fireEvent.click([...menu.querySelectorAll("button")].find((b) => b.textContent === "Delete reservation")!);
+    expect(onRemoveBooking).toHaveBeenCalledWith(SEP_HOLD);
+  });
+
+  it("offers no removal for a block the shared gate refuses", () => {
+    const onRemoveBooking = vi.fn();
+    // Cancelled: `canRemoveBooking` is false, so the hold list stays silent instead of opening a
+    // dialog that would unblock a row whose item says Delete.
+    openHoldList({ onRemoveBooking }, { ...SEP_HOLD, bookingStatus: "cancelled" });
+    expect(screen.queryByRole("button", { name: /Actions for Sep 20/i })).toBeNull();
+    expect(document.body.textContent).not.toContain("Delete reservation");
+    expect(onRemoveBooking).not.toHaveBeenCalled();
+  });
+
+  it("keeps Quick book's legacy delete-by-id, untouched by the router", async () => {
+    const onDeleteBlock = vi.fn().mockResolvedValue(true);
+    openHoldList({ onDeleteBlock });
+    const menu = await holdMenu();
+    expect(menu.textContent).toContain("Cancel booking");
+    fireEvent.click([...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!);
+    expect(onDeleteBlock).toHaveBeenCalledWith("block-1");
   });
 });
 
