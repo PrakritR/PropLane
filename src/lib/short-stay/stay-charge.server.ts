@@ -15,6 +15,7 @@ import "server-only";
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertManagerCharges } from "@/lib/household-charges.server";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { shortTermStayChargeTitle } from "@/lib/short-term-stay-pricing";
 
@@ -42,6 +43,16 @@ export type EnsureStayChargeResult =
   | { ok: true; created: boolean; chargeId: string }
   | { ok: false; reason: "no_rate" | "no_guest" | "write_failed" };
 
+/**
+ * Every caller treats this charge as best-effort (the stay is already confirmed and must not be
+ * undone), so the writer itself writes the failure down: a confirmed stay with no `stay_total` is
+ * lost revenue, and an instant confirm never passes through the host's Approve to try again.
+ */
+function chargeNotRaised(blockId: string, reason: "no_rate" | "no_guest" | "write_failed"): EnsureStayChargeResult {
+  bestEffortFailed("stay_total charge for a confirmed stay", { blockId, reason })(new Error(reason));
+  return { ok: false, reason };
+}
+
 export async function ensureGuestStayCharge(
   db: SupabaseClient,
   input: {
@@ -54,7 +65,7 @@ export async function ensureGuestStayCharge(
   },
 ): Promise<EnsureStayChargeResult> {
   const facts = stayFacts(input.row);
-  if (!facts) return { ok: false, reason: "no_rate" };
+  if (!facts) return chargeNotRaised(input.blockId, "no_rate");
   const residentUserId = typeof input.row.residentUserId === "string" ? input.row.residentUserId.trim() : "";
 
   // Payments finds a charge by the guest's LOGIN address, which is not always the email they typed.
@@ -64,7 +75,7 @@ export async function ensureGuestStayCharge(
     residentEmail = String(profile?.email ?? "").trim().toLowerCase();
   }
   if (!residentEmail && typeof input.row.residentEmail === "string") residentEmail = input.row.residentEmail.trim().toLowerCase();
-  if (!residentEmail) return { ok: false, reason: "no_guest" };
+  if (!residentEmail) return chargeNotRaised(input.blockId, "no_guest");
 
   const chargeId = guestStayChargeId(input.blockId);
   const { data: existing } = await db.from("portal_household_charge_records").select("id").eq("id", chargeId).maybeSingle();
@@ -94,7 +105,7 @@ export async function ensureGuestStayCharge(
   try {
     await upsertManagerCharges(db, input.ownerId, [charge as unknown as Record<string, unknown>]);
   } catch {
-    return { ok: false, reason: "write_failed" };
+    return chargeNotRaised(input.blockId, "write_failed");
   }
   return { ok: true, created: true, chargeId };
 }

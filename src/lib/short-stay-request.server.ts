@@ -145,30 +145,34 @@ export async function submitShortStayRequest(
   // A guest without a login gets one, and the confirmation text carries the one-time sign-in link
   // (`token_hash`, never a PKCE code) so the Stays page becomes theirs.
   const login = await ensureGuestLogin(db, { name, phone, email }).catch(() => null);
-  if (login?.userId && created.rowData) {
+  // `ensureGuestLogin` keys on the PHONE, so the account it returns is only this submitter's when it
+  // was made for this request or when the address they typed IS that account's login address. A typed
+  // email that names someone else's account proves nothing: the link may travel to the phone that
+  // matched it and nowhere else, and the hold is not claimed by that account either.
+  const typedEmailOwnsLogin = Boolean(email && login && login.loginEmail === email);
+  if (login?.userId && (login.created || typedEmailOwnsLogin) && created.rowData) {
     await linkRowToGuest(db, blockId, created.rowData, login.userId).catch(() => undefined);
   }
   const { data: owner } = await db.from("profiles").select("email, full_name").eq("id", ownerId).maybeSingle();
   const ownerName = String(owner?.full_name ?? "").trim();
-  const ack = withGuestSignInLink(
-    shortStayRequestAckText({
-      guestName: name,
-      roomLabel,
-      propertyLabel,
-      checkIn: dates.checkIn,
-      checkOut: dates.checkOut,
-      total,
-      ownerFirstName: ownerName.split(/\s+/)[0] ?? "",
-    }),
-    login?.signInUrl,
-  );
+  const ack = shortStayRequestAckText({
+    guestName: name,
+    roomLabel,
+    propertyLabel,
+    checkIn: dates.checkIn,
+    checkOut: dates.checkOut,
+    total,
+    ownerFirstName: ownerName.split(/\s+/)[0] ?? "",
+  });
+  const textedAck = withGuestSignInLink(ack, login?.signInUrl);
+  const emailedAck = typedEmailOwnsLogin ? textedAck : ack;
   await enqueueOwnerSms(
     {
       managerUserId: ownerId,
       actorUserId: ownerId,
       recipientPhone: phone,
       recipientEmail: email || undefined,
-      body: ack,
+      body: textedAck,
       sendClass: "transactional",
       purpose: "short_stay_request_ack",
       counterpartyRole: "prospect",
@@ -187,7 +191,7 @@ export async function submitShortStayRequest(
           from: await managerOutboundFromHeader(db, ownerId),
           to: [email],
           subject: `Your request: ${roomLabel} at ${propertyLabel}`,
-          text: ack,
+          text: emailedAck,
         },
         effectSummary: "Short-stay request confirmation email was captured for SMS test mode.",
         metadata: { recipients: 1 },

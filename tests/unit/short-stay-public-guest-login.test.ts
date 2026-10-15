@@ -4,7 +4,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/action-events.server", () => ({ emitActionEvent: vi.fn(async () => ({})) }));
 const enqueueOwnerSms = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: (...args: unknown[]) => enqueueOwnerSms(...args) }));
-vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: vi.fn(async () => new Response("{}", { status: 200 })) }));
+const postResendEmail = vi.fn(async (..._args: unknown[]) => new Response("{}", { status: 200 }));
+vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: (...args: unknown[]) => postResendEmail(...args) }));
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }) }));
 vi.mock("@/lib/room-availability-range.server", () => ({
@@ -18,7 +19,14 @@ import { PROPERTY, TODAY, seedShortStayDb } from "../helpers/short-stay-seed";
 
 const request = { propertyId: PROPERTY, roomId: "r1", checkIn: "2026-10-20", checkOut: "2026-10-22", guests: 1, name: "Priya Shah", phone: "+12065550142", email: "", honeypot: "" };
 
-beforeEach(() => vi.clearAllMocks());
+const SIGN_IN = "https://proplane.ai/auth/confirm?token_hash=abc&type=magiclink";
+const textedBody = () => (enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body;
+const emailedText = () => ((postResendEmail.mock.calls[0]![0] as { payload: { text: string } }).payload.text);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  process.env.RESEND_API_KEY = "re_test";
+});
 
 describe("a public request from a guest with no login", () => {
   it("creates the login, stamps it on the hold and puts the one-time link in the confirmation text", async () => {
@@ -48,5 +56,28 @@ describe("a public request from a guest with no login", () => {
     const db = seedShortStayDb();
     expect(await submitShortStayRequest(db as never, request, { today: TODAY })).toEqual({ ok: true });
     expect(db.tables.portal_schedule_records).toHaveLength(1);
+  });
+});
+
+describe("the one-time sign-in link only travels to the phone that keyed it", () => {
+  it("a stranger's email never receives the link, and the hold is not claimed by that account", async () => {
+    // `ensureGuestLogin` matched an EXISTING account on the typed phone; the typed email is someone else's.
+    ensureGuestLogin.mockResolvedValue({ userId: "victim-1", loginEmail: "victim@example.com", created: false, signInUrl: SIGN_IN });
+    const db = seedShortStayDb();
+    expect(await submitShortStayRequest(db as never, { ...request, email: "attacker@example.com" }, { today: TODAY })).toEqual({ ok: true });
+    expect(textedBody()).toContain(SIGN_IN);
+    expect(emailedText()).not.toContain("token_hash");
+    expect(emailedText()).not.toContain("Sign in");
+    const hold = db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>;
+    expect(hold.residentUserId).toBeUndefined();
+  });
+
+  it("emails the link when the typed address IS that account's login, and claims the hold", async () => {
+    ensureGuestLogin.mockResolvedValue({ userId: "guest-2", loginEmail: "priya@example.com", created: false, signInUrl: SIGN_IN });
+    const db = seedShortStayDb();
+    expect(await submitShortStayRequest(db as never, { ...request, email: "Priya@example.com" }, { today: TODAY })).toEqual({ ok: true });
+    expect(textedBody()).toContain(SIGN_IN);
+    expect(emailedText()).toContain(SIGN_IN);
+    expect((db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>).residentUserId).toBe("guest-2");
   });
 });

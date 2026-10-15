@@ -66,10 +66,12 @@ describe("the instant-book rule (pure)", () => {
     expect(evaluateReturningGuest([completed], { userId: "someone-else" }, TODAY)).toBe(false);
   });
 
-  it("matches a legacy row by email or phone when it carries no login", () => {
+  it("matches a legacy row by email, and by phone only once that phone is verified", () => {
     const legacy = { record_type: "room_date_block", row_data: { bookingStatus: "confirmed", checkOut: "2026-09-02", residentEmail: "Priya@Example.com", residentPhone: "(206) 555-0142" } };
     expect(evaluateReturningGuest([legacy], { email: "priya@example.com" }, TODAY)).toBe(true);
-    expect(evaluateReturningGuest([legacy], { phone: "+12065550142" }, TODAY)).toBe(true);
+    // A number typed into Settings is a claim, not an identity: it buys no instant-book standing.
+    expect(evaluateReturningGuest([legacy], { phone: "+12065550142" }, TODAY)).toBe(false);
+    expect(evaluateReturningGuest([legacy], { phone: "+12065550142", phoneVerified: true }, TODAY)).toBe(true);
   });
 
   it("confirms only when the flag is on AND the guest is returning", () => {

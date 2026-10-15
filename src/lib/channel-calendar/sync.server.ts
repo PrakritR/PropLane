@@ -121,6 +121,10 @@ export function looksLikeIcalResponse(contentType: string | null, body: string):
  * "Other calendar" (`ical`) has no host allowlist, so it is fetched through the pinned public-host
  * client instead: the name is resolved once, every address must be public, and the connection is
  * made to exactly those addresses (no DNS rebinding). Each redirect hop is re-vetted the same way.
+ *
+ * `timeoutMs` is the budget for the WHOLE fetch, not per hop: every hop is given only what is left of
+ * it, so a slow host cannot hold a request for hop-count times the caller's deadline (the manager's
+ * check gives up at 8s and the validate route promises 6s).
  */
 export async function fetchChannelIcs(
   importUrl: string,
@@ -131,6 +135,7 @@ export async function fetchChannelIcs(
   const name = channelCalendarProviderLabel(provider, opts.label);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const deadline = Date.now() + timeoutMs;
   const isIcal = provider === "ical";
   const get = async (target: string): Promise<Response> => {
     if (!isIcal) {
@@ -141,11 +146,13 @@ export async function fetchChannelIcs(
         cache: "no-store",
       });
     }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`Could not reach the ${name} calendar link.`);
     try {
       return await fetchPinnedPublicHttps(target, {
         headers: { accept: "text/calendar, text/plain, */*" },
-        timeoutMs,
-        totalTimeoutMs: timeoutMs,
+        timeoutMs: remaining,
+        totalTimeoutMs: remaining,
       });
     } catch (e) {
       if (e instanceof NonPublicHostError) throw new Error(`${name} calendar link points at a private or internal address.`);

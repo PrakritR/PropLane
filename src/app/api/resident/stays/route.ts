@@ -24,13 +24,14 @@ async function requireResident() {
   } = await auth.auth.getUser();
   if (!user) return null;
   const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("email, phone, role").eq("id", user.id).maybeSingle();
+  const { data: profile } = await db.from("profiles").select("email, phone, phone_verified_at, role").eq("id", user.id).maybeSingle();
   if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) return null;
   return {
     db,
     userId: user.id,
     email: String(profile?.email ?? user.email ?? "").trim().toLowerCase(),
     phone: normalizeE164(String(profile?.phone ?? "")) ?? "",
+    phoneVerified: Boolean(profile?.phone_verified_at),
   };
 }
 
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401, headers: NO_STORE });
     const propertyId = new URL(req.url).searchParams.get("propertyId")?.trim();
     if (propertyId) {
-      const listing = await loadGuestBookableListing(ctx.db, { propertyId, userId: ctx.userId, email: ctx.email, phone: ctx.phone });
+      const listing = await loadGuestBookableListing(ctx.db, { propertyId, userId: ctx.userId, email: ctx.email, phone: ctx.phone, phoneVerified: ctx.phoneVerified });
       if (!listing) return NextResponse.json({ error: "This home doesn't take short stays." }, { status: 404, headers: NO_STORE });
       return NextResponse.json({ listing }, { headers: NO_STORE });
     }

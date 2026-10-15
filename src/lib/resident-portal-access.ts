@@ -1,5 +1,9 @@
 import { cache } from "react";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
+import {
+  CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
+  ROOM_DATE_BLOCK_RECORD_TYPE,
+} from "@/lib/portal-schedule-record-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentHasTourLinks } from "@/lib/tour-resident-link.server";
 import { loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
@@ -209,7 +213,7 @@ async function residentHasStays(db: ReturnType<typeof createSupabaseServiceRoleC
     const { data, error } = await db
       .from("portal_schedule_records")
       .select("id")
-      .in("record_type", ["room_date_block", "cancelled_room_date_block"])
+      .in("record_type", [ROOM_DATE_BLOCK_RECORD_TYPE, CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE])
       .filter("row_data->>residentUserId", "eq", userId)
       .limit(1);
     return !error && (data ?? []).length > 0;

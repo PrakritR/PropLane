@@ -118,6 +118,12 @@ export function BookAgainSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const checkId = useRef(0);
+  // The room the house switch lands on, for the clamp below: the effect runs before `setRoomId` has
+  // taken, so its own `roomId` is still the previous house's room.
+  const roomIdRef = useRef(roomId);
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
 
   // The house's rooms and whether this guest would be confirmed at once.
   useEffect(() => {
@@ -131,8 +137,11 @@ export function BookAgainSheet({
         setListing(next);
         setListingState(next ? "ready" : "error");
         if (next) {
-          setRoomId((current) => (next.rooms.some((room) => room.id === current) ? current : (next.rooms[0]?.id ?? "")));
-          setGuests((current) => Math.min(Math.max(1, current), next.rooms.find((room) => room.id === roomId)?.sleeps ?? current));
+          const chosen = next.rooms.some((room) => room.id === roomIdRef.current) ? roomIdRef.current : (next.rooms[0]?.id ?? "");
+          roomIdRef.current = chosen;
+          setRoomId(chosen);
+          const sleeps = next.rooms.find((room) => room.id === chosen)?.sleeps;
+          setGuests((current) => Math.min(Math.max(1, current), sleeps ?? current));
         }
       })
       .catch(() => {
@@ -141,8 +150,8 @@ export function BookAgainSheet({
     return () => {
       cancelled = true;
     };
-    // roomId is read only to clamp the guest count once; a room change re-clamps below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The room is read through the ref only, to keep it and the guest count on the new house; a room
+    // change re-clamps below.
   }, [propertyId]);
 
   const room = listing?.rooms.find((candidate) => candidate.id === roomId) ?? null;

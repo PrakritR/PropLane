@@ -6,8 +6,9 @@ import "server-only";
  * A stay is written `confirmed` at once only when ALL of these hold: the listing's
  * "Returning guests book instantly" switch is on (`shortStayInstantBookReturning`, default on, saved on
  * the submission and read here - never resolved from a default downstream), the guest has at least one
- * COMPLETED stay on this listing, and the host has not declined one of their requests here. Every other
- * request is a 24-hour hold the host approves. "All nights are free" is the caller's check
+ * COMPLETED stay on this listing, and the host has not declined one of their requests here. A past stay
+ * is theirs by login, by login address, or by a VERIFIED phone - never by a number they just typed into
+ * Settings. Every other request is a 24-hour hold the host approves. "All nights are free" is the caller's check
  * (`roomAvailabilityForRange` per range); the capacity trigger on `portal_schedule_records` stays the
  * final arbiter, so a night taken between the check and the write is a 409 on that range alone.
  */
@@ -23,7 +24,17 @@ export function listingBooksReturningGuestsInstantly(submission: { shortStayInst
   return submission?.shortStayInstantBookReturning !== false;
 }
 
-export type GuestIdentity = { userId?: string | null; email?: string | null; phone?: string | null };
+export type GuestIdentity = {
+  userId?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  /**
+   * Has this phone been proved to be theirs (`profiles.phone_verified_at`)? A resident edits
+   * `profiles.phone` freely in Settings, so an unverified number is a claim, not an identity: without
+   * this, typing the number of someone who has stayed here would buy their instant-book standing.
+   */
+  phoneVerified?: boolean;
+};
 
 type StayRow = { record_type?: string | null; row_data?: Record<string, unknown> | null };
 
@@ -31,6 +42,7 @@ function rowMatchesGuest(row: Record<string, unknown>, who: GuestIdentity): bool
   if (who.userId && row.residentUserId === who.userId) return true;
   const email = who.email?.trim().toLowerCase();
   if (email && typeof row.residentEmail === "string" && row.residentEmail.trim().toLowerCase() === email) return true;
+  if (!who.phoneVerified) return false;
   const phone = normalizeE164(who.phone ?? "");
   return Boolean(phone && normalizeE164(String(row.residentPhone ?? "")) === phone);
 }

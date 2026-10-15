@@ -13,6 +13,7 @@ import "server-only";
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import {
@@ -175,7 +176,7 @@ export type GuestBookableListing = {
 
 export async function loadGuestBookableListing(
   db: SupabaseClient,
-  input: { propertyId: string; userId: string; email: string; phone: string; today?: string },
+  input: { propertyId: string; userId: string; email: string; phone: string; phoneVerified?: boolean; today?: string },
 ): Promise<GuestBookableListing | null> {
   const { data } = await db
     .from("manager_property_records")
@@ -190,7 +191,7 @@ export async function loadGuestBookableListing(
   if (!rooms.length) return null;
   const returning = await guestIsReturning(db, {
     propertyId: input.propertyId,
-    who: { userId: input.userId, email: input.email, phone: input.phone },
+    who: { userId: input.userId, email: input.email, phone: input.phone, phoneVerified: input.phoneVerified === true },
     today: input.today ?? pacificTodayKey(),
   });
   return {
@@ -238,10 +239,13 @@ export async function bookGuestStays(
   }
 
   // The guest is who the session says: name, mobile and login address come from the profile.
-  const { data: profile } = await db.from("profiles").select("full_name, email, phone").eq("id", input.userId).maybeSingle();
+  const { data: profile } = await db.from("profiles").select("full_name, email, phone, phone_verified_at").eq("id", input.userId).maybeSingle();
   const name = String(profile?.full_name ?? "").trim() || "Guest";
   const email = String(profile?.email ?? "").trim().toLowerCase();
   const phone = normalizeE164(String(profile?.phone ?? "")) ?? "";
+  // Settings lets a resident retype this number (and clears the verification with it), so it stands
+  // in for identity only once it is verified - see `rowMatchesGuest` in instant-book.server.ts.
+  const phoneVerified = Boolean(profile?.phone_verified_at);
   if (!phone) return { ok: false, status: 400, error: "Add a mobile number in Settings so we can text you." };
 
   const loaded = await loadShortStayListing(db, { propertyId, roomId, guests });
@@ -268,7 +272,7 @@ export async function bookGuestStays(
   });
 
   if (valid.length) {
-    const returning = await guestIsReturning(db, { propertyId, who: { userId: input.userId, email, phone }, today });
+    const returning = await guestIsReturning(db, { propertyId, who: { userId: input.userId, email, phone, phoneVerified }, today });
     const status = instantBookStatus({ flagOn: listingBooksReturningGuestsInstantly(listing.submission), returning });
 
     if (status === "hold" && !dryRun) {
@@ -306,7 +310,11 @@ export async function bookGuestStays(
       const labels = await loadStayLabels(db, propertyId, roomId);
       for (const row of written) {
         if (row.status === "confirmed") {
-          await ensureGuestStayCharge(db, { blockId: row.blockId, ownerId: listing.ownerId, propertyId, propertyLabel: listing.propertyLabel, row: row.rowData }).catch(() => undefined);
+          // An instant confirm never passes through the host's Approve, so this is the ONLY call to the
+          // idempotent charge writer for this stay: a failure that is not written down is lost revenue
+          // nobody can find. `ensureGuestStayCharge` logs its own `{ ok: false }`; this catches a throw.
+          await ensureGuestStayCharge(db, { blockId: row.blockId, ownerId: listing.ownerId, propertyId, propertyLabel: listing.propertyLabel, row: row.rowData })
+            .catch(bestEffortFailed("guest stay charge", { blockId: row.blockId, propertyId }));
           await emitShortStayTeamNotice(db, { event: "short_stay_confirmed", headline: "Short stay confirmed", blockId: row.blockId, ownerId: listing.ownerId, propertyId, row: row.rowData, labels }).catch(() => undefined);
         } else {
           const { data: owner } = await db.from("profiles").select("email, full_name").eq("id", listing.ownerId).maybeSingle();
