@@ -65,6 +65,7 @@ describe("BookingsDayPage", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );
@@ -84,6 +85,7 @@ describe("BookingsDayPage", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );
@@ -105,6 +107,7 @@ describe("BookingsDayPage", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );
@@ -131,6 +134,7 @@ describe("BookingsDayPage", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );
@@ -153,6 +157,7 @@ describe("BookingsDayPage", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );

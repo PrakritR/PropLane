@@ -557,6 +557,8 @@ function useBookingsWorkspace({
     saveBlock,
     saveStayDetails,
     removeBlock,
+    /** The one removal decision for a whole entry: a marked reservation to Delete, a named hold to the cancel dialog. */
+    deleteOrCancel,
     channelLinks,
     canRemoveBooking,
   };
@@ -650,7 +652,7 @@ export function ManagerBookings({
     onRefreshSignal: () => setRefreshSignal((n) => n + 1),
     selectedDayKey: dayKey,
   });
-  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock, channelLinks, canRemoveBooking } = workspace;
+  const { controlStack, content, modals, rawEntries, occupancyDays, entriesLoading, residentOptions, saveBlock, saveStayDetails, removeBlock, deleteOrCancel, channelLinks, canRemoveBooking } = workspace;
 
   if (bookingId) {
     return (
@@ -704,6 +706,7 @@ export function ManagerBookings({
           residentOptions={residentOptions}
           onSaveBlock={saveBlock}
           onRemoveBlock={removeBlock}
+          onDeleteBlock={deleteOrCancel}
           showToast={showToast}
           onClose={() => navigate(managerBookingListHref(basePath, "calendar"))}
         />

@@ -13,7 +13,6 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Lock, Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { BookingRemovalPreview } from "@/components/portal/booking-removal-preview";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
@@ -22,7 +21,7 @@ import {
   type BlockDatesDraft,
   type BlockDatesSaveResult,
 } from "@/components/portal/bookings-block-dates-modal";
-import { bookingCancelLabel } from "@/lib/channel-calendar/booking-presentation";
+import { bookingCancelLabel, canRemoveBooking } from "@/lib/channel-calendar/booking-presentation";
 import { bookingEntriesForDayKey, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
@@ -60,6 +59,7 @@ export function BookingsDayPage({
   residentOptions,
   onSaveBlock,
   onRemoveBlock,
+  onDeleteBlock,
   showToast,
   onClose,
 }: {
@@ -72,6 +72,12 @@ export function BookingsDayPage({
   residentOptions: readonly BlockDatesResidentOption[];
   onSaveBlock: (draft: BlockDatesDraft) => Promise<BlockDatesSaveResult>;
   onRemoveBlock: (blockId: string) => Promise<boolean | void>;
+  /**
+   * The one removal decision, owned by the parent: a marked reservation goes to the Delete confirm,
+   * a block held for a named person to the cancel dialog — the same router the list row and the
+   * Edit sheet's footer use, so `bookingCancelLabel` always names what actually happens.
+   */
+  onDeleteBlock: (entry: PropertyBookingEntry) => void;
   showToast: (message: string) => void;
   /** Close the day dialog — parent navigates back to the calendar tab. */
   onClose?: () => void;
@@ -79,8 +85,6 @@ export function BookingsDayPage({
   const navigate = usePortalNavigate();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<PropertyBookingEntry | null>(null);
-  const [deletingEntry, setDeletingEntry] = useState<PropertyBookingEntry | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
 
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
@@ -121,27 +125,13 @@ export function BookingsDayPage({
     setSheetOpen(true);
   };
 
-  const requestDelete = (entry: PropertyBookingEntry) => {
+  const requestRemoval = (entry: PropertyBookingEntry) => {
     const refusal = bookingDeleteRefusalReason(entry, todayKey);
     if (refusal) {
       showToast(refusal);
       return;
     }
-    setDeletingEntry(entry);
-  };
-
-  const confirmDelete = async () => {
-    if (!deletingEntry?.blockId) return;
-    setDeleting(true);
-    try {
-      await onRemoveBlock(deletingEntry.blockId);
-      showToast("Booking removed.");
-      setDeletingEntry(null);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not remove that booking.");
-    } finally {
-      setDeleting(false);
-    }
+    onDeleteBlock(entry);
   };
 
   const copyLink = async (entry: PropertyBookingEntry) => {
@@ -173,7 +163,6 @@ export function BookingsDayPage({
         // A list, not a form: no left rail and no "Preview · No changes" box to squeeze the rows.
         contextPanel={null}
         preview={null}
-        dismissBlocked={deleting}
         dataAttr="bookings-day-detail-modal"
         headerAction={
           <div className="flex shrink-0 items-center gap-1" data-attr="bookings-day-page-header">
@@ -250,8 +239,9 @@ export function BookingsDayPage({
                     );
                     // Nobody to message on an availability block. The row itself opens the booking,
                     // so a ⋯ appears only when it would hold two or more actions.
+                    const removable = canRemoveBooking(entry, todayKey);
                     const actionCount =
-                      (isBlock || openTarget ? 1 : 0) + (isAvailabilityBlock ? 0 : 1) + 1 + (isBlock ? 1 : 0);
+                      (isBlock || openTarget ? 1 : 0) + (isAvailabilityBlock ? 0 : 1) + 1 + (removable ? 1 : 0);
                     if (actionCount < 2) return <RecordActionContext.Provider key={key} value={null}>{row}</RecordActionContext.Provider>;
                     return (
                       <BookingsRowOverflow
@@ -263,7 +253,7 @@ export function BookingsDayPage({
                         editDatesLabel={isBlock ? "Edit booking" : openTarget?.label}
                         onMessage={isAvailabilityBlock ? undefined : () => navigate(bookingRecordHref(basePath, key, "communication"))}
                         onCopyLink={() => void copyLink(entry)}
-                        onCancel={isBlock ? () => requestDelete(entry) : undefined}
+                        onCancel={removable ? () => requestRemoval(entry) : undefined}
                         cancelLabel={bookingCancelLabel(entry)}
                       >
                         {row}
@@ -289,31 +279,6 @@ export function BookingsDayPage({
         onSave={onSaveBlock}
         onDeleteBlock={onRemoveBlock}
       />
-
-      <PortalDialog
-        open={Boolean(deletingEntry)}
-        onClose={() => (deleting ? undefined : setDeletingEntry(null))}
-        title="Remove booking"
-        tone="danger"
-        previewLabel="What gets removed"
-        preview={deletingEntry ? <BookingRemovalPreview entry={deletingEntry} /> : undefined}
-        dismissBlocked={deleting}
-        dataAttr="bookings-day-delete-confirm"
-        secondaryAction={{ label: "Keep", onClick: () => setDeletingEntry(null), disabled: deleting }}
-        primaryAction={{
-          label: deleting ? "Removing…" : "Remove",
-          onClick: () => confirmDelete(),
-          disabled: deleting,
-          loading: deleting,
-          dataAttr: "bookings-day-delete-confirm-primary",
-        }}
-      >
-        <p className="text-sm text-muted">
-          {deletingEntry
-            ? `Remove ${dayStayDisplayName(deletingEntry)}’s booking at ${deletingEntry.roomLabel}? This cannot be undone.`
-            : ""}
-        </p>
-      </PortalDialog>
     </>
   );
 }

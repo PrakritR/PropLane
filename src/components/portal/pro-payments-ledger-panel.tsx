@@ -4,6 +4,7 @@ import { AirbnbPayoutRowMenu } from "@/components/portal/airbnb-payout-row-menu"
 import { airbnbPayoutPlaceLine, isAirbnbPayoutLedgerRow } from "@/lib/channel-calendar/airbnb-payouts";
 import { saveChannelStayDetailsClient, type AirbnbPayoutRow } from "@/lib/channel-calendar/client";
 import { formatChargeDueLabel } from "@/lib/charge-due-label";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
@@ -932,7 +933,7 @@ export function ManagerPaymentsLedgerPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        signal: AbortSignal.timeout(45_000),
+        signal: requestTimeoutSignal(45_000),
         body: JSON.stringify({
           chargeId,
           viaEmail: channels?.viaEmail !== false,

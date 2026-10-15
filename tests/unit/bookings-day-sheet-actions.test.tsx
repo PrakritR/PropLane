@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 /**
- * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every
- * booking card gets Edit booking + the one removal vocabulary (`bookingCancelLabel`:
- * "Cancel booking" for a named hold, "Delete reservation" for a marked one). It confirms in the
- * PortalDialog shape (destructive red primary, header close action) and refuses
- * outright for an in-house active tenancy.
+ * Day popup ⋯ (PLAN-0922-1013, `docs/agents/record-page.md`): every booking card gets
+ * Edit booking + the one removal vocabulary (`bookingCancelLabel`: "Cancel booking" for a
+ * named hold, "Delete reservation" for a marked one), and the removal hands the entry to the
+ * SAME router the list row and the Edit sheet use, so the word always names what happens — a
+ * named hold is soft-cancelled, never hard-deleted from here. An in-house active tenancy is
+ * refused outright.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -73,6 +74,7 @@ describe("BookingsDayPage — card actions", () => {
           residentOptions={[]}
           onSaveBlock={async () => {}}
           onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
           showToast={() => {}}
         />
       </AppUiProvider>,
@@ -96,6 +98,7 @@ describe("BookingsDayPage — card actions", () => {
           residentOptions={[]}
           onSaveBlock={async () => {}}
           onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
           showToast={() => {}}
         />
       </AppUiProvider>,
@@ -114,8 +117,9 @@ describe("BookingsDayPage — card actions", () => {
     expect(nameInput?.value).toBe("Prakrit");
   });
 
-  it("Cancel booking on a hold OUTSIDE today's stay opens the confirm dialog and, on confirm, removes", async () => {
-    const onRemoveBlock = vi.fn().mockResolvedValue(undefined);
+  it("Cancel booking on a named hold OUTSIDE today's stay hands the entry to the shared router, never a hard delete", () => {
+    const onRemoveBlock = vi.fn();
+    const onDeleteBlock = vi.fn();
     const futureHold: PropertyBookingEntry = { ...hold, start: "2026-10-01", end: "2026-10-05" };
     render(
       <BookingsDayPage
@@ -127,6 +131,7 @@ describe("BookingsDayPage — card actions", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={onRemoveBlock}
+        onDeleteBlock={onDeleteBlock}
         showToast={() => {}}
       />,
     );
@@ -137,45 +142,45 @@ describe("BookingsDayPage — card actions", () => {
     vi.advanceTimersByTime(200);
     fireEvent.click(removeButton);
 
-    const dialog = document.querySelector('[data-attr="bookings-day-delete-confirm"]') as HTMLElement;
-    expect(dialog).not.toBeNull();
-    expect(dialog.querySelector('button[aria-label="Close"]')).not.toBeNull();
-    expect(dialog.textContent).toContain("Remove");
-
-    const primary = document.querySelector('[data-attr="bookings-day-delete-confirm-primary"]') as HTMLElement;
-    fireEvent.click(primary);
-    await vi.waitFor(() => expect(onRemoveBlock).toHaveBeenCalledWith("block-1"));
-  });
-
-  it("Header close dismisses the confirm dialog without removing", () => {
-    const onRemoveBlock = vi.fn();
-    const futureHold: PropertyBookingEntry = { ...hold, start: "2026-10-01", end: "2026-10-05" };
-    render(
-      <BookingsDayPage
-        dayKey="2026-10-01"
-        basePath="/portal"
-        entries={[futureHold]}
-        loading={false}
-        propertyOptions={propertyOptions}
-        residentOptions={[]}
-        onSaveBlock={async () => {}}
-        onRemoveBlock={onRemoveBlock}
-        showToast={() => {}}
-      />,
-    );
-    const menu = openMenu("Actions for Prakrit");
-    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!;
-    vi.advanceTimersByTime(200);
-    fireEvent.click(removeButton);
-    const confirm = document.querySelector('[data-attr="bookings-day-delete-confirm"]')!;
-    const keepButton = confirm.querySelector('button[aria-label="Close"]')!;
-    fireEvent.click(keepButton);
+    expect(onDeleteBlock).toHaveBeenCalledWith(futureHold);
     expect(onRemoveBlock).not.toHaveBeenCalled();
     expect(document.querySelector('[data-attr="bookings-day-delete-confirm"]')).toBeNull();
   });
 
-  it("refuses to remove an in-house-today booking instead of opening the confirm dialog", () => {
-    const onRemoveBlock = vi.fn();
+  it("a marked reservation reads Delete reservation and goes to the same router", () => {
+    const onDeleteBlock = vi.fn();
+    const reservation: PropertyBookingEntry = {
+      ...hold,
+      summary: "Reserved",
+      residentName: undefined,
+      start: "2026-10-01",
+      end: "2026-10-05",
+    };
+    render(
+      <BookingsDayPage
+        dayKey="2026-10-01"
+        basePath="/portal"
+        entries={[reservation]}
+        loading={false}
+        propertyOptions={propertyOptions}
+        residentOptions={[]}
+        onSaveBlock={async () => {}}
+        onRemoveBlock={async () => {}}
+        onDeleteBlock={onDeleteBlock}
+        showToast={() => {}}
+      />,
+    );
+    const menu = openMenu("Actions for Blocked");
+    expect(menu.textContent).toContain("Delete reservation");
+    expect(menu.textContent).not.toContain("Cancel booking");
+    const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Delete reservation")!;
+    vi.advanceTimersByTime(200);
+    fireEvent.click(removeButton);
+    expect(onDeleteBlock).toHaveBeenCalledWith(reservation);
+  });
+
+  it("refuses to remove an in-house-today booking instead of reaching the router", () => {
+    const onDeleteBlock = vi.fn();
     const showToast = vi.fn();
     render(
       <BookingsDayPage
@@ -186,7 +191,8 @@ describe("BookingsDayPage — card actions", () => {
         propertyOptions={propertyOptions}
         residentOptions={[]}
         onSaveBlock={async () => {}}
-        onRemoveBlock={onRemoveBlock}
+        onRemoveBlock={async () => {}}
+        onDeleteBlock={onDeleteBlock}
         showToast={showToast}
       />,
     );
@@ -194,8 +200,7 @@ describe("BookingsDayPage — card actions", () => {
     const removeButton = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Cancel booking")!;
     vi.advanceTimersByTime(200);
     fireEvent.click(removeButton);
-    expect(document.querySelector('[data-attr="bookings-day-delete-confirm"]')).toBeNull();
-    expect(onRemoveBlock).not.toHaveBeenCalled();
+    expect(onDeleteBlock).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining("in-house today"));
   });
 
@@ -210,6 +215,7 @@ describe("BookingsDayPage — card actions", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );
@@ -234,6 +240,7 @@ describe("BookingsDayPage — card actions", () => {
         residentOptions={[]}
         onSaveBlock={async () => {}}
         onRemoveBlock={async () => {}}
+        onDeleteBlock={() => {}}
         showToast={() => {}}
       />,
     );
