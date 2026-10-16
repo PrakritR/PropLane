@@ -134,6 +134,8 @@ const OPEN_LAYER_SELECTOR = '[data-slot="modal-radix-dialog"], [data-slot="modal
 export function clearStaleBodyPointerLock() {
   if (typeof document === "undefined") return;
   const clear = () => {
+    // The 200ms timer can outlive the document (a test environment torn down, a navigated frame).
+    if (typeof document === "undefined") return;
     if (document.body.style.pointerEvents !== "none") return;
     if (document.querySelector(OPEN_LAYER_SELECTOR)) return;
     document.body.style.pointerEvents = "";
