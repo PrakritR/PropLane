@@ -160,6 +160,22 @@ export function withoutChannelStaysCoveredByResidents(entries: readonly Property
   });
 }
 
+/**
+ * The deduped view of one entry list, remembered per list. A month grid, a year grid and the
+ * manager snapshot all ask for the same `entries` once per (day, property) pair - hundreds of
+ * full passes over the same immutable array for one answer. Keyed on the array's identity, so a
+ * freshly built list is deduped once and a replaced one is never read from here.
+ */
+const dedupedEntryCache = new WeakMap<object, PropertyBookingEntry[]>();
+
+function dedupedForOccupancy(entries: readonly PropertyBookingEntry[]): readonly PropertyBookingEntry[] {
+  const cached = dedupedEntryCache.get(entries);
+  if (cached) return cached;
+  const deduped = withoutChannelStaysCoveredByResidents(entries);
+  dedupedEntryCache.set(entries, deduped);
+  return deduped;
+}
+
 /** The identity two copies of one resident stay share: source + applicationId (hold) or leaseId (lease). */
 export function residentEntryKey(entry: Pick<PropertyBookingEntry, "source" | "applicationId" | "leaseId">): string | null {
   const id = entry.source === "proplane" ? entry.leaseId || entry.applicationId : entry.applicationId;
@@ -294,9 +310,10 @@ export function occupancyForDay(
   capacities: OccupancyCapacities,
 ): OccupancyDayCell {
   // One reservation is one bed: a resident filed for an Airbnb stay covers that stay's channel row.
-  // Hoisted out of the per-property loop on purpose - the covered set depends only on `entries`, and a
-  // year grid asks for every (day, property) pair, which made this an extra full pass on each one.
-  const deduped = withoutChannelStaysCoveredByResidents(entries);
+  // Hoisted out of the per-property loop and memoized on the entry list on purpose - the covered set
+  // depends only on `entries`, and a year grid asks for every (day, property) pair, which made this
+  // an extra full pass and copy on each one.
+  const deduped = dedupedForOccupancy(entries);
   let occupied = 0;
   let total = 0;
   let checkIns = 0;

@@ -387,17 +387,6 @@ const route = createJsonRecordRoute({
     return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
-    if (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE) {
-      // Every booking has a name; a room with no guest is "Closed" with a reason. A cancelled block is
-      // never refused - and neither is a save that leaves the stored row's name, kind and reason exactly
-      // as they already are: putting back what was just cancelled (Undo), and editing the dates of a row
-      // written before this rule existed, must always work. New content is what the rule arbitrates.
-      const data = roomDateBlockData(record);
-      if (!sameRoomBlockNameShape(existing, record)) {
-        const nameError = roomDateBlockNameError({ bookingStatus: data.bookingStatus, residentName: data.residentName, blockKind: data.blockKind, reason: data.reason });
-        if (nameError) return { handled: true, error: nameError, status: 400 };
-      }
-    }
     if (isRoomDateBlockRecordType(String(record.record_type ?? "")) && existing) {
       // Changing or removing a block needs the same Calendar edit access that creating it did,
       // re-checked now: a revoked grant must not keep a block of someone else's house writable.
@@ -448,6 +437,18 @@ const route = createJsonRecordRoute({
           record.manager_user_id = owner;
           record.row_data = { ...rowData, createdByUserId: user.id };
         }
+      }
+      // Every booking has a name; a room with no guest is "Closed" with a reason. Arbitrated only once
+      // the writer is known to be allowed here at all, so a revoked grant is a 403 and never a naming
+      // 400 that would also say whether the stored row's shape differs from what was sent. A cancelled
+      // block is never refused - and neither is a save that leaves the stored row's name, kind and
+      // reason exactly as they already are: putting back what was just cancelled (Undo), and editing
+      // the dates of a row written before this rule existed, must always work. New content is what the
+      // rule arbitrates.
+      if (!sameRoomBlockNameShape(existing, record)) {
+        const data = roomDateBlockData(record);
+        const nameError = roomDateBlockNameError({ bookingStatus: data.bookingStatus, residentName: data.residentName, blockKind: data.blockKind, reason: data.reason });
+        if (nameError) return { handled: true, error: nameError, status: 400 };
       }
       const conflict = await roomDateBlockOverlapConflict({
         db,

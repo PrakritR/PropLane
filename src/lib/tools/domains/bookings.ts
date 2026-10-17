@@ -25,6 +25,7 @@ import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/booki
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
 import { ROOM_BLOCK_KIND_CLOSED, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
+import { afterResponse } from "@/lib/after-response.server";
 import { occupancySnapshotForManager } from "@/lib/occupancy/snapshot.server";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
@@ -202,21 +203,28 @@ function blockFromRecord(rec: BlockRecord): BlockView | null {
   };
 }
 
-/** A named, live, non-closed block that is not a channel import: the only kind whose owner is told about it. */
-function announceBookingEvent(ctx: AgentContext, event: NativeBookingEvent, input: { blockId: string; ownerId: string; propertyId: string; roomId: string; guestName: string; checkIn: string; checkOut: string; openEnded: boolean; closed: boolean; reason: string }): Promise<void> {
-  if (input.closed || !input.guestName.trim() || isImportedChannelBlock({ reason: input.reason })) return Promise.resolve();
-  // Best-effort: the write already happened, and a notice that cannot go out must never undo or fail it.
-  return emitNativeBookingEvent(ctx.db as unknown as SupabaseClient, {
-    event,
-    blockId: input.blockId,
-    managerUserId: input.ownerId,
-    propertyId: input.propertyId,
-    roomId: input.roomId,
-    guestName: input.guestName,
-    checkIn: input.checkIn,
-    checkOut: input.checkOut,
-    openEnded: input.openEnded,
-  }).catch((error) => console.warn("[bookings] booking notice failed", error instanceof Error ? error.message : String(error)));
+/**
+ * A named, live, non-closed block that is not a channel import: the only kind whose owner is told
+ * about it. Raised off the reply's critical path, exactly like the schedule-records route: the
+ * assistant must not wait on two reads, the delivery fan-out and an outbound email to answer.
+ */
+function announceBookingEvent(ctx: AgentContext, event: NativeBookingEvent, input: { blockId: string; ownerId: string; propertyId: string; roomId: string; guestName: string; checkIn: string; checkOut: string; openEnded: boolean; closed: boolean; reason: string }): void {
+  if (input.closed || !input.guestName.trim() || isImportedChannelBlock({ reason: input.reason })) return;
+  afterResponse(
+    () =>
+      emitNativeBookingEvent(ctx.db as unknown as SupabaseClient, {
+        event,
+        blockId: input.blockId,
+        managerUserId: input.ownerId,
+        propertyId: input.propertyId,
+        roomId: input.roomId,
+        guestName: input.guestName,
+        checkIn: input.checkIn,
+        checkOut: input.checkOut,
+        openEnded: input.openEnded,
+      }),
+    "bookings",
+  );
 }
 
 async function loadBlockRecords(ctx: AgentContext, propertyIds: string[]): Promise<BlockRecord[]> {
@@ -634,7 +642,7 @@ export const blockRoomDatesTool = defineWriteTool({
       throw new Error(String(error.message ?? "Could not block those dates."));
     }
     await updateAuditResult(ctx, dedupeKey, { blockId: id });
-    await announceBookingEvent(ctx, "booking_created", { blockId: id, ownerId, propertyId: r.property.id, roomId: r.roomId, guestName: r.residentName, checkIn: r.start, checkOut: r.end, openEnded: false, closed: r.closed, reason: r.reason });
+    announceBookingEvent(ctx, "booking_created", { blockId: id, ownerId, propertyId: r.property.id, roomId: r.roomId, guestName: r.residentName, checkIn: r.start, checkOut: r.end, openEnded: false, closed: r.closed, reason: r.reason });
     return {
       reply: `Blocked ${r.roomLabel} at ${r.property.title} from ${formatDay(r.start)} to ${formatDay(r.end)}.`,
       resultSummary: { blockId: id },
@@ -729,7 +737,7 @@ export const removeRoomBlockTool = defineWriteTool({
       throw new Error(String(error.message ?? "Could not remove that block."));
     }
     await updateAuditResult(ctx, dedupeKey, { removed: true });
-    await announceBookingEvent(ctx, "booking_cancelled", { blockId: block.id, ownerId: property.ownerId.trim() || ctx.userId, propertyId: property.id, roomId: block.roomId, guestName: block.residentName, checkIn: block.checkIn, checkOut: block.checkOut, openEnded: block.openEnded, closed: block.closed, reason: block.reason });
+    announceBookingEvent(ctx, "booking_cancelled", { blockId: block.id, ownerId: property.ownerId.trim() || ctx.userId, propertyId: property.id, roomId: block.roomId, guestName: block.residentName, checkIn: block.checkIn, checkOut: block.checkOut, openEnded: block.openEnded, closed: block.closed, reason: block.reason });
     return {
       reply: `Removed the block at ${property.title} (${block.checkIn} to ${block.openEnded ? "open-ended" : block.checkOut}).`,
       resultSummary: { blockId: block.id },
@@ -779,8 +787,14 @@ async function resolveBlockUpdate(ctx: AgentContext, input: UpdateBlockInput) {
     closed: block.closed,
   };
   // A booking keeps its name (clearing it would make it nameless); a closed room keeps its reason.
-  const nameError = roomDateBlockNameError({ residentName: next.residentName, blockKind: next.closed ? ROOM_BLOCK_KIND_CLOSED : undefined, reason: next.reason });
-  if (nameError) throw new Error(nameError);
+  // The rule arbitrates NEW content only, same exemption as the schedule-records route's
+  // `sameRoomBlockNameShape`: leaving the stored name and reason exactly as they are - a pure date
+  // edit, including of a row written before the rule existed - must always work.
+  const nameShapeUnchanged = next.residentName === block.residentName && next.reason === block.reason;
+  if (!nameShapeUnchanged) {
+    const nameError = roomDateBlockNameError({ residentName: next.residentName, blockKind: next.closed ? ROOM_BLOCK_KIND_CLOSED : undefined, reason: next.reason });
+    if (nameError) throw new Error(nameError);
+  }
   // Same overlap rule as block_room_dates, against every OTHER block on the house.
   const others = (await loadBlockRecords(ctx, [property.id])).map(blockFromRecord).filter((b): b is BlockView => b !== null && b.id !== block.id);
   const conflict = overlappingBlock(others, next);
@@ -866,7 +880,9 @@ export const updateRoomBlockTool = defineWriteTool({
       delete row.blockKind;
     } else {
       delete row.residentName;
-      row.blockKind = ROOM_BLOCK_KIND_CLOSED;
+      // A closed room always carries the reason it was closed for: a pre-rule row that has neither a
+      // name nor a reason keeps the shape it was saved in instead of becoming a reasonless Closed room.
+      if (next.reason) row.blockKind = ROOM_BLOCK_KIND_CLOSED;
     }
     if (phone !== undefined) {
       if (phone) row.residentPhone = phone;
@@ -886,7 +902,7 @@ export const updateRoomBlockTool = defineWriteTool({
     // Naming a closed room or an unnamed block makes it a booking its owner has not been told about
     // yet - the same transition the schedule-records route announces. Idempotent on the block id.
     if (next.residentName && !block.residentName.trim()) {
-      await announceBookingEvent(ctx, "booking_created", { blockId: block.id, ownerId: next.property.ownerId.trim() || ctx.userId, propertyId: next.property.id, roomId: next.roomId, guestName: next.residentName, checkIn: next.start, checkOut: next.end, openEnded: block.openEnded, closed: false, reason: next.reason });
+      announceBookingEvent(ctx, "booking_created", { blockId: block.id, ownerId: next.property.ownerId.trim() || ctx.userId, propertyId: next.property.id, roomId: next.roomId, guestName: next.residentName, checkIn: next.start, checkOut: next.end, openEnded: block.openEnded, closed: false, reason: next.reason });
     }
     return {
       reply: `Updated the hold at ${next.property.title} (${next.roomLabel}): ${formatDay(next.start)} to ${formatDay(next.end)}.`,

@@ -258,6 +258,9 @@ PropLane exports its residents, holds and blocks to Airbnb as unavailable, and A
   second announcement of the same block a no-op). A guest's confirmed short stay gets the same owner
   mail, raised once from `emitShortStayTeamNotice`'s `short_stay_confirmed`, which covers both the
   instant confirm and the host's Approve.
+- The listing room editor's "Blocked dates" list is manager-closed rooms only: a named booking and
+  an imported channel stay share the `hold` status, so it filters them out (`managerBlocksForRoom`) -
+  saving one from that list would re-file it as a Closed room and drop the guest's name, email and phone.
 - The name rule arbitrates NEW content only: a save that leaves the stored row's name, kind and
   reason exactly as they are passes (`sameRoomBlockNameShape`), so putting back what was just
   cancelled, and editing the dates of a row written before the rule existed, always work.
