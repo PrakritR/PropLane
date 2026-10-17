@@ -7,12 +7,13 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const reads = vi.hoisted(() => ({ count: 0, fail: false }));
+const reads = vi.hoisted(() => ({ count: 0, fail: false, gate: null as Promise<void> | null }));
 
 vi.mock("@/lib/public-listings.server", () => ({
   getPublicListings: async () => {
     reads.count += 1;
     if (reads.fail) throw new Error("catalog unavailable");
+    if (reads.gate) await reads.gate;
     return [
       {
         id: "listing-1",
@@ -34,6 +35,7 @@ afterEach(async () => {
   resetCrawlPublicListingsCache();
   reads.count = 0;
   reads.fail = false;
+  reads.gate = null;
 });
 
 describe("the crawl catalog is read once per hour, not once per URL", () => {
@@ -78,5 +80,41 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
     reads.fail = false;
     expect((await getCrawlPublicListings()).length).toBe(1);
     expect(reads.count).toBe(2);
+  });
+
+  /**
+   * `/sitemap.xml` is prerendered, and Next fails the build when one route takes more than 60
+   * seconds — so a catalog read that stalls instead of answering must not be waited on. Every
+   * retry of the route joins the same in-flight read, which is how one stalled read failed all
+   * three of Next's attempts and the build with them.
+   */
+  it("gives up on a stalled read, and still fills the memo when that read lands", async () => {
+    vi.useFakeTimers();
+    try {
+      const { CRAWL_CATALOG_WAIT_MS, getCrawlPublicListings, resetCrawlPublicListingsCache } = await import(
+        "@/lib/seo/public-catalog.server"
+      );
+      resetCrawlPublicListingsCache();
+      let release = () => {};
+      reads.gate = new Promise<void>((resolve) => {
+        release = () => resolve();
+      });
+      const sitemap = (await import("@/app/sitemap")).default;
+
+      const pending = sitemap();
+      await vi.advanceTimersByTimeAsync(CRAWL_CATALOG_WAIT_MS);
+      const entries = await pending;
+      expect(entries.some((e) => e.url === "https://proplane.ai/pricing")).toBe(true);
+      expect(entries.some((e) => e.url.includes("/rent/listings/"))).toBe(false);
+
+      // Giving up is not cancelling: the read keeps going, and the next caller pays nothing for it.
+      reads.gate = null;
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect((await getCrawlPublicListings()).length).toBe(1);
+      expect(reads.count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
