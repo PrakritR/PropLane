@@ -23,7 +23,7 @@ import {
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 
 /** One plain line about whether the number can actually send right now. */
@@ -139,8 +139,7 @@ export function ManagerWorkNumberCard() {
 
   const coManager = status?.workspaceRole === "co_manager";
   const workspace = status?.workspaceNumber ?? null;
-  const phone =
-    (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
+  const phone = workspaceWorkNumber(status);
   const numberLabel = coManager ? "Workspace number" : "Your work number";
   const emailLabel = coManager ? "Workspace email" : "Work email";
   const owner = workspace?.ownerName?.trim() || "your workspace owner";

@@ -49,9 +49,15 @@ const envKeys = [
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
-function teammateDb(ownerLine: { provision_state: string; registration_state?: string } | null) {
+function teammateDb(
+  ownerLine: { provision_state: string; registration_state?: string; workspace_id?: string | null } | null,
+  runtime: { mode: string; pilot_manager_user_ids: string[] } = {
+    mode: "automatic",
+    pilot_manager_user_ids: [],
+  },
+) {
   const db = createMemoryDb({
-    sms_runtime_config: [{ singleton: true, mode: "automatic", pilot_manager_user_ids: [] }],
+    sms_runtime_config: [{ singleton: true, ...runtime }],
     manager_sms_numbers: ownerLine
       ? [
           {
@@ -93,9 +99,61 @@ function teammateDb(ownerLine: { provision_state: string; registration_state?: s
   return db;
 }
 
-async function statusFor(db: ReturnType<typeof teammateDb>) {
+const SECOND_WS = "ws-owner-second";
+
+/**
+ * The owner runs two workspaces and holds ONE number, placed in whichever of
+ * them `placedIn` names. A teammate reads the line of the workspace they are
+ * looking at — never the owner's other workspace's number.
+ */
+function twoWorkspaceTeammateDb(placedIn: string) {
+  return createMemoryDb({
+    sms_runtime_config: [{ singleton: true, mode: "automatic", pilot_manager_user_ids: [] }],
+    manager_sms_numbers: [
+      {
+        id: "num-1",
+        manager_user_id: OWNER,
+        workspace_id: placedIn,
+        phone_number: "+12065550199",
+        phone_number_sid: "PN123",
+        messaging_service_sid: "MG123",
+        campaign_sid: "CM123",
+        provision_state: "active",
+        registration_state: "approved",
+        attachment_state: "attached",
+        number_registration_state: "registered",
+      },
+    ],
+    sms_manager_entitlements: [],
+    profiles: [
+      { id: MANAGER, email: "manager@example.com" },
+      { id: OWNER, full_name: "Owner", email: "owner@example.com" },
+    ],
+    portal_workspaces: [
+      { id: MY_WS, owner_user_id: MANAGER, name: "Mine", is_default: true, created_at: "2026-01-03" },
+      { id: SHARED_WS, owner_user_id: OWNER, name: "Owner's", is_default: true, created_at: "2026-01-01" },
+      { id: SECOND_WS, owner_user_id: OWNER, name: "Owner's second", is_default: false, created_at: "2026-01-02" },
+    ],
+    manager_property_records: [
+      { id: "house-1", manager_user_id: OWNER, workspace_id: SHARED_WS, row_data: {} },
+      { id: "house-2", manager_user_id: OWNER, workspace_id: SECOND_WS, row_data: {} },
+    ],
+    account_link_invites: [
+      {
+        id: "link-1",
+        invitee_user_id: MANAGER,
+        inviter_user_id: OWNER,
+        status: "accepted",
+        assigned_property_ids: ["house-1", "house-2"],
+        property_co_manager_permissions: { "house-1": { inbox: true }, "house-2": { inbox: true } },
+      },
+    ],
+  });
+}
+
+async function statusFor(db: ReturnType<typeof teammateDb>, workspaceId: string = SHARED_WS) {
   mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
-  mocks.cookies["proplane-workspace"] = SHARED_WS;
+  mocks.cookies["proplane-workspace"] = workspaceId;
   return (await GET(new Request("http://localhost"))).json();
 }
 
@@ -155,6 +213,74 @@ describe("messaging-number status: a teammate's canSend is the workspace line's"
   it("fails closed when the readiness check throws", async () => {
     mocks.billing.mockRejectedValue(new Error("boom"));
     const body = await statusFor(teammateDb({ provision_state: "active" }));
+    expect(body.canSend).toBe(false);
+  });
+
+  it("skips the readiness chain entirely when the deployment's texting runtime is off", async () => {
+    process.env.SMS_OUTBOX_SCHEDULER_READY = "0";
+    const body = await statusFor(teammateDb({ provision_state: "active" }));
+    expect(body.canSend).toBe(false);
+    expect(mocks.billing).not.toHaveBeenCalled();
+  });
+});
+
+describe("messaging-number status: a teammate's sendingAvailable follows the OWNER's access", () => {
+  const allowlisted = { mode: "allowlisted_self_service", pilot_manager_user_ids: [OWNER] };
+
+  it("is true when the owner holds the allowlist seat and the teammate does not", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active" }, allowlisted));
+    expect(body.sendingAvailable).toBe(true);
+    expect(body.canSend).toBe(true);
+  });
+
+  it("is false when the owner has no seat either", async () => {
+    const body = await statusFor(
+      teammateDb({ provision_state: "active" }, { mode: "allowlisted_self_service", pilot_manager_user_ids: [] }),
+    );
+    expect(body.sendingAvailable).toBe(false);
+    expect(body.canSend).toBe(false);
+  });
+
+  it("never lets a teammate's own seat open provisioning they cannot do", async () => {
+    const body = await statusFor(
+      teammateDb({ provision_state: "active" }, { mode: "allowlisted_self_service", pilot_manager_user_ids: [MANAGER] }),
+    );
+    expect(body.canRequest).toBe(false);
+  });
+});
+
+describe("messaging-number status: the teammate's workspaceNumber is the line a send resolves", () => {
+  it("reports the owner's legacy unplaced line as the workspace's number", async () => {
+    // Migrated before numbers were workspace-owned: no `workspace_id`, so the
+    // per-workspace read finds nothing while a send still leaves on it.
+    const body = await statusFor(teammateDb({ provision_state: "active", workspace_id: null }));
+    expect(body.workspaceNumber.phoneNumber).toBe("+12065550199");
+    expect(body.canSend).toBe(true);
+  });
+
+  it("stays null when the workspace genuinely has no line", async () => {
+    const body = await statusFor(teammateDb(null));
+    expect(body.workspaceNumber.phoneNumber).toBeNull();
+  });
+
+  it("reads the line of the owner's DEFAULT workspace when that is the one being viewed", async () => {
+    const body = await statusFor(twoWorkspaceTeammateDb(SHARED_WS), SHARED_WS);
+    expect(body.workspace.id).toBe(SHARED_WS);
+    expect(body.workspaceNumber.phoneNumber).toBe("+12065550199");
+    expect(body.canSend).toBe(true);
+  });
+
+  it("reads the line of a NON-default workspace when that is the one being viewed", async () => {
+    const body = await statusFor(twoWorkspaceTeammateDb(SECOND_WS), SECOND_WS);
+    expect(body.workspace.id).toBe(SECOND_WS);
+    expect(body.workspaceNumber.phoneNumber).toBe("+12065550199");
+    expect(body.canSend).toBe(true);
+  });
+
+  it("never borrows the owner's other workspace's number for a workspace with none", async () => {
+    const body = await statusFor(twoWorkspaceTeammateDb(SHARED_WS), SECOND_WS);
+    expect(body.workspace.id).toBe(SECOND_WS);
+    expect(body.workspaceNumber.phoneNumber).toBeNull();
     expect(body.canSend).toBe(false);
   });
 });

@@ -239,13 +239,24 @@ export async function resolveViewerWorkNumber(
 }
 
 /**
- * `columns` with `released_at` guaranteed present. The uniqueness index is per
- * workspace among LIVE rows only, so a released row can sit beside the live one
- * and the live-row preference below has to be able to see the difference — a
- * caller's own column list must not decide whether that guard runs.
+ * `columns` with every column the resolution itself FILTERS on guaranteed
+ * present: `released_at` (the uniqueness index is per workspace among LIVE
+ * rows only, so a released row can sit beside the live one and the live-row
+ * preference below has to see the difference), `workspace_id` (the home-row
+ * / shared / legacy-unplaced split below reads it off each row) and
+ * `manager_user_id` (the named-line branch matches direct ownership on it).
+ * PostgREST returns only the selected columns, so a caller's own column list
+ * must never decide whether those guards run — omitting `workspace_id`
+ * silently turns every one of the owner's rows into a legacy unplaced one.
  */
-function withReleasedAt(columns: string): string {
-  return /(^|,)\s*released_at\s*(,|$)/.test(columns) ? columns : `${columns}, released_at`;
+const RESOLUTION_COLUMNS = ["released_at", "workspace_id", "manager_user_id"] as const;
+
+function withResolutionColumns(columns: string): string {
+  let out = columns;
+  for (const required of RESOLUTION_COLUMNS) {
+    if (!new RegExp(`(^|,)\\s*${required}\\s*(,|$)`).test(out)) out = `${out}, ${required}`;
+  }
+  return out;
 }
 
 /**
@@ -273,7 +284,7 @@ async function resolveHeldNumberRow<T>(
   for (const numberId of numberIds) {
     const { data: row, error } = await db
       .from("manager_sms_numbers")
-      .select(withReleasedAt(columns))
+      .select(withResolutionColumns(columns))
       .eq("id", numberId)
       .maybeSingle();
     if (error || !row) continue;
@@ -310,7 +321,11 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
 ): Promise<{ data: T | null; error: { message: string; code?: string } | null }> {
   const exactLine = opts.workLineId?.trim();
   if (exactLine) {
-    const { data: line, error } = await db.from("manager_sms_numbers").select(columns).eq("id", exactLine).maybeSingle();
+    const { data: line, error } = await db
+      .from("manager_sms_numbers")
+      .select(withResolutionColumns(columns))
+      .eq("id", exactLine)
+      .maybeSingle();
     if (error || !line) return { data: null, error: error ?? null };
     const row = line as unknown as T & { manager_user_id?: string };
     if (row.manager_user_id === ownerUserId) return { data: row, error: null };
@@ -348,7 +363,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   };
   const targetWorkspaceId = houseWorkspaceId || (await loadDefaultWorkspaceId());
 
-  const query = db.from("manager_sms_numbers").select(withReleasedAt(columns)).eq("manager_user_id", ownerUserId);
+  const query = db.from("manager_sms_numbers").select(withResolutionColumns(columns)).eq("manager_user_id", ownerUserId);
   // A real builder is thenable and yields every row; a single-row double
   // only answers `maybeSingle`, and its one row is the one candidate.
   const { data, error } =
@@ -377,6 +392,37 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
     if (legacy) return { data: legacy, error: null };
   }
   return noNumber;
+}
+
+/**
+ * The line ONE workspace would actually send from, resolved exactly the way a
+ * send resolves it (`resolveOwnerSendNumberRow`): the workspace's home row, a
+ * number it holds via sharing, or the owner's legacy unplaced row when this is
+ * their default workspace. `numbersForWorkspaces` only matches home rows, so a
+ * workspace whose line arrives by either of the other two routes is sendable
+ * while that read reports no number — use this to agree with "can send".
+ *
+ * This reports what a status screen should SHOW, so it answers for a line
+ * whatever its provision state. The send path's own
+ * `resolveWorkspaceSendLine` (`manager-number-provisioning.server`) is a
+ * different question - a home row that can send right now, or nothing - and
+ * the two must not be reachable under one name.
+ */
+export async function resolveWorkspaceStatusLine(
+  db: SupabaseClient,
+  ownerUserId: string,
+  workspaceId: string,
+): Promise<{ phoneNumber: string | null; provisionState: string | null }> {
+  const { data } = await resolveOwnerSendNumberRow<{
+    workspace_id?: string | null;
+    phone_number?: string | null;
+    provision_state?: string | null;
+  }>(db, ownerUserId, "workspace_id, phone_number, provision_state", { workspaceId });
+  const phone = typeof data?.phone_number === "string" ? data.phone_number.trim() : "";
+  return {
+    phoneNumber: phone || null,
+    provisionState: typeof data?.provision_state === "string" ? data.provision_state : null,
+  };
 }
 
 const lineDigits = (raw: unknown): string => {

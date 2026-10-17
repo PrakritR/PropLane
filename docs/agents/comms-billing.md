@@ -186,8 +186,9 @@ decision lives.
 
 The sending workspace comes from the work number: `manager_sms_numbers.workspace_id`
 for the line the message goes out on (`comms_send_workspace_for_number` in SQL,
-`loadSendPolicy` in `owner-sms-dispatcher.server.ts`). A co-manager messaging from a
-workspace spends that workspace's wallet; only its **owner** may buy credit for it, and
+`evaluateWorkspaceSendReadiness` in `workspace-send-readiness.server.ts`, the one
+send-readiness decision the dispatcher and the messaging-number status route share).
+A co-manager messaging from a workspace spends that workspace's wallet; only its **owner** may buy credit for it, and
 the checkout route re-derives ownership from `portal_workspaces.owner_user_id` rather
 than trusting the body. `finish_comms_credit` and `settle_comms_credit_quantity` take
 no workspace argument on purpose — they read it off the usage event, so a refund can
@@ -359,7 +360,8 @@ logging it, rather than failing the send — so a lagging migration degrades a
 send's billing model, never blocks the send. Reads that are not
 on that write path (`loadCommsWallet`, the admin billing list's
 `loadCommsWalletTotals`, and `evaluateManagerCommsBillingGate`'s pre-send
-check in `owner-sms-dispatcher.server.ts`) still read the OLD per-workspace
+check in `workspace-send-readiness.server.ts` — which since Oct 15 also backs a
+teammate's displayed `canSend`) still read the OLD per-workspace
 wallet regardless of the flag; wiring those to the pool is a follow-up once
 the flag actually ships. This is a display/pre-check gap only, never a
 spending one — the pre-check being stale can at worst pre-refuse a send the

@@ -34,6 +34,7 @@ import { formatSmsPhoneLabel, formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { SaveStatus } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
+import { workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import type { ManagerVendorSummary } from "@/lib/manager-vendor-summary.server";
 import { invalidateManagerVendorSummary, loadManagerVendorSummary } from "@/lib/manager-vendor-summary-client";
@@ -511,7 +512,8 @@ export function ManagerVendorDetail({
   const [reviewsTab, setReviewsTab] = useState<"reviews" | "ratings">("reviews");
   const [reviewSearch, setReviewSearch] = useState("");
   const messaging = useManagerMessagingNumberStatus();
-  const smsAvailable = Boolean(messaging.status?.sendingAvailable && messaging.status?.number);
+  // A teammate texts a vendor from the WORKSPACE line, which is never their own row.
+  const smsAvailable = Boolean(messaging.status?.sendingAvailable && workspaceWorkNumber(messaging.status));
 
   const initialDefaults = useMemo(() => {
     const map = readManagerVendorCategorySettings(managerUserId).defaultVendorIdByTrade;
