@@ -99,7 +99,6 @@ export type CompactRoomLeaseInput = {
   utilitiesEstimateSentence?: string;
   tenantPhone?: string;
   tenantEmail?: string;
-  tenantDob?: string;
   fmtUsd: (n: number) => string;
   parseAmount: (s: string | undefined | null) => number | null;
   escapeHtml: (s: string) => string;
@@ -639,11 +638,10 @@ ${disclosureReviewNotice}
 <h2>1. Parties and Premises</h2>
 <p>This Residential Room Lease Agreement is entered into between <strong>${landlordEntity}</strong> (&ldquo;Landlord&rdquo;) and <strong>${tenantName}</strong> (&ldquo;Resident&rdquo;).</p>
 ${
-  !input.propertyTemplatePreview && (input.tenantPhone || input.tenantEmail || input.tenantDob)
+  !input.propertyTemplatePreview && (input.tenantPhone || input.tenantEmail)
     ? `<p>Resident contact: ${[
         input.tenantPhone ? `Phone ${input.tenantPhone}` : "",
         input.tenantEmail ? `Email ${input.tenantEmail}` : "",
-        input.tenantDob ? `Date of birth: ${input.tenantDob}` : "",
       ]
         .filter(Boolean)
         .join(" · ")}</p>`

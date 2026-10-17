@@ -15,6 +15,8 @@ import {
   MODAL_PANEL_CLASS,
   MODAL_STANDARD_PANEL_CLASS,
   MODAL_COMPACT_PANEL_CLASS,
+  MODAL_FIT_PANEL_CLASS,
+  MODAL_FIT_NO_RAIL_PANEL_CLASS,
   MODAL_TALL_PANEL_CLASS,
   MODAL_OVERLAY_BACKDROP_CLASS,
   PORTAL_MOBILE_DRAWER_EDGE_CLASS,
@@ -564,6 +566,8 @@ export function Modal({
   fullScreenMobile = true,
   /** Fill the viewport on every breakpoint (not only mobile drawer). */
   fullPage = false,
+  /** Keep the fixed 920 x 640 window (a wide multi-step wizard with its own step rail). Default: the height fits the content up to 640. */
+  fixedSize = false,
   /** When false, modal body does not scroll — children own internal overflow. */
   scrollableContent = true,
   /** Force Radix dialog or Vaul drawer instead of the viewport breakpoint default. */
@@ -608,6 +612,7 @@ export function Modal({
   assistantEditHint?: string;
   fullScreenMobile?: boolean;
   fullPage?: boolean;
+  fixedSize?: boolean;
   scrollableContent?: boolean;
   presentation?: "auto" | "drawer" | "dialog";
   dataAttr?: string;
@@ -644,7 +649,11 @@ export function Modal({
   const resolvedPanelClassName = cn(
     stackedPortalLayout && !fullPage ? MODAL_TALL_PANEL_CLASS : undefined,
     panelClassName,
-    fullScreenMobile || fullPage ? MODAL_STANDARD_PANEL_CLASS : MODAL_COMPACT_PANEL_CLASS,
+    fullScreenMobile || fullPage
+      ? fixedSize || fullPage
+        ? MODAL_STANDARD_PANEL_CLASS
+        : cn(MODAL_FIT_PANEL_CLASS, contextPanel === null && preview === null ? MODAL_FIT_NO_RAIL_PANEL_CLASS : undefined)
+      : MODAL_COMPACT_PANEL_CLASS,
   );
 
   // M007 — the panel's exit clone (see inert-boundary.ts's own doc comment

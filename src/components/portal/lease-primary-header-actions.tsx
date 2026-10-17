@@ -143,7 +143,6 @@ export function LeasePrimaryHeaderActions({
   onGenerateLease,
   generateLeaseBusy = false,
   generateLeaseDisabled = false,
-  generateLeaseTitle,
   onUploadPdf,
   uploadPdfBusy = false,
   onMarkSigned,
@@ -323,13 +322,7 @@ export function LeasePrimaryHeaderActions({
         node: (
           <LeaseHeaderIcon
             icon={FilePlus}
-            label={
-              generateLeaseBusy
-                ? "Generating…"
-                : generateLeaseDisabled && generateLeaseTitle
-                  ? generateLeaseTitle
-                  : "Generate lease"
-            }
+            label={generateLeaseBusy ? "Generating…" : "Generate lease"}
             disabled={generateLeaseBusy || generateLeaseDisabled}
             onClick={onGenerateLease}
           />
@@ -437,7 +430,6 @@ export function LeasePrimaryHeaderActions({
     onSigningReminder,
     generateLeaseBusy,
     generateLeaseDisabled,
-    generateLeaseTitle,
     onGenerateLease,
     uploadPdfBusy,
     showMarkSigned,

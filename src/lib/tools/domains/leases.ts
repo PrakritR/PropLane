@@ -32,6 +32,7 @@ import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { propertyInAgentWorkspace, rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -333,7 +334,7 @@ export const voidLeaseTool = defineWriteTool({
         // The top-level status column mirrors buildUpsert in the pipeline
         // route: bucket first, workflow status as the fallback.
         status: (current.bucket as string | undefined) ?? "Voided",
-        row_data: stampSmsTestProvenance(nextRowData),
+        row_data: stampSmsTestProvenance(stripIdentityFromLeaseRow(nextRowData)),
         updated_at: nowIso,
       })
       .eq("id", record.id)
@@ -466,7 +467,7 @@ export const sendLeaseForSignatureTool = defineWriteTool({
     };
     const { error } = await ctx.db
       .from("portal_lease_pipeline_records")
-      .update({ status: "resident", row_data: stampSmsTestProvenance(nextRowData), updated_at: nowIso })
+      .update({ status: "resident", row_data: stampSmsTestProvenance(stripIdentityFromLeaseRow(nextRowData)), updated_at: nowIso })
       .eq("id", record.id)
       .eq("manager_user_id", ctx.landlordId);
     if (error) {
@@ -522,7 +523,7 @@ async function upsertLeaseRow(ctx: AgentContext, row: LeasePipelineRow): Promise
       resident_email: row.residentEmail || null,
       property_id: row.propertyId ?? null,
       status: row.bucket,
-      row_data: stampSmsTestProvenance(row as unknown as Record<string, unknown>),
+      row_data: stampSmsTestProvenance(stripIdentityFromLeaseRow(row as unknown as Record<string, unknown>)),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },

@@ -224,7 +224,7 @@ describe("generated-lease", () => {
     expect(html).toContain("State of Washington");
   });
 
-  it("includes phone, email, and date of birth in generated lease html", () => {
+  it("includes phone and email, and never the date of birth, in generated lease html", () => {
     const app = snapshotJordanLee();
     const ctx = leaseContextFromApplication(app);
     const withSeattle = {
@@ -237,7 +237,8 @@ describe("generated-lease", () => {
     const html = generatedLeaseHtml(withSeattle);
     expect(html).toContain("(206) 555-0142");
     expect(html).toContain("jordan.lee@example.com");
-    expect(html).toContain("1998-03-14");
+    expect(html).not.toContain("1998-03-14");
+    expect(html).not.toMatch(/date of birth/i);
   });
 
   it("names the configured landlord legal name in the parties row instead of the building", () => {
@@ -345,7 +346,8 @@ describe("generated-lease", () => {
     expect(ctx.application.fullLegalName).toBe("Sam Rivera");
     expect(ctx.application.email).toBe("sam@example.com");
     expect(ctx.application.phone).toBe("(206) 555-0199");
-    expect(ctx.application.dateOfBirth).toBe("1995-07-04");
+    // Birth date is not a lease field: it is not resolved into the lease context.
+    expect(ctx.application.dateOfBirth).toBeUndefined();
   });
 
   it("renders bundle premises and bundle price for bundle applications", () => {

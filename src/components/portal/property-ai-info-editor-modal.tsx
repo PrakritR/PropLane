@@ -63,7 +63,7 @@ export function PropertyAiInfoEditorModal({
 }) {
   const previewAnswer = useMemo(() => {
     const trimmed = value.trim();
-    if (!trimmed) return "I do not have that yet, so I will ask the manager and get back to you.";
+    if (!trimmed) return "";
     return firstSentences(trimmed, 2);
   }, [value]);
 
@@ -83,13 +83,15 @@ export function PropertyAiInfoEditorModal({
             <p className="mb-1 text-[11px] font-semibold text-white/75">Renter</p>
             <p>{target.sampleQuestion}</p>
           </div>
-          <div className="max-w-[92%] rounded-2xl rounded-bl-sm bg-[var(--secondary)] px-3.5 py-2.5 text-sm">
-            <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-muted">
-              <Sparkles className="size-3.5 text-primary" aria-hidden />
-              PropLane assistant
-            </p>
-            <p className={value.trim() ? "text-foreground" : "text-muted"}>{previewAnswer}</p>
-          </div>
+          {previewAnswer ? (
+            <div className="max-w-[92%] rounded-2xl rounded-bl-sm bg-[var(--secondary)] px-3.5 py-2.5 text-sm">
+              <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-muted">
+                <Sparkles className="size-3.5 text-primary" aria-hidden />
+                PropLane assistant
+              </p>
+              <p className="text-foreground">{previewAnswer}</p>
+            </div>
+          ) : null}
         </div>
       }
       footer={

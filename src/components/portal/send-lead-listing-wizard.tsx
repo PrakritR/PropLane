@@ -39,7 +39,7 @@ const STEPS = [
   { id: "review", label: "Review" },
 ] as const;
 
-const FIELD_LABEL_CLASS = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
+const FIELD_LABEL_CLASS = "mb-1.5 block whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted";
 
 export function SendLeadListingWizard({
   open,
@@ -252,8 +252,9 @@ export function SendLeadListingWizard({
           <p className={FIELD_LABEL_CLASS}>Listing</p>
           <p className="text-sm font-semibold text-foreground">{properties[0]?.label}</p>
           <div className="mt-4">
+            <p className={FIELD_LABEL_CLASS}>Listing link</p>
             <SendListingLinkRow
-              label="Public listing link"
+              label="Listing link"
               url={linkUrl}
               onCopy={() => void handleCopy(linkUrl, "Listing link copied.")}
               dataAttr="send30-linkrow"

@@ -236,7 +236,8 @@ describe("Add bank flow branches on identity readiness", () => {
   it("a blocked account is one full-width popup with an explicit support error: no context rail, no preview pane, no embedded fallback", async () => {
     stubFetch({ destinations: [], bal: balance({ identity: "needed" }), identity: { ...identityNeeded, isApplicationCollected: false } });
     render(<AddBankFlow open onClose={() => {}} portal="manager" />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Contact support");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Finish payout setup in Stripe to add a bank account.");
+    expect(screen.getByRole("button", { name: "Continue in Stripe" })).toBeInTheDocument();
     expect(document.querySelector("[data-popup-form]")).not.toBeNull();
     expect(document.querySelector("[data-popup-context]")).toBeNull();
     expect(document.querySelector("[data-popup-preview]")).toBeNull();
@@ -248,14 +249,19 @@ describe("Add bank flow branches on identity readiness", () => {
   it("blocked: an unmappable requirement, a co-manager who cannot verify, and an unavailable identity route each stop with a message", async () => {
     stubFetch({ destinations: [], identity: { ...identityNeeded, fallbackToEmbedded: true } });
     const first = render(<AddBankFlow open onClose={() => {}} portal="manager" />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Stripe sign-in outside PropLane");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Finish payout setup in Stripe");
     expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
+    // Continue in Stripe opens the existing embedded onboarding in PropLane's own popup.
+    fireEvent.click(screen.getByRole("button", { name: "Continue in Stripe" }));
+    expect(await screen.findByText("account_onboarding")).toBeInTheDocument();
     first.unmount();
 
     stubFetch({ destinations: [], identity: { ...identityNeeded, canSubmit: false } });
     const second = render(<AddBankFlow open onClose={() => {}} portal="manager" />);
     expect(await screen.findByRole("alert")).toHaveTextContent("The payout account owner must verify their identity");
     expect(screen.queryByText("verify sheet")).not.toBeInTheDocument();
+    // A co-manager cannot finish the owner's setup, so there is nothing to continue.
+    expect(screen.queryByRole("button", { name: "Continue in Stripe" })).not.toBeInTheDocument();
     second.unmount();
 
     stubFetch({ destinations: [], identityStatus: 503 });

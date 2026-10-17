@@ -81,6 +81,22 @@ describe("RentalApplicationWizard templatePreview", () => {
     });
   });
 
+  it("draws one header: the stepper, with no second title or progress bar under it", async () => {
+    const { container } = render(
+      <RentalApplicationWizard
+        showToast={() => {}}
+        mode="manager"
+        layout="embedded"
+        linkedPropertyId={LISTING_ID}
+        templatePreview
+      />,
+    );
+    await screen.findByLabelText(/^Move-in date/);
+    expect(container.querySelector(".rental-wizard-step-header")).toBeNull();
+    expect(container.querySelector(".rental-wizard-progress")).toBeNull();
+    expect(screen.queryByText("Rental application")).toBeNull();
+  });
+
   it("renders configured built-in identity labels in the applicant preview", async () => {
     const sub = createDefaultListingSubmission();
     const name = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.label === "Full legal name")!;

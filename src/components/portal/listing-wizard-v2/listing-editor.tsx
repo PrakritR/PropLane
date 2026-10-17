@@ -534,17 +534,17 @@ export function VideoSlot({
 /**
  * The six shapes a manager recognises their own property in.
  *
- * Worded as things rather than categories — "A house", not "Single-family
+ * Worded as things rather than categories — "House", not "Single-family
  * residential" — because a manager is matching a picture in their head, not
  * classifying an asset. The ids are the listing's own property-type ids.
  */
 const PROPERTY_KIND_TILES: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: "house", label: "A house", icon: Home },
-  { id: "townhouse", label: "A townhouse", icon: Layers },
-  { id: "condo", label: "A condo", icon: Building2 },
-  { id: "duplex", label: "A small building", icon: Warehouse },
-  { id: "apartment", label: "An apartment", icon: Building },
-  { id: "other", label: "Something else", icon: Store },
+  { id: "house", label: "House", icon: Home },
+  { id: "townhouse", label: "Townhouse", icon: Layers },
+  { id: "condo", label: "Condo", icon: Building2 },
+  { id: "duplex", label: "Small building", icon: Warehouse },
+  { id: "apartment", label: "Apartment", icon: Building },
+  { id: "other", label: "Other", icon: Store },
 ];
 
 /** `listingTotalBathroomsId` is an id from LISTING_TOTAL_BATH_OPTIONS; the stepper counts in halves and "4+" is its top. */
@@ -685,7 +685,7 @@ function StepBasics({
        */}
       <SectionGroup first>
         <Field label="Property type" required group labelAside={mark("listingPropertyTypeId")}>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2.5">
             {PROPERTY_KIND_TILES.map((k) => (
               <KindTile
                 key={k.id}
@@ -3481,7 +3481,6 @@ export function ListingEditorV2({
     <ListingWorkspace
       title={title}
       closeDisabled={busy}
-      subtitle={[submission.address, submission.city, submission.state].filter(Boolean).join(", ") || undefined}
       badge={
         isEdit ? (
           <span className="rounded-full bg-[var(--status-confirmed-bg)] px-2 py-0.5 text-[11.5px] font-bold text-[var(--status-confirmed-fg)]">

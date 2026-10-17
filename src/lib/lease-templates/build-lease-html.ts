@@ -540,7 +540,6 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
       : "";
   const tenantPhone = dash(a.phone);
   const tenantEmail = dash(a.email);
-  const tenantDob = dash(a.dateOfBirth);
   const employer = dash(a.employer);
   const jobTitle = dash(a.jobTitle);
   const monthlyIncome = dash(a.monthlyIncome);
@@ -1655,7 +1654,6 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       utilitiesEstimateSentence,
       tenantPhone,
       tenantEmail,
-      tenantDob,
       fmtUsd,
       parseAmount,
       escapeHtml,
@@ -1705,7 +1703,7 @@ ${disclosureReviewNotice}
 <h2>${nextSection()}. Parties</h2>
 <table>
   <tr><th width="35%">Landlord / Operator</th><td><strong>${landlordEntity}</strong>${landlordPropertyLine}<br/>Mailing address: ${landlordMailing}<br/>For notices, use PropLane portal messaging or the address above.</td></tr>
-  <tr><th>Resident / Tenant</th><td><strong>${tenantName}</strong><br/>Phone: ${tenantPhone} &nbsp;·&nbsp; Email: ${tenantEmail}<br/>Date of birth: ${tenantDob}</td></tr>
+  <tr><th>Resident / Tenant</th><td><strong>${tenantName}</strong><br/>Phone: ${tenantPhone} &nbsp;·&nbsp; Email: ${tenantEmail}</td></tr>
 </table>
 ${jointPartiesNote ? `<p>${jointPartiesNote}</p>` : ""}
 
@@ -1930,7 +1928,6 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
 <table>
   <tr><th>Field</th><th>Information supplied by Resident</th></tr>
   <tr><td>Full legal name</td><td>${tenantName}</td></tr>
-  <tr><td>Date of birth</td><td>${tenantDob}</td></tr>
   <tr><td>Phone</td><td>${tenantPhone}</td></tr>
   <tr><td>Email</td><td>${tenantEmail}</td></tr>
   <tr><td>Employer</td><td>${employer}</td></tr>

@@ -131,6 +131,7 @@ import {
 import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { buildJointLeaseMembers, buildJointLeasePipelineRow, jointLeaseRowIncludesMember } from "@/lib/bundle-group/joint-lease";
 import type { JointLeaseMember, LeaseKind } from "@/lib/bundle-group/types";
+import { stripApplicantIdentityFromLeaseApplication } from "@/lib/lease-application-identity";
 
 export const LEASE_PIPELINE_EVENT = "axis:lease-pipeline";
 const LEASE_PIPELINE_SESSION_KEY_PREFIX = "axis:lease-pipeline:v2";
@@ -1319,7 +1320,8 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     roomChoice: typeof r.roomChoice === "string" ? r.roomChoice : null,
     signedRentLabel: typeof r.signedRentLabel === "string" ? r.signedRentLabel : null,
     leaseFirst: r.leaseFirst === true,
-    application: r.application,
+    // Applicant identity (SSN, birth date, licence) never lives on a lease.
+    application: stripApplicantIdentityFromLeaseApplication(r.application),
     leaseIntake: normalizeLeaseIntakeAnswers(r.leaseIntake),
     // Do not alter persisted historical bytes on read. Section overrides stay
     // separate until they are materialized for signing.
