@@ -72,3 +72,14 @@ export const MODAL_COMPACT_PANEL_CLASS =
 /** The approved pop-up window: 10px panel, shadow only on the panel, 920 x 640 at most (phone: full sheet). */
 export const MODAL_STANDARD_PANEL_CLASS =
   "!h-[min(640px,calc(100dvh-40px))] !max-h-[calc(100dvh-40px)] !w-full !max-w-[920px] !rounded-[10px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]";
+
+/**
+ * The default pop-up window: the same 10px panel and 920px cap as the standard window, but the HEIGHT
+ * fits the content (up to 640px) instead of a fixed 640. A small form is a small card; a long one scrolls
+ * inside the cap. Phone: unchanged full sheet.
+ */
+export const MODAL_FIT_PANEL_CLASS =
+  "!h-auto !max-h-[calc(100dvh-40px)] sm:!max-h-[min(640px,calc(100dvh-40px))] !w-full !max-w-[920px] !rounded-[10px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]";
+
+/** A pop-up with no side rails (`contextPanel` and `preview` both `null`) has nothing to fill 920px: it narrows to a form width. */
+export const MODAL_FIT_NO_RAIL_PANEL_CLASS = "sm:!max-w-[640px]";

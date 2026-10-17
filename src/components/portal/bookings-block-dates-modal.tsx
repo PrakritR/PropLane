@@ -540,9 +540,7 @@ export function BookingsBlockDatesModal({
                 aria-label="Resident"
                 data-attr="bookings-block-resident"
               >
-                <option value="">
-                  {residentOptions.length === 0 ? "No residents yet — just close the room" : "No one — just close the room"}
-                </option>
+                <option value="">No one</option>
                 {residentOptions.map((option) => (
                   <option key={option.key} value={option.key}>
                     {option.meta ? `${option.name} · ${option.meta}` : option.name}

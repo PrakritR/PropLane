@@ -284,12 +284,15 @@ export function PromotionForm({
   listings,
   onSelectProperty,
   hidePropertyPicker = false,
+  hidePreview = false,
 }: {
   draft: PromotionDraft;
   setDraft: React.Dispatch<React.SetStateAction<PromotionDraft>>;
   listings: ManagerPromotionPropertyOption[];
   onSelectProperty: (key: string) => void;
   hidePropertyPicker?: boolean;
+  /** The caller draws the live flyer itself (a pop-up's preview column), so the form does not repeat it. */
+  hidePreview?: boolean;
 }) {
   const { showToast } = useAppUi();
   const [readingPhotos, setReadingPhotos] = useState(false);
@@ -524,12 +527,14 @@ export function PromotionForm({
           })}
         </div>
       </div>
-      <div className="sm:col-span-2">
-        <label className="text-xs font-semibold text-muted">Preview</label>
-        <div className="mt-1 flex justify-center">
-          <PromotionFlyerPreview promotion={previewRow} embedded />
+      {hidePreview ? null : (
+        <div className="sm:col-span-2">
+          <label className="text-xs font-semibold text-muted">Preview</label>
+          <div className="mt-1 flex justify-center">
+            <PromotionFlyerPreview promotion={previewRow} embedded />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
-import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, cloneElement, isValidElement, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
 import { RecordActionItems, isRecordActionRowShape, withRecordActionIcon } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
@@ -9,13 +9,16 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { RecordHeaderHostContext, useLgUp } from "@/components/portal/portal-title-actions-slot";
 import {
   computeSharedSlotActionBudget,
   pickAdaptiveActions,
+  recordHeaderInlineLimit,
   resolveAdaptiveOptionalFitCount,
   splitAdaptiveActions,
   type PortalAdaptiveAction,
@@ -77,6 +80,19 @@ function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
 }
 
 /**
+ * A header ⋯ item carries its glyph like every other action menu (16px, leading). A plain-text item gets the
+ * icon of the inline action it stands in for; an item that already draws its own child element is left alone.
+ */
+function overflowMenuItem(action: PortalAdaptiveAction): ReactNode {
+  const { node, menuItem } = action;
+  if (!isValidElement<{ icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }> }>(node)) return menuItem;
+  const Icon = node.props.icon;
+  if (!Icon || !isValidElement<{ children?: ReactNode; className?: string }>(menuItem) || menuItem.type !== DropdownMenuItem) return menuItem;
+  if (typeof menuItem.props.children !== "string") return menuItem;
+  return cloneElement(menuItem, undefined, <Icon aria-hidden />, <span className="min-w-0 truncate">{menuItem.props.children}</span>);
+}
+
+/**
  * Fit as many inline actions as a row allows; overflow moves into a trailing … menu.
  * Shared by page title bands and docked bulk-selection bars.
  */
@@ -119,7 +135,11 @@ export function PortalAdaptiveActionRow({
   const [measuredFitCount, setOptionalFitCount] = useState(optional.length);
   const inRecordMenu = useContext(RecordActionItemsContext);
   const bulkBarLimit = useContext(BulkBarActionLimitContext);
-  const fixedLimit = inRecordMenu ? actions.length : maxVisible ?? bulkBarLimit;
+  const inRecordHeader = useContext(RecordHeaderHostContext);
+  const lgUp = useLgUp();
+  const fixedLimit = inRecordMenu
+    ? actions.length
+    : maxVisible ?? bulkBarLimit ?? recordHeaderInlineLimit(actions.length, inRecordHeader, lgUp);
   const fixed = fixedLimit != null;
   const optionalFitCount = fixed
     ? Math.max(0, fixedLimit - (actions.length - optional.length))
@@ -229,7 +249,7 @@ export function PortalAdaptiveActionRow({
       <DropdownMenuContent align="end" className="record-action-menu">
         <RecordActionCloseContext.Provider value={() => setMenuOpen(false)}>
         {overflow.map((action) => (
-          <div key={action.id}>{action.menuItem}</div>
+          <div key={action.id}>{overflowMenuItem(action)}</div>
         ))}
         {overflow.length > 0 && pinnedCount > 0 ? <DropdownMenuSeparator /> : null}
         {pinnedMenuItems.map((item, index) => (

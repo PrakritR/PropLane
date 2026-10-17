@@ -10,23 +10,18 @@ import {
 /** Accessible on/off switch for a single dashboard section. */
 function SectionToggle({
   label,
-  description,
   checked,
   onChange,
   dataAttr,
 }: {
   label: string;
-  description: string;
   checked: boolean;
   onChange: (next: boolean) => void;
   dataAttr?: string;
 }) {
   return (
-    <li className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-3">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-foreground">{label}</p>
-        <p className="mt-0.5 text-xs text-muted">{description}</p>
-      </div>
+    <li className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-3">
+      <p className="min-w-0 text-sm font-semibold text-foreground">{label}</p>
       <button
         type="button"
         role="switch"
@@ -37,7 +32,7 @@ function SectionToggle({
         /* The portal HIG layer forces every button in the shell to a 44px
            min-height, so the pill has to be a child — sizing the button itself
            stretches it into a circle. The button stays the touch target. */
-        className="mt-0.5 inline-flex w-11 shrink-0 items-center justify-center bg-transparent focus-visible:outline-none"
+        className="inline-flex w-11 shrink-0 items-center justify-center bg-transparent focus-visible:outline-none"
       >
         <span
           aria-hidden
@@ -75,10 +70,8 @@ export function DashboardCustomizeModal({
   visibility: Record<string, boolean>;
   onToggle: (id: string, visible: boolean) => void;
   onReset: () => void;
-  sections?: readonly { id: string; label: string; description: string }[];
+  sections?: readonly { id: string; label: string }[];
 }) {
-  const visibleCount = sections.filter((s) => visibility[s.id]).length;
-
   return (
     <Modal
       open={open}
@@ -86,16 +79,11 @@ export function DashboardCustomizeModal({
       title="Customize dashboard"
       status={<PortalIconAction icon={RotateCcw} label="Reset to defaults" onClick={onReset} data-attr="dashboard-customize-reset" />}
     >
-      <p className="text-xs text-muted">
-        Choose which sections appear on your dashboard. {visibleCount} of {sections.length} shown. The stat row at the
-        top always stays.
-      </p>
-      <ul className="mt-3 space-y-2">
+      <ul className="space-y-2">
         {sections.map((section) => (
           <SectionToggle
             key={section.id}
             label={section.label}
-            description={section.description}
             checked={Boolean(visibility[section.id])}
             onChange={(next) => onToggle(section.id, next)}
             dataAttr={`dashboard-customize-toggle-${section.id}`}

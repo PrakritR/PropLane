@@ -30,6 +30,9 @@ import {
 import { formatAvailabilitySlotLabel } from "@/lib/demo-admin-scheduling";
 import { cn } from "@/lib/utils";
 
+/** Short enough that the four steps stay labeled tabs on a phone (never the unlabeled step dropdown). */
+export const SCHEDULE_TOUR_STEP_LABELS = ["Where", "When", "Who", "Review"] as const;
+
 const EMPTY_LEASE_KEYS = { axisIds: new Set<string>(), emails: new Set<string>() };
 
 function todayLocalDateStr(): string {
@@ -160,7 +163,7 @@ export function ScheduleTourSimpleModal({
     availability !== "idle" || !slotKey || !slotHosts[slotKey]?.length ? "Choose an open time." : "",
     !form.name.trim() ? "Enter the visitor's name." : form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) ? "Enter a valid email address." : form.phone.trim() && !/^\+?[\d ().-]+$/.test(form.phone.trim()) || (form.phone.trim() && (form.phone.replace(/\D/g, "").length < 10 || form.phone.replace(/\D/g, "").length > 15)) ? "Enter a valid phone number." : "",
   ];
-  const steps = ["Home", "Date & time", "Visitor", "Review"].map((label, index) => ({ id: String(index), label, incomplete: Boolean(issues[index]) }));
+  const steps = SCHEDULE_TOUR_STEP_LABELS.map((label, index) => ({ id: String(index), label, incomplete: Boolean(issues[index]) }));
   const jump = (next: number) => {
     const invalid = issues.findIndex((issue, index) => index < next && Boolean(issue));
     if (next > current && invalid >= 0) { setError(issues[invalid]); setCurrent(invalid); return; }

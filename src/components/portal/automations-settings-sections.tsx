@@ -128,7 +128,7 @@ function PropertyMoveInFormSettings() {
           hideLabel
           label="Remind residents"
           variant="cell"
-          wrapperClassName="w-72"
+          wrapperClassName="w-80 max-w-full"
           value={settings.remind}
           options={REMIND_OPTIONS}
           disabled={disabled}
@@ -141,7 +141,7 @@ function PropertyMoveInFormSettings() {
           hideLabel
           label="Tell me when a form is submitted"
           variant="cell"
-          wrapperClassName="w-72"
+          wrapperClassName="w-80 max-w-full"
           value={settings.notifyOnSubmit}
           options={NOTIFY_OPTIONS}
           disabled={disabled}

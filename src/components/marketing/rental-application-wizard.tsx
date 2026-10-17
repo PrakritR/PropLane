@@ -2807,6 +2807,8 @@ function RentalApplicationWizardInner({
               uploadedForms={Boolean(form.applicationTemplateId?.trim())}
             />
             <RentalWizardApplySteps currentStep={step} />
+            {/* A manager's preview sits under the pop-up's own title and this stepper: one header, so no second title and bar. */}
+            {templatePreview ? null : (
             <div className="rental-wizard-step-header border-b border-border pb-4 sm:pb-6">
               <p className="rental-wizard-step-eyebrow text-[10px] font-bold uppercase tracking-[0.18em] text-muted/70 sm:text-[11px]">
                 {form.rentalType === "short_term" ? "Short-term stay application" : "Rental application"}
@@ -2822,6 +2824,7 @@ function RentalApplicationWizardInner({
                 />
               </div>
             </div>
+            )}
 
             <SharedRoomBedConflictModal
               open={Boolean(bedConflict)}

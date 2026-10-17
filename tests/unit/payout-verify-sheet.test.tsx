@@ -23,7 +23,7 @@ vi.mock("@stripe/stripe-js/pure", () => ({
   loadStripe: () => Promise.resolve({ createToken: createTokenMock }),
 }));
 
-import { PayoutVerifySheet } from "@/components/portal/payout-verify-sheet";
+import { PayoutVerifySheet, shouldShowNeedsStatus } from "@/components/portal/payout-verify-sheet";
 
 const OWN_FORM_REQUIREMENTS = {
   status: "needs_info",
@@ -60,6 +60,24 @@ describe("PayoutVerifySheet", () => {
     expect(await screen.findByText("Legal name")).toBeInTheDocument();
     expect(screen.getByText("Last 4 of SSN")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded")).not.toBeInTheDocument();
+  });
+
+  it("shows no 'Needs: ...' error before the user has typed, and shows it once they interact", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(OWN_FORM_REQUIREMENTS)));
+    render(<PayoutVerifySheet open onClose={vi.fn()} connectBase="/api/stripe/connect" />);
+    await screen.findByText("Legal name");
+    expect(screen.queryByText(/^Needs:/)).not.toBeInTheDocument();
+    fireEvent.change(document.querySelector('[data-attr="verify-field-individual.legal_name"]') as HTMLInputElement, {
+      target: { value: "Ada" },
+    });
+    expect(screen.getByText(/^Needs:/)).toBeInTheDocument();
+  });
+
+  it("shouldShowNeedsStatus hides only an untouched needs_info state", () => {
+    expect(shouldShowNeedsStatus("needs_info", false)).toBe(false);
+    expect(shouldShowNeedsStatus("needs_info", true)).toBe(true);
+    expect(shouldShowNeedsStatus("verified", false)).toBe(true);
+    expect(shouldShowNeedsStatus("restricted", false)).toBe(true);
   });
 
   it("blocks a legacy (express) account with a support error: no embedded component, no form, no Submit", async () => {

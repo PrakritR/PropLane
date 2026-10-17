@@ -164,7 +164,9 @@ export function PropertyHouseDetailsEditorModal({
       open={open}
       title={title}
       onClose={onClose}
-      panelClassName="max-w-3xl"
+      // One form, one column: the auto rail and snapshot only echoed the name field back.
+      contextPanel={null}
+      preview={null}
       footer={
         <ModalFooter className="w-full gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>

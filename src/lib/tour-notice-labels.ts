@@ -9,6 +9,11 @@ export function tourNoticeDaysLabel(noticeDays: number): string {
   return `${days} days notice`;
 }
 
+/** The unit that sits inside the notice stepper beside its number: "0 days", "1 day", "7 days". */
+export function tourNoticeUnitLabel(noticeDays: number): string {
+  return normalizeTourNoticeDays(noticeDays) === 1 ? "day" : "days";
+}
+
 export const TOUR_NOTICE_DAY_SELECT_OPTIONS = TOUR_NOTICE_DAY_OPTIONS.map((days) => ({
   value: days,
   label: tourNoticeDaysLabel(days),

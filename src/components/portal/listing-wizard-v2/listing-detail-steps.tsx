@@ -1834,7 +1834,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
           facts={
             <Facts
               items={[
-                stays.long_term && `Long-term · ${wholeAmount > 0 ? rentLabel(wholeAmount) : "rent not set"}`,
+                stays.long_term && "Long-term",
                 stays.short_term && `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
               ]}
             />
@@ -1866,7 +1866,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
               facts={
                 <Facts
                   items={[
-                    stays.long_term && `Long-term · ${amount === "—" ? "rent not set" : amount}`,
+                    stays.long_term && "Long-term",
                     stays.short_term && `Short-term · ${nightlyText(room.shortTermRent)}`,
                   ]}
                 />
@@ -1912,7 +1912,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
             facts={
               <Facts
                 items={[
-                  stays.long_term && `Long-term · ${wholeHouseRent > 0 ? rentLabel(wholeHouseRent) : "rent not set"}`,
+                  stays.long_term && "Long-term",
                   stays.short_term && `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
                   !wholeHouseOffered && "Not offered",
                 ]}
