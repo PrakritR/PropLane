@@ -47,6 +47,12 @@ room back to monthly brings them back.
   (`dailyRentPrice × DAILY_RENT_MONTH_ESTIMATE_DAYS`, 30 days) so mixed listings
   stay coherent as `/mo`; each room's OWN row still shows its true `$X/day`. A
   per-resident room contributes its lowest slot rent to every aggregate.
+- **One monthly figure per room, one money format.** The browse card's range, the listing
+  header, the tour room list and Lease basics all read a room's `roomMonthlyEquivalent`
+  (daily rooms: the 30-day amount; never the stored `monthlyRent` a daily room keeps as a
+  legacy field). `roomMonthlyEquivalentLabel` prints it (`$1,350/mo`); every amount in a
+  label goes through `formatRoomPriceAmount` / `formatMoneyAmountsInLabel` (`$1,150`, no
+  `.00` on whole dollars). Coverage: `tests/unit/room-price-consistency.test.ts`.
 - **Charges:** the daily basis threads through `recordApprovedApplicationCharges`
   and the recurring generator via `RecurringRentProfile.dailyRentPrice` in
   `src/lib/household-charges.ts`. It extends the existing daily proration to full

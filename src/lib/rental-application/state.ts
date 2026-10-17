@@ -1,8 +1,13 @@
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { RentalWizardFormState } from "./types";
 import { RENTAL_WIZARD_STEP_SCHEMA } from "./wizard-step-schema";
 
-export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+/**
+ * Today as YYYY-MM-DD on the Pacific calendar. `toISOString()` is UTC, so an applicant signing at 6pm Pacific
+ * was dated tomorrow.
+ */
+export function todayISO(now: Date | number = Date.now()): string {
+  return pacificCalendarDateYmd(now);
 }
 
 export function createInitialRentalWizardState(): RentalWizardFormState {

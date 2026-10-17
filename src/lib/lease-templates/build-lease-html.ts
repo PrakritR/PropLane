@@ -1983,7 +1983,6 @@ ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySi
   <tr><td>Other / notes</td><td colspan="2">&nbsp;</td></tr>
 </table>
 <p>Signing this Agreement does not certify blank condition entries or a report completed later. The completed condition report requires both parties&apos; signatures and dates.</p>
-<p>Landlord signature: ____________________ Date: __________<br/>Resident signature: ____________________ Date: __________</p>
 ${moveInDisclosureHtml}
 </div>
 

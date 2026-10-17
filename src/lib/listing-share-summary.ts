@@ -1,6 +1,7 @@
 import type { MockProperty } from "@/data/types";
 import { isEntireHomeListing, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { monthlyRentListingLabel } from "@/lib/rental-application/listing-fees-display";
+import { formatMoneyAmountsInLabel, roomMonthlyEquivalentLabel } from "@/lib/room-pricing";
 
 export type ListingShareSummary = {
   title: string;
@@ -36,7 +37,8 @@ export function buildListingShareSummary(
       if (selectedRoomLabel || selectedRoom) suppressPropertyRent = true;
       const room = selectedRoom ?? (selectedRoomLabel ? rooms.find((r) => r.name.trim() === selectedRoomLabel) : undefined);
       if (room) {
-        roomLine = `${room.name.trim()}${room.monthlyRent > 0 ? ` · $${room.monthlyRent.toLocaleString()}/mo` : ""}`;
+        const roomRent = roomMonthlyEquivalentLabel(room);
+        roomLine = `${room.name.trim()}${roomRent ? ` · ${roomRent}` : ""}`;
       } else if (selectedRoomLabel) {
         roomLine = selectedRoomLabel;
       } else {
@@ -46,7 +48,7 @@ export function buildListingShareSummary(
     }
   }
 
-  const rent = property.rentLabel?.trim() || monthlyRentListingLabel(property.listingSubmission);
+  const rent = formatMoneyAmountsInLabel(property.rentLabel?.trim() || monthlyRentListingLabel(property.listingSubmission));
   if (rent && rent !== "—" && !suppressPropertyRent) lines.push(`Rent: ${rent}`);
 
   if (property.beds > 0 || property.baths > 0) {

@@ -7,6 +7,7 @@ import type { MockProperty } from "@/data/types";
 import { buildManagerTourUrl, cleanPropertyDisplayName } from "@/lib/manager-property-links";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { sanitizeFlyerImages, type PromotionInputs } from "@/lib/promotion-flyer";
+import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 export type PromotionDraftAutofillFields = {
   propertyLabel: string;
@@ -137,7 +138,7 @@ export function extractPromotionListingFacts(property: MockProperty): PromotionL
   const sub = property.listingSubmission;
   const rooms = (sub?.rooms ?? []).filter((r) => r.name?.trim());
   const roomHighlights = rooms.slice(0, 8).map((r) => {
-    const rent = r.monthlyRent > 0 ? `$${r.monthlyRent}/mo` : "";
+    const rent = r.monthlyRent > 0 ? `${formatRoomPriceAmount(r.monthlyRent)}/mo` : "";
     const avail = r.availability?.trim();
     return [r.name?.trim(), rent, avail].filter(Boolean).join(" — ");
   });

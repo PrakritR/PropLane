@@ -11,6 +11,7 @@ import {
   resolveAllowedLeaseTerms,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import { displayPropertyTitle } from "@/lib/property-title";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import {
@@ -122,6 +123,8 @@ export type ResolvedApplicationFeeProperty = {
    * `manager_application_fee_waiver_codes` lookup regardless of this value.
    */
   templateWaiverCodeOverride: string | null;
+  /** The house's display name, for the Stripe line item. Never the raw property id. */
+  propertyTitle: string;
   /**
    * The STORED template id that actually matched `input.applicationTemplateId`
    * — `null` when the caller supplied none, or supplied one that matched no
@@ -144,6 +147,25 @@ export type ResolvedApplicationFeeProperty = {
  * redeem route, AND the Stripe checkout below, which layers its own
  * ACH-enabled check on top since only IT actually needs Stripe.
  */
+/**
+ * What the Stripe line item calls the house: its display title, never the raw property id
+ * ("Listing proof-qarental-…" was what the payer saw). A listing with no name says "your application".
+ */
+export function applicationFeePropertyTitle(propertyData: unknown): string {
+  const data = (propertyData ?? {}) as { title?: unknown; buildingName?: unknown; unitLabel?: unknown };
+  return displayPropertyTitle({
+    title: typeof data.title === "string" ? data.title : "",
+    buildingName: typeof data.buildingName === "string" ? data.buildingName : "",
+    unitLabel: typeof data.unitLabel === "string" ? data.unitLabel : "",
+  }).slice(0, 120);
+}
+
+/** The product description on the application-fee line item. */
+export function applicationFeeProductDescription(propertyTitle: string): string {
+  const title = propertyTitle.trim();
+  return title ? title : "Rental application";
+}
+
 export async function resolveApplicationFeeProperty(
   db: SupabaseClient,
   input: {
@@ -276,6 +298,7 @@ export async function resolveApplicationFeeProperty(
       feeRoomId: basis.roomId,
       feeLeaseTerm: feeLeaseTerm ?? "",
       templateWaiverCodeOverride: matchedTemplate?.waiverCodeOverride?.trim() || null,
+      propertyTitle: applicationFeePropertyTitle(propertyRow.property_data),
       resolvedApplicationTemplateId: matchedTemplate?.id ?? null,
     },
   };
@@ -598,7 +621,7 @@ export async function createApplicationFeeCheckout(
     residentEmail: input.residentEmail,
     amountCents: applicationFeeCents,
     productName: "Rental application fee",
-    productDescription: `Listing ${input.propertyId.slice(0, 120)}`,
+    productDescription: applicationFeeProductDescription(resolved.value.propertyTitle),
     metadata,
     mode,
     destinationAccountId,

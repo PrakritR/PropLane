@@ -13,7 +13,7 @@ import {
   utilitiesAmountIsFixedCharge,
   utilitiesListingSummaryLabel,
 } from "@/lib/listing-utilities-payment";
-import { roomDailyRentPrice, roomAdvertisedPriceLabel, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
+import { formatRoomPriceAmount, roomDailyRentPrice, roomAdvertisedPriceLabel, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
 
 export type ListingSigningComputationInput = ManagerListingSubmissionV1 | undefined;
 
@@ -23,14 +23,14 @@ export function monthlyRentListingLabel(sub: ListingSigningComputationInput): st
   const n = normalizeManagerListingSubmissionV1(sub);
   if (isEntireHomeListing(n)) {
     const rent = entireHomeMonthlyRentAmount(n);
-    return rent > 0 ? `$${rent.toFixed(2)}/mo` : "—";
+    return rent > 0 ? `${formatRoomPriceAmount(rent)}/mo` : "—";
   }
   // Daily-priced rooms contribute their monthly-equivalent so the range stays coherent as "/mo".
   const rents = n.rooms.filter((r) => r.name.trim()).map((r) => roomMonthlyEquivalent(r)).filter((x) => x > 0);
   if (!rents.length) return "—";
   const lo = Math.min(...rents);
   const hi = Math.max(...rents);
-  return lo === hi ? `$${lo.toFixed(2)}/mo` : `$${lo.toFixed(2)}–${hi.toFixed(2)}/mo`;
+  return lo === hi ? `${formatRoomPriceAmount(lo)}/mo` : `${formatRoomPriceAmount(lo)}–${formatRoomPriceAmount(hi)}/mo`;
 }
 
 export function formatQuoteMoney(amount: number): string {

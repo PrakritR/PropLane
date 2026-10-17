@@ -106,23 +106,31 @@ export type CompactRoomLeaseInput = {
   isMonthToMonthLease: boolean;
 };
 
-function compactPremisesAccessParagraph(
+/** "2nd floor" stays "2nd floor"; "2nd" and "Main floor" read the same way: the word "floor" is added once. */
+function compactFloorPhrase(floor: string): string {
+  const bare = floor.trim().replace(/\s*floor\.?$/i, "").trim();
+  return bare ? `${bare} floor` : floor.trim();
+}
+
+export function compactPremisesAccessParagraph(
   room: { floor?: string } | undefined,
   bathroomArrangement: string,
   escapeHtml: (s: string) => string,
 ): string {
   const floor = room?.floor?.trim();
   const floorClause = floor
-    ? `exclusive use of their room on ${escapeHtml(floor)} floor`
+    ? `exclusive use of their room on the ${escapeHtml(compactFloorPhrase(floor))}`
     : "exclusive use of their private room";
-  let bathroomClause = "shared use of bathroom facilities on the property";
-  const bath = bathroomArrangement.trim();
+  // The arrangement text is a free-form fact ("shared with Room 2 (shared), Room 3."), so it gets its own
+  // sentence, never a comma splice into the sentence about the common areas.
+  const bath = bathroomArrangement.trim().replace(/[.\s]+$/, "");
+  let bathroomSentence = "Resident shall have shared use of bathroom facilities on the property.";
   if (bath.includes("assigned to this room")) {
-    bathroomClause = "use only the bathroom assigned to their room";
+    bathroomSentence = "Resident shall use only the bathroom assigned to their room.";
   } else if (bath) {
-    bathroomClause = `bathroom access as follows: ${escapeHtml(bath)}`;
+    bathroomSentence = `Bathroom access: ${escapeHtml(bath)}.`;
   }
-  return `Resident shall have ${floorClause}, ${bathroomClause}, and shared, non-exclusive use of the kitchen, living areas, laundry facilities, hallways, and other designated common areas together with other residents.`;
+  return `Resident shall have ${floorClause}. ${bathroomSentence} Resident shall also have shared, non-exclusive use of the kitchen, living areas, laundry facilities, hallways, and other designated common areas together with other residents.`;
 }
 
 function compactPaymentInstruction(paymentMethod: string): string {
@@ -678,7 +686,7 @@ ${input.holdingDepositHtml ?? ""}
   <li>Lost or damaged furnishings</li>
   <li>Other charges permitted by Washington law</li>
 </ul>
-<p>${input.config.depositReturnWindow ?? "Any refundable balance shall be returned in accordance with Washington law after Resident vacates and provides a forwarding address."}</p>
+<p>${input.config.depositReturnWindow ? `${input.config.depositReturnWindow.replace(/[.\s]+$/, "")}, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund.` : "Any refundable balance shall be returned in accordance with Washington law after Resident vacates and provides a forwarding address."}</p>
 <p>The security deposit may not be used as the final month&apos;s rent.</p>
 
 <h2>6. Utilities</h2>
@@ -778,7 +786,6 @@ ${disputeVenue ? `<p>Any legal proceeding arising from this Agreement shall be b
   <tr><td>Other / notes</td><td colspan="2">&nbsp;</td></tr>
 </table>
 <p>Signing this Agreement does not certify blank condition entries or a report completed later. The completed condition report requires both parties&apos; signatures and dates.</p>
-<p>Landlord signature: ____________________ Date: __________<br/>Resident signature: ____________________ Date: __________</p>
 </div>
 
 <div class="addendum">

@@ -997,6 +997,7 @@ export async function GET(req: Request) {
 
     const byId = new Map<string, DemoApplicantRow>();
     const recordEmailByRowId = new Map<string, string>();
+    const skippedRowIds: string[] = [];
     const normalizedRows = await timer.timed("normalize", () => Promise.all((data ?? []).map(async (record) => {
       if (!record.row_data) return null;
       const recordEmail =
@@ -1006,7 +1007,17 @@ export async function GET(req: Request) {
       const storedRow = record.row_data as DemoApplicantRow;
       if ((selfScope || role === "resident") && !residentOwnsApplicationRow(storedRow, { email, userId: user.id }, { recordEmail })) return null;
       // Resolve aliases in the lookup, but authenticate against the exact stored PK.
-      let row = normalizeRow(openApplicantRow(storedRow, record.id, undefined, { soft: true }));
+      // One inconsistent row (a protected row that also kept a plaintext identity copy, a malformed record)
+      // must cost that row, never the whole list. It is logged by id (no identity) and counted in the response.
+      let opened: DemoApplicantRow;
+      try {
+        opened = openApplicantRow(storedRow, record.id, undefined, { soft: true });
+      } catch (error) {
+        skippedRowIds.push(record.id);
+        bestEffortFailed("applicant row skipped", { application: record.id })(error);
+        return null;
+      }
+      let row = normalizeRow(opened);
       if ((selfScope || role === "resident") && recordEmail) {
         row = { ...row, email: recordEmail };
       }
@@ -1053,7 +1064,7 @@ export async function GET(req: Request) {
       console.warn(JSON.stringify({ route: "manager-applications", phases: { ...timer.phases, total }, rows: scopedRows.length }));
     }
     return NextResponse.json(
-      { rows: scopedRows, truncated },
+      { rows: scopedRows, truncated, ...(skippedRowIds.length > 0 ? { skippedRowIds } : {}) },
       { headers: { "Cache-Control": "private, no-store", "Server-Timing": serverTimingHeader(timer.phases, total) } },
     );
   } catch (e) {

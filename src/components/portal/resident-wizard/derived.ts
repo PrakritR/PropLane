@@ -25,6 +25,7 @@ import {
   RESIDENT_LEASE_TERM_CUSTOM,
 } from "@/lib/resident-manual-lease-terms";
 import type { AddPersonForm } from "./state";
+import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 export type RoomOption = { id: string; name: string; monthlyRent?: number; shortTermRent?: string | number };
 
@@ -201,7 +202,7 @@ export function useResidentWizardDerived(
     if (!propertyId) return null;
     const room = roomOptions.find((r) => r.id === roomId);
     const parts: string[] = [];
-    if (room) parts.push(`${room.name}${room.monthlyRent ? ` · $${room.monthlyRent}/mo listed` : ""}`);
+    if (room) parts.push(`${room.name}${room.monthlyRent ? ` · ${formatRoomPriceAmount(room.monthlyRent)}/mo listed` : ""}`);
     return parts.length ? parts.join(" · ") : null;
   }, [propertyId, roomId, roomOptions]);
 
