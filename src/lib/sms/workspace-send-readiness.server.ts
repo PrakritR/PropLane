@@ -27,6 +27,12 @@ type RuntimeRow = {
   pilot_manager_user_ids: string[] | null;
 };
 
+/** An `sms_runtime_config` read a caller already performed, passed in unchanged. */
+export type RuntimeConfigResult = {
+  data: { mode?: unknown; pilot_manager_user_ids?: unknown } | null;
+  error: unknown;
+};
+
 export const SEND_NUMBER_COLUMNS =
   "id, manager_user_id, workspace_id, phone_number, phone_number_sid, messaging_service_sid, campaign_sid, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason";
 
@@ -59,18 +65,24 @@ export async function evaluateWorkspaceSendReadiness(input: {
   workLineId?: string | null;
   /** Cents the wallet must still cover; 0 once credit is already reserved. */
   requiredCents: number;
+  /** An `sms_runtime_config` row the caller already read, to save a round trip. */
+  runtime?: RuntimeConfigResult | null;
   now?: Date;
 }): Promise<WorkspaceSendReadiness> {
   const { db, requiredCents } = input;
   const ownerId = input.ownerUserId.trim();
   const now = input.now ?? new Date();
 
+  const runtimeRead: Promise<RuntimeConfigResult> = input.runtime
+    ? Promise.resolve(input.runtime)
+    : (db
+        .from("sms_runtime_config")
+        .select("mode, pilot_manager_user_ids")
+        .eq("singleton", true)
+        .maybeSingle() as unknown as Promise<RuntimeConfigResult>);
+
   const [{ data: runtime, error: runtimeError }, { data: number, error: numberError }] = await Promise.all([
-    db
-      .from("sms_runtime_config")
-      .select("mode, pilot_manager_user_ids")
-      .eq("singleton", true)
-      .maybeSingle(),
+    runtimeRead,
     // One line per WORKSPACE: the message about a house goes out from the
     // line of the workspace that holds it; a house-less one from the owner's
     // default workspace's line.

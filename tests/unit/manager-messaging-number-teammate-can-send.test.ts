@@ -49,9 +49,15 @@ const envKeys = [
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
-function teammateDb(ownerLine: { provision_state: string; registration_state?: string } | null) {
+function teammateDb(
+  ownerLine: { provision_state: string; registration_state?: string; workspace_id?: string | null } | null,
+  runtime: { mode: string; pilot_manager_user_ids: string[] } = {
+    mode: "automatic",
+    pilot_manager_user_ids: [],
+  },
+) {
   const db = createMemoryDb({
-    sms_runtime_config: [{ singleton: true, mode: "automatic", pilot_manager_user_ids: [] }],
+    sms_runtime_config: [{ singleton: true, ...runtime }],
     manager_sms_numbers: ownerLine
       ? [
           {
@@ -156,5 +162,52 @@ describe("messaging-number status: a teammate's canSend is the workspace line's"
     mocks.billing.mockRejectedValue(new Error("boom"));
     const body = await statusFor(teammateDb({ provision_state: "active" }));
     expect(body.canSend).toBe(false);
+  });
+
+  it("skips the readiness chain entirely when the deployment's texting runtime is off", async () => {
+    process.env.SMS_OUTBOX_SCHEDULER_READY = "0";
+    const body = await statusFor(teammateDb({ provision_state: "active" }));
+    expect(body.canSend).toBe(false);
+    expect(mocks.billing).not.toHaveBeenCalled();
+  });
+});
+
+describe("messaging-number status: a teammate's sendingAvailable follows the OWNER's access", () => {
+  const allowlisted = { mode: "allowlisted_self_service", pilot_manager_user_ids: [OWNER] };
+
+  it("is true when the owner holds the allowlist seat and the teammate does not", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active" }, allowlisted));
+    expect(body.sendingAvailable).toBe(true);
+    expect(body.canSend).toBe(true);
+  });
+
+  it("is false when the owner has no seat either", async () => {
+    const body = await statusFor(
+      teammateDb({ provision_state: "active" }, { mode: "allowlisted_self_service", pilot_manager_user_ids: [] }),
+    );
+    expect(body.sendingAvailable).toBe(false);
+    expect(body.canSend).toBe(false);
+  });
+
+  it("never lets a teammate's own seat open provisioning they cannot do", async () => {
+    const body = await statusFor(
+      teammateDb({ provision_state: "active" }, { mode: "allowlisted_self_service", pilot_manager_user_ids: [MANAGER] }),
+    );
+    expect(body.canRequest).toBe(false);
+  });
+});
+
+describe("messaging-number status: the teammate's workspaceNumber is the line a send resolves", () => {
+  it("reports the owner's legacy unplaced line as the workspace's number", async () => {
+    // Migrated before numbers were workspace-owned: no `workspace_id`, so the
+    // per-workspace read finds nothing while a send still leaves on it.
+    const body = await statusFor(teammateDb({ provision_state: "active", workspace_id: null }));
+    expect(body.workspaceNumber.phoneNumber).toBe("+12065550199");
+    expect(body.canSend).toBe(true);
+  });
+
+  it("stays null when the workspace genuinely has no line", async () => {
+    const body = await statusFor(teammateDb(null));
+    expect(body.workspaceNumber.phoneNumber).toBeNull();
   });
 });

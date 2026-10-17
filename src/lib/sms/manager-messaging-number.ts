@@ -55,7 +55,9 @@ export type ManagerMessagingNumberStatus = {
    * number or plan. A registered, active number still sends nothing when the
    * texting runtime is off, and reporting that as carrier "approval in
    * progress" points the manager at Twilio for a switch only an operator here
-   * can flip.
+   * can flip. In a workspace the viewer does not own this reads the OWNER's
+   * runtime access — the line is theirs, so a teammate's own (absent) pilot
+   * seat never reports the workspace's live number as unsendable.
    */
   sendingAvailable: boolean;
   planTier: ManagerMessagingPlanTier;

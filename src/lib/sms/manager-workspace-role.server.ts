@@ -379,6 +379,31 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   return noNumber;
 }
 
+/**
+ * The line ONE workspace would actually send from, resolved exactly the way a
+ * send resolves it (`resolveOwnerSendNumberRow`): the workspace's home row, a
+ * number it holds via sharing, or the owner's legacy unplaced row when this is
+ * their default workspace. `numbersForWorkspaces` only matches home rows, so a
+ * workspace whose line arrives by either of the other two routes is sendable
+ * while that read reports no number — use this to agree with "can send".
+ */
+export async function resolveWorkspaceSendLine(
+  db: SupabaseClient,
+  ownerUserId: string,
+  workspaceId: string,
+): Promise<{ phoneNumber: string | null; provisionState: string | null }> {
+  const { data } = await resolveOwnerSendNumberRow<{
+    workspace_id?: string | null;
+    phone_number?: string | null;
+    provision_state?: string | null;
+  }>(db, ownerUserId, "phone_number, provision_state", { workspaceId });
+  const phone = typeof data?.phone_number === "string" ? data.phone_number.trim() : "";
+  return {
+    phoneNumber: phone || null,
+    provisionState: typeof data?.provision_state === "string" ? data.provision_state : null,
+  };
+}
+
 const lineDigits = (raw: unknown): string => {
   // A work line is compared by its 10 national digits; `normalizeE164` decides what a valid number is.
   const e164 = normalizeE164(raw);

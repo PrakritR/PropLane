@@ -15,7 +15,7 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
+import { resolveWorkspaceSendLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import {
@@ -141,6 +141,12 @@ async function buildStatus(
     : [];
   const managerIsAllowlisted = allowlist.includes(userId);
   const modeAllowsManager = smsRuntimeAllowsManager(mode, managerIsAllowlisted);
+  // Texting from a shared workspace runs on the OWNER's access: their line,
+  // their allowlist seat. Gating a teammate on their own (absent) seat is what
+  // reported the workspace's live number as still "Finishing setup".
+  const sendModeAllowed = pureCoManager
+    ? smsRuntimeAllowsManager(mode, allowlist.includes(workspace.ownerUserId))
+    : modeAllowsManager;
 
   const rawNumber = numberResult.error ? null : numberResult.data;
   const normalizedNumber = rawNumber
@@ -211,16 +217,22 @@ async function buildStatus(
   // (empty) number or the viewer's wallet. Any error fails closed.
   let canSend: boolean;
   if (pureCoManager) {
-    try {
-      const readiness = await evaluateWorkspaceSendReadiness({
-        db,
-        ownerUserId: workspace.ownerUserId,
-        workspaceId: workspace.id,
-        requiredCents: 3,
-      });
-      canSend = sendEnvEnabled && readiness.canSend;
-    } catch {
-      canSend = false;
+    // With the deployment's texting runtime off the answer is already no, so
+    // the whole readiness chain (number + workspace + wallet) is skipped.
+    if (!sendEnvEnabled) canSend = false;
+    else {
+      try {
+        const readiness = await evaluateWorkspaceSendReadiness({
+          db,
+          ownerUserId: workspace.ownerUserId,
+          workspaceId: workspace.id,
+          requiredCents: 3,
+          runtime: runtimeResult,
+        });
+        canSend = readiness.canSend;
+      } catch {
+        canSend = false;
+      }
     }
   } else {
     const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
@@ -235,14 +247,26 @@ async function buildStatus(
   let workspaceNumber: ManagerMessagingNumberStatus["workspaceNumber"] = null;
   if (pureCoManager) {
     const shared = all?.numbers.find((n) => n.workspaceId === workspace.id);
-    if (shared) {
-      workspaceNumber = {
-        phoneNumber:
-          normalizeProvisionState(shared.provisionState) === "active" ? shared.phoneNumber : null,
-        ownerUserId: shared.ownerUserId,
-        ownerName: shared.ownerName,
-      };
+    let line =
+      shared && normalizeProvisionState(shared.provisionState) === "active"
+        ? { phoneNumber: shared.phoneNumber, provisionState: shared.provisionState }
+        : null;
+    // `resolveWorkspaceWorkNumbers` only sees a workspace's HOME row. A line
+    // the workspace holds by sharing, or the owner's legacy unplaced row, is
+    // what a send would really leave on — read it the same way "can send"
+    // does, so a sendable workspace is never shown "No work number yet".
+    if (!line?.phoneNumber) {
+      const resolved = await resolveWorkspaceSendLine(db, workspace.ownerUserId, workspace.id).catch(
+        () => null,
+      );
+      if (resolved && normalizeProvisionState(resolved.provisionState) === "active")
+        line = resolved;
     }
+    workspaceNumber = {
+      phoneNumber: line?.phoneNumber ?? null,
+      ownerUserId: shared?.ownerUserId ?? workspace.ownerUserId,
+      ownerName: shared?.ownerName ?? null,
+    };
   }
 
   return {
@@ -261,7 +285,7 @@ async function buildStatus(
       numbers: n.owned ? heldByWorkspace.get(n.workspaceId) ?? [] : undefined,
     })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
-    sendingAvailable: sendEnvEnabled && modeAllowsManager,
+    sendingAvailable: sendEnvEnabled && sendModeAllowed,
     planTier,
     entitlement,
     number,
