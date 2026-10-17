@@ -1,5 +1,6 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import { stripApplicantIdentityFromLeaseApplication } from "@/lib/lease-application-identity";
 import {
   leaseIntakeFromApplication,
   mergeApplicationAutofillIntoLeaseApp,
@@ -7,10 +8,14 @@ import {
 
 export type ApplicationPersonalFields = Pick<
   RentalWizardFormState,
-  "fullLegalName" | "email" | "phone" | "dateOfBirth"
+  "fullLegalName" | "email" | "phone"
 >;
 
-/** Resolve vital applicant identity fields from nested application answers and row-level fallbacks. */
+/**
+ * Resolve contact fields from nested application answers and row-level fallbacks.
+ * Date of birth is deliberately NOT resolved here: it stays on the application
+ * row and never reaches a lease (`lease-application-identity.ts`).
+ */
 export function resolveApplicationPersonalFields(
   row: Pick<DemoApplicantRow, "name" | "email" | "application">,
   fallback?: Partial<RentalWizardFormState>,
@@ -28,7 +33,6 @@ export function resolveApplicationPersonalFields(
       fallback?.email?.trim() ||
       "",
     phone: app?.phone?.trim() || fallback?.phone?.trim() || "",
-    dateOfBirth: app?.dateOfBirth?.trim() || fallback?.dateOfBirth?.trim() || "",
   };
 }
 
@@ -38,6 +42,19 @@ export function resolveApplicationPersonalFields(
  * Shared identity/term/room fields flow through the allowlisted lease↔application map.
  */
 export function enrichApplicationForLease(
+  appRow: Pick<
+    DemoApplicantRow,
+    "name" | "email" | "application" | "assignedPropertyId" | "assignedRoomChoice" | "signedMonthlyRent"
+  >,
+  freshFromApplication: Partial<RentalWizardFormState> | undefined,
+  existingLeaseApp?: Partial<RentalWizardFormState>,
+): Partial<RentalWizardFormState> | undefined {
+  return stripApplicantIdentityFromLeaseApplication(
+    mergeLeaseApplication(appRow, freshFromApplication, existingLeaseApp),
+  );
+}
+
+function mergeLeaseApplication(
   appRow: Pick<
     DemoApplicantRow,
     "name" | "email" | "application" | "assignedPropertyId" | "assignedRoomChoice" | "signedMonthlyRent"

@@ -11,6 +11,7 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 const MAX_ISSUE_LENGTH = 4000;
 
@@ -142,7 +143,7 @@ export async function reportResidentLeaseIssue(
   const { error: updateError } = await db
     .from("portal_lease_pipeline_records")
     .update({
-      row_data: updatedRow,
+      row_data: stripIdentityFromLeaseRow(updatedRow),
       status: updatedRow.bucket,
       updated_at: iso,
     })

@@ -12,6 +12,7 @@ import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 /**
  * Short stays are booked through the resident-portal application -> lease ->
@@ -129,7 +130,7 @@ export async function finalizeShortStayAfterPayment(
       manager_user_id: managerUserId,
       resident_email: guestEmail,
       property_id: propertyId,
-      row_data: pipelineRow,
+      row_data: stripIdentityFromLeaseRow(pipelineRow),
       updated_at: now,
     },
     { onConflict: "id" },
