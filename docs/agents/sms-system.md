@@ -85,7 +85,31 @@ through it or through the workspace-keyed helpers in
   `workspaceNumber` with `ownerName`; `canRequest` is false and `POST` is a
   403 `workspace_not_owned`. A co-manager never gets a line in a workspace
   they do not own, and never sees a line from a workspace they were not
-  granted.
+  granted. `workspaceNumber` is resolved the way a send resolves it
+  (`resolveWorkspaceStatusLine`, the status-screen twin of
+  `resolveOwnerSendNumberRow`), so a line the workspace holds by sharing or an
+  owner's legacy unplaced row shows instead of "No work number yet" —
+  `resolveWorkspaceWorkNumbers` alone only matches HOME rows. `canSend` and
+  `sendingAvailable` for a teammate read the OWNER's access, not the viewer's:
+  `canSend` is `sendEnvEnabled && evaluateWorkspaceSendReadiness` for that
+  workspace + owner (fail closed on any error), and the runtime/allowlist gate
+  is checked against the owner's seat. The viewer-allowlist gate is
+  deliberately not re-applied to a teammate — readiness already applies the
+  owner's. Gating a teammate on their own (absent) number, seat or wallet is
+  what reported the workspace's live line as "Finishing setup" (Oct 15).
+- **The setup nag is OWNER-ONLY.** The "Phone number not set up · Set up
+  messaging" banner (`messaging-setup-banner.tsx`), the dashboard CTA and the
+  attention-queue item are suppressed for `workspaceRole === "co_manager"`
+  even when the workspace has no number — a teammate cannot provision one.
+  Every reader that asks "does this workspace have a work number" goes through
+  the one helper `workspaceWorkNumber(status)`
+  (`src/lib/sms/manager-messaging-number.ts`): a teammate reads
+  `workspaceNumber`, an owner reads their own `number`. Never read
+  `status.number.phoneNumber` directly in a new reader — a teammate's own
+  retired row is not the workspace's line. Coverage:
+  `tests/unit/workspace-work-number.test.ts`,
+  `tests/unit/manager-messaging-setup-banner.test.tsx`,
+  `tests/unit/manager-messaging-number-teammate-can-send.test.ts`.
 - **Inbound** follows the number: `resolveOwnedWorkNumber` returns the row's
   `workspaceId`, and `resolveWorkspaceOwnerForWorkNumber(db, owner, { workspaceId })`
   answers with that workspace's owner before resident identity, leasing and
@@ -95,8 +119,16 @@ through it or through the workspace-keyed helpers in
   rows only).
 - **Outbound** goes out from the line of the workspace the message is about:
   `resolveOwnerSendNumberRow` picks the house's workspace line, else (no house,
-  or an unplaced one) the owner's DEFAULT workspace's line
-  (`owner-sms-dispatcher.server.ts`). **No cross-workspace fallback** (Oct 12):
+  or an unplaced one) the owner's DEFAULT workspace's line. That resolution
+  plus its sendability, provider identity and workspace-wallet gate is ONE
+  read-only decision, `evaluateWorkspaceSendReadiness`
+  (`src/lib/sms/workspace-send-readiness.server.ts`) — it never reserves
+  credit. `loadSendPolicy` in `owner-sms-dispatcher.server.ts` calls it at the
+  send boundary and the messaging-number status route calls it so a teammate's
+  "can send" is exactly what a real send would decide; do not re-implement any
+  part of that chain in a third place. Pass `workspaceId` for a status check
+  (it wins over a house and resolves exactly like one). **No cross-workspace
+  fallback** (Oct 12):
   there is no "the owner has just one line, use it" and no default-workspace
   guess for a house placed in another workspace. A workspace with no number of
   its own (home row, or one it holds via `workspace_work_numbers`) gets the
