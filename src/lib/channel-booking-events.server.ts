@@ -109,7 +109,7 @@ export function renderOwnerBookingEmail(input: {
  * sends nothing. Never throws; a mail that cannot go out must not fail the write
  * or the sync that raised the event.
  */
-async function sendOwnerBookingEmail(
+export async function sendOwnerBookingEmail(
   db: SupabaseClient,
   input: { ownerUserId: string; propertyId: string; eventId: string; subject: string; text: string; bookingKey: string },
 ): Promise<void> {

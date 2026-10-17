@@ -246,10 +246,7 @@ function propertyDayOccupiedBeds(
   propertyId: string,
   capacities: OccupancyCapacities,
 ): OccupancyDayCell {
-  // One reservation is one bed: a resident filed for an Airbnb stay covers that stay's channel row.
-  const propertyEntries = withoutChannelStaysCoveredByResidents(
-    entries.filter((entry) => entry.propertyId === propertyId && entry.bookingStatus !== "cancelled"),
-  );
+  const propertyEntries = entries.filter((entry) => entry.propertyId === propertyId && entry.bookingStatus !== "cancelled");
   const dayBookings = bookingEntriesForDayKey(propertyEntries, dayKey);
   const total = Math.max(1, capacities.bedsTotal(propertyId));
   const countable = dayBookings.filter((entry) => {
@@ -296,12 +293,16 @@ export function occupancyForDay(
   propertyIds: readonly string[],
   capacities: OccupancyCapacities,
 ): OccupancyDayCell {
+  // One reservation is one bed: a resident filed for an Airbnb stay covers that stay's channel row.
+  // Hoisted out of the per-property loop on purpose - the covered set depends only on `entries`, and a
+  // year grid asks for every (day, property) pair, which made this an extra full pass on each one.
+  const deduped = withoutChannelStaysCoveredByResidents(entries);
   let occupied = 0;
   let total = 0;
   let checkIns = 0;
   let checkOuts = 0;
   for (const propertyId of propertyIds) {
-    const cell = propertyDayOccupiedBeds(entries, dayKey, propertyId, capacities);
+    const cell = propertyDayOccupiedBeds(deduped, dayKey, propertyId, capacities);
     occupied += cell.occupied;
     total += cell.total;
     checkIns += cell.checkIns;

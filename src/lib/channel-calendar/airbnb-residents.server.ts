@@ -41,6 +41,18 @@ export function airbnbResidentName(input: {
   return code ? `Airbnb guest · ${code}` : "Airbnb guest";
 }
 
+/**
+ * A name this module itself invented for a reservation nobody named ("Airbnb guest", "Airbnb guest ·
+ * HM..."), or a generic feed summary stored as one. Anything else on the row is a name a person put
+ * there - the manager in Residents, or the guest's own account - and a sync never writes over it.
+ */
+function isSyncPlaceholderName(name: string): boolean {
+  const raw = name.trim();
+  if (!raw) return true;
+  if (/^airbnb guest(\s*·.*)?$/i.test(raw)) return true;
+  return isGenericFeedSummary(raw);
+}
+
 /** `source_uid -> guest_name` for one connection's typed / emailed guest names. A failed read names nobody. */
 async function guestNamesForConnection(db: SupabaseClient, connectionId: string): Promise<Map<string, string>> {
   const names = new Map<string, string>();
@@ -132,11 +144,16 @@ export async function upsertAirbnbResidentsFromImportedRanges(
       .limit(1);
     const hit = (existing ?? [])[0] as { id?: string; row_data?: Record<string, unknown> } | undefined;
     const ended = icalStayHasEnded(stay, today);
-    const guestName = airbnbResidentName({
-      guestName: guestNames.get(stay.sourceUid),
-      summary: stay.summary,
-      reservationCode: codeByUid.get(stay.sourceUid),
-    });
+    // `channel_stay_details.guest_name` is the stay's own record of who is coming (typed by the manager
+    // or read off Airbnb's confirmation email) and always wins. Failing that, a name already on the row
+    // that this sync did not invent is a person's own - keep it, or a rename in Residents would revert
+    // on the next sync (the same guard `renameAirbnbResident` applies).
+    const storedName = typeof hit?.row_data?.name === "string" ? hit.row_data.name.trim() : "";
+    const guestName =
+      normalizeStayGuestName(guestNames.get(stay.sourceUid)) ||
+      (storedName && !isSyncPlaceholderName(storedName)
+        ? storedName
+        : airbnbResidentName({ summary: stay.summary, reservationCode: codeByUid.get(stay.sourceUid) }));
     const axisId = normalizeApplicationAxisId(hit?.id ?? randomUUID());
     const email =
       typeof hit?.row_data?.email === "string" && hit.row_data.email.includes("@")

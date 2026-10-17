@@ -253,4 +253,18 @@ PropLane exports its residents, holds and blocks to Airbnb as unavailable, and A
   (`sendOwnerBookingEmail` in `channel-booking-events.server.ts`). It is idempotent on the bus
   notice's own key `action-event:<eventId>:manager`, so a repeat sync, or a manager whose destination
   is email, gets one mail. Native events are `booking_created` / `booking_cancelled` (event id
-  `native:<blockId>:<event>`); a closed room is not a booking and announces nothing.
+  `native:<blockId>:<event>`); a closed room is not a booking and announces nothing. Giving a closed
+  room or an unnamed block a guest's name IS a new booking and announces one (the event id makes a
+  second announcement of the same block a no-op). A guest's confirmed short stay gets the same owner
+  mail, raised once from `emitShortStayTeamNotice`'s `short_stay_confirmed`, which covers both the
+  instant confirm and the host's Approve.
+- The name rule arbitrates NEW content only: a save that leaves the stored row's name, kind and
+  reason exactly as they are passes (`sameRoomBlockNameShape`), so putting back what was just
+  cancelled, and editing the dates of a row written before the rule existed, always work.
+- One reservation draws ONCE in the calendar grid and in the Bookings list: both read
+  `calendarEntries` (`withoutChannelStaysCoveredByResidents`), which drops the channel bar a synced
+  Airbnb resident stands in for. `entries` stays whole for the record page, the day page, "Open in
+  Airbnb", payouts and the export feed.
+- A sync never writes over a name a person put on an Airbnb resident. `channel_stay_details.guest_name`
+  wins; failing that a stored name the sync did not invent (anything but "Airbnb guest · HM…" or a
+  generic feed summary) is kept, so a rename in Residents survives the next sync.

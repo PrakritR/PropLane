@@ -883,6 +883,11 @@ export const updateRoomBlockTool = defineWriteTool({
       throw new Error(String(error.message ?? "Could not change that block."));
     }
     await updateAuditResult(ctx, dedupeKey, { blockId: block.id });
+    // Naming a closed room or an unnamed block makes it a booking its owner has not been told about
+    // yet - the same transition the schedule-records route announces. Idempotent on the block id.
+    if (next.residentName && !block.residentName.trim()) {
+      await announceBookingEvent(ctx, "booking_created", { blockId: block.id, ownerId: next.property.ownerId.trim() || ctx.userId, propertyId: next.property.id, roomId: next.roomId, guestName: next.residentName, checkIn: next.start, checkOut: next.end, openEnded: block.openEnded, closed: false, reason: next.reason });
+    }
     return {
       reply: `Updated the hold at ${next.property.title} (${next.roomLabel}): ${formatDay(next.start)} to ${formatDay(next.end)}.`,
       resultSummary: { blockId: block.id },

@@ -34,6 +34,8 @@ export type PropertyBookingEntry = {
   rateBasis?: "daily" | "weekly" | "monthly";
   stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string; holdExpiresAt?: string; decision?: string };
   sourceUid?: string;
+  /** Room-block entries only - "closed" = the manager shut the room with a reason and nobody is staying. */
+  blockKind?: "closed";
   /**
    * Resident-backed entries only - set on the placeholder resident an Airbnb / iCal sync filed for a
    * reservation: the feed connection and event UID it covers, so the calendar can drop the channel
@@ -276,6 +278,7 @@ export function roomBlockEntries(
       ...(block.residentEmail?.trim() ? { residentEmail: block.residentEmail.trim() } : {}),
       ...(block.residentPhone?.trim() ? { residentPhone: block.residentPhone.trim() } : {}),
       ...(block.isBookingResidency ? { isBookingResidency: true } : {}),
+      ...(block.blockKind === "closed" ? { blockKind: "closed" as const } : {}),
     });
   }
   return out;

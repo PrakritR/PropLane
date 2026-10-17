@@ -133,8 +133,13 @@ export async function saveRoomDateBlock(
     blockKind?: "closed";
   },
 ): Promise<RoomDateBlock> {
-  const nameError = roomDateBlockNameError({ bookingStatus: input.bookingStatus, residentName: input.residentName, blockKind: input.blockKind, reason: input.reason });
-  if (nameError) throw new Error(nameError);
+  // Only a NEW block is refused here. An edit of a stored row is arbitrated by the route, which can
+  // see the row as it stands: cancelling a block and putting it back (Undo) re-sends whatever shape
+  // it was saved in, including a row written before this rule existed, and must always work.
+  if (!input.id) {
+    const nameError = roomDateBlockNameError({ bookingStatus: input.bookingStatus, residentName: input.residentName, blockKind: input.blockKind, reason: input.reason });
+    if (nameError) throw new Error(nameError);
+  }
   if (input.rate != null && (!Number.isFinite(input.rate) || input.rate < 0)) throw new Error("Rate must be a non-negative number.");
   const residentName = input.residentName?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";

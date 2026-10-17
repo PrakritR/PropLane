@@ -162,9 +162,15 @@ function useBookingsWorkspace({
     refreshSignal,
   });
 
+  /**
+   * The list and the calendar both draw one reservation ONCE: `calendarEntries` is the merged list
+   * minus the channel bar a synced Airbnb resident already stands in for. `rawEntries` stays whole for
+   * the surfaces that need the channel stay itself - the record page, the day page, "Open in Airbnb",
+   * payouts and the export feed.
+   */
   const entries = useMemo(
-    () => filterBookingEntriesByRoom(rawEntries, roomFilterId),
-    [rawEntries, roomFilterId],
+    () => filterBookingEntriesByRoom(calendarEntries, roomFilterId),
+    [calendarEntries, roomFilterId],
   );
 
   /** One stay list — the hook already merged channel + leases + holds + typed blocks. */

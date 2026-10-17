@@ -526,9 +526,9 @@ export function useManagerBookingEntries({
   );
 
   /**
-   * What the calendar GRID draws: `entries` minus the channel bar a synced Airbnb resident covers.
-   * `entries` stays whole on purpose - the record page, the day page, "Open in Airbnb" and payouts
-   * look the channel stay up there. Only the calendar's own list switches to this one.
+   * What the calendar GRID and the Bookings LIST draw: `entries` minus the channel bar a synced Airbnb
+   * resident covers, so one reservation is one row. `entries` stays whole on purpose - the record page,
+   * the day page, "Open in Airbnb" and payouts look the channel stay up there.
    */
   const calendarEntries = useMemo(() => withoutChannelStaysCoveredByResidents(entries), [entries]);
 

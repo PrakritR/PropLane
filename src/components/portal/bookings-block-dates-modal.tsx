@@ -105,7 +105,7 @@ function applyEditingBlock(
     setNewResidentPhone(entry.residentPhone ?? "");
   } else {
     // A block with nobody attached is a closed room; its reason is what stays editable.
-    setResidentChoice(entry.reason?.trim() ? CLOSED_ROOM_CHOICE : "");
+    setResidentChoice(entry.blockKind === "closed" || entry.reason?.trim() ? CLOSED_ROOM_CHOICE : "");
     setNewResidentName("");
     setNewResidentPhone("");
   }

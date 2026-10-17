@@ -1,4 +1,4 @@
-import { IMPORTED_AIRBNB_REASON, IMPORTED_BOOKING_REASON } from "@/lib/channel-calendar/property-bookings";
+import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
 
 /**
  * Every booking has a name. A `room_date_block` is either a named reservation
@@ -18,10 +18,9 @@ export function normalizeRoomBlockKind(value: unknown): RoomBlockKind | undefine
   return value === ROOM_BLOCK_KIND_CLOSED ? ROOM_BLOCK_KIND_CLOSED : undefined;
 }
 
-/** "Airbnb" / "Booking" are the import markers (`isImportedChannelBlock`): never a real reason to close a room. */
+/** "Airbnb" / "Booking" are the import markers (`isImportedChannelBlock`, the one definition): never a real reason to close a room. */
 export function isReservedImportReason(reason: string): boolean {
-  const value = reason.trim().toLowerCase();
-  return value === IMPORTED_AIRBNB_REASON.toLowerCase() || value === IMPORTED_BOOKING_REASON.toLowerCase();
+  return isImportedChannelBlock({ reason });
 }
 
 export const ROOM_BLOCK_NAME_REQUIRED = "Add the guest's name, or close the room with a reason.";
