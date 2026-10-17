@@ -84,8 +84,11 @@ prints — **Hold · Confirmed · In-house · Checked out · Cancelled**, plus
 **Blocked** for a live block with nobody attached (§ Blocks) — and
 `calendarStatus` (`bookings-calendar-view.ts`) the one a calendar cell colours,
 which says the same **Blocked** and names the channel for an imported stay. Both
-derive from the entry's own dates against today: an approved applicant whose
-dates have started is **In-house**, not holding the room. A list row prints that
+derive from the entry's own dates against today: an approved applicant (a `hold`
+entry) is never a pending hold — **In-house** once their dates have started,
+**Confirmed** before them, and neither needs an `applicationId`, so a
+calendar-only teammate reads the same word. **Hold** is left for a native block
+still waiting to be confirmed. A list row prints that
 same word (`bookingRowStatusFact`) — a closed room reads **Blocked** on the row
 too, because the row's Source fact renders for channel imports only and so
 cannot tell a closed room from a guest's pending Hold. The label is a plain fact on a
@@ -102,8 +105,9 @@ edit it here. Either kind of dates-only row (the manager's own block, a channel'
 tile and is offered no Message, because there is nobody to message. A channel
 "Reserved" is a real guest stay, never an availability block.
 
-Occupancy figures on Calendar (`calendarOccupancySummary`) exclude unconfirmed
-holds from the picture without touching capacity arbitration, and read through
+Occupancy figures on Calendar (`calendarOccupancySummary`) count every resident
+stay — In-house or still Confirmed (`isResidentStay`) — and exclude only an
+unconfirmed hold, without touching capacity arbitration, and read through
 `occupancyForDay`; bed totals come from `bookingOccupancyCapacities`
 (`bookings-room-counts.ts`), the one bridge between the client listing store and
 the framework-free occupancy math — Σ `occupancyCapacity`, never `rooms.length`.
@@ -150,6 +154,9 @@ Bookings' own removal surfaces go through ONE router (`deleteOrCancel`): the lis
   never double-sends.
 - `update_room_block` (assistant-only, not on MCP) edits a hold's dates, guest, phone and notes with the same
   overlap rule as `block_room_dates`; the three booking reads accept Calendar at notification or edit.
+- A booking typed in PropLane itself raises its own `booking_created` / `booking_cancelled`, and EVERY
+  booking also emails the workspace owner whatever their alert destination says — § Every booking has a
+  name, and the owner is emailed for every booking.
 
 ## Airbnb money (names, payouts)
 

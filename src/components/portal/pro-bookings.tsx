@@ -9,7 +9,7 @@ import { BookingsDeleteBlockDialog } from "@/components/portal/bookings-delete-b
 import { saveStayMeta as saveStayMetaRequest } from "@/lib/channel-calendar/stay-meta-client";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
-import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
+import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { BookingsLoadFailedBand } from "@/components/portal/bookings-load-failed-band";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
@@ -32,7 +32,6 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import {
   bookingEntryKey,
-  bookingSourceLabel,
   bookingsForListBucket,
   countBookingsByListBucket,
   filterBookingsBySearch,
