@@ -34,6 +34,13 @@ export type PropertyBookingEntry = {
   rateBasis?: "daily" | "weekly" | "monthly";
   stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string; holdExpiresAt?: string; decision?: string };
   sourceUid?: string;
+  /**
+   * Resident-backed entries only - set on the placeholder resident an Airbnb / iCal sync filed for a
+   * reservation: the feed connection and event UID it covers, so the calendar can drop the channel
+   * bar that the resident now stands in for (`withoutChannelStaysCoveredByResidents`).
+   */
+  icalConnectionId?: string;
+  icalSourceUid?: string;
   /** "Other calendar" stays only - the site the manager named for the link (Houfy, Furnished Finder). */
   channelLabel?: string;
   /** Channel stays only - Airbnb's reservation code, the link to open it, the guest's phone suffix, and the name the manager typed. */
@@ -104,6 +111,8 @@ export function residentFactsFromApplication(row: ApplicationHoldRow | undefined
   const deposit = manual?.securityDeposit;
   return {
     applicationId: row.id,
+    ...(row.icalConnectionId ? { icalConnectionId: row.icalConnectionId } : {}),
+    ...(row.icalSourceUid ? { icalSourceUid: row.icalSourceUid } : {}),
     ...(row.name?.trim() ? { residentName: row.name.trim() } : {}),
     ...(row.email?.trim() ? { residentEmail: row.email.trim().toLowerCase() } : {}),
     ...(manual?.phone?.trim() ? { residentPhone: manual.phone.trim() } : {}),
@@ -171,6 +180,8 @@ export type RoomDateBlock = {
   residentPhone?: string;
   /** True when this hold created (or attached) a resident account that skips application/lease. */
   isBookingResidency?: boolean;
+  /** "closed" = the manager shut the room with a reason and no guest. Absent on every reserved/named block and on rows saved before the field existed. */
+  blockKind?: "closed";
   createdAt: string;
 };
 
@@ -309,6 +320,9 @@ export type ApplicationHoldRow = {
   propertyId?: string;
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
+  /** Set on the resident an iCal / Airbnb sync filed for one reservation (feed connection + event UID). */
+  icalConnectionId?: string;
+  icalSourceUid?: string;
   application?: { leaseStart?: string; leaseEnd?: string; roomChoice1?: string } | null;
   /** Resident-wizard dates; win over the application's lease dates (same precedence as /portal/residents). */
   manualResidentDetails?: {

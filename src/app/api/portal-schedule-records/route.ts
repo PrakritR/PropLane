@@ -1,5 +1,7 @@
 import { after } from "next/server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
+import { roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
+import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
 import {
   isManagerScopedScheduleRecordType,
@@ -51,6 +53,43 @@ function roomDateBlockField(row: RoomDateBlockRow, key: string): string {
   if (!rowData || typeof rowData !== "object") return "";
   const value = (rowData as Record<string, unknown>)[key];
   return typeof value === "string" ? value : "";
+}
+
+function roomDateBlockData(record: unknown): Record<string, unknown> {
+  const rowData = record && typeof record === "object" ? (record as { row_data?: unknown }).row_data : null;
+  return rowData && typeof rowData === "object" && !Array.isArray(rowData) ? (rowData as Record<string, unknown>) : {};
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * A booking (a NAMED, live block that is not an Airbnb/Booking import) is the only thing an owner is
+ * told about; a room the manager closed, and a channel import (announced by the calendar sync), are not.
+ */
+function isAnnouncedBooking(record: unknown): boolean {
+  const data = roomDateBlockData(record);
+  const status = text(data.bookingStatus);
+  return Boolean(text(data.residentName)) && text(data.blockKind) !== "closed" && !isImportedChannelBlock({ reason: text(data.reason) }) && status !== "cancelled";
+}
+
+async function announceNativeBooking(db: Parameters<typeof emitNativeBookingEvent>[0], event: NativeBookingEvent, record: Record<string, unknown>): Promise<void> {
+  const data = roomDateBlockData(record);
+  const managerUserId = text(record.manager_user_id);
+  const propertyId = text(record.property_id) || text(data.propertyId);
+  if (!managerUserId || !propertyId) return;
+  await emitNativeBookingEvent(db, {
+    event,
+    blockId: text(record.id),
+    managerUserId,
+    propertyId,
+    roomId: text(data.roomId),
+    guestName: text(data.residentName),
+    checkIn: text(data.checkIn),
+    checkOut: text(data.checkOut),
+    openEnded: data.openEnded === true,
+  });
 }
 
 /**
@@ -336,6 +375,12 @@ const route = createJsonRecordRoute({
     return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    if (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE) {
+      // Every booking has a name; a room with no guest is "Closed" with a reason. A cancelled block is never refused.
+      const data = roomDateBlockData(record);
+      const nameError = roomDateBlockNameError({ bookingStatus: data.bookingStatus, residentName: data.residentName, blockKind: data.blockKind, reason: data.reason });
+      if (nameError) return { handled: true, error: nameError, status: 400 };
+    }
     if (isRoomDateBlockRecordType(String(record.record_type ?? "")) && existing) {
       // Changing or removing a block needs the same Calendar edit access that creating it did,
       // re-checked now: a revoked grant must not keep a block of someone else's house writable.
@@ -571,8 +616,35 @@ const route = createJsonRecordRoute({
     }
     return null;
   },
+  afterDelete: async ({ records, db }) => {
+    // Deleting a live booking is a cancellation as far as its owner is concerned. Best-effort, idempotent on the block id.
+    for (const target of records) {
+      if (!isRoomDateBlockRecordType(String(target.record_type ?? "")) || !isAnnouncedBooking(target)) continue;
+      if (String(target.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) continue;
+      await announceNativeBooking(db, "booking_cancelled", target).catch((e) => console.warn("[bookings] cancel notice failed", e));
+    }
+  },
   afterWrite: async ({ record, existing, db }) => {
     const recordType = String(record.record_type ?? "");
+    if (isRoomDateBlockRecordType(recordType)) {
+      const wasLive = Boolean(existing) && String(existing?.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE && text(roomDateBlockData(existing).bookingStatus) !== "cancelled";
+      const cancelledNow = recordType === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE || text(roomDateBlockData(record).bookingStatus) === "cancelled";
+      const task = async () => {
+        if (!existing && !cancelledNow && isAnnouncedBooking(record)) await announceNativeBooking(db, "booking_created", record);
+        // The cancelled row still carries the guest's name; announce it once, from the live booking it replaced.
+        else if (cancelledNow && wasLive) {
+          const asLive = { ...record, row_data: { ...roomDateBlockData(record), bookingStatus: "confirmed" } };
+          if (isAnnouncedBooking(asLive)) await announceNativeBooking(db, "booking_cancelled", record);
+        }
+      };
+      const run = () => task().catch((e) => console.warn("[bookings] booking notice failed", e));
+      try {
+        after(run);
+      } catch {
+        void run();
+      }
+      return;
+    }
     if (!AVAILABILITY_RECORD_TYPES.has(recordType)) return;
     const managerUserId = String(record.manager_user_id ?? "").trim();
     const recordId = String(record.id ?? "").trim();

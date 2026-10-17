@@ -10,12 +10,21 @@ export type IcalGuestStay = {
   end: string;
 };
 
+/**
+ * Airbnb writes every real reservation as "Reserved" (the guest is unnamed in the feed). It is a
+ * booking, so it files a resident; a host block ("Not available") and a privacy-stripped
+ * "CLOSED - Not available" do not.
+ */
+function isReservedSummary(summary: string | null | undefined): boolean {
+  return String(summary ?? "").trim().toLowerCase() === "reserved";
+}
+
 export function icalGuestStaysForResidents(
   connectionId: string,
   ranges: readonly ChannelCalendarImportedRange[],
 ): IcalGuestStay[] {
   return ranges
-    .filter((range) => !isIcalAvailabilityBlock(range.summary) && !isHostBlockRange(range))
+    .filter((range) => !isHostBlockRange(range) && (isReservedSummary(range.summary) || !isIcalAvailabilityBlock(range.summary)))
     .map((range) => ({
       connectionId,
       sourceUid: (range.sourceUid || range.id).trim(),

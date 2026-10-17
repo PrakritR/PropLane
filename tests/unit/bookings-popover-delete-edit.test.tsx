@@ -132,7 +132,8 @@ describe("the Edit sheet", () => {
   });
   it("moving to an overlapping room disables Save and names the overlap", async () => {
     const other = entry({ blockId: "b2", roomId: "room-2", roomLabel: "Room 2", residentName: "Jordan", summary: "Jordan" });
-    wrap(<BookingsEditSheet entry={entry()} entries={[entry(), other]} onClose={() => {}} onSave={vi.fn()} />);
+    const mine = entry({ residentName: "Maya", summary: "Maya" });
+    wrap(<BookingsEditSheet entry={mine} entries={[mine, other]} onClose={() => {}} onSave={vi.fn()} />);
     const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
     expect(save().disabled).toBe(false);
     fireEvent.click(document.querySelector('[data-attr="select-booking-edit-room"]') as HTMLElement);
@@ -148,6 +149,28 @@ describe("the Edit sheet", () => {
     fireEvent.change(screen.getByDisplayValue("Reserved"), { target: { value: "Owner stay" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "b1", residentName: "", reason: "Owner stay", bookingStatus: "confirmed", rate: undefined })));
+  });
+  it("dates with nobody attached need a reason (Closed) or a guest name before they can be saved", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    wrap(<BookingsEditSheet entry={entry({ reason: "" })} entries={[entry()]} onClose={() => {}} onSave={onSave} />);
+    const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Airbnb" } });
+    expect(save().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Painting" } });
+    expect(save().disabled).toBe(false);
+    await act(async () => { fireEvent.click(save()); });
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "b1", residentName: "", reason: "Painting", blockKind: "closed" })));
+  });
+  it("naming the guest on a reservation saves a named booking, not a closed room", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    wrap(<BookingsEditSheet entry={entry({ reason: "" })} entries={[entry()]} onClose={() => {}} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText("Guest name"), { target: { value: "Maya Chen" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const draft = onSave.mock.calls[0]![0] as Record<string, unknown>;
+    expect(draft).toMatchObject({ residentName: "Maya Chen" });
+    expect(draft).not.toHaveProperty("blockKind");
   });
   it("editing the Guest name, email and phone on a named block saves them, and a blank name cannot be saved", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);

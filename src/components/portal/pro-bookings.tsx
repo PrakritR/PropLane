@@ -154,7 +154,7 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, occupancyDays, loading, readsPending, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
+  const { entries: rawEntries, calendarEntries, occupancyDays, loading, readsPending, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
@@ -423,7 +423,7 @@ function useBookingsWorkspace({
         propertyIds={scopedPropertyIds}
         showToast={showToast}
         refreshSignal={refreshSignal}
-        extraEntries={rawEntries}
+        extraEntries={calendarEntries}
         occupancyDays={occupancyDays}
         entriesLoading={loading}
         roomFilterId={roomFilterId}

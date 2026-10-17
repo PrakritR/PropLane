@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { airbnbResidentName, renameAirbnbResident } from "@/lib/channel-calendar/airbnb-residents.server";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { normalizeStayGuestName } from "@/lib/channel-calendar/stay-details";
 import { importedRangeUid } from "@/lib/channel-calendar/stay-tombstones";
@@ -61,6 +62,22 @@ export async function applyAirbnbEmailToStay(
     }
     const { error: writeError } = await db.from("channel_stay_details").upsert(patch, { onConflict: "connection_id,source_uid" });
     if (writeError) return { applied: false, reason: "write_failed" };
+    // The resident the sync filed for this reservation takes the name in the same step that saved it.
+    // The name saved above (a typed one wins) is what the resident reads, so the two never disagree.
+    try {
+      await renameAirbnbResident(db, {
+        managerUserId: ownerUserId,
+        connectionId: connection.id,
+        sourceUid,
+        name: airbnbResidentName({
+          guestName: patch.guest_name as string | null,
+          summary: range.summary,
+          reservationCode: range.reservationCode,
+        }),
+      });
+    } catch {
+      // The stay details are saved; a resident row that will not rename is fixed by the next sync.
+    }
     return { applied: true, connectionId: connection.id, sourceUid };
   }
   return { applied: false, reason: "no_match" };

@@ -12,6 +12,7 @@ import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-
 import type { RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
 import { CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE, ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { normalizeRoomBlockKind, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
 
@@ -39,6 +40,7 @@ type BlockRow = {
   residentEmail?: unknown;
   residentPhone?: unknown;
   isBookingResidency?: unknown;
+  blockKind?: unknown;
   createdAt?: unknown;
 };
 
@@ -81,6 +83,7 @@ function normalizeBlock(raw: unknown): RoomDateBlock | null {
       ? { residentPhone: row.residentPhone.trim() }
       : {}),
     ...(row.isBookingResidency === true ? { isBookingResidency: true } : {}),
+    ...(normalizeRoomBlockKind(row.blockKind) ? { blockKind: "closed" as const } : {}),
     createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
   };
 }
@@ -126,8 +129,12 @@ export async function saveRoomDateBlock(
     residentPhone?: string;
     /** Set once the invite that skips application/lease has actually gone out. */
     isBookingResidency?: boolean;
+    /** "closed" = no guest, closed with `reason`. Required whenever `residentName` is empty. */
+    blockKind?: "closed";
   },
 ): Promise<RoomDateBlock> {
+  const nameError = roomDateBlockNameError({ bookingStatus: input.bookingStatus, residentName: input.residentName, blockKind: input.blockKind, reason: input.reason });
+  if (nameError) throw new Error(nameError);
   if (input.rate != null && (!Number.isFinite(input.rate) || input.rate < 0)) throw new Error("Rate must be a non-negative number.");
   const residentName = input.residentName?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";
@@ -154,6 +161,8 @@ export async function saveRoomDateBlock(
     ...(residentName && residentEmail ? { residentEmail } : {}),
     ...(residentName && residentPhone ? { residentPhone } : {}),
     ...(input.isBookingResidency ? { isBookingResidency: true } : {}),
+    // A named booking is never "closed", even if the caller left a stale kind on the draft.
+    ...(!residentName && normalizeRoomBlockKind(input.blockKind) ? { blockKind: "closed" as const } : {}),
     createdAt: new Date().toISOString(),
   };
   const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {

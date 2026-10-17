@@ -86,7 +86,7 @@ describe("the server re-checks overlap at write time (docs/agents/shared-room-ca
         manager_user_id: "mgr-1",
         property_id: "p1",
         record_type: "room_date_block",
-        row_data: { roomId: "room-9", checkIn: "2026-09-03", checkOut: "2026-09-06" },
+        row_data: { roomId: "room-9", residentName: "Alex Guest", checkIn: "2026-09-03", checkOut: "2026-09-06" },
       },
       existing: null,
       expectedPayload: undefined,
@@ -111,7 +111,7 @@ describe("the server re-checks overlap at write time (docs/agents/shared-room-ca
         manager_user_id: "mgr-1",
         property_id: "p1",
         record_type: "room_date_block",
-        row_data: { roomId: "room-9", checkIn: "2026-09-05", checkOut: "2026-09-08" },
+        row_data: { roomId: "room-9", residentName: "Alex Guest", checkIn: "2026-09-05", checkOut: "2026-09-08" },
       },
       existing: null,
       expectedPayload: undefined,
@@ -128,7 +128,7 @@ describe("the server re-checks overlap at write time (docs/agents/shared-room-ca
         manager_user_id: "mgr-1",
         property_id: "p1",
         record_type: "room_date_block",
-        row_data: { roomId: "room-10", checkIn: "2026-09-02", checkOut: "2026-09-04" },
+        row_data: { roomId: "room-10", residentName: "Alex Guest", checkIn: "2026-09-02", checkOut: "2026-09-04" },
       },
       existing: null,
       expectedPayload: undefined,
@@ -151,7 +151,7 @@ describe("the server re-checks overlap at write time (docs/agents/shared-room-ca
         manager_user_id: "mgr-1",
         property_id: "p1",
         record_type: "room_date_block",
-        row_data: { roomId: "room-9", checkIn: "2026-09-02", checkOut: "2026-09-06" },
+        row_data: { roomId: "room-9", residentName: "Alex Guest", checkIn: "2026-09-02", checkOut: "2026-09-06" },
       },
       existing: null,
       expectedPayload: undefined,
@@ -185,6 +185,7 @@ describe("saveRoomDateBlock propagates the server's 409 refusal", () => {
         checkIn: "2026-09-01",
         checkOut: "2026-09-02",
         reason: "",
+        residentName: "Alex Guest",
       }),
     ).rejects.toThrow(message);
   });
@@ -206,6 +207,7 @@ describe("saveRoomDateBlock propagates the server's 409 refusal", () => {
         checkIn: "2026-09-01",
         checkOut: "2026-09-02",
         reason: "",
+        residentName: "Alex Guest",
       }),
     ).rejects.toThrow("Could not block those dates.");
   });
@@ -226,7 +228,7 @@ describe("booking cancellation server eligibility", () => {
 
   it("refuses a save when availability cannot be read", async () => {
     const builder = { eq: () => builder, then: (resolve: (value: unknown) => void) => resolve({ data: null, error: { message: "offline" } }) };
-    const result = await (routeMocks.config!.atomicWrite as AtomicWrite)({ db: { from: () => ({ select: () => builder }) }, user: { id: "manager" }, record: { id: "block", record_type: "room_date_block", property_id: "p1", row_data: { roomId: "r1", checkIn: "2099-01-01", checkOut: "2099-01-03" } } });
+    const result = await (routeMocks.config!.atomicWrite as AtomicWrite)({ db: { from: () => ({ select: () => builder }) }, user: { id: "manager" }, record: { id: "block", record_type: "room_date_block", property_id: "p1", row_data: { roomId: "r1", residentName: "Alex Guest", checkIn: "2099-01-01", checkOut: "2099-01-03" } } });
     expect(result.status).toBe(409);
     expect(result.error).toContain("Could not verify");
   });

@@ -113,6 +113,8 @@ export function BlockedDatesSection({
         openEnded: false,
         reason: row.reason,
         bookingStatus: "hold",
+        // This list closes a room; it has no guest to name.
+        blockKind: "closed",
       });
       setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, id: saved.id } : r)));
     } catch (e) {

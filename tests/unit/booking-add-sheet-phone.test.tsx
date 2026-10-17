@@ -147,9 +147,14 @@ describe("Add booking — new resident phone", () => {
         />
       </AppUiProvider>,
     );
+    const trigger = attr(view, "bookings-block-resident")!;
+    fireEvent.click(trigger);
+    const option = document.getElementById(trigger.getAttribute("aria-controls")!)!.querySelector('[data-field-select-option-value="email:maya@example.com"]')!;
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
     goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]![0]).toMatchObject({ isNewResident: false });
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ isNewResident: false, residentName: "Maya Zuneh" });
   });
 });

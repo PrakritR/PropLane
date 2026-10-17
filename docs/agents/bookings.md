@@ -239,3 +239,18 @@ passes the same flag.
 PropLane exports its residents, holds and blocks to Airbnb as unavailable, and Airbnb's feed returns them as host blocks ("Airbnb (Not available)"); `withoutEchoedHostBlocks` (`host-block.ts`, applied once in `use-manager-booking-entries.ts`) drops any host block covered by the union of that room's own stays and keeps only the uncovered remainder of a partly covered one, while reservations always draw and the raw `imported_ranges` stay untouched. It is literally the same subtraction occupancy runs on `echoable` spans — both call `coveringIntervals` + `uncovered` from `room-occupancy-rule.ts`, so a covered echo adds no blocked nights and a remainder does; there is no second copy to drift. A remainder carries `channelRangeStart`/`channelRangeEnd` (the raw imported range's dates), because a host block's identity is its UID plus those dates and Remove stay / Undo (and Block notes) would otherwise 404 on the trimmed ones. One uncovered day sitting exactly on a local stay's check-out is the channel re-exporting that exclusive check-out, not a free night, so it never draws - wherever in the block it falls, between two back-to-back residents as much as at the very end. Channel booking alerts already skip host blocks. Coverage:
 `tests/unit/bookings-echo-blocks.test.ts`,
 `tests/unit/evidence-bookings-notes-echo-1013.test.tsx`.
+
+## Every booking has a name, and the owner is emailed for every booking
+
+- A `room_date_block` is a named reservation (`residentName`) or a room the manager CLOSED:
+  `blockKind: "closed"` plus a non-empty `reason`. One validator, `roomDateBlockNameError`
+  (`room-block-name-rule.ts`), is shared by the Add/Edit sheets, `saveRoomDateBlock`, the
+  `/api/portal-schedule-records` route (400) and the `block_room_dates` / `update_room_block` tools.
+  A cancelled block and a delete are never refused; rows saved before the field existed still render.
+  A reason of "Airbnb" or "Booking" is the import marker and is never a valid Closed reason.
+- Every booking (channel stay from a sync, or a native one: created, cancelled, deleted) emails the
+  workspace owner's login address from the work email, whatever their alert destination says
+  (`sendOwnerBookingEmail` in `channel-booking-events.server.ts`). It is idempotent on the bus
+  notice's own key `action-event:<eventId>:manager`, so a repeat sync, or a manager whose destination
+  is email, gets one mail. Native events are `booking_created` / `booking_cancelled` (event id
+  `native:<blockId>:<event>`); a closed room is not a booking and announces nothing.
