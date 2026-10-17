@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRemovalActions, bookingStatusLabel } from "@/lib/channel-calendar/booking-presentation";
+import { bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
 import { addDays, dateKey } from "@/lib/room-availability-calendar";
 
 const navigate = vi.fn();
@@ -66,6 +67,10 @@ describe("the Blocked label", () => {
   it("a block held for a named person stays Hold, a confirmed one Confirmed", () => {
     expect(bookingStatusLabel({ ...nativeLive, residentName: "Dee" }, TODAY_KEY)).toBe("Hold");
     expect(bookingStatusLabel({ ...nativeLive, bookingStatus: "confirmed" }, TODAY_KEY)).toBe("Confirmed");
+  });
+  it("a list row prints the same word, so a closed room reads Blocked there too and not a guest's Hold", () => {
+    expect(bookingRowStatusFact(nativeLive, TODAY_KEY)).toBe("Blocked");
+    expect(bookingRowStatusFact({ ...nativeLive, residentName: "Dee" }, TODAY_KEY)).toBe("Hold");
   });
 });
 

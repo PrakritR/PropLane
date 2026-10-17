@@ -20,7 +20,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { track } from "@/lib/analytics/posthog";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { channelRangeKey } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
 import { bookingRecordUrl, channelStayBookingKey } from "@/lib/channel-calendar/booking-record-link";
@@ -152,6 +152,15 @@ export async function emitChannelBookingEvent(
   const url = channelBookingRecordUrl(input);
   const stay = channelBookingStay(input.range.start, input.range.end);
   const eventId = `${input.connectionId}:${channelRangeKey(input.range)}:${input.range.start}:${input.range.end}:${input.event}`;
+  // The same name the sync files the reservation's resident under: a real name when the feed or the
+  // stay carries one, else "Airbnb guest · HM..." from the confirmation code, so the notice and the
+  // owner's mail never call a guest something the Bookings list does not.
+  const guestLabel = bookingEntryGuestLabel({
+    summary: input.range.summary,
+    source: input.provider,
+    channelLabel: input.channelLabel,
+    reservationCode: input.range.reservationCode,
+  });
   let busError: unknown = null;
   try {
     await emitActionEvent(db, {
@@ -172,8 +181,8 @@ export async function emitChannelBookingEvent(
       start: input.range.start,
       end: input.range.end,
       nights: stay.nights,
-      // Whatever the channel exposes ("Reserved" when it hides the guest); no contact data is in the feed.
-      guestLabel: bookingGuestLabel(input.range.summary, input.provider, input.channelLabel),
+      // What the stay is called everywhere else; no contact data is in the feed.
+      guestLabel,
     },
     templateContext: { propertyTitle: input.propertyLabel ?? "", roomLabel: input.roomLabel ?? "", stayLabel: stay.label, url },
     recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } }],
@@ -186,7 +195,7 @@ export async function emitChannelBookingEvent(
     created: input.event === "channel_booking_created",
     propertyLabel: input.propertyLabel,
     roomLabel: input.roomLabel,
-    guest: bookingGuestLabel(input.range.summary, input.provider, input.channelLabel),
+    guest: guestLabel,
     stayLabel: stay.label,
     sourceLabel: channelCalendarProviderLabel(input.provider, input.channelLabel),
   });

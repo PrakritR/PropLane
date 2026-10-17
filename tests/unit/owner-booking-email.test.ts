@@ -68,6 +68,13 @@ describe("the owner's email for every booking", () => {
     }
   });
 
+  it("names the guest the way the resident the sync files is named, never a bare Booked (Airbnb)", async () => {
+    const { db } = fakeDb();
+    await emitChannelBookingEvent(db, { ...channelInput, range: { ...channelInput.range, reservationCode: "HMHW5SHXRB" } });
+    expect((emitActionEvent.mock.calls[0]![1] as { payload: { guestLabel: string } }).payload.guestLabel).toBe("Airbnb guest · HMHW5SHXRB");
+    expect((sendPortalConversationEmails.mock.calls[0]![0] as unknown as { text: string }).text).toContain("Guest: Airbnb guest · HMHW5SHXRB");
+  });
+
   it("sends once: a second sync of the same booking (same event id) sends no second email", async () => {
     const { db, claims } = fakeDb();
     await emitChannelBookingEvent(db, channelInput);
