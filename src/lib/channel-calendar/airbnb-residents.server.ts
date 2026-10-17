@@ -94,6 +94,9 @@ export async function renameAirbnbResident(
   let renamed = false;
   for (const hit of (data ?? []) as Array<{ id?: string; resident_email?: string | null; row_data?: Record<string, unknown> }>) {
     if (!hit.id || !hit.row_data || !String(hit.resident_email ?? "").endsWith(IMPORT_EMAIL_SUFFIX)) continue;
+    // A label this module invented ("Airbnb guest", "Reserved") must not replace a name a person put here.
+    const currentName = typeof hit.row_data.name === "string" ? hit.row_data.name.trim() : "";
+    if (currentName && !isSyncPlaceholderName(currentName) && isSyncPlaceholderName(name)) continue;
     if (hit.row_data.name === name) continue;
     const application = (hit.row_data.application as Record<string, unknown> | undefined) ?? {};
     const row = { ...hit.row_data, name, application: { ...application, fullLegalName: name } };

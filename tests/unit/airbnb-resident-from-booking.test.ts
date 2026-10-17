@@ -218,6 +218,56 @@ describe("Airbnb email names the resident", () => {
     await applyAirbnbEmailToStay(fakeDb(tables), "mgr-1", { kind: "booking", confirmationCode: "HMHW5SHXRB", guestFirstName: "Juan" }, "2099-10-09T00:00:00.000Z");
     expect((tables.manager_application_records[0]!.row_data as Row).name).toBe("Juan Angel");
   });
+
+  it("keeps a name a person put on the import resident when the mail names nobody", async () => {
+    const tables: Record<string, Row[]> = {
+      external_calendar_connections: [connection],
+      channel_stay_details: [],
+      manager_application_records: [
+        {
+          id: "axis-1", manager_user_id: "mgr-1", resident_email: "airbnb.c1.uid1@import.proplane.local",
+          row_data: { id: "axis-1", name: "Maria Lopez", icalConnectionId: "c1", icalSourceUid: "uid-1", application: { fullLegalName: "Maria Lopez" } },
+        },
+      ],
+    };
+    await applyAirbnbEmailToStay(
+      fakeDb(tables),
+      "mgr-1",
+      { kind: "payout", confirmationCode: "HMHW5SHXRB", payoutCents: 41200 },
+      "2099-10-09T00:00:00.000Z",
+    );
+    const row = tables.manager_application_records[0]!.row_data as Row;
+    expect(row.name).toBe("Maria Lopez");
+    expect((row.application as Row).fullLegalName).toBe("Maria Lopez");
+  });
+
+  it("still replaces a placeholder when the mail names nobody, and a real guest name still wins", async () => {
+    const placeholder: Record<string, Row[]> = {
+      external_calendar_connections: [connection],
+      channel_stay_details: [],
+      manager_application_records: [
+        {
+          id: "axis-1", manager_user_id: "mgr-1", resident_email: "airbnb.c1.uid1@import.proplane.local",
+          row_data: { id: "axis-1", name: "Reserved", icalConnectionId: "c1", icalSourceUid: "uid-1", application: { fullLegalName: "Reserved" } },
+        },
+      ],
+    };
+    await applyAirbnbEmailToStay(fakeDb(placeholder), "mgr-1", { kind: "booking", confirmationCode: "HMHW5SHXRB" }, "2099-10-09T00:00:00.000Z");
+    expect((placeholder.manager_application_records[0]!.row_data as Row).name).toBe("Airbnb guest · HMHW5SHXRB");
+
+    const renamed: Record<string, Row[]> = {
+      external_calendar_connections: [connection],
+      channel_stay_details: [],
+      manager_application_records: [
+        {
+          id: "axis-1", manager_user_id: "mgr-1", resident_email: "airbnb.c1.uid1@import.proplane.local",
+          row_data: { id: "axis-1", name: "Maria Lopez", icalConnectionId: "c1", icalSourceUid: "uid-1", application: { fullLegalName: "Maria Lopez" } },
+        },
+      ],
+    };
+    await applyAirbnbEmailToStay(fakeDb(renamed), "mgr-1", { kind: "booking", confirmationCode: "HMHW5SHXRB", guestFirstName: "Juan" }, "2099-10-09T00:00:00.000Z");
+    expect((renamed.manager_application_records[0]!.row_data as Row).name).toBe("Juan");
+  });
 });
 
 describe("the calendar draws a covered reservation once", () => {
