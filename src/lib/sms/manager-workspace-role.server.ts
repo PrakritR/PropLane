@@ -239,13 +239,21 @@ export async function resolveViewerWorkNumber(
 }
 
 /**
- * `columns` with `released_at` guaranteed present. The uniqueness index is per
- * workspace among LIVE rows only, so a released row can sit beside the live one
- * and the live-row preference below has to be able to see the difference — a
- * caller's own column list must not decide whether that guard runs.
+ * `columns` with every column the resolution itself FILTERS on guaranteed
+ * present: `released_at` (the uniqueness index is per workspace among LIVE
+ * rows only, so a released row can sit beside the live one and the live-row
+ * preference below has to see the difference) and `workspace_id` (the home-row
+ * / shared / legacy-unplaced split below reads it off each row). PostgREST
+ * returns only the selected columns, so a caller's own column list must never
+ * decide whether those guards run — omitting `workspace_id` silently turns
+ * every one of the owner's rows into a legacy unplaced one.
  */
-function withReleasedAt(columns: string): string {
-  return /(^|,)\s*released_at\s*(,|$)/.test(columns) ? columns : `${columns}, released_at`;
+function withResolutionColumns(columns: string): string {
+  let out = columns;
+  for (const required of ["released_at", "workspace_id"]) {
+    if (!new RegExp(`(^|,)\\s*${required}\\s*(,|$)`).test(out)) out = `${out}, ${required}`;
+  }
+  return out;
 }
 
 /**
@@ -273,7 +281,7 @@ async function resolveHeldNumberRow<T>(
   for (const numberId of numberIds) {
     const { data: row, error } = await db
       .from("manager_sms_numbers")
-      .select(withReleasedAt(columns))
+      .select(withResolutionColumns(columns))
       .eq("id", numberId)
       .maybeSingle();
     if (error || !row) continue;
@@ -348,7 +356,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   };
   const targetWorkspaceId = houseWorkspaceId || (await loadDefaultWorkspaceId());
 
-  const query = db.from("manager_sms_numbers").select(withReleasedAt(columns)).eq("manager_user_id", ownerUserId);
+  const query = db.from("manager_sms_numbers").select(withResolutionColumns(columns)).eq("manager_user_id", ownerUserId);
   // A real builder is thenable and yields every row; a single-row double
   // only answers `maybeSingle`, and its one row is the one candidate.
   const { data, error } =
@@ -396,7 +404,7 @@ export async function resolveWorkspaceSendLine(
     workspace_id?: string | null;
     phone_number?: string | null;
     provision_state?: string | null;
-  }>(db, ownerUserId, "phone_number, provision_state", { workspaceId });
+  }>(db, ownerUserId, "workspace_id, phone_number, provision_state", { workspaceId });
   const phone = typeof data?.phone_number === "string" ? data.phone_number.trim() : "";
   return {
     phoneNumber: phone || null,

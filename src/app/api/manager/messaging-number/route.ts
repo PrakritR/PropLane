@@ -216,6 +216,9 @@ async function buildStatus(
   // path's own decision for this workspace and its owner - not the viewer's
   // (empty) number or the viewer's wallet. Any error fails closed.
   let canSend: boolean;
+  // The row readiness actually resolved, when it got that far: the line a send
+  // would leave on, so the number shown and the number used are one read.
+  let sendLine: { phoneNumber: string | null; provisionState: string | null } | null = null;
   if (pureCoManager) {
     // With the deployment's texting runtime off the answer is already no, so
     // the whole readiness chain (number + workspace + wallet) is skipped.
@@ -230,6 +233,11 @@ async function buildStatus(
           runtime: runtimeResult,
         });
         canSend = readiness.canSend;
+        if (readiness.canSend)
+          sendLine = {
+            phoneNumber: readiness.numberRow.phone_number,
+            provisionState: readiness.numberRow.provision_state,
+          };
       } catch {
         canSend = false;
       }
@@ -247,10 +255,9 @@ async function buildStatus(
   let workspaceNumber: ManagerMessagingNumberStatus["workspaceNumber"] = null;
   if (pureCoManager) {
     const shared = all?.numbers.find((n) => n.workspaceId === workspace.id);
-    let line =
-      shared && normalizeProvisionState(shared.provisionState) === "active"
-        ? { phoneNumber: shared.phoneNumber, provisionState: shared.provisionState }
-        : null;
+    let line = sendLine;
+    if (!line?.phoneNumber && shared && normalizeProvisionState(shared.provisionState) === "active")
+      line = { phoneNumber: shared.phoneNumber, provisionState: shared.provisionState };
     // `resolveWorkspaceWorkNumbers` only sees a workspace's HOME row. A line
     // the workspace holds by sharing, or the owner's legacy unplaced row, is
     // what a send would really leave on — read it the same way "can send"
