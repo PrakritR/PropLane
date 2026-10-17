@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveWorkspaceSendLine } from "@/lib/sms/manager-workspace-role.server";
+import {
+  resolveOwnerSendNumberRow,
+  resolveWorkspaceStatusLine,
+} from "@/lib/sms/manager-workspace-role.server";
 
 /**
  * A PostgREST-faithful double: `select()` PROJECTS each row down to the named
@@ -102,34 +105,43 @@ function oneNumberDb(workspaceId: string | null) {
   );
 }
 
-describe("resolveWorkspaceSendLine keeps each workspace on its own line", () => {
+describe("resolveWorkspaceStatusLine keeps each workspace on its own line", () => {
   it("returns the default workspace's own number for the default workspace", async () => {
-    const line = await resolveWorkspaceSendLine(db([]), OWNER, DEFAULT_WS);
+    const line = await resolveWorkspaceStatusLine(db([]), OWNER, DEFAULT_WS);
     expect(line).toEqual({ phoneNumber: "+12065550100", provisionState: "active" });
   });
 
   it("returns the non-default workspace's own number, never the default's", async () => {
-    const line = await resolveWorkspaceSendLine(db([]), OWNER, OTHER_WS);
+    const line = await resolveWorkspaceStatusLine(db([]), OWNER, OTHER_WS);
     expect(line).toEqual({ phoneNumber: "+12065550200", provisionState: "active" });
   });
 
   it("selects every column the resolution filters on", async () => {
     const selects: string[] = [];
-    await resolveWorkspaceSendLine(db(selects), OWNER, DEFAULT_WS);
+    await resolveWorkspaceStatusLine(db(selects), OWNER, DEFAULT_WS);
     const numberSelect = selects.find((s) => s.startsWith("manager_sms_numbers:"));
     expect(numberSelect).toContain("workspace_id");
     expect(numberSelect).toContain("released_at");
+    expect(numberSelect).toContain("manager_user_id");
+  });
+
+  it("matches the owner of a NAMED line even when the caller's columns omit manager_user_id", async () => {
+    const { data } = await resolveOwnerSendNumberRow<{
+      workspace_id?: string | null;
+      phone_number?: string | null;
+    }>(db([]), OWNER, "phone_number", { workLineId: "num-other" });
+    expect(data?.phone_number).toBe("+12065550200");
   });
 
   it("reports no line for a non-default workspace whose owner only has another workspace's number", async () => {
-    const line = await resolveWorkspaceSendLine(oneNumberDb(DEFAULT_WS), OWNER, OTHER_WS);
+    const line = await resolveWorkspaceStatusLine(oneNumberDb(DEFAULT_WS), OWNER, OTHER_WS);
     expect(line.phoneNumber).toBeNull();
   });
 
   it("falls back to the owner's legacy unplaced row only for their default workspace", async () => {
-    expect((await resolveWorkspaceSendLine(oneNumberDb(null), OWNER, DEFAULT_WS)).phoneNumber).toBe(
+    expect((await resolveWorkspaceStatusLine(oneNumberDb(null), OWNER, DEFAULT_WS)).phoneNumber).toBe(
       "+12065550300",
     );
-    expect((await resolveWorkspaceSendLine(oneNumberDb(null), OWNER, OTHER_WS)).phoneNumber).toBeNull();
+    expect((await resolveWorkspaceStatusLine(oneNumberDb(null), OWNER, OTHER_WS)).phoneNumber).toBeNull();
   });
 });

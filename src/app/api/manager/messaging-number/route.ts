@@ -15,7 +15,7 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import { resolveWorkspaceSendLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
+import { resolveWorkspaceStatusLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import {
@@ -263,7 +263,7 @@ async function buildStatus(
     // what a send would really leave on — read it the same way "can send"
     // does, so a sendable workspace is never shown "No work number yet".
     if (!line?.phoneNumber) {
-      const resolved = await resolveWorkspaceSendLine(db, workspace.ownerUserId, workspace.id).catch(
+      const resolved = await resolveWorkspaceStatusLine(db, workspace.ownerUserId, workspace.id).catch(
         () => null,
       );
       if (resolved && normalizeProvisionState(resolved.provisionState) === "active")
