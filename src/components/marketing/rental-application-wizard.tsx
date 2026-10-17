@@ -132,7 +132,7 @@ import {
   rememberApplicationSetupToken,
   replaceManagerApplicationRowInCache,
   refreshPublicApprovedRoomOccupancyForContinue,
-  syncManagerApplicationsFromServer,
+  syncManagerApplicationsFromServerWithStatus,
   syncPublicApprovedApplicationsFromServer,
   residentSlotOverrideFields,
   upsertApplicationRowToServerAwait,
@@ -231,6 +231,10 @@ function rentalApplicationExitPath(mode: RentalApplicationWizardMode, exitPath?:
 function rentalApplicationApplyPath(mode: RentalApplicationWizardMode): string {
   return mode === "portal" ? "/resident/applications/apply" : "/rent/apply";
 }
+
+/** How many times the apply reconcile reads the resident's applications before it trusts "none match". */
+const RECONCILE_READ_ATTEMPTS = 3;
+const RECONCILE_READ_RETRY_MS = 800;
 
 function wizardTargetFromParam(
   searchParams: { get: (key: string) => string | null },
@@ -1119,7 +1123,21 @@ function RentalApplicationWizardInner({
     }
 
     let cancelled = false;
-    void syncManagerApplicationsFromServer({ force: true }).then(() => {
+    // "No in-progress application matches" is only true when the read that says so SUCCEEDED. A failed or
+    // timed-out read (a slow or flapping server) leaves the cache without the resident's drafts, and treating
+    // that as "genuinely fresh target" mints a new application id on every visit: duplicate "Incomplete" rows.
+    // Retry the read before concluding anything; only then fall back to the fresh-target path.
+    void (async () => {
+      for (let attempt = 0; attempt < RECONCILE_READ_ATTEMPTS; attempt++) {
+        const result = await syncManagerApplicationsFromServerWithStatus({ force: true });
+        if (cancelled) return;
+        if (result.ok) break;
+        if (attempt < RECONCILE_READ_ATTEMPTS - 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, RECONCILE_READ_RETRY_MS * (attempt + 1)));
+          if (cancelled) return;
+        }
+      }
+    })().then(() => {
       if (cancelled) return;
       const inProgress = applicationsForResidentEmail(email).filter(isInProgressApplicationRow);
       const hit = findInProgressRowForTarget(inProgress, target);
