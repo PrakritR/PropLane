@@ -64,7 +64,7 @@ export function PropertyPromotionBuiltinRow({
             label={`${def.name} on or off`}
             dataAttr={`${dataAttr}-switch`}
           />
-          <RowActionsMenu label={`Actions for ${def.name}`} items={[
+          <RowActionsMenu label={def.name} items={[
             { id: "edit", label: def.kind === "print" ? "Open to print" : "Edit", onSelect: onOpen },
             onDownload && def.kind !== "print" ? { id: "download", label: "Download", onSelect: onDownload } : null,
             onShare && def.kind !== "print" ? { id: "share", label: "Share", onSelect: onShare } : null,

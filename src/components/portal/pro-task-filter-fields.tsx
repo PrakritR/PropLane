@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  FilterChipsField,
   FilterCollapsibleSection,
   FilterFieldsAccordion,
   FilterSingleSelectList,
@@ -112,16 +111,26 @@ function TaskPriorityFilterField({
   value: ManagerTaskPriority | "";
   onChange: (next: ManagerTaskPriority | "") => void;
 }) {
+  const closeFieldMenu = useFilterAccordionClose();
   const [draft, setDraft] = usePortalFilterDraft<ManagerTaskPriority | "">(value, onChange, "", "priorityFilter");
-  /* Four fixed options including "Any" — the whole set fits on one row. */
+  /* A pick is a dropdown, never chips — same collapsible section as Assignee. */
   return (
-    <FilterChipsField
+    <FilterCollapsibleSection
+      sectionId="priority"
       label="Priority"
-      value={draft}
-      options={PRIORITY_OPTIONS}
-      onChange={(next: ManagerTaskPriority | "") => setDraft(next)}
-      dataAttr="tasks-filter-priority"
-    />
+      summary={filterSingleSelectSummary(draft, PRIORITY_OPTIONS, "Any priority")}
+      empty={draft === ""}
+      menuOptionCount={PRIORITY_OPTIONS.length}
+      dataAttr="tasks-filter-priority-trigger"
+    >
+      <FilterSingleSelectList
+        options={PRIORITY_OPTIONS}
+        value={draft}
+        onChange={(next) => setDraft(next as ManagerTaskPriority | "")}
+        onPick={closeFieldMenu}
+        dataAttr="tasks-filter-priority"
+      />
+    </FilterCollapsibleSection>
   );
 }
 

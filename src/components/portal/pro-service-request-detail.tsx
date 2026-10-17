@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, XCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { getPropertyById } from "@/lib/rental-application/data";
@@ -10,7 +10,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec, portalLabeledPrimarySpec } from "@/components/portal/portal-icon-action-spec";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ServiceEditPopup } from "@/components/portal/service-edit-popup";
 import { addOnHeaderNextStep, serviceHeaderIconIds, serviceHeaderMenuItems } from "@/lib/service-header-next-step";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
@@ -279,31 +278,18 @@ export function ManagerServiceRequestDetail({
       );
     }
   }
-  if (headerMenu.length > 0) {
-    const menuItems = headerMenu.map((item) => (
-      <DropdownMenuItem
-        key={item.id}
-        className="text-red-600"
-        data-attr="service-request-deny"
-        onSelect={() => openDenyReasonStep()}
-      >
-        {item.label}
-      </DropdownMenuItem>
-    ));
-    headerActionSpecs.push({
-      id: "more",
-      node: (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <PortalIconAction ring icon={MoreHorizontal} label="More" data-attr="record-header-action-more" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="record-action-menu">
-            {menuItems}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
-      menuItem: <>{menuItems}</>,
-    });
+  // Decline is its own red icon: a header never folds a lone action behind ⋯.
+  for (const item of headerMenu) {
+    headerActionSpecs.push(
+      portalIconActionSpec({
+        id: item.id,
+        label: item.label,
+        icon: XCircle,
+        tone: "danger",
+        dataAttr: "service-request-deny",
+        onClick: () => openDenyReasonStep(),
+      }),
+    );
   }
   if (nextStep) {
     headerActionSpecs.push(

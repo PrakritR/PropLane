@@ -9,6 +9,7 @@ import {
 } from "@/lib/resident-welcome.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { normalizeLeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 function asUuidOrNull(value: unknown): string | null {
   const v = typeof value === "string" ? value.trim() : "";
@@ -23,7 +24,7 @@ function buildLeaseUpsert(row: Record<string, unknown>) {
     resident_email: row.residentEmail ?? row.resident_email ?? null,
     property_id: row.propertyId ?? row.property_id ?? null,
     status: row.bucket ?? row.status ?? null,
-    row_data: row,
+    row_data: stripIdentityFromLeaseRow(row),
     updated_at: new Date().toISOString(),
   };
 }

@@ -19,6 +19,9 @@ function isValidPostAuthDestination(path: string): boolean {
   if (path === "/auth/continue") return false;
   if (VALID_CONTINUE_DESTINATIONS.has(path)) return true;
   if (path.startsWith("/auth/manager-") || path.startsWith("/auth/resident-")) return true;
+  // The plan chooser a manager with no purchase row is sent to (`/auth/manager/plan`,
+  // `/auth/manager/choose-plan`, `/auth/manager/connect-google`) lives under a slash, not a hyphen.
+  if (path === "/auth/manager" || path.startsWith("/auth/manager/")) return true;
   if (path.startsWith("/mcp/authorize")) return true;
   if (path.startsWith("/partner/pricing")) return true;
   return (

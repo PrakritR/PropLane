@@ -46,8 +46,12 @@ export function PropertyApplicationTemplateInlinePreview({
           Back
         </Button>
       ) : null}
-      <p className="text-base font-semibold text-foreground">{template.label}</p>
-      <div className="rounded-2xl border border-border bg-card p-3" data-attr="property-application-inline-preview-wizard">
+      {/* The pop-up frame already titles a solo preview with the template name. */}
+      {solo ? null : <p className="text-base font-semibold text-foreground">{template.label}</p>}
+      <div
+        className={solo ? undefined : "rounded-2xl border border-border bg-card p-3"}
+        data-attr="property-application-inline-preview-wizard"
+      >
         <RentalApplicationWizard
           mode="manager"
           layout="embedded"

@@ -2396,3 +2396,15 @@ An accepted lease transition and its action-event delivery intents are persisted
   `persistManagerListingSubmissionOnServer` for every mode but `draft`); the server refuses an empty
   `allowedLeaseTerms` on a non-draft write, which is why Edit / Preview on such a row used to end in
   "Could not save application settings.".
+
+## A lease never carries applicant identity (Oct 2026)
+
+`row_data.application` on a lease is a copy of the application answers and must
+not hold `ssn`, `dateOfBirth`, `driversLicense` or `_applicantIdentity` (the
+application row keeps them sealed). `stripIdentityFromLeaseRow` /
+`stripApplicantIdentityFromLeaseApplication` (`src/lib/lease-application-identity.ts`)
+run in `normalizeLeasePipelineRow`, at the `POST /api/portal-lease-pipeline` write
+boundary (`buildUpsert`), on every GET, and in every server writer. The lease
+templates print no "Date of birth". Executed `generatedHtml` is never rewritten
+(signature hash). Guard: `tests/unit/lease-identity-write-guard.test.ts`.
+Cleanup of stored rows: `20261016100000_strip_lease_application_identity.sql`.

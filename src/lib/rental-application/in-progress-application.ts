@@ -164,6 +164,28 @@ export function isSubmittedPendingApplicationRow(row: DemoApplicantRow): boolean
 }
 
 /**
+ * The manager Applications tab counts. Pending counts exactly what the sidebar badge counts
+ * ({@link isSubmittedPendingApplicationRow}): an Incomplete draft or a withdrawn application is listed in
+ * the Pending tab as a plain fact on its row, but it is not waiting on the manager, so it never inflates
+ * the tab number into disagreeing with the badge ("7" on the tab, "5" on the badge).
+ */
+export function countApplicationsByTab(rows: readonly DemoApplicantRow[]): {
+  pending: number;
+  approved: number;
+  rejected: number;
+} {
+  const counts = { pending: 0, approved: 0, rejected: 0 };
+  for (const row of rows) {
+    if (row.bucket === "pending") {
+      if (isSubmittedPendingApplicationRow(row)) counts.pending += 1;
+    } else if (row.bucket === "approved" || row.bucket === "rejected") {
+      counts[row.bucket] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
  * The "Started …" / "Submitted …" / "Updated …" stamp an application row keeps
  * in `detail` (written here and by the wizard). `detail` also carries free
  * prose for approved rows ("Lease signed — move-in scheduled"), so only the

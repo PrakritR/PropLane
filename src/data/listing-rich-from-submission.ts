@@ -134,6 +134,7 @@ import {
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
   roomIsWeeklyPriced,
+  formatRoomPriceAmount,
   roomMonthlyEquivalent,
   roomPricePeriod,
   roomPricesPerResident,
@@ -287,7 +288,7 @@ function buildListingFloorCard(
         ? roomHeadlinePriceLabel(r)
         : entireHome
           ? r.monthlyRent > 0
-            ? normalizeLeaseRentPriceLabel(`$${r.monthlyRent}`, "month")
+            ? normalizeLeaseRentPriceLabel(formatRoomPriceAmount(r.monthlyRent), "month")
             : "Included"
           : normalizeLeaseRentPriceLabel(roomHeadlinePriceLabel(r), "month"),
       pricePeriod: roomPricePeriod(r),
@@ -322,7 +323,7 @@ function buildListingFloorCard(
   return {
     cardKey,
     floorLabel,
-    fromPrice: `$${from}`,
+    fromPrice: formatRoomPriceAmount(from),
     roomCount: rs.length,
     remainingNote: `${rs.length} room${rs.length === 1 ? "" : "s"} in this group`,
     floorPlanImageUrl: floorPlanImageUrl ?? resolveFloorPlanImageUrl(floorLabel, rs, sub),
@@ -601,7 +602,7 @@ function perRoomBundleSummaryLine(r: ManagerRoomSubmission, sub: ManagerListingS
       ? "Included in lease"
       : roomPricesPerResident(r)
         ? roomHeadlinePriceLabel(r)
-        : `$${r.monthlyRent}`;
+        : formatRoomPriceAmount(r.monthlyRent);
   let s = `${r.name.trim()}: ${rentLabel}`;
   if (utilLine !== "—") s += ` · utilities ${utilLine}`;
   if (f) s += ` · ${f}`;
@@ -621,7 +622,9 @@ function bundleSummaryItems(
     rents.length
       ? {
           label: isEntireHomeListing(sub) ? "Monthly rent" : "Rent range",
-          value: isEntireHomeListing(sub) ? `$${rents[0]}/mo` : `$${Math.min(...rents)} - $${Math.max(...rents)}/mo`,
+          value: isEntireHomeListing(sub)
+            ? `${formatRoomPriceAmount(rents[0]!)}/mo`
+            : `${formatRoomPriceAmount(Math.min(...rents))} - ${formatRoomPriceAmount(Math.max(...rents))}/mo`,
         }
       : { label: "Rent", value: "Ask manager" },
     { label: "Utilities", value: utilitiesListingSummaryLabel(sub) },
@@ -630,7 +633,7 @@ function bundleSummaryItems(
 }
 
 function moneyLabel(value: number): string {
-  return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
+  return formatRoomPriceAmount(value);
 }
 
 function monthlyRangeLabel(values: number[], prefix = ""): string {
@@ -649,7 +652,7 @@ function twoOrMoreRoomPriceLabel(rooms: ManagerRoomSubmission[]): string | null 
   const rents = twoOrMoreRoomRents(rooms);
   if (rents.length < 2) return null;
   const start = rents[0]! + rents[1]!;
-  return rents.length === 2 ? `$${start}/mo` : `from $${start}/mo`;
+  return rents.length === 2 ? `${formatRoomPriceAmount(start)}/mo` : `from ${formatRoomPriceAmount(start)}/mo`;
 }
 
 function twoOrMoreRoomDetailBody(rooms: ManagerRoomSubmission[]): string {
@@ -664,7 +667,7 @@ function twoOrMoreRoomDetailBody(rooms: ManagerRoomSubmission[]): string {
       ? `${cheapestRooms[0]!.name.trim()} + ${cheapestRooms[1]!.name.trim()}`
       : "";
   return [
-    `Rent two or more rooms on one lease. Starting at $${start}/mo (${moneyLabel(rents[0]!)} + ${moneyLabel(rents[1]!)} for the two lowest-priced rooms).`,
+    `Rent two or more rooms on one lease. Starting at ${formatRoomPriceAmount(start)}/mo (${moneyLabel(rents[0]!)} + ${moneyLabel(rents[1]!)} for the two lowest-priced rooms).`,
     example ? `Example pairing: ${example}.` : "",
     "Each additional room adds its listed monthly rent. Utilities payment varies by room — see room details.",
   ]
@@ -730,7 +733,7 @@ function longTermRoomLeaseBasicRows(
       const rent = longTermRoomRentAmount(room, sub);
       if (!(rent > 0)) return [];
       const name = room.name.trim() || "Room";
-      const price = `${formatListingFeeDisplay(String(rent))}/mo`;
+      const price = `${formatRoomPriceAmount(rent)}/mo`;
       return [
         {
           id: `lease-room-${room.id}`,
@@ -814,9 +817,9 @@ function entireHomeLongTermRentRow(
     icon: "🏠",
     title: "Whole house lease",
     detail: named.length ? `Whole house - ${named.length} rooms` : "Entire home",
-    price: `${formatListingFeeDisplay(String(rent))}/mo`,
+    price: `${formatRoomPriceAmount(rent)}/mo`,
     status: "Monthly rent",
-    body: `Lease the entire home for $${rent} per month.`,
+    body: `Lease the entire home for ${formatRoomPriceAmount(rent)} per month.`,
   };
 }
 
@@ -1008,7 +1011,7 @@ function buildDefaultMultiRoomBundleCard(
     roomLines: rooms.map((room) => perRoomBundleSummaryLine(room, sub)),
     summaryItems: [
       { label: "Rooms", value: String(rooms.length) },
-      { label: "2-room start", value: `$${start}/mo` },
+      { label: "2-room start", value: `${formatRoomPriceAmount(start)}/mo` },
       {
         label: "Rent range",
         value: monthlyRangeLabel(rents).replace(/^from /, ""),
@@ -1146,7 +1149,7 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
       {
         id: "bundle-entire-home",
         label: "Entire home",
-        price: `$${entireRent}/mo`,
+        price: `${formatRoomPriceAmount(entireRent)}/mo`,
         promo: "One lease for the full unit",
         roomsLine: named.length
           ? `${named.length} bedroom${named.length === 1 ? "" : "s"} · entire home`
@@ -1174,7 +1177,7 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
   const multiRoom = buildDefaultMultiRoomBundleCard(sub, rooms);
   if (multiRoom) return [multiRoom];
 
-  const priceSummary = lo === hi ? `$${lo}/mo` : `$${lo}–$${hi}/mo`;
+  const priceSummary = lo === hi ? `${formatRoomPriceAmount(lo)}/mo` : `${formatRoomPriceAmount(lo)}–${formatRoomPriceAmount(hi)}/mo`;
 
   return [
     {

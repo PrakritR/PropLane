@@ -8,7 +8,7 @@ import { Modal } from "@/components/ui/modal";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { downloadOrShareFile } from "@/lib/native/download-or-share";
-import { EXPORT_FILE_MIME, EXPORT_PASSWORD_MIN_LENGTH, validateExportPassword } from "@/lib/account-export/export-password";
+import { EXPORT_FILE_MIME, validateExportPassword } from "@/lib/account-export/export-password";
 
 const FALLBACK_FILE_NAME = "proplane-export.proplane";
 
@@ -115,24 +115,10 @@ export function PortalDataExportButton({ className }: { className?: string }) {
         }
       >
         <div className="space-y-4 text-sm text-foreground">
-          <p>
-            You&apos;ll get one file with everything your property account owns: properties and
-            listings, applications, leases, charges and ledger history, services, messages,
-            document records, tasks and tours, plus your settings.
-          </p>
-          <p className="text-muted">
-            Identity numbers (Social Security numbers, dates of birth, ID and license numbers) and
-            payment details (card and bank numbers) are never included. Uploaded files are listed by
-            name but not bundled.
-          </p>
-          <p className="text-muted">
-            The file is encrypted with the password you choose below. PropLane doesn&apos;t keep a
-            copy of it, so this password is the only way to open the file — store it somewhere safe.
-          </p>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <label htmlFor={passwordId} className="block text-xs font-medium text-foreground">
-                Export password (at least {EXPORT_PASSWORD_MIN_LENGTH} characters)
+                Export password
               </label>
               <PasswordInput
                 id={passwordId}

@@ -120,7 +120,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     goToProperty();
     const select = attr(view, "bookings-block-resident")!;
     expect(optionLabels(select)).toEqual([
-      "No one — just close the room",
+      "No one",
       "Maya Zuneh · Room 3 · 4709A 8th Ave NE",
       "+ New resident…",
     ]);
@@ -156,7 +156,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     goToProperty();
     fireEvent.click(attr(view, "bookings-block-resident-new")!);
     fireEvent.click(attr(view, "bookings-block-resident-pick-list")!);
-    expect(attr(view, "bookings-block-resident")!.textContent).toContain("No one — just close the room");
+    expect(attr(view, "bookings-block-resident")!.textContent).toContain("No one");
   });
 
   it("labels the form Property, Move in, and Move out under Add booking", () => {

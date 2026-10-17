@@ -17,6 +17,20 @@ export type PortalAdaptiveAction = {
 /** @deprecated Use {@link PortalAdaptiveAction}. */
 export type PortalAdaptiveHeaderAction = PortalAdaptiveAction;
 
+/** A record header shows this many actions (or fewer) as icons on desktop; more fold into ⋯ by measured space. */
+export const RECORD_HEADER_INLINE_MAX = 5;
+
+/**
+ * How many actions a row must show without measuring, or `undefined` to let it measure.
+ * Only a record's own detail header on a desktop viewport shows a short set (≤ {@link RECORD_HEADER_INLINE_MAX})
+ * as icons; phones and longer sets keep the measured row with its ⋯.
+ */
+export function recordHeaderInlineLimit(actionCount: number, inRecordHeader: boolean, desktop: boolean): number | undefined {
+  if (!inRecordHeader || !desktop) return undefined;
+  if (actionCount <= 0 || actionCount > RECORD_HEADER_INLINE_MAX) return undefined;
+  return actionCount;
+}
+
 function adaptiveActionTone(action: PortalAdaptiveAction) {
   const props = isValidElement<{ tone?: string; variant?: string; ringPrimary?: boolean }>(action.node) ? action.node.props : undefined;
   return action.tone ?? (props?.ringPrimary ? "primary" : props?.tone ?? props?.variant);

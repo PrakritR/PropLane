@@ -61,7 +61,6 @@ import {
   duplicateRoomEntry,
   duplicateSharedSpaceEntry,
   emptyBathroom,
-  emptyRoom,
   emptySharedSpace,
   isEntireHomeListing,
   isRoomSlotRemovable,
@@ -73,6 +72,7 @@ import {
   propertyAmenitiesSummary,
   propertyFactsSummary,
 } from "@/components/portal/property-house-submission-house-tab";
+import { submissionWithNewRoom } from "@/lib/property-house-add-room";
 import { floorLevelSelectOptions } from "@/data/manager-listing-presets";
 
 type SavePayload = {
@@ -126,6 +126,9 @@ export function PropertyHouseDetailsListPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [target, setTarget] = useState<HouseDetailsEditorTarget | null>(null);
   const [saving, setSaving] = useState(false);
+  // Add room: the form opens on a copy of the listing holding the new blank room. Nothing is
+  // written until Save; closing the form drops it.
+  const [pendingAdd, setPendingAdd] = useState<ManagerListingSubmissionV1 | null>(null);
   const [infoPreview, setInfoPreview] = useState<
     | { kind: "section"; spec: HouseInfoSectionSpec }
     | { kind: "other" }
@@ -194,7 +197,13 @@ export function PropertyHouseDetailsListPanel({
       showToast?.("Could not save.");
       return;
     }
-    showToast?.("Saved.");
+    showToast?.(pendingAdd ? "Room added." : "Saved.");
+    setPendingAdd(null);
+    setEditorOpen(false);
+  };
+
+  const closeEditor = () => {
+    setPendingAdd(null);
     setEditorOpen(false);
   };
 
@@ -206,10 +215,9 @@ export function PropertyHouseDetailsListPanel({
   };
 
   const addRoom = () => {
-    const rooms = sub.rooms ?? [];
-    const next = emptyRoom(rooms.length);
-    if (!persistSub({ ...sub, rooms: [...rooms, next] }, "Room added.")) return;
-    openEditor({ kind: "room", roomId: next.id });
+    const next = submissionWithNewRoom(sub);
+    setPendingAdd(next.sub);
+    openEditor({ kind: "room", roomId: next.roomId });
   };
 
   const addBathroom = () => {
@@ -768,19 +776,19 @@ export function PropertyHouseDetailsListPanel({
       <PropertyHouseDetailsEditorModal
         open={editorOpen}
         target={target}
-        sub={sub}
+        sub={pendingAdd ?? sub}
         propertyId={propertyId}
         managerUserId={managerUserId}
         onGoToBathrooms={() => {
           pickTab("baths");
-          setEditorOpen(false);
+          closeEditor();
         }}
         onOpenLinkedRoom={(roomId) => {
           openEditor({ kind: "room", roomId });
         }}
         houseInfo={houseInfo}
         managerNotes={managerNotes}
-        onClose={() => setEditorOpen(false)}
+        onClose={closeEditor}
         onSave={saveEditor}
         busy={saving}
       />

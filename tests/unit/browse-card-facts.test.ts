@@ -129,13 +129,24 @@ describe("aggregateRoomRowsToPropertyCards", () => {
     expect(card!.rentMaxNumeric).toBe(card!.headlineRent);
   });
 
-  it("ignores rooms priced by another period when computing the range", () => {
+  it("spans a daily room by its monthly equivalent, the same figure the listing header uses", () => {
     const [card] = aggregateRoomRowsToPropertyCards([
       row({ roomId: "a", headlineRent: 900, rentNumeric: 900 }),
       row({ roomId: "d", headlineRent: 60, rentNumeric: 1800, pricePeriod: "day", priceLabel: "$60/day" }),
     ]);
     expect(card!.pricePeriod).toBe("month");
-    expect(card!.rentMaxNumeric).toBe(900);
+    expect(card!.headlineRent).toBe(900);
+    expect(card!.rentMaxNumeric).toBe(1800);
+  });
+
+  it("keeps a daily headline's range to the rooms priced the same way", () => {
+    const [card] = aggregateRoomRowsToPropertyCards([
+      row({ roomId: "d1", headlineRent: 40, rentNumeric: 1200, pricePeriod: "day", priceLabel: "$40/day" }),
+      row({ roomId: "d2", headlineRent: 50, rentNumeric: 1500, pricePeriod: "day", priceLabel: "$50/day" }),
+      row({ roomId: "m", headlineRent: 1700, rentNumeric: 1700 }),
+    ]);
+    expect(card!.pricePeriod).toBe("day");
+    expect(card!.rentMaxNumeric).toBe(50);
   });
 });
 

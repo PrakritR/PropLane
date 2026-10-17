@@ -25,4 +25,24 @@ describe("resolvePostAuthDestination allowlist", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it.each(["/auth/manager/plan", "/auth/manager/choose-plan", "/auth/manager/connect-google"])(
+    "accepts the slash-form manager plan route %s on the first attempt",
+    async (path) => {
+      const mod = await import("@/lib/auth/resolve-post-auth-destination");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ redirectTo: path }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { redirectTo, resolutionFailed } = await mod.resolvePostAuthDestination("/portal/dashboard", "token");
+      expect(resolutionFailed).toBe(false);
+      expect(redirectTo).toBe(path);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      vi.unstubAllGlobals();
+    },
+  );
 });

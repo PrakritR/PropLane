@@ -103,6 +103,7 @@ import type { ApplicationGroupMember } from "@/lib/rental-application/applicatio
 import {
   inProgressApplicationResumeUrl,
   applicationStageDisplayLabel,
+  countApplicationsByTab,
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
@@ -199,9 +200,7 @@ function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFil
 
 /** Tab COUNTS follow the same buckets as the list: Pending · Approved · Declined. */
 function countByBucket(rows: DemoApplicantRow[]) {
-  const c = { pending: 0, approved: 0, rejected: 0 };
-  for (const r of rows) c[r.bucket] += 1;
-  return c;
+  return countApplicationsByTab(rows);
 }
 
 /**

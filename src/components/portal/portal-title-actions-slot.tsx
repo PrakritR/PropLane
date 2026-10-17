@@ -85,6 +85,30 @@ export function useMdUp(): boolean {
   );
 }
 
+/** Tailwind's `lg` — a record header has room for its icons from here up. */
+const LG_UP = "(min-width: 1024px)";
+
+/** True at `lg` and wider; counts as wide without matchMedia (SSR). */
+export function useLgUp(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window === "undefined" || !window.matchMedia) return MEDIA_NOOP();
+      const list = window.matchMedia(LG_UP);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
+    },
+    () => (typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia(LG_UP).matches),
+    () => true,
+  );
+}
+
+/**
+ * True for everything rendered inside a record's own detail-header host. The header's title slot is
+ * content-sized, so a measured action row reads its own folded width back as the space it has and stays
+ * folded; a row in this context shows a short action set as icons instead (see `recordHeaderInlineLimit`).
+ */
+export const RecordHeaderHostContext = createContext(false);
+
 export function PortalTitleActionsHost({
   className,
   breakpoint,
@@ -108,7 +132,7 @@ export function PortalTitleActionsHost({
   if (!node || !matches) return null;
   return (
     <div className={className} data-slot="portal-title-actions">
-      {node}
+      <RecordHeaderHostContext.Provider value={detail}>{node}</RecordHeaderHostContext.Provider>
     </div>
   );
 }

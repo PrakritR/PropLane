@@ -45,6 +45,15 @@ function addressFromValues(values: Record<string, string>, prefix: string): Reco
   return { country: "US", ...out };
 }
 
+/**
+ * "Needs: …" is an answer to something the person did. Before they type
+ * anything (or try Submit) the form's own labels already say what is asked, so
+ * the red line stays hidden.
+ */
+export function shouldShowNeedsStatus(status: VerifyStatus, interacted: boolean): boolean {
+  return status !== "needs_info" || interacted;
+}
+
 function statusMeta(status: VerifyStatus, fields: VerifyFieldSpec[]): { icon: ReactNode; label: string; tone: string } {
   if (status === "verified") {
     return { icon: <CheckCircle2 className="size-4" aria-hidden />, label: "Verified", tone: "text-success" };
@@ -190,6 +199,7 @@ export function PayoutVerifySheet({
   const [documentFileId, setDocumentFileId] = useState<string | null>(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interacted, setInteracted] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -211,14 +221,17 @@ export function PayoutVerifySheet({
     setValues({});
     setDocumentFileId(null);
     setError(null);
+    setInteracted(false);
     void load();
   }, [open, load]);
 
   function setValue(key: string, value: string) {
+    setInteracted(true);
     setValues((prev) => ({ ...prev, [key]: value }));
   }
 
   async function uploadDocument(file: File) {
+    setInteracted(true);
     setUploadingDocument(true);
     setError(null);
     try {
@@ -241,6 +254,7 @@ export function PayoutVerifySheet({
 
   async function submit() {
     if (!requirements) return;
+    setInteracted(true);
     setError(null);
     const stripe = await getStripe();
     if (!stripe) {
@@ -401,7 +415,7 @@ export function PayoutVerifySheet({
           </>
         ) : null}
 
-        {!loading && meta ? (
+        {!loading && meta && requirements && shouldShowNeedsStatus(requirements.status, interacted) ? (
           <div className={`flex items-center gap-2 text-sm ${meta.tone}`} data-attr="verify-status">
             {meta.icon}
             <span>{meta.label}</span>

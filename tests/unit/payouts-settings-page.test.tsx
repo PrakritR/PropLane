@@ -252,11 +252,11 @@ describe("PortalPayoutsSettingsPage — not-ready state", () => {
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
   });
 
-  it("the Bank accounts + never opens embedded onboarding and blocks (in-app identity flow) when the account cannot receive payouts yet", async () => {
+  it("the Bank accounts + blocks with a Finish-payout-setup-in-Stripe message and does not open embedded onboarding by itself when the account cannot receive payouts yet", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("Bank accounts");
     fireEvent.click(screen.getByRole("button", { name: "Add a bank account" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/needs a Stripe sign-in outside PropLane/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Finish payout setup in Stripe to add a bank account/);
     expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
   });
 });

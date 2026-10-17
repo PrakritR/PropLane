@@ -11,6 +11,7 @@ import {
 } from "@/lib/lease-signing-fee";
 import { normalizeLeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 const LEASE_TABLE = "portal_lease_pipeline_records";
 
@@ -132,7 +133,7 @@ export async function markResidentLeaseSigningFeePaid(
 
   const { error } = await db
     .from(LEASE_TABLE)
-    .update({ row_data: recordLeaseSigningFeePaid(rowData, input.residentUserId) })
+    .update({ row_data: stripIdentityFromLeaseRow(recordLeaseSigningFeePaid(rowData, input.residentUserId)) })
     .eq("id", record.id);
 
   if (error) return { ok: false, error: error.message };

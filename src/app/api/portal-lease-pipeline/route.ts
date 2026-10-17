@@ -47,6 +47,7 @@ import {
   residentReturnedSignedPdfToManager,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 import {
   projectLeasePipelineListRow,
@@ -153,7 +154,9 @@ function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = fa
   // the list projection can type it.
   const stored = typeof row.generatedHtml === "string" ? row.generatedHtml : null;
   const generatedHtml = sanitizeGeneratedHtml && stored ? sanitizeLeaseDocumentHtml(stored) : stored;
-  return { ...row, generatedHtml };
+  // Applicant identity never leaves the server on a lease row, whatever an old
+  // write left behind (`lease-application-identity.ts`).
+  return stripIdentityFromLeaseRow({ ...row, generatedHtml });
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -329,7 +332,9 @@ function buildUpsert(
   scope: LeaseScopeColumns,
   storedRow: Record<string, unknown> | undefined,
 ) {
-  const rowData = reconcileRowScope(row, scope, storedRow);
+  // The one server write boundary: no client payload can put SSN, birth date or
+  // licence on a lease record.
+  const rowData = stripIdentityFromLeaseRow(reconcileRowScope(row, scope, storedRow));
   return {
     id: row.id,
     manager_user_id: scope.manager_user_id,

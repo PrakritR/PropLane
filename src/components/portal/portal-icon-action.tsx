@@ -59,6 +59,21 @@ function useIconTip(label: string, align: "center" | "end") {
     return () => cancelAnimationFrame(frame);
   }, [tip]);
 
+  // A label drawn at a fixed position outlives its button when a dialog opens over it (the opener
+  // unmounts or is inerted before `mouseleave` fires), leaving a black pill floating on the sheet.
+  useEffect(() => {
+    if (!tip) return;
+    const dismiss = () => hide();
+    window.addEventListener("pointerdown", dismiss, true);
+    window.addEventListener("keydown", dismiss, true);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      window.removeEventListener("pointerdown", dismiss, true);
+      window.removeEventListener("keydown", dismiss, true);
+      window.removeEventListener("scroll", dismiss, true);
+    };
+  }, [tip, hide]);
+
   const node =
     tip && typeof document !== "undefined"
       ? createPortal(
