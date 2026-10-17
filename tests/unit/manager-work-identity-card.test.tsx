@@ -29,6 +29,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
 }));
 
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
 function status(overrides: Partial<ManagerMessagingNumberStatus> = {}): ManagerMessagingNumberStatus {
   return {
@@ -86,6 +87,8 @@ function stubEmail(address: string | null) {
 }
 
 afterEach(() => {
+  // The work email is read through sharedGet; one test's answer must not serve the next.
+  resetSharedGets();
   cleanup();
   vi.unstubAllGlobals();
   statusState.mockReset();

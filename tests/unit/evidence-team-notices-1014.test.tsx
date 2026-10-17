@@ -325,7 +325,7 @@ describe("a routine service request in a three-person workspace", () => {
     expect(posted[0]).toMatchObject({
       id: "action-event:wo-7781:created:team",
       from: "PropLane",
-      body: "Service request · Access or lock issue · 5257 Brooklyn Ave · Room 2 · filed by Dani Reyes · open",
+      body: "Service request filed: Access or lock issue, 5257 Brooklyn Ave, Room 2, Dani Reyes.",
     });
     expect(posted[0]!.body).not.toMatch(/work order/i);
     // No teammate Assistant notice, no teammate inbox thread, nothing in the
@@ -376,7 +376,7 @@ describe("the same event marked Emergency", () => {
     writeText("urgent-service-request-transcript.txt", transcript(db, "Emergency service request · wo-7782:created"));
 
     expect(posted).toHaveLength(1);
-    expect(posted[0]!.body).toBe("Emergency · Service request · No heat · 5257 Brooklyn Ave · Room 2 · filed by Dani Reyes · open");
+    expect(posted[0]!.body).toBe("Emergency. Service request filed: No heat, 5257 Brooklyn Ave, Room 2, Dani Reyes.");
     expect(notifyManager.mock.calls.map((c) => (c[1] as { landlordId: string }).landlordId).sort()).toEqual([JAARAV, KHUE].sort());
     // Their own Assistant notice already texted them; the line never bills the owner twice.
     expect(enqueueOwnerSms.mock.calls).toHaveLength(0);

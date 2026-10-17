@@ -1,5 +1,7 @@
 "use client";
 
+import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
+import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentsHaveFailure } from "@/lib/inbox-attachment-send-gate";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -228,7 +230,14 @@ function threadEligibleForAiDraft(thread: InboxThread): boolean {
   // second responder — unless the agent did not answer at all (no credit, an escalation), which
   // leaves the thread still waiting and the manager with nothing queued.
   if (isServerAgentAnsweredSmsThread(thread)) return inboxThreadManagerReplyPending(thread);
+  // The last word is the manager's own: nothing is waiting on a reply, so no
+  // draft is requested (reopening a conversation used to re-ask the draft route
+  // for a thread that had just been answered).
+  if (inboxThreadLastTurnDirection(thread) === "outbound") return false;
   if (inboxThreadManagerReplyPending(thread)) return true;
+  // A first outreach: the thread has no turn of its own yet, only an address.
+  const hasTurns = inboxThreadMessages(thread).some((turn) => turn.body.trim().length > 0);
+  if (hasTurns) return false;
   const email = String(thread.email ?? "").trim().toLowerCase();
   return email.includes("@");
 }
@@ -402,8 +411,10 @@ export const ManagerInbox = forwardRef<
   useEffect(() => {
     if (isDemoModeActive()) return;
     let cancelled = false;
-    void fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+    // Keyed on the workspace like every other reader of this route, so the work-number
+    // card and this composer share one request and a switch still reads the new answer.
+    void sharedGet(assistantEmailUrl(selectedWorkspace))
+      .then((res) => (res.ok ? res.data : null))
       .then((body) => {
         if (cancelled || !body || typeof body !== "object") return;
         const status = body as {
@@ -982,6 +993,7 @@ export const ManagerInbox = forwardRef<
               attachmentUrls,
               toEmails: portalRecipient?.toEmails,
               toUserIds: portalRecipient?.toUserIds,
+              messageId: replyId,
             });
             proplaneOk = result.ok;
             if (!result.ok) failureMessage = result.error?.trim() ?? "";
@@ -1004,6 +1016,7 @@ export const ManagerInbox = forwardRef<
                 toEmails: [thread.email],
                 deliverToPortalInbox: true,
                 senderPortal: "manager",
+                messageId: replyId,
                 attachmentUrls: attachmentUrls.length
                   ? attachmentUrls
                   : undefined,
@@ -1724,6 +1737,10 @@ export const ManagerInbox = forwardRef<
       showToast("Wait for uploads to finish.");
       return;
     }
+    if (inboxAttachmentsHaveFailure(replyAttachments)) {
+      showToast(INBOX_ATTACHMENT_FAILED_MESSAGE);
+      return;
+    }
 
     // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
     // so there is one send button and no second way to fire the message.
@@ -1934,9 +1951,25 @@ export const ManagerInbox = forwardRef<
     setDiscardedDraftIds((prev) => new Set(prev).add(activeThread.id));
     persistInboxRef.current = false;
     setLocal(next);
-    await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
-    persistInboxRef.current = true;
-  }, [activeThread, local, setReplyDraft]);
+    let saved = false;
+    try {
+      saved = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
+    } catch {
+      saved = false;
+    } finally {
+      persistInboxRef.current = true;
+    }
+    if (!saved) {
+      // The server still holds the draft: say so instead of showing it gone and
+      // having it come back on the next load.
+      setDiscardedDraftIds((prev) => {
+        const restored = new Set(prev);
+        restored.delete(activeThread.id);
+        return restored;
+      });
+      showToast("Could not discard the draft. Try again.");
+    }
+  }, [activeThread, local, setReplyDraft, showToast]);
 
   /**
    * Send the pending draft the composer holds. Resolves "sent", "failed" (a send

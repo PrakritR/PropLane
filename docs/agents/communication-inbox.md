@@ -239,6 +239,23 @@ admin-money-1008 D5): `AdminCommunication` mounts the same
 component and no table exception (`admin-inbox-client.tsx` is gone). See
 "Admin Communication is the manager's inbox over an adapter" below. Invariants:
 
+- **One unread number.** The sidebar's Communication badge, the assistant's
+  "N unread conversations" row and the dashboard count conversations (people
+  folded to one row, texts merged), never stored rows; the sidebar publishes its
+  number (`manager-unread-conversation-count.ts`) and the others read it. A list
+  row shows no per-message figure. The vendor tabs carry counts like the manager's
+  and the resident's. A resident's mark-read lands on the stored owner-less row
+  without claiming it (`portal_inbox_thread_conversation_uidx` is one row per
+  person), and the folded siblings are settled read in the same write.
+- **Reads on the Communication page go through `sharedGet`** (messaging number,
+  work email keyed by workspace, eligible contacts, the thread list, the SMS
+  list); a write drops them (`writeThroughFetch` / `invalidateSharedGets`).
+- **A sent reply is one message.** The composer sends its bubble id
+  (`messageId: reply-…`) and the stored turn takes it; attachments are chips
+  beside the message, and their absolute links are added to the email / SMS copy
+  only. A sent reply removes the AI draft it answered (`aiDraftFieldsAfterReply`);
+  a thread whose last turn is the manager's own is never sent for a draft; a
+  failed attachment blocks the send.
 - **Manager, resident, vendor AND admin Communication have Active | Archived
   command tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
   chrome: label + count badge + cobalt underline (`DestinationNav

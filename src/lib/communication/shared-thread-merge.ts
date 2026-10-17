@@ -297,3 +297,19 @@ export function clearedInboxThreadRowData(
   delete next.rootMessageId;
   return next;
 }
+
+/**
+ * The AI-draft fields once a reply has been sent on the thread. A draft is
+ * "approved or discarded -> removed" (never re-statused), and a reply the
+ * manager sent is the end of the draft it answered, whether it was auto-sent,
+ * inserted and sent, or typed from scratch: left in place it kept showing
+ * `pending_approval` over text that had already gone out. A draft queued behind
+ * it (an automation draft) becomes the pending one.
+ */
+export function aiDraftFieldsAfterReply(rowData: unknown): { aiDraft?: unknown; aiDraftQueue?: unknown } {
+  const row = asRecord(rowData);
+  if (!row.aiDraft && !row.aiDraftQueue) return {};
+  const queue = Array.isArray(row.aiDraftQueue) ? row.aiDraftQueue.filter(Boolean) : [];
+  const [next, ...rest] = queue;
+  return { aiDraft: next, aiDraftQueue: rest.length > 0 ? rest : undefined };
+}

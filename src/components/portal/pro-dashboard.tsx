@@ -1,4 +1,5 @@
 "use client";
+import { managerUnreadConversationCount, subscribeManagerUnreadConversationCount } from "@/lib/manager-unread-conversation-count";
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { Fragment, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -103,7 +104,6 @@ import {
   syncManagerOutgoingExpensesFromServer,
 } from "@/lib/manager-outgoing-payments";
 import {
-  countUnopenedPersistedInbox,
   loadPersistedInbox,
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
@@ -158,6 +158,7 @@ import { propertyListHref } from "@/lib/portal-detail-routes";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 import {
   WORKSPACE_SELECTION_EVENT,
+  activeWorkspaceIdentity,
   workspaceContainsProperty,
   workspacePropertyIdFromRow,
 } from "@/lib/workspaces/selection";
@@ -693,7 +694,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
     window.addEventListener("storage", bump);
+    const unsubscribeUnreadCount = subscribeManagerUnreadConversationCount(bump);
     return () => {
+      unsubscribeUnreadCount();
       window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
       window.removeEventListener(LEASE_PIPELINE_EVENT, bump);
@@ -783,7 +786,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     const inboxThreads = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []).filter(
       (t) => t.folder === "inbox" && t.unread,
     );
-    const inboxCount = countUnopenedPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []);
+    // The sidebar's own Communication number (folded conversations, texts merged),
+    // never a raw count of stored rows.
+    const inboxCount = managerUnreadConversationCount(
+      `${userId}:${activeWorkspaceIdentity()?.id ?? ""}`,
+      loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []),
+      userId,
+    );
 
     const cutoff = nowMs - 30 * 60 * 1000;
     const tours = [

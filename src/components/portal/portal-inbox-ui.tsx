@@ -1,4 +1,5 @@
 "use client";
+import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentsHaveFailure } from "@/lib/inbox-attachment-send-gate";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
@@ -1960,7 +1961,10 @@ export function InboxComposer({
     inputRef.current?.focus();
   }, [focusSignal]);
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
-  const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
+  // A failed upload blocks the send (it used to be dropped silently, so the
+  // message left without the file the chip said had failed).
+  const hasFailedAttachment = inboxAttachmentsHaveFailure(attachments);
+  const canSend = !sending && !disabled && !hasFailedAttachment && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;
   return (
     <div
@@ -1994,7 +1998,12 @@ export function InboxComposer({
                     <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40 text-[10px] font-semibold text-white">…</span>
                   ) : null}
                   {att.error ? (
-                    <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-rose-600/80 px-1 text-center text-[9px] font-semibold text-white">Failed</span>
+                    <span
+                      className="absolute inset-0 flex items-center justify-center rounded-lg bg-rose-600/80 px-1 text-center text-[9px] font-semibold text-white"
+                      title={INBOX_ATTACHMENT_FAILED_MESSAGE}
+                    >
+                      Failed
+                    </span>
                   ) : null}
                   {onAttachmentRemove ? (
                     <button
@@ -2073,7 +2082,7 @@ export function InboxComposer({
             type="submit"
             disabled={!canSend}
             aria-label={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
-            title={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
+            title={hasFailedAttachment ? INBOX_ATTACHMENT_FAILED_MESSAGE : sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
             data-attr={dataAttr ? `${dataAttr}-send` : undefined}
             className={PORTAL_INBOX_COMPOSER_SEND_CLASS}
           >

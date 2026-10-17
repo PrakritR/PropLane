@@ -1,9 +1,10 @@
 /**
  * The ONE line PropLane posts in the workspace Team chat for a routine notice:
- * "<Event> · <subject> · <house and room> · <who> · <state>", a plain fact line
- * with no glyph, pill or subtext. An urgent event is prefixed "Emergency · ".
- * Pure: the caller supplies the facts it has; a part it lacks is left out.
- * Copy says "service", never "work order" (schema names stay).
+ * one plain sentence, "<Event and what happened>: <subject>, <amount>, <house
+ * and room>, <who>." ("Charge created: Kitchen faucet drip, $140, Test
+ * Manager."), with no glyph, pill, separator dot or subtext. An urgent event is
+ * prefixed "Emergency. ". Pure: the caller supplies the facts it has; a part it
+ * lacks is left out. Copy says "service", never "work order" (schema names stay).
  */
 
 const EVENT_LABEL: Record<string, string> = {
@@ -22,23 +23,38 @@ const EVENT_LABEL: Record<string, string> = {
   channel_booking: "Booking",
 };
 
-const STATE_BY_EVENT: Record<string, string> = {
-  created: "open",
-  vendor_offered: "offered",
-  vendor_new_service: "offered",
+/** What happened, as the end of the headline ("Service request filed"). */
+const HAPPENED_BY_EVENT: Record<string, string> = {
+  created: "created",
+  vendor_offered: "offered to a vendor",
+  vendor_new_service: "offered to a vendor",
   vendor_assigned: "assigned",
-  accepted: "assigned",
+  accepted: "accepted",
   scheduled: "scheduled",
   rescheduled: "rescheduled",
-  en_route: "on the way",
+  en_route: "vendor on the way",
   completed: "completed",
-  resident_confirmed: "completed",
-  auto_closed: "completed",
+  resident_confirmed: "confirmed complete",
+  auto_closed: "closed",
   cancelled: "cancelled",
   invoiced: "invoiced",
   invoice_approved: "invoice approved",
   invoice_disputed: "invoice disputed",
   paid: "paid",
+  reminder_sent: "reminder sent",
+};
+
+/** Payment events read as their own headline, whole. */
+const PAYMENT_HEADLINE: Record<string, string> = {
+  charge_created: "Charge created",
+  payment_processing: "Payment processing",
+  payment_received: "Payment received",
+  partial_received: "Partial payment received",
+  payment_failed: "Payment failed",
+  payment_refunded: "Payment refunded",
+  late_fee_applied: "Late fee applied",
+  deposit_received: "Deposit received",
+  reminder_sent: "Payment reminder sent",
 };
 
 export function teamNoticeEventLabel(domain: string | undefined): string {
@@ -46,19 +62,37 @@ export function teamNoticeEventLabel(domain: string | undefined): string {
   return EVENT_LABEL[key] ?? (key ? key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()) : "Update");
 }
 
+/** The state an event leaves a record in, in words ("on the way"); empty when the event names none. */
 export function teamNoticeState(event: string | undefined): string {
   const key = (event ?? "").trim();
-  return STATE_BY_EVENT[key] ?? key.replace(/_/g, " ");
+  return HAPPENED_BY_EVENT[key] ?? key.replace(/_/g, " ");
+}
+
+function headlineFor(domain: string | undefined, event: string | undefined): string {
+  const eventKey = (event ?? "").trim();
+  const domainKey = (domain ?? "").trim();
+  if (domainKey === "payment" && PAYMENT_HEADLINE[eventKey]) return PAYMENT_HEADLINE[eventKey]!;
+  const label = teamNoticeEventLabel(domain);
+  // "lease_signed" on the lease domain is "signed", not "lease signed".
+  const bare = domainKey && eventKey.startsWith(`${domainKey}_`) ? eventKey.slice(domainKey.length + 1) : eventKey;
+  const happened =
+    domainKey === "work_order" && eventKey === "created" ? "filed" : HAPPENED_BY_EVENT[bare] ?? bare.replace(/_/g, " ");
+  return happened ? `${label} ${happened}` : label;
 }
 
 /**
  * A subject is a fact off a row, and a row written before the rename carries
  * the retired word — as its whole title, or as the "Work order · " prefix the
  * stored-title matchers still read. The event label already says what this is,
- * so the word is dropped here rather than read by a person.
+ * so the word is dropped here rather than read by a person. The "· Payment
+ * update" tail an action event's own subject carries is the headline's job too.
  */
 function serviceSubject(value: string | null | undefined): string {
-  const stripped = (value ?? "").trim().replace(/^work\s*orders?\b[\s·:-]*/i, "").trim();
+  const stripped = (value ?? "")
+    .trim()
+    .replace(/^work\s*orders?\b[\s·:-]*/i, "")
+    .replace(/\s*·\s*payment update\s*$/i, "")
+    .trim();
   return stripped.toLowerCase() === "work order" ? "" : stripped;
 }
 
@@ -71,19 +105,18 @@ export function buildTeamNoticeLine(input: {
   place?: string | null;
   /** The person who acted or filed it. */
   who?: string | null;
+  /** An amount already formatted for people ("$140"). */
+  amount?: string | null;
   urgent?: boolean;
 }): string {
-  const subject = serviceSubject(input.subject);
-  const place = input.place?.trim();
-  const who = input.who?.trim();
-  const state = teamNoticeState(input.event);
-  const parts = [
-    teamNoticeEventLabel(input.domain),
-    subject || "",
-    place || "",
-    who ? (input.event === "created" ? `filed by ${who}` : who) : "",
-    state,
+  const details = [
+    serviceSubject(input.subject),
+    input.amount?.trim() ?? "",
+    // "5257 Brooklyn Ave · Room 2" is a label with a separator dot; in a sentence it is a list.
+    (input.place?.trim() ?? "").replace(/\s*·\s*/g, ", "),
+    input.who?.trim() ?? "",
   ].filter(Boolean);
-  const line = parts.join(" · ");
-  return input.urgent ? `Emergency · ${line}` : line;
+  const headline = headlineFor(input.domain, input.event);
+  const sentence = details.length > 0 ? `${headline}: ${details.join(", ")}.` : `${headline}.`;
+  return input.urgent ? `Emergency. ${sentence}` : sentence;
 }

@@ -172,6 +172,46 @@ async function collapsedSiblingMessageIds(
   );
 }
 
+/**
+ * A person conversation the list folded from several stored rows is read as one
+ * row: the write above lands on the canonical row only, so the folded siblings
+ * the SAME caller can see would otherwise stay unread and bring the badge back
+ * on the next load. Only ever flips `unread` off, only on rows the caller's
+ * own scope returns.
+ */
+async function settleCollapsedSiblingsRead(
+  db: SupabaseClient,
+  user: InboxScopeUser,
+  scopeKey: string,
+  canonicalId: string,
+  row: PersistedInboxThread,
+): Promise<void> {
+  const ids = [
+    ...new Set(
+      (Array.isArray(row.sourceThreadIds) ? row.sourceThreadIds : [])
+        .map((value) => String(value).trim())
+        .filter((value) => value && value !== canonicalId),
+    ),
+  ].slice(0, 50);
+  if (ids.length === 0) return;
+  let query = db
+    .from("portal_inbox_thread_records")
+    .select("id, row_data, thread_type")
+    .in("id", ids)
+    .eq("scope", scopeKey);
+  query = applyPortalInboxThreadScope(query, user, []) as typeof query;
+  const { data } = await query;
+  for (const sibling of Array.isArray(data) ? data : []) {
+    const rowData = (sibling as { row_data?: Record<string, unknown> | null }).row_data;
+    if (!rowData || rowData.unread !== true) continue;
+    await db
+      .from("portal_inbox_thread_records")
+      .update({ row_data: { ...rowData, unread: false } })
+      .eq("id", String((sibling as { id: string }).id))
+      .eq("scope", scopeKey);
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -773,7 +813,12 @@ export async function POST(req: Request) {
           row_data?: unknown;
         };
         // Ownership, recipient, scope and type are the stored row's, never the body's.
-        record.owner_user_id = prior.owner_user_id ?? record.owner_user_id;
+        // An owner-less row (a manager's notice to a not-yet-signed-up address,
+        // matched by participant email) STAYS owner-less: handing it to the
+        // caller put a second row on the person's (owner, workspace, scope,
+        // key) and the write died on portal_inbox_thread_conversation_uidx,
+        // so a resident's mark-read never landed.
+        record.owner_user_id = prior.owner_user_id ?? null;
         record.participant_email = prior.participant_email ?? null;
         record.scope = prior.scope ?? record.scope;
         record.thread_type = (existing[0] as { thread_type?: string | null }).thread_type ?? null;
@@ -805,6 +850,9 @@ export async function POST(req: Request) {
 
       const { error } = await ctx.db.from("portal_inbox_thread_records").upsert(record, { onConflict: "id" });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (recordExists && scopeKey !== MANAGER_INBOX_SCOPE && normalized.unread === false) {
+        await settleCollapsedSiblingsRead(ctx.db, ctx.user, scopeKey, id, normalized);
+      }
     }
 
     return NextResponse.json({ ok: true });

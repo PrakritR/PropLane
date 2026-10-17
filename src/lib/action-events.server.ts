@@ -244,6 +244,7 @@ function teamNoticeFor(input: {
       event: input.eventType,
       subject: payloadText("title") ?? input.rendered.subject,
       place: payloadText("propertyLabel"),
+      amount: payloadText("amountLabel"),
       who: input.senderName,
       urgent: input.urgent,
     }),

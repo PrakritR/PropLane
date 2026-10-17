@@ -1,5 +1,7 @@
 "use client";
 
+import { sharedGet } from "@/lib/shared-get-cache";
+import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Archive, ArchiveRestore, Mail, MailOpen, MessageSquare, Phone, Trash2 } from "lucide-react";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
@@ -278,12 +280,9 @@ export const ResidentInboxPanel = forwardRef<
   const loadEligibleContacts = useCallback(async () => {
     if (isDemoModeActive()) return;
     try {
-      const res = await fetch("/api/portal/inbox-eligible-contacts?portal=resident", {
-        credentials: "include",
-        cache: "no-store",
-      });
+      const res = await sharedGet("/api/portal/inbox-eligible-contacts?portal=resident", { ttlMs: ELIGIBLE_CONTACTS_TTL_MS });
       if (!res.ok) return;
-      const data = (await res.json()) as { contacts?: InboxScopedContact[] };
+      const data = (res.data ?? {}) as { contacts?: InboxScopedContact[] };
       setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
     } catch {
       setEligibleContacts([]);

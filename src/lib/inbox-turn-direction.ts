@@ -69,6 +69,11 @@ export function isPropLaneAssistantAuthor(from: string | null | undefined): bool
  * stay ordinary person-threads so the manager's sent copy stays on the right
  * unless the turn itself is assistant-authored (ice, not "You").
  */
+function isTeamChatThread(thread: InboxThreadForTurns & { id?: string }): boolean {
+  const type = String(thread.threadType ?? thread.thread_type ?? "").trim();
+  return type === "team" || String(thread.id ?? "").startsWith("team-thread:");
+}
+
 export function isConversationWithPropLaneAssistant(thread: InboxThreadForTurns): boolean {
   const type = String(thread.threadType ?? thread.thread_type ?? "").trim();
   if (type === RESIDENT_AGENT_THREAD_TYPE || type === VENDOR_AGENT_THREAD_TYPE) return true;
@@ -92,6 +97,9 @@ export function inboxTurnDirection(
 ): InboxTurnDirection {
   if (isManagerAgentNoticeTurn(thread, message)) return "system";
   if (isPropLaneAssistantAuthor(message.from)) return "assistant";
+  // A line PropLane itself posted in the Team chat ("PropLane", stored outbound)
+  // is a notice, not something the viewer said: never "You:", never a right bubble.
+  if (isTeamChatThread(thread) && String(message.from ?? "").trim() === "PropLane") return "assistant";
   if (isConversationWithPropLaneAssistant(thread)) return "outbound";
   if (message.automated) return "system";
   const outbound = message.outbound ?? (index === 0 ? folder === "sent" : true);

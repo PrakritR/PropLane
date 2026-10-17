@@ -2,6 +2,7 @@
 
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
+import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 
 /**
  * `createCoalescedRefresher` only coalesces CONCURRENT calls — it holds no
@@ -20,6 +21,8 @@ type SmsConversationsEntry = {
   reader: ReturnType<typeof createCoalescedRefresher<SmsResponseSnapshot>>;
   lastResponse: SmsResponseSnapshot | null;
   fetchedAt: number;
+  /** The next run was asked for fresh (`force`): its request must start after that ask. */
+  pending: { force: boolean };
 };
 
 type SmsResponseSnapshot = {
@@ -49,6 +52,7 @@ export function invalidateManagerSmsConversationsClient(
   viewerId?: string | null,
   workspaceId?: string | null,
 ): void {
+  invalidateSharedGets("/api/manager/sms-conversations");
   const normalized = String(viewerId ?? "").trim();
   const workspace = String(workspaceId ?? "").trim();
   if (normalized && workspace) {
@@ -93,24 +97,34 @@ export async function loadManagerSmsConversationsClient(
   let entry = readers.get(cacheKey);
   if (!entry) {
     const query = cursor ? `?before=${encodeURIComponent(cursor)}` : "";
+    const pending = { force: false };
     entry = {
+      // The nav badge keys its reader on (viewer, workspace) and the Communication page on the
+      // viewer alone, so two readers asked for the SAME url. `sharedGet` is keyed on the url, so
+      // concurrent readers of either key join one request; the TTL stays this module's own.
       reader: createCoalescedRefresher(async () => {
-        const response = await fetch(`/api/manager/sms-conversations${query}`, { credentials: "include", cache: "no-store" });
+        const force = pending.force;
+        pending.force = false;
+        const result = await sharedGet(`/api/manager/sms-conversations${query}`, { force, ttlMs: 0 });
+        const status = result.ok ? result.status : result.status >= 200 && result.status <= 599 ? result.status : 503;
+        const text = result.ok ? JSON.stringify(result.data ?? null) : "{}";
         return {
-          body: await response.arrayBuffer(),
-          status: response.status,
-          statusText: response.statusText,
-          headers: new Headers(response.headers),
+          body: new TextEncoder().encode(text).buffer as ArrayBuffer,
+          status,
+          statusText: "",
+          headers: new Headers({ "content-type": "application/json" }),
         };
       }),
       lastResponse: null,
       fetchedAt: 0,
+      pending,
     };
     readers.set(cacheKey, entry);
   }
   if (!force && entry.lastResponse && Date.now() - entry.fetchedAt < SMS_CONVERSATIONS_TTL_MS) {
     return responseFromSnapshot(entry.lastResponse);
   }
+  if (force) entry.pending.force = true;
   const snapshot = await entry.reader.run(force);
   entry.lastResponse = snapshot;
   entry.fetchedAt = Date.now();

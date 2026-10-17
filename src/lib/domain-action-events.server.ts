@@ -443,7 +443,15 @@ export async function emitHouseholdChargeTransition(
     senderUserId: sender.userId,
     senderEmail: sender.email,
     senderName: sender.name,
-    payload: { status: input.charge.status, kind: input.charge.kind, propertyId: input.charge.propertyId },
+    // `title`, `amountLabel` and `propertyLabel` are what the Team chat line is built from.
+    payload: {
+      status: input.charge.status,
+      kind: input.charge.kind,
+      propertyId: input.charge.propertyId,
+      title: facts.title,
+      ...(facts.amountLabel ? { amountLabel: facts.amountLabel } : {}),
+      ...(facts.propertyLabel ? { propertyLabel: facts.propertyLabel } : {}),
+    },
     templateContext: { title: facts.title, amountLabel: facts.amountLabel, propertyTitle: facts.propertyLabel ?? "", balanceLabel: facts.balanceLabel ?? "", dueDateLabel: facts.dueDateLabel ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderPaymentActionEvent(event, recipient.audience, facts);

@@ -24,7 +24,9 @@ import {
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
-import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { sharedGet } from "@/lib/shared-get-cache";
+import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
 
 /** One plain line about whether the number can actually send right now. */
 export function workNumberReadinessCaption(args: {
@@ -48,10 +50,10 @@ function useManagerWorkEmail(): { email: string | null; ready: boolean } {
     const load = () => {
       const thisEpoch = ++epoch;
       setReady(false);
-      void fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" })
+      void sharedGet(assistantEmailUrl(selectedWorkspaceId()))
         .then(async (res) => {
           if (!res.ok) return null;
-          const data: unknown = await res.json();
+          const data: unknown = res.data;
           if (!isManagerAssistantEmailStatus(data)) return null;
           return managerWorkEmailInUse(data);
         })

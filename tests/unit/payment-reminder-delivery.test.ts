@@ -224,7 +224,7 @@ describe("deliverPaymentReminder", () => {
       urgent: false,
       teamNotice: {
         messageId: "payment_reminder_managed_test:team",
-        text: "Payment · July rent · Oak House · Resident · reminder sent",
+        text: "Payment reminder sent: July rent, Oak House, Resident.",
       },
     });
   });

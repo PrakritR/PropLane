@@ -53,7 +53,6 @@ import { usePortalSession } from "@/hooks/use-portal-session";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
 import {
   inboxThreadCategoryLabel,
-  inboxThreadUnreadCount,
 } from "@/lib/communication-row-meta";
 import { resolveResidentThreadManager } from "@/lib/resident-communication-manager";
 import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
@@ -300,8 +299,7 @@ function ResidentUnifiedInbox({
           previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
           time: t.time,
           unread: t.folder === "inbox" && t.unread,
-          unreadCount: inboxThreadUnreadCount(t),
-          address: manager.homeLabel,
+            address: manager.homeLabel,
           category: inboxThreadCategoryLabel(t),
           recordRef: t.recordRef,
           // One conversation per manager workspace: rows sharing a key are one row.
@@ -493,7 +491,6 @@ function ResidentUnifiedInbox({
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
-              unreadCount={row.unreadCount}
               address={row.address}
               category={row.category}
               recordChip={

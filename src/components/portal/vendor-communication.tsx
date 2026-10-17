@@ -31,7 +31,7 @@ import {
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { inboxThreadCategoryLabel, inboxThreadUnreadCount } from "@/lib/communication-row-meta";
+import { inboxThreadCategoryLabel } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { communicationInboxListPreview } from "@/lib/communication-assistant-inbox-list";
 import { emailThreadJoinKeys } from "@/lib/communication-active-rows";
@@ -147,6 +147,8 @@ function VendorUnifiedInbox({
   const [smsOpened] = useState<Set<string>>(() => loadOpenedIds());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [assistantSelected, setAssistantSelected] = useState(routeThreadId === PROPLANE_AGENT_THREAD_ID);
+  /** The first server read has landed (or failed): tab counts are drawn from then on, never from a half-loaded list. */
+  const [listSynced, setListSynced] = useState(false);
 
   useEffect(() => {
     const sync = () => setEmailThreads(loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, []));
@@ -156,9 +158,11 @@ function VendorUnifiedInbox({
 
   useEffect(() => {
     if (!sessionReady) return;
-    void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
-      setEmailThreads(rows);
-    });
+    void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true })
+      .then((rows) => {
+        setEmailThreads(rows);
+      })
+      .finally(() => setListSynced(true));
   }, [sessionReady]);
 
   useEffect(() => {
@@ -191,11 +195,11 @@ function VendorUnifiedInbox({
     );
   }, [emailThreads, smsUiEnabled, threadFilters]);
 
-  const emailItems = useMemo((): UnifiedInboxListItem[] => {
-    const q = searchQuery.trim().toLowerCase();
+  const buildEmailItems = useCallback((segment: InboxListSegment, query: string): UnifiedInboxListItem[] => {
+    const q = query.trim().toLowerCase();
     let rows = filteredEmail;
     rows = rows.filter((t) =>
-      listSegment === "archived" ? t.folder === "trash" : includeArchived || t.folder !== "trash",
+      segment === "archived" ? t.folder === "trash" : includeArchived || t.folder !== "trash",
     );
     if (q) {
       rows = rows.filter((t) => [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase().includes(q));
@@ -211,11 +215,10 @@ function VendorUnifiedInbox({
         threadId: t.id,
         name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
         subtitle: t.subject,
-        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
+        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", segment, 80),
         previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
-        unreadCount: inboxThreadUnreadCount(t),
         // Vendor threads carry no property: a vendor's work is per job, and the
         // job is not on the conversation row. No address rather than a wrong one.
         category: inboxThreadCategoryLabel(t),
@@ -228,12 +231,12 @@ function VendorUnifiedInbox({
         sortMs: inboxThreadSortMs(t.id, t.time),
       };
     });
-    if (listSegment === "unread") return items.filter((item) => item.unread);
+    if (segment === "unread") return items.filter((item) => item.unread);
     return items;
-  }, [filteredEmail, searchQuery, listSegment, includeArchived]);
+  }, [filteredEmail, includeArchived]);
 
-  const smsItems = useMemo((): UnifiedInboxListItem[] => {
-    if (!smsUiEnabled || listSegment === "archived") return [];
+  const buildSmsItems = useCallback((segment: InboxListSegment, query: string): UnifiedInboxListItem[] => {
+    if (!smsUiEnabled || segment === "archived") return [];
     const scoped = smsMessages;
     if (scoped.length === 0) return [];
     const last = [...scoped].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
@@ -244,24 +247,42 @@ function VendorUnifiedInbox({
       threadId: SMS_THREAD_ID,
       name: "Text messages",
       subtitle: "Property management",
-      preview: communicationInboxListPreview(last.body, listSegment, 80),
+      preview: communicationInboxListPreview(last.body, segment, 80),
       previewPrefix: last.direction === "outbound" ? "You: " : undefined,
       time: new Date(last.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
       unread,
       sortMs: Date.parse(last.createdAt) || 0,
     };
-    const q = searchQuery.trim().toLowerCase();
+    const q = query.trim().toLowerCase();
     if (q && !["text messages", "property manager", last.body].join(" ").toLowerCase().includes(q)) return [];
-    if (listSegment === "unread" && !unread) return [];
+    if (segment === "unread" && !unread) return [];
     return [item];
-  }, [listSegment, searchQuery, smsMessages, smsOpened, smsUiEnabled]);
+  }, [smsMessages, smsOpened, smsUiEnabled]);
+
+  const rowsForSegment = useCallback(
+    (segment: InboxListSegment, query: string) => {
+      const emailItems = buildEmailItems(segment, query);
+      return mergeUnifiedInboxItems([
+        ...emailItems,
+        ...foldTextRowIntoSoleWorkspace(emailItems, buildSmsItems(segment, query)),
+      ]);
+    },
+    [buildEmailItems, buildSmsItems],
+  );
 
   const merged = useMemo(
-    () =>
-      mergeUnifiedInboxItems([...emailItems, ...foldTextRowIntoSoleWorkspace(emailItems, smsItems)]).filter(
-        (row) => !readOnly || !row.unread,
-      ),
-    [emailItems, smsItems, readOnly],
+    () => rowsForSegment(listSegment, searchQuery).filter((row) => !readOnly || !row.unread),
+    [rowsForSegment, listSegment, searchQuery, readOnly],
+  );
+
+  // The tabs' counts are the conversations each tab would list, search aside -
+  // the same numbers the manager and resident tabs show.
+  const tabCounts = useMemo(
+    () => ({
+      active: rowsForSegment("active", "").length,
+      archived: rowsForSegment("archived", "").length,
+    }),
+    [rowsForSegment],
   );
 
   // Pinned on every tab (Active/Unread/Archived) — it cannot itself be
@@ -330,6 +351,7 @@ function VendorUnifiedInbox({
           <InboxListSegmentTabs
             commBase={commBase}
             value={listSegment}
+            counts={listSynced ? tabCounts : undefined}
             onChange={onSegmentChange}
             interceptNavigation={Boolean(onSegmentChange)}
           />
@@ -399,7 +421,6 @@ function VendorUnifiedInbox({
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
-              unreadCount={row.unreadCount}
               address={row.address}
               category={row.category}
               recordChip={

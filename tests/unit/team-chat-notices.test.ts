@@ -107,9 +107,9 @@ beforeEach(() => {
 describe("buildTeamNoticeLine", () => {
   it("is a plain fact line, says service request for a work order, and prefixes Emergency", () => {
     const line = buildTeamNoticeLine({ domain: "work_order", event: "created", subject: "Access or lock issue", place: "5257 Brooklyn R2", who: "Khue" });
-    expect(line).toBe("Service request · Access or lock issue · 5257 Brooklyn R2 · filed by Khue · open");
+    expect(line).toBe("Service request filed: Access or lock issue, 5257 Brooklyn R2, Khue.");
     expect(line).not.toMatch(/work order/i);
-    expect(buildTeamNoticeLine({ domain: "work_order", event: "created", subject: "x", urgent: true })).toBe("Emergency · Service request · x · open");
+    expect(buildTeamNoticeLine({ domain: "work_order", event: "created", subject: "x", urgent: true })).toBe("Emergency. Service request filed: x.");
   });
 });
 
@@ -123,7 +123,7 @@ describe("routine event in a 3-person workspace", () => {
     expect(teamLines(db)[0]).toMatchObject({
       id: "action-event:wo-1:created:team",
       from: "PropLane",
-      body: "Service request · Access or lock issue · 5257 Brooklyn R2 · filed by Khue · open",
+      body: "Service request filed: Access or lock issue, 5257 Brooklyn R2, Khue.",
     });
     // Only the owner's own copy goes through the person-to-person path; no teammate does, and no teammate Assistant is noticed.
     expect(deliverPortalInbox.mock.calls.map((c) => (c[1] as { toUserIds?: string[] }).toUserIds)).toEqual([[OWNER]]);
@@ -163,7 +163,7 @@ describe("urgent event", () => {
     expect(landlords()).toEqual(["jaarav", "khue"]);
     expect(deliverPortalInbox.mock.calls.map((c) => (c[1] as { toUserIds?: string[] }).toUserIds?.[0]).sort()).toEqual(["jaarav", "khue", OWNER]);
     expect(teamLines(db)).toHaveLength(1);
-    expect(teamLines(db)[0]!.body).toBe("Emergency · Service request · Access or lock issue · 5257 Brooklyn R2 · filed by Khue · open");
+    expect(teamLines(db)[0]!.body).toBe("Emergency. Service request filed: Access or lock issue, 5257 Brooklyn R2, Khue.");
   });
 });
 

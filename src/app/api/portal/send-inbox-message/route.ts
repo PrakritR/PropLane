@@ -226,6 +226,12 @@ export async function POST(req: Request) {
       propertyTitle?: string;
       managerUserId?: string;
       sendId?: unknown;
+      /**
+       * The id the sender's own composer gave this reply bubble. The stored turn
+       * takes it, so the optimistic copy and the server's copy are ONE message
+       * (a second id showed the reply twice under two sender names).
+       */
+      messageId?: unknown;
       /** When set with a single manager recipient, also notify linked co-managers with inbox access. */
       fanOutPropertyInbox?: boolean;
       /** Gate email/SMS per recipient's saved preference for this category (inbox always on). */
@@ -247,6 +253,10 @@ export async function POST(req: Request) {
     if (body.sendId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sendId)) {
       return NextResponse.json({ ok: false, error: "Invalid send id." }, { status: 400 });
     }
+    const replyMessageId =
+      typeof body.messageId === "string" && /^reply-[a-z0-9]{1,24}$/.test(body.messageId.trim())
+        ? body.messageId.trim()
+        : undefined;
     const attachmentUrls = normalizeInboxAttachmentUrls(
       Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [],
       user.id,
@@ -258,7 +268,11 @@ export async function POST(req: Request) {
     const attachmentNote = attachmentUrls.length
       ? "\n\nAttachments:\n" + attachmentUrls.map((url) => `${emailOrigin}${url}`).join("\n")
       : "";
+    // `text` is the copy that LEAVES the app (email / SMS), so it carries the absolute
+    // attachment links. `storedText` is what the in-app thread stores and previews:
+    // the attachments ride beside it as chips, never as raw URLs in the bubble.
     const text = (rawText + attachmentNote).trim() || (attachmentUrls.length ? "(attachment)" : "");
+    const storedText = rawText || (attachmentUrls.length ? "(attachment)" : "");
     const deliverToPortalInbox = body.deliverToPortalInbox !== false;
     const deliverViaEmail = body.deliverViaEmail !== false;
     const deliverViaSms = body.deliverViaSms === true;
@@ -317,10 +331,11 @@ export async function POST(req: Request) {
     const replyChannel = deliverViaEmail ? "email" : deliverViaSms ? "sms" : "proplane";
     const replyBody = {
       fromName,
-      text,
+      text: storedText,
       attachments: inboxAttachmentsFromUrls(attachmentUrls),
       channel: replyChannel as "email" | "sms" | "proplane",
       ...(deliverViaEmail ? { subject } : {}),
+      ...(replyMessageId ? { messageId: replyMessageId } : {}),
       recordRef,
     };
 
@@ -334,7 +349,7 @@ export async function POST(req: Request) {
         const session = await findVendorAgentSessionByThread(db, threadId);
         if (session) {
           const turnTask = () =>
-            runVendorAgentSessionTurn(db, session, text, "inbox").catch((e) =>
+            runVendorAgentSessionTurn(db, session, storedText, "inbox").catch((e) =>
               console.error("vendor-agent inbox turn failed", e),
             );
           try {
@@ -353,7 +368,7 @@ export async function POST(req: Request) {
       if (replyTarget.threadType === RESIDENT_AGENT_THREAD_TYPE && replyTarget.ownerUserId === user.id) {
         await commitInboxThreadReply(db, replyTarget, { ...replyBody, outbound: true });
         const turnTask = () =>
-          runResidentInboxAgentTurn(db, replyTarget, user.id, senderEmail, text)
+          runResidentInboxAgentTurn(db, replyTarget, user.id, senderEmail, storedText)
             .then((outcome) => {
               // A turn that declines to reply is the interesting case and is
               // otherwise invisible: no throw, no message, nothing in the log.
@@ -405,7 +420,7 @@ export async function POST(req: Request) {
           legacyHouseless: !team.workspaceId && !team.propertyId,
           actorUserId: user.id,
           actorName,
-          text,
+          text: storedText,
           messageId,
           channel: "app",
         });
@@ -434,7 +449,7 @@ export async function POST(req: Request) {
       if (replyTarget.threadType === "agent_notice" && replyTarget.ownerUserId === user.id) {
         await commitInboxThreadReply(db, replyTarget, { ...replyBody, outbound: true });
         const turnTask = () =>
-          runManagerInboxAgentTurn(db, replyTarget, user.id, text)
+          runManagerInboxAgentTurn(db, replyTarget, user.id, storedText)
             .then((outcome) => {
               if (!outcome.replied) {
                 console.error("manager-agent inbox turn did not reply", outcome.reason);
@@ -845,7 +860,7 @@ export async function POST(req: Request) {
       const senderScope = scopeForRole(senderRole);
 
       const when = formatPacificDateTime(new Date());
-      const preview = text.slice(0, 100).replace(/\n/g, " ");
+      const preview = storedText.slice(0, 100).replace(/\n/g, " ");
       const portalSenderRole = mapProfileRoleToAdminInboxSenderRole(senderRole);
       for (const recipient of recipients) {
         if (isPrimaryAdminRecipientEmail(recipient.email)) {
@@ -874,7 +889,7 @@ export async function POST(req: Request) {
             fallbackId: `msg_${user.id}_${ts}_${rand}`,
             fromName,
             subject,
-            body: text,
+            body: storedText,
             preview,
             when,
             unread: false,
@@ -908,7 +923,7 @@ export async function POST(req: Request) {
           fallbackId: `msg_${user.id}_${ts}_${rand}`,
           fromName,
           subject,
-          body: text,
+          body: storedText,
           preview,
           when,
           unread: false,
@@ -936,7 +951,7 @@ export async function POST(req: Request) {
           fallbackId: `msg_inbox_${ts}_${rand}`,
           fromName,
           subject,
-          body: text,
+          body: storedText,
           preview,
           when,
           unread: true,

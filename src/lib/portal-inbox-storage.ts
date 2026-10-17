@@ -1,4 +1,8 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
+import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
+
+/** The list route, as `sharedGet` keys it (every scope starts with this). */
+const INBOX_THREADS_URL = "/api/portal-inbox-threads";
 import { isAssistantAuthoredLabel } from "@/lib/sms-auto-reply";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
 import type { ResidentCounterparty, ResidentPhoneState } from "@/lib/communication/resident-conversation";
@@ -17,6 +21,7 @@ import {
   portalSessionViewerId,
 } from "@/lib/auth/portal-session-gate";
 import { trimmedText } from "@/lib/trimmed-text";
+import { inboxDisplayName } from "@/lib/inbox-display-name";
 import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
@@ -477,7 +482,11 @@ export async function syncPersistedInboxFromServerWithStatus(
   }
   const promise = (async (): Promise<PersistedInboxSyncResult> => {
     try {
-      const res = await fetch(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { credentials: "include", cache: "no-store" });
+      // Through `sharedGet`: panels that mount together each ask for this list, and a forced ask
+      // used to be its own request every time. The sync keeps its own TTL above, so the shared
+      // cache only joins requests that are in flight (ttlMs 0); a forced ask still starts a request
+      // that begins after the ask.
+      const res = await sharedGet(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { force, ttlMs: 0 });
       // An older viewer may complete after A -> B -> A. Do not let its 401
       // latch the new session or let any of its data touch the new cache slot.
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
@@ -486,7 +495,7 @@ export async function syncPersistedInboxFromServerWithStatus(
         inboxSuccessfulServerSyncAtByKey.delete(cacheKey);
         return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
       }
-      const body = (await res.json()) as { rows?: PersistedInboxThread[]; residentPhone?: unknown };
+      const body = res.data as { rows?: PersistedInboxThread[]; residentPhone?: unknown } | null;
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         inboxSuccessfulServerSyncAtByKey.delete(cacheKey);
@@ -624,6 +633,7 @@ async function postInboxRows(
   key: string,
   rows: PersistedInboxThread[],
 ): Promise<boolean> {
+  invalidateSharedGets(INBOX_THREADS_URL);
   const serialize = (thread: PersistedInboxThread) => {
     const {
       readSources: _readSources,
@@ -684,6 +694,7 @@ export async function changePersistedInboxThreadFolders(
   ids: string[],
   action: "archive" | "restore",
 ): Promise<boolean> {
+  invalidateSharedGets(INBOX_THREADS_URL);
   if (!canUse() || ids.length === 0) return false;
   if (isDemoModeActive()) return true;
   try {
@@ -713,6 +724,7 @@ export async function clearInboxThreadMessagesOnServer(
   threadId: string,
   placeholder: { preview?: string; subject?: string; from?: string },
 ): Promise<boolean> {
+  invalidateSharedGets(INBOX_THREADS_URL);
   if (!canUse() || !threadId.trim()) return false;
   if (isDemoModeActive()) return true;
   try {
@@ -1453,9 +1465,7 @@ export function collapsePersonInboxThreads(
       rootHouseLabel: first.houseLabel,
       // The row is named by its counterparty: a turn the assistant authored
       // (an auto-reply recorded on a text thread) never becomes the row's `from`.
-      from: isAssistantAuthoredLabel(first.from) && !isPropLaneAssistantInboxThreadRow(canonical)
-        ? canonical.from
-        : first.from,
+      from: personConversationTitle(first, ordered, canonical, group),
       time: canonical.time,
       preview: last.body.slice(0, 100).replace(/\n/g, " "),
       messages,
@@ -1467,11 +1477,54 @@ export function collapsePersonInboxThreads(
   return merged;
 }
 
+/**
+ * The name a merged person conversation is titled with: the OTHER party's, never
+ * the viewer's own. When the earliest turn is the viewer's own outbound message
+ * (an automated notice the manager's account sent), its `from` is the viewer's
+ * name; the counterparty is whoever wrote an inbound turn, else the address the
+ * conversation is with.
+ */
+export function personConversationTitle(
+  first: Pick<InboxThreadMessage, "from" | "outbound">,
+  ordered: readonly Pick<InboxThreadMessage, "from" | "outbound">[],
+  canonical: PersistedInboxThread,
+  group: readonly PersistedInboxThread[] = [canonical],
+): string {
+  const keepAssistantRule = (name: string) =>
+    isAssistantAuthoredLabel(name) && !isPropLaneAssistantInboxThreadRow(canonical) ? canonical.from : name;
+  if (first.outbound !== true) return keepAssistantRule(first.from);
+  const viewerName = trimmedText(first.from).toLowerCase();
+  const inbound = ordered.find(
+    (message) =>
+      message.outbound === false &&
+      trimmedText(message.from) &&
+      !isAssistantAuthoredLabel(message.from) &&
+      trimmedText(message.from).toLowerCase() !== viewerName,
+  );
+  if (inbound) return inbound.from;
+  // A row another party's turn named (their inbox copy) already carries their name.
+  const fromInboxCopy = group.find(
+    (thread) =>
+      thread.folder === "inbox" &&
+      thread.rootOutbound !== true &&
+      trimmedText(thread.from) &&
+      !isAssistantAuthoredLabel(thread.from) &&
+      trimmedText(thread.from).toLowerCase() !== viewerName,
+  );
+  if (fromInboxCopy) return fromInboxCopy.from;
+  const address = inboxThreadCounterpartyEmail(canonical);
+  if (address.includes("@") && !isProplaneSystemSenderEmail(address) && trimmedText(canonical.from).toLowerCase() === viewerName) {
+    return inboxDisplayName(address);
+  }
+  return keepAssistantRule(first.from);
+}
+
 export async function markPersistedInboxSourcesRead(
   key: string,
   sources: { id: string; observation: string }[],
 ): Promise<{ id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[] | null> {
   if (!canUse() || key !== MANAGER_INBOX_STORAGE_KEY || sources.length === 0) return null;
+  invalidateSharedGets(INBOX_THREADS_URL);
   const response = await fetch("/api/portal-inbox-threads", {
     method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "markRead", scope: key, sources }),

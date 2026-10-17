@@ -58,7 +58,6 @@ import {
   conversationHouseLabels,
   inboxRowAddressLabel,
   inboxThreadCategoryLabel,
-  inboxThreadUnreadCount,
 } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
@@ -853,7 +852,6 @@ export function ManagerUnifiedInbox({
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: formatInboxListNarrowTime(lastMsg?.at ?? t.time),
         unread: t.folder === "inbox" && t.unread,
-        unreadCount: inboxThreadUnreadCount(t),
         // The house the server resolved the thread to be about — the same set
         // that decided the row is visible at all. The contact directory (joined
         // by email) is the fallback for rows the server could not place.
@@ -1600,7 +1598,6 @@ export function ManagerUnifiedInbox({
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
-              unreadCount={row.unreadCount}
               selected={selectedKey === row.key}
               onOpen={() => {
                 explicitlyOpened.current = { key: row.key, context: selectionContext };

@@ -6,6 +6,7 @@ import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaEmailAddress } from "@/lib/listing-cta-email";
 import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
 import { sharedGet } from "@/lib/shared-get-cache";
+import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
 import {
   isManagerAssistantEmailStatus,
   managerWorkEmailInUse,
@@ -25,7 +26,7 @@ async function contactEmailFromPublicCatalog(listingId: string): Promise<string 
  */
 async function ownManagerWorkEmail(workspaceId?: string): Promise<string | null> {
   try {
-    const res = await sharedGet(`/api/manager/assistant-email${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
+    const res = await sharedGet(assistantEmailUrl(workspaceId));
     if (!res.ok) return null;
     const data: unknown = res.data;
     if (!isManagerAssistantEmailStatus(data)) return null;

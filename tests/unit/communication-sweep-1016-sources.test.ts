@@ -1,0 +1,65 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
+
+describe("C11: one compose, counted tabs", () => {
+  it("admin New message is the shared dialog with the shared fields", () => {
+    const admin = read("src/components/portal/admin-compose-modal.tsx");
+    expect(admin).toContain("PortalDialog");
+    expect(admin).toContain("PortalMessageSubjectField");
+    expect(admin).toContain("PortalMessageBodyField");
+    expect(admin).toContain("PortalMessageScheduleFields");
+    expect(admin).not.toContain('from "@/components/ui/modal"');
+    expect(admin).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
+  });
+
+  it("vendor Active / Archived tabs carry counts like the manager and resident ones", () => {
+    const vendor = read("src/components/portal/vendor-communication.tsx");
+    expect(vendor).toMatch(/<InboxListSegmentTabs[\s\S]*?counts=\{listSynced \? tabCounts : undefined\}/);
+    expect(vendor).toContain('rowsForSegment("archived", "")');
+  });
+});
+
+describe("C8: a list row has no figure of its own beside the sidebar's number", () => {
+  for (const file of [
+    "src/components/portal/pro-unified-inbox.tsx",
+    "src/components/portal/resident-communication.tsx",
+    "src/components/portal/vendor-communication.tsx",
+  ]) {
+    it(`${file} does not draw a per-message unread count`, () => {
+      expect(read(file)).not.toContain("unreadCount");
+    });
+  }
+  it("the assistant row and the dashboard read the sidebar's number", () => {
+    expect(read("src/hooks/use-manager-attention-queue.ts")).toContain("managerUnreadConversationCount");
+    expect(read("src/components/portal/pro-dashboard.tsx")).toContain("managerUnreadConversationCount");
+    expect(read("src/hooks/use-portal-nav-counts.ts")).toContain("publishManagerUnreadConversationCount");
+  });
+});
+
+describe("C12: Communication page reads go through sharedGet", () => {
+  it("the five routes", () => {
+    expect(read("src/lib/manager-sms-conversations-client.ts")).toContain("sharedGet(");
+    expect(read("src/lib/portal-inbox-storage.ts")).toMatch(/sharedGet\(`\/api\/portal-inbox-threads/);
+    expect(read("src/lib/sms/manager-messaging-number-client.ts")).toContain("sharedGet(MESSAGING_NUMBER_URL)");
+    expect(read("src/components/portal/pro-inbox.tsx")).toContain("sharedGet(assistantEmailUrl(");
+    expect(read("src/components/portal/pro-work-number-card.tsx")).toContain("sharedGet(assistantEmailUrl(");
+    for (const file of [
+      "src/components/portal/pro-communication-compose-modal.tsx",
+      "src/components/portal/vendor-inbox-panel.tsx",
+      "src/components/portal/resident-inbox-panel.tsx",
+    ]) {
+      expect(read(file)).toMatch(/sharedGet\("\/api\/portal\/inbox-eligible-contacts/);
+    }
+  });
+});
+
+describe("C9: identity boxes", () => {
+  it("the label shares its line with the actions instead of padding around them, and the value has a tooltip", () => {
+    const card = read("src/components/portal/portal-inbox-contact-card.tsx");
+    expect(card).not.toContain("paddingRight");
+    expect(card).toContain("title={box.value}");
+  });
+});
