@@ -153,6 +153,8 @@ export function holdRowFromApplication(row: {
     withdrawnAt: str(data.withdrawnAt) || undefined,
     assignedPropertyId: String(row.assigned_property_id ?? data.assignedPropertyId ?? ""),
     assignedRoomChoice: str(data.assignedRoomChoice) || undefined,
+    icalConnectionId: str(data.icalConnectionId) || undefined,
+    icalSourceUid: str(data.icalSourceUid) || undefined,
     application: {
       leaseStart: str(application.leaseStart) || undefined,
       leaseEnd: str(application.leaseEnd) || undefined,

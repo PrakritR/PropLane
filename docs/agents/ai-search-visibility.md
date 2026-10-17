@@ -68,10 +68,11 @@ still serve `Disallow: /` (see deployment-workflow § Search indexing).
 
 Static marketing paths, `/blog` plus one entry per post (clamped `lastModified`
 — blog.md § Serving the pages), and **one URL per live public listing** read
-through `getCrawlPublicListings()`. A catalog failure is caught: the sitemap
-still lists every static page rather than 500ing a crawl. Its URLs are built on
-its own `BASE` (the canonical production host), not `llmsOrigin()`: every
-non-canonical host is `Disallow: /` wholesale (deployment-workflow § Search
+through `getCrawlPublicListings()`. A catalog that fails — or stalls past the
+read's deadline below — is caught: the sitemap still lists every static page
+rather than 500ing a crawl or failing the build that prerenders it. Its URLs
+are built on its own `BASE` (the canonical production host), not
+`llmsOrigin()`: every non-canonical host is `Disallow: /` wholesale (deployment-workflow § Search
 indexing), so the only URLs worth advertising are canonical ones.
 
 ## JSON-LD
@@ -104,3 +105,12 @@ pipeline resolutions once per page — unbounded Supabase egress on the free
 plan. The TTL matches the `revalidate = 3600` the sitemap and the listing page
 already declare, so nothing is served staler than its own ISR window, and a
 failed read is never cached.
+
+A caller waits `CRAWL_CATALOG_WAIT_MS` (15s) and no longer. `/sitemap.xml` is
+**prerendered**, and Next fails the whole build when one route takes more than
+60 seconds, so a read that stalls instead of answering (it normally lands in
+under three seconds) stops being an incomplete sitemap and becomes a build that
+cannot ship — and retrying the route does not help, because every attempt joins
+the same in-flight read, which is how one stalled read failed all three of
+Next's attempts. Giving up is not cancelling: the read keeps going and still
+fills the memo, so the next caller gets the catalog without a second read.

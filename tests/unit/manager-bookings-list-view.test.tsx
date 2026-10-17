@@ -58,8 +58,13 @@ describe("ManagerBookingsListView", () => {
 
     expect(view.container.textContent).not.toMatch(/\bView\b/);
     expect(view.container.querySelector("[class*='badge']")).toBeNull();
-    const blockedPills = [...view.container.querySelectorAll("*")].filter((el) => el.textContent === "Blocked");
-    expect(blockedPills).toHaveLength(0);
+    // A closed room says "Blocked" (§ Status) — but only as a plain glyph fact, never as a pill.
+    const blocked = [...view.container.querySelectorAll("*")].filter((el) => el.textContent === "Blocked");
+    expect(blocked.length).toBeGreaterThan(0);
+    for (const el of blocked) {
+      expect(el.closest("[data-attr='record-row-facts']")).not.toBeNull();
+      expect(el.className).not.toMatch(/badge|pill|rounded-full/);
+    }
   });
 
   it("row click opens the booking's own record page (never a day view)", () => {
@@ -143,8 +148,8 @@ describe("ManagerBookingsListView", () => {
     expect(cards[1]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Airbnb");
     expect(cards[1]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
 
-    // A block's source fact says "Block"; it never repeats "Blocked" as a state.
-    expect(cards[2]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Hold");
+    // A closed room reads the same "Blocked" the calendar bar and the record page say, not a guest's "Hold".
+    expect(cards[2]!.querySelector("[data-attr='record-row-facts']")!.textContent).toContain("Blocked");
     expect(cards[2]!.querySelector("[data-attr='booking-row-status']")).toBeNull();
 
     // Confirmed is the default and says nothing.

@@ -9,6 +9,7 @@ import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupan
 import {
   mergeResidentEntries,
   residentEntriesFromStays,
+  withoutChannelStaysCoveredByResidents,
   type OccupancyDayCell,
 } from "@/lib/occupancy/snapshot";
 import {
@@ -524,5 +525,12 @@ export function useManagerBookingEntries({
     [airbnbEntries, importedAirbnbEntries, residentEntries, blockEntries, stayMetas],
   );
 
-  return { entries, occupancyDays, loading, readsPending, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
+  /**
+   * What the calendar GRID and the Bookings LIST draw: `entries` minus the channel bar a synced Airbnb
+   * resident covers, so one reservation is one row. `entries` stays whole on purpose - the record page,
+   * the day page, "Open in Airbnb" and payouts look the channel stay up there.
+   */
+  const calendarEntries = useMemo(() => withoutChannelStaysCoveredByResidents(entries), [entries]);
+
+  return { entries, calendarEntries, occupancyDays, loading, readsPending, failedSources, retry, reloadAirbnb, blocks, residentOptions, channelLinks };
 }

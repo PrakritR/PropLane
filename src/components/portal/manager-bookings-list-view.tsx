@@ -37,14 +37,14 @@ export function bookingRowSourceLabel(source: PropertyBookingEntry["source"]): s
 }
 
 /**
- * The stage a stay is at, as plain fact text — only when it adds to the row.
- * Confirmed is the default and says nothing; a block's "Blocked" / "Held" is
- * already its source fact. No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
+ * The stage a stay is at, as plain fact text — the one word the record page and
+ * the calendar bar print, so a closed room reads "Blocked" here too and is not
+ * confused with a guest's pending "Hold" (the row's Source fact renders for
+ * channel imports only, so it cannot carry that difference).
+ * No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
-export function bookingRowStatusFact(entry: PropertyBookingEntry): string {
-  // The record page says "Blocked" for a live block; the row's source fact already says "Block", so it keeps its "Hold".
-  const label = bookingStatusLabel(entry);
-  return label === "Blocked" ? "Hold" : label;
+export function bookingRowStatusFact(entry: PropertyBookingEntry, today = dateKey(new Date())): string {
+  return bookingStatusLabel(entry, today);
 }
 
 /**

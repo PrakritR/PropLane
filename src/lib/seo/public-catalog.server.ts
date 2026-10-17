@@ -19,6 +19,21 @@ import { getPublicListings } from "@/lib/public-listings.server";
  */
 const CRAWL_CATALOG_TTL_MS = 3_600_000;
 
+/**
+ * How long a caller waits on the read before giving up on it.
+ *
+ * Nobody may wait on this read forever. `/sitemap.xml` is PRERENDERED, and Next fails the whole
+ * build when one route takes more than 60 seconds — so a Supabase read that stalls instead of
+ * answering (it normally lands in under three seconds) stops being an incomplete sitemap and
+ * becomes a build that cannot ship. Retrying the route does not help either: every attempt joins
+ * the same `inFlight` promise, so one stalled read failed all three of Next's attempts.
+ *
+ * Giving up is not cancelling: the read keeps going and still fills the memo, so the next caller
+ * (the ISR revalidation, the next page) gets the catalog without paying a second read. Both
+ * callers already render without the catalog when it throws.
+ */
+export const CRAWL_CATALOG_WAIT_MS = 15_000;
+
 let cached: { expiresAt: number; listings: MockProperty[] } | null = null;
 let inFlight: Promise<MockProperty[]> | null = null;
 
@@ -34,7 +49,18 @@ export async function getCrawlPublicListings(): Promise<MockProperty[]> {
         inFlight = null;
       });
   }
-  return inFlight;
+  const read = inFlight;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      read,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Public catalog read did not finish in time.")), CRAWL_CATALOG_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** Tests only: drop the memo so the next read hits the catalog. */

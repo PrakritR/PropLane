@@ -38,6 +38,9 @@ export type OccupancyStayResident = {
   source: "hold" | "proplane";
   applicationId?: string;
   leaseId?: string;
+  /** The feed connection + event UID of the Airbnb / iCal reservation this resident stands in for. */
+  icalConnectionId?: string;
+  icalSourceUid?: string;
   residentName?: string;
   residentEmail?: string;
   residentPhone?: string;
@@ -55,6 +58,8 @@ export function occupancyStayResident(entry: PropertyBookingEntry): OccupancySta
     source: entry.source,
     ...(entry.applicationId ? { applicationId: entry.applicationId } : {}),
     ...(entry.leaseId ? { leaseId: entry.leaseId } : {}),
+    ...(entry.icalConnectionId ? { icalConnectionId: entry.icalConnectionId } : {}),
+    ...(entry.icalSourceUid ? { icalSourceUid: entry.icalSourceUid } : {}),
     ...(entry.residentName ? { residentName: entry.residentName } : {}),
     ...(entry.residentEmail ? { residentEmail: entry.residentEmail } : {}),
     ...(entry.residentPhone ? { residentPhone: entry.residentPhone } : {}),
@@ -117,6 +122,8 @@ export function residentEntriesFromStays(
       end,
       ...(resident.applicationId ? { applicationId: resident.applicationId } : {}),
       ...(resident.leaseId ? { leaseId: resident.leaseId } : {}),
+      ...(resident.icalConnectionId ? { icalConnectionId: resident.icalConnectionId } : {}),
+      ...(resident.icalSourceUid ? { icalSourceUid: resident.icalSourceUid } : {}),
       ...(resident.residentName ? { residentName: resident.residentName } : {}),
       ...(resident.residentEmail ? { residentEmail: resident.residentEmail } : {}),
       ...(resident.residentPhone ? { residentPhone: resident.residentPhone } : {}),
@@ -128,6 +135,45 @@ export function residentEntriesFromStays(
     });
   }
   return out;
+}
+
+/**
+ * The calendar draws a reservation ONCE: when the sync filed a resident for an Airbnb / iCal
+ * reservation (the resident carries that feed's connection id + event UID), the resident is the
+ * row and the channel bar it covers is dropped. A channel stay no resident covers stays, and so
+ * does a host block ("Not available"), which never has a resident.
+ *
+ * Calendar-only on purpose: apply it where the calendar's entry list is built, never to the list
+ * the record page, "Open in Airbnb", payouts or the export feed read, which need the channel stay.
+ */
+export function withoutChannelStaysCoveredByResidents(entries: readonly PropertyBookingEntry[]): PropertyBookingEntry[] {
+  const covered = new Set<string>();
+  for (const entry of entries) {
+    if (entry.source !== "hold" && entry.source !== "proplane") continue;
+    if (entry.icalConnectionId && entry.icalSourceUid) covered.add(`${entry.icalConnectionId}\0${entry.icalSourceUid}`);
+  }
+  if (covered.size === 0) return [...entries];
+  return entries.filter((entry) => {
+    if (!isChannelBookingSource(entry.source) || !entry.connectionId || !entry.sourceUid) return true;
+    if (isAvailabilityBlockRow(entry)) return true;
+    return !covered.has(`${entry.connectionId}\0${entry.sourceUid}`);
+  });
+}
+
+/**
+ * The deduped view of one entry list, remembered per list. A month grid, a year grid and the
+ * manager snapshot all ask for the same `entries` once per (day, property) pair - hundreds of
+ * full passes over the same immutable array for one answer. Keyed on the array's identity, so a
+ * freshly built list is deduped once and a replaced one is never read from here.
+ */
+const dedupedEntryCache = new WeakMap<object, PropertyBookingEntry[]>();
+
+function dedupedForOccupancy(entries: readonly PropertyBookingEntry[]): readonly PropertyBookingEntry[] {
+  const cached = dedupedEntryCache.get(entries);
+  if (cached) return cached;
+  const deduped = withoutChannelStaysCoveredByResidents(entries);
+  dedupedEntryCache.set(entries, deduped);
+  return deduped;
 }
 
 /** The identity two copies of one resident stay share: source + applicationId (hold) or leaseId (lease). */
@@ -263,12 +309,17 @@ export function occupancyForDay(
   propertyIds: readonly string[],
   capacities: OccupancyCapacities,
 ): OccupancyDayCell {
+  // One reservation is one bed: a resident filed for an Airbnb stay covers that stay's channel row.
+  // Hoisted out of the per-property loop and memoized on the entry list on purpose - the covered set
+  // depends only on `entries`, and a year grid asks for every (day, property) pair, which made this
+  // an extra full pass and copy on each one.
+  const deduped = dedupedForOccupancy(entries);
   let occupied = 0;
   let total = 0;
   let checkIns = 0;
   let checkOuts = 0;
   for (const propertyId of propertyIds) {
-    const cell = propertyDayOccupiedBeds(entries, dayKey, propertyId, capacities);
+    const cell = propertyDayOccupiedBeds(deduped, dayKey, propertyId, capacities);
     occupied += cell.occupied;
     total += cell.total;
     checkIns += cell.checkIns;

@@ -23,6 +23,9 @@ import {
 } from "@/lib/auth/manager-lease-scope";
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
+import { ROOM_BLOCK_KIND_CLOSED, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
+import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
+import { afterResponse } from "@/lib/after-response.server";
 import { occupancySnapshotForManager } from "@/lib/occupancy/snapshot.server";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
@@ -170,6 +173,8 @@ type BlockView = {
   bookingStatus: "hold" | "confirmed";
   rate: number | null;
   rateBasis: "daily" | "weekly" | "monthly";
+  /** True for a room the manager closed with a reason and no guest. */
+  closed: boolean;
 };
 
 function blockFromRecord(rec: BlockRecord): BlockView | null {
@@ -193,7 +198,33 @@ function blockFromRecord(rec: BlockRecord): BlockView | null {
     bookingStatus: data?.bookingStatus === "confirmed" ? "confirmed" : "hold",
     rate: typeof rate === "number" && Number.isFinite(rate) && rate >= 0 ? rate : null,
     rateBasis: basis === "daily" || basis === "weekly" ? basis : "monthly",
+    // A block saved before the rule existed with nobody attached is a closed room too.
+    closed: data?.blockKind === ROOM_BLOCK_KIND_CLOSED || !str(data, "residentName"),
   };
+}
+
+/**
+ * A named, live, non-closed block that is not a channel import: the only kind whose owner is told
+ * about it. Raised off the reply's critical path, exactly like the schedule-records route: the
+ * assistant must not wait on two reads, the delivery fan-out and an outbound email to answer.
+ */
+function announceBookingEvent(ctx: AgentContext, event: NativeBookingEvent, input: { blockId: string; ownerId: string; propertyId: string; roomId: string; guestName: string; checkIn: string; checkOut: string; openEnded: boolean; closed: boolean; reason: string }): void {
+  if (input.closed || !input.guestName.trim() || isImportedChannelBlock({ reason: input.reason })) return;
+  afterResponse(
+    () =>
+      emitNativeBookingEvent(ctx.db as unknown as SupabaseClient, {
+        event,
+        blockId: input.blockId,
+        managerUserId: input.ownerId,
+        propertyId: input.propertyId,
+        roomId: input.roomId,
+        guestName: input.guestName,
+        checkIn: input.checkIn,
+        checkOut: input.checkOut,
+        openEnded: input.openEnded,
+      }),
+    "bookings",
+  );
 }
 
 async function loadBlockRecords(ctx: AgentContext, propertyIds: string[]): Promise<BlockRecord[]> {
@@ -418,6 +449,7 @@ type BlockInput = {
   end: string;
   reason?: string;
   residentName?: string;
+  closed?: boolean;
 };
 
 type ResolvedBlock = {
@@ -428,6 +460,8 @@ type ResolvedBlock = {
   end: string;
   reason: string;
   residentName: string;
+  /** No guest: the room is closed, and `reason` says why. */
+  closed: boolean;
 };
 
 async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<ResolvedBlock> {
@@ -446,14 +480,20 @@ async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<
   if (roomId && !property.rooms.has(roomId)) {
     throw new Error(`No room "${roomId}" in ${property.title}. Omit roomId to block the whole home.`);
   }
+  const residentName = input.residentName?.trim() ?? "";
+  const reason = input.reason?.trim() ?? "";
+  // Every booking has a name; a room with no guest is closed on purpose, with a reason. Same rule as the schedule-records route.
+  const nameError = roomDateBlockNameError({ residentName, blockKind: input.closed ? ROOM_BLOCK_KIND_CLOSED : undefined, reason });
+  if (nameError) throw new Error(nameError);
   return {
     property,
     roomId,
     roomLabel: roomId ? property.rooms.get(roomId)! : "Whole home",
     start,
     end,
-    reason: input.reason?.trim() ?? "",
-    residentName: input.residentName?.trim() ?? "",
+    reason,
+    residentName,
+    closed: !residentName,
   };
 }
 
@@ -476,15 +516,16 @@ function conflictMessage(r: ResolvedBlock, other: BlockView): string {
 export const blockRoomDatesTool = defineWriteTool({
   name: "block_room_dates",
   description:
-    "Block (close) a room or a whole home for a date range so it cannot be booked, optionally held for a named person with a reason. `start` is the first blocked night and `end` is the check-out day (EXCLUSIVE: the room is free again that day), both YYYY-MM-DD. Omit roomId to block the whole home. Needs Calendar edit access on that property. Refuses a range that overlaps an existing block.",
+    "Block a room or a whole home for a date range so it cannot be booked. Every block needs either `residentName` (who the booking is for) or `closed: true` with a `reason` (e.g. \"Painting\", \"Owner use\"). `start` is the first blocked night and `end` is the check-out day (EXCLUSIVE: the room is free again that day), both YYYY-MM-DD. Omit roomId to block the whole home. Needs Calendar edit access on that property. Refuses a range that overlaps an existing block.",
   inputSchema: z
     .object({
       propertyId: z.string().min(1).describe("Property id from list_properties."),
       roomId: z.string().optional().describe("Room id from get_property_details; omit to block the whole home."),
       start: z.string().describe("First blocked night, YYYY-MM-DD."),
       end: z.string().describe("Check-out day, YYYY-MM-DD, exclusive; must be after start."),
-      reason: z.string().max(200).optional().describe("Why the dates are closed (shown on the calendar)."),
-      residentName: z.string().max(120).optional().describe("Optional: who the room is being held for."),
+      reason: z.string().max(200).optional().describe("Why the dates are closed (shown on the calendar). Required when closed is true; \"Airbnb\" and \"Booking\" are reserved."),
+      residentName: z.string().max(120).optional().describe("Who the booking is for. Required unless closed is true."),
+      closed: z.boolean().optional().describe("True to close the room with no guest; needs a reason."),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -575,7 +616,7 @@ export const blockRoomDatesTool = defineWriteTool({
       openEnded: false,
       reason: r.reason,
       bookingStatus: "hold",
-      ...(r.residentName ? { residentName: r.residentName } : {}),
+      ...(r.residentName ? { residentName: r.residentName } : { blockKind: ROOM_BLOCK_KIND_CLOSED }),
       createdAt: now,
       createdByUserId: ctx.userId,
       recordType: ROOM_DATE_BLOCK_RECORD_TYPE,
@@ -601,6 +642,7 @@ export const blockRoomDatesTool = defineWriteTool({
       throw new Error(String(error.message ?? "Could not block those dates."));
     }
     await updateAuditResult(ctx, dedupeKey, { blockId: id });
+    announceBookingEvent(ctx, "booking_created", { blockId: id, ownerId, propertyId: r.property.id, roomId: r.roomId, guestName: r.residentName, checkIn: r.start, checkOut: r.end, openEnded: false, closed: r.closed, reason: r.reason });
     return {
       reply: `Blocked ${r.roomLabel} at ${r.property.title} from ${formatDay(r.start)} to ${formatDay(r.end)}.`,
       resultSummary: { blockId: id },
@@ -695,6 +737,7 @@ export const removeRoomBlockTool = defineWriteTool({
       throw new Error(String(error.message ?? "Could not remove that block."));
     }
     await updateAuditResult(ctx, dedupeKey, { removed: true });
+    announceBookingEvent(ctx, "booking_cancelled", { blockId: block.id, ownerId: property.ownerId.trim() || ctx.userId, propertyId: property.id, roomId: block.roomId, guestName: block.residentName, checkIn: block.checkIn, checkOut: block.checkOut, openEnded: block.openEnded, closed: block.closed, reason: block.reason });
     return {
       reply: `Removed the block at ${property.title} (${block.checkIn} to ${block.openEnded ? "open-ended" : block.checkOut}).`,
       resultSummary: { blockId: block.id },
@@ -741,7 +784,17 @@ async function resolveBlockUpdate(ctx: AgentContext, input: UpdateBlockInput) {
     end,
     reason: input.notes !== undefined ? input.notes.trim() : block.reason,
     residentName: input.guestName !== undefined ? input.guestName.trim() : block.residentName,
+    closed: block.closed,
   };
+  // A booking keeps its name (clearing it would make it nameless); a closed room keeps its reason.
+  // The rule arbitrates NEW content only, same exemption as the schedule-records route's
+  // `sameRoomBlockNameShape`: leaving the stored name and reason exactly as they are - a pure date
+  // edit, including of a row written before the rule existed - must always work.
+  const nameShapeUnchanged = next.residentName === block.residentName && next.reason === block.reason;
+  if (!nameShapeUnchanged) {
+    const nameError = roomDateBlockNameError({ residentName: next.residentName, blockKind: next.closed ? ROOM_BLOCK_KIND_CLOSED : undefined, reason: next.reason });
+    if (nameError) throw new Error(nameError);
+  }
   // Same overlap rule as block_room_dates, against every OTHER block on the house.
   const others = (await loadBlockRecords(ctx, [property.id])).map(blockFromRecord).filter((b): b is BlockView => b !== null && b.id !== block.id);
   const conflict = overlappingBlock(others, next);
@@ -821,8 +874,16 @@ export const updateRoomBlockTool = defineWriteTool({
       startsAt: `${next.start}T00:00:00`,
       endsAt: `${next.end}T00:00:00`,
     };
-    if (next.residentName) row.residentName = next.residentName;
-    else delete row.residentName;
+    if (next.residentName) {
+      row.residentName = next.residentName;
+      // Naming a closed room turns it into a booking.
+      delete row.blockKind;
+    } else {
+      delete row.residentName;
+      // A closed room always carries the reason it was closed for: a pre-rule row that has neither a
+      // name nor a reason keeps the shape it was saved in instead of becoming a reasonless Closed room.
+      if (next.reason) row.blockKind = ROOM_BLOCK_KIND_CLOSED;
+    }
     if (phone !== undefined) {
       if (phone) row.residentPhone = phone;
       else delete row.residentPhone;
@@ -838,6 +899,11 @@ export const updateRoomBlockTool = defineWriteTool({
       throw new Error(String(error.message ?? "Could not change that block."));
     }
     await updateAuditResult(ctx, dedupeKey, { blockId: block.id });
+    // Naming a closed room or an unnamed block makes it a booking its owner has not been told about
+    // yet - the same transition the schedule-records route announces. Idempotent on the block id.
+    if (next.residentName && !block.residentName.trim()) {
+      announceBookingEvent(ctx, "booking_created", { blockId: block.id, ownerId: next.property.ownerId.trim() || ctx.userId, propertyId: next.property.id, roomId: next.roomId, guestName: next.residentName, checkIn: next.start, checkOut: next.end, openEnded: block.openEnded, closed: false, reason: next.reason });
+    }
     return {
       reply: `Updated the hold at ${next.property.title} (${next.roomLabel}): ${formatDay(next.start)} to ${formatDay(next.end)}.`,
       resultSummary: { blockId: block.id },
