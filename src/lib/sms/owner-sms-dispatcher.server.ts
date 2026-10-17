@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mirrorManagerOwnOutboxToAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
-import { WORKSPACE_NO_WORK_NUMBER_CODE } from "@/lib/sms/workspace-no-work-number";
+import { evaluateWorkspaceSendReadiness } from "@/lib/sms/workspace-send-readiness.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readScopedSmsConsentState, readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
@@ -10,7 +9,6 @@ import { ensureTeamNoticeScopedSmsConsent, isManagerRecipientSmsPurpose } from "
 import { validateTourSmsPurposeAtDispatch } from "@/lib/sms/tour-sms-eligibility.server";
 import {
   estimateSmsSegments,
-  evaluateManagerSmsNumberSendability,
   quietHoursBlocks,
   type SmsSendClass,
 } from "@/lib/sms/number-registration-policy";
@@ -19,9 +17,6 @@ import { durableProspectSmsEnabled } from "@/lib/sms/prospect-sms-burst.server";
 import { sendSms } from "@/lib/twilio";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { conversationPhoneRef, isSmsCounterpartyRole, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
-import {
-  evaluateManagerCommsBillingGate,
-} from "@/lib/comms-billing/eligibility.server";
 import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
 import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
@@ -37,30 +32,7 @@ const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_canceled",
 ]);
 
-type RuntimeRow = {
-  mode: string;
-  pilot_manager_user_ids: string[] | null;
-};
-
 const PROSPECT_TOUR_REMINDER_PURPOSE = "prospect_tour_followup";
-
-type NumberRow = {
-  manager_user_id: string;
-  workspace_id?: string | null;
-  phone_number: string | null;
-  phone_number_sid: string | null;
-  messaging_service_sid: string | null;
-  campaign_sid: string | null;
-  provision_state: string;
-  registration_state: string;
-  registration_ref: string | null;
-  attachment_state: string | null;
-  number_registration_state: string | null;
-  grace_started_at: string | null;
-  grace_expires_at: string | null;
-  quarantined_at: string | null;
-  quarantine_reason: string | null;
-};
 
 export type OwnerSmsEnqueueInput = {
   managerUserId: string;
@@ -138,73 +110,20 @@ async function loadSendPolicy(
     return { allowed: false, reason: "segment_limit_exceeded" };
   }
 
-  const [{ data: runtime, error: runtimeError }, { data: number, error: numberError }] = await Promise.all([
-    db
-      .from("sms_runtime_config")
-      .select("mode, pilot_manager_user_ids")
-      .eq("singleton", true)
-      .maybeSingle(),
-    // One line per WORKSPACE: the message about a house goes out from the
-    // line of the workspace that holds it; a house-less one from the owner's
-    // default workspace's line.
-    resolveOwnerSendNumberRow<NumberRow>(
-      db,
-      ownerId,
-      "id, manager_user_id, workspace_id, phone_number, phone_number_sid, messaging_service_sid, campaign_sid, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason",
-      { propertyId: input.propertyId ?? null, workLineId: input.selectedWorkLineId ?? null },
-    ),
-  ]);
-  // A workspace with no work number of its own is a plain refusal ("This
-  // workspace has no work number."), not an unreadable control plane: it is
-  // never retried and never borrows another workspace's line.
-  if (!runtimeError && runtime && !number && (numberError as { code?: string } | null)?.code === WORKSPACE_NO_WORK_NUMBER_CODE) {
-    return { allowed: false, reason: WORKSPACE_NO_WORK_NUMBER_CODE };
-  }
-  if (runtimeError || numberError || !runtime || !number) {
-    return { allowed: false, reason: "control_plane_unreadable" };
-  }
-
-  const runtimeRow = runtime as RuntimeRow;
-  const numberRow = number as NumberRow;
-  const allowlisted = (runtimeRow.pilot_manager_user_ids ?? []).includes(ownerId);
-  const decision = evaluateManagerSmsNumberSendability(
-    {
-      provisionState: numberRow.provision_state as never,
-      phoneNumber: numberRow.phone_number,
-      registrationState: numberRow.registration_state as never,
-      registrationRef: numberRow.registration_ref,
-      attachmentState: numberRow.attachment_state,
-      numberRegistrationState: numberRow.number_registration_state,
-      graceStartedAt: numberRow.grace_started_at,
-      graceExpiresAt: numberRow.grace_expires_at,
-      quarantinedAt: numberRow.quarantined_at,
-      quarantineReason: numberRow.quarantine_reason,
-    },
-    { runtimeMode: runtimeRow.mode, managerIsAllowlisted: allowlisted, now },
-  );
-  if (!decision.sendable) return { allowed: false, reason: decision.reason ?? "number_not_sendable" };
-
-  const expectedServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-  const expectedCampaignSid = process.env.TWILIO_CAMPAIGN_SID?.trim();
-  if (
-    !expectedServiceSid ||
-    !expectedCampaignSid ||
-    numberRow.messaging_service_sid !== expectedServiceSid ||
-    numberRow.campaign_sid !== expectedCampaignSid ||
-    !numberRow.phone_number_sid
-  ) {
-    return { allowed: false, reason: "provider_identity_mismatch" };
-  }
-
-  // Credit is per workspace: the message spends from the wallet of the
-  // workspace that holds the line it leaves on, not an account-wide balance.
-  const sendWorkspaceId = String(numberRow.workspace_id ?? "").trim() || null;
-  // A successful reservation belongs to this outbox attempt. Still read the
-  // sending workspace wallet so a pause or unreadable balance blocks dispatch.
-  const billing = await evaluateManagerCommsBillingGate(db, ownerId,
-    creditAlreadyReserved ? 0 : segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"),
-    sendWorkspaceId);
-  if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };
+  const readiness = await evaluateWorkspaceSendReadiness({
+    db,
+    ownerUserId: ownerId,
+    propertyId: input.propertyId ?? null,
+    workLineId: input.selectedWorkLineId ?? null,
+    // A successful reservation belongs to this outbox attempt. Still read the
+    // sending workspace wallet so a pause or unreadable balance blocks dispatch.
+    requiredCents: creditAlreadyReserved ? 0 : segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"),
+    now,
+  });
+  if (!readiness.canSend) return { allowed: false, reason: readiness.reason };
+  const numberRow = readiness.numberRow;
+  const expectedServiceSid = readiness.messagingServiceSid;
+  const sendWorkspaceId = readiness.workspaceId;
 
   const suppression = await readSmsSuppressionState(db, recipient, { userId: input.recipientUserId });
   if (!suppression.ok) return { allowed: false, reason: suppression.error };

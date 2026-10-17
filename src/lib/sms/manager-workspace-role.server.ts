@@ -306,7 +306,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   db: SupabaseClient,
   ownerUserId: string,
   columns: string,
-  opts: { propertyId?: string | null; workLineId?: string | null } = {},
+  opts: { propertyId?: string | null; workLineId?: string | null; workspaceId?: string | null } = {},
 ): Promise<{ data: T | null; error: { message: string; code?: string } | null }> {
   const exactLine = opts.workLineId?.trim();
   if (exactLine) {
@@ -326,8 +326,10 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   const noNumber = { data: null, error: { message: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE } };
 
   const propertyId = opts.propertyId?.trim();
-  let houseWorkspaceId = "";
-  if (propertyId) {
+  // A caller that already knows the workspace (a status check) names it; it
+  // wins over a house and is resolved exactly like one.
+  let houseWorkspaceId = opts.workspaceId?.trim() ?? "";
+  if (!houseWorkspaceId && propertyId) {
     const { data: house, error: houseError } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
     if (houseError) return { data: null, error: houseError };
     houseWorkspaceId = String(house?.workspace_id ?? "").trim();

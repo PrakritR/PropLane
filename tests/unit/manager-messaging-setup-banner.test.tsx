@@ -101,6 +101,28 @@ describe("the portal-wide messaging setup banner", () => {
     expect(banner()).toBeNull();
   });
 
+  it("never nags a teammate, with or without a workspace number", () => {
+    resolved({
+      workspaceRole: "co_manager",
+      workspaceNumber: { phoneNumber: "+12065550199", ownerUserId: "owner", ownerName: "Owner" },
+    });
+    const { unmount } = render(<ManagerMessagingSetupBanner />);
+    expect(banner()).toBeNull();
+    unmount();
+    resolved({
+      workspaceRole: "co_manager",
+      workspaceNumber: { phoneNumber: null, ownerUserId: "owner", ownerName: "Owner" },
+    });
+    render(<ManagerMessagingSetupBanner />);
+    expect(banner()).toBeNull();
+  });
+
+  it("still nags an owner whose workspace has no number", () => {
+    resolved({ workspaceRole: "primary", workspaceNumber: null });
+    render(<ManagerMessagingSetupBanner />);
+    expect(banner()).not.toBeNull();
+  });
+
   it("still shows while a request exists but no number is assigned", () => {
     // A requested-but-unassigned number is the state the dogfood accounts sit
     // in, and renters STILL cannot text them — hiding here is how the notice

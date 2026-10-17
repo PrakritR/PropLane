@@ -26,7 +26,7 @@ import {
 } from "@/lib/portal-inbox-storage";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import {
   WORKSPACE_SELECTION_EVENT,
   workspaceContainsProperty,
@@ -78,7 +78,8 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
     messaging.resolved &&
     !messaging.statusError &&
     !!messaging.status &&
-    !messaging.status.number?.phoneNumber &&
+    messaging.status.workspaceRole !== "co_manager" &&
+    !workspaceWorkNumber(messaging.status) &&
     messaging.status.planTier !== "free";
   const [tick, setTick] = useState(0);
 

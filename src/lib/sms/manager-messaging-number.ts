@@ -178,3 +178,30 @@ export function formatManagerMessagingPhone(
   }
   return phone;
 }
+
+/** Just the fields of the status that say which line a workspace texts from. */
+export type WorkspaceWorkNumberSource = {
+  workspaceRole?: ManagerMessagingWorkspaceRole | string | null;
+  number?: { phoneNumber?: string | null } | null;
+  workspaceNumber?: { phoneNumber?: string | null } | null;
+};
+
+/**
+ * The one answer to "does this workspace have a work number": a teammate
+ * (`co_manager`) reads the owner's line from `workspaceNumber`, an owner reads
+ * their own `number`. Trimmed, or null when there is none - a teammate's own
+ * legacy row is never the workspace's number.
+ */
+export function workspaceWorkNumber(
+  status: WorkspaceWorkNumberSource | null | undefined,
+): string | null {
+  if (!status) return null;
+  const raw =
+    status.workspaceRole === "co_manager"
+      ? status.workspaceNumber?.phoneNumber
+      : status.number?.phoneNumber;
+  // A number stored as a JSON number (old rows) is still the workspace's line.
+  const value =
+    typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
+  return value || null;
+}

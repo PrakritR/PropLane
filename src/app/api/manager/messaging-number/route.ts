@@ -37,6 +37,7 @@ import {
 import {
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
+import { evaluateWorkspaceSendReadiness } from "@/lib/sms/workspace-send-readiness.server";
 
 export const runtime = "nodejs";
 
@@ -205,8 +206,26 @@ async function buildStatus(
     managerIsAllowlisted,
   });
 
-  const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
-  const commsBillingAllowed = billing.allowed;
+  // A teammate sends from the OWNER's line, so their "can send" is the send
+  // path's own decision for this workspace and its owner - not the viewer's
+  // (empty) number or the viewer's wallet. Any error fails closed.
+  let canSend: boolean;
+  if (pureCoManager) {
+    try {
+      const readiness = await evaluateWorkspaceSendReadiness({
+        db,
+        ownerUserId: workspace.ownerUserId,
+        workspaceId: workspace.id,
+        requiredCents: 3,
+      });
+      canSend = sendEnvEnabled && readiness.canSend;
+    } catch {
+      canSend = false;
+    }
+  } else {
+    const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
+    canSend = billing.allowed && sendEnvEnabled && modeAllowsManager && strictNumberReady;
+  }
   const canRequestBilling = entitlementCanBeReconciled;
 
   // One work number per workspace: a co-manager reads the owner's line and
@@ -255,11 +274,7 @@ async function buildStatus(
       provisioningEnvEnabled &&
       modeAllowsManager &&
       requestableState,
-    canSend:
-      commsBillingAllowed &&
-      sendEnvEnabled &&
-      modeAllowsManager &&
-      strictNumberReady,
+    canSend,
     personalPhone: {
       phone:
         typeof profileResult.data?.phone === "string"
