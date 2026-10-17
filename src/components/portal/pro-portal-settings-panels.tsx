@@ -67,7 +67,7 @@ import {
 } from "@/lib/manager-communication-deliver-via";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { normalizeE164 } from "@/lib/phone-e164";
-import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import { workspaceWorkNumber, type ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
   PAYMENT_REMINDER_PRESETS,
   applyReminderPreset,
@@ -1533,7 +1533,7 @@ export function CommunicationSettingsPanel({
           setSmsSetup(
             status
               ? {
-                  phone: normalizeE164(status.number?.phoneNumber),
+                  phone: normalizeE164(workspaceWorkNumber(status)),
                   canSend: status.canSend,
                 }
               : null,

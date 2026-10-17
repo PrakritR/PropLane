@@ -137,6 +137,7 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { workspaceWorkNumber, type WorkspaceWorkNumberSource } from "@/lib/sms/manager-messaging-number";
 import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/pro-create-work-order-modal";
 import { ManagerCreateServiceRequestModal } from "@/components/portal/pro-create-service-request-modal";
@@ -378,13 +379,11 @@ export const ManagerInbox = forwardRef<
       .then((res) => (res.ok ? res.data : null))
       .then((body) => {
         if (cancelled || !body || typeof body !== "object") return;
-        const status = body as {
-          canSend?: boolean;
-          number?: { phoneNumber?: string | null } | null;
-          workspaceNumber?: { phoneNumber?: string | null } | null;
-        };
+        const status = body as { canSend?: boolean } & WorkspaceWorkNumberSource;
         setSmsCanSend(status.canSend === true);
-        setSmsSendingNumber(status.number?.phoneNumber ?? status.workspaceNumber?.phoneNumber ?? null);
+        // The line a reply LEAVES on is the workspace's, so a teammate's own
+        // retired row never labels the channel with a number it will not use.
+        setSmsSendingNumber(workspaceWorkNumber(status));
       })
       .catch(() => {
         if (!cancelled) setSmsCanSend(false);
