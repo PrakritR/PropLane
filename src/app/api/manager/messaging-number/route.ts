@@ -38,6 +38,7 @@ import {
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
 import { evaluateWorkspaceSendReadiness } from "@/lib/sms/workspace-send-readiness.server";
+import { resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 
 export const runtime = "nodejs";
 
@@ -215,6 +216,17 @@ async function buildStatus(
   // A teammate sends from the OWNER's line, so their "can send" is the send
   // path's own decision for this workspace and its owner - not the viewer's
   // (empty) number or the viewer's wallet. Any error fails closed.
+  //
+  // The owner's line being ready is only half of it: the send path also demands
+  // the viewer's OWN Communication (inbox) grant at EDIT level
+  // (`manager-sms-send.server.ts`), so a read-only teammate must never be
+  // offered a Text channel for a send that would come back 403.
+  const teammateMayReply = pureCoManager
+    ? await resolveSmsScopeManagerIds(db, userId, "edit")
+        .then((ids) => ids.includes(String(workspace.ownerUserId ?? "").trim()))
+        .catch(() => false)
+    : true;
+
   let canSend: boolean;
   // The row readiness actually resolved, when it got that far: the line a send
   // would leave on, so the number shown and the number used are one read.
@@ -222,7 +234,7 @@ async function buildStatus(
   if (pureCoManager) {
     // With the deployment's texting runtime off the answer is already no, so
     // the whole readiness chain (number + workspace + wallet) is skipped.
-    if (!sendEnvEnabled) canSend = false;
+    if (!sendEnvEnabled || !teammateMayReply) canSend = false;
     else {
       try {
         const readiness = await evaluateWorkspaceSendReadiness({
@@ -292,7 +304,7 @@ async function buildStatus(
       numbers: n.owned ? heldByWorkspace.get(n.workspaceId) ?? [] : undefined,
     })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
-    sendingAvailable: sendEnvEnabled && sendModeAllowed,
+    sendingAvailable: sendEnvEnabled && sendModeAllowed && teammateMayReply,
     planTier,
     entitlement,
     number,
