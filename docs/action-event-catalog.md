@@ -25,8 +25,10 @@ subset that file's renderers cover (`payment`, `lease`, `application`,
 (`work-order-vendor-messages.server.ts`), `move_in_form`
 (`move-in-forms/move-in-form-events.server.ts`), `vendor_banking`
 (`vendor-banking/events.server.ts`), and `channel_booking`
-(`channel-booking-events.server.ts` — owned by
-[`docs/agents/integrations.md`](agents/integrations.md) § Two-way with Airbnb).
+(`channel-booking-events.server.ts` — channel stays owned by
+[`docs/agents/integrations.md`](agents/integrations.md) § Two-way with Airbnb,
+bookings made in PropLane by
+[`docs/agents/bookings.md`](agents/bookings.md) § Every booking has a name).
 Each adapter passes its own `NotificationCategory`; the bus never infers one from
 the domain.
 

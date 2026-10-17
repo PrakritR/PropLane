@@ -9,7 +9,7 @@ import { BookingsDeleteBlockDialog } from "@/components/portal/bookings-delete-b
 import { saveStayMeta as saveStayMetaRequest } from "@/lib/channel-calendar/stay-meta-client";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
-import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
+import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { BookingsLoadFailedBand } from "@/components/portal/bookings-load-failed-band";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
@@ -32,7 +32,6 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import {
   bookingEntryKey,
-  bookingSourceLabel,
   bookingsForListBucket,
   countBookingsByListBucket,
   filterBookingsBySearch,
@@ -154,7 +153,7 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, occupancyDays, loading, readsPending, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
+  const { entries: rawEntries, calendarEntries, occupancyDays, loading, readsPending, failedSources, retry, residentOptions, channelLinks } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
@@ -162,9 +161,15 @@ function useBookingsWorkspace({
     refreshSignal,
   });
 
+  /**
+   * The list and the calendar both draw one reservation ONCE: `calendarEntries` is the merged list
+   * minus the channel bar a synced Airbnb resident already stands in for. `rawEntries` stays whole for
+   * the surfaces that need the channel stay itself - the record page, the day page, "Open in Airbnb",
+   * payouts and the export feed.
+   */
   const entries = useMemo(
-    () => filterBookingEntriesByRoom(rawEntries, roomFilterId),
-    [rawEntries, roomFilterId],
+    () => filterBookingEntriesByRoom(calendarEntries, roomFilterId),
+    [calendarEntries, roomFilterId],
   );
 
   /** One stay list — the hook already merged channel + leases + holds + typed blocks. */
@@ -423,7 +428,7 @@ function useBookingsWorkspace({
         propertyIds={scopedPropertyIds}
         showToast={showToast}
         refreshSignal={refreshSignal}
-        extraEntries={rawEntries}
+        extraEntries={calendarEntries}
         occupancyDays={occupancyDays}
         entriesLoading={loading}
         roomFilterId={roomFilterId}

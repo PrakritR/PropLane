@@ -65,11 +65,19 @@ describe("Mark reserved modal", () => {
   }
 
   it("is titled Mark reserved, opens prefilled on the review step, and one Save writes check-in = the day, check-out = the next day", async () => {
-    const onSave = open();
+    const onSave = open({ initialResident: { name: "Pat Lee", email: "pat@example.com" } });
     expect(screen.getByText("Mark reserved")).toBeTruthy();
     fireEvent.click(document.querySelector('[data-attr="bookings-block-dates-save"]')!);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]![0]).toMatchObject({ propertyId: "prop-a", roomId: "room-2", checkIn: "2026-09-20", checkOut: "2026-09-21", residentName: "" });
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ propertyId: "prop-a", roomId: "room-2", checkIn: "2026-09-20", checkOut: "2026-09-21", residentName: "Pat Lee" });
+  });
+
+  it("will not reserve with nobody named: Save stays off until a resident is chosen", () => {
+    const onSave = open();
+    const save = document.querySelector('[data-attr="bookings-block-dates-save"]') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("states that Airbnb picks the change up only for a room linked to Airbnb", () => {

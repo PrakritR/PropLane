@@ -28,6 +28,7 @@ import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-ap
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import { airbnbLinkForRoom, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
+import { roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { cn } from "@/lib/utils";
 
 const FIELD_LINK = "text-xs font-semibold normal-case tracking-normal text-primary hover:underline disabled:opacity-50";
@@ -38,6 +39,8 @@ const NO_CHANNEL_LINKS: readonly ChannelRoomLink[] = [];
 
 /** The select's value for "new resident" — never a real identity key, which are `email:` / `name:` / `id:` prefixed. */
 export const NEW_RESIDENT_CHOICE = "__new__";
+/** The select's value for a room closed with no guest — a reason is required instead of a name. */
+export const CLOSED_ROOM_CHOICE = "__closed__";
 
 export type BlockDatesDraft = {
   openEnded?: boolean;
@@ -57,6 +60,8 @@ export type BlockDatesDraft = {
   residentEmail: string;
   /** E.164, or "" — at least one of email/phone is required for a new resident. Optional so an older caller's draft shape still compiles. */
   residentPhone?: string;
+  /** "closed" = no guest, the room is shut and `reason` says why. Only set with an empty `residentName`. */
+  blockKind?: "closed";
   /** True only for a person typed into "+ New resident" this save — never an existing pick. Optional so an older caller's draft shape still compiles. */
   isNewResident?: boolean;
 };
@@ -99,7 +104,8 @@ function applyEditingBlock(
     setNewResidentName(entry.residentName);
     setNewResidentPhone(entry.residentPhone ?? "");
   } else {
-    setResidentChoice("");
+    // A block with nobody attached is a closed room; its reason is what stays editable.
+    setResidentChoice(entry.blockKind === "closed" || entry.reason?.trim() ? CLOSED_ROOM_CHOICE : "");
     setNewResidentName("");
     setNewResidentPhone("");
   }
@@ -312,8 +318,13 @@ export function BookingsBlockDatesModal({
   );
   // A new resident needs a name plus at least one way to reach them — email,
   // phone, or both — so the invite that skips application/lease has somewhere to go.
-  const residentValid =
-    !isNewResident || (newResidentName.trim().length > 0 && (newResidentEmail.trim().length > 0 || newResidentPhone.trim().length > 0));
+  const isClosed = residentChoice === CLOSED_ROOM_CHOICE;
+  // Every booking has a name: a typed or picked resident. A room with no guest is Closed, with a reason.
+  const residentValid = isClosed
+    ? roomDateBlockNameError({ blockKind: "closed", reason }) === null
+    : isNewResident
+      ? newResidentName.trim().length > 0 && (newResidentEmail.trim().length > 0 || newResidentPhone.trim().length > 0)
+      : pickedResident !== null;
 
   const canSave = Boolean(propertyId) && rangeValid && conflicts.length === 0 && residentValid && !busy && !readsPending;
 
@@ -326,11 +337,13 @@ export function BookingsBlockDatesModal({
   const reserving = mode === "reserve" && !editingBlockId;
   const selectedProperty = propertyOptions.find((property) => property.id === propertyId) ?? null;
   const selectedRoom = roomOptions.find((room) => room.value === roomChoice) ?? null;
-  const residentSummary = isNewResident
-    ? newResidentName.trim() || "New resident"
-    : pickedResident
-      ? pickedResident.name
-      : "No one";
+  const residentSummary = isClosed
+    ? "Closed"
+    : isNewResident
+      ? newResidentName.trim() || "New resident"
+      : pickedResident
+        ? pickedResident.name
+        : "—";
   const whenSummary =
     checkIn && checkOut
       ? formatBookingStayRange(checkIn, lastNightBeforeCheckout(checkOut))
@@ -355,17 +368,18 @@ export function BookingsBlockDatesModal({
         : pickedResident
           ? { residentName: pickedResident.name, residentEmail: pickedResident.email, residentPhone: "" }
           : { residentName: "", residentEmail: "", residentPhone: "" };
+      // A closed room has no guest, whatever was typed into the resident fields before switching.
+      if (isClosed) Object.assign(resident, { residentName: "", residentEmail: "", residentPhone: "" });
       const result = await onSave({
         ...(editingBlockId ? { id: editingBlockId } : {}),
         propertyId,
         roomId,
         checkIn,
         checkOut,
-        // "Mark reserved" with nobody attached is a reservation, not a closed room: it reads
-        // "Reserved" and Confirmed in Bookings (and still blocks the room on Airbnb via the feed).
-        reason: reserving && !resident.residentName && !reason.trim() ? "Reserved" : reason,
+        reason,
+        ...(isClosed ? { blockKind: "closed" as const } : {}),
         stayDetails,
-        bookingStatus: editingBlock?.bookingStatus ?? (reserving && !resident.residentName ? "confirmed" : undefined),
+        bookingStatus: editingBlock?.bookingStatus,
         rate: editingBlock?.rate,
         rateBasis: editingBlock?.rateBasis,
         isBookingResidency: editingBlock?.isBookingResidency,
@@ -540,18 +554,35 @@ export function BookingsBlockDatesModal({
                 aria-label="Resident"
                 data-attr="bookings-block-resident"
               >
-                <option value="">
-                  {residentOptions.length === 0 ? "No residents yet — just close the room" : "No one — just close the room"}
-                </option>
+                <option value="">Select resident</option>
                 {residentOptions.map((option) => (
                   <option key={option.key} value={option.key}>
                     {option.meta ? `${option.name} · ${option.meta}` : option.name}
                   </option>
                 ))}
                 <option value={NEW_RESIDENT_CHOICE}>+ New resident…</option>
+                <option value={CLOSED_ROOM_CHOICE}>Closed (no guest)</option>
               </Select>
             )}
           </div>
+
+          {isClosed ? (
+            <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-closed-reason">
+                Reason
+              </label>
+              <Input
+                id="bookings-block-closed-reason"
+                value={reason}
+                maxLength={200}
+                placeholder="Painting, Owner use"
+                onChange={(e) => setReason(e.target.value)}
+                disabled={busy}
+                aria-invalid={reason.trim() && !residentValid ? true : undefined}
+                data-attr="bookings-block-closed-reason"
+              />
+            </div>
+          ) : null}
 
           {propertyId ? (
             <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
@@ -579,7 +610,7 @@ export function BookingsBlockDatesModal({
         <div hidden={stepId !== "when"}>
           <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div><span className={MODAL_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}</Select></div>
-            <label><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>
+            {isClosed ? null : <label><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>}
             {(["linen", "baggage"] as const).map((key) => <div key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select aria-label={key === "linen" ? "Linen" : "Baggage"} id={`booking-stay-${key}`} value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value} value={value}>{value}</option>)}</Select></div>)}
             {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })} /></label>)}
           </div>

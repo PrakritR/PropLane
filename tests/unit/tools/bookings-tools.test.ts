@@ -35,6 +35,11 @@ vi.mock("@/lib/channel-calendar/bookings.server", () => ({
   ),
 }));
 
+const nativeEvents = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>> }));
+vi.mock("@/lib/channel-booking-events.server", () => ({
+  emitNativeBookingEvent: vi.fn(async (_db: unknown, input: Record<string, unknown>) => { nativeEvents.calls.push(input); }),
+}));
+
 import {
   blockRoomDatesTool,
   listBookingsTool,
@@ -118,6 +123,7 @@ beforeEach(() => {
   grants.edit = new Set(["prop_a"]);
   snapshot.calls = [];
   snapshot.stays = [];
+  nativeEvents.calls = [];
   store = {
     manager_property_records: [property("prop_a", "manager_a", "12 Main"), property("prop_b", "manager_b", "99 Other")],
     portal_schedule_records: [
@@ -228,6 +234,27 @@ describe("block_room_dates", () => {
     expect((await previewWrite(blockRoomDatesTool, ctx, { ...input, roomId: "room_1", start: "2026-11-05", end: "2026-11-06" })).ok).toBe(true);
   });
 
+  it("every block has a name: residentName, or closed:true with a reason", async () => {
+    const nameless = { propertyId: "prop_a", roomId: "room_2", start: "2026-12-01", end: "2026-12-04" };
+    expect(await previewWrite(blockRoomDatesTool, ctx, nameless)).toMatchObject({ ok: false, error: expect.stringContaining("guest's name") });
+    expect(await previewWrite(blockRoomDatesTool, ctx, { ...nameless, reason: "Painting" })).toMatchObject({ ok: false, error: expect.stringContaining("guest's name") });
+    expect(await previewWrite(blockRoomDatesTool, ctx, { ...nameless, closed: true })).toMatchObject({ ok: false, error: expect.stringContaining("reason") });
+    expect(await previewWrite(blockRoomDatesTool, ctx, { ...nameless, closed: true, reason: "Airbnb" })).toMatchObject({ ok: false, error: expect.stringContaining("reserved") });
+    expect((await previewWrite(blockRoomDatesTool, ctx, { ...nameless, closed: true, reason: "Owner use" })).ok).toBe(true);
+  });
+
+  it("a closed room is stored as blockKind closed and is not announced as a booking; a named one is", async () => {
+    const closed = await executeWrite(blockRoomDatesTool, ctx, { propertyId: "prop_a", roomId: "room_2", start: "2026-12-10", end: "2026-12-12", closed: true, reason: "Painting" });
+    expect(closed.ok).toBe(true);
+    expect(store.portal_schedule_records!.find((r) => (r.row_data as Row).reason === "Painting")!.row_data).toMatchObject({ blockKind: "closed" });
+    expect(nativeEvents.calls).toHaveLength(0);
+
+    const named = await executeWrite(blockRoomDatesTool, ctx, input);
+    expect(named.ok).toBe(true);
+    expect(store.portal_schedule_records!.find((r) => (r.row_data as Row).residentName === "Pat")!.row_data).not.toHaveProperty("blockKind");
+    expect(nativeEvents.calls).toEqual([expect.objectContaining({ event: "booking_created", managerUserId: "manager_a", propertyId: "prop_a", roomId: "room_2", guestName: "Pat", checkIn: "2026-12-01", checkOut: "2026-12-04" })]);
+  });
+
   it("handler re-checks permission and writes the saveRoomDateBlock row shape", async () => {
     grants.edit = new Set();
     expect(await executeWrite(blockRoomDatesTool, ctx, input)).toMatchObject({ ok: false, error: expect.stringContaining("permission") });
@@ -291,6 +318,15 @@ describe("remove_room_block", () => {
     expect((await executeWrite(removeRoomBlockTool, ctx, { blockId: "axis_room_block_manager_a_1" })).ok).toBe(true);
     expect(store.portal_schedule_records!.map((r) => r.id)).not.toContain("axis_room_block_manager_a_1");
     expect(store.portal_schedule_records!.map((r) => r.id)).toContain("axis_room_block_manager_b_9");
+    // Removing a named booking is a cancellation as far as the owner is concerned.
+    expect(nativeEvents.calls).toEqual([expect.objectContaining({ event: "booking_cancelled", blockId: "axis_room_block_manager_a_1", guestName: "Jo Hold" })]);
+  });
+
+  it("removing a closed room announces nothing", async () => {
+    grants.edit = new Set(["prop_a"]);
+    store.portal_schedule_records!.push(blockRecord("axis_room_block_manager_a_closed", "prop_a", { roomId: "room_2", checkIn: "2026-12-10", checkOut: "2026-12-12", reason: "Painting", blockKind: "closed" }));
+    expect((await executeWrite(removeRoomBlockTool, ctx, { blockId: "axis_room_block_manager_a_closed" })).ok).toBe(true);
+    expect(nativeEvents.calls).toHaveLength(0);
   });
 });
 
@@ -326,6 +362,19 @@ describe("update_room_block", () => {
     expect((await executeWrite(updateRoomBlockTool, ctx, { blockId: id, start: "2026-11-02", end: "2026-11-07", guestName: "Priya S.", phone: "2065550101", notes: "Late arrival" })).ok).toBe(true);
     const row = store.portal_schedule_records!.find((r) => r.id === id)!.row_data as Row;
     expect(row).toMatchObject({ checkIn: "2026-11-02", checkOut: "2026-11-07", residentName: "Priya S.", residentPhone: "+12065550101", reason: "Late arrival" });
+  });
+});
+
+describe("update_room_block keeps every booking named", () => {
+  it("refuses to clear a booking's guest name, and lets naming a closed room turn it into a booking", async () => {
+    const id = "axis_room_block_manager_a_1";
+    expect(await previewWrite(updateRoomBlockTool, ctx, { blockId: id, guestName: "" })).toMatchObject({ ok: false, error: expect.stringContaining("guest's name") });
+    store.portal_schedule_records!.push(blockRecord("axis_room_block_manager_a_c", "prop_a", { roomId: "room_2", checkIn: "2026-12-10", checkOut: "2026-12-12", reason: "Painting", blockKind: "closed" }));
+    grants.edit = new Set(["prop_a"]);
+    expect((await executeWrite(updateRoomBlockTool, ctx, { blockId: "axis_room_block_manager_a_c", guestName: "Priya S." })).ok).toBe(true);
+    const row = store.portal_schedule_records!.find((r) => r.id === "axis_room_block_manager_a_c")!.row_data as Row;
+    expect(row).toMatchObject({ residentName: "Priya S." });
+    expect(row).not.toHaveProperty("blockKind");
   });
 });
 

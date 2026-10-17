@@ -30,7 +30,7 @@ const block = (managerUserId: string | null) => ({
   record_type: "room_date_block",
   property_id: "p1",
   manager_user_id: managerUserId,
-  row_data: { roomId: "r1", checkIn: "2099-01-01", checkOut: "2099-01-02", bookingStatus: "confirmed", reason: "Reserved" },
+  row_data: { roomId: "r1", checkIn: "2099-01-01", checkOut: "2099-01-02", bookingStatus: "confirmed", reason: "Reserved", residentName: "Alex Guest" },
 });
 const write = (record: Record<string, unknown>, user: Record<string, unknown>) =>
   (mocks.config!.atomicWrite as AtomicWrite)({ db: emptyDb(), user, record, existing: null });

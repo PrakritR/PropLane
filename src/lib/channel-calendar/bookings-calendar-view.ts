@@ -6,6 +6,12 @@ export type BookingCalendarView = "day" | "week" | "month" | "year";
 export const BOOKING_CALENDAR_VIEWS: BookingCalendarView[] = ["day", "week", "month", "year"];
 export const bookingCheckout = (entry: PropertyBookingEntry) => entry.openEnded ? null : addDaysToDateKey(entry.end, 1);
 export const bookingActiveOn = (entry: PropertyBookingEntry, day: string) => entry.start <= day && (entry.openEnded || entry.end >= day);
+/**
+ * A resident, as opposed to a pending hold: the entry an approved application draws (`source: "hold"`,
+ * from `applicationHoldEntries`). A manager's or guest's unconfirmed hold is a `block` entry
+ * (`bookingStatus: "hold"`) and stays "Hold" until confirmed; it is never `source: "hold"`.
+ */
+export const isResidentStay = (entry: Pick<PropertyBookingEntry, "source">) => entry.source === "hold";
 export function calendarStatus(entry: PropertyBookingEntry, today: string): string {
   if (entry.bookingStatus === "cancelled" || entry.statusLabel?.toLowerCase() === "cancelled") return "Cancelled";
   if (entry.source === "airbnb") return "Airbnb";
@@ -14,6 +20,8 @@ export function calendarStatus(entry: PropertyBookingEntry, today: string): stri
   if (entry.source === "ical") return entry.channelLabel?.trim() || "Other calendar";
   if (!entry.openEnded && entry.end < today) return "Checked out";
   if ((entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed")) return entry.start <= today ? "In-house" : "Confirmed";
+  // A resident (an approved application's `hold` entry) is never a pending hold: their dates decide it.
+  if (isResidentStay(entry)) return entry.start <= today ? "In-house" : "Confirmed";
   const kind = occupancyStayKind(entry);
   if (kind === "hold") return "Hold";
   if (kind === "block") return "Blocked";
@@ -56,12 +64,12 @@ export function occupancyCell(entries: readonly PropertyBookingEntry[], day: str
 }
 /**
  * Beds occupied across `propertyIds` over `days`, read through `occupancyForDay`
- * (never a `rooms.length` count). Occupancy visualization excludes holds without
+ * (never a `rooms.length` count). Occupancy visualization counts residents (in-house or booked) and excludes pending holds without
  * changing availability/capacity arbitration. `peak` is the most beds occupied
  * on any one day ("n of N occupied"); `percent` is bed-nights used over bed-nights offered.
  */
 export function calendarOccupancySummary(entries: readonly PropertyBookingEntry[], days: string[], propertyIds: readonly string[], capacities: OccupancyCapacities) {
-  const occupied = entries.filter(entry => occupancyStayKind(entry) !== "hold" || (entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed"));
+  const occupied = entries.filter(entry => isResidentStay(entry) || occupancyStayKind(entry) !== "hold" || (entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed"));
   let used = 0, total = 0, peak = 0, beds = 0;
   for (const day of days) {
     const cell = occupancyForDay(occupied, day, propertyIds, capacities);
