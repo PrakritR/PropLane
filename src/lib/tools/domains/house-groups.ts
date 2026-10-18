@@ -74,8 +74,8 @@ export const announceToHouseChatTool = defineWriteTool<z.infer<typeof input>, un
       inputSummary: { houses: chosen.map((h) => h.propertyId), length: args.message.length },
       dedupeKey: `${ANNOUNCE_TOOL}:${requestKey}`,
     });
-    if (!audit.recorded && audit.duplicate) return { reply: "That announcement was already posted." };
-    if (!audit.recorded) throw new Error("Could not record the announcement; nothing was posted.");
+    // A repeat is safe: each house post is idempotent on this request key, and a post that failed left no row behind.
+    if (!audit.recorded && !audit.duplicate) throw new Error("Could not record the announcement; nothing was posted.");
     const outcomes = await announceToHouses(ctx.db, {
       workspaceId: scope.workspaceId,
       propertyIds: chosen.map((h) => h.propertyId),
