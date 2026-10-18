@@ -4,7 +4,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { sendWorkspacePhoneText } from "@/lib/one-number/link-text.server";
 import type { SharedLineRole } from "@/lib/one-number/contracts";
-import { defaultPayoutLast4 } from "@/lib/tools/domains/manager-ops";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
 
 /**
@@ -17,6 +16,21 @@ import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-
  * payouts in the app is not texted. The text names the last four only; the number is never stored or
  * sent whole, and nothing here moves money. One text per link, however many times Stripe re-sends.
  */
+
+/** The last four of a person's default payout destination, when the cache has one. */
+export async function defaultPayoutLast4(db: SupabaseClient, ownerUserId: string): Promise<string | null> {
+  const { data } = await db
+    .from("payout_destinations_cache")
+    .select("last4, is_default, updated_at")
+    .eq("owner_user_id", ownerUserId)
+    .order("is_default", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const raw = (data as { last4?: unknown } | null)?.last4;
+  const last4 = typeof raw === "string" ? raw.trim() : "";
+  return /^\d{4}$/.test(last4) ? last4 : null;
+}
 
 export const PAYOUTS_LINK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 

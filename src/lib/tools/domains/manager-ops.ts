@@ -22,6 +22,7 @@ import { loadManagerApplications } from "./residents";
 import { listPropertiesTool } from "./properties";
 import { sendMessageTool } from "./messaging";
 import { mintLinkForTexter } from "./one-number-links";
+import { defaultPayoutLast4 } from "@/lib/one-number/payouts-ready.server";
 import { resolveWorkspaceForProperty } from "@/lib/one-number/link-destinations.server";
 import { rentStatusFor, toursOnDay } from "@/lib/one-number/ops-facts.server";
 import { monthLabel, resolveDayKey, resolveMonthKey, usd, whichHouseQuestion } from "@/lib/one-number/ops-text";
@@ -279,20 +280,6 @@ export type PayoutLinkResult =
   | { ok: true; alreadySetUp: true; last4: string | null }
   | { ok: true; alreadySetUp: false; url: string; requiresCode: boolean; expires: string }
   | { ok: false; error: "nothing_to_link" | "rate_limited" | "not_found" | "links_unavailable" };
-
-/** The last four of a person's default payout destination, when the cache has one. */
-export async function defaultPayoutLast4(db: SupabaseClient, ownerUserId: string): Promise<string | null> {
-  const { data } = await db
-    .from("payout_destinations_cache")
-    .select("last4, is_default, updated_at")
-    .eq("owner_user_id", ownerUserId)
-    .order("is_default", { ascending: false })
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const last4 = str((data as { last4?: unknown } | null)?.last4);
-  return /^\d{4}$/.test(last4) ? last4 : null;
-}
 
 /**
  * The one core for "set up payouts" (manager and vendor): the texter's OWN verified phone, a
