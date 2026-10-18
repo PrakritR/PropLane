@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 import { describe, expect, it, vi } from "vitest";
-import { NOTICE_PURPOSE, assertNumberOnService, classifyWorkspaces, movedNoticeText, run } from "../../scripts/one-number/cutover.mjs";
+import { NOTICE_SOURCE, NOTICE_TABLE, assertNumberOnService, classifyWorkspaces, movedNoticeText, run } from "../../scripts/one-number/cutover.mjs";
 import { DEV_ENV, N1, N2, O1, O2, PROD_ENV, PROD_REF, WS1, WS1B, WS2, harness, world } from "./one-number-migration-fixtures";
 
 const NUMBER = "+12065550100";
@@ -117,11 +117,11 @@ describe("cutover: rollback", () => {
   it("flips back to per_workspace, keeps the number recorded, and cancels unsent notices only", async () => {
     const w = world({
       sms_runtime_config: [{ singleton: true, line_mode: "shared", shared_number_e164: NUMBER, shared_messaging_service_sid: SID, shared_pilot_workspace_ids: [] }],
-      sms_outbox: [
-        { id: "n1", manager_user_id: O1, purpose: NOTICE_PURPOSE, status: "queued" },
-        { id: "n2", manager_user_id: O1, purpose: NOTICE_PURPOSE, status: "deferred" },
-        { id: "n3", manager_user_id: O1, purpose: NOTICE_PURPOSE, status: "sent" },
-        { id: "x1", manager_user_id: O1, purpose: "rent_reminder", status: "queued" },
+      sms_moved_notices: [
+        { phone_key: "2065550142", source: "cutover", status: "queued" },
+        { phone_key: "2065550143", source: "cutover", status: "queued" },
+        { phone_key: "2065550144", source: "cutover", status: "sent" },
+        { phone_key: "2065550145", source: "auto_reply", status: "sent" },
       ],
     });
     const dry = await cut(w.db, ["--target", "dev", "--rollback"]);
@@ -129,8 +129,8 @@ describe("cutover: rollback", () => {
     expect(w.writes).toEqual([]);
     await cut(w.db, ["--target", "dev", "--rollback", "--apply"]);
     expect(config(w)).toMatchObject({ line_mode: "per_workspace", shared_number_e164: NUMBER });
-    const status = Object.fromEntries((w.tables.sms_outbox as any[]).map((r) => [r.id, r.status]));
-    expect(status).toEqual({ n1: "canceled", n2: "canceled", n3: "sent", x1: "queued" });
+    // Unsent cutover notices are removed; a sent one and an auto-reply marker stay as the record.
+    expect((w.tables.sms_moved_notices as any[]).map((r) => r.phone_key)).toEqual(["2065550144", "2065550145"]);
   });
 
   it("stands alone", async () => {
@@ -189,17 +189,14 @@ describe("cutover --notify-moved", () => {
     expect(h.text()).toContain(`"We've moved to (206) 555-0100. Save this number."`);
   });
 
-  it("queues one daytime outbox row per contact, from the OLD number, never to an opted-out phone, a manager or a paid workspace", async () => {
+  it("queues one daytime platform notice per phone, never to an opted-out phone, a manager or a paid workspace, and bills no workspace", async () => {
     const w = world(extra());
     await cut(w.db, [...base, "--apply", "--notify-moved", "--since-days", "365"]);
-    const rows = (w.tables.sms_outbox as any[]).filter((r) => r.purpose === NOTICE_PURPOSE);
-    expect(rows.map((r) => r.recipient_phone).sort()).toEqual(["+12065550142", "+12065550143"]);
+    expect(w.tables.sms_outbox as any[] | undefined).not.toEqual(expect.arrayContaining([expect.objectContaining({ purpose: "number_moved_notice" })]));
+    const rows = w.tables[NOTICE_TABLE] as any[];
+    expect(rows.map((r) => r.phone_key).sort()).toEqual(["2065550142", "2065550143"]);
     for (const r of rows) {
-      expect(r).toMatchObject({
-        body: "We've moved to (206) 555-0100. Save this number.", send_class: "transactional", status: "queued",
-        selected_work_line_id: N1, workspace_id: WS1B, manager_user_id: O1, segment_count: 1,
-      });
-      expect(r.dedupe_key).toBe(`number-moved:${WS1B}:${r.recipient_phone.slice(2)}`);
+      expect(r).toMatchObject({ source: NOTICE_SOURCE, status: "queued", workspace_id: WS1B });
       const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }).format(new Date(r.available_at)));
       expect(hour).toBeGreaterThanOrEqual(9);
       expect(hour).toBeLessThan(20);
@@ -210,10 +207,17 @@ describe("cutover --notify-moved", () => {
   it("is idempotent: a second run queues nothing new", async () => {
     const w = world(extra());
     await cut(w.db, [...base, "--apply", "--notify-moved"]);
-    const first = (w.tables.sms_outbox as any[]).length;
+    const first = (w.tables[NOTICE_TABLE] as any[]).length;
     const again = await cut(w.db, [...base, "--apply", "--notify-moved"]);
-    expect((w.tables.sms_outbox as any[]).length).toBe(first);
+    expect((w.tables[NOTICE_TABLE] as any[]).length).toBe(first);
     expect(again.h.report.notify.queued).toBe(0);
+  });
+
+  it("skips a phone an auto-reply already told", async () => {
+    const w = world({ ...extra(), [NOTICE_TABLE]: [{ phone_key: "2065550142", source: "auto_reply", status: "sent", notified_at: "2026-10-17T00:00:00Z" }] });
+    const { h } = await cut(w.db, [...base, "--apply", "--notify-moved", "--since-days", "365"]);
+    expect(h.report.notify.queued).toBe(1);
+    expect((w.tables[NOTICE_TABLE] as any[]).find((r) => r.phone_key === "2065550142").source).toBe("auto_reply");
   });
 
   it("only with --mode shared", async () => {

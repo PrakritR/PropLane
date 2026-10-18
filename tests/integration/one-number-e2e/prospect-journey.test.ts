@@ -168,17 +168,25 @@ describe("a prospect with no code", () => {
     expect(fake.rows.sms_unassigned_lead_turns).toHaveLength(turns);
   });
 
-  // KNOWN GAP (reported, not fixed here - onboarding belongs to the first-conversation workstream): the
-  // role question that comes BEFORE the lead queue is not idempotent on MessageSid. A Twilio retry of a
-  // stranger's very first text finds the question already asked, reads the retry as a still-unclear
-  // answer, and answers with the lead welcome instead of repeating the question. `it.fails` passes while
-  // the gap exists and turns red the day it is fixed, so the marker gets removed with the fix.
-  it.fails("a Twilio retry of the very first text repeats the same role question", async () => {
+  // Idempotent per MessageSid: the retry gets the recorded question back and onboarding does not advance twice.
+  it("a Twilio retry of the very first text repeats the same role question", async () => {
     const fake = world();
     const input = { config, fromPhone: PHONE, body: "hi", messageSid: "SM-retry-0", mediaCount: 0, phoneKey: KEY };
     const first = await handleSharedLineInbound(fake.db, input);
     const second = await handleSharedLineInbound(fake.db, input);
     expect(twiml(second)).toBe(twiml(first));
+  });
+
+  it("a retry of a later answer returns the same reply and does not advance the conversation twice", async () => {
+    const fake = world();
+    await say(fake, "hi");
+    const input = { config, fromPhone: PHONE, body: "looking for a room", messageSid: "SM-retry-1", mediaCount: 0, phoneKey: KEY };
+    const first = await handleSharedLineInbound(fake.db, input);
+    const turns = fake.rows.sms_unassigned_lead_turns?.length;
+    const second = await handleSharedLineInbound(fake.db, input);
+    expect(twiml(second)).toBe(twiml(first));
+    expect(fake.rows.sms_unassigned_lead_turns?.length).toBe(turns);
+    expect(fake.rows.sms_onboarding_state).toHaveLength(1);
   });
 
   it("two strangers at once do not see each other's leads", async () => {

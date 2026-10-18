@@ -75,6 +75,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/moved-notices",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/unassigned-lead-followups",
       "schedule": "15 * * * *"
     },

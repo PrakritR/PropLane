@@ -17,18 +17,21 @@ export type PlatformLeadSendResult =
  * configured shared number, no credit hold), which keeps the opt-out ledger, the real-customer
  * shield and test capture. Here: shared mode only and quiet hours (automated class). Platform
  * lead texts are not metered anywhere yet (no platform usage meter exists); they bill no workspace.
- * The 24h / 72h scheduler is the only caller.
+ * Callers: the 24h / 72h scheduler, and the moved-number notices (`old-number.server.ts`: the
+ * cutover queue and the once-per-30-days auto-reply to a text on an old work number, which pass
+ * `inboundReply` for the reply).
  */
 export async function sendPlatformLeadText(
   db: SupabaseClient,
-  input: { to: string; body: string; mediaUrls?: string[]; now?: Date },
+  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; inboundReply?: boolean },
 ): Promise<PlatformLeadSendResult> {
   const config = await loadSharedLineConfig(db);
   if (config.mode !== "shared") return { ok: false, reason: "not_shared_mode" };
   if (!config.sharedNumber) return { ok: false, reason: "no_shared_number" };
   const to = normalizeE164(input.to);
   if (!to) return { ok: false, reason: "invalid_to" };
-  if (quietHoursBlocks("automated", input.now ?? new Date())) return { ok: false, reason: "quiet_hours" };
+  // A reply to a text the person just sent is not outreach: quiet hours do not hold it back.
+  if (!input.inboundReply && quietHoursBlocks("automated", input.now ?? new Date())) return { ok: false, reason: "quiet_hours" };
   const result = await sendSms(to, input.body, config.sharedNumber, {
     purpose: "platform_lead",
     messagingServiceSid: config.messagingServiceSid,

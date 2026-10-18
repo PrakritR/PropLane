@@ -93,6 +93,7 @@ branch, and `db:push` applies it only once merged):
 | 20261018260000 | `admin_service_workspaces` | service owner settings, `is_service` / `city`, `create_portal_service_workspace` (branch: `on/admin-service`). **Step 5 needs this one.** |
 | 20261018260100 | `service_owner_of_record` | owner-of-record name and flag (branch: `on/admin-service`) |
 | 20261018270000 | `owner_management` | management agreements, owner statements (branch: `on/owners`) |
+| 20261018290000 | `one_number_fixes` | `sms_onboarding_replies` (turn replay per MessageSid), `sms_moved_notices` (moved-number marker and cutover queue) (branch: `on/fixes`) |
 
 Check after the push (SQL editor, read-only):
 
@@ -221,27 +222,14 @@ node scripts/one-number/cutover.mjs $PROD --mode shared --shared-number <+1...> 
 ... same command + --apply --reason "send the moved notice" --backup <backup path> --per-minute 30
 ```
 
-Queues one `sms_outbox` row per contact, `We've moved to (XXX) XXX-XXXX. Save this number.`, sent **from the
-workspace's old number** so it lands on the thread the contact already has, at most `--per-minute` an hour apart and
-only 9:00-19:59 Pacific. Opted-out phones (global ledger, profile flags, any scoped revoke for that team) are never
-queued. The outbox dispatcher still applies consent, quiet hours, the real-customer shield and the wallet. Re-running
-queues nothing twice (unique `number-moved:<workspace>:<phone>` key). `--rollback` cancels notices not yet sent.
-
-**Open decision for the captain before this step:** whose wallet pays for the notices. The rows are stamped with the
-workspace, so the dispatcher bills that workspace's credit; if you want PropLane to absorb them, change that before
-`--apply`.
-
-## 9. Verify after
-
-```bash
-node scripts/one-number/verify.mjs $PROD --baseline ~/.cockpit/backups/one-number-baseline.json --service-sid <MG...>
-```
-
-Checks (all must pass; exit 1 otherwise): conversation and turn counts did not fall and no baseline conversation or
-contact vanished; zero rows without a workspace stamp; every phone opted out in the baseline is still opted out and
-every scoped revoke holds on the shared service; every old conversation key still resolves; no row is stamped into a
-workspace its own owner does not hold; every global contact with a user belongs to one verified profile with that
-phone. Add `--strict-counts` when traffic is quiet.
+Queues one `sms_moved_notices` row per **phone** (`We've moved to (XXX) XXX-XXXX. Save this number.`), at most
+`--per-minute` an hour apart and only 9:00-19:59 Pacific. **These are PropLane's cost, not the workspace's**: the
+platform dispatcher (`/api/cron/moved-notices`, every 5 minutes, up to 100 per sweep) sends each from the **shared
+number** as a platform send (`sendSms` purpose `platform_lead`: no workspace wallet, no credit hold), so the contact
+gets the notice from the number they are being asked to save. Opted-out phones (global ledger, profile flags, any
+scoped revoke for that team) are never queued, and the dispatcher still applies the opt-out ledger, quiet hours and
+the real-customer shield. Re-running queues nothing twice (one row per phone; a phone already told by an auto-reply in
+the last 30 days is skipped). `--rollback` deletes notices not yet sent.
 
 Spot checks (SQL, read-only):
 
@@ -249,14 +237,24 @@ Spot checks (SQL, read-only):
 select line_mode, shared_number_e164 from sms_runtime_config;
 select count(*) filter (where workspace_id is null) as unstamped, count(*) as total from sms_projection_turns;
 select count(*) from sms_unassigned_leads where status = 'open';
-select status, count(*) from sms_outbox where purpose = 'number_moved_notice' group by 1;
+select source, status, count(*) from sms_moved_notices group by 1, 2;
 ```
 
 ## 10. Retire the old numbers (day 60)
 
-For 60 days after the switch the old numbers keep answering exactly as before (their inbound path is unchanged, so
-a text to an old number lands in the same workspace thread; there is no forwarding to build), and the one
-"We've moved" text is the notice. Replies to a thread now leave from the shared number.
+For 60 days after the switch a text to an old number of a workspace that moved (shared mode, and the workspace is
+not dedicated: `workspaceOnSharedLine`) is handled in `src/app/api/twilio/inbound/route.ts` by
+`src/lib/one-number/old-number.server.ts`:
+
+- the sender gets "We've moved to (XXX) XXX-XXXX. Save this number." **once per sender per 30 days** (marker: one
+  `sms_moved_notices` row per phone, claimed before the send and handed back if the text did not go out), sent from
+  the shared number as a **platform send at PropLane's cost** (same path as the one-time notices in step 9);
+- the text itself is **routed as if it had arrived on the shared line**, so nothing is lost and the answer to the
+  actual message comes from the shared number. If the shared line takes nothing from it, it continues on the old
+  number exactly as before.
+
+A dedicated workspace's number, and `per_workspace` / `shadow` modes, behave exactly as before. Replies to a thread
+now leave from the shared number.
 
 On day 60, with the captain's go:
 
@@ -285,16 +283,11 @@ order by last_inbound nulls first;
 | backfill | `backfill.mjs --undo <journal> --apply` | until a later legitimate write re-stamps a row (those are left alone) |
 | Seattle workspace | the SQL in step 5 | while it holds no property |
 | shadow / pilot / shared | `cutover.mjs --rollback --apply` (also cancels unsent notices) | until old numbers are released at the provider |
-| moved notices | `--rollback` cancels unsent ones; sent ones cannot be recalled | before dispatch |
+| moved notices | `--rollback` deletes unsent ones; sent ones cannot be recalled | before dispatch |
 | old number release | `restoreManagerNumber` (database only) | until the provider release |
 
 ## Known gaps (reported by the builder; not fixed here)
 
-- No code sends an auto-reply when someone texts an OLD number after the switch. The old numbers keep working as
-  before and the one outbound notice is the only "we've moved" text. Adding an inbound auto-reply is a code change.
-- The first-conversation role question (W12) is not idempotent on `MessageSid`: a Twilio retry of a stranger's very
-  first text answers with the lead welcome instead of repeating the question
-  (`tests/integration/one-number-e2e/prospect-journey.test.ts`, the `it.fails` case).
 - STOP / START on the shared number are global only (the webhook passes no manager for the shared number), which is
   right; but nothing restores scoped grants after a START on the shared line, which is why the backfill copies only
   scoped-only revokes and skips phones the global ledger already blocks.

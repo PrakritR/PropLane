@@ -17,9 +17,11 @@
  * list printed here mirrors the app's own rule for information only; the app decides live (it reads the
  * entitlement at routing time), so this output cannot move anyone.
  *
- * --notify-moved queues rows in sms_outbox (purpose number_moved_notice, sent FROM the workspace's old number
- * so the text arrives on the thread the contact already has). The outbox dispatcher still applies consent,
- * quiet hours, the real-customer shield and the wallet. Opted-out phones are never queued.
+ * --notify-moved queues one row per phone in sms_moved_notices. The text is a PLATFORM send: PropLane pays for
+ * it (no workspace wallet, no credit hold) and it leaves from the SHARED number (the platform_lead path of
+ * sendSms), sent by the /api/cron/moved-notices dispatcher, which applies consent, quiet hours and the
+ * real-customer shield. A phone that was already told (a queued or sent row, an auto-reply in the last 30
+ * days) is not queued again. Opted-out phones are never queued.
  */
 import { UsageError } from "./lib/args.mjs";
 import { optedOutKeys, scopedRevokedKeys } from "./lib/consent.mjs";
@@ -33,7 +35,8 @@ const SCRIPT = "cutover";
 const MODES = ["shadow", "shared"];
 const SERVICE_SID = /^MG[0-9a-fA-F]{32}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const NOTICE_PURPOSE = "number_moved_notice";
+export const NOTICE_TABLE = "sms_moved_notices";
+export const NOTICE_SOURCE = "cutover";
 const PAID_STATUSES = new Set(["active", "past_due"]);
 
 export function movedNoticeText(sharedNumber) {
@@ -110,14 +113,15 @@ export async function run(argv, deps = {}) {
   if (flags.rollback) {
     if (flags.mode || flags["notify-moved"]) throw new UsageError("--rollback stands alone (no --mode, no --notify-moved).");
     log(`${SCRIPT}: ROLLBACK plan: line_mode ${current.line_mode} -> per_workspace (number and service stay recorded); unsent move notices are canceled`);
-    const queued = await fetchAll(db, "sms_outbox", "id, status", { filter: (q) => q.eq("purpose", NOTICE_PURPOSE).in("status", ["queued", "deferred"]) });
+    const queued = await fetchAll(db, NOTICE_TABLE, "phone_key, status", { key: "phone_key", filter: (q) => q.eq("source", NOTICE_SOURCE).eq("status", "queued") });
     log(`${SCRIPT}: ${queued.rows.length} unsent move notice(s) would be canceled`);
     report.rollback = { cancel: queued.rows.length };
     if (!apply) return dry(log);
     await writeConfig(db, { line_mode: "per_workspace" });
-    for (const batch of chunk(queued.rows.map((r) => r.id), 200)) {
-      const { error } = await db.from("sms_outbox").update({ status: "canceled", blocked_reason: "cutover_rollback" }).in("id", batch).in("status", ["queued", "deferred"]);
-      if (error) throw new Error(`sms_outbox: ${error.message}`);
+    // An unsent notice is removed, so a later cutover can queue the phone again; a sent one stays as the record.
+    for (const batch of chunk(queued.rows.map((r) => r.phone_key), 200)) {
+      const { error } = await db.from(NOTICE_TABLE).delete().in("phone_key", batch).eq("status", "queued").eq("source", NOTICE_SOURCE);
+      if (error) throw new Error(`${NOTICE_TABLE}: ${error.message}`);
     }
     log(`${SCRIPT}: rolled back. Texts to the shared number are no longer routed; every workspace is on its own number again.`);
     return 0;
@@ -243,28 +247,12 @@ async function notifyMoved(db, { apply, log, report, classes, sharedNumber, sinc
           skippedStale += 1;
           continue;
         }
-        const dedupe = `number-moved:${ws.id}:${key}`;
-        if (seen.has(dedupe)) continue;
-        seen.add(dedupe);
+        // One notice per PHONE: the shared number is the same whichever workspace the contact belongs to.
+        if (seen.has(key)) continue;
+        seen.add(key);
         const when = nextPacificDaytime(new Date(now.getTime() + Math.floor((slot * 60000) / perMinute)));
         slot += 1;
-        rows.push({
-          manager_user_id: c.owner_manager_user_id,
-          actor_user_id: c.owner_manager_user_id,
-          recipient_phone: e164,
-          body: text,
-          send_class: "transactional",
-          purpose: NOTICE_PURPOSE,
-          conversation_key: c.conversation_key ?? c.legacy_conversation_key ?? null,
-          counterparty_role: c.counterparty_role,
-          recipient_timezone: "America/Los_Angeles",
-          dedupe_key: dedupe,
-          segment_count: 1,
-          status: "queued",
-          available_at: when.toISOString(),
-          selected_work_line_id: number.id,
-          workspace_id: ws.id,
-        });
+        rows.push({ phone_key: key, workspace_id: ws.id, source: NOTICE_SOURCE, status: "queued", available_at: when.toISOString() });
         count += 1;
       }
     }
@@ -277,12 +265,13 @@ async function notifyMoved(db, { apply, log, report, classes, sharedNumber, sinc
   if (!apply || rows.length === 0) return;
   let queued = 0;
   for (const batch of chunk(rows, 200)) {
-    const { data, error } = await db.from("sms_outbox").upsert(batch, { onConflict: "manager_user_id,dedupe_key", ignoreDuplicates: true }).select("id");
-    if (error) throw new Error(`sms_outbox: ${error.message}`);
+    // A phone that already has a row (queued, or told by an auto-reply in the window) is left alone.
+    const { data, error } = await db.from(NOTICE_TABLE).upsert(batch, { onConflict: "phone_key", ignoreDuplicates: true }).select("phone_key");
+    if (error) throw new Error(`${NOTICE_TABLE}: ${error.message}`);
     queued += (data ?? []).length;
   }
   report.notify.queued = queued;
-  log(`${SCRIPT}: notify-moved: queued ${queued} (${rows.length - queued} were already queued). The dispatcher sends them within quiet hours; cancel with --rollback.`);
+  log(`${SCRIPT}: notify-moved: queued ${queued} (${rows.length - queued} were already queued or told). The platform dispatcher (/api/cron/moved-notices) sends them from the shared number within daytime hours; cancel with --rollback.`);
 }
 
 if (isMain(import.meta.url)) await runMain(SCRIPT, () => run(process.argv.slice(2)));

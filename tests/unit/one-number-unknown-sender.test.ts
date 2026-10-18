@@ -168,7 +168,7 @@ describe("landlord: sample house then finish setup", () => {
     const f = leadFakeDb();
     for (const t of ["DEMO", "next", "y", "next", "5 B Road", "2", "700"]) await run(f.db, t);
     const written = new Set(f.log.filter((l) => l.op !== "select").map((l) => l.table));
-    expect([...written].every((t) => ["sms_demo_sessions", "sms_setup_links", "sms_onboarding_state"].includes(t))).toBe(true);
+    expect([...written].every((t) => ["sms_demo_sessions", "sms_setup_links", "sms_onboarding_state", "sms_onboarding_replies"].includes(t))).toBe(true);
   });
 });
 
