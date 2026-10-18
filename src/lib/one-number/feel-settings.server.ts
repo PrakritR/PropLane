@@ -22,10 +22,12 @@ export type FeelSettings = {
   residentFastPath: boolean;
   /** Wait this long after the last inbound before replying (0 = reply at once). */
   debounceMs: number;
+  /** "On it, I'll text you when it's done." before a slow confirmed action. */
+  workAck: boolean;
 };
 
-export const SHARED_LINE_FEEL: FeelSettings = { bubbleReplies: true, residentFastPath: true, debounceMs: 1500 };
-export const WORK_NUMBER_FEEL: FeelSettings = { bubbleReplies: false, residentFastPath: false, debounceMs: 0 };
+export const SHARED_LINE_FEEL: FeelSettings = { bubbleReplies: true, residentFastPath: true, debounceMs: 1500, workAck: true };
+export const WORK_NUMBER_FEEL: FeelSettings = { bubbleReplies: false, residentFastPath: false, debounceMs: 0, workAck: false };
 
 const CACHE_TTL_MS = 15_000;
 let cached: { at: number; overrides: unknown } | null = null;
@@ -57,6 +59,7 @@ export function mergeFeelOverride(base: FeelSettings, raw: unknown): FeelSetting
     bubbleReplies: typeof o.bubbleReplies === "boolean" ? o.bubbleReplies : base.bubbleReplies,
     residentFastPath: typeof o.residentFastPath === "boolean" ? o.residentFastPath : base.residentFastPath,
     debounceMs: debounce,
+    workAck: typeof o.workAck === "boolean" ? o.workAck : base.workAck,
   };
 }
 

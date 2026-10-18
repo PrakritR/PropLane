@@ -1372,6 +1372,9 @@ export async function handleClawLeasingInbound(args: {
           workNumber,
           inboundMessageSid: messageId,
           traceId: agent.traceId,
+          // Delivery feel: the workspace names the bubble setting (shared line: on).
+          workspaceId: args.workspaceId ?? null,
+          inboundText: args.text,
           prospectTourBookingConfirmationId: committedBooking?.id ?? null,
           prospectBurst: args.prospectBurst
             ? {
