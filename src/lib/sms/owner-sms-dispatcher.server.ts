@@ -735,16 +735,17 @@ export async function dispatchOwnerSmsOutbox(
   }
   const rows = (data ?? []) as ClaimedOutboxRow[];
   if (rows.length) {
+    type SelectedRead = { data: Array<{ id: unknown; selected_work_line_id: unknown; workspace_id?: unknown }> | null; error: { code?: string | null; message?: string | null } | null };
     let selectedRead = await db.from("sms_outbox")
-      .select("id,selected_work_line_id,workspace_id").in("id", rows.map((row) => row.id));
+      .select("id,selected_work_line_id,workspace_id").in("id", rows.map((row) => row.id)) as unknown as SelectedRead;
     // `workspace_id` is additive: before its migration the read degrades to the old shape.
     if (selectedRead.error && isMissingWorkspaceColumn(selectedRead.error)) {
-      selectedRead = await db.from("sms_outbox").select("id,selected_work_line_id").in("id", rows.map((row) => row.id));
+      selectedRead = await db.from("sms_outbox").select("id,selected_work_line_id").in("id", rows.map((row) => row.id)) as unknown as SelectedRead;
     }
     const { data: selectedLines, error: selectedLinesError } = selectedRead;
     if (selectedLinesError) return { ok: false, claimed: rows.length, submitted: 0, blocked: 0, unknown: 0, infrastructureErrors: ["selected_work_line_unavailable"] };
     const linesById = new Map((selectedLines ?? []).map((row) => [String(row.id), row.selected_work_line_id == null ? null : String(row.selected_work_line_id)]));
-    const workspacesById = new Map((selectedLines ?? []).map((row) => [String(row.id), (row as { workspace_id?: string | null }).workspace_id == null ? null : String((row as { workspace_id?: string | null }).workspace_id)]));
+    const workspacesById = new Map((selectedLines ?? []).map((row) => [String(row.id), row.workspace_id == null ? null : String(row.workspace_id)]));
     for (const row of rows) {
       row.selected_work_line_id = linesById.get(row.id) ?? null;
       row.workspace_id = workspacesById.get(row.id) ?? null;
@@ -1266,7 +1267,7 @@ export async function reconcileSubmittedSmsConversationLogs(
   let attempted = 0;
   let persisted = 0;
   let failed = 0;
-  for (const candidate of (data ?? []) as ConversationLogRepairRow[]) {
+  for (const candidate of (data ?? []) as unknown as ConversationLogRepairRow[]) {
     const due = String(candidate.conversation_log_next_attempt_at ?? "");
     if (!candidate.provider_message_sid || !candidate.provider_from_phone || !due) continue;
     const claimUntil = new Date(now.getTime() + 5 * 60_000).toISOString();
