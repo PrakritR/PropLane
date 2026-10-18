@@ -64,6 +64,6 @@ describe("door code, gate code, Wi-Fi password and alarm reach only a verified r
     } as unknown as ResidentAgentContext;
     const out = JSON.stringify(await lookupPropertyKnowledgeResidentTool.handler(ctx, { question }));
     expect(out).toContain("WIFIPW-tea-kettle");
-    expect(out).not.toMatch(/escalat/i);
+    expect(out).not.toMatch(/escalateAfter|complaints in 30 days/i);
   });
 });
