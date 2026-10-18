@@ -11,7 +11,7 @@ import {
   decideNextMode,
   type ReplyOutcomeKind,
 } from "./reply-modes";
-import { classifyTopic, detectAlwaysEscalate, type ReplyTopic, normalizeTopic } from "./topics";
+import { classifyTopic, detectAlwaysEscalate, REPLY_TOPICS, type ReplyTopic, normalizeTopic } from "./topics";
 
 export type TopicModeRow = {
   topic: ReplyTopic;
@@ -82,6 +82,21 @@ export async function setTopicCeiling(
   const changedMode = !existing || existing.mode !== next.mode;
   const now = new Date().toISOString();
   try {
+    // The first pick opts the workspace in. Seed every OTHER topic at today's behaviour (full auto)
+    // so picking one topic does not silently flip the rest to draft; only topics added to the
+    // vocabulary later start in draft.
+    if (rows.length === 0) {
+      await db.from("sms_topic_reply_modes").upsert(
+        REPLY_TOPICS.filter((t) => t !== args.topic).map((topic) => ({
+          workspace_id: args.workspaceId,
+          topic,
+          mode: "full_auto",
+          ceiling: null,
+          mode_since: now,
+        })),
+        { onConflict: "workspace_id,topic", ignoreDuplicates: true },
+      );
+    }
     const { error } = await db.from("sms_topic_reply_modes").upsert(
       {
         workspace_id: args.workspaceId,
