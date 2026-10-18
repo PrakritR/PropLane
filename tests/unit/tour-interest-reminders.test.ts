@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { tourInterestProperty, followupDelivery, TOUR_INTEREST_BODY } from "@/lib/reminders/tour-interest";
+import { tourInterestProperty, followupDelivery, TOUR_INTEREST_BODY, TOUR_INTEREST_SECOND_BODY } from "@/lib/reminders/tour-interest";
 import { DEFAULT_REMINDER_SETTINGS, normalizeReminderSettings } from "@/lib/reminders/rules";
 const mocks=vi.hoisted(()=>({settings:vi.fn(),access:vi.fn(),consent:vi.fn(),materialize:vi.fn(),resolve:vi.fn(),enqueue:vi.fn()}));
 vi.mock("@/lib/reminders/settings.server",()=>({loadReminderSettings:mocks.settings}));
@@ -57,10 +57,19 @@ it("requires current resolved nonempty availability facts",()=>{
  expect(tourInterestProperty([fact],"bad")).toBeNull();
  expect(tourInterestProperty([fact,{tool:"request_tour",recordedAt:anchor,output:{ok:true}}],inboundAt)).toBeNull();
 });
-it("materializes one phone-only reminder from an accepted response without inventing email",async()=>{
- const f=fixture();expect(await materializeTourInterestFromOutbox(f.db,"response",new Date(anchor))).toBe(1);
- expect(mocks.materialize).toHaveBeenCalledWith(f.db,expect.objectContaining({kind:"tour_interest",anchorIso:anchor,
-  recipients:[{email:"",phone,role:"counterparty"}],payload:expect.objectContaining({responseOutboxId:"response"})}),expect.anything(),new Date(anchor));
+it("materializes the 24h and the 72h phone-only reminders from an accepted response without inventing email",async()=>{
+ const f=fixture();expect(await materializeTourInterestFromOutbox(f.db,"response",new Date(anchor))).toBe(2);
+ expect(mocks.materialize).toHaveBeenCalledTimes(2);
+ expect(mocks.materialize).toHaveBeenNthCalledWith(1,f.db,expect.objectContaining({kind:"tour_interest",anchorIso:anchor,
+  recipients:[{email:"",phone,role:"counterparty"}],payload:expect.objectContaining({responseOutboxId:"response",customBody:TOUR_INTEREST_BODY})}),expect.objectContaining({rules:expect.anything()}),new Date(anchor));
+ // The second and last nudge: its own words, timed 72 hours out, on the same thread and checks. Nothing follows it.
+ const second=mocks.materialize.mock.calls[1]!;
+ expect(second[1]).toEqual(expect.objectContaining({anchorIso:anchor,payload:expect.objectContaining({responseOutboxId:"response",inboundId:"inbound",customBody:TOUR_INTEREST_SECOND_BODY,followupStep:2})}));
+ expect(second[2].rules.tour_interest.timings).toEqual(["after:4320"]);expect(second[2].rules.tour_interest.leadMinutes).toEqual([4320]);
+});
+it("does not queue a 72h nudge when there is no 24h one to follow",async()=>{
+ const f=fixture();f.tables.sms_outbox[0].status="failed";
+ expect(await materializeTourInterestFromOutbox(f.db,"response",new Date(anchor))).toBe(0);expect(mocks.materialize).not.toHaveBeenCalled();
 });
 it("does not retroactively create a nudge for a pre-enable response",async()=>{
  const f=fixture();f.tables.manager_automation_settings[0].tour_interest_enabled_at="2026-09-12T15:01:00Z";

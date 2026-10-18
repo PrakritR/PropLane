@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
 import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
+import { resolveSharedLineNumberFor } from "@/lib/one-number/display-number.server";
 import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
 import { resolveListingAttributionByOwnerWorkspace } from "@/lib/listing-attribution.server";
 import { loadLeasingPipelineState } from "@/lib/leasing-pipeline-preferences";
@@ -87,7 +88,14 @@ export async function GET(req: Request) {
       // Same per-property rule as the public catalog: this listing's own
       // manager, and the stored blob number is never trusted. See
       // `resolveListingCtaSmsPhone`.
-      contactSmsPhone: resolveListingCtaSmsPhone(managerProfile) ?? undefined,
+      // A workspace on the set PropLane line texts from it (number model, Oct 18); one with a number of
+      // its own, or outside the shared line, keeps its own manager's work number.
+      contactSmsPhone:
+        (data.manager_user_id
+          ? await resolveSharedLineNumberFor(db, data.manager_user_id, data.workspace_id ?? null)
+          : null) ??
+        resolveListingCtaSmsPhone(managerProfile) ??
+        undefined,
       contactWorkEmail:
         (await resolveListingCtaEmail(db, data.manager_user_id ?? null)) ?? undefined,
     };

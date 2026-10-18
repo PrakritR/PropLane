@@ -36,6 +36,7 @@ import {
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 import { trimmedText } from "@/lib/trimmed-text";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 
 const DESTINATIONS: ReadonlyArray<{
   id: ManagerNotificationDestination;
@@ -84,6 +85,7 @@ type LoadState = "loading" | "ready" | "error";
 export function ManagerNotificationRoutingSetting() {
   const { showToast } = useAppUi();
   const { userId } = usePortalSession();
+  const workspaces = useWorkspaces();
   const { workspaceId: scopeWorkspaceId, reportSource } = useSettingsPropertyScope();
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [saving, setSaving] = useState(false);
@@ -140,6 +142,10 @@ export function ManagerNotificationRoutingSetting() {
     return "PropLane Assistant will keep receiving alerts until your personal phone and work number are ready.";
   }, [numberStatus, textConnectionReady, workNumberAssigned]);
 
+  // Never chosen: on for the workspace owner, off for a teammate (the same rule the 8am sender applies).
+  const viewerIsOwner = workspaces?.active ? workspaces.active.viewerRole === "owner" || workspaces.active.owned === true : true;
+  const morningDigestOn = settings.managerMorningTextDigest ?? viewerIsOwner;
+
   const save = useCallback(async () => {
     setSaving(true);
     try {
@@ -151,6 +157,7 @@ export function ManagerNotificationRoutingSetting() {
           managerNotificationDestination: settings.managerNotificationDestination,
           managerNotificationCategories: settings.managerNotificationCategories,
           managerAttentionDigestCadence: settings.managerAttentionDigestCadence,
+          managerMorningTextDigest: morningDigestOn,
           ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
         }),
       });
@@ -169,7 +176,7 @@ export function ManagerNotificationRoutingSetting() {
     } finally {
       setSaving(false);
     }
-  }, [settings, showToast, scopeWorkspaceId, reportSource]);
+  }, [settings, showToast, scopeWorkspaceId, reportSource, morningDigestOn]);
 
   return (
     <PortalSettingsSection
@@ -264,6 +271,21 @@ export function ManagerNotificationRoutingSetting() {
                 </label>
               ))}
             </fieldset>
+          </PortalSettingsGroup>
+
+          <PortalSettingsGroup>
+            <label className="flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3.5 hover:bg-accent/30">
+              <input
+                type="checkbox"
+                checked={morningDigestOn}
+                onChange={(event) =>
+                  setSettings((current) => ({ ...current, managerMorningTextDigest: event.target.checked }))
+                }
+                className="h-4 w-4 shrink-0 accent-primary focus-visible:ring-2 focus-visible:ring-ring"
+                data-attr="manager-morning-text-digest"
+              />
+              <span className="min-w-0 text-sm font-medium text-foreground">Text me a summary at 8am</span>
+            </label>
           </PortalSettingsGroup>
 
           <PortalSettingsGroup>

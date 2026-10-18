@@ -516,11 +516,15 @@ export function ManagerMessagingSettingsPanel() {
   // is being retired, but it is never the number this panel leads with.
   if (isCoManager) {
     const workspacePhone = workspaceWorkNumber(status) ?? "";
+    // A workspace on the set PropLane line (no number of its own) texts from that line.
+    const lineNumber = status.sharedLine?.onSharedLine ? status.sharedLine.number : "";
+    const onPropLaneLine = Boolean(lineNumber) && (!workspacePhone || workspacePhone === lineNumber);
+    const sharedPhone = onPropLaneLine ? lineNumber : "";
     return <PortalSettingsSection title="Work identity"><PortalSettingsGroup>
-      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.lineReady ? "Ready" : "Not ready"}` : "Not set up"}>
-        <PortalSettingsField label="Workspace number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up"} />
+      <WorkIdentityRow label="Workspace number" value={workspacePhone || sharedPhone ? `${formatManagerMessagingPhone(workspacePhone || sharedPhone)} · ${onPropLaneLine ? workNumberStatusWord({ sharedLine: true }) : status.lineReady ? "Ready" : "Not ready"}` : "Not set up"}>
+        <PortalSettingsField label="Workspace number" value={workspacePhone || sharedPhone ? formatManagerMessagingPhone(workspacePhone || sharedPhone) : "Not set up"} />
         <PortalSettingsField label="Managed by" value={status.workspaceNumber?.ownerName || "Workspace owner"} />
-        {workspacePhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone)}>Copy number</Button> : null}
+        {workspacePhone || sharedPhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone || sharedPhone)}>Copy number</Button> : null}
       </WorkIdentityRow>
       <ManagerAssistantEmailChannelRow filterWorkspaceId={channelFilter} />
     </PortalSettingsGroup></PortalSettingsSection>;
@@ -551,6 +555,27 @@ export function ManagerMessagingSettingsPanel() {
       };
     }
     return { state: entry.provisionState };
+  };
+  /** This workspace texts from the set PropLane line (no number of its own). False in per_workspace. */
+  const onSharedLine = (workspace: WorkspaceWithNumbers) =>
+    Boolean(status.sharedLine?.onSharedLine) && workspace.workspaceId === status.workspace?.id;
+  const startNumberAddOnCheckout = async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/number-subscription/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "manager", returnPath: "/portal/profile?tab=messaging" }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (res.ok && body.url) {
+        window.location.assign(body.url);
+        return;
+      }
+      setError(body.error || "Checkout could not be started. Try again.");
+    } catch {
+      setError("Checkout could not be started. Try again.");
+    }
   };
   const openAddNumberSheet = (workspaceId: string) => {
     setAddNumberWorkspaceId(workspaceId);
@@ -625,9 +650,29 @@ export function ManagerMessagingSettingsPanel() {
                   /></WorkIdentityRow>
                 );
               })}
+              {/* Number model (Oct 18): while the PropLane line is live, a workspace without a number of its
+                  own texts from it. Pro / Business may take their own; Free just sees the shared line. */}
+              {onSharedLine(workspace) && numbers.length === 0 && status.sharedLine ? (
+                <WorkIdentityRow label="PropLane line" value={formatManagerMessagingPhone(status.sharedLine.number)} dataAttr="channel-row-shared-line">
+                  <PortalSettingsField label="Line" value={workNumberStatusWord({ sharedLine: true })} />
+                  <PortalSettingsField label="Number" value={formatManagerMessagingPhone(status.sharedLine.number)} />
+                  <Button variant="ghost" onClick={() => copyNumber(status.sharedLine?.number)}>Copy number</Button>
+                </WorkIdentityRow>
+              ) : null}
               {/* One number per workspace: empty → placeholder row; Setup only in ⋯ (no header + / dashed Add). */}
-              {canRequest ? (
-                <WorkIdentityRow label="Work number" value="Set up" onOpen={() => openAddNumberSheet(workspace.workspaceId)} dataAttr="channel-row-number-empty" />
+              {canRequest && (!onSharedLine(workspace) || status.canRequest || status.sharedLine?.addOn?.available) ? (
+                <WorkIdentityRow
+                  label={onSharedLine(workspace) ? "Get your own number" : "Work number"}
+                  value="Set up"
+                  // Pro / Business include a number (the request flow); a Free workspace buys the
+                  // standalone PropLane Number instead and returns here to request it.
+                  onOpen={() =>
+                    onSharedLine(workspace) && !status.canRequest
+                      ? void startNumberAddOnCheckout()
+                      : openAddNumberSheet(workspace.workspaceId)
+                  }
+                  dataAttr="channel-row-number-empty"
+                />
               ) : null}
             </div>
           );

@@ -8,11 +8,8 @@ import {
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
-import {
-  readSharedLineConfig,
-  resolveSendWorkspaceId,
-  sharedLineActiveFor,
-} from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { resolveSendWorkspaceId } from "@/lib/one-number/shared-line-number.server";
 
 export type SendNumberRow = {
   manager_user_id: string;
@@ -101,13 +98,17 @@ export async function evaluateWorkspaceSendReadiness(input: {
   // the pilot, the text leaves from the shared number instead of a work number.
   // Any trouble reading the line config reads as `per_workspace`, so this block
   // is inert until the rollout switch is deliberately flipped.
-  const sharedConfig = await readSharedLineConfig(db);
+  const sharedConfig = await loadSharedLineConfig(db);
+  // A workspace with a number of its own (a paying Pro / Business workspace) sends from
+  // THAT number, even when it is not the owner's default workspace. Only ever set while the line is
+  // shared, so per_workspace resolves the line exactly as before.
+  let dedicatedWorkspaceId: string | null = null;
   if (sharedConfig.mode === "shared") {
     const sharedWorkspaceId = await resolveSendWorkspaceId(db, ownerId, {
       workspaceId: input.sharedLineWorkspaceId ?? input.workspaceId ?? null,
       propertyId: input.propertyId ?? null,
     });
-    if (sharedLineActiveFor(sharedConfig, sharedWorkspaceId)) {
+    if (workspaceOnSharedLine(sharedConfig, sharedWorkspaceId)) {
       return evaluateSharedLineReadiness({
         db,
         ownerId,
@@ -118,6 +119,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
         runtime: input.runtime ?? null,
       });
     }
+    if (workspaceHasDedicatedNumber(sharedConfig, sharedWorkspaceId)) dedicatedWorkspaceId = sharedWorkspaceId;
   }
 
   const runtimeRead: Promise<RuntimeConfigResult> = input.runtime
@@ -136,7 +138,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
     resolveOwnerSendNumberRow<SendNumberRow>(db, ownerId, SEND_NUMBER_COLUMNS, {
       propertyId: input.propertyId ?? null,
       workLineId: input.workLineId ?? null,
-      workspaceId: input.workspaceId ?? null,
+      workspaceId: input.workspaceId ?? dedicatedWorkspaceId,
     }),
   ]);
   // A workspace with no work number of its own is a plain refusal ("This

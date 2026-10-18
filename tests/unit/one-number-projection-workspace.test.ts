@@ -15,7 +15,7 @@ function db(opts: { workspaces?: string[]; numbers?: unknown[]; rpc?: (name: str
       from: (table: string) => {
         let eqs: Record<string, string> = {};
         const q: Record<string, unknown> = {
-          select: () => q, in: () => q, limit: () => q,
+          select: () => q, in: () => q, limit: () => q, not: () => q,
           eq: (column: string, value: string) => { eqs = { ...eqs, [column]: value }; return q; },
           maybeSingle: async () => {
             if (table === "sms_runtime_config") return { data: { line_mode: "shared", shared_number_e164: SHARED }, error: null };

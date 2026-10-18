@@ -25,6 +25,8 @@ export async function POST(req: Request) {
   } | null;
   const auth = await resolveNumberOwner(body?.role);
   if (!auth.ok) return numberJson({ ok: false, error: auth.error }, auth.status);
+  // A manager's number spends the workspace wallet, not this ledger: message credit is for vendors and residents.
+  if (auth.owner.role === "manager") return numberJson({ ok: false, error: "Message credit for a manager's number comes from the workspace." }, 403);
   if (!body || !isValidCommsCreditAmountCents(body.creditCents) || typeof body.purchaseId !== "string" || !UUID.test(body.purchaseId)) {
     return numberJson({ ok: false, error: "Enter a whole-dollar amount from $5 to $500." }, 400);
   }

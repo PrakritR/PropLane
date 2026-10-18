@@ -641,6 +641,7 @@ export function ResidentLeasePanel({
           signerName={leaseCtx.application?.fullLegalName ?? pipelineRow.residentName ?? ""}
           signerRoleLabel="Your full legal name"
           onSign={handleModalSign}
+          offerHouseChat
           onClose={() => {
             setShowSigningModal(false);
             setSignError(null);

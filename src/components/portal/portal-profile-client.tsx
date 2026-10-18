@@ -59,6 +59,7 @@ import {
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { AssistantReplyModesSection, TeamKnowledgeSection } from "@/components/portal/assistant-learning-settings";
+import { AutomationsSection } from "@/components/portal/automations-settings";
 import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
@@ -213,6 +214,7 @@ function ManagerMessagingSettingsPane() {
       </PortalSettingsSection>
       <AssistantReplyModesSection />
       <TeamKnowledgeSection />
+      <AutomationsSection />
       <CommunicationSettingsPanel />
       <WhatProplaneSends />
     </>

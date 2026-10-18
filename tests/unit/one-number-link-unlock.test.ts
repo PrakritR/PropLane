@@ -76,7 +76,10 @@ describe("link unlock code", () => {
       await requestLinkUnlockCode(db, link);
       const texted = /\b(\d{6})\b/.exec((sender.send.mock.calls[0]![1] as { body: string }).body)![1]!;
       const result = await verifyLinkUnlockCode(db, link, texted);
-      expect(result.ok && result.session.maxAgeSeconds).toBe(seconds);
+      // Derived from expires_at - now; a slow run can lose one second between the two clocks.
+      const maxAge = result.ok ? result.session.maxAgeSeconds : 0;
+      expect(maxAge).toBeLessThanOrEqual(seconds);
+      expect(maxAge).toBeGreaterThanOrEqual(seconds - 2);
     }
   });
 

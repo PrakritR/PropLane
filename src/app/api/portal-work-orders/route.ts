@@ -40,6 +40,7 @@ import {
 import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
 import { projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
 import { restoreServerPublishState } from "@/lib/service-publish-state";
+import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
 export const runtime = "nodejs";
 
@@ -373,6 +374,15 @@ async function emitCreatedWorkOrder(
     facts,
     recipients: managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
   }).catch(() => undefined);
+  if (emergency) {
+    await alertPhonesOf(db, {
+      ownerUserId: ownerId,
+      kind: "emergency_maintenance",
+      entityId: row.id,
+      propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || null,
+      text: `Emergency service at ${row.propertyName || "a house"}: ${row.title || "needs attention"}.`,
+    });
+  }
 
   // The resident's acknowledgement carries the manager's response promise and
   // is sent AS the manager — a resident who filed it cannot be its own sender,

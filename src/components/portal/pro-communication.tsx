@@ -46,6 +46,7 @@ import { useIsPhoneViewport } from "@/hooks/use-is-phone-viewport";
 import { selectCommunicationSegmentUrl, selectCommunicationThreadUrl } from "@/lib/portal-communication-nav";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
+import { ManagerEscalationsAction } from "@/components/portal/manager-escalations-action";
 import { consumeManagerComposePrefill, type ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { loadManagerMessagingNumberStatusClient } from "@/lib/sms/manager-messaging-number-client";
 
@@ -378,6 +379,7 @@ export function ManagerCommunication({
   const communicationCommandActions = (
     <>
       {communicationFilterSheet}
+      <ManagerEscalationsAction commBase={commBase} />
       <ManagerIntegrationsAction section="messages" dataAttr="communication-integrations" />
     </>
   );

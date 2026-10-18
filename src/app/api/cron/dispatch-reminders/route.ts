@@ -45,6 +45,7 @@ import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.s
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
 import { sweepStayTimeReminders } from "@/lib/reminders/subjects/stay-times.server";
 import { sweepMoveInFormReminders, sweepMoveOutForms } from "@/lib/reminders/subjects/move-in-forms.server";
+import { sweepAutomations } from "@/lib/automations/sweep.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -120,6 +121,8 @@ export async function GET(req: Request) {
       ["move_in_form", sweepMoveInFormReminders],
       // "Before move-out" forms: daily, N days before a signed lease ends.
       ["move_out_form", sweepMoveOutForms],
+      // One-number preset auto-sends (welcome, move-in, house group reminders): auto / draft / off per workspace.
+      ["automations", sweepAutomations],
     ] as const) {
       try {
         swept += await sweep(db);

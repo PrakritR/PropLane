@@ -26,6 +26,11 @@ export type ManagerAutomationSettings = {
   managerNotificationCategories: ManagerNotificationCategoryPreferences;
   /** Opt-in schedule for the manager's Needs-attention summary. */
   managerAttentionDigestCadence: ManagerAttentionDigestCadence;
+  /**
+   * The 8am (Pacific) text summary. null = never chosen: on for a workspace owner, off for a
+   * teammate (`morningDigestWanted`). An explicit true or false always wins.
+   */
+  managerMorningTextDigest: boolean | null;
   preDueReminderDays: number[];
   /** One-time reminders after the due date (legacy; day 1 migrates to overdueDailyEnabled). */
   postDueReminderDays: number[];
@@ -204,6 +209,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   managerNotificationDestination: DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
   managerNotificationCategories: { ...DEFAULT_MANAGER_NOTIFICATION_CATEGORIES },
   managerAttentionDigestCadence: "off",
+  managerMorningTextDigest: null,
   preDueReminderDays: [...DEFAULT_PRE_DUE_REMINDER_DAYS],
   postDueReminderDays: [...DEFAULT_POST_DUE_REMINDER_DAYS],
   setDateReminders: [],
@@ -426,6 +432,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     managerAttentionDigestCadence: normalizeManagerAttentionDigestCadence(
       row.managerAttentionDigestCadence,
     ),
+    managerMorningTextDigest: typeof row.managerMorningTextDigest === "boolean" ? row.managerMorningTextDigest : null,
     preDueReminderDays: normalizePreDueDays(row.preDueReminderDays),
     postDueReminderDays,
     setDateReminders: normalizeSetDateReminders(row.setDateReminders),

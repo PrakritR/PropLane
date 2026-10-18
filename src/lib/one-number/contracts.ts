@@ -76,6 +76,12 @@ export type SharedLineConfig = {
   messagingServiceSid: string | null;
   /** While mode = "shared", only these workspaces answer on the shared line (empty = all). */
   pilotWorkspaceIds: string[];
+  /**
+   * Workspaces that hold their OWN work number (captain, Oct 18: everyone gets the set PropLane
+   * line; Pro and Business may get a personalized number for a workspace; PropLane's managed
+   * service keeps its own number). These never answer or send on the shared line. Absent = none.
+   */
+  dedicatedWorkspaceIds?: string[];
 };
 
 /** Router input. `phoneKey` is `normalizeConsentPhone(from)` (10 digits for NANP). */

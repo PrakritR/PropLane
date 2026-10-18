@@ -1,5 +1,11 @@
 # PropLane One-Number Build Spec (captain, Oct 18 2026)
 
+> **Decision note, Oct 18 2026 (captain): the number model changed.** Do not collapse every workspace onto one number.
+> Everyone texts the set PropLane line by default; a Pro or Business workspace MAY take a personalized number of
+> its own, and PropLane's own managed service keeps its own number. The shared line and per-workspace numbers run
+> side by side. Read "one number" below as "the default line". Implementation:
+> [`one-number.md`](one-number.md) § Number model.
+
 > The captain's spec, kept verbatim in substance. The implementation map — what
 > was built where, and what each rule maps to in code — is
 > [`one-number.md`](one-number.md). Read both before touching the shared line.

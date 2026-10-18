@@ -15,7 +15,7 @@ export const NUMBER_LAPSED_RELEASE_DAYS = 30;
 export const NUMBER_SUBSCRIPTION_PURPOSE = "number_subscription";
 export const NUMBER_CREDIT_PURPOSE = "number_communication_credit";
 
-export type NumberOwnerRole = "vendor" | "resident";
+export type NumberOwnerRole = "vendor" | "resident" | "manager";
 export type NumberSubscriptionStatus = "active" | "past_due" | "canceled" | "incomplete";
 
 /**

@@ -1,7 +1,7 @@
 import "server-only";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type {
   ManagerBathroomSubmission,
@@ -625,7 +625,7 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
   const workContacts = new Map<string, { phone: string | null; email: string | null }>();
   await Promise.all([...new Map((data ?? []).filter((row) => row.manager_user_id).map((row) => [`${row.manager_user_id}:${row.workspace_id ?? ""}`, row])).entries()].map(async ([key, row]) => {
     const [phone, email] = await Promise.all([
-      resolveActiveManagerSendNumber(db, row.manager_user_id!, row.workspace_id).catch(() => null),
+      resolveWorkspaceDisplayNumber(db, row.manager_user_id!, row.workspace_id).catch(() => null),
       resolveActiveManagerWorkEmail(db, row.manager_user_id!, row.workspace_id).catch(() => null),
     ]);
     workContacts.set(key, { phone, email });

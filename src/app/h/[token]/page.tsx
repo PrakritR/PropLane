@@ -35,7 +35,7 @@ export default async function HousePublicPage({ params }: { params: Promise<{ to
   if (!link) notFound();
   const house = await loadHouseRecord(db, link.propertyId);
   if (!house || house.ownerUserId !== link.managerUserId) notFound();
-  const smsPhone = await loadHouseOwnerSmsPhone(db, house.ownerUserId);
+  const smsPhone = await loadHouseOwnerSmsPhone(db, house.ownerUserId, house.workspaceId);
   const page = buildHousePublicPage(house.submission, { smsPhone, updatedAt: house.updatedAt });
   const updated = page.updatedAt
     ? new Date(page.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })

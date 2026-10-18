@@ -1,103 +1,33 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { MANAGER_PLAN_TIERS, type ManagerPlanTierDefinition, type PlanTierId } from "@/data/manager-plan-tiers";
+import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 import { PLAN_ADDONS, formatAddonPrice } from "@/lib/plan-addons";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
-import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { MANAGED_FAQ } from "@/lib/marketing/managed-service";
 import { TrackOnMount } from "@/components/analytics/track-on-mount";
 import { SiteFaq,type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
-import { CellValue, Check, Dash, COMPARE } from "@/components/marketing/site/pricing-compare-data";
+import { CellValue, COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import {
   SITE_BTN_PRIMARY,
-  SITE_BTN_SECONDARY,
   SITE_MEASURE,
   SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { ManagedTalkSection, PricingTabs } from "@/components/marketing/site/managed-service-sections";
+import { ServicePricingCard, SoftwarePricingCards, TIER_CTA } from "@/components/marketing/site/pricing-cards";
 import { SitePage } from "@/components/marketing/site/site-page";
 import "@/components/marketing/site/page-polish.css";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} residents, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} residents included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} residents included). 14-day trial, no card required.`,
+  description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} residents, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} residents included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} residents included). 14-day trial, no card required. Or let us run your home for you with PropLane Managed.`,
 };
-
-const CTA_BASE = MANAGER_GET_STARTED_HREF;
-
-const TIER_CTA: Record<PlanTierId, { href: string; label: string }> = {
-  free: { href: `${CTA_BASE}&tier=free`, label: "Start free" },
-  pro: { href: `${CTA_BASE}&tier=pro`, label: "Start 14-day trial" },
-  business: { href: `${CTA_BASE}&tier=business`, label: "Start 14-day trial" },
-};
-
-/** One line under each plan's name — who it is for. */
-const TIER_TAGLINE: Record<PlanTierId, string> = {
-  free: "Try the core flow on one home.",
-  pro: "Everything to run a couple of homes with residents in them.",
-  business: "Pro at portfolio scale, with a team.",
-};
-
-/**
- * What each card lists. "Everything in X, plus" — a tier repeats nothing the
- * one before it already said, so the difference between two plans is the
- * whole list, not a diff a buyer has to run in their head. Door counts and
- * per-door overage come from `RATE_CARD` — the one enforced source of truth
- * (see its doc comment) — never the legacy, informational-only
- * `FREE_MAX_PROPERTIES`/`PRO_MAX_PROPERTIES`/`BUSINESS_MAX_PROPERTIES`
- * constants in `manager-access.ts`, which that file's own comment says not to
- * read as an enforced limit. Co-managers are unlimited on Pro and Business
- * (`manager-plan-tiers.ts`'s "unlimited co-managers" copy); only Free's door
- * cap is a hard limit. Credit comes from `allowances`, never retyped.
- */
-function tierIncludes(id: PlanTierId): { heading: string; items: { text: string; included: boolean }[] } {
-  const credit = (t: PlanTierId) => formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS[t]!);
-  const perDoor = (t: "pro" | "business") => formatRateCardUsd(RATE_CARD[t].perExtraDoorMonthlyCents ?? 0);
-  if (id === "free") {
-    return {
-      heading: "What's included",
-      items: [
-        { text: `${RATE_CARD.free.includedDoors} residents`, included: true },
-        { text: "Applications & tour scheduling", included: true },
-        { text: "Rent collection & charges", included: true },
-        { text: "In-app inbox & email", included: true },
-        { text: "Work number, texting & calls", included: false },
-        { text: "Residents, leases & services", included: false },
-        { text: "Co-managers", included: false },
-      ],
-    };
-  }
-  if (id === "pro") {
-    return {
-      heading: "Everything in Free, plus",
-      items: [
-        { text: `${RATE_CARD.pro.includedDoors} residents included, then ${perDoor("pro")}/resident`, included: true },
-        { text: "Residents, leases & services", included: true },
-        { text: "AI drafts in Communication", included: true },
-        { text: "Unlimited co-managers", included: true },
-        { text: "1 work number — texting & calls", included: true },
-        { text: `${credit("pro")}/mo communication credit`, included: true },
-        { text: "Manager may cover processing fees", included: true },
-      ],
-    };
-  }
-  return {
-    heading: "Everything in Pro, plus",
-    items: [
-      { text: `${RATE_CARD.business.includedDoors} residents included, then ${perDoor("business")}/resident`, included: true },
-      { text: "Unlimited co-managers, per-module access", included: true },
-      { text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`, included: true },
-      { text: `${credit("business")}/mo communication credit`, included: true },
-      { text: "Priority admin support", included: true },
-    ],
-  };
-}
 
 const CREDIT_PACKS_TEXT = (() => {
   const packs = COMMS_CREDIT_PACKS_CENTS.map((cents) => `$${cents / 100}`);
@@ -134,55 +64,6 @@ const FAQ: SiteFaqItem[] = [
     a: `Paying for the year up front is two months free: Pro is ${MANAGER_PLAN_TIERS[1]!.annual.headline} a year instead of ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents * 12)}, and Business is ${MANAGER_PLAN_TIERS[2]!.annual.headline} instead of ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents * 12)}. Included communication credit is the same on annual plans.`,
   },
 ];
-
-function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: boolean }) {
-  const featured = tier.id === "pro";
-  const price = annual ? tier.annual : tier.monthly;
-  const cta = TIER_CTA[tier.id];
-  const includes = tierIncludes(tier.id);
-  const headline = tier.id === "free" ? "$0" : price.headline;
-  const period = tier.id === "free" ? null : annual ? "/yr" : "/mo";
-  return (
-    <div
-      className={cn(
-        "pricing-card relative flex flex-col rounded-3xl border bg-card p-6 sm:p-7",
-        featured ? "pricing-card-featured border-primary/50 pt-12 sm:pt-14" : "border-border",
-      )}
-      data-attr={`pricing-plan-${tier.id}`}
-    >
-      {featured ? (
-        <span className="absolute inset-x-0 top-0 rounded-t-[23px] bg-primary py-2 text-center text-[11.5px] font-bold uppercase tracking-[0.1em] text-white">
-          Most popular
-        </span>
-      ) : null}
-      <p className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">{tier.label}</p>
-      <p className="mt-2 min-h-[40px] text-[14px] leading-snug text-muted">{TIER_TAGLINE[tier.id]}</p>
-      <p className="mt-5 flex items-end gap-1.5">
-        <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">{headline}</span>
-        {period ? <span className="pb-1 text-[14px] text-muted">{period}</span> : null}
-      </p>
-      <p className="mt-1.5 text-[12.5px] text-muted">
-        {tier.id === "free" ? "forever · no card" : annual ? "billed yearly · two months free" : "billed monthly"}
-      </p>
-      <Link
-        href={cta.href}
-        data-attr={`pricing-plan-${tier.id}-cta`}
-        className={cn("mt-6 w-full", featured ? SITE_BTN_PRIMARY : SITE_BTN_SECONDARY)}
-      >
-        {cta.label}
-      </Link>
-      <p className="mt-7 border-t border-border/70 pt-6 text-[12px] font-bold uppercase tracking-[0.08em] text-foreground">{includes.heading}</p>
-      <ul className="mt-4 flex flex-col gap-3">
-        {includes.items.map((f) => (
-          <li key={f.text} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
-            <span className="mt-[2px] grid h-[18px] w-[18px] shrink-0 place-items-center">{f.included ? <Check /> : <Dash />}</span>
-            <span className={f.included ? "text-foreground" : "text-muted/70"}>{f.text}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 /* ───────────────────── comparison table ─────────────────────
    COMPARE, Check, Dash, and CellValue now live in
@@ -336,6 +217,39 @@ function BillingToggle({ annual }: { annual: boolean }) {
   );
 }
 
+/**
+ * `/pricing?view=service`: the Managed service tab. The short version of
+ * `/pricing/service` - the price card (what is included, how it works), the
+ * form, and the questions - with a door to the long page.
+ */
+function ManagedServiceTab() {
+  return (
+    <SitePage>
+      <TrackOnMount event="pricing_viewed" properties={{ billing: "service" }} />
+      <SitePageHero
+        id="pricing-title"
+        wide
+        eyebrow="Pricing"
+        title={
+          <>
+            Prefer not to run it yourself?
+            <span className="site-accent">We will run it for you.</span>
+          </>
+        }
+        lede="PropLane Managed: our team manages your home using our own software. Tell us about the home and we will quote it."
+        actions={<PricingTabs active="service" />}
+      />
+      <section className="py-10 sm:py-12" aria-label="PropLane Managed">
+        <div className={SITE_MEASURE}>
+          <ServicePricingCard />
+        </div>
+      </section>
+      <ManagedTalkSection showFullPageLink />
+      <SiteFaq items={[...MANAGED_FAQ]} id="managed-faq" />
+    </SitePage>
+  );
+}
+
 export default async function PricingPage({
   searchParams,
 }: {
@@ -344,6 +258,8 @@ export default async function PricingPage({
   const params = await searchParams;
   const annual = params.billing === "annual";
   const rates = COMMS_BILLING_RATES_CENTS;
+
+  if (params.view === "service") return <ManagedServiceTab />;
 
   return (
     <SitePage className="pb-16 md:pb-0">
@@ -357,20 +273,20 @@ export default async function PricingPage({
             <span className="site-accent">Pay when the portfolio earns it.</span>
           </>
         }
-        actions={<BillingToggle annual={annual} />}
+        actions={
+          <div className="flex flex-col items-center gap-4">
+            <PricingTabs active="software" />
+            <BillingToggle annual={annual} />
+          </div>
+        }
       />
 
       <section className="py-12 sm:py-14" aria-label="Plans">
         {/* C178 (captain-requested reversal of PRP-314's side-by-side snap
             scroller): phone stacks full-width cards in one column; md+ keeps
             the unchanged 3-column grid. */}
-        <div
-          className={`${SITE_MEASURE} flex flex-col gap-5 pt-3 md:grid md:grid-cols-3 md:items-stretch md:gap-6 md:pt-0`}
-          data-attr="pricing-plan-stack"
-        >
-          {MANAGER_PLAN_TIERS.map((tier) => (
-            <PlanCard key={tier.id} tier={tier} annual={annual} />
-          ))}
+        <div className={SITE_MEASURE}>
+          <SoftwarePricingCards annual={annual} />
         </div>
         <div className={SITE_MEASURE}>
           {/* C178: phone gets a per-plan accordion instead of the sideways-
@@ -384,6 +300,10 @@ export default async function PricingPage({
         </div>
       </section>
       <MobileStickyCta />
+
+      <SiteSection ariaLabel="Managed service">
+        <ServicePricingCard attrPrefix="pricing-software-service" showSteps={false} />
+      </SiteSection>
 
       <SiteSection ariaLabel="Credit and fees">
         <div className="grid gap-4 md:grid-cols-2">

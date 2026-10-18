@@ -1,15 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Building2, KeyRound, Landmark, Wrench } from "lucide-react";
-import type { ReactNode } from "react";
+import { HandHelping, Laptop } from "lucide-react";
 import { RESIDENT_BROWSE_PATH } from "@/lib/resident-public-nav";
+import { MANAGED_SERVICE_HREF } from "@/lib/marketing/managed-service";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import {
-  MockApproveRow,
-  MockChip,
-  MockDraft,
-  MockFrame,
-  SiteCtaPair,
+  SITE_BTN_PRIMARY,
+  SITE_BTN_SECONDARY,
   SiteEyebrow,
   SiteHeading,
   SiteLede,
@@ -17,71 +14,28 @@ import {
   SiteSection,
 } from "@/components/marketing/site/primitives";
 import { SitePage } from "@/components/marketing/site/site-page";
+import { TrackRecordBand } from "@/components/marketing/site/track-record-band";
+import { WhySubnav } from "@/components/marketing/site/why-subnav";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Why PropLane",
   description:
-    "A property manager's main job is relaying messages between residents, vendors and owners. PropLane's AI assistant does the relaying, and you approve what matters.",
+    "PropLane started as the way we run our own Airbnb and room-rental homes in Seattle, which produced six-figure profit. Now we manage homes for owners on it, or you can run your own.",
 };
 
 /*
- * A narrative page, not a feature list. The argument, in order:
- *   1. a manager's main job is communication: they are the switchboard;
- *   2. the switchboard problem, drawn as one repair passing through five hops;
- *   3. what PropLane changes: the assistant drafts, routes and follows up;
- *   4. how it stays safe;
- *   5. where to start.
+ * The argument, in order:
+ *   1. we manage properties ourselves (the founders' own homes, the numbers the captain stated);
+ *   2. so there are two ways in: we run your home, or you run it on the software;
+ *   3. why we built it (the switchboard problem);
+ *   4. where to start.
  *
- * Every claim is one the product keeps (see docs/ai-assistant.md,
- * docs/agents/communication-inbox.md, docs/agents/automated-communication.md,
- * docs/agents/vendor-dispatch-agent.md). People appear only as roles.
+ * Figures come only from `lib/marketing/track-record.ts`. "Six-figure profit" is
+ * the captain's own phrase and carries no dollar amount.
  */
 
-type Hop = { role: string; icon: ReactNode; you?: boolean; says: string; to: string };
-
-/** One repair, five hops. Two of them are the manager, which is the point. */
-const SWITCHBOARD: Hop[] = [
-  { role: "Resident", icon: <KeyRound strokeWidth={2} aria-hidden />, says: "The kitchen sink is leaking.", to: "to the manager" },
-  { role: "Manager", icon: <Building2 strokeWidth={2} aria-hidden />, you: true, says: "Can you look at it this week?", to: "to the vendor" },
-  { role: "Vendor", icon: <Wrench strokeWidth={2} aria-hidden />, says: "Here is my quote. Thursday works.", to: "to the manager" },
-  { role: "Manager", icon: <Building2 strokeWidth={2} aria-hidden />, you: true, says: "Approve this repair?", to: "to the owner" },
-  { role: "Owner", icon: <Landmark strokeWidth={2} aria-hidden />, says: "Go ahead.", to: "and then back down the line" },
-];
-
-const CHANGES = [
-  {
-    label: "Drafts",
-    copy: "It reads the thread, the lease and the ledger, then writes the reply in your voice with the real numbers. You approve it, edit it, or discard it.",
-  },
-  {
-    label: "Routes",
-    copy: "A repair reaches the right vendor. With vendor dispatch on, PropLane ranks your vendors and proposes one for you to approve. The vendor gets the job by text, and its own assistant answers questions about that job.",
-  },
-  {
-    label: "Follows up",
-    copy: "Rent reminders, visit reminders, the vendor who went quiet, the resident who has not confirmed the fix: PropLane sends the nudge on a fixed schedule, so you stop chasing.",
-  },
-] as const;
-
-const SAFETY = [
-  {
-    label: "Every change waits for your OK",
-    copy: "When the assistant wants to change something, it shows you a preview and does nothing until you confirm. Turn on “Resident & vendor messages need my approval first” and every automatic message waits in your inbox as a draft.",
-  },
-  {
-    label: "Regulated notices are never automated",
-    copy: "For late rent, deposit accounting and adverse action, PropLane reminds you that something is due and opens the tool. It never drafts the notice for you.",
-  },
-  {
-    label: "One work number, one work email",
-    copy: "Everything to a resident, applicant or vendor goes out from your workspace's work number and work email, so replies come back to one inbox instead of your personal phone.",
-  },
-  {
-    label: "Each role sees only its own",
-    copy: "A vendor sees the general area until they accept a job, and the vendor assistant has no way to change a price or a visit. Residents and vendors see their own records, never each other's.",
-  },
-] as const;
+const CARD = "rounded-2xl border border-[var(--site-line,#dbe4ef)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
 
 const ROLES = [
   {
@@ -107,60 +61,28 @@ const ROLES = [
   },
 ] as const;
 
-const CARD = "rounded-2xl border border-[var(--site-line,#dbe4ef)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
-
-function SwitchboardChain() {
-  return (
-    <ol aria-label="One repair request, passed along five times" className={cn(CARD, "grid gap-0 p-5 sm:p-7 lg:grid-cols-5 lg:gap-0 lg:p-8")}>
-      {SWITCHBOARD.map((hop, i) => (
-        <li key={i} className="relative flex gap-4 pb-6 last:pb-0 lg:block lg:pb-0 lg:pr-5 lg:last:pr-0">
-          {/* The line between hops: down the left edge on a phone, across the top on a desktop. */}
-          {i < SWITCHBOARD.length - 1 ? (
-            <span
-              aria-hidden
-              className="absolute left-[19px] top-11 h-[calc(100%-2.75rem)] w-px bg-[#b7cce3] lg:left-12 lg:top-[19px] lg:h-px lg:w-[calc(100%-3rem)]"
-            />
-          ) : null}
-          <span
-            className={cn(
-              "relative z-[1] grid h-10 w-10 shrink-0 place-items-center rounded-full border text-primary [&>svg]:h-[18px] [&>svg]:w-[18px]",
-              hop.you ? "border-[#1769bd] bg-[#1769bd] text-white" : "border-[#b7cce3] bg-white",
-            )}
-          >
-            {hop.icon}
-          </span>
-          <div className="min-w-0 lg:mt-4">
-            <p className="flex items-center gap-2 text-[14px] font-bold text-foreground">
-              {hop.role}
-              {hop.you ? <MockChip tone="info">You</MockChip> : null}
-            </p>
-            <p className="mt-1.5 rounded-xl rounded-tl-sm bg-[#eef4fb] px-3 py-2 text-[13.5px] leading-snug text-foreground">{hop.says}</p>
-            <p className="mt-1.5 text-[12px] font-semibold text-muted">{hop.to}</p>
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function RelayMock() {
-  return (
-    <MockFrame title="Communication · Resident" aside={<MockChip tone="warn">2 drafts</MockChip>}>
-      <div className="space-y-3">
-        <p className="max-w-[85%] rounded-xl rounded-tl-sm bg-accent/70 px-3 py-2 text-[13px] leading-snug text-foreground">
-          The kitchen sink is leaking under the cabinet.
-        </p>
-        <MockDraft label="PropLane drafted a reply to the resident">
-          Thanks for telling us. A plumber can come Thursday between 10 and noon. I will confirm as soon as it is booked.
-        </MockDraft>
-        <MockDraft label="PropLane drafted a message to the vendor">
-          Leaking kitchen sink, general area only until you accept. Can you visit Thursday morning? A quote first, please.
-        </MockDraft>
-        <MockApproveRow />
-      </div>
-    </MockFrame>
-  );
-}
+const TWO_WAYS = [
+  {
+    icon: <HandHelping strokeWidth={2} aria-hidden />,
+    label: "We manage it",
+    title: "PropLane Managed",
+    copy: "Our team runs your home on PropLane: leasing, rent, repairs, short-term and room rentals, and the texting line. Quoted per home.",
+    href: MANAGED_SERVICE_HREF,
+    cta: "See the managed service",
+    attr: "why-way-managed",
+    primary: true,
+  },
+  {
+    icon: <Laptop strokeWidth={2} aria-hidden />,
+    label: "You manage it",
+    title: "PropLane software",
+    copy: "The same system, in your hands. Free for the first residents, with paid plans as the portfolio grows.",
+    href: "/pricing",
+    cta: "See software pricing",
+    attr: "why-way-software",
+    primary: false,
+  },
+] as const;
 
 export default function WhyPropLanePage() {
   return (
@@ -171,77 +93,89 @@ export default function WhyPropLanePage() {
         wide
         title={
           <>
-            You manage properties.
-            <span className="site-accent">You work a switchboard.</span>
+            We manage homes ourselves.
+            <span className="site-accent">PropLane is how.</span>
           </>
         }
-        lede="Most of the job is communication: what the resident said goes to the vendor, what the vendor quoted goes to the owner, and every answer goes back down the line. PropLane's assistant does the relaying. You approve what matters."
+        lede="We ran multiple Airbnb and room-rental homes in Seattle, and that operation produced six-figure profit. PropLane is the system we built to run them. Now we run homes for owners on it, or you can run your own."
         actions={
-          <SiteCtaPair
-            align="center"
-            primaryLabel="Get started free"
-            primaryAttr="why-proplane-hero-get-started"
-            secondaryHref="/pricing"
-            secondaryLabel="See pricing"
-            secondaryAttr="why-proplane-hero-pricing"
-          />
+          <div className="flex flex-col items-center gap-6">
+            <WhySubnav active="overview" />
+            <div className="flex flex-wrap items-center justify-center gap-3.5">
+              <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr="why-proplane-hero-talk" className={SITE_BTN_PRIMARY}>
+                Talk to us about your home
+              </Link>
+              <Link href="/pricing" data-attr="why-proplane-hero-pricing" className={SITE_BTN_SECONDARY}>
+                See software pricing
+              </Link>
+            </div>
+          </div>
         }
       />
 
-      <SiteSection ariaLabelledBy="why-switchboard-title">
-        <div className="mx-auto mb-10 flex max-w-[48rem] flex-col items-center text-center sm:mb-12">
-          <SiteEyebrow className="mb-3">The problem</SiteEyebrow>
-          <SiteHeading id="why-switchboard-title">One leaking sink, five handoffs.</SiteHeading>
-          <SiteLede className="mx-auto mt-4">
-            A resident cannot call a vendor, and a vendor cannot ask the owner. So the manager sits in the middle of every conversation, retyping the same message for the next person on the line.
-          </SiteLede>
+      <SiteSection ariaLabelledBy="why-proof-title">
+        <div className="mx-auto mb-8 flex max-w-[48rem] flex-col items-center text-center sm:mb-10">
+          <SiteEyebrow className="mb-3">Our own homes</SiteEyebrow>
+          <SiteHeading id="why-proof-title">The track record is ours, not a case study.</SiteHeading>
+          <SiteLede className="mx-auto mt-4">We run these homes ourselves, every day, on the same software we sell.</SiteLede>
         </div>
-        <SwitchboardChain />
-        <p className="mx-auto mt-8 max-w-[44rem] text-center text-[15.5px] leading-relaxed text-muted">
-          Two of those five hops are you, and the answers still have to travel back the same way. It is a lot of skill spent on being a middleman.
+        <TrackRecordBand attr="why-track-record" />
+        <p className="mt-6 text-center">
+          <Link href="/why-proplane/track-record" data-attr="why-proof-link" className="text-[15px] font-bold text-primary hover:underline">
+            See the homes and how we run them →
+          </Link>
         </p>
       </SiteSection>
 
-      <SiteSection ariaLabelledBy="why-change-title">
-        <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:gap-16">
-          <div>
-            <SiteEyebrow className="mb-3">What PropLane changes</SiteEyebrow>
-            <SiteHeading id="why-change-title" className="max-w-[18ch]">
-              The assistant relays.
-              <span className="site-accent block">You decide.</span>
-            </SiteHeading>
-            <SiteLede className="mt-4">
-              The same messages still go out. They are just written, addressed and followed up for you, and they wait for you wherever it matters.
-            </SiteLede>
-            <dl className="mt-8 border-t border-[#c9d8e9]">
-              {CHANGES.map((c) => (
-                <div key={c.label} className="grid gap-1.5 border-b border-[#c9d8e9] py-5 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-8">
-                  <dt className="text-[15px] font-bold text-foreground">{c.label}</dt>
-                  <dd className="text-[15px] leading-relaxed text-muted">{c.copy}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-          <div className="min-w-0 lg:sticky lg:top-24">
-            <RelayMock />
-          </div>
+      <SiteSection ariaLabelledBy="why-ways-title">
+        <div className="mx-auto mb-10 flex max-w-[48rem] flex-col items-center text-center">
+          <SiteEyebrow className="mb-3">Two ways in</SiteEyebrow>
+          <SiteHeading id="why-ways-title">Let us run it, or run it yourself.</SiteHeading>
+        </div>
+        <div className="mx-auto grid max-w-[60rem] gap-4 md:grid-cols-2">
+          {TWO_WAYS.map((w) => (
+            <Link
+              key={w.href}
+              href={w.href}
+              data-attr={w.attr}
+              className={cn(
+                CARD,
+                "flex h-full flex-col p-7 transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[#8fb0d4]",
+                w.primary && "border-[#1769bd]/50",
+              )}
+            >
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#1769bd]/10 text-[#1769bd] [&>svg]:h-[18px] [&>svg]:w-[18px]">{w.icon}</span>
+              <p className="mt-5 text-[12px] font-extrabold uppercase tracking-[0.14em] text-[#1a47bd]">{w.label}</p>
+              <h3 className="mt-1 text-[22px] font-bold tracking-tight text-foreground">{w.title}</h3>
+              <p className="mt-2 flex-1 text-[15px] leading-relaxed text-muted">{w.copy}</p>
+              <span className="mt-6 text-[14px] font-bold text-primary">{w.cta} →</span>
+            </Link>
+          ))}
         </div>
       </SiteSection>
 
-      <SiteSection ariaLabelledBy="why-safe-title">
-        <div className="mx-auto max-w-[56rem]">
-          <div className="mb-8 flex flex-col items-center text-center sm:mb-10">
-            <SiteEyebrow className="mb-3">How it stays safe</SiteEyebrow>
-            <SiteHeading id="why-safe-title">Fast does not mean unsupervised.</SiteHeading>
+      <SiteSection ariaLabelledBy="why-story-title">
+        <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-16">
+          <div>
+            <SiteEyebrow className="mb-3">Why we built it</SiteEyebrow>
+            <SiteHeading id="why-story-title" className="max-w-[16ch]">
+              We were the switchboard.
+            </SiteHeading>
           </div>
-          <dl className={cn(CARD, "divide-y divide-[#dbe4ef] px-5 sm:px-8")}>
-            {SAFETY.map((s) => (
-              <div key={s.label} className="grid gap-1.5 py-6 sm:grid-cols-[230px_minmax(0,1fr)] sm:gap-10">
-                <dt className="text-[16px] font-bold leading-snug text-foreground">{s.label}</dt>
-                <dd className="text-[15px] leading-relaxed text-muted">{s.copy}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="space-y-4 text-[16px] leading-relaxed text-muted">
+            <p>
+              Running several Airbnb and room-rental homes means a resident texts you about a leak, you text a plumber, the plumber quotes, you ask the owner, and every answer travels back down the same line. Most of the job is relaying messages.
+            </p>
+            <p>
+              So we built PropLane to do the relaying: an assistant that drafts the reply, routes the repair and follows up, while we approve what matters. We run our homes on it today, and that operation produced six-figure profit.
+            </p>
+            <p className="text-foreground">
+              Now the same team and the same system are available for your home.{" "}
+              <Link href="/why-proplane/software" data-attr="why-story-software" className="font-bold text-primary hover:underline">
+                See how the software works →
+              </Link>
+            </p>
+          </div>
         </div>
       </SiteSection>
 
@@ -267,7 +201,15 @@ export default function WhyPropLanePage() {
         </div>
       </SiteSection>
 
-      <SiteFinalCta primaryAttr="why-proplane-closing-get-started" secondaryAttr="why-proplane-closing-book-demo" />
+      <SiteFinalCta
+        title="Want us to run your home?"
+        primaryAttr="why-proplane-closing-talk"
+        secondaryAttr="why-proplane-closing-software"
+        primaryHref={`${MANAGED_SERVICE_HREF}#talk`}
+        primaryLabel="Talk to us"
+        secondaryHref="/pricing"
+        secondaryLabel="See software pricing"
+      />
     </SitePage>
   );
 }

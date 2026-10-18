@@ -19,12 +19,18 @@
  */
 
 export type WorkNumberStatusWord =
+  | "PropLane line"
   | "Ready"
   | "Setting up · carrier registration pending"
   | "Assigning"
   | "Needs attention";
 
 export type WorkNumberStatusInput = {
+  /**
+   * The workspace texts from the set PropLane line, not a number of its own (number model, Oct 18).
+   * The line is platform-run, so there is no per-workspace provisioning state to report.
+   */
+  sharedLine?: boolean | null;
   /** `ManagerMessagingNumber.state` / `WorkspaceNumberEntry.provisionState`. */
   state?: string | null;
   /** Known only when this row is the viewer's own active number. */
@@ -35,6 +41,7 @@ export type WorkNumberStatusInput = {
 };
 
 export function workNumberStatusWord(input: WorkNumberStatusInput): WorkNumberStatusWord {
+  if (input.sharedLine) return "PropLane line";
   if (input.canSend) return "Ready";
   if (input.setupNeedsAttention) return "Needs attention";
 

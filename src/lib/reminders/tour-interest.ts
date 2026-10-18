@@ -1,6 +1,9 @@
 /** Shared, plain-text copy for the one-time tour interest nudge. */
 export const TOUR_INTEREST_BODY = "Hi, are you still interested in a tour? Reply and we can find a time that works for you.";
 export const TOUR_INTEREST_DELAY_MS = 24 * 60 * 60 * 1000;
+/** The second and last nudge: 72 hours after the tour response. Nothing follows it. */
+export const TOUR_INTEREST_SECOND_BODY = "Hi, just checking in. Still want a tour? Reply with a day that works and I will set it up.";
+export const TOUR_INTEREST_SECOND_DELAY_MS = 72 * 60 * 60 * 1000;
 export const TOUR_INTEREST_PURPOSE = "tour_interest_followup";
 
 /** A successful, current availability lookup is explicit tour context. Never infer from a keyword in a message. */

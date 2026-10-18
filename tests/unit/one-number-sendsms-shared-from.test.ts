@@ -71,4 +71,15 @@ describe("sendSms from numbers", () => {
     await expect(sendSms("+12065550142", "hi", "+12065550100", {})).resolves.toMatchObject({ sent: false });
     expect(mocks.create).not.toHaveBeenCalled();
   });
+
+  it("a platform lead text needs no hold but only leaves from the configured shared number", async () => {
+    mocks.hold = null;
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { purpose: "platform_lead", messagingServiceSid: "MGSHARED" })).resolves.toMatchObject({ sent: true, sid: "SM1" });
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ from: "+12065550100", messagingServiceSid: "MGSHARED" }));
+    mocks.create.mockClear();
+    await expect(sendSms("+12065550142", "hi", "+12065550999", { purpose: "platform_lead" })).resolves.toMatchObject({ sent: false, providerAttempted: false });
+    mocks.shared = null;
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { purpose: "platform_lead" })).resolves.toMatchObject({ sent: false, providerAttempted: false });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
 });

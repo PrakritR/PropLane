@@ -3,6 +3,71 @@
 Spec: [`one-number-spec.md`](one-number-spec.md). Shared types: `src/lib/one-number/contracts.ts`.
 Each workstream owns one heading below.
 
+## Number model (Oct 18 decision)
+
+Captain, verbatim: "have a set work number for anyone who signs up; for pro and business can get personalized
+work number for their workspace; keep overall service PropLane separate." (W16)
+
+- **Everyone texts on the set PropLane line** (`sms_runtime_config.shared_number_e164`, `line_mode = shared`).
+- **A Pro or Business workspace MAY take a personalized number** (the existing per-workspace provisioning).
+  Both run side by side. PropLane's own managed service (W15) has no exemption: it uses the same default line and only gets a personalized number on a paying plan (lead correction, Oct 18).
+- **Dedicated = a working number AND a paid entitlement** (captain addendum, Oct 18: current accounts move to this model too; free
+  has only the default PropLane line). A workspace is dedicated only when it holds a `manager_sms_numbers` home row that is live
+  (`active`, has a phone, registration approved: `managerCanSendFromOwnNumber`) and not released (or a `workspace_work_numbers`
+  link to one) AND the number's owner pays for a personalized number: a Pro / Business plan (`getEffectiveManagerSkuTier`, a live
+  signup trial does not count) or an active standalone **PropLane Number** subscription (`numberServiceEntitled`: active | past_due).
+  `managerPersonalNumberEntitlement` is the one answer. A number with no entitlement, a lapsed add-on, a number still provisioning
+  or awaiting registration, a failed or released one: the workspace stays on the PropLane line. Nobody pays today, so in shared
+  mode every existing workspace lands on the shared line. `loadSharedLineConfig` puts dedicated workspaces in
+  `dedicatedWorkspaceIds` (read only while the mode is `shared`; an unreadable number table or entitlement = fail closed to
+  `per_workspace`). `workspaceOnSharedLine` is false for them, `workspaceHasDedicatedNumber` true. That one decision drives
+  everything below. `per_workspace` mode is untouched.
+- **Free can buy the number alone.** The PropLane Number subscription ($5/month, `number_subscriptions`, `docs/agents/comms-billing.md`
+  § PropLane Number) now also takes `owner_role = 'manager'` (migration `20261018250000_number_subscription_manager_role.sql`, applied
+  to dev). `POST /api/number-subscription/checkout {role:"manager"}` (refused 409 `not_available` unless a manager number can be
+  provisioned: runtime not paused and `SMS_PROVISIONING_ENABLED`). The subscription is per user and carries exactly ONE number
+  account-wide (`provisionNumberForWorkspace` budget); Pro / Business include one per owned workspace. Every other Pro feature stays
+  locked. The status route reports `sharedLine.addOn = { available, active }`; Settings "Get your own number" runs the request flow
+  when the plan or an active add-on covers it, else sends a Free manager to the add-on checkout and returns to Settings.
+- **Vendors and residents keep their own subscription** (own number, own channel). Their number is never the shared one, so the
+  shared-line seam (`isSharedLineNumber(toPhone)`) never engages on it; `ingestVendorWorkIdentitySms` / `ingestResidentAgentNumberSms`
+  keep their inbound path, and the shared line still reaches them as an ordinary vendor / resident of a workspace.
+- **Existing numbers.** Nothing is released in code. Once shared mode is on, an existing workspace number that nobody pays for is no
+  longer used to send or to answer (the workspace is not dedicated). The production cutover runbook (later, human-run) forwards and
+  auto-replies those numbers for 60 days and then releases them.
+
+Files and invariants:
+
+1. **Router** (`router.server.ts`, `inbound-seam.server.ts`, `dedicated-redirect.server.ts`): candidates in a dedicated
+   workspace are not routed on the shared line. All matches dedicated: the text is answered once on the webhook TwiML
+   ("<house or workspace> texts from (XXX) XXX-XXXX. Please text that number.", the candidate's OWN number, one GSM-7
+   segment), no agent runs, no lead is made, and the text plus the reply are logged to that workspace's thread
+   (`messageSid`, `redirect:<sid>`). Mixed: the dedicated ones drop out and the rest route as usual. An
+   EMERGENCY word still gets the safety text and an urgent team alert. If the workspace's number cannot be named the
+   text falls to the existing no-owner log. A lead whose picked room belongs to a dedicated workspace is redirected the same way.
+2. **Outbound.** A dedicated workspace never sends from the shared number: `sendSharedLineMessage` refuses it
+   (`not_shared_mode`); `evaluateWorkspaceSendReadiness` resolves its own line even when it is not the owner's
+   default workspace (`dedicatedWorkspaceId`, shared mode only); `resolveConversationSendLine` ignores the shared-line
+   hint for a house in a dedicated workspace; `sendWorkspacePhoneText` (link and code texts) pins the workspace. Vendor dispatch, alerts and
+   lead assignment already branch on `workspaceOnSharedLine`.
+3. **Entitlement** (`personal-number.ts`, `personal-number-entitlement.server.ts`): `POST /api/manager/messaging-number` `request_number` and
+   `provisionNumberForWorkspace` allow Pro / Business (plan read through `resolveEffectiveManagerSkuTier`) or an active PropLane Number
+   subscription; PropLane's managed service has no exemption. A Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
+   PropLane line."), provisioning code `not_entitled`. Plan words never appear in the refusal.
+4. **Settings > Communication > Channels** (`pro-messaging-settings-panel.tsx`): `status.sharedLine = { number, onSharedLine }`
+   (null in `per_workspace`, so nothing changes there). A workspace on the line shows a "PropLane line" row (number, Copy,
+   no remove); with `canRequest` it also shows "Get your own number" (existing request modal). A workspace with its own
+   number shows it as today. `workNumberStatusWord({ sharedLine: true })` = "PropLane line". `lineReady` / `canSend` for a
+   workspace on the line come from the send path's own shared-line decision.
+5. **Where a number is shown.** Server: `resolveWorkspaceDisplayNumber` (own sendable number, else the line while the workspace
+   is on it) feeds the public catalog CTA phone, the single-listing lead route (`resolveSharedLineNumberFor`), listing-channel posts, the resident
+   welcome reachability line, resident manager contact, work contact, and house printables (`loadHouseOwnerSmsPhone` takes the
+   house's workspace). Client: `workspaceWorkNumber(status)` falls back to `sharedLine.number`, which every compose hint,
+   setup banner and reachability caller already reads. Entry codes (door card code, Text code row, their routes) do not exist for
+   a dedicated workspace (404 / null): its flyers carry its own number.
+
+Tests: `tests/unit/one-number-{config,shared-config,dedicated-routing,dedicated-outbound,personal-number,personal-number-entitlement,personal-number-route,personal-number-coexist,display-number,channels-shared-line}.test.ts(x)`.
+
 ## W1 - Shared-line router, keywords, HUMAN pause, shadow mode
 
 Flag: `sms_runtime_config.line_mode` (`per_workspace` default | `shadow` | `shared`). In `per_workspace` the
@@ -51,7 +116,7 @@ Files (`src/lib/one-number/` unless noted):
 - `lead-qualifying.ts` (pure) - the five questions in fixed order (budget; move-in date + lease length; area or commute; bath + furnished; household size), deterministic extractors, `touchesProtectedTopic` / `withoutProtectedClauses`, `sanitizeModelFields` / `mergeModelFields`, `toGsm7`.
 - `lead-match.ts` (pure) - `matchRooms` over `getCrawlPublicListings()` (the hourly `publicListingProjection` catalog, all workspaces) through `filterRoomListings`; `buildOfferText`; `parseOfferPick`.
 - `lead-extract.server.ts` - Claude Haiku (`TIER_MODELS.simple`) through `completeAgentModel`, extraction only, off under `NODE_ENV=test` and without `ANTHROPIC_API_KEY`.
-- `lead-redact.ts` - local redaction call site (card / bank / SSN numbers never stored). Swap its body for `redactSensitiveNumbers` (`redact.ts`, transport workstream) when the branches meet.
+- (deleted by the lane) `lead-redact.ts` - local redaction call site (card / bank / SSN numbers never stored). Swap its body for `redactSensitiveNumbers` (`redact.ts`, transport workstream) when the branches meet.
 - `unassigned-leads.server.ts` - `handleUnassignedLeadInbound` (signature unchanged; optional third `LeadDeps` argument for tests), `assignLeadToHouse`, `closeLead`, `listOpenLeads`.
 - `lead-followups.server.ts` + `lead-send.server.ts` + cron `/api/cron/unassigned-lead-followups` (hourly at :15, `vercel.json`).
 - Admin queue: `src/components/portal/admin-unassigned-leads-panel.tsx`, section `unassigned-leads` in the Accounts tab group (`/admin/unassigned-leads`), routes `GET /api/admin/unassigned-leads`, `PATCH /api/admin/unassigned-leads/[id]` (`{action: "assign", propertyId}` | `{action: "close"}`), guard `admin-leads-guard.server.ts` (`isAdminUser`).
@@ -348,3 +413,252 @@ with the secure-link notice in every agent deliverer (`redactedInboundReplyOverr
 **Segment guard.** `toGsm7` / `smsSegmentCount` (`segments.ts`) run in the manager, resident,
 leasing and vendor agent reply deliverers and in `sendSharedLineMessage`. Text that is already
 GSM-7 is returned unchanged.
+
+## W11 - Preset auto-sends (Automations), house facts, escalations inbox
+
+Spec: `texting-plan-1018` "Preset auto-sends", "Resident fast path" (house facts) and "New data". Migration
+`20261018200000_automations.sql` (dev applied, ledger row recorded): `workspace_automation_settings` (workspace, preset,
+mode `auto|draft|off`, optional wording), `workspace_automation_runs` (the ledger; `unique (workspace_id, idempotency_key)` is the
+idempotency, `held` = a draft waiting), and `sms_escalated_questions` gains `source` (`agent|ra|unanswered`), `excerpt`,
+`resolved_by`. Both new tables are RLS-on, service role only, classified in `account-purge-manifest.ts`. Every read treats 42P01 /
+42703 / PGRST205 as "nothing there".
+
+**Presets** (`src/lib/automations/presets.ts`, pure). Ten from the spec table plus `arrival_guide` and `checkout_reminder`, which
+claude-2's check-in/out times work fires through `fireAutomation` (below); they draw in Settings only once their id is added to
+`EXTERNAL_PRESETS_LIVE`. Two engines: `existing` presets (`rent_due_3d`, `rent_late_3d`, `maintenance_booked`, `move_out`) gate a
+message the product already sends, `off` stops it (payment-reminder cron via `presetForScheduledPaymentKind`, `workOrderEvent` for the
+resident's visit notice, `sweepTenancyReminders` for the move-out checklist; all through `loadOffPresetResolver`, which fails OPEN) and
+nothing else about today's behaviour moves; `automation` presets are the new texts. New presets default `draft`; `announcement` defaults
+`auto` (the manager already said send). Rent late stays 1:1; a group preset never offers a name, room, amount, pay link or secret
+(`GROUP_FORBIDDEN_VARIABLES`, enforced by `validateTemplate`).
+
+**Flag safety.** The sweep serves a workspace only when it has picked a mode for at least one preset (`loadOptedInWorkspaces`) or is on
+the shared line; a workspace that never opens Automations keeps today's behaviour. The first pick opts it in and every other new preset
+then runs at its default (draft).
+
+**The spine.** `sweep.server.ts` (`sweepAutomations`) rides the existing 5-minute `/api/cron/dispatch-reminders` tick: no new cron.
+`moments.ts` is the pure date logic (3 days before move-in, lease signed in the last 7 days, move-in / rent due / move-out today,
+pickup the evening before, monthly cleaning on the 1st, nothing before 9 am or after 9 pm Pacific or inside the house's own quiet
+window); `sources.server.ts` loads signed leases (`portal_lease_pipeline_records`), their houses, rent charges due today and services
+scheduled in the last day (`action_events`). `fire.server.ts` `fireAutomation(db, { workspaceId, ownerUserId, preset, idempotencyKey,
+vars, target })` is the one door: off -> nothing recorded; draft -> held (a pending `sms_ai_reply_drafts` row in the resident's
+thread, `topic = automation:<preset>`, plus the run row; a group draft is the run row alone, listed under Settings > Automations);
+auto -> sent. A quiet-hours / budget / rate-limit refusal releases the claim so a later tick retries; opt-out, no consent and no group
+are recorded as `skipped`. 1:1 goes through `sendResidentAutomationText` (`sendSharedLineMessage` on the shared line, else the work
+number with scoped automated consent). Group posts go through `postToHouseGroup` (`src/lib/house-groups/post.server.ts`; W10 owns the
+body, the stub answers `not_enabled`) after `houseGroupReady` (`ready.server.ts`, reads `house_group_conversations`, false until W10's
+table exists). A group-only preset with no group is silent (no draft); `announcement` and house-wide `maintenance_booked` fall back to
+one text per resident (never a name, amount or secret either way). `approveHeldRun` re-checks a held group text against who lives
+there NOW; `reconcileHeldRuns` follows a draft the manager handled from the thread.
+
+**Templates** (`templates.ts`). `{variable}` from a fixed list, filled from data only (never an AI-written amount); a sentence whose
+variable is empty is dropped whole; GSM-7. `groupTextViolations` refuses money, any resident's first name and any house secret in
+the RENDERED group text (templates, announcements alike).
+
+**House facts** (`src/lib/house-info.ts`, additive). New fields: recycling day, manager contact, `rules.escalateAfter` (complaint
+threshold, a `count` stepper). `HouseInfoField.secret` marks door code, gate code, lockbox, Wi-Fi password and alarm
+(`houseInfoSecretValues`, `containsHouseSecret`); `.internal` marks the threshold (never drawn to a resident or printed). Recycling day
+is resident-only: `TRASH_PUBLIC_KEYS` no longer lists it, so the public page and printables are unchanged (C2-RE12). Secrets reach only a
+verified current resident past the move-in lock (W6 lookup scope, `loadMoveInDetailsLock` in the move-in text), never a prospect, a
+vendor, the public listing or a group post.
+
+**Announce.** `announce.server.ts` `announceToHouses` (houses re-derived from the actor's workspace; a co-manager only their own);
+route `POST /api/portal/automations/announce`; manager chat/SMS tool `announce_to_house` (confirm gate; with several houses and none
+named the preview refuses with "Which house: A, B, or all?"; registered in `COMMUNICATION_SENDING_TOOLS` and the MCP exclusion list).
+UI: megaphone icon in Settings > Communication > Automations opens the pop-up.
+
+**Settings UI.** `automations-settings.tsx` (`AutomationsSection`, mounted after "Answers for all houses"): held drafts first (Send /
+Dismiss icon actions), then one row per preset (glyph for 1:1 or group, mode dropdown, "Edit text" in the row menu for presets that own
+their wording). `AutomationTextModal`: plain "Insert" dropdown (no chips), live preview from one real resident. Routes under
+`/api/portal/automations` (`GET`, `PUT` owner only, `preview`, `runs/[id]`, `announce`).
+
+**Escalations inbox.** `escalations.server.ts` (`listEscalations`, `resolveEscalation`, `recordEscalationItem`, `recordHouseComplaint`),
+route `GET|PATCH /api/portal/one-number/escalations`, page `/portal/communication/escalations`
+(`manager-escalations-inbox.tsx`, `PortalRecordListSurface`, Open | Resolved, reached by the triangle icon in the Communication header,
+`manager-escalations-action.tsx`). Phones leave the server as the last four digits. W10's RA calls `recordEscalationItem` (source `ra`)
+and `recordHouseComplaint` (logged quietly; the complaint that reaches the house's threshold files ONE open "repeated complaints"
+item with the excerpt; no punishment by AI).
+
+Tests: `tests/unit/automations-{presets,templates,moments,house-facts,fire,sweep,store,escalations,routes,announce-tool,door-code-reach,service-visit-gate}.test.ts`,
+`tests/unit/automations-settings.test.tsx`, helper `tests/helpers/automations-fake-db.ts`.
+
+## W10 - House group chats with an AI RA (Twilio Conversations group MMS)
+
+Spec: [`texting-plan-1018`](../../../.cockpit/briefs/texting-plan-1018.md) § House group chats, § Preset auto-sends, § Risks. Migration `20261018190000_house_groups.sql` (dev applied, ledger row
+recorded): `house_group_settings`, `house_group_conversations`, `house_group_members`, `house_group_preferences`, `house_group_messages`; all RLS on,
+service role only, classified in `account-purge-manifest.ts` (`house_group_members` is purged with the resident). Every read treats 42P01 / 42703 / PGRST205 as "nothing there".
+
+**Flags.** Groups exist only when ALL hold: `sms_runtime_config.line_mode = 'shared'` with a shared number, the workspace is on the pilot list (or the list is empty), and
+`house_group_settings.enabled` is on for the workspace (default off, the owner flips it in House details > House chat). Per-workspace mode behaves exactly as before: the
+new route answers 404, the seam hook finds no chat-enabled house, every post answers `not_enabled`.
+
+**Architecture.** 1:1 texts stay on Programmable Messaging (`/api/twilio/inbound`). Conversations is used ONLY for house groups; address autocreate must stay OFF for the shared
+number or it would take 1:1 traffic. Residents join as SMS participants (`messagingBinding.address`), PropLane joins as chat identity `proplane` with `projectedAddress` = the shared
+number. Each conversation gets its own `onMessageAdded` webhook (`conversations-gateway.server.ts`); the URL is `TWILIO_CONVERSATIONS_WEBHOOK_URL` or `<canonical origin>/api/twilio/conversations`.
+Twilio limits: group MMS is US/Canada long codes only, 20 addresses max by the API but the product caps at ten including PropLane (`GROUP_MEMBER_CAP = 9`).
+
+Files (`src/lib/house-groups/`):
+
+- `members.ts` (pure) - `selectGroupMembers`, `memberHash`, `diffMembers`. `residents.server.ts` - `candidatesFromStays` (pure) over the Bookings occupancy snapshot (`occupancySnapshotForManager`): a stay with a `resident` payload (executed lease or approved hold) lasting 30+ days or open-ended is long-term; a guest-portal short stay has no resident payload and is never a member.
+- `ra-policy.ts` (pure) - `classifyGroupText`, `planGroupReply`, `planDueCheck`, `groupPreferenceCommand`. `facts.ts` (pure) - `composeFactReply`. `copy.ts` - every line the RA says. `time.ts` - Pacific quiet hours.
+- `store.server.ts` (all table access), `conversations-gateway.server.ts` (the only Twilio Conversations calls), `post.server.ts`, `manager.server.ts`, `ra.server.ts`, `announce.server.ts`, `consent.server.ts`, `webhook.server.ts`.
+- Manager tool `announce_to_house` (`src/lib/tools/domains/announce.ts`, the ONE announce tool: posts to each house group, one on one when a house has no group), routes `GET|POST /api/portal/house-groups`, `GET|POST /api/resident/house-chat`, `POST /api/twilio/conversations`, crons `/api/cron/house-group-sync` (daily 17:10 UTC) and `/api/cron/house-group-sweep` (every 5 minutes).
+- UI: `PropertyHouseChatList` rows in House details (status, one row per member by first name + room, Announce and Update members icon actions, Turn on/off in the row menu, over-nine and not-joined warning rows); an optional checkbox on the resident's lease signing window.
+
+Invariants:
+
+1. **One door for posts.** `postToHouseGroup(db, { workspaceId, propertyId, text, kind, idempotencyKey })` -> `{ ok: true, messageSid } | { ok: false, reason: 'no_group' | 'not_enabled' | 'quiet_hours' | 'rate_limited' | 'provider_error', detail? }`. The RA, manager announcements and W11's presets all go through it. It re-checks the group belongs to the workspace, refuses 10 pm - 8 am Pacific (only `kind: "emergency"` posts), caps non-exempt kinds at `max_posts_per_day` (default 4; `announcement`, `emergency`, `intro` are exempt), reserves `members x segments` of `sms_outbound_segment` from the workspace wallet BEFORE Twilio and releases it on failure (`detail: "budget"` when refused), refuses a group holding a protected account's phone outside production, and claims the idempotency key on `house_group_messages` first so a retry returns the first send.
+2. **A group is defined by its member list.** `member_hash` = digest of the sorted phone keys. Desired members = long-term residents with a verified phone, `consent_at` set, not "left", not STOP (global ledger), earliest move-in first, at most 9; fewer than two = no group; extras get 1:1 and the team gets one alert a day. Any difference makes a NEW Conversation (intro posted, "This is the new house thread, the old one is retired." when replacing, "Welcome <newcomers>"), the old one is `retired` (kept open; its first stray text gets ONE reply pointing to the new thread), leavers get a 1:1 goodbye. A retired group whose exact list returns is reactivated, so two open Conversations never share a member set. Retired groups close after 30 days. Nothing is created or replaced 10 pm - 8 am (the next run does it). A failed rebuild puts the old group back. Runs daily (cron), on early move-out (`amend-lease` POST, direction decrease), on "Update members", and on every consent change. Idempotent.
+3. **The RA is quiet.** Speaks only when addressed ("PropLane"), when a house-fact question has sat ~10 minutes with no housemate reply (sweep), for a complaint, a neutral rules reminder, or an emergency. No small talk. A complaint in the group gets exactly "Got it, I'll follow up with you directly." plus a 1:1 to that resident; at night the group post is skipped and the 1:1 is held to 8 am. A second rule issue in 7 days posts a neutral reminder; the third, safety, harassment and discrimination notes go to the team with the excerpt (no group post, nobody named or punished); an emergency word posts the safety reply and an urgent team alert at any hour. At the daily cap an addressed question is answered 1:1.
+4. **Answers come from approved facts only** (`lookupPropertyKnowledge` with a resident scope for that house): first name and room only, never another resident's details, never an amount. A door code, lockbox, gate/alarm code, Wi-Fi password or anything in an access section is NEVER posted in the group: the thread gets the open part plus "I'm texting you that privately." and the asker gets the secret 1:1. Money, legal, safety and fair-housing questions are acknowledged, texted to the asker and escalated. No approved answer: "Let me check with your landlord and get back to you." plus a team alert.
+5. **Consent.** Housemates see each other's number and PropLane reads the thread, so a resident is added only with a recorded yes: the optional checkbox on the resident's lease signing window (`lease_signature`, saved by the server against the signed-in account's verified phone), or the text "join group" (`sms_join`). A resident who lives in a chat-enabled house without consent is offered it once, privately (`house-group-offer:<workspace>:<phone>`). "leave group" (1:1 or in the group) sets `opted_out_of_group`, confirms privately, and the next sync removes them; "join group" reverses it. Both are handled before routing in `handleSharedLineInbound`.
+6. **Webhook.** `POST /api/twilio/conversations` verifies `X-Twilio-Signature` against the exact registered URL (403 on mismatch; no signature = 403 on Vercel/production), acknowledges at once, and works in `after()`. Dedupe is the unique (group, MessageSid) index; PropLane's own posts (`Author = proplane`) are ignored.
+7. **Manager.** The owner turns house chat on per workspace; managers never join the thread. "announce: water off Tuesday 9-12" -> `announce_to_house` (write tool behind the YES gate; with several houses and none named it refuses with "Which house: A, B, or all?"; groups first, one on one when a house has no group; ids are re-checked against the workspace; delegated co-managers do not get it). The House chat section posts to its own house.
+
+Tests: `tests/unit/house-groups-{members,ra-policy,post,sync,ra-handler,routes}.test.ts`, helpers `tests/helpers/house-group-fake-db.ts`, `tests/helpers/house-group-fixtures.ts`. Twilio is mocked; a live group proof needs the shared number.
+
+Not done: move-out checklist link in the leaver's goodbye (no `move_out` link purpose exists; the text offers it by reply), booking-acceptance consent (only the lease signing window carries it), a STOP does not remove a member until the next sync, and the live Twilio proof (blocked on the shared number and campaign registration).
+
+## W-int - Integration seams
+
+- **One config reader.** `config.server.ts` (`loadSharedLineConfig`, `workspaceOnSharedLine`, `isSharedLineNumber`, `isMissingSchemaError`) is the only implementation; fail closed to `per_workspace` (read error, unknown mode, `shared` without a number). `shared-line-number.server.ts` keeps only transport helpers (`isConfiguredSharedNumber`, `resolveSendWorkspaceId`, `resolveSharedLineHumanSend`, sign-off) and re-exports the config names. `readSharedLineConfig` / `sharedLineActiveFor` are gone. `workspaceOnSharedLine` is false for an empty workspace id. `vendor-dispatch/send.server.ts` `workspaceOnSharedLine(db, ws)` delegates to it.
+- **Platform lead texts** (`lead-send.server.ts`) go through `sendSms` with `purpose: "platform_lead"`: valid only from the configured shared number, no credit hold (no workspace to bill), still behind the opt-out ledger, the real-customer shield and test capture; quiet hours stay in `sendPlatformLeadText`. No platform usage meter exists, so these texts are not metered.
+- **One redaction.** `redact.ts` `redactSensitiveNumbers` (card, bank, dashed SSN with kind `ssn`); `lead-redact.ts` is deleted. The secure-link reply text is unchanged for an SSN.
+- **Lead photo.** `routeSharedLineInboundWithReply` returns `unassignedMediaUrls`; the seam returns `mediaUrl` (never on an emergency reply); `twimlOk(reply, mediaUrl)` draws `<Message><Body/><Media/></Message>` only for an https URL.
+- **Prospect burst stamp.** `loadBurstWorkspaceId` (prospect-sms-burst-job) reads `sms_inbound_receipts.workspace_id` for the claimed message ids, requires one workspace held by the burst's owner, and passes `workspaceId` to `handleClawLeasingInbound`. Null (nothing stamped, column missing) changes nothing.
+- **Shared-line readers.** A shared-line conversation has `work_line_phone` = the shared number and `work_line_id` = its workspace id, so `manager_sms_numbers` joins find nothing. `sharedLineWorkspaceIdOf` (`line-label.ts`) recognises it; the Communication list/detail pass `sharedLineWorkspaceId` to `conversationVisible` (placed by that workspace alone, no house tag needed); `ManagerSmsResidentConversation.sharedLine` drives the Text line picker label "PropLane line"; `resolveConversationSendLine` returns `via: "shared"` (numberId null, the shared number) when `line_mode = shared` and the thread used it, and `sendInboxMessage` refuses with 409 when such a thread cannot send on the line instead of using a work number. `per_workspace` is unchanged (the extra config read happens only when a hint matched no work line).
+- **Outbound MMS.** Migration `20261018240000_sms_outbox_media_urls.sql` (applied to dev, ledger row recorded) adds `sms_outbox.media_urls text[]`. `SharedLineSend.mediaUrls` -> `sendFromManagerWorkNumber` -> `enqueueOwnerSms` (https only, max 10; insert retried without the column before the migration) -> dispatcher reads it for `shared_line_message` rows only -> `sendSms` `mediaUrls`. Credit is still reserved by text segments; MMS is not priced separately.
+
+Tests: `one-number-{shared-config,config,lead-send,redact,twiml-media,burst-workspace,shared-line-readers,outbox-media,send-door,sendsms-shared-from,inbound-seam}.test.ts`.
+
+## W9 - Delivery feel: bubbles, burst debounce, resident fast path, latency log
+
+Migration `20261018210000_one_number_feel.sql` (dev applied, ledger row recorded): `sms_runtime_config.feel_settings jsonb`;
+nine additive columns on `sms_projection_turns` (`intent`, `reply_lane`, `model_used`, `fast_path`, `bubble_count`, `first_bubble_ms`,
+`total_latency_ms`, `reply_status` in sent / draft / none, `replied_at`); table `sms_reply_debounce` (service role only, classified in
+`account-purge-manifest.ts`) with RPCs `sms_debounce_register` / `_claim` / `_settle`. Every read tolerates 42P01 / 42703 / PGRST205.
+
+**Switches** (`feel-settings.server.ts`, `loadFeelSettings`): `bubbleReplies`, `residentFastPath`, `debounceMs`, `workAck`. Defaults are ON
+(1500 ms) for a workspace on the shared line and OFF for a work number, so `per_workspace` behaves exactly as before. Override per lane in
+`sms_runtime_config.feel_settings` as `{"shared": {...}, "work": {...}}`; 15 s in-process cache; wrong types ignored; debounce clamped 0-5000.
+
+**Bubbles.** `bubbles.ts` (pure): `splitIntoBubbles` strips markdown, makes the text GSM-7 (emoji kept only when the texter used one),
+packs sentences greedily into bubbles of one segment, at most 3 (overflow stays in the last, nothing is dropped), never splits a URL.
+`bubble-delivery.server.ts`: bubble 1 is sent inside the request through the caller's own send; bubbles 2-3 follow 500-800 ms apart,
+sequentially, in `after()` (no `setTimeout` in the handler; falls back to inline outside a request). A refused bubble stops the rest.
+Idempotency: bubble 1 keeps `inbound_reply_<sid>`, the rest `..._b2`, `..._b3`, so a replay (which re-splits the stored reply body) sends
+nothing twice. Wired into `deliverResidentSmsReply`, `deliverManagerSmsReply`, `deliverLeasingSmsReply`, `deliverVendorAgentReply` through
+`deliverAgentReply`: a deliverer bubbles only when told (`bubbles`) or when a `workspaceId` resolves to a bubbling lane, so every other
+caller is unchanged. A tour-booking confirmation is never split; a prospect burst's revision fence and booking id ride bubble 1 only.
+
+**Burst debounce.** `debounce.server.ts`: each inbound registers its text (revision per text), sleeps `debounceMs`, then claims; the newest
+revision answers every text of the burst merged oldest first, older invocations yield (claim completed, no reply; the resident path still
+runs its team forwards). `settle` drops the answered texts once the reply is durable. A text carrying a photo registers and merges but does
+not wait. Fail-open: any RPC problem answers at once with that text alone. Wired for manager, resident and vendor-session replies;
+prospects keep their durable QStash burst queue (`prospect-sms-burst*.ts`, 10 s quiet window) untouched.
+
+**Resident fast path.** `resident-fast-path.ts` (pure matcher) + `resident-fast-path.server.ts` (scope). Runs before the resident agent,
+shared line only, for a phone VERIFIED on a profile texting its manager's line. Scope is `resolveResidentKnowledgeScope`: the resident's
+lease house, house details only past the move-in lock (`includeHouseInfo`), approved Q&A only in the resident's audiences. Topics: Wi-Fi,
+door/gate code, parking, trash / recycling day, laundry, quiet hours, guests, smoking, pets, manager / emergency contact, house chat link;
+then approved Q&A with >= 60% question coverage. It answers only when the text is obviously a house question (no other intent rule matches,
+no always-escalate topic, <= 160 chars, <= 2 question marks), every needed fact is on file, and the reply fits one segment; otherwise null
+and the normal agent runs. The reply goes through the turn runner as a precomputed reply (`precomputedLane: "fast_path"`): persisted, no
+model, no AI credit. Reads `access.doorCode/gateCode/parking`, `wifi.network/password`, `trash.day` (+ `recyclingDay`/`recycleDay`/`recycling`
+when W11 adds them), `rules.*`, `contacts.*`, `laundry.*`; missing fields mean no match.
+
+**Long work.** `slow-work.ts` lists dispatch / screening / payment tools. When a confirmed YES runs one, the turn runner calls `onSlowWork`
+and the pipeline texts "On it, I'll text you when it's done." (key `inbound_reply_<sid>_ack`) before the work; the result follows as the
+normal reply. Manager and resident replies only; vendor replies and read-tool waits are not acknowledged.
+
+**Latency + intent log.** `intent.ts` (rules) and `intent.server.ts` (the cheapest configured model, `TIER_MODELS.simple`, 1.5 s cap, only
+when the rules cannot tell and only on the shared line; log-only). `turn-metrics.server.ts` `recordSmsTurnMetrics` writes the fields to the
+INBOUND projection turn of the answered text, sends PostHog `sms_reply_sent` (ids and numbers only) for a sent reply, and scores the
+Langfuse trace (`sms-first-bubble-ms`, `sms-total-latency-ms`, `sms-bubble-count`; intent and lane in the comment). `first_bubble_ms` runs
+from the receipt (`first_received_at`) to the first bubble handed to the transport; `total_latency_ms` to the end of the turn (later bubbles
+follow after the response). Logged for manager and resident turns; the prospect and vendor paths do not log yet.
+
+**Prompt caching.** `provider.ts` `withPromptCaching`: the Anthropic call now sends the system prompt as a cached block and puts a breakpoint
+on the last tool, so the static prompt, property block and tool catalog are read from cache across loop iterations and turns (below the
+model minimum the breakpoint is a no-op). The only moving piece in the prefix is the daily clock line.
+
+Tests: `one-number-bubbles`, `-bubble-delivery`, `-feel-settings`, `-debounce`, `-resident-fast-path` (pure matcher + door-code scoping),
+`-feel-agents` (runner hand-off, deliverer bubbles and keys), `-feel-misc` (intent, slow work, caching, metrics), `-feel-pipeline`
+(resident path on the shared line and on a work number).
+
+## W8 - Manager operations by text, alerts, the 8am digest, follow-ups, payouts
+
+Flags: nothing here changes `per_workspace`. The 8am digest and the new-room text run only while `sms_runtime_config.line_mode = shared` (and, with a pilot list, only for those workspaces); "set up payouts" mints a link only on the shared line (else the tool answers `links_unavailable`). The command tools, alert-phone texts and the 72h tour nudge are additive to today's paths. No migration: the one new setting rides `manager_automation_settings.row_data`.
+
+Manager commands (the manager SMS registry is the portal catalog minus destructive tools; every write is previewed and needs a YES inside 10 minutes through `agent_pending_actions`, and writes its own `audit_log` row):
+
+| Text | Tool (file) | Kind |
+| --- | --- | --- |
+| "Who's touring tomorrow?" | `list_tours_on_day` (`manager-ops.ts`, reads `ops-facts.server.ts`) | read; the tool resolves today/tomorrow/date in Pacific time, the model never computes a date |
+| "What's vacant at 5259 Brooklyn?" | `list_vacant_rooms` (`manager-ops-rooms.ts`) | read; `roomAvailabilityForRange` per room, the calendar the public listing uses |
+| "Who hasn't paid October rent?" | `list_unpaid_rent` | read; `summarizeRentForMonth` (`ops-text.ts`) is the one rent math, the digest uses it too |
+| "Mark room 3 at 4709A rented to Sam from Nov 1" | `mark_room_rented` | write; the same `room_date_block` row `block_room_dates` writes, open-ended (`9999-12-31`) unless `until` |
+| "Drop room 2 price to $950" | `update_room_rent` (existing) | write |
+| "Approve Priya's application" | `get_application_review_link` | read; replies with the portal link. `update_application_bucket` and `set_resident_approval` are in `MANAGER_SMS_DEEP_LINK_ONLY_TOOLS` and are NOT in the text catalog (AGENTS.md: approval is not an agent tool) |
+| "Text all 5257 residents: ..." | `broadcast_to_residents` | write; preview lists the recipient count and how many are textable; sends each resident their own message through `send_message` (its sender-scope gate, consent and audit), re-deriving recipients at execute. A manager with several houses who names none gets "Which house: A, B, or all?" (`whichHouseQuestion`, which W10's announce reuses) |
+| "Send the plumber to the 8th Ave leak" | `dispatch_vendor` (W7a) | write |
+| "set up payouts" | `set_up_payouts` | read; see Payouts |
+
+Scoping: every reader takes the context it is given (`workspace` of the number, a teammate's `assignedPropertyIds`); `opsContextSeesProperty` is the single house check. Data-changing commands come only from a verified manager or teammate phone (`resolveManagerSmsInboundIdentity`), a spoofed number never reaches the registry. Rent, move-in and move-out texts are W11's; the house-group announce is W10's.
+
+Alerts (`ops-alerts.server.ts`): the six spec alerts. HUMAN, emergency word and new lead already go through `alertWorkspaceTeam`. New application, booked tour, emergency maintenance, failed payment, late fee and an unanswerable question each already reached the owner and the people who hold the house; the one missing leg was the owner's listed alert phones. `alertPhonesOf` adds exactly that leg (via `notifyWorkNumberRecipients`, idempotent on `ops-alert:<kind>:<entity>`, redacted, never throws) from `notifyManagerApplicationSubmitted`, `emitTourManagerEvent` (confirmed), `emitCreatedWorkOrder` and `createWorkOrderFromResidentSms` (Emergency), `emitHouseholdChargeTransition` (failed, late fee) and `recordEscalatedQuestion` (leasing, resident, vendor escalations). Nobody is told twice.
+
+8am digest (`morning-digest.server.ts`, cron `/api/cron/manager-morning-digest` at 15:00 and 16:00 UTC, acts only when it is 8 in Pacific): tours today, open services, rent paid / unpaid with the amount for the month, new leads (prospect contacts stamped with the workspace in the last day); one GSM-7 segment with the "Good morning" subject, skipped when there is nothing to say. Per workspace it goes to the owner unless they turned it off, and to a teammate only if they turned it on (`managerMorningTextDigest` in their own automation settings, null = owner on / teammate off; the checkbox is in Settings -> Manager alerts). Each person's numbers are computed in their scope (workspace + assigned houses); a houses-only teammate gets no lead count. It rides `sendManagerNotificationSms`, so their alert destination and "attention digest" topic still decide whether a text leaves. Dedupe `morning-digest:<workspace>:<person>:<day>`.
+
+Follow-ups: the tour-interest reminder (`reminders/subjects/tour-interest.server.ts`) now queues a second row 72 hours out (`TOUR_INTEREST_SECOND_BODY`, `followupStep: 2`) beside the 24h one, same prospect/thread/currency checks (any reply, application or booked tour cancels it, STOP is checked at send), then nothing. The saved rule stays the one-day rule. `prospect-room-matches.server.ts` (hourly, inside `/api/cron/unassigned-lead-followups`): a lead a team already owns (`status = assigned`) with saved criteria gets one text when a room that fits appears in THAT team's houses after a baseline sweep recorded `roomsSeen`; `newRoomTexted` is written before the send (overlapping sweeps send one), STOP is never retried, other failures are.
+
+Payouts: `set_up_payouts` (manager) / the vendor twin added by `withSharedLineTools` in the vendor SMS turn mint a `payouts` phone-bound link to the texter's own verified phone (the code is texted when it opens; money session 30 minutes), or answer "already set up" with the last four. `handleStripeAccountUpdated` reads the profile's payout flag before its write and, on the not-ready to ready transition only, calls `textPayoutsReady` (`payouts-ready.server.ts`): it texts "Payouts are set up to the account ending 4417." once per link to a person with a payouts link minted in the last 7 days; someone who set up payouts in the app is not texted. Only the last four and the status are read (`payout_destinations_cache`); nothing about money movement changed.
+
+Tests: `tests/unit/one-number-ops-{text,alerts,payouts}.test.ts`, `one-number-morning-digest.test.ts`, `one-number-prospect-room-matches.test.ts`, `tests/unit/tools/manager-ops-tools.test.ts`, the 72h cases in `tour-interest-reminders.test.ts`, and the exclusion rule in `manager-sms-agent.test.ts`.
+
+Not done: a live proof needs the shared number, a live Stripe Connect onboarding and Twilio; the vendor-number-AI surface and the vendor SMS surface for payouts outside a job session are not wired (a vendor texts payouts from a job session only).
+
+## W14 - Marketing: managed service, pricing tabs, Why PropLane
+
+Pages: `/pricing` (Software tab; `?view=service` is the short Managed service tab), `/pricing/service`
+(long form + form + FAQ; `/service` redirects to it), `/why-proplane` (overview) with sibling tabs
+`/why-proplane/track-record`, `/why-proplane/how-we-manage`, `/why-proplane/software` (the old switchboard story).
+
+- **No invented price or metric.** The managed service price is `MANAGED_PRICE_HEADLINE = "Custom"`
+  (`src/lib/marketing/managed-service.ts`); software prices come from `RATE_CARD`. The only operating numbers are in
+  `src/lib/marketing/track-record.ts`: 3 homes, "26 of 28 rooms occupied", "six-figure profit". The pending metrics
+  (`OWNER_RESPONSE_TIME`, `RENT_COLLECTED_ON_TIME`, `AVERAGE_VACANCY_DAYS`, `OWNER_PAYOUT_TIMING`) are empty strings;
+  `trackRecordMetrics()` omits any metric whose value is empty. Fill the constant and it appears everywhere.
+- **Shared components** (`src/components/marketing/site/`): `pricing-cards.tsx` exports `PricingCards` (Software | Managed
+  service tabs, no props, for the home page), `SoftwarePricingCards`, `ServicePricingCard`, `PlanCard`; `pricing-switch.tsx`
+  is its client tab switch; `managed-service-sections.tsx` has `PricingTabs` (route-based), steps, inclusions and the
+  `#talk` section; `track-record-band.tsx` draws the stated metrics and the 28-room occupancy dots from the same constants;
+  `why-subnav.tsx` is the Why PropLane tab row.
+- **Contact path.** `ManagedServiceForm` posts to the existing `/api/public/contact-message` with topic "Property management
+  services" (already one of the Contact page's topics). No new route, no new mail system.
+- **Crawl surfaces** derive from the same module: `llms.ts` (summary, Product and Pricing entries), `sitemap.ts`
+  (service + Why tabs), a `Service` JSON-LD node on `/pricing/service`.
+- Tests: `tests/unit/managed-service-marketing.test.tsx`.
+
+## W12 - Role-detecting first conversation, sandbox DEMO, landlord and vendor setup by text
+
+Spec: [`texting-plan` Onboarding and demo](one-number-spec.md) + the captain's second spec (routing step 6 Unknown). Migration `20261018230000_one_number_onboarding.sql` (dev applied, ledger row recorded): `sms_demo_sessions`, `sms_onboarding_state`, `sms_vendor_leads`, `sms_setup_links`. All RLS on, service role only; classified in `account-purge-manifest.ts`. Every read of them treats 42P01 / 42703 / PGRST205 as "nothing there": with `sms_onboarding_state` missing, `handleUnknownSenderInbound` is exactly W3's `handleUnassignedLeadInbound`.
+
+Flags: none for the first conversation or the demo (they only run on the shared line, `line_mode = shared`). `ONE_NUMBER_WAITLIST` (default OFF) + `ONE_NUMBER_WAITLIST_CAP` (default 10) gate NEW landlords at finish; with the flag off nothing reads the database for it.
+
+Files:
+
+- `src/lib/one-number/onboarding/` - `role-detect.ts` (pure: `inferSenderRole`, `readRoleAnswer`, house hints `extractHouseHints`), `unknown-sender.server.ts` (`handleUnknownSenderInbound`, the router's step 7, in front of W3), `state.server.ts`, `vendor-intake.ts` + `vendor-intake.server.ts`, `setup-links.server.ts`, `finish-setup.server.ts`, `house-draft.server.ts`, `waitlist.server.ts`, `invite.server.ts`.
+- `src/lib/one-number/demo/` - `script.ts` (pure step machine), `store.server.ts`, `run-demo-turn.server.ts`, `types.ts`, `index.ts`. Fixture: `src/lib/demo/demo-sms-sample-house.ts` (61 Willow Court).
+- Routes: `GET /api/admin/vendor-leads`, `PATCH /api/admin/vendor-leads/[id]` (admin only), `POST /api/start/[token]/send`, `POST /api/start/[token]/complete`; page `/start/[token]` (`src/components/public/finish-setup-card.tsx`).
+- Edits to shared files: `router.server.ts` (calls `handleUnknownSenderInbound`; `unassignedReplies`), `inbound-seam.server.ts` (`messages` on `handled`; manager DEMO; `invite`), `inbound-pipeline.server.ts` (`twimlOk` takes a list: one `<Message>` each), `app/api/twilio/inbound/route.ts` (STOP ends a demo).
+
+Invariants:
+
+1. **Ask once.** An unknown number's first text is read by code (`inferSenderRole`, landlord outranks vendor outranks searcher). Unclear = "Hey! I'm PropLane. Are you looking for a place, renting one out, or a vendor? Reply STOP to opt out." exactly once (`sms_onboarding_state.asked_at`); a still-unclear answer makes the sender a searcher. A phone with a lead already open is a searcher and is never asked. Role is sticky; a known number never reaches this code (the router routes it).
+2. **Searcher** goes to W3's qualifier unchanged. **Landlord**: "Want to try me on a sample house first? Reply DEMO." (`stage offered`), yes starts the demo, no sends the finish link. **Vendor**: trade, area, rates, insurance, one per text, volunteered facts kept; the lead waits as `sms_vendor_leads.status = pending` for platform admin (never a workspace, never a dispatch rule) and gets a phone-bound finish link. The STOP notice rides the first reply only.
+3. **The DEMO never touches a real row.** `runDemoTurn(db, { channel: "sms" | "web", sessionKey, text })` writes only `sms_demo_sessions` (the step) and, at the end, one `sms_setup_links` row (and, in the SMS door, `sms_onboarding_state`). Texting `DEMO` (whole body) or the homepage prefill "Hi PropLane, show me the demo" starts it; STOP (route) or "exit" ends it; `DEMO` mid-demo restarts; 120 idle minutes closes it. A manager's phone can run it too and, while it lasts, their texts are the demo's. SMS key = the 10-digit phone key; web key = an opaque browser id (`/^[A-Za-z0-9_-]{16,64}$/`). The web route must rate-limit. Returns `bubbles` (`agent` | `sample`), flat `messages` (sample ones prefixed "Sample text to you:"), `step`, `finished`, `ended`, `finishUrl`, `suggestions`. Every line is one GSM-7 segment (`tests/unit/one-number-demo-script.test.ts` asserts it).
+4. **Finish setup** (`/start/<token>`): the link stores only its SHA-256 and lives 7 days; a texted link is bound to the texter's phone and the code goes to THAT number only (`startPhoneChallenge`, purpose sign_in, the W5 flow); a web link has no phone and takes the visitor's. After `/api/auth/phone/verify` signs them in, `/complete` requires a VERIFIED phone that equals the link's phone, then runs `ensureFreeManagerPortalAccess` (or `provisionVendorAccountByEmail`) and, for a landlord with hints, writes the first house as a DRAFT (`mgr-text-<hash>`, deterministic per user + link, no listing-slot charge). Nothing redirects: the page ends on an explicit "Go to your portal" button (`manager-account-creation.md`). No draft exists before sign-in.
+5. **Waitlist / invite** (flag on only): a new landlord is admitted while finished text-setups < cap; otherwise the link is marked `waitlisted_at` (still unspent, re-checked on the next visit; an unreadable count fails closed). A manager's `invite <phone>` mints a link with `invited_by_workspace_id` that skips the cap (5 a day per workspace, sent through `sendSharedLineMessage`). An existing manager is never waitlisted.
+
+Tests: `tests/unit/one-number-{onboarding-roles,demo-script,demo-run,unknown-sender,finish-setup,onboarding-seam,setup-routes}.test.ts`.

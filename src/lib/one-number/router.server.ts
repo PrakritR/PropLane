@@ -18,7 +18,7 @@ import {
   findWorkspaceProspectCandidate,
 } from "@/lib/one-number/router-lookups.server";
 import { saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
-import { handleUnassignedLeadInbound } from "@/lib/one-number/unassigned-leads.server";
+import { handleUnknownSenderInbound } from "@/lib/one-number/onboarding/unknown-sender.server";
 
 export {
   findApplicantCandidates,
@@ -208,12 +208,26 @@ export function decideFromCandidates(
 export type SharedLineRouteOptions = {
   /** Shadow mode: read only. No session write, no lead creation. */
   dryRun?: boolean;
+  /**
+   * Workspaces that text from a number of their own. They never answer on the shared line: a phone
+   * whose only matches are these gets `dedicatedRedirect`, and a mixed phone routes among the rest.
+   */
+  dedicatedWorkspaceIds?: readonly string[];
 };
 
 export type SharedLineRouteResult = {
   decision: RoutingDecision;
   /** The Unassigned-leads reply to text back, when the decision is `unassigned`. */
   unassignedReply: string | null;
+  /** Several texts to send in order (the DEMO's bubbles); `unassignedReply` is them joined. */
+  unassignedReplies?: string[];
+  /** One real listing photo the reply carries (https), when the lead agent attached one. */
+  unassignedMediaUrls?: string[];
+  /**
+   * Set when every match is a workspace with its own number: the caller tells the person to text that
+   * number instead. `decision` is then a bare `unassigned` with no lead and no reply.
+   */
+  dedicatedRedirect?: SharedLineCandidate;
 };
 
 /** Every lookup, in routing order. A failing lookup is an empty one. */
@@ -257,6 +271,17 @@ export async function routeSharedLineInboundWithReply(
     if (code && !candidates.some((c) => c.workspaceId === code.workspaceId)) all = [code];
   }
 
+  const dedicated = new Set(options.dedicatedWorkspaceIds ?? []);
+  if (dedicated.size > 0 && all.length > 0) {
+    const served = all.filter((c) => !dedicated.has(c.workspaceId));
+    if (served.length === 0) {
+      const own = dedupeCandidates(all);
+      const target = pickCandidateFromText(inbound.body, own) ?? own[0];
+      return { decision: { kind: "unassigned", role: "prospect", leadId: null }, unassignedReply: null, dedicatedRedirect: target };
+    }
+    all = served;
+  }
+
   const decided = decideFromCandidates({ body: inbound.body, candidates: all, session });
 
   if (decided.kind === "routed") {
@@ -275,15 +300,24 @@ export async function routeSharedLineInboundWithReply(
 
   // Step 7: nobody knows this number. Shadow mode only reports it.
   if (options.dryRun) return { decision: { kind: "unassigned", role: "prospect", leadId: null }, unassignedReply: null };
-  const turn = await handleUnassignedLeadInbound(db, inbound);
+  const turn = await handleUnknownSenderInbound(db, inbound);
   if (turn.assignedWorkspaceId) {
     const assigned = await findWorkspaceProspectCandidate(db, turn.assignedWorkspaceId);
+    if (assigned && dedicated.has(assigned.workspaceId)) {
+      // The room the prospect picked belongs to a team with its own number: send them there.
+      return { decision: { kind: "unassigned", role: "prospect", leadId: turn.leadId }, unassignedReply: null, dedicatedRedirect: assigned };
+    }
     if (assigned) {
       await saveSharedLineRoute(db, inbound.phoneKey, { workspaceId: assigned.workspaceId, role: assigned.role });
       return { decision: { kind: "routed", ...assigned }, unassignedReply: null };
     }
   }
-  return { decision: { kind: "unassigned", role: "prospect", leadId: turn.leadId }, unassignedReply: turn.reply };
+  return {
+    decision: { kind: "unassigned", role: "prospect", leadId: turn.leadId },
+    unassignedReply: turn.reply,
+    ...(turn.replies && turn.replies.length > 1 ? { unassignedReplies: turn.replies } : {}),
+    ...(turn.mediaUrls?.length ? { unassignedMediaUrls: turn.mediaUrls } : {}),
+  };
 }
 
 export async function routeSharedLineInbound(

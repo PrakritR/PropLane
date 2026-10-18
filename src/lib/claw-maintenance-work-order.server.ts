@@ -363,6 +363,16 @@ export async function createWorkOrderFromResidentSms(args: {
           : { audience: "resident" as const, email: residentEmail },
       ],
     }).catch(() => undefined);
+    if (priority === "Emergency") {
+      const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+      await alertPhonesOf(db, {
+        ownerUserId: managerUserId,
+        kind: "emergency_maintenance",
+        entityId: id,
+        propertyId: ctx.assignedPropertyId ?? ctx.propertyId ?? null,
+        text: `Emergency service at ${ctx.propertyName || "a house"}: ${title}.`,
+      });
+    }
   }
 
   await prepareDispatch(db, id).catch(() => undefined);

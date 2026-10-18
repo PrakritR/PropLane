@@ -20,6 +20,7 @@ const FOOTER_COLUMNS: { heading: string; links: { href: string; label: string }[
     links: [
       { href: "/why-proplane", label: "Why PropLane" },
       { href: "/pricing", label: "Pricing" },
+      { href: "/pricing/service", label: "Managed service" },
       { href: "/docs", label: "Docs" },
       { href: "/docs/mcp", label: "MCP & API" },
       { href: "/app", label: "Mobile app" },

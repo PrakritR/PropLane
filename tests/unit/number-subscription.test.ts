@@ -194,14 +194,16 @@ describe("POST /api/number-subscription/checkout", () => {
     expect((state.stripe as ReturnType<typeof makeStripe>).checkout.sessions.create).not.toHaveBeenCalled();
   });
 
-  it("refuses anonymous callers and accounts that are neither vendor nor resident", async () => {
+  it("refuses anonymous callers and accounts that hold no number-owning role; a manager may buy it alone (Oct 18)", async () => {
     actAs(null, []);
     expect((await checkoutRoute(req("/api/number-subscription/checkout"))).status).toBe(401);
-    actAs(MANAGER, ["manager"]);
+    actAs(MANAGER, ["admin"]);
     expect((await checkoutRoute(req("/api/number-subscription/checkout"))).status).toBe(403);
     actAs(MANAGER, ["manager", "admin"]);
     expect((await checkoutRoute(req("/api/number-subscription/checkout", { role: "vendor" }))).status).toBe(403);
     expect((state.stripe as ReturnType<typeof makeStripe>).checkout.sessions.create).not.toHaveBeenCalled();
+    actAs(MANAGER, ["manager"]);
+    expect((await checkoutRoute(req("/api/number-subscription/checkout", { role: "manager" }))).status).toBe(200);
   });
 
   it("never sells a number that cannot be provisioned: 409 not_available, no Stripe call, nothing written", async () => {
@@ -319,8 +321,10 @@ describe("billing portal and status", () => {
 
   it("has no portal for someone who never subscribed, a manager or an anonymous caller", async () => {
     expect((await portalRoute(req("/api/number-subscription/portal"))).status).toBe(404);
-    actAs(MANAGER, ["manager"]);
+    actAs(MANAGER, ["admin"]);
     expect((await portalRoute(req("/api/number-subscription/portal"))).status).toBe(403);
+    actAs(MANAGER, ["manager"]);
+    expect((await portalRoute(req("/api/number-subscription/portal"))).status).toBe(404);
     actAs(null, []);
     expect((await portalRoute(req("/api/number-subscription/portal"))).status).toBe(401);
   });

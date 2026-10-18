@@ -67,7 +67,7 @@ function addDays(dateKey: string, days: number): string {
   return new Date(Date.UTC(y!, m! - 1, d! + days)).toISOString().slice(0, 10);
 }
 
-function daysBetween(from: string, to: string): number {
+export function daysBetween(from: string, to: string): number {
   const a = Date.parse(`${from}T00:00:00Z`);
   const b = Date.parse(`${to}T00:00:00Z`);
   return Math.round((b - a) / 86_400_000);
@@ -83,7 +83,7 @@ function todayKey(): string {
   }).format(new Date());
 }
 
-function formatDay(dateKey: string): string {
+export function formatDay(dateKey: string): string {
   const [y, m, d] = dateKey.split("-").map(Number);
   return new Date(Date.UTC(y!, m! - 1, d!)).toLocaleDateString("en-US", {
     month: "short",
@@ -97,7 +97,7 @@ function formatDay(dateKey: string): string {
 /* Property scope                                                           */
 /* ------------------------------------------------------------------------ */
 
-type ScopedProperty = { id: string; ownerId: string; title: string; rooms: Map<string, string>; hasRooms: boolean; submission: unknown };
+export type ScopedProperty = { id: string; ownerId: string; title: string; rooms: Map<string, string>; hasRooms: boolean; submission: unknown };
 
 type PropertyRow = { id: string; manager_user_id?: string | null; row_data: unknown; property_data: unknown };
 
@@ -122,7 +122,7 @@ function propertyRooms(rec: PropertyRow): Map<string, string> {
  * Houses this actor can read the Calendar for, inside the active workspace.
  * Owner, or a co-manager holding Calendar (or the legacy Properties read grant).
  */
-async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProperty[]> {
+export async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProperty[]> {
   const byId = new Map<string, PropertyRow>();
   for (const ownerId of smsDataOwnerIds(ctx)) {
     const { data, error } = await ctx.db
@@ -164,7 +164,7 @@ function optionalStayTime(value: string | undefined, label: string): string | un
   return time;
 }
 
-function pickProperty(readable: ScopedProperty[], propertyId: string): ScopedProperty {
+export function pickProperty(readable: ScopedProperty[], propertyId: string): ScopedProperty {
   const found = readable.find((p) => p.id === propertyId.trim());
   if (!found) {
     throw new Error(`No property "${propertyId}" found on your calendar. Use list_properties for valid ids.`);
@@ -178,7 +178,7 @@ function pickProperty(readable: ScopedProperty[], propertyId: string): ScopedPro
 
 type BlockRecord = { id: string; property_id: string | null; record_type?: string | null; row_data: unknown };
 
-type BlockView = {
+export type BlockView = {
   id: string;
   propertyId: string;
   roomId: string;
@@ -197,7 +197,7 @@ type BlockView = {
   checkOutTime: string;
 };
 
-function blockFromRecord(rec: BlockRecord): BlockView | null {
+export function blockFromRecord(rec: BlockRecord): BlockView | null {
   const data = asObject(rec.row_data);
   const id = rec.id || str(data, "id");
   const propertyId = (rec.property_id ?? "").trim() || str(data, "propertyId");
@@ -230,7 +230,7 @@ function blockFromRecord(rec: BlockRecord): BlockView | null {
  * about it. Raised off the reply's critical path, exactly like the schedule-records route: the
  * assistant must not wait on two reads, the delivery fan-out and an outbound email to answer.
  */
-function announceBookingEvent(ctx: AgentContext, event: NativeBookingEvent, input: { blockId: string; ownerId: string; propertyId: string; roomId: string; guestName: string; checkIn: string; checkOut: string; openEnded: boolean; closed: boolean; reason: string }): void {
+export function announceBookingEvent(ctx: AgentContext, event: NativeBookingEvent, input: { blockId: string; ownerId: string; propertyId: string; roomId: string; guestName: string; checkIn: string; checkOut: string; openEnded: boolean; closed: boolean; reason: string }): void {
   if (input.closed || !input.guestName.trim() || isImportedChannelBlock({ reason: input.reason })) return;
   afterResponse(
     () =>
@@ -249,7 +249,7 @@ function announceBookingEvent(ctx: AgentContext, event: NativeBookingEvent, inpu
   );
 }
 
-async function loadBlockRecords(ctx: AgentContext, propertyIds: string[]): Promise<BlockRecord[]> {
+export async function loadBlockRecords(ctx: AgentContext, propertyIds: string[]): Promise<BlockRecord[]> {
   if (propertyIds.length === 0) return [];
   let query = ctx.db
     .from("portal_schedule_records")
@@ -478,7 +478,7 @@ type BlockInput = {
   checkOutTime?: string;
 };
 
-type ResolvedBlock = {
+export type ResolvedBlock = {
   property: ScopedProperty;
   roomId: string;
   roomLabel: string;
@@ -493,7 +493,7 @@ type ResolvedBlock = {
   checkOutTime?: string;
 };
 
-async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<ResolvedBlock> {
+export async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<ResolvedBlock> {
   const start = input.start.trim();
   const end = input.end.trim();
   if (!isRealDate(start) || !isRealDate(end)) throw new Error("start and end must be real calendar dates as YYYY-MM-DD.");
@@ -529,7 +529,7 @@ async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<
 }
 
 /** Same rule the schedule-records route enforces: check-out is exclusive; whole-home collides with every room. */
-function overlappingBlock(blocks: BlockView[], r: ResolvedBlock): BlockView | null {
+export function overlappingBlock(blocks: BlockView[], r: ResolvedBlock): BlockView | null {
   for (const other of blocks) {
     if (other.propertyId !== r.property.id) continue;
     if (r.roomId && other.roomId && r.roomId !== other.roomId) continue;
@@ -539,7 +539,7 @@ function overlappingBlock(blocks: BlockView[], r: ResolvedBlock): BlockView | nu
   return null;
 }
 
-function conflictMessage(r: ResolvedBlock, other: BlockView): string {
+export function conflictMessage(r: ResolvedBlock, other: BlockView): string {
   const who = other.residentName || other.reason || "another hold";
   return `${other.roomId ? "That room" : "This home"} is already blocked ${other.checkIn} to ${other.openEnded ? "open-ended" : other.checkOut} by ${who} (${r.property.title}).`;
 }

@@ -8,10 +8,16 @@ import {
   type SharedLineInbound,
 } from "@/lib/one-number/contracts";
 import { workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { groupPreferenceCommand } from "@/lib/house-groups/ra-policy";
+import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
+import { isDemoStartText } from "@/lib/one-number/demo/script";
+import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
+import { handleInviteCommand, inviteCommandApplies } from "@/lib/one-number/onboarding/invite.server";
 import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
 import { loadSharedLineSession, pauseThreadAi, saveSharedLineRoute } from "@/lib/one-number/session.server";
+import { answerFromDedicatedWorkspace } from "@/lib/one-number/dedicated-redirect.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
@@ -19,7 +25,14 @@ export const HUMAN_ACK_REPLY = "Got it. A person from your property team will te
 
 export type SharedLineSeamResult =
   /** Fully answered here. Respond to Twilio with `twiml` (empty when null) and stop. */
-  | { kind: "handled"; twiml: string | null }
+  | {
+      kind: "handled";
+      twiml: string | null;
+      mediaUrl?: string;
+      /** Several texts in order (each may carry its own https photo); `twiml` is them joined. */
+      messages?: string[];
+      bubbles?: { body: string; mediaUrl?: string }[];
+    }
   /** Run the existing inbound pipeline as this workspace, exactly as a work-number inbound would. */
   | { kind: "continue"; owned: { managerId: string; workspaceId: string; messagingServiceSid: string } }
   /** Nothing to route (shared line off for this text): the existing no-owner path logs it. */
@@ -74,6 +87,17 @@ async function reply(
  * existing pipeline as the workspace owner; every other outcome is answered here.
  */
 export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInput): Promise<SharedLineSeamResult> {
+  // "leave group" / "join group" (house group chats): answered here, before routing, when the sender is a resident of a chat-enabled house.
+  const groupCommand = groupPreferenceCommand(input.body);
+  if (groupCommand) {
+    try {
+      const { handleGroupPreferenceText } = await import("@/lib/house-groups/ra.server");
+      const handled = await handleGroupPreferenceText(db, { fromPhone: input.fromPhone, command: groupCommand, messageSid: input.messageSid });
+      if (handled.handled) return { kind: "handled", twiml: handled.reply };
+    } catch (error) {
+      console.error("house group preference failed", error instanceof Error ? error.name : "unknown");
+    }
+  }
   const inbound: SharedLineInbound = {
     fromPhone: input.fromPhone,
     phoneKey: input.phoneKey,
@@ -83,8 +107,28 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   };
   const keyword = classifySharedLineKeyword(input.body);
   const session = await loadSharedLineSession(db, input.phoneKey);
-  let routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: keyword === "HUMAN" });
+  const dedicatedWorkspaceIds = input.config.dedicatedWorkspaceIds;
+  let routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: keyword === "HUMAN", dedicatedWorkspaceIds });
   let decision = routed.decision;
+
+  // Number model: someone whose only ties are workspaces with a number of their own is told, once,
+  // to text that number. Nothing is routed, no agent runs, no lead is made.
+  if (routed.dedicatedRedirect) {
+    const candidate = routed.dedicatedRedirect;
+    const redirect = await answerFromDedicatedWorkspace(db, {
+      candidate, fromPhone: input.fromPhone, body: input.body, messageSid: input.messageSid, sharedNumber: input.config.sharedNumber,
+    });
+    if (!redirect) return { kind: "none" };
+    if (keyword === "EMERGENCY" && candidate.role !== "manager") {
+      await settle("alert", alertWorkspaceTeam(db, {
+        workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, kind: "emergency", urgent: true,
+        text: peopleText(input.fromPhone, `Emergency word in a text (${candidate.label}) sent to the PropLane line`), propertyId: candidate.propertyId,
+        idempotencyKey: `emergency:${input.messageSid}:${candidate.workspaceId}`,
+      }));
+      return { kind: "handled", twiml: `${EMERGENCY_SAFETY_REPLY} ${redirect}` };
+    }
+    return { kind: "handled", twiml: redirect };
+  }
 
   // A pilot only answers for its workspaces: anyone else on the shared line is not served yet.
   if (decision.kind === "routed" && !workspaceOnSharedLine(input.config, decision.workspaceId)) {
@@ -107,7 +151,18 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     if (decision.kind === "unassigned") {
       // No workspace to bill or sign off for: the reply rides the webhook's own TwiML.
       const text = keyword === "EMERGENCY" ? EMERGENCY_SAFETY_REPLY : routed.unassignedReply;
-      return { kind: "handled", twiml: text };
+      // The lead agent's one real listing photo rides the reply as TwiML <Media>; never an emergency text.
+      const photo = keyword === "EMERGENCY" ? null : routed.unassignedMediaUrls?.[0];
+      const messages = keyword !== "EMERGENCY" && routed.unassignedReplies?.length ? routed.unassignedReplies : undefined;
+      const bubbles = messages
+        ? messages.map((body, index) => (index === 0 && photo ? { body, mediaUrl: photo } : { body }))
+        : undefined;
+      return {
+        kind: "handled",
+        twiml: text,
+        ...(messages ? { messages, bubbles } : {}),
+        ...(photo && text ? { mediaUrl: photo } : {}),
+      };
     }
   }
 
@@ -140,6 +195,19 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   // Routed to one workspace.
   const candidate: SharedLineCandidate = decision;
   const person = candidate.role !== "manager";
+  // "invite <phone>" (only while the waitlist flag is on): a manager lets a landlord skip the waitlist.
+  if (!person && inviteCommandApplies(input.body)) {
+    const text = await handleInviteCommand(db, { workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, body: input.body, messageSid: input.messageSid }).catch(() => null);
+    if (text) return { kind: "handled", twiml: text };
+  }
+  // A manager can run the sandbox DEMO from their own phone. While it lasts their texts are the demo's,
+  // never the real manager agent's, and the demo touches no real workspace row.
+  if (!person && (isDemoStartText(input.body) || (await hasLiveDemo(db, input.phoneKey).catch(() => false)))) {
+    const demo = await runDemoTurn(db, { channel: "sms", sessionKey: input.phoneKey, text: input.body }).catch(() => null);
+    if (demo?.ok) {
+      return { kind: "handled", twiml: demo.messages.join("\n\n"), ...(demo.messages.length > 1 ? { messages: demo.messages } : {}) };
+    }
+  }
   if (keyword === "HUMAN" && person) {
     await settle("route", saveSharedLineRoute(db, input.phoneKey, { workspaceId: candidate.workspaceId, role: candidate.role }));
     await settle("pause", pauseThreadAi(db, { phoneKey: input.phoneKey, workspaceId: candidate.workspaceId, role: candidate.role, reason: "human_keyword" }));
