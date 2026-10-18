@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listAnnounceHouses } from "@/lib/automations/announce.server";
 import {
   AUTOMATION_PRESETS,
+  GROUP_FORBIDDEN_VARIABLES,
   VARIABLE_LABELS,
   isAutomationMode,
   isAutomationPresetId,
@@ -10,7 +11,7 @@ import {
   effectiveAutomationMode,
 } from "@/lib/automations/presets";
 import { listHeldRuns, loadAutomationSettings, saveAutomationSetting } from "@/lib/automations/store.server";
-import { GROUP_FORBIDDEN_VARIABLES, validateTemplate } from "@/lib/automations/templates";
+import { validateTemplate } from "@/lib/automations/templates";
 import { requireKnowledgeActor } from "@/lib/one-number/knowledge/route-auth.server";
 
 export const runtime = "nodejs";
