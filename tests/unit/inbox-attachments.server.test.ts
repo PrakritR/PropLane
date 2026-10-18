@@ -206,6 +206,120 @@ describe("userCanAccessInboxAttachment", () => {
     ).resolves.toBe(false);
   });
 
+  it("allows a teammate to read a chip stored on the shared team thread", async () => {
+    const workspaceOwner = "workspace-owner";
+    const teammate = "co-manager-1";
+    const workspaceId = "ws-1";
+    const teamPath = `${workspaceOwner}/1700000000000-team.pdf`;
+    const teamUrl = inboxAttachmentServeUrl(teamPath);
+    const db = makeDb({
+      portal_inbox_thread_records: [
+        {
+          id: `team-thread:${workspaceOwner}:ws:${workspaceId}`,
+          thread_type: "team",
+          owner_user_id: workspaceOwner,
+          participant_email: null,
+          row_data: {
+            messages: [{ body: "Lease", attachments: [{ url: teamUrl, name: "lease.pdf" }] }],
+          },
+        },
+      ],
+      account_link_invites: [
+        {
+          status: "accepted",
+          inviter_user_id: workspaceOwner,
+          invitee_user_id: teammate,
+          workspace_id: workspaceId,
+          team_role: "property_manager",
+        },
+      ],
+    });
+    await expect(
+      userCanAccessInboxAttachment(db, {
+        userId: teammate,
+        userEmail: "teammate@example.com",
+        path: teamPath,
+        isAdmin: false,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("denies someone who is not a member of the team thread that carries the chip", async () => {
+    const workspaceOwner = "workspace-owner";
+    const outsider = "co-manager-other";
+    const teamPath = `${workspaceOwner}/1700000000000-team.pdf`;
+    const teamUrl = inboxAttachmentServeUrl(teamPath);
+    const db = makeDb({
+      portal_inbox_thread_records: [
+        {
+          id: `team-thread:${workspaceOwner}:ws:ws-1`,
+          thread_type: "team",
+          owner_user_id: workspaceOwner,
+          participant_email: null,
+          row_data: {
+            messages: [{ attachments: [{ url: teamUrl }] }],
+          },
+        },
+      ],
+      account_link_invites: [
+        {
+          status: "accepted",
+          inviter_user_id: workspaceOwner,
+          invitee_user_id: outsider,
+          workspace_id: "ws-other",
+          team_role: "property_manager",
+        },
+      ],
+    });
+    await expect(
+      userCanAccessInboxAttachment(db, {
+        userId: outsider,
+        userEmail: "outsider@example.com",
+        path: teamPath,
+        isAdmin: false,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("denies a teammate when the team thread only quotes the serve URL", async () => {
+    const workspaceOwner = "workspace-owner";
+    const teammate = "co-manager-1";
+    const workspaceId = "ws-1";
+    const teamPath = `${workspaceOwner}/1700000000000-team.pdf`;
+    const teamUrl = inboxAttachmentServeUrl(teamPath);
+    const db = makeDb({
+      portal_inbox_thread_records: [
+        {
+          id: `team-thread:${workspaceOwner}:ws:${workspaceId}`,
+          thread_type: "team",
+          owner_user_id: workspaceOwner,
+          participant_email: null,
+          row_data: {
+            body: teamUrl,
+            messages: [{ body: `see ${teamUrl}` }],
+          },
+        },
+      ],
+      account_link_invites: [
+        {
+          status: "accepted",
+          inviter_user_id: workspaceOwner,
+          invitee_user_id: teammate,
+          workspace_id: workspaceId,
+          team_role: "property_manager",
+        },
+      ],
+    });
+    await expect(
+      userCanAccessInboxAttachment(db, {
+        userId: teammate,
+        userEmail: "teammate@example.com",
+        path: teamPath,
+        isAdmin: false,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("denies an attacker who merely quotes the serve URL in their own message body", async () => {
     const db = makeDb({
       portal_inbox_thread_records: [
