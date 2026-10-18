@@ -13,6 +13,7 @@ import {
   mintLinkForTexter,
   residentSendMyLinkTool,
   vendorSendMyLinkTool,
+  withSendMyLinkTool,
 } from "@/lib/tools/domains/one-number-links";
 import { linksFakeDb, type Row } from "../helpers/links-fake-db";
 
@@ -158,5 +159,24 @@ describe("mintLinkForTexter", () => {
       last = await mintLinkForTexter(db, { workspaceId: WS, phone: "2065550166", purpose: "gallery", targetType: "listing", targetId: `p${i}`, createdBy: null });
     }
     expect(last).toEqual({ ok: false, error: "rate_limited" });
+  });
+});
+
+describe("withSendMyLinkTool: registries stay as they are off the shared line", () => {
+  it("adds the tool only in shared mode", async () => {
+    for (const [mode, expected] of [["per_workspace", false], ["shadow", false], ["shared", true]] as const) {
+      const { db } = world(mode);
+      const registry = new Map() as never as Parameters<typeof withSendMyLinkTool>[1];
+      const next = await withSendMyLinkTool(db, registry, leasingSendMyLinkTool as never);
+      expect(next.has("send_my_link")).toBe(expected);
+      // The original registry is never mutated.
+      expect(registry.size).toBe(0);
+    }
+  });
+
+  it("fails closed to the unchanged registry when the config cannot be read", async () => {
+    const { db } = linksFakeDb({}, { broken: ["sms_runtime_config"] });
+    const registry = new Map() as never as Parameters<typeof withSendMyLinkTool>[1];
+    expect((await withSendMyLinkTool(db, registry, leasingSendMyLinkTool as never)).size).toBe(0);
   });
 });

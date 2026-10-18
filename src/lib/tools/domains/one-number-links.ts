@@ -17,7 +17,7 @@
  */
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { defineTool } from "../registry";
+import { defineTool, type ToolDefinition, type ToolRegistry } from "../registry";
 import type { AgentContext } from "../context";
 import type { ResidentAgentContext } from "../resident-context";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
@@ -78,6 +78,24 @@ export async function mintLinkForTexter(
     if (error instanceof PhoneBoundLinkError && error.code === "rate_limited") return { ok: false, error: "rate_limited" };
     return { ok: false, error: "links_unavailable" };
   }
+}
+
+/**
+ * Add `send_my_link` to a surface's registry ONLY while the line is shared (`shared` mode). In
+ * `per_workspace` and `shadow` the registry is returned untouched, so those surfaces keep exactly
+ * today's tool set. One `sms_runtime_config` read, failing closed to "unchanged".
+ */
+export async function withSendMyLinkTool<Ctx>(
+  db: SupabaseClient,
+  registry: ToolRegistry<Ctx>,
+  tool: ToolDefinition<any, any, Ctx>, // eslint-disable-line @typescript-eslint/no-explicit-any
+): Promise<ToolRegistry<Ctx>> {
+  if (registry.has(tool.name)) return registry;
+  const config = await loadSharedLineConfig(db);
+  if (config.mode !== "shared") return registry;
+  const next: ToolRegistry<Ctx> = new Map(registry);
+  next.set(tool.name, tool);
+  return next;
 }
 
 const DESCRIPTION_TAIL =

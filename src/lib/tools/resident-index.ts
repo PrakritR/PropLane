@@ -30,7 +30,6 @@ import { rentReportingStatusTool } from "./domains/resident/rent-reporting";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import { residentSmsListingTools } from "./domains/resident/sms-listings";
-import { residentSendMyLinkTool } from "./domains/one-number-links";
 import {
   listMyServiceRequestsTool,
   listMyWorkOrdersTool,
@@ -153,12 +152,7 @@ export const residentAgentRegistry: ToolRegistry<ResidentAgentContext> = buildRe
  * + messaging; a free-tier manager hides services/documents tools.
  */
 export function buildResidentRegistry(ctx: ResidentAgentContext): ToolRegistry<ResidentAgentContext> {
-  const tools = [
-    ...ALL_RESIDENT_TOOLS,
-    ...(ctx.channel === "sms" ? residentSmsListingTools : []),
-    // Phone-bound links are a texting feature: the portal chat has get_resident_links.
-    ...(ctx.channel === "sms" ? [residentSendMyLinkTool] : []),
-  ].filter((tool) => {
+  const tools = [...ALL_RESIDENT_TOOLS, ...(ctx.channel === "sms" ? residentSmsListingTools : [])].filter((tool) => {
     if (ctx.phase === "application" && !APPLICATION_PHASE_TOOLS.has(tool.name)) return false;
     if (ctx.channel === "sms" && PORTAL_ONLY_TOOLS.has(tool.name)) return false;
     const section = TOOL_SECTION[tool.name];
