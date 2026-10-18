@@ -142,15 +142,21 @@ export type HouseDoorCard = {
   /** The public page URL the QR encodes. */
   url: string;
   smsPhone: string | null;
+  /** The public entry code ("Text BROOKLYN5 to ...") and its call to action: both already print on flyers. Null off the shared line. */
+  textCode: { code: string; callToAction: string; smsLink: string } | null;
 };
 
-export function buildHouseDoorCard(sub: SubmissionSource, opts: { url: string; smsPhone?: string | null }): HouseDoorCard {
+export function buildHouseDoorCard(
+  sub: SubmissionSource,
+  opts: { url: string; smsPhone?: string | null; textCode?: HouseDoorCard["textCode"] },
+): HouseDoorCard {
   return {
     name: houseName(sub),
     street: listingSubmissionStreetLine(sub),
     cityZip: listingSubmissionCityZipLine(sub),
     url: opts.url,
     smsPhone: opts.smsPhone?.trim() || null,
+    textCode: opts.textCode ?? null,
   };
 }
 

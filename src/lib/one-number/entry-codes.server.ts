@@ -1,8 +1,11 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadSharedLineConfig } from "@/lib/one-number/config.server";
 import {
+  entryCodeCallToAction,
   entryCodeCandidates,
+  entryCodeSmsLink,
   validateEntryCode,
   type EntryCodeProblem,
 } from "@/lib/one-number/entry-codes";
@@ -176,4 +179,35 @@ export async function setEntryCodeActive(
     .eq("workspace_id", input.workspaceId);
   if (updateError) return { ok: false, error: "unavailable" };
   return { ok: true, record: { ...current, active: input.active } };
+}
+
+/**
+ * The live entry code a house's door card may print, with its call to action and prefilled-text link, or null
+ * (per-workspace line, no shared number, no live code). The caller has already authorized the manager for the
+ * house; the row must name that house's owner too.
+ */
+export async function loadDoorCardTextCode(
+  db: SupabaseClient,
+  house: { propertyId: string; ownerUserId: string },
+): Promise<{ code: string; callToAction: string; smsLink: string } | null> {
+  try {
+    const config = await loadSharedLineConfig(db);
+    if (config.mode === "per_workspace" || !config.sharedNumber) return null;
+    const { data, error } = await db
+      .from("sms_entry_codes")
+      .select("code, owner_user_id")
+      .eq("property_id", house.propertyId)
+      .eq("owner_user_id", house.ownerUserId)
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const row = (data ?? [])[0] as Row | undefined;
+    if (error || !row) return null;
+    const code = str(row.code);
+    const callToAction = entryCodeCallToAction(code, config.sharedNumber);
+    const smsLink = entryCodeSmsLink(code, config.sharedNumber);
+    return callToAction && smsLink ? { code, callToAction, smsLink } : null;
+  } catch {
+    return null;
+  }
 }
