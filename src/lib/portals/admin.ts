@@ -6,7 +6,7 @@ export const adminPortal: PortalDefinition = {
   basePath: "/admin",
   title: "Admin Portal",
   accent: "blue",
-  // Order is the sidebar's: Dashboard, Communication · Accounts · Portfolio · Support
+  // Order is the sidebar's: Dashboard, Communication · Property management · Software · Support, Growth
   // (`ADMIN_GROUPS` in nav-groups.ts buckets these; a test pins every id exactly once).
   sections: [
     { section: "dashboard", label: "Dashboard", tabs: [] },
@@ -18,14 +18,18 @@ export const adminPortal: PortalDefinition = {
     // Labeled "Communication" to match the manager portal's own nav (it was
     // "Inbox" here only).
     { section: "communication", label: "Communication", tabs: [] },
+    // PROPERTY MANAGEMENT (PropLane's own managed portfolio, one-number W15): the all-owners Properties oversight,
+    // the service workspaces (one per city, owned by the service owner account), the PropLane line (the shared
+    // number on the website) and the strangers qualified on it who have not picked a house yet (one-number W3).
+    { section: "properties", label: "Properties", tabs: [] },
+    { section: "service", label: "Service", tabs: [] },
+    { section: "proplane-line", label: "PropLane line", tabs: [] },
+    { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
+    // SOFTWARE (the subscriptions PropLane sells): Accounts, Subscribers, Payments, Promo codes, Finances.
     { section: "axis-users", label: "Accounts", tabs: [] },
     // Who pays, who is on a trial, who came in on a promo code - decided by the resolvers
     // enforcement uses (`admin-subscribers-model.ts`).
     { section: "subscribers", label: "Subscribers", tabs: [] },
-    // Strangers qualified on the shared line who have not picked a house yet (platform only; one-number W3).
-    { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
-    // PropLane's own managed-property workspaces (per city), owned by the service owner account (one-number W15).
-    { section: "service", label: "Service", tabs: [] },
     { section: "test-accounts", label: "Test accounts", tabs: [] },
     // Money: a live read of PropLane's platform Stripe account, the promo codes that discount it and
     // the P&L (plan admin-money-1008). `/admin/payments` used to be a dead redirect to the
@@ -33,7 +37,6 @@ export const adminPortal: PortalDefinition = {
     { section: "payments", label: "Payments", tabs: [] },
     { section: "promo-codes", label: "Promo codes", tabs: [] },
     { section: "finances", label: "Finances", tabs: [] },
-    { section: "properties", label: "Properties", tabs: [] },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },
     { section: "events", label: "Meetings", tabs: [] },
     // Failed deliveries and stuck work, grouped by kind (GET /api/admin/health).
@@ -66,14 +69,15 @@ export function adminPortalForTestWorkspaceOperator(allowed: boolean): PortalDef
 export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Communication", path: "/admin/communication" },
+  { label: "Properties", path: "/admin/properties" },
+  { label: "Service", path: "/admin/service" },
+  { label: "PropLane line", path: "/admin/proplane-line" },
+  { label: "Unassigned leads", path: "/admin/unassigned-leads" },
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Subscribers", path: "/admin/subscribers" },
-  { label: "Unassigned leads", path: "/admin/unassigned-leads" },
-  { label: "Service", path: "/admin/service" },
   { label: "Payments", path: "/admin/payments" },
   { label: "Promo codes", path: "/admin/promo-codes" },
   { label: "Finances", path: "/admin/finances" },
-  { label: "Properties", path: "/admin/properties" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Meetings", path: "/admin/events" },
   { label: "Health", path: "/admin/health" },

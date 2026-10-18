@@ -200,7 +200,7 @@ export async function renameServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
   input: { id: string; name: unknown; city: unknown },
-): Promise<ServiceResult<Record<string, never>>> {
+): Promise<ServiceResult<object>> {
   const name = cleanServiceName(input.name);
   if (!name) return fail(400, "Use a workspace name of 1 to 80 characters.");
   const city = cleanServiceCity(input.city);
@@ -303,7 +303,7 @@ export async function removeServiceTeamMember(
   db: SupabaseClient,
   operatorUserId: string,
   input: { id: string; linkId: unknown },
-): Promise<ServiceResult<Record<string, never>>> {
+): Promise<ServiceResult<object>> {
   const linkId = typeof input.linkId === "string" ? input.linkId.trim() : "";
   if (!/^[0-9a-f-]{36}$/i.test(linkId)) return fail(400, "Choose a teammate.");
   const who = await operatorStanding(db, operatorUserId, input.id);

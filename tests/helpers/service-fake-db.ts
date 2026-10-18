@@ -11,6 +11,8 @@ export type ServiceFakeDb = {
   failOn: Record<string, { code: string; message: string }>;
   /** Make the next insert into `table` fail. */
   failInsertOn: Set<string>;
+  /** Make updates on `table` fail. */
+  failUpdateOn: Set<string>;
   from(table: string): unknown;
   rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { code?: string; message: string } | null }>;
 };
@@ -24,6 +26,7 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
     rpcCalls: [],
     failOn: {},
     failInsertOn: new Set(),
+    failUpdateOn: new Set(),
     from(table: string) {
       const rows = () => (db.tables[table] ??= []);
       const filters: Array<(r: Row) => boolean> = [];
@@ -52,8 +55,10 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
           return { data: null, error: null };
         }
         if (mode === "update") {
-          for (const r of matching()) Object.assign(r, patch);
-          return { data: null, error: null };
+          if (db.failUpdateOn.has(table)) return { data: null, error: { code: "XX000", message: "update failed" } };
+          const hit = matching();
+          for (const r of hit) Object.assign(r, patch);
+          return { data: hit.map((r) => ({ ...r })), error: null };
         }
         if (mode === "delete") {
           db.tables[table] = rows().filter((r) => !filters.every((f) => f(r)));
