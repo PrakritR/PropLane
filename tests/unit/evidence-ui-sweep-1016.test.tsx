@@ -16,7 +16,8 @@
 //   5. The tour scheduler's empty state is an answer about the property, with a way to reach
 //      the manager.
 //   6. The generated room lease: no Date of birth line, the floor said once, the deposit
-//      sentence complete, and no handwritten signature lines.
+//      sentence complete, and the only handwritten signature lines are Addendum A's
+//      move-in condition report (the lease body itself is signed electronically).
 import { useState } from "react";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -391,7 +392,15 @@ describe("the generated room lease", () => {
     expect(html).toContain(application.fullLegalName);
     expect(html).not.toMatch(/date of birth/i);
     for (const secret of ["1998-03-14", "123-45-6789", "D1234567"]) expect(html).not.toContain(secret);
-    expect(html).not.toContain("Landlord signature: ____");
+    // Addendum A's condition report is a printable the parties hand-fill on move-in day, so it
+    // keeps its signature and date lines (captain, Oct 17). The lease BODY still signs
+    // electronically: the only such lines on the page are the ones inside that addendum.
+    const handSignLines = html.match(/Landlord signature: ____/g) ?? [];
+    expect(handSignLines).toHaveLength(1);
+    const conditionReport = html.slice(html.indexOf("Addendum A"), html.indexOf("Addendum B"));
+    expect(conditionReport).toContain("Landlord signature: ____________________ Date: __________");
+    expect(conditionReport).toContain("Resident signature: ____________________ Date: __________");
+    expect(html).toContain("No duplicate handwritten signature lines are included in this document.");
     standalone.push({ name: "09-lease-room-no-birth-date", html });
   });
 });

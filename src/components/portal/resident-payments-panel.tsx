@@ -616,7 +616,7 @@ export function ResidentPaymentsPanel({
       }
       router.replace(listPath);
     })();
-  }, [basePath, refresh, resolvedBucketProp, router, searchParams, showToast]);
+  }, [basePath, refresh, resolvedBucketProp, router, searchParams, setSelectedIds, showToast]);
 
   const rows = useMemo(() => {
     // Ledger-only payments carry no application, so they belong to the long-term section.

@@ -963,6 +963,14 @@ to leak "On … wrote:" into the bubble. Coverage:
   `[A-Za-z0-9._-]` (Supabase key charset; also blocks `..`, separators, and
   `Content-Disposition` header injection). Ownership checks still read `path[0]`,
   and two-segment legacy paths still resolve.
+- **Who may read the bytes: the uploader (`path[0]`), an admin, the owner or
+  participant of a thread that references the file — and, on the workspace Team
+  chat, any member who may read that chat.** The team row is shared
+  (`owner_user_id` is the workspace owner, `participant_email` is null), so the
+  participant checks admit only the uploader and the owner; a file the thread
+  actually carries in its structured attachment fields (never message text) is
+  served to whoever `assertTeamThreadMember` lets open the chat — the same gate,
+  not a wider one (`userCanAccessInboxAttachment`).
 - **The bucket has a second writer that is not a message attachment.** Inspection
   chat/MMS intake stores private photo sources here as
   `<userId>/inspection-chat/<ownerId|portal>/<sha256>.jpg`; they are never listed

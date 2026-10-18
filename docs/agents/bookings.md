@@ -55,8 +55,8 @@ Those lists un-draw a stay only on PROVEN absence: a lease or application the
 snapshot named but the client list does not is orphaned data and stops holding
 the room — but only once the applications answer was a **complete** manager-scope
 list (`complete` on `ManagerApplicationsSyncResult`, i.e. not `truncated`, not
-sitting at the read cap, same workspace). A partial answer is missing rows that
-still exist, so absence there proves nothing. Coverage:
+sitting at the read cap, no row the route had to skip, same workspace). A partial
+answer is missing rows that still exist, so absence there proves nothing. Coverage:
 `tests/unit/bookings-residents-from-occupancy.test.tsx`.
 
 ## Five reads; one that fails never blanks the screen
