@@ -1,5 +1,0 @@
-src/app/api/manager/sms-conversations/[id]/route.ts(9,50): error TS2304: Cannot find name 'RouteContext'.
-src/app/api/manager/sms-conversations/[id]/route.ts(31,52): error TS2304: Cannot find name 'RouteContext'.
-src/components/portal/property-house-chat-list.tsx(154,38): error TS2741: Property 'icon' is missing in type '{ children: string; key: string; srLabel: string; }' but required in type '{ icon: LucideIcon; children: ReactNode; srLabel?: string | undefined; tone?: "ok" | "danger" | undefined; }'.
-src/lib/house-groups/conversations-gateway.server.ts(50,11): error TS2820: Type '"POST"' is not assignable to type 'WebhookMethod | undefined'. Did you mean '"post"'?
-exit 2
