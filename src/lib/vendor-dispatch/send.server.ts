@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { loadSharedLineConfig, workspaceOnSharedLine as workspaceOnSharedLineConfig } from "@/lib/one-number/config.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
 import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -20,22 +21,9 @@ import { toGsm7 } from "@/lib/vendor-dispatch/text";
 
 export type DispatchSendResult = { ok: true; outboxId: string | null } | { ok: false; reason: string };
 
-/** Is this workspace answering on the one shared line? (`sms_runtime_config.line_mode`) */
+/** Is this workspace answering on the one shared line? Same decision as the transport (`config.server.ts`). */
 export async function workspaceOnSharedLine(db: SupabaseClient, workspaceId: string): Promise<boolean> {
-  try {
-    const { data, error } = await db
-      .from("sms_runtime_config")
-      .select("line_mode, shared_pilot_workspace_ids")
-      .eq("singleton", true)
-      .maybeSingle();
-    if (error || !data) return false;
-    const row = data as { line_mode?: string; shared_pilot_workspace_ids?: string[] | null };
-    if (row.line_mode !== "shared") return false;
-    const pilot = row.shared_pilot_workspace_ids ?? [];
-    return pilot.length === 0 || pilot.includes(workspaceId);
-  } catch {
-    return false;
-  }
+  return workspaceOnSharedLineConfig(await loadSharedLineConfig(db), workspaceId);
 }
 
 async function enqueueAndDispatch(

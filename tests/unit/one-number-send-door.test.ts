@@ -5,9 +5,9 @@ const mocks = vi.hoisted(() => ({
   sendFromManagerWorkNumber: vi.fn(),
 }));
 
-vi.mock("@/lib/one-number/shared-line-number.server", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/one-number/shared-line-number.server")>()),
-  readSharedLineConfig: vi.fn(async () => ({
+vi.mock("@/lib/one-number/config.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/one-number/config.server")>()),
+  loadSharedLineConfig: vi.fn(async () => ({
     mode: "per_workspace", sharedNumber: null, messagingServiceSid: null, pilotWorkspaceIds: [], ...mocks.config,
   })),
 }));

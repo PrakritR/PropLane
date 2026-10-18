@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineRole, SharedLineSend, SharedLineSendResult } from "@/lib/one-number/contracts";
 import { appendSignOff, smsSegmentCount, toGsm7 } from "@/lib/one-number/segments";
-import { readSharedLineConfig, sharedLineActiveFor } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 
 const COUNTERPARTY_FOR_ROLE: Record<SharedLineRole, SmsCounterpartyRole> = {
@@ -43,10 +43,10 @@ export async function sendSharedLineMessage(
   db: SupabaseClient,
   send: SharedLineSend,
 ): Promise<SharedLineSendResult> {
-  const config = await readSharedLineConfig(db);
+  const config = await loadSharedLineConfig(db);
   if (config.mode !== "shared") return { ok: false, reason: "not_shared_mode" };
   if (!config.sharedNumber) return { ok: false, reason: "no_shared_number" };
-  if (!sharedLineActiveFor(config, send.workspaceId)) return { ok: false, reason: "not_shared_mode" };
+  if (!workspaceOnSharedLine(config, send.workspaceId)) return { ok: false, reason: "not_shared_mode" };
 
   const text = toGsm7(appendSignOff(String(send.body ?? ""), send.signOff ?? null));
   if (!text) return { ok: false, reason: "provider_error", detail: "empty_body" };
