@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Archive, ChevronLeft, Pencil, Phone, RotateCcw, Search, Trash2 } from "lucide-react";
+import { AssistantPauseControl, assistantPauseConversationId } from "@/components/portal/assistant-pause-control";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -1376,6 +1377,7 @@ export const ManagerSmsPanel = forwardRef<
             </p>
           </div>
         </div>
+        <AssistantPauseControl conversationId={assistantPauseConversationId(active.resident)} />
         {canEditContact ? (
           <button
             type="button"
