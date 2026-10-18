@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 vi.mock("@/lib/rental-application/data", () => ({
+  // The sheet reads the house's default check-in / check-out times off the listing store.
+  getPropertyById: () => undefined,
   getRoomOptionsForProperty: () => [{ value: "h1::r1", label: "Room 1" }],
   parseRoomChoiceValue: (value: string) => ({ listingRoomId: value.split("::")[1] ?? null }),
 }));

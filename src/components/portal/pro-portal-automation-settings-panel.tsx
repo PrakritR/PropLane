@@ -163,6 +163,8 @@ export const REMINDER_KIND_MODULE: Record<ReminderSubjectKind, CoManagerPermissi
   task_overdue: "calendar",
   resident_welcome: "residents",
   inspection_acknowledge: "residents",
+  stay_arrival_guide: "calendar",
+  stay_checkout_reminder: "calendar",
 };
 
 

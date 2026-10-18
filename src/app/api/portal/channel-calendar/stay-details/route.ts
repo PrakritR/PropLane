@@ -46,6 +46,8 @@ export async function PUT(req: Request) {
       nightlyCents?: unknown;
       payoutCents?: unknown;
       paidAt?: unknown;
+      checkInTime?: unknown;
+      checkOutTime?: unknown;
     };
     const result = await saveChannelStayDetails(ctx.db, ctx.userId, {
       connectionId: String(body.connectionId ?? ""),
@@ -59,6 +61,9 @@ export async function PUT(req: Request) {
       nightlyCents: body.nightlyCents,
       payoutCents: body.payoutCents,
       paidAt: body.paidAt,
+      // "HH:MM" property wall time; the server places it on the stay's dates. Left out = untouched, blank = default.
+      checkInTime: body.checkInTime,
+      checkOutTime: body.checkOutTime,
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json(result.value);

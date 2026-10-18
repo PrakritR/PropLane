@@ -36,7 +36,9 @@ export type DispatchAuditEvent =
   | "invoice_asked"
   | "invoice_approved"
   | "invoice_rejected"
-  | "refused_unverified_lockout";
+  | "refused_unverified_lockout"
+  /** A turnover clean's window moved because a stay's check-in / checkout time did. */
+  | "window_changed";
 
 export async function recordDispatchEvent(
   db: SupabaseClient,

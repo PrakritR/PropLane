@@ -21,9 +21,11 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Select } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { normalizePropertyStayTimes, stayAddOnLabel, type StayAddOnKind } from "@/lib/bookings/stay-times";
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import { addRangeDays, pacificTodayKey, rangeDaysBetween } from "@/lib/room-availability-range";
 import {
@@ -44,6 +46,13 @@ import {
   type GuestStay,
   type ShortStayRangeDraft,
 } from "@/lib/short-stay/guest-stays";
+import {
+  addOnsQuoteCents,
+  estimatedArrivalOptions,
+  offersForBooking,
+  stayAddOnCheckLabel,
+  standardTimesLine,
+} from "@/lib/short-stay/stay-add-ons";
 import { shortStayRangeHasRoom } from "@/lib/short-stay-availability";
 import {
   SHORT_STAY_MAX_DAYS_AHEAD,
@@ -117,6 +126,9 @@ export function BookAgainSheet({
   const [outcome, setOutcome] = useState<GuestRangeResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // "none" = Not sure: nothing is stored. Any other value is the "HH:MM" the guest expects to arrive.
+  const [arrival, setArrival] = useState("none");
+  const [tickedAddOns, setTickedAddOns] = useState<StayAddOnKind[]>([]);
   const checkId = useRef(0);
   // The room the house switch lands on, for the clamp below: the effect runs before `setRoomId` has
   // taken, so its own `roomId` is still the previous house's room.
@@ -242,6 +254,12 @@ export function BookAgainSheet({
   };
 
   const results = dry.results;
+  // The add-ons the server's dry run says these nights can carry; a ticked one the server stops offering drops out.
+  const perRangeOffers = results.map((result) => result.addOns);
+  const addOnOffers = offersForBooking(perRangeOffers);
+  const activeAddOns = tickedAddOns.filter((kind) => addOnOffers.some((offer) => offer.kind === kind));
+  const addOnsCents = addOnsQuoteCents(perRangeOffers, activeAddOns);
+  const stayTimes = normalizePropertyStayTimes(listing?.stayTimes);
   const resultFor = (range: ShortStayRangeDraft) => results.find((r) => r.checkIn === range.checkIn && r.checkOut === range.checkOut);
   const action = guestBookAction(results);
   const refusedRanges = results.filter((r) => r.outcome === "unavailable" || r.outcome === "invalid");
@@ -256,14 +274,21 @@ export function BookAgainSheet({
           const nights = rangeDaysBetween(range.checkIn, range.checkOut);
           return { nights, total: shortStayTotal(room?.nightly ?? 0, nights) };
         });
-  const total = previewStays.reduce((sum, stay) => sum + stay.total, 0);
+  const total = previewStays.reduce((sum, stay) => sum + stay.total, 0) + (phase === "result" ? 0 : addOnsCents / 100);
 
   const submit = async () => {
     if (busy || cart.length === 0 || !room) return;
     setBusy(true);
     setError("");
     try {
-      const response = await postGuestStays({ propertyId, roomId, ranges: cart, guests });
+      const response = await postGuestStays({
+        propertyId,
+        roomId,
+        ranges: cart,
+        guests,
+        ...(arrival !== "none" ? { estimatedArrival: arrival } : {}),
+        ...(activeAddOns.length ? { addOns: activeAddOns } : {}),
+      });
       window.dispatchEvent(new Event(GUEST_STAYS_CHANGED));
       onBooked();
       // What went through leaves the cart; a range refused at the last moment stays, marked.
@@ -326,6 +351,7 @@ export function BookAgainSheet({
               </span>
               <span className={row.outcome === "unavailable" || row.outcome === "invalid" ? "shrink-0 font-medium text-danger" : "shrink-0 font-medium text-foreground"}>
                 {row.outcome === "confirmed" ? "Confirmed" : row.outcome === "pending" ? "Pending, the host has 24 hours" : row.error ?? "Not available"}
+                {row.addOnsSkipped?.length ? ` · ${row.addOnsSkipped.map(stayAddOnLabel).join(", ")} not added` : ""}
               </span>
             </li>
           ))}
@@ -474,6 +500,47 @@ export function BookAgainSheet({
               );
             })}
           </ul>
+        ) : null}
+
+        {listing ? (
+          <p className="text-[14px] font-medium text-foreground sm:col-span-2" data-attr="book-again-standard-times">
+            {standardTimesLine(stayTimes)}
+          </p>
+        ) : null}
+        {cart.length > 0 ? (
+          <div className="sm:col-span-2" data-attr="book-again-arrival">
+            <FieldSingleSelect
+              label="Estimated arrival"
+              value={arrival}
+              disabled={busy}
+              options={[{ value: "none", label: "Not sure" }, ...estimatedArrivalOptions().filter((option) => option.value !== "")]}
+              onChange={setArrival}
+              dataAttr="book-again-arrival-select"
+            />
+          </div>
+        ) : null}
+        {cart.length > 0 && addOnOffers.length > 0 ? (
+          <div className="space-y-1 sm:col-span-2" data-attr="book-again-add-ons">
+            {addOnOffers.map((offer) => {
+              const label = stayAddOnCheckLabel(offer);
+              if (!label) return null;
+              return (
+                <label key={offer.kind} className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px] sm:text-[14px]" data-attr={`book-again-add-on-${offer.kind}`}>
+                  <input
+                    type="checkbox"
+                    className="size-5 shrink-0 rounded border-border"
+                    checked={activeAddOns.includes(offer.kind)}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setTickedAddOns((current) => (event.target.checked ? [...new Set([...current, offer.kind])] : current.filter((kind) => kind !== offer.kind)))
+                    }
+                    aria-label={stayAddOnLabel(offer.kind)}
+                  />
+                  <span>{label}</span>
+                </label>
+              );
+            })}
+          </div>
         ) : null}
 
         {listingState === "error" ? <p role="alert" className="text-danger sm:col-span-2">This home doesn&apos;t take short stays right now.</p> : null}

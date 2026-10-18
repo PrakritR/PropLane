@@ -222,6 +222,9 @@ export type ChannelStayDetailsInput = {
   payoutCents?: number | null;
   /** YYYY-MM-DD or ISO; null clears. */
   paidAt?: string | null;
+  /** "HH:MM" property wall time. Left out = untouched; blank / null = back to the property's default. */
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 };
 
 /** Save the name, phone and Airbnb money for a channel stay in one request. */

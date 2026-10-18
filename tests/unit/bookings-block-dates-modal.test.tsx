@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/rental-application/data", () => ({
+  // The sheet reads the house's default check-in / check-out times off the listing store.
+  getPropertyById: () => undefined,
   getRoomOptionsForProperty: () => [{ value: "h1::r1", label: "Room 1" }],
   parseRoomChoiceValue: (value: string) => ({ listingRoomId: value.split("::")[1] ?? null }),
 }));
@@ -190,8 +192,12 @@ describe("BookingsBlockDatesModal — resident", () => {
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-when"]')!);
     expect(document.body.textContent ?? "").toContain("Move in");
     expect(document.body.textContent ?? "").toContain("Move out");
-    expect(document.body.textContent ?? "").not.toContain("Check-in");
-    expect(document.body.textContent ?? "").not.toContain("Check-out");
+    // The DATES are Move in / Move out. "Check-in" / "Check-out" now name only the exact-time dropdowns
+    // (exact times, 1018), defaulting to the house's 3:00 pm / 11:00 am: they replaced Early / Late inputs.
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("Check-in3:00 pm");
+    expect(body).toContain("Check-out11:00 am");
+    expect(document.body.textContent ?? "").not.toContain("Early check-in");
     expect(attr(view, "bookings-block-check-in")).not.toBeNull();
     expect(attr(view, "bookings-block-check-out")).not.toBeNull();
   });

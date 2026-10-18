@@ -17,7 +17,9 @@ import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { ROOM_DATE_BLOCKS_CHANGED } from "@/lib/channel-calendar/room-date-blocks";
 import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
-import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { stayTimeOptions } from "@/lib/bookings/stay-time-options";
+import { DEFAULT_PROPERTY_STAY_TIMES, normalizePropertyStayTimes, resolveStayTimes } from "@/lib/bookings/stay-times";
+import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 
 /**
@@ -81,6 +83,13 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   // Dates with nobody attached are a closed room until a guest is named; every booking has a name.
   const [reservedName, setReservedName] = useState("");
   const [details, setDetails] = useState(entry.stayDetails ?? {});
+  // The stay's own times, else its property's defaults: the manager overrides either from here.
+  const initialTimes = resolveStayTimes(
+    { checkInTime: entry.checkInTime, checkOutTime: entry.checkOutTime, legacyEarlyCheckIn: entry.stayDetails?.earlyCheckIn, legacyLateCheckOut: entry.stayDetails?.lateCheckOut },
+    normalizePropertyStayTimes(getPropertyById(entry.propertyId)?.listingSubmission?.stayTimes ?? DEFAULT_PROPERTY_STAY_TIMES),
+  );
+  const [checkInTime, setCheckInTime] = useState(initialTimes.checkInTime);
+  const [checkOutTime, setCheckOutTime] = useState(initialTimes.checkOutTime);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [section, setSection] = useState(0);
@@ -129,7 +138,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     finally { setBusy(false); }
   };
   const rateValid = rate === "" || (Number.isFinite(Number(rate)) && Number(rate) >= 0);
-  const dirty = guestName !== initialName || guestEmail !== (entry.residentEmail ?? "") || guestPhone !== (entry.residentPhone ?? "") || propertyId !== entry.propertyId || roomId !== entry.roomId || openEnded !== Boolean(entry.openEnded) || checkIn !== entry.start || checkOut !== initialCheckOut || status !== initialStatus || rate !== initialRateText || basis !== (entry.rateBasis ?? initialRate.basis) || notes !== (entry.reason ?? "") || reservedName !== "" || JSON.stringify(details) !== JSON.stringify(entry.stayDetails ?? {});
+  const dirty = guestName !== initialName || guestEmail !== (entry.residentEmail ?? "") || guestPhone !== (entry.residentPhone ?? "") || propertyId !== entry.propertyId || roomId !== entry.roomId || openEnded !== Boolean(entry.openEnded) || checkIn !== entry.start || checkOut !== initialCheckOut || status !== initialStatus || rate !== initialRateText || basis !== (entry.rateBasis ?? initialRate.basis) || notes !== (entry.reason ?? "") || reservedName !== "" || checkInTime !== initialTimes.checkInTime || checkOutTime !== initialTimes.checkOutTime || JSON.stringify(details) !== JSON.stringify(entry.stayDetails ?? {});
   const save = async () => {
     if (lockedDetails) { onClose(); return; }
     if (metaRef && onSaveStayMeta) {
@@ -149,7 +158,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     try {
       await onSave(reservation
         ? { id: entry.blockId, openEnded, propertyId, roomId, checkIn, checkOut, residentName: reservedLabel, residentEmail: "", reason: notes, ...(reservedKind ? { blockKind: reservedKind } : {}), bookingStatus: entry.bookingStatus ?? "confirmed", rate: entry.rate, rateBasis: entry.rateBasis, stayDetails: entry.stayDetails }
-        : { id: entry.blockId, isBookingResidency: entry.isBookingResidency, openEnded, propertyId, roomId, checkIn, checkOut, residentName: guestName.trim(), residentEmail: guestEmail.trim(), residentPhone: guestPhone, reason: notes, bookingStatus: status as "hold" | "confirmed", rate: rate === "" ? undefined : Number(rate), rateBasis: basis, stayDetails: details });
+        : { id: entry.blockId, isBookingResidency: entry.isBookingResidency, openEnded, propertyId, roomId, checkIn, checkOut, residentName: guestName.trim(), residentEmail: guestEmail.trim(), residentPhone: guestPhone, reason: notes, bookingStatus: status as "hold" | "confirmed", rate: rate === "" ? undefined : Number(rate), rateBasis: basis, stayDetails: details, checkInTime, checkOutTime });
       onClose();
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save booking."); }
@@ -223,7 +232,10 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
         <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails({ ...details, source: next })} options={[...["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: details.source === "guest_portal" ? "Guest portal" : "Public request" }] : [])]} />
         <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         {(["linen", "baggage"] as const).map((key) => <FieldSingleSelect key={key} labelClassName={POPUP_FIELD_LABEL_CLASS} label={key === "linen" ? "Linen" : "Baggage"} dataAttr={`select-booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(next) => setDetails({ ...details, [key]: next })} options={[{ value: "", label: "Not set" }, ...(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => ({ value, label: value }))]} />)}
-        {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })} /></label>)}
+        {metaOnly ? null : <>
+          <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Check-in" dataAttr="select-booking-edit-check-in" disabled={lockedDetails || busy} value={checkInTime} onChange={setCheckInTime} options={stayTimeOptions(checkInTime)} />
+          <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Check-out" dataAttr="select-booking-edit-check-out" disabled={lockedDetails || busy} value={checkOutTime} onChange={setCheckOutTime} options={stayTimeOptions(checkOutTime)} />
+        </>}
       </EditSection>
     </>}
     {error ? <p role="alert" className="text-danger">{error}</p> : null}

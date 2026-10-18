@@ -23,6 +23,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { channelStayBookingKey, bookingRecordUrl } from "@/lib/channel-calendar/booking-record-link";
+import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server";
+import { wallTimeOfInstant } from "@/lib/bookings/stay-stamp";
+import { normalizeStayTime } from "@/lib/bookings/stay-times";
+import { channelStayDetailsKey } from "@/lib/channel-calendar/stay-details";
+import { importedRangeUid } from "@/lib/channel-calendar/stay-tombstones";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { roomBlockSummary } from "@/lib/channel-calendar/property-bookings";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
@@ -104,11 +109,71 @@ export type Stay = {
   reservationCode?: string;
   /** The record-page key (`bookingEntryKey`) the reminder links to. */
   recordKey?: string;
+  /**
+   * The stay's OWN check-in / check-out time ("HH:MM", property wall time) when it carries one: a
+   * room-date block's `row_data` times, or a manager override on an imported channel stay
+   * (`channel_stay_details.check_in_at / check_out_at`). Absent = the property's defaults apply
+   * (`resolveStayTimes`); the cleaning window and the guest texts resolve them against the property's clock.
+   */
+  checkInTime?: string;
+  checkOutTime?: string;
 };
 
 function str(row: Record<string, unknown>, key: string): string | null {
   const value = row[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * A manager's override of an imported channel stay's times, read off `channel_stay_details`
+ * (`check_in_at` / `check_out_at`, timestamptz) and turned into the property's wall "HH:MM".
+ * Keyed `<connectionId>|<stay details key>`. Best-effort: the columns arrive with the exact-times
+ * migration, so a database without them (or any failed read) simply means "property defaults".
+ */
+async function loadChannelStayTimeOverrides(
+  db: SupabaseClient,
+  connections: Array<Record<string, unknown>>,
+): Promise<Map<string, { checkInTime?: string; checkOutTime?: string }>> {
+  const out = new Map<string, { checkInTime?: string; checkOutTime?: string }>();
+  try {
+    const connectionIds = connections.map((row) => str(row, "id")).filter((id): id is string => Boolean(id));
+    if (connectionIds.length === 0) return out;
+    const { data, error } = await db
+      .from("channel_stay_details")
+      .select("connection_id, source_uid, check_in_at, check_out_at")
+      .in("connection_id", connectionIds)
+      .or("check_in_at.not.is.null,check_out_at.not.is.null");
+    if (error || !Array.isArray(data) || data.length === 0) return out;
+    const propertyByConnection = new Map(connections.map((row) => [str(row, "id") ?? "", str(row, "property_id") ?? ""]));
+    const zones = new Map<string, string>();
+    for (const raw of data as Array<Record<string, unknown>>) {
+      const connectionId = str(raw, "connection_id");
+      const sourceUid = str(raw, "source_uid");
+      if (!connectionId || !sourceUid) continue;
+      const propertyId = propertyByConnection.get(connectionId) ?? "";
+      if (!zones.has(propertyId)) zones.set(propertyId, (await loadPropertyStayClock(db, propertyId || null)).timeZone);
+      const zone = zones.get(propertyId)!;
+      const checkInTime = wallTimeOfInstant(str(raw, "check_in_at"), zone);
+      const checkOutTime = wallTimeOfInstant(str(raw, "check_out_at"), zone);
+      if (checkInTime || checkOutTime) {
+        out.set(`${connectionId}|${sourceUid}`, {
+          ...(checkInTime ? { checkInTime } : {}),
+          ...(checkOutTime ? { checkOutTime } : {}),
+        });
+      }
+    }
+  } catch {
+    // Times are a refinement of the dates; a failed read leaves the property defaults.
+  }
+  return out;
+}
+
+/** The times a room-date block carries of its own: the stamped fields, else the legacy sheet fields. */
+function blockStayTimes(rowData: Record<string, unknown>): { checkInTime?: string; checkOutTime?: string } {
+  const details = (rowData.stayDetails && typeof rowData.stayDetails === "object" ? rowData.stayDetails : {}) as Record<string, unknown>;
+  const checkInTime = normalizeStayTime(rowData.checkInTime) ?? normalizeStayTime(details.earlyCheckIn);
+  const checkOutTime = normalizeStayTime(rowData.checkOutTime) ?? normalizeStayTime(details.lateCheckOut);
+  return { ...(checkInTime ? { checkInTime } : {}), ...(checkOutTime ? { checkOutTime } : {}) };
 }
 
 /** Imported channel ranges. One row per linked room, ranges inside it. */
@@ -119,6 +184,7 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
     .limit(MAX_ROWS);
   if (error) throw error;
 
+  const overrides = await loadChannelStayTimeOverrides(db, (data ?? []) as Array<Record<string, unknown>>);
   const stays: Stay[] = [];
   for (const raw of data ?? []) {
     const row = raw as Record<string, unknown>;
@@ -142,6 +208,15 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
       const channelLabel = provider === "ical" ? str(row, "label") : null;
       const placeLabel = provider === "ical" ? null : str(row, "label");
       const code = String(range.reservationCode ?? "").trim();
+      const stayTimes = overrides.get(
+        `${connectionId}|${channelStayDetailsKey({
+          sourceUid: importedRangeUid({ sourceUid: String(range.sourceUid ?? ""), id: String(range.id ?? "") }),
+          start,
+          end: end ?? undefined,
+          hostBlock: range.hostBlock === true ? true : undefined,
+          summary: String(range.summary ?? ""),
+        })}`,
+      );
       stays.push({
         managerUserId,
         // Stable across syncs: the same range keeps the same id, so a re-sync
@@ -156,6 +231,8 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
         roomId: str(row, "room_id") ?? undefined,
         roomLabel: placeLabel ?? undefined,
         ...(code ? { reservationCode: code } : {}),
+        ...(stayTimes?.checkInTime ? { checkInTime: stayTimes.checkInTime } : {}),
+        ...(stayTimes?.checkOutTime ? { checkOutTime: stayTimes.checkOutTime } : {}),
         recordKey: channelStayBookingKey({
           provider,
           propertyId: str(row, "property_id") ?? "",
@@ -251,6 +328,7 @@ export async function roomDateBlockStays(db: SupabaseClient): Promise<Stay[]> {
       propertyLabel: str(row, "property_id") ?? "your listing",
       roomId: str(rowData, "roomId") ?? undefined,
       recordKey: `block:${id}`,
+      ...blockStayTimes(rowData),
     });
   }
   return stays;

@@ -94,6 +94,73 @@ a bar's name is `position: sticky` inside an `overflow-clip` bar. Phone taps ope
 Dev proof: `/dev-fixtures/bookings-scale` (100 houses x 10 rooms; 404s outside `next dev`).
 Coverage: `tests/unit/bookings-timeline-scale.test.tsx`.
 
+## Exact times, half-day bars, paid early / late (Oct 18 2026)
+
+**Dates stay authoritative; times ride beside them.** One pure module, `src/lib/bookings/stay-times.ts`, owns every time rule:
+defaults, `resolveStayTimes`, `staysOverlap`, `halfDayBarSpan`, `stayAddOnAvailability` and `bookingTimeline`. Never derive a
+time a second way.
+
+- **Property defaults** live at `listingSubmission.stayTimes` and are edited in the listing editor's Basics step, section
+  "Check-in and check-out" (every listing). Defaults: check-in 3:00 pm, check-out 11:00 am, cleaning buffer 3 h, earliest early
+  check-in 12:00 pm, latest late checkout 2:00 pm, each add-on $25. `publicListingProjection` publishes the times and the two
+  prices, never the buffer. The zone is the property's ZIP (`propertyTimeZoneForZip`). The server read is
+  `loadPropertyStayClock` (`bookings/property-stay-times.server.ts`).
+- **A stay row** (`room_date_block`) always carries `row_data.checkInTime` / `checkOutTime` ("HH:MM" property wall time), plus the
+  real instants in `starts_at` / `ends_at`.
+  - Every writer goes through `stampStayRow` (`bookings/stay-stamp.ts`). The save's own time wins, else the stored row's, else the
+    legacy `stayDetails.earlyCheckIn/lateCheckOut`, else the default.
+  - `stayDetails.addOns` is carried from the STORED row only, so a body never sets a paid add-on.
+  - `residentUserId` is server-owned. `/api/portal-schedule-records` drops it from the body and keeps the stored one, because the
+    stay charge, the guest's Stays and the guest's texts (door code included) are all keyed on it.
+  - The Add/Edit sheets' Check-in / Check-out dropdowns are the manager's override. An imported channel stay takes the defaults,
+    and its override is `channel_stay_details.check_in_at/check_out_at` (Edit on the stay).
+- **Overlap compares wall times.** An 11:00 am out and a 3:00 pm in on the same day is not a double booking.
+  - `20261018220000_booking_exact_times.sql` makes the capacity trigger sweep `[checkIn + checkInTime, checkOut + checkOutTime)`.
+    The time comes from the row, else the property's stayTimes, else 15:00 / 11:00. A default-time stay compares exactly as the old
+    date sweep did.
+  - The same migration backfilled stays at Pacific: every live house is Pacific, and any later save corrects the instants.
+  - Long-term placements (`assert_room_placement_capacity`) stay day-granular.
+- **Half-day bars** (`layoutRoom`):
+  - A check-in at or after noon starts mid-cell. A check-out at or before noon ends mid-cell. A same-day turnover is two half bars
+    in one lane.
+  - Lanes and conflicts use `staysOverlap`. Nights, the strip and the KPI tiles still count days.
+  - At a turnover the bars stop short of a full-height block: slate hatch when a cleaning run exists (`useTurnoverCleaningRuns`,
+    an optional read that is never a failed source), red hatch when the gap is under the buffer.
+  - Tap title: "Brandi · out Oct 19, 11:00 am", with Check-in / Check-out / add-on fact rows.
+  - A Clock glyph marks a PAID add-on.
+- **Paid early check-in / late checkout** (`short-stay/stay-add-ons*.ts`, `GET/POST /api/resident/stays/[blockId]/add-ons`).
+  - **Identity, price and availability.** Identity is the session; the stay must be this login's. Price and window come from the
+    property's stayTimes. An add-on is offered only when `stayAddOnAvailability` holds against the room's other live stays: the
+    previous guest out plus the buffer for early, the next check-in minus the buffer for late. It is re-checked at request, at
+    confirm and at payment.
+  - **The charge.** The charge is `hc_mgr_stay_<slug>_<kind>`, idempotent, and carries `guestStayBlockId` + `stayAddOn`. It never
+    carries `shortStayBookingId`. A hold stores `requested`, and the charge is raised on Approve / instant confirm.
+  - **Paid.** Paid (webhook, never while processing) moves the stay's time and calls `refreshTurnoverCleaningTimes`. It texts the
+    guest and posts a `channel_booking` notice.
+  - **Can't be honored.** That includes a trigger P4001. The add-on is refunded automatically, keyed
+    `stay-add-on-refund:<chargeId>:<cents>`.
+  - **Booking flow.** Book again and the public card take an Estimated arrival plus add-on checkboxes (from the dry run).
+  - **By text.** Read-only `get_my_stay_times` (resident registry, SMS included) answers with the price and a pay link to the
+    guest's Stays sheet. The guest pays there; the model never charges.
+- **Times drive texts** (`bookingTimeline`, reminder kinds `stay_arrival_guide` / `stay_checkout_reminder`,
+  `reminders/subjects/stay-times.server.ts`, no new cron).
+  - **Who gets them.** Only to the guest of a CONFIRMED stay with a login.
+  - **When.** The arrival guide goes 24 h before check-in; it is quiet-hour held but never sent after check-in. The checkout reminder
+    goes at 8:00 am on checkout day.
+  - **What the guide says.** It is built at send time from `houseInfo` (`bookings/arrival-guide.ts`). The door code goes only in that
+    guest's own message and is never stored in the queue.
+  - **Cleaning runs.** They take the window checkout → next check-in (`vendor-dispatch/turnover-window.ts`).
+  - **The manager's switch.** Each text is a Settings → Automations row (`arrival_guide` / `checkout_reminder`). It is
+    on or off only, default on, and is read at send time (`loadOffPresetResolver`). There is no draft and no editable
+    text, because the body carries the door code and is built from house facts when it is sent.
+- **iCal.** The export stays DATE values, because Airbnb imports dates only. An import with dates only takes the property defaults.
+  `parseIcsCalendar` reads a local DATE-TIME's times but does not store them yet. The Google Sheet sync still owns guest names and
+  non-channel rows; its stays take defaults and get no guest texts.
+
+Coverage: `tests/unit/booking-exact-times.test.tsx`, `bookings-half-day.test.tsx`, `stay-add-ons.test.ts`,
+`stripe-webhook-stay-add-on.test.ts`, `resident-stay-add-ons-route.test.ts`, `stay-time-reminders.test.ts`,
+`arrival-guide.test.ts`, `turnover-cleaning-window.test.ts`, `schedule-records-guest-login-pinned.test.ts`.
+
 ## Status is derived from the dates, never stored
 
 `bookingStatusLabel` (`booking-presentation.ts`) is the label a row or record

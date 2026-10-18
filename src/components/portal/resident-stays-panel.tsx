@@ -7,15 +7,17 @@
  * host's 24), Completed, Declined or Expired. A past row (and the band's round +) opens the Book again
  * sheet with its room prefilled. See docs/agents/bookings.md § Guest portal stays.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarCheck, CalendarX, Clock, Luggage, Moon, Users } from "lucide-react";
 import { BookAgainSheet } from "@/components/portal/book-again-sheet";
+import { StayTimesSheet } from "@/components/portal/stay-times-sheet";
 import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { Button } from "@/components/ui/button";
 import { RecordActionContext } from "@/components/ui/record-action-context";
+import { formatStayMoment } from "@/lib/bookings/stay-times";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import { fetchGuestStays, GUEST_STAYS_CHANGED } from "@/lib/short-stay/guest-stays-client";
 import {
@@ -26,6 +28,7 @@ import {
   type GuestStay,
   type GuestStayBucket,
 } from "@/lib/short-stay/guest-stays";
+import { parseStayAddOnLink, type StayAddOnLink } from "@/lib/short-stay/stay-add-ons";
 import { formatShortStayMoney, shortStayDayLabel } from "@/lib/short-stay-request";
 
 const BUCKET_LABELS: Record<GuestStayBucket, string> = { upcoming: "Upcoming", past: "Past" };
@@ -48,6 +51,9 @@ function statusIcon(stay: GuestStay) {
 export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming" }: { basePath?: string; bucket?: GuestStayBucket }) {
   const [list, setList] = useState<ListState>({ status: "loading" });
   const [sheet, setSheet] = useState<{ seed: GuestStay | null } | null>(null);
+  // The Check-in and checkout sheet, opened from a stay's ⋯ menu or by the text link (`?stay=&addOn=&time=`).
+  const [timesSheet, setTimesSheet] = useState<{ stay: GuestStay; link: StayAddOnLink | null } | null>(null);
+  const linkHandled = useRef(false);
   const today = pacificTodayKey();
 
   const load = useCallback(async () => {
@@ -67,6 +73,23 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
   }, [load]);
 
   const stays = useMemo(() => (list.status === "ready" ? list.stays : []), [list]);
+
+  // The pay link in the guest's text lands here: open that stay's sheet, preselected, once the list is in.
+  useEffect(() => {
+    if (list.status !== "ready" || linkHandled.current || typeof window === "undefined") return;
+    linkHandled.current = true;
+    const link = parseStayAddOnLink(window.location.search);
+    const target = link ? list.stays.find((candidate) => candidate.id === link.stayId) : null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot open from the URL after the list loads
+    if (link && target && (target.status === "confirmed" || target.status === "pending")) setTimesSheet({ stay: target, link });
+  }, [list]);
+
+  // Back from Stripe: the webhook moves the stay's time a moment after the payment, so look again a few times.
+  useEffect(() => {
+    if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("ach_checkout") !== "success") return;
+    const timers = [4000, 10000].map((delay) => window.setTimeout(() => void load(), delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [load]);
   const counts = useMemo(
     () => ({
       upcoming: stays.filter((stay) => guestStayBucket(stay, today) === "upcoming").length,
@@ -122,19 +145,35 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
       >
         {rows.map((stay) => {
           const Icon = statusIcon(stay);
-          const place = `${shortStayDayLabel(stay.checkIn)} → ${shortStayDayLabel(stay.checkOut)}`;
+          // An upcoming stay prints its real times ("Oct 16, 3:00 pm → Oct 19, 11:00 am"); a past one, its dates.
+          const place =
+            bucket === "upcoming" && stay.checkInTime && stay.checkOutTime
+              ? `${formatStayMoment(stay.checkIn, stay.checkInTime)} → ${formatStayMoment(stay.checkOut, stay.checkOutTime)}`
+              : `${shortStayDayLabel(stay.checkIn)} → ${shortStayDayLabel(stay.checkOut)}`;
           const bookAgain = stay.canBookAgain ? () => setSheet({ seed: stay }) : undefined;
+          const openTimes = bucket === "upcoming" && (stay.status === "confirmed" || stay.status === "pending") ? () => setTimesSheet({ stay, link: null }) : undefined;
           return (
             <RecordActionContext.Provider
               key={stay.id}
               value={{
                 scope: stay.id,
                 clear: () => {},
-                actions: bookAgain ? (
-                  <Button data-attr="resident-stay-menu-book-again" onClick={bookAgain}>
-                    Book again
-                  </Button>
-                ) : null,
+                actions:
+                  bookAgain || openTimes ? (
+                    <>
+                      {openTimes ? (
+                        <Button data-attr="resident-stay-menu-times" onClick={openTimes}>
+                          <Clock className="size-4 shrink-0" aria-hidden />
+                          Check-in and checkout
+                        </Button>
+                      ) : null}
+                      {bookAgain ? (
+                        <Button data-attr="resident-stay-menu-book-again" onClick={bookAgain}>
+                          Book again
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : null,
               }}
             >
               <PortalEntryRow
@@ -157,6 +196,18 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
           );
         })}
       </PortalRecordListSurface>
+      {timesSheet ? (
+        <StayTimesSheet
+          stay={timesSheet.stay}
+          preselect={timesSheet.link}
+          onClose={() => {
+            // The link has done its job: drop it so a refresh does not reopen the sheet.
+            if (timesSheet.link && typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
+            setTimesSheet(null);
+          }}
+          onChanged={() => void load()}
+        />
+      ) : null}
       {sheet ? (
         <BookAgainSheet
           stays={stays}

@@ -301,6 +301,18 @@ export async function createHouseholdChargeCheckout(
     const resolved = await loadHouseholdChargesForCheckout(db, input);
     if (!resolved.ok) return resolved;
     const { loaded, managerUserId } = resolved;
+    // A paid early check-in / late checkout that the room can no longer honor would only be refunded
+    // automatically: re-run its availability BEFORE any Stripe session exists, and void it if it is gone.
+    for (const row of loaded) {
+      if (!(row.charge as { stayAddOn?: unknown }).stayAddOn) continue;
+      const { checkStayAddOnPayable, STAY_ADD_ON_UNAVAILABLE_CODE } = await import("@/lib/short-stay/stay-add-ons.server");
+      const payable = await checkStayAddOnPayable(db, row.charge as unknown as Record<string, unknown>);
+      if (!payable.ok) {
+        return payable.retry
+          ? { ok: false, status: 503, error: payable.message }
+          : { ok: false, status: 409, code: STAY_ADD_ON_UNAVAILABLE_CODE, error: payable.message };
+      }
+    }
     if (loaded.some(row => !row.acceptedPaymentMethods.includes(input.paymentMethod))) {
       return { ok: false, status: 422, code: "PAYMENT_METHOD_DISABLED",
         error: "A selected charge does not accept this payment method." };

@@ -13,6 +13,7 @@ import type {
   ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
+import { normalizePropertyStayTimes, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { publicPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { applicationBeforeTourRequired } from "@/lib/application-before-tour-policy";
 import {
@@ -114,6 +115,15 @@ const PUBLIC_PROPERTY_KEYS = [
  * unguarded — dropping one throws `getListingRichContent` into its catch and
  * silently renders a generic demo listing in place of the real one.
  */
+const PUBLIC_STAY_TIME_KEYS = [
+  "checkInTime",
+  "checkOutTime",
+  "earliestEarlyCheckIn",
+  "latestLateCheckOut",
+  "earlyCheckInPriceCents",
+  "lateCheckOutPriceCents",
+] as const satisfies readonly (keyof PropertyStayTimes)[];
+
 const PUBLIC_SUBMISSION_KEYS = [
   "v",
   // Identity + structure. Already public on the listing card.
@@ -475,6 +485,10 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
       PUBLIC_QUICK_FACT_KEYS,
     ),
     ...(Object.keys(houseDefaults ?? {}).length > 0 ? { houseDefaults } : {}),
+    // The guest sees the standard times and the add-on prices, never the cleaning buffer.
+    ...(charged.stayTimes
+      ? { stayTimes: pick(normalizePropertyStayTimes(charged.stayTimes), PUBLIC_STAY_TIME_KEYS) }
+      : {}),
     ...(charged.customFees === undefined
       ? {}
       : {

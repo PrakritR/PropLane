@@ -1,3 +1,4 @@
+import { normalizeStayTime } from "@/lib/bookings/stay-times";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
 /**
@@ -20,7 +21,8 @@ export type StayMeta = { kind: StayMetaKind; refId: string; notes: string; stayD
 
 export const STAY_META_CHANGED = "axis:booking-stay-meta-changed";
 export const STAY_META_NOTES_MAX = 2000;
-const DETAIL_KEYS = ["linen", "baggage", "earlyCheckIn", "lateCheckOut"] as const;
+/** `earlyCheckIn` / `lateCheckOut` are the legacy sheet times: still readable (via `resolveStayTimes`), no longer written. */
+const DETAIL_KEYS = ["linen", "baggage", "earlyCheckIn", "lateCheckOut", "estimatedArrival"] as const;
 const DETAIL_VALUE_MAX = 60;
 const REF_ID_MAX = 200;
 
@@ -60,6 +62,12 @@ export function normalizeStayMetaInput(raw: unknown): StayMeta | null {
       if (typeof value !== "string") continue;
       const trimmed = value.trim();
       if (trimmed.length > DETAIL_VALUE_MAX) return null;
+      if (key === "estimatedArrival") {
+        // "HH:MM" only; a value that is not a time is dropped, never stored.
+        const time = normalizeStayTime(trimmed);
+        if (time) stayDetails.estimatedArrival = time;
+        continue;
+      }
       if (trimmed) stayDetails[key] = trimmed;
     }
   }
@@ -77,6 +85,7 @@ export function applyStayMeta(entries: readonly PropertyBookingEntry[], metas: r
     const details = { ...(entry.stayDetails ?? {}), ...meta.stayDetails };
     return {
       ...entry,
+      ...(meta.stayDetails.estimatedArrival ? { estimatedArrival: meta.stayDetails.estimatedArrival } : {}),
       ...(meta.notes ? { reason: meta.notes } : {}),
       ...(Object.keys(details).length ? { stayDetails: details } : {}),
     };

@@ -2,6 +2,9 @@
 import { useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Textarea } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { stayTimeOptions } from "@/lib/bookings/stay-time-options";
+import { DEFAULT_PROPERTY_STAY_TIMES } from "@/lib/bookings/stay-times";
 import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import { saveChannelStayDetailsClient } from "@/lib/channel-calendar/client";
 import {
@@ -30,6 +33,11 @@ export function BookingsStayDetailsDialog({ entry, onClose, onSaved, save = save
   const [payout, setPayout] = useState(stayCentsToDollars(entry.payoutCents));
   const [paidOn, setPaidOn] = useState(entry.paidAt ? entry.paidAt.slice(0, 10) : "");
   const [notes, setNotes] = useState(entry.stayNotes ?? "");
+  // The stay's times as drawn today: the manager's override, else the property's defaults (resolved on the entry).
+  const initialCheckIn = entry.checkInTime ?? DEFAULT_PROPERTY_STAY_TIMES.checkInTime;
+  const initialCheckOut = entry.checkOutTime ?? DEFAULT_PROPERTY_STAY_TIMES.checkOutTime;
+  const [checkInTime, setCheckInTime] = useState(initialCheckIn);
+  const [checkOutTime, setCheckOutTime] = useState(initialCheckOut);
   const hostBlock = isHostBlockSummary(entry.summary);
   // A host block's note is keyed on its UID plus the RAW imported range's dates (the UID alone is
   // shared by every block on the feed). A visible entry may be the trimmed remainder of an echoed
@@ -70,6 +78,9 @@ export function BookingsStayDetailsDialog({ entry, onClose, onSaved, save = save
         payoutCents,
         paidAt: paidOn.trim() ? paidOn.trim() : null,
         notes,
+        // Only a time the manager changed is sent; a field left out stays untouched.
+        ...(checkInTime !== initialCheckIn ? { checkInTime } : {}),
+        ...(checkOutTime !== initialCheckOut ? { checkOutTime } : {}),
       });
       onSaved();
       onClose();
@@ -85,6 +96,8 @@ export function BookingsStayDetailsDialog({ entry, onClose, onSaved, save = save
         {hostBlock ? null : <>
         <label className="block"><span className={POPUP_FIELD_LABEL_CLASS}>Name</span><Input value={name} maxLength={CHANNEL_STAY_GUEST_NAME_MAX} autoFocus disabled={busy} onChange={(event) => setName(event.target.value)} data-attr="booking-stay-name-input" /></label>
         <label className="block"><span className={POPUP_FIELD_LABEL_CLASS}>Phone</span><Input type="tel" value={phone} maxLength={CHANNEL_STAY_PHONE_MAX} disabled={busy} onChange={(event) => setPhone(event.target.value)} data-attr="booking-stay-phone-input" /></label>
+        <FieldSingleSelect label="Check-in" value={checkInTime} onChange={setCheckInTime} options={stayTimeOptions(initialCheckIn)} disabled={busy} dataAttr="booking-stay-check-in-time" />
+        <FieldSingleSelect label="Check-out" value={checkOutTime} onChange={setCheckOutTime} options={stayTimeOptions(initialCheckOut)} disabled={busy} dataAttr="booking-stay-check-out-time" />
         <label className="block"><span className={POPUP_FIELD_LABEL_CLASS}>Nightly</span><Input inputMode="decimal" value={nightly} disabled={busy} onChange={(event) => setNightly(event.target.value)} data-attr="booking-stay-nightly-input" /></label>
         <label className="block"><span className={POPUP_FIELD_LABEL_CLASS}>Payout</span><Input inputMode="decimal" value={payout} disabled={busy} onChange={(event) => setPayout(event.target.value)} data-attr="booking-stay-payout-input" /></label>
         <label className="block"><span className={POPUP_FIELD_LABEL_CLASS}>Paid on</span><Input type="date" value={paidOn} disabled={busy} onChange={(event) => setPaidOn(event.target.value)} data-attr="booking-stay-paid-on-input" /></label>

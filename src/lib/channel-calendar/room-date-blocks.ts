@@ -13,6 +13,10 @@ import type { RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
 import { CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE, ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { normalizeRoomBlockKind, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
+import { stampStayRow } from "@/lib/bookings/stay-stamp";
+import { STAY_ADD_ON_KINDS, normalizePropertyStayTimes, normalizeStayTime, type StayAddOns } from "@/lib/bookings/stay-times";
+import { propertyTimeZoneForZip } from "@/lib/property-time-zone";
+import { getPropertyById } from "@/lib/rental-application/data";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
 
@@ -42,7 +46,20 @@ type BlockRow = {
   isBookingResidency?: unknown;
   blockKind?: unknown;
   createdAt?: unknown;
+  checkInTime?: unknown;
+  checkOutTime?: unknown;
 };
+
+/** Paid early / late add-ons as stored (server-owned): only the known kinds, only objects. */
+function normalizeAddOns(raw: unknown): StayAddOns | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: StayAddOns = {};
+  for (const kind of STAY_ADD_ON_KINDS) {
+    const record = (raw as Record<string, unknown>)[kind];
+    if (record && typeof record === "object" && !Array.isArray(record)) out[kind] = record as NonNullable<StayAddOns[typeof kind]>;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function normalizeStayDetails(raw: unknown): RoomDateBlock["stayDetails"] {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
@@ -51,6 +68,10 @@ function normalizeStayDetails(raw: unknown): RoomDateBlock["stayDetails"] {
   for (const key of ["source", "linen", "baggage", "earlyCheckIn", "lateCheckOut", "holdExpiresAt", "decision"] as const) {
     if (typeof values[key] === "string") result[key] = values[key].trim();
   }
+  const addOns = normalizeAddOns(values.addOns);
+  if (addOns) result.addOns = addOns;
+  const arrival = normalizeStayTime(values.estimatedArrival);
+  if (arrival) result.estimatedArrival = arrival;
   return result;
 }
 
@@ -72,6 +93,8 @@ function normalizeBlock(raw: unknown): RoomDateBlock | null {
     roomId: typeof row.roomId === "string" ? row.roomId : "",
     checkIn: row.checkIn,
     checkOut: row.checkOut,
+    ...(normalizeStayTime(row.checkInTime) ? { checkInTime: normalizeStayTime(row.checkInTime)! } : {}),
+    ...(normalizeStayTime(row.checkOutTime) ? { checkOutTime: normalizeStayTime(row.checkOutTime)! } : {}),
     reason: typeof row.reason === "string" ? row.reason : "",
     ...(typeof row.residentName === "string" && row.residentName.trim()
       ? { residentName: row.residentName.trim() }
@@ -131,6 +154,9 @@ export async function saveRoomDateBlock(
     isBookingResidency?: boolean;
     /** "closed" = no guest, closed with `reason`. Required whenever `residentName` is empty. */
     blockKind?: "closed";
+    /** "HH:MM" property wall time. Left out = the stored row's, else the property's standard time. */
+    checkInTime?: string;
+    checkOutTime?: string;
   },
 ): Promise<RoomDateBlock> {
   // Only a NEW block is refused here. An edit of a stored row is arbitrated by the route, which can
@@ -141,6 +167,9 @@ export async function saveRoomDateBlock(
     if (nameError) throw new Error(nameError);
   }
   if (input.rate != null && (!Number.isFinite(input.rate) || input.rate < 0)) throw new Error("Rate must be a non-negative number.");
+  for (const [label, value] of [["Check-in", input.checkInTime], ["Check-out", input.checkOutTime]] as const) {
+    if (value !== undefined && value !== "" && !normalizeStayTime(value)) throw new Error(`${label} time is not a valid time.`);
+  }
   const residentName = input.residentName?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";
   const residentPhone = normalizeE164(input.residentPhone) ?? "";
@@ -162,6 +191,8 @@ export async function saveRoomDateBlock(
     rate: input.rate,
     rateBasis: input.rateBasis,
     stayDetails: normalizeStayDetails(input.stayDetails),
+    ...(normalizeStayTime(input.checkInTime) ? { checkInTime: normalizeStayTime(input.checkInTime)! } : {}),
+    ...(normalizeStayTime(input.checkOutTime) ? { checkOutTime: normalizeStayTime(input.checkOutTime)! } : {}),
     ...(residentName ? { residentName } : {}),
     ...(residentName && residentEmail ? { residentEmail } : {}),
     ...(residentName && residentPhone ? { residentPhone } : {}),
@@ -170,6 +201,17 @@ export async function saveRoomDateBlock(
     ...(!residentName && normalizeRoomBlockKind(input.blockKind) ? { blockKind: "closed" as const } : {}),
     createdAt: new Date().toISOString(),
   };
+  // The route is authoritative for the stay's times and instants (it stamps them from the stored property and
+  // the stored row). The best-effort instants here come from the listing store's ZIP and defaults, and are
+  // sent only when this save names its own times, so a save that names none never overrides the stored ones.
+  const submission = getPropertyById(input.propertyId)?.listingSubmission;
+  const instants = block.checkInTime || block.checkOutTime
+    ? stampStayRow(
+        { ...block },
+        null,
+        { times: normalizePropertyStayTimes(submission?.stayTimes), timeZone: propertyTimeZoneForZip(submission?.zip ?? "") },
+      )
+    : null;
   const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -179,8 +221,8 @@ export async function saveRoomDateBlock(
       row: {
         ...block,
         recordType: block.bookingStatus === "cancelled" ? CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE : ROOM_DATE_BLOCK_RECORD_TYPE,
-        startsAt: `${block.checkIn}T00:00:00`,
-        endsAt: `${block.checkOut}T00:00:00`,
+        startsAt: instants?.startsAt ?? `${block.checkIn}T00:00:00`,
+        endsAt: instants?.endsAt ?? `${block.checkOut}T00:00:00`,
       },
     }),
   });

@@ -10,15 +10,25 @@
 import { Minus, Plus } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listingContactRows, listingPrimaryCtaClass, listingTextLinkClass as textLinkClass } from "@/components/marketing/listing-contact-card";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DateField } from "@/components/ui/date-field";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import type { MockProperty } from "@/data/types";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { normalizePropertyStayTimes, stayAddOnLabel, type StayAddOnKind } from "@/lib/bookings/stay-times";
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { addRangeDays, normalizeRangeDay } from "@/lib/room-availability-range";
+import {
+  addOnsQuoteCents,
+  estimatedArrivalOptions,
+  offersForBooking,
+  standardTimesLine,
+  stayAddOnCheckLabel,
+  type StayAddOnOffer,
+} from "@/lib/short-stay/stay-add-ons";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import {
   SHORT_STAY_MAX_DAYS_AHEAD,
@@ -222,6 +232,39 @@ export function ShortStayBookingBlock({
   const phone = typedPhone ?? quickBook?.phone ?? "";
   const email = typedEmail ?? quickBook?.email ?? "";
   const honeypot = useRef<HTMLInputElement>(null);
+  // "none" = Not sure: nothing is sent. Any other value is the "HH:MM" the guest expects to arrive.
+  const [arrival, setArrival] = useState("none");
+  const [ticked, setTicked] = useState<StayAddOnKind[]>([]);
+  const [offers, setOffers] = useState<StayAddOnOffer[]>([]);
+  const pickedRoomId = stay ? (stay.rooms.find((room) => room.id === stay.roomId) ?? (stay.rooms.length === 1 ? stay.rooms[0] : null))?.id ?? "" : "";
+  // Which paid add-ons these exact nights could carry is the SERVER's answer (a dry run that writes nothing);
+  // an add-on it does not offer is never drawn, and an unreadable answer offers none.
+  const dryKey = stay && stay.offered && stay.rangeValid && pickedRoomId ? `${stay.property.id}|${pickedRoomId}|${stay.checkIn}|${stay.checkOut}|${stay.guests}` : "";
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a changed selection clears the previous answer at once
+    setOffers([]);
+    if (!dryKey) return;
+    const [propertyId, roomId, checkIn, checkOut, guests] = dryKey.split("|");
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetch("/api/public/short-stay-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: true, propertyId, roomId, checkIn, checkOut, guests: Number(guests) }),
+      })
+        .then(async (res) => (res.ok ? ((await res.json()) as { addOns?: StayAddOnOffer[] }) : null))
+        .then((body) => {
+          if (!cancelled) setOffers(body?.addOns ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setOffers([]);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [dryKey]);
   if (!stay || !stay.offered) return null;
 
   const today = pacificTodayKey();
@@ -231,7 +274,12 @@ export function ShortStayBookingBlock({
   const from = listingShortStayNightlyFrom(stay.property.listingSubmission);
   const nightly = picked?.nightly || from;
   const maxGuests = picked?.capacity ?? Math.max(1, ...stay.rooms.map((room) => room.capacity));
-  const total = nightly > 0 && stay.rangeValid ? shortStayTotal(nightly, stay.nights) : 0;
+  const stayTotal = nightly > 0 && stay.rangeValid ? shortStayTotal(nightly, stay.nights) : 0;
+  const addOnOffers = offersForBooking([offers]);
+  const activeAddOns = ticked.filter((kind) => addOnOffers.some((offer) => offer.kind === kind));
+  const addOnsCents = addOnsQuoteCents([offers], activeAddOns);
+  const total = stayTotal > 0 ? stayTotal + addOnsCents / 100 : 0;
+  const times = normalizePropertyStayTimes(stay.property.listingSubmission?.stayTimes);
   const contact = listingContactRows(stay.property).phone;
   const noFreeRoom = stay.rangeValid && !stay.occupancyLoading && freeRooms.length === 0;
   const canRequest = stay.rangeValid && Boolean(picked) && !noFreeRoom && total > 0;
@@ -253,6 +301,8 @@ export function ShortStayBookingBlock({
           phone,
           email,
           honeypot: honeypot.current?.value ?? "",
+          ...(arrival !== "none" ? { estimatedArrival: arrival } : {}),
+          ...(activeAddOns.length ? { addOns: activeAddOns } : {}),
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -329,9 +379,43 @@ export function ShortStayBookingBlock({
           </button>
         </span>
       </div>
+      <p className="mt-3 text-sm font-semibold text-foreground" data-attr="short-stay-standard-times">
+        {standardTimesLine(times)}
+      </p>
+      <div className="mt-2.5" data-attr="short-stay-arrival">
+        <FieldSingleSelect
+          label="Estimated arrival"
+          value={arrival}
+          options={[{ value: "none", label: "Not sure" }, ...estimatedArrivalOptions().filter((option) => option.value !== "")]}
+          onChange={setArrival}
+          dataAttr="short-stay-arrival-select"
+        />
+      </div>
+      {addOnOffers.length > 0 ? (
+        <div className="mt-1.5 space-y-0.5" data-attr="short-stay-add-ons">
+          {addOnOffers.map((offer) => {
+            const label = stayAddOnCheckLabel(offer);
+            if (!label) return null;
+            return (
+              <label key={offer.kind} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-foreground" data-attr={`short-stay-add-on-${offer.kind}`}>
+                <input
+                  type="checkbox"
+                  className="size-5 shrink-0 rounded border-border"
+                  checked={activeAddOns.includes(offer.kind)}
+                  onChange={(event) =>
+                    setTicked((current) => (event.target.checked ? [...new Set([...current, offer.kind])] : current.filter((kind) => kind !== offer.kind)))
+                  }
+                  aria-label={stayAddOnLabel(offer.kind)}
+                />
+                <span>{label}</span>
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
       {total > 0 ? (
         <p className="mt-3 flex items-baseline justify-between gap-3 text-sm" data-attr="short-stay-total">
-          <span className="text-muted">{formatShortStayMoney(nightly)} × {stay.nights} {stay.nights === 1 ? "night" : "nights"}</span>
+          <span className="text-muted">{formatShortStayMoney(nightly)} × {stay.nights} {stay.nights === 1 ? "night" : "nights"}{activeAddOns.length ? ` + ${activeAddOns.map((kind) => stayAddOnLabel(kind).toLowerCase()).join(" + ")}` : ""}</span>
           <span className="font-bold text-foreground">{formatShortStayMoney(total)}</span>
         </p>
       ) : null}

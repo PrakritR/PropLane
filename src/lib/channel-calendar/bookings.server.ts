@@ -23,6 +23,8 @@ import { airbnbReservationUrl, isPhoneLast4 } from "@/lib/channel-calendar/reser
 import { loadChannelStayDetailRows } from "@/lib/channel-calendar/stay-details.server";
 import { channelStayDetailsKey, type ChannelStayMoney } from "@/lib/channel-calendar/stay-details";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
+import { wallTimeOfInstant } from "@/lib/bookings/stay-stamp";
+import { propertyTimeZoneForZip } from "@/lib/property-time-zone";
 import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
 /** The connection columns a slim read needs - everything but `imported_ranges`. */
@@ -61,6 +63,8 @@ export function normalizeRanges(
   imported: ChannelCalendarImportedRange[],
   guestNames?: ReadonlyMap<string, string>,
   stayMoney?: ReadonlyMap<string, ChannelStayMoney>,
+  /** The house's time zone, to read a stay's overridden check-in / check-out instants as wall "HH:MM". */
+  timeZone?: string,
 ): ManagerChannelBookingRange[] {
   return imported.map((r) => {
     const hostBlock = isHostBlockRange(r);
@@ -85,8 +89,23 @@ export function normalizeRanges(
       ...(typeof money?.nightlyCents === "number" ? { nightlyCents: money.nightlyCents } : {}),
       ...(typeof money?.payoutCents === "number" ? { payoutCents: money.payoutCents, currency: money.currency ?? "USD" } : {}),
       ...(money?.paidAt ? { paidAt: money.paidAt } : {}),
+      ...stayTimeOverride(money, timeZone),
     };
   });
+}
+
+/** A manager's check-in / check-out override: the instants, and the "HH:MM" they read as on the house's clock. */
+function stayTimeOverride(money: ChannelStayMoney | undefined, timeZone: string | undefined): Partial<ManagerChannelBookingRange> {
+  if (!money || (!money.checkInAt && !money.checkOutAt)) return {};
+  const zone = timeZone ?? propertyTimeZoneForZip("");
+  const checkInTime = wallTimeOfInstant(money.checkInAt, zone);
+  const checkOutTime = wallTimeOfInstant(money.checkOutAt, zone);
+  return {
+    ...(money.checkInAt ? { checkInAt: money.checkInAt } : {}),
+    ...(money.checkOutAt ? { checkOutAt: money.checkOutAt } : {}),
+    ...(checkInTime ? { checkInTime } : {}),
+    ...(checkOutTime ? { checkOutTime } : {}),
+  };
 }
 
 /**
@@ -183,6 +202,7 @@ export async function listManagerChannelCalendarBookings(
         ).kept,
         guestNames.get(connection.id),
         stayRows.get(connection.id),
+        propertyTimeZoneForZip(String(listingSubmissionFromProperty(record?.property ?? null)?.zip ?? record?.property?.zip ?? "")),
       ),
       lastSyncedAt: connection.last_synced_at,
       lastError: connection.last_error,

@@ -6,12 +6,14 @@ import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
 import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
+import { loadPropertyStayClock, type PropertyStayClock } from "@/lib/bookings/property-stay-times.server";
 import { loadHouse } from "@/lib/vendor-dispatch/engine.server";
 import { workspaceHasMatchingRule } from "@/lib/vendor-dispatch/match.server";
 import { createDispatchRun, type CreateDispatchRunResult } from "@/lib/vendor-dispatch/runs.server";
 import { firstNameOf } from "@/lib/vendor-dispatch/text";
 import { formatPacificShort } from "@/lib/vendor-dispatch/time";
 import { inferDispatchFromService } from "@/lib/vendor-dispatch/triage";
+import { nextStayAfter, turnoverWindow } from "@/lib/vendor-dispatch/turnover-window";
 
 /**
  * What starts a dispatch run (vendor-dispatch-1018): a resident files a service, a tour is
@@ -289,40 +291,36 @@ export type TurnoverStay = {
   propertyLabel: string;
   roomId?: string;
   roomLabel?: string;
+  /** The stay's own times ("HH:MM", property wall time) when it carries any; else the property's defaults apply. */
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 };
 
 /** The earliest check-in at the same house and room on or after this checkout. */
 export function nextCheckInAfter(stays: TurnoverStay[], stay: TurnoverStay): string | null {
-  const after = stays
-    .filter(
-      (other) =>
-        other !== stay &&
-        other.propertyId === stay.propertyId &&
-        (other.roomId ?? "") === (stay.roomId ?? "") &&
-        stay.checkOutKey &&
-        other.checkInKey >= stay.checkOutKey,
-    )
-    .map((other) => other.checkInKey)
-    .sort();
-  return after[0] ?? null;
+  return nextStayAfter(stays, stay)?.checkInKey ?? null;
 }
 
-/** Checkout today or tomorrow (Pacific date keys) at a house with a cleaner rule opens a run due by the next check-in. */
+/**
+ * Checkout today or tomorrow (Pacific date keys) at a house with a cleaner rule opens a run for the
+ * turnover WINDOW: this guest's real checkout to the next guest's real check-in (the property's
+ * times, a stay's own, a paid early / late one). `deadline_at` is that next check-in instant.
+ * Idempotent on the run's source id.
+ */
 export async function dispatchCleaningForStays(
   db: SupabaseClient,
   stays: TurnoverStay[],
   window: { todayKey: string; tomorrowKey: string },
-  toCheckInIso: (dateKey: string) => string | null = () => null,
 ): Promise<{ created: number; checked: number }> {
   let created = 0;
   let checked = 0;
+  const clocks = new Map<string, PropertyStayClock>();
   for (const stay of stays) {
     const out = stay.checkOutKey;
     if (!out || !stay.propertyId || (out !== window.todayKey && out !== window.tomorrowKey)) continue;
     checked += 1;
     const scope = await resolveOwnerAndWorkspace(db, { propertyId: stay.propertyId });
     if (!scope) continue;
-    const next = nextCheckInAfter(stays, stay);
     // A turnover is urgent by definition (taxonomy); a same-day next check-in only makes the deadline tighter.
     const urgency = "urgent" as const;
     const matchInput = {
@@ -335,7 +333,12 @@ export async function dispatchCleaningForStays(
     };
     if (!(await workspaceHasMatchingRule(db, matchInput))) continue;
     const house = await loadHouse(db, scope.ownerUserId, stay.propertyId);
-    const deadlineLabel = next ? `check-in ${new Date(`${next}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })}` : undefined;
+    let clock = clocks.get(stay.propertyId);
+    if (!clock) {
+      clock = await loadPropertyStayClock(db, stay.propertyId);
+      clocks.set(stay.propertyId, clock);
+    }
+    const turnover = turnoverWindow({ ...stay, checkOutKey: out }, nextStayAfter(stays, stay), clock);
     const result = await createDispatchRun(db, {
       workspaceId: scope.workspaceId,
       ownerUserId: scope.ownerUserId,
@@ -352,9 +355,10 @@ export async function dispatchCleaningForStays(
         houseLabel: house?.label || stay.propertyLabel,
         address: house?.address,
         room: stay.roomLabel,
-        whenLabel: out === window.todayKey ? "after checkout today" : "after checkout tomorrow",
-        deadlineLabel,
-        deadlineIso: next ? toCheckInIso(next) ?? undefined : undefined,
+        whenLabel: turnover.whenLabel,
+        deadlineLabel: turnover.deadlineLabel,
+        deadlineIso: turnover.deadlineIso,
+        ...(turnover.note ? { summary: turnover.note } : {}),
       },
     });
     if (result.ok && result.created) created += 1;

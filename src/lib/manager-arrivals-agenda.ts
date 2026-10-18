@@ -1,3 +1,4 @@
+import { formatStayTime } from "@/lib/bookings/stay-times";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
 export type ArrivalDepartureEvent = {
@@ -49,8 +50,8 @@ export function buildThreeDayArrivalAgenda(
       const sd = b.stayDetails;
       if (sd?.linen) stayFacts.push(`Linen ${sd.linen}`);
       if (sd?.baggage) stayFacts.push(`Baggage ${sd.baggage}`);
-      if (sd?.earlyCheckIn) stayFacts.push(`Early ${sd.earlyCheckIn}`);
-      if (sd?.lateCheckOut) stayFacts.push(`Late ${sd.lateCheckOut}`);
+      if (b.addOns?.early_check_in?.status === "paid") stayFacts.push(`Early ${formatStayTime(b.addOns.early_check_in.time)}`);
+      if (b.addOns?.late_check_out?.status === "paid") stayFacts.push(`Late ${formatStayTime(b.addOns.late_check_out.time)}`);
 
       if (b.start === dateKey) {
         events.push({

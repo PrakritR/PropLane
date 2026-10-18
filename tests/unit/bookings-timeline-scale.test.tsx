@@ -106,7 +106,8 @@ describe("search filters houses, rooms and guests", () => {
     mount(4, { entries, searchQuery: "Maya" });
     expect(houseButtons()).toHaveLength(1);
     expect(roomRows()).toHaveLength(1);
-    expect(barNames()).toEqual(["Maya Chen, In-house"]);
+    // The bar's label now carries both exact times (bookings-times-1018).
+    expect(barNames()).toEqual(["Maya Chen, In-house, in Oct 12, 3:00 pm, out Oct 31, 11:00 am"]);
     // The KPI strip counts the visible scope.
     expect(document.querySelector('[data-attr="bookings-calendar-summary"]')!.textContent!.startsWith("1Staying")).toBe(true);
   });
