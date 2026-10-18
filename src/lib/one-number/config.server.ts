@@ -42,6 +42,8 @@ export async function loadSharedLineConfig(db: SupabaseClient): Promise<SharedLi
     const pilot = Array.isArray(row.shared_pilot_workspace_ids)
       ? row.shared_pilot_workspace_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
       : [];
+    // Which workspaces hold their own number only matters while the shared line is live.
+    if (mode !== "shared") return { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot };
     const dedicated = await loadDedicatedWorkspaceIds(db);
     // Unknown which workspaces hold their own number: stay on today's per-workspace lines.
     if (dedicated === null) return PER_WORKSPACE_CONFIG;

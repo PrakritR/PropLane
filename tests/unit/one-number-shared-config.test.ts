@@ -11,8 +11,9 @@ function dbWith(tables: Record<string, { data: unknown; error?: unknown }>) {
       const answer = tables[table];
       if (!answer) throw new Error(`Unexpected table ${table}`);
       const q: Record<string, unknown> = {
-        select: () => q, eq: () => q,
+        select: () => q, eq: () => q, not: () => q, in: () => q,
         maybeSingle: async () => ({ data: answer.data, error: answer.error ?? null }),
+        then: (resolve: (result: unknown) => void) => resolve({ data: answer.data, error: answer.error ?? null }),
       };
       return q;
     },
@@ -23,8 +24,9 @@ describe("loadSharedLineConfig", () => {
   it("reads the shared line columns", async () => {
     const config = await loadSharedLineConfig(dbWith({
       sms_runtime_config: { data: { line_mode: "shared", shared_number_e164: "+12065550100", shared_messaging_service_sid: "MG9", shared_pilot_workspace_ids: ["a", "b"] } },
+      manager_sms_numbers: { data: [] },
     }));
-    expect(config).toEqual({ mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: "MG9", pilotWorkspaceIds: ["a", "b"] });
+    expect(config).toEqual({ mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: "MG9", pilotWorkspaceIds: ["a", "b"], dedicatedWorkspaceIds: [] });
   });
 
   it.each([
@@ -112,6 +114,7 @@ describe("resolveSharedLineHumanSend", () => {
   it("names the paying workspace and signs with the house, else the workspace name", async () => {
     const withHouse = dbWith({
       sms_runtime_config: { data: shared },
+      manager_sms_numbers: { data: [] },
       portal_workspaces: { data: { id: "ws-1", name: "Seattle Homes" } },
       manager_property_records: { data: { id: "p1", property_data: { buildingName: "5259 Brooklyn", unitLabel: "A" } } },
     });
@@ -120,6 +123,7 @@ describe("resolveSharedLineHumanSend", () => {
     });
     const noHouse = dbWith({
       sms_runtime_config: { data: shared },
+      manager_sms_numbers: { data: [] },
       portal_workspaces: { data: { id: "ws-1", name: "Seattle Homes" } },
     });
     await expect(resolveSharedLineHumanSend(noHouse, { ownerUserId: "o" })).resolves.toEqual({

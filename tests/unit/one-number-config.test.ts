@@ -3,6 +3,7 @@ import {
   isSharedLineNumber,
   loadSharedLineConfig,
   PER_WORKSPACE_CONFIG,
+  workspaceHasDedicatedNumber,
   workspaceOnSharedLine,
 } from "@/lib/one-number/config.server";
 import { fakeSharedLineDb } from "../helpers/shared-line-fake-db";
@@ -20,8 +21,57 @@ describe("loadSharedLineConfig", () => {
   it("reads a shared line", async () => {
     const { db } = fakeSharedLineDb({ sms_runtime_config: [row()] });
     expect(await loadSharedLineConfig(db)).toEqual({
-      mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: "MG123", pilotWorkspaceIds: [],
+      mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: "MG123", pilotWorkspaceIds: [], dedicatedWorkspaceIds: [],
     });
+  });
+
+  it("lists workspaces that hold a usable number of their own: home workspace and linked ones", async () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    const { db } = fakeSharedLineDb({
+      sms_runtime_config: [row()],
+      manager_sms_numbers: [
+        { id: "n1", workspace_id: "ws-pro", provision_state: "active", grace_expires_at: null },
+        { id: "n2", workspace_id: "ws-grace", provision_state: "released", grace_expires_at: future },
+        { id: "n3", workspace_id: "ws-gone", provision_state: "released", grace_expires_at: past },
+        { id: "n4", workspace_id: "ws-prov", provision_state: "provisioning", grace_expires_at: null },
+      ],
+      workspace_work_numbers: [
+        { number_id: "n1", workspace_id: "ws-linked" },
+        { number_id: "n3", workspace_id: "ws-linked-gone" },
+      ],
+    });
+    const config = await loadSharedLineConfig(db);
+    expect([...(config.dedicatedWorkspaceIds ?? [])].sort()).toEqual(["ws-grace", "ws-linked", "ws-pro", "ws-prov"]);
+    expect(workspaceHasDedicatedNumber(config, "ws-pro")).toBe(true);
+    expect(workspaceHasDedicatedNumber(config, "ws-gone")).toBe(false);
+    expect(workspaceOnSharedLine(config, "ws-pro")).toBe(false);
+    expect(workspaceOnSharedLine(config, "ws-linked")).toBe(false);
+    expect(workspaceOnSharedLine(config, "ws-free")).toBe(true);
+  });
+
+  it("reads a missing number table as nobody dedicated, and an unreadable one as per_workspace", async () => {
+    const missing = fakeSharedLineDb({ sms_runtime_config: [row()] }, { broken: ["manager_sms_numbers"] });
+    expect((await loadSharedLineConfig(missing.db)).dedicatedWorkspaceIds).toEqual([]);
+    const db = {
+      from(table: string) {
+        const q: Record<string, unknown> = {
+          select: () => q, eq: () => q, not: () => q, in: () => q,
+          maybeSingle: async () => ({ data: row(), error: null }),
+          then: (resolve: (r: unknown) => void) => resolve(table === "manager_sms_numbers" ? { data: null, error: { code: "XX000" } } : { data: [], error: null }),
+        };
+        return q;
+      },
+    } as never;
+    expect(await loadSharedLineConfig(db)).toEqual(PER_WORKSPACE_CONFIG);
+  });
+
+  it("does not read the number tables while the line is per_workspace or shadow", async () => {
+    const off = fakeSharedLineDb({ sms_runtime_config: [row({ line_mode: "per_workspace" })] });
+    await loadSharedLineConfig(off.db);
+    expect(off.touched).not.toContain("manager_sms_numbers");
+    const shadow = fakeSharedLineDb({ sms_runtime_config: [row({ line_mode: "shadow" })] });
+    expect((await loadSharedLineConfig(shadow.db)).dedicatedWorkspaceIds).toBeUndefined();
   });
 
   it("fails closed to per_workspace when the table is missing (code before migration)", async () => {
