@@ -27,23 +27,27 @@ const PORTALS = Object.keys(DEMO_TABS) as DemoPortal[];
 
 describe("DEMO_TABS contract", () => {
   it("is the real sidebar, row for row (the full parity check is home-demo-nav-parity.test.ts)", () => {
-    expect(DEMO_TABS.manager.map((t) => t.id)).toEqual([
-      "dashboard", "tasks", "calendar", "communication",
-      "properties", "bookings", "promotion",
-      "tours", "applications", "leases", "forms",
-      "residents", "vendors", "services",
-      "payments", "outgoing", "financials", "documents",
+    const rows = (portal: DemoPortal) => DEMO_TABS[portal].map((t) => ({ id: t.id, members: t.members }));
+    expect(rows("manager")).toEqual([
+      { id: "dashboard", members: ["dashboard", "calendar", "tasks"] },
+      { id: "communication", members: ["communication"] },
+      { id: "properties", members: ["properties", "bookings", "promotion"] },
+      { id: "leases", members: ["tours", "applications", "leases", "forms"] },
+      { id: "residents", members: ["residents", "vendors", "services"] },
+      { id: "payments", members: ["payments", "outgoing", "financials", "documents"] },
     ]);
-    expect(DEMO_TABS.resident.map((t) => t.id)).toEqual([
-      "dashboard", "communication",
-      "move-in", "lease", "forms", "services",
-      "tour", "applications",
-      "payments", "documents",
+    expect(rows("resident")).toEqual([
+      { id: "dashboard", members: ["dashboard"] },
+      { id: "communication", members: ["communication"] },
+      { id: "move-in", members: ["move-in", "lease", "forms", "services"] },
+      { id: "applications", members: ["tour", "applications"] },
+      { id: "payments", members: ["payments", "documents"] },
     ]);
-    expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual([
-      "dashboard", "communication", "calendar",
-      "work-orders", "reviews",
-      "payments", "outgoing", "financials", "documents",
+    expect(rows("vendor")).toEqual([
+      { id: "dashboard", members: ["dashboard"] },
+      { id: "work-orders", members: ["work-orders", "calendar", "reviews"] },
+      { id: "communication", members: ["communication"] },
+      { id: "payments", members: ["payments", "outgoing", "financials", "documents"] },
     ]);
   });
 });
@@ -53,7 +57,9 @@ describe.each(PORTALS)("DemoPanel - %s portal", (portal) => {
   // arrive a tick after render — and on a cold module graph that first import is
   // well over waitFor's 1s default, which made this case fail on the first run of
   // the file and pass on every later one. Wait long enough for the real import.
-  it.each(DEMO_TABS[portal].map((t) => [t.id, t.label]))("renders the %s tab (%s)", async (tab) => {
+  // Every row AND every section folded into a row (the tabs of the real strip) has a panel.
+  const panelTabs = [...new Set(DEMO_TABS[portal].flatMap((t) => [t.id, ...t.members]))].map((id) => [id]);
+  it.each(panelTabs)("renders the %s tab", async (tab) => {
     const { container } = render(<DemoPanel portal={portal} tab={tab} />);
     await waitFor(() => expect((container.textContent ?? "").trim().length).toBeGreaterThan(20), {
       timeout: 15_000,
