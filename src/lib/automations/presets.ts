@@ -62,6 +62,8 @@ export type AutomationPreset = {
   external?: boolean;
   /** A group preset that must never name a person or carry money. Enforced on every render. */
   houseWideOnly?: boolean;
+  /** Variables the text cannot go out without. The others drop their sentence when empty. */
+  required: readonly AutomationVariable[];
   /**
    * False when this preset only gates a message the product already writes elsewhere (the rent
    * reminders keep their own wording in Payments), so Settings offers no template for it.
@@ -90,8 +92,7 @@ export type AutomationVariable =
   | "service_title"
   | "service_window"
   | "announcement"
-  | "trash_day"
-  | "recycling_day"
+  | "reminder"
   | "check_in_time"
   | "check_out_time"
   | "arrival_link";
@@ -113,8 +114,7 @@ export const VARIABLE_LABELS: Record<AutomationVariable, string> = {
   service_title: "Service",
   service_window: "Visit window",
   announcement: "Announcement",
-  trash_day: "Trash day",
-  recycling_day: "Recycling day",
+  reminder: "Reminder",
   check_in_time: "Check-in time",
   check_out_time: "Check-out time",
   arrival_link: "Arrival guide link",
@@ -143,6 +143,7 @@ export const EXTERNAL_PRESETS_LIVE: ReadonlySet<AutomationPresetId> = new Set<Au
 export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   {
     id: "welcome",
+    required: ["first_name", "house", "move_in_date"],
     hasOwnText: true,
     label: "Welcome (lease signed or booking confirmed)",
     audience: "resident",
@@ -154,6 +155,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "move_in_3d",
+    required: ["first_name", "move_in_date"],
     hasOwnText: true,
     label: "Move-in details (3 days before)",
     audience: "resident",
@@ -166,6 +168,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "move_in_day",
+    required: ["house"],
     hasOwnText: true,
     label: "Move-in day (house group)",
     audience: "group",
@@ -178,6 +181,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "rent_due_3d",
+    required: [],
     hasOwnText: false,
     label: "Rent due (3 days before)",
     audience: "resident",
@@ -189,6 +193,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "rent_due_day",
+    required: [],
     hasOwnText: true,
     label: "Rent due today (house group)",
     audience: "group",
@@ -201,6 +206,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "rent_late_3d",
+    required: [],
     hasOwnText: false,
     label: "Rent late (day 3, private)",
     audience: "resident",
@@ -212,6 +218,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "announcement",
+    required: ["announcement"],
     hasOwnText: true,
     label: "Announcements (house group)",
     audience: "group",
@@ -225,18 +232,20 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "house_reminders",
+    required: ["reminder"],
     hasOwnText: true,
     label: "Recurring house reminders (house group)",
     audience: "group",
     engine: "automation",
     defaultMode: "draft",
     modes: AUTOMATION_MODES,
-    template: "Reminder: trash and recycling go out tonight for {trash_day} pickup.",
-    variables: ["house", "trash_day", "recycling_day"],
+    template: "Reminder: {reminder}",
+    variables: ["house", "reminder"],
     houseWideOnly: true,
   },
   {
     id: "maintenance_booked",
+    required: ["house", "service_window"],
     hasOwnText: true,
     label: "Service visit booked (house-wide)",
     audience: "group",
@@ -249,6 +258,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "move_out",
+    required: ["house"],
     hasOwnText: true,
     label: "Move-out (house group)",
     audience: "group",
@@ -261,6 +271,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "arrival_guide",
+    required: ["first_name", "check_in_time"],
     hasOwnText: true,
     label: "Arrival guide (24 hours before check-in)",
     audience: "resident",
@@ -273,6 +284,7 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   },
   {
     id: "checkout_reminder",
+    required: ["first_name", "check_out_time"],
     hasOwnText: true,
     label: "Check-out reminder (8 am on check-out day)",
     audience: "resident",

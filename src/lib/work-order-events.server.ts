@@ -307,9 +307,21 @@ export async function workOrderEvent(
   const needsTeam =
     (input.event === "accepted" || input.event === "completed") &&
     !input.recipients.some((recipient) => recipient.audience === "team");
-  const recipients = needsTeam
+  let recipients = needsTeam
     ? [...input.recipients, { audience: "team" as const, userId: input.managerUserId }]
     : input.recipients;
+  // Settings -> Automations "Service visit booked": switched off for this house's workspace, the
+  // resident is not told. Reads only when a resident would hear a booking; fails open.
+  if (
+    (input.event === "scheduled" || input.event === "rescheduled") &&
+    recipients.some((recipient) => recipient.audience === "resident")
+  ) {
+    const { loadOffPresetResolver } = await import("@/lib/automations/store.server");
+    const off = await loadOffPresetResolver(db, input.managerUserId);
+    if (off.isOff("maintenance_booked", input.facts.propertyId ?? null)) {
+      recipients = recipients.filter((recipient) => recipient.audience !== "resident");
+    }
+  }
   return workOrderEventImpl(db, { ...input, recipients });
 }
 

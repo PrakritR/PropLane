@@ -66,13 +66,25 @@ export function missingRequiredVariables(template: string, vars: TemplateVars): 
   }) as AutomationVariable[];
 }
 
-/** Fill the template. Missing values render empty; the caller decides whether that is sendable. */
+/**
+ * Fill the template. A sentence that uses a variable with no value is dropped whole ("Door code
+ * {door_code}." disappears when the house has no code) rather than sent half-empty. Callers check
+ * `missingRequiredVariables` for the facts the text cannot do without.
+ */
 export function renderTemplate(template: string, vars: TemplateVars): string {
-  const filled = String(template ?? "").replace(PLACEHOLDER, (_whole, name: string) => {
-    const value = vars[name as AutomationVariable];
-    return typeof value === "string" ? value.trim() : "";
-  });
-  return toGsm7(filled.replace(/[ \t]+/g, " ").replace(/\s+([.,!?])/g, "$1").trim());
+  const sentences = String(template ?? "").split(/(?<=[.!?])\s+/);
+  const kept: string[] = [];
+  for (const sentence of sentences) {
+    let empty = false;
+    const filled = sentence.replace(PLACEHOLDER, (_whole, name: string) => {
+      const value = vars[name as AutomationVariable];
+      const text = typeof value === "string" ? value.trim() : "";
+      if (!text) empty = true;
+      return text;
+    });
+    if (!empty && filled.trim()) kept.push(filled.trim());
+  }
+  return toGsm7(kept.join(" ").replace(/[ \t]+/g, " ").replace(/\s+([.,!?])/g, "$1").trim());
 }
 
 /** A pretend resident for the Settings preview when the workspace has none to borrow. */
@@ -93,8 +105,7 @@ export const SAMPLE_VARS: Required<TemplateVars> = {
   service_title: "Kitchen sink",
   service_window: "Tue 10-12",
   announcement: "Water is off Tuesday 9-12.",
-  trash_day: "Tuesday",
-  recycling_day: "Wednesday",
+  reminder: "Trash and recycling pickup is tomorrow. Please put the bins out tonight.",
   check_in_time: "3 pm",
   check_out_time: "11 am",
   arrival_link: "https://proplane.ai/l/sample",
