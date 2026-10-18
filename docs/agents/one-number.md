@@ -360,3 +360,25 @@ GSM-7 is returned unchanged.
 - **Outbound MMS.** Migration `20261018240000_sms_outbox_media_urls.sql` (applied to dev, ledger row recorded) adds `sms_outbox.media_urls text[]`. `SharedLineSend.mediaUrls` -> `sendFromManagerWorkNumber` -> `enqueueOwnerSms` (https only, max 10; insert retried without the column before the migration) -> dispatcher reads it for `shared_line_message` rows only -> `sendSms` `mediaUrls`. Credit is still reserved by text segments; MMS is not priced separately.
 
 Tests: `one-number-{shared-config,config,lead-send,redact,twiml-media,burst-workspace,shared-line-readers,outbox-media,send-door,sendsms-shared-from,inbound-seam}.test.ts`.
+
+## W14 - Marketing: managed service, pricing tabs, Why PropLane
+
+Pages: `/pricing` (Software tab; `?view=service` is the short Managed service tab), `/pricing/service`
+(long form + form + FAQ; `/service` redirects to it), `/why-proplane` (overview) with sibling tabs
+`/why-proplane/track-record`, `/why-proplane/how-we-manage`, `/why-proplane/software` (the old switchboard story).
+
+- **No invented price or metric.** The managed service price is `MANAGED_PRICE_HEADLINE = "Custom"`
+  (`src/lib/marketing/managed-service.ts`); software prices come from `RATE_CARD`. The only operating numbers are in
+  `src/lib/marketing/track-record.ts`: 3 homes, "26 of 28 rooms occupied", "six-figure profit". The pending metrics
+  (`OWNER_RESPONSE_TIME`, `RENT_COLLECTED_ON_TIME`, `AVERAGE_VACANCY_DAYS`, `OWNER_PAYOUT_TIMING`) are empty strings;
+  `trackRecordMetrics()` omits any metric whose value is empty. Fill the constant and it appears everywhere.
+- **Shared components** (`src/components/marketing/site/`): `pricing-cards.tsx` exports `PricingCards` (Software | Managed
+  service tabs, no props, for the home page), `SoftwarePricingCards`, `ServicePricingCard`, `PlanCard`; `pricing-switch.tsx`
+  is its client tab switch; `managed-service-sections.tsx` has `PricingTabs` (route-based), steps, inclusions and the
+  `#talk` section; `track-record-band.tsx` draws the stated metrics and the 28-room occupancy dots from the same constants;
+  `why-subnav.tsx` is the Why PropLane tab row.
+- **Contact path.** `ManagedServiceForm` posts to the existing `/api/public/contact-message` with topic "Property management
+  services" (already one of the Contact page's topics). No new route, no new mail system.
+- **Crawl surfaces** derive from the same module: `llms.ts` (summary, Product and Pricing entries), `sitemap.ts`
+  (service + Why tabs), a `Service` JSON-LD node on `/pricing/service`.
+- Tests: `tests/unit/managed-service-marketing.test.tsx`.
