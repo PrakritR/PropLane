@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
 /** Where "Open" lands: the manager property portal, scoped to the workspace by the switcher cookie. */
-export const SERVICE_OPEN_HREF = "/portal/properties";
+const SERVICE_OPEN_HREF = "/portal/properties";
 
 function failure(result: ServiceFailure) {
   return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });

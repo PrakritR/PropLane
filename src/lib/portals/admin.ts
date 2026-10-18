@@ -24,6 +24,8 @@ export const adminPortal: PortalDefinition = {
     { section: "subscribers", label: "Subscribers", tabs: [] },
     // Strangers qualified on the shared line who have not picked a house yet (platform only; one-number W3).
     { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
+    // PropLane's own managed-property workspaces (per city), owned by the service owner account (one-number W15).
+    { section: "service", label: "Service", tabs: [] },
     { section: "test-accounts", label: "Test accounts", tabs: [] },
     // Money: a live read of PropLane's platform Stripe account, the promo codes that discount it and
     // the P&L (plan admin-money-1008). `/admin/payments` used to be a dead redirect to the
@@ -67,6 +69,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Subscribers", path: "/admin/subscribers" },
   { label: "Unassigned leads", path: "/admin/unassigned-leads" },
+  { label: "Service", path: "/admin/service" },
   { label: "Payments", path: "/admin/payments" },
   { label: "Promo codes", path: "/admin/promo-codes" },
   { label: "Finances", path: "/admin/finances" },

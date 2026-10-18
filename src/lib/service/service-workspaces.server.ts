@@ -5,6 +5,7 @@ import { ensureProfileProplaneId } from "@/lib/manager-access-server";
 import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { actorWorkspaceStanding, workspaceAdminCount } from "@/lib/workspaces/membership.server";
 import { canActOnMember } from "@/lib/workspaces/membership";
+import { cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
 import { loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
 
 /**
@@ -26,20 +27,6 @@ const fail = (status: number, error: string): ServiceFailure => ({ ok: false, st
 
 export const SERVICE_NOT_CONFIGURED = "The PropLane service owner is not set up yet.";
 const NOT_FOUND = "Service workspace not found.";
-
-export function cleanServiceName(raw: unknown): string | null {
-  const name = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
-  return name.length >= 1 && name.length <= 80 ? name : null;
-}
-
-/** City is optional; an unusable value (too long, not text) is `undefined`, a blank one is `null`. */
-export function cleanServiceCity(raw: unknown): string | null | undefined {
-  if (raw === undefined || raw === null) return null;
-  if (typeof raw !== "string") return undefined;
-  const city = raw.trim().replace(/\s+/g, " ");
-  if (!city) return null;
-  return city.length <= 80 ? city : undefined;
-}
 
 export type ServiceWorkspaceListRow = {
   id: string;

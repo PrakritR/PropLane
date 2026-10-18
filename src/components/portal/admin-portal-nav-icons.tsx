@@ -4,6 +4,7 @@ import {
   Activity,
   BarChart3,
   BedDouble,
+  Briefcase,
   Building2,
   Calendar,
   Circle,
@@ -50,6 +51,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   // Admin Money (plan admin-money-1008). `payments` is the shared CreditCard above.
   subscribers: UserCheck,
   "unassigned-leads": UserPlus,
+  service: Briefcase,
   "promo-codes": Tag,
   finances: Wallet,
   leases: ScrollText,
