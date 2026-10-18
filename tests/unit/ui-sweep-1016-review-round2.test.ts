@@ -30,6 +30,21 @@ describe("a refused draft discard puts the draft back", () => {
     // The revert runs while the persist effect is still latched off.
     expect(body.indexOf("persistInboxRef.current = true")).toBeGreaterThan(body.indexOf("if (!saved)"));
   });
+
+  it("discards a draft that exists only on screen, and clears the composer after that", () => {
+    const source = read("src", "components", "portal", "pro-inbox.tsx");
+    const fn = source.slice(source.indexOf("const discardActiveDraft = useCallback"));
+    const body = fn.slice(0, fn.indexOf("}, [activeThread, setReplyDraft, showToast]"));
+    // Storage can lag React: the draft is written to state first, and
+    // persistInbox no-ops while another mutation is in flight. The click was
+    // allowed from that on-screen row, so a missing stored draft is not a no-op.
+    expect(body).toContain("const onScreen = fromLocal?.aiDraft ? fromLocal : screenAtClick");
+    expect(body).toContain("if (!stored?.aiDraft && !onScreen.aiDraft) return");
+    expect(body).toContain("aiDraft: onScreen.aiDraft");
+    const clearAt = body.indexOf('setReplyDraft("")');
+    expect(clearAt).toBeGreaterThan(body.indexOf("if (!stored?.aiDraft && !onScreen.aiDraft) return"));
+    expect(clearAt).toBeLessThan(body.indexOf("advanceInboxAiDraft"));
+  });
 });
 
 describe("a blocked Generate lease says what is blocking it", () => {

@@ -1977,17 +1977,36 @@ export const ManagerInbox = forwardRef<
   const discardActiveDraft = useCallback(async () => {
     if (!activeThread?.aiDraft) return;
     const threadId = activeThread.id;
-    if (adoptedAiDraftByThreadRef.current.has(threadId)) {
-      adoptedAiDraftByThreadRef.current.delete(threadId);
-      setReplyDraft("");
-      clearInboxReplyDraft(threadId);
-    }
+    const screenAtClick = activeThread;
     void runInboxMutation(async () => {
       const prev = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
-      const target = prev.find((row) => row.id === threadId);
-      if (!target?.aiDraft) return;
+      const stored = prev.find((row) => row.id === threadId);
+      const fromLocal = localRef.current.find((row) => row.id === threadId);
+      // The click was allowed from the on-screen thread. `requestInboxAiDraft`
+      // writes React first, and `persistInbox` no-ops while another mutation is
+      // in flight, so this snapshot can lack a draft that is still on screen.
+      // Discard that draft. When storage already has the thread, keep its other
+      // fields so a send or inbound turn is not replaced by the click-time row.
+      const onScreen = fromLocal?.aiDraft ? fromLocal : screenAtClick;
+      if (!stored?.aiDraft && !onScreen.aiDraft) return;
+      if (adoptedAiDraftByThreadRef.current.has(threadId)) {
+        adoptedAiDraftByThreadRef.current.delete(threadId);
+        setReplyDraft("");
+        clearInboxReplyDraft(threadId);
+      }
+      const target: InboxThread = stored?.aiDraft
+        ? stored
+        : {
+            ...(stored ?? fromLocal ?? onScreen),
+            aiDraft: onScreen.aiDraft,
+            aiDraftQueue: onScreen.aiDraftQueue,
+            resolvedAiDraftIds: onScreen.resolvedAiDraftIds,
+          };
       const updated: InboxThread = advanceInboxAiDraft(target);
-      const next = prev.map((row) => (row.id === threadId ? updated : row));
+      const base = stored ? prev : localRef.current;
+      const next = base.some((row) => row.id === threadId)
+        ? base.map((row) => (row.id === threadId ? updated : row))
+        : [updated, ...base];
       setDiscardedDraftIds((ids) => new Set(ids).add(threadId));
       persistInboxRef.current = false;
       try {

@@ -329,6 +329,35 @@ describe("AI draft in the unified Communication inbox", () => {
     expect(document.activeElement).toBe(reply);
   });
 
+  it("discards a draft that is on screen when storage has none", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+
+    render(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        commBase="/portal/communication"
+        controlledExpandedId="thr-2000000001"
+      />,
+    );
+
+    const reply = await screen.findByDisplayValue(/I'll look into availability/);
+    // The draft landed in React only. The persisted snapshot the discard
+    // mutation re-reads has no aiDraft.
+    inboxRows = [{ ...THREADS[0], aiDraft: undefined }];
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Discard" })).toBeNull();
+    });
+    expect(reply).toHaveValue("");
+    expect(showToast).not.toHaveBeenCalledWith("Could not discard the draft. Try again.");
+    expect(inboxRows[0]?.aiDraft).toBeUndefined();
+  });
+
   it("does not auto-send a pending draft while the composer holds different text", async () => {
     autoSendEnabled.current = true;
     const { writeInboxReplyDraft } = await import("@/lib/inbox-reply-draft-store");
