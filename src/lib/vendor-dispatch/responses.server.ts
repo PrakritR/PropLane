@@ -276,13 +276,18 @@ export async function acceptAttempt(
     .in("status", ["offering", "exhausted"])
     .select("id");
   if (!claimed || (claimed as unknown[]).length === 0) {
-    // Lost the race (or the manager canceled): this vendor is told, and their own attempt closes.
-    await db
+    // Lost the race (or the manager canceled): this vendor is told once, and their own attempt closes.
+    // Only the writer that actually closes the attempt sends the text, so the winner's sweep and the
+    // loser's own path can never both tell the same vendor.
+    const { data: closed } = await db
       .from("vendor_dispatch_attempts")
       .update({ status: "superseded", responded_at: nowIso, response_text: (input.rawText ?? "").slice(0, 200) || null, timeout_at: null })
       .eq("id", attempt.id)
-      .in("status", ["offered", "timed_out"]);
-    await textVendor(db, run, contact, attempt.id, composeVendorTakenText(run.handle), "taken-late");
+      .in("status", ["offered", "timed_out"])
+      .select("id");
+    if (closed && (closed as unknown[]).length > 0) {
+      await textVendor(db, run, contact, attempt.id, composeVendorTakenText(run.handle), "taken");
+    }
     return { outcome: "taken" };
   }
 
@@ -304,12 +309,15 @@ export async function acceptAttempt(
   const otherContacts = await loadVendorContacts(db, run.owner_user_id, others.map((other) => other.vendor_directory_id));
   for (const other of others) {
     if (other.status === "offered") {
-      await db
+      const { data: closed } = await db
         .from("vendor_dispatch_attempts")
         .update({ status: "superseded", responded_at: nowIso, timeout_at: null })
         .eq("id", other.id)
-        .eq("status", "offered");
-      await textVendor(db, run, otherContacts.get(other.vendor_directory_id), other.id, composeVendorTakenText(run.handle), "taken");
+        .eq("status", "offered")
+        .select("id");
+      if (closed && (closed as unknown[]).length > 0) {
+        await textVendor(db, run, otherContacts.get(other.vendor_directory_id), other.id, composeVendorTakenText(run.handle), "taken");
+      }
     } else if (other.status === "queued") {
       await db.from("vendor_dispatch_attempts").update({ status: "canceled" }).eq("id", other.id).eq("status", "queued");
     }
@@ -380,8 +388,15 @@ export async function recordVendorYes(
     if (attempt.status === "accepted") return { outcome: "ignored" };
     if (attempt.status === "offered" || attempt.status === "timed_out") {
       const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
-      await textVendor(db, run, contacts.get(attempt.vendor_directory_id), attempt.id, composeVendorTakenText(run.handle), "taken-reply");
-      await db.from("vendor_dispatch_attempts").update({ status: "superseded", responded_at: now.toISOString() }).eq("id", attempt.id).in("status", ["offered", "timed_out"]);
+      const { data: closed } = await db
+        .from("vendor_dispatch_attempts")
+        .update({ status: "superseded", responded_at: now.toISOString() })
+        .eq("id", attempt.id)
+        .in("status", ["offered", "timed_out"])
+        .select("id");
+      if (closed && (closed as unknown[]).length > 0) {
+        await textVendor(db, run, contacts.get(attempt.vendor_directory_id), attempt.id, composeVendorTakenText(run.handle), "taken");
+      }
       return { outcome: "taken" };
     }
     return { outcome: "closed" };

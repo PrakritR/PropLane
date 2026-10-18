@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { classifySmsConfirmationReply, resolveOpenSmsProposal } from "@/lib/sms/agent-confirmation.server";
+import { resolveOpenSmsProposal } from "@/lib/sms/agent-confirmation.server";
 import { decideRunInvoice, handleResidentFixedReply, recordVendorDone, recordVendorInvoice } from "@/lib/vendor-dispatch/completion.server";
 import { canActorApprove, loadAttempts, loadVendorContacts, type VendorContact } from "@/lib/vendor-dispatch/engine.server";
 import { isMissingRelationError } from "@/lib/vendor-dispatch/match.server";
@@ -35,22 +35,33 @@ export type InboundHandled = { handled: false } | { handled: true; reply?: strin
 type PendingKind = "approval" | "quote" | "invoice" | "exhausted";
 type PendingItem = { kind: PendingKind; run: DispatchRunRow };
 
+/** A finished job stays answerable (an invoice) for this long. */
+const COMPLETED_RUN_WINDOW_DAYS = 30;
+
 async function loadOwnerRuns(
   db: SupabaseClient,
   ownerUserId: string,
   workspaceId: string | null,
   statuses: string[],
+  options: { completed?: "invoice_pending" | "recent" } = {},
 ): Promise<DispatchRunRow[]> {
-  const { data, error } = await db
-    .from("vendor_dispatch_runs")
-    .select("*")
-    .eq("owner_user_id", ownerUserId)
-    .in("status", statuses);
-  if (error) {
-    if (isMissingRelationError(error)) return [];
-    throw new Error(error.message);
+  const live = await db.from("vendor_dispatch_runs").select("*").eq("owner_user_id", ownerUserId).in("status", statuses);
+  if (live.error) {
+    if (isMissingRelationError(live.error)) return [];
+    throw new Error(live.error.message);
   }
-  return ((data ?? []) as DispatchRunRow[]).filter((run) => !workspaceId || run.workspace_id === workspaceId);
+  let rows = (live.data ?? []) as DispatchRunRow[];
+  if (options.completed) {
+    let query = db.from("vendor_dispatch_runs").select("*").eq("owner_user_id", ownerUserId).eq("status", "completed");
+    query =
+      options.completed === "invoice_pending"
+        ? query.not("pending_invoice_cents", "is", null)
+        : query.gte("completed_at", new Date(Date.now() - COMPLETED_RUN_WINDOW_DAYS * 86_400_000).toISOString());
+    const done = await query;
+    if (done.error) throw new Error(done.error.message);
+    rows = [...rows, ...((done.data ?? []) as DispatchRunRow[])];
+  }
+  return rows.filter((run) => !workspaceId || run.workspace_id === workspaceId);
 }
 
 /** Everything awaiting THIS person's answer, newest first. */
@@ -58,7 +69,9 @@ export async function listPendingForActor(
   db: SupabaseClient,
   input: { ownerUserId: string; workspaceId: string | null; actorUserId: string },
 ): Promise<PendingItem[]> {
-  const runs = await loadOwnerRuns(db, input.ownerUserId, input.workspaceId, ["awaiting_approval", "offering", "exhausted", "accepted", "completed"]);
+  const runs = await loadOwnerRuns(db, input.ownerUserId, input.workspaceId, ["awaiting_approval", "offering", "exhausted", "accepted"], {
+    completed: "invoice_pending",
+  });
   const items: PendingItem[] = [];
   for (const run of runs) {
     let kind: PendingKind | null = null;
@@ -151,7 +164,8 @@ export async function handleManagerDispatchReply(
       if (both) {
         return {
           handled: true,
-          reply: toGsm7(`Two things are waiting. Reply ${parsed.kind === "decline" ? "N" : "Y"} ${target.run.handle} for the job, or answer the assistant after`),
+          // "@assistant yes" is the existing address that sends a text to the Assistant, so neither can starve the other.
+          reply: toGsm7(`Two things are waiting. ${parsed.kind === "decline" ? "N" : "Y"} ${target.run.handle} answers the job. "@assistant ${parsed.kind === "decline" ? "no" : "yes"}" answers the assistant`),
         };
       }
     }
@@ -193,7 +207,7 @@ export async function findVendorJobsForPhone(
 ): Promise<VendorJob[]> {
   const phone = normalizeE164(input.phoneE164);
   if (!phone) return [];
-  const runs = await loadOwnerRuns(db, input.ownerUserId, input.workspaceId, ["offering", "exhausted", "accepted", "completed"]);
+  const runs = await loadOwnerRuns(db, input.ownerUserId, input.workspaceId, ["offering", "exhausted", "accepted"], { completed: "recent" });
   if (runs.length === 0) return [];
   const runById = new Map(runs.map((run) => [run.id, run] as const));
   const { data, error } = await db
@@ -308,4 +322,3 @@ export async function handleResidentDispatchReply(
   return result.handled ? { handled: true, reply: result.reply } : { handled: false };
 }
 
-export { classifySmsConfirmationReply };

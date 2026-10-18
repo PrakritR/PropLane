@@ -306,7 +306,8 @@ export async function offerAttempt(
     phone: contact.phone,
     vendorUserId: contact.vendorUserId,
     text: run.offer_text,
-    idempotencyKey: `dispatch-offer-${attempt.id}`,
+    // The wave is in the key: a retry re-offers the same attempt, and the transport dedupes on this key.
+    idempotencyKey: `dispatch-offer-${attempt.id}-w${attempt.wave ?? 0}`,
   }).catch((error: unknown) => ({ ok: false as const, reason: error instanceof Error ? error.message : "send_failed" }));
   if (!sent.ok) return fail(sent.reason);
 

@@ -143,9 +143,9 @@ async function sweepApprovals(db: SupabaseClient, now: Date): Promise<{ reminded
       }
       continue;
     }
-    // Nobody could be texted the first time (no verified phone, no credit): try again.
+    // Nobody could be texted the first time (no verified phone, no credit): try again for a while.
     if ((run.approval_notified_user_ids ?? []).length === 0) {
-      await requestApproval(db, run, "first").catch(() => []);
+      if (age < 180) await requestApproval(db, run, "first").catch(() => []);
       continue;
     }
     if (age >= schedule.escalate && !run.approval_escalated_at) {
