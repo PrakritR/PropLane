@@ -67,12 +67,11 @@ import { attachVendorJobMedia, ingestInboundMedia } from "@/lib/one-number/inbou
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
-export function twimlOk(reply?: string): NextResponse {
-  const escaped = reply
-    ? reply.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    : "";
+export function twimlOk(reply?: string | string[]): NextResponse {
+  const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const messages = (Array.isArray(reply) ? reply : reply ? [reply] : []).filter((text) => text.length > 0);
   return new NextResponse(
-    `<?xml version="1.0" encoding="UTF-8"?><Response>${escaped ? `<Message>${escaped}</Message>` : ""}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${messages.map((text) => `<Message>${escape(text)}</Message>`).join("")}</Response>`,
     {
       status: 200,
       headers: { "Content-Type": "text/xml" },

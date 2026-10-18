@@ -8,6 +8,9 @@ import {
   type SharedLineInbound,
 } from "@/lib/one-number/contracts";
 import { workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
+import { isDemoStartText } from "@/lib/one-number/demo/script";
+import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
 import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
@@ -19,7 +22,7 @@ export const HUMAN_ACK_REPLY = "Got it. A person from your property team will te
 
 export type SharedLineSeamResult =
   /** Fully answered here. Respond to Twilio with `twiml` (empty when null) and stop. */
-  | { kind: "handled"; twiml: string | null }
+  | { kind: "handled"; twiml: string | null; /** Several texts in order; `twiml` is them joined. */ messages?: string[] }
   /** Run the existing inbound pipeline as this workspace, exactly as a work-number inbound would. */
   | { kind: "continue"; owned: { managerId: string; workspaceId: string; messagingServiceSid: string } }
   /** Nothing to route (shared line off for this text): the existing no-owner path logs it. */
@@ -107,7 +110,8 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     if (decision.kind === "unassigned") {
       // No workspace to bill or sign off for: the reply rides the webhook's own TwiML.
       const text = keyword === "EMERGENCY" ? EMERGENCY_SAFETY_REPLY : routed.unassignedReply;
-      return { kind: "handled", twiml: text };
+      const messages = keyword !== "EMERGENCY" && routed.unassignedReplies?.length ? routed.unassignedReplies : undefined;
+      return { kind: "handled", twiml: text, ...(messages ? { messages } : {}) };
     }
   }
 
@@ -140,6 +144,14 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   // Routed to one workspace.
   const candidate: SharedLineCandidate = decision;
   const person = candidate.role !== "manager";
+  // A manager can run the sandbox DEMO from their own phone. While it lasts their texts are the demo's,
+  // never the real manager agent's, and the demo touches no real workspace row.
+  if (!person && (isDemoStartText(input.body) || (await hasLiveDemo(db, input.phoneKey).catch(() => false)))) {
+    const demo = await runDemoTurn(db, { channel: "sms", sessionKey: input.phoneKey, text: input.body }).catch(() => null);
+    if (demo?.ok) {
+      return { kind: "handled", twiml: demo.messages.join("\n\n"), ...(demo.messages.length > 1 ? { messages: demo.messages } : {}) };
+    }
+  }
   if (keyword === "HUMAN" && person) {
     await settle("route", saveSharedLineRoute(db, input.phoneKey, { workspaceId: candidate.workspaceId, role: candidate.role }));
     await settle("pause", pauseThreadAi(db, { phoneKey: input.phoneKey, workspaceId: candidate.workspaceId, role: candidate.role, reason: "human_keyword" }));
