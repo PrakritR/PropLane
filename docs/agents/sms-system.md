@@ -1380,9 +1380,11 @@ never defaulting — the stored property JSON's own `contactSmsPhone` is
 manager-editable and is deliberately ignored), `/api/manager/phone` returns it
 as `listingCtaPhone` for manager-side previews, and the browser's
 `listingCtaSmsPhone` only normalizes/rejects. The browser must NEVER substitute
-a number of its own. In the manager's OWN preview of the listing
-(`managerPreviewChrome`) a missing work number also raises a "Set up messaging"
-banner, which a prospect never sees. Note `managerContactSmsPhoneForPublicCta`
+a number of its own. The listing preview carries no messaging banner: the
+"Set up messaging" notice lives in the portal layout
+(`ManagerMessagingSetupBanner`), is owner-only, and renders only on
+Communication and the messaging settings tab.
+Note `managerContactSmsPhoneForPublicCta`
 still collapses everything onto the Claw line under the shared-line bridge — it
 backs the SEND transport (`proplane-sms-transport.server.ts`) and work-number
 UI, not CTAs. Coverage:
