@@ -72,8 +72,8 @@ export function classifyTopic(text: string): ReplyTopic {
 export type AlwaysEscalateTopic = (typeof ALWAYS_ESCALATE_TOPICS)[number];
 
 const ESCALATE_PATTERNS: ReadonlyArray<readonly [AlwaysEscalateTopic, RegExp]> = [
-  ["safety", /\b(gas leak|smell gas|fire|smoke|flood\w*|burst pipe|carbon monoxide|break[- ]?in|assault|unsafe|threat\w*|weapon|gun|police|emergency)\b/i],
-  ["fair_housing", /\b(discriminat\w*|race|religion|disabilit\w*|wheelchair|service animal|emotional support|familial status|national origin|pregnan\w*|children allowed|kids allowed|section 8|voucher|sexual orientation|gender)\b/i],
+  ["safety", /\b(gas leak|smells? (?:like )?gas|gas (?:smell|odou?r)|smell of gas|fire|smoke|flood\w*|burst pipe|carbon monoxide|break[- ]?in|assault|unsafe|threat\w*|weapon|gun|police|emergency)\b/i],
+  ["fair_housing", /\b(discriminat\w*|race|religion|disabilit\w*|wheelchair|service animal|emotional support|familial status|national origin|pregnan\w*|children allowed|kids allowed|famil(?:y|ies) with|(?:with|have|has|allow\w*|no) (?:kids|children)|(?:kids|children) (?:allowed|ok|welcome)|what kind of people|demographic\w*|section 8|voucher|sexual orientation|gender)\b/i],
   ["legal", /\b(lawyer|attorney|sue|suing|lawsuit|legal|evict\w*|eviction notice|court|tenant rights|habitability|notice to vacate|lease violation|small claims)\b/i],
   ["money", /\b(refund|dispute|chargeback|overcharg\w*|double charged|owe|waive|waiver|reduce (?:my )?rent|rent reduction|payment plan|deposit back|security deposit return|collections)\b/i],
 ];

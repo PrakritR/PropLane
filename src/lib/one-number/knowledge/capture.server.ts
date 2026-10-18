@@ -60,6 +60,7 @@ export async function recordEscalatedQuestion(
       property_id: property?.id ?? null,
       topic: classifyTopic(question),
       question,
+      escalated_at: new Date().toISOString(),
     });
     if (error && !isMissingSchemaError(error)) console.error("escalated question insert failed", error.message);
   } catch {

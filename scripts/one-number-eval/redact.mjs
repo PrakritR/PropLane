@@ -11,7 +11,7 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const URL_RE = /\bhttps?:\/\/[^\s)]+/gi;
 const ADDRESS = /\b\d{1,6}\s+(?:[NSEW]\.?\s+)?(?:[A-Z][A-Za-z0-9]*\s+){1,3}(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Place|Ter|Terrace|Hwy|Highway)\b\.?(?:\s+(?:Apt|Unit|#)\s*\w+)?/gi;
 const NUMBER_RUN = /\b\d{5,}\b/g;
-const INTRO = /\b(?:my name is|i am|i'm|this is|it's|its|hi|hello|hey|thanks|thank you|dear|from)\s+([A-Z][a-z]{1,15}(?:\s+[A-Z][a-z]{1,15})?)\b/g;
+const INTRO = /\b(?:[Mm]y name is|[Ii] am|[Ii]'m|[Tt]his is|[Ii]t's|[Ii]ts|[Hh]i|[Hh]ello|[Hh]ey|[Tt]hanks|[Tt]hank you|[Dd]ear|[Ff]rom)\s+([A-Z][a-z]{1,15}(?:\s+[A-Z][a-z]{1,15})?)\b/g;
 
 export function redactText(text, names, knownNames = []) {
   let out = String(text ?? "");

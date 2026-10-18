@@ -154,7 +154,7 @@ describe("lookup_property_knowledge: manager", () => {
   it("reads as empty when the tables do not exist yet", async () => {
     const fake = knowledgeFakeDb(seed(), { broken: ["property_knowledge_entries"] });
     const out = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "trash" })) as any;
-    expect(out.found).toBe(false);
+    expect(out.answers).toEqual([]);
   });
 });
 

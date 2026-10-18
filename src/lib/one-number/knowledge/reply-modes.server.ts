@@ -171,6 +171,8 @@ export async function gateAiReply(
         inbound_text: args.inboundText.slice(0, 2000),
         body: args.replyText.slice(0, 1600),
         property_id: args.propertyId ?? null,
+        status: "pending",
+        created_at: new Date().toISOString(),
       });
       stored = !error;
       if (error && !isMissingSchemaError(error)) console.error("ai draft insert failed", error.message);
