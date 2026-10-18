@@ -143,6 +143,7 @@ import {
   listMyJobsWithThisManagerTool,
 } from "./domains/vendor-work-order";
 import { getPropertyLinksTool, getVendorSmsLinksTool } from "./domains/portal-links";
+import { leasingSendMyLinkTool, vendorSendMyLinkTool } from "./domains/one-number-links";
 import { portfolioImportStatusTool } from "./domains/portfolio-import";
 import {
   buildProspectLinksTool,
@@ -370,6 +371,8 @@ export const vendorWorkOrderAgentRegistry = buildRegistry([
   // Pure vendor-portal URLs (invoices, payouts, documents, profile), so a
   // texting vendor is sent to the page instead of walked through it. No data.
   getVendorSmsLinksTool,
+  // A phone-bound link to THIS job (one-number build); inert unless the workspace is on the shared line.
+  vendorSendMyLinkTool,
 ]);
 
 /**
@@ -390,6 +393,8 @@ export const leasingSmsAgentRegistry = buildRegistry([
   // books nothing — the manager still confirms. See LEASING_SMS_INLINE_WRITE_TOOLS.
   listOpenTourSlotsTool,
   leasingRequestTourTool,
+  // A phone-bound gallery / tour / application link (one-number build); inert unless the workspace is on the shared line.
+  leasingSendMyLinkTool,
 ]);
 
 /** Durable inbound SMS only. Email and voice deliberately use the base registry. */

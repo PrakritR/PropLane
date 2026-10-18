@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { hashShareToken, isMissingTokenHashColumn } from "@/lib/share-token-hash";
 import {
   lookupRecordTestWorkspaceId,
   resolveTestWorkspaceClassification,
@@ -25,7 +26,8 @@ function mapShareLinkRow(raw: Record<string, unknown>): PortalRecordShareLinkRow
     id: String(raw.id),
     recordKind: String(raw.record_kind) as PortalRecordShareKind,
     recordId: String(raw.record_id),
-    shareToken: String(raw.share_token),
+    // Hash-only rows carry no raw token; the creator gets it once from `createPortalRecordShareLink`.
+    shareToken: raw.share_token ? String(raw.share_token) : "",
     expiresAt: String(raw.expires_at),
     createdAt: String(raw.created_at),
     revokedAt: raw.revoked_at ? String(raw.revoked_at) : null,
@@ -88,21 +90,32 @@ export async function createPortalRecordShareLink(
     throw new Error("Public share links are unavailable for this record.");
   }
 
-  const { data, error } = await db
+  const base = {
+    record_kind: input.recordKind,
+    record_id: input.recordId.trim(),
+    manager_user_id: managerUserId,
+    expires_at: expiresAt,
+    created_by: createdBy,
+  };
+  const columns = "id, record_kind, record_id, expires_at, created_at, revoked_at, access_count";
+  // Only the hash is stored. If the hash column is not there yet (code ahead of its migration) the
+  // legacy raw column is used so link creation never breaks; the migration makes it read-only.
+  let { data, error } = await db
     .from("portal_record_share_links")
-    .insert({
-      record_kind: input.recordKind,
-      record_id: input.recordId.trim(),
-      manager_user_id: managerUserId,
-      share_token: shareToken,
-      expires_at: expiresAt,
-      created_by: createdBy,
-    })
-    .select("id, record_kind, record_id, share_token, expires_at, created_at, revoked_at, access_count")
+    .insert({ ...base, token_hash: hashShareToken(shareToken) })
+    .select(columns)
     .single();
+  if (error && isMissingTokenHashColumn(error)) {
+    ({ data, error } = await db
+      .from("portal_record_share_links")
+      .insert({ ...base, share_token: shareToken })
+      .select(columns)
+      .single());
+  }
 
   if (error) throwShareLinkDbError(error);
-  return mapShareLinkRow(data as Record<string, unknown>);
+  // The raw token goes back to the creator once; it is never read from the database again.
+  return { ...mapShareLinkRow(data as Record<string, unknown>), shareToken };
 }
 
 export type ResolvedPortalRecordShareLink = {
@@ -119,14 +132,24 @@ export async function resolvePortalRecordShareToken(
   const trimmed = token.trim();
   if (!trimmed) return null;
 
-  const { data: linkRow, error } = await db
+  const linkColumns =
+    "id, record_kind, record_id, expires_at, created_at, revoked_at, access_count, manager_user_id, created_by";
+  // Hash first. A row from before the migration is also found by its legacy raw column until that
+  // column is retired; a database without the hash column answers from the raw column alone.
+  let { data: linkRow, error } = await db
     .from("portal_record_share_links")
-    .select(
-      "id, record_kind, record_id, share_token, expires_at, created_at, revoked_at, access_count, manager_user_id, created_by",
-    )
-    .eq("share_token", trimmed)
+    .select(linkColumns)
+    .eq("token_hash", hashShareToken(trimmed))
     .is("revoked_at", null)
     .maybeSingle();
+  if (!linkRow && (!error || isMissingTokenHashColumn(error))) {
+    ({ data: linkRow, error } = await db
+      .from("portal_record_share_links")
+      .select(linkColumns)
+      .eq("share_token", trimmed)
+      .is("revoked_at", null)
+      .maybeSingle());
+  }
 
   if (error || !linkRow) return null;
   if (new Date(String(linkRow.expires_at)).getTime() < Date.now()) return null;
