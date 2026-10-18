@@ -20,7 +20,7 @@ describe("the generic Get started CTA lands on the role picker", () => {
   });
 
   it("the navbar fallback is role-less, and audience pages carry the role", () => {
-    const navbar = read("src/components/layout/public-navbar.tsx");
+    const navbar = read("src/components/layout/legacy-public-navbar.tsx");
     // The /rent branch is deliberate: a visitor browsing homes has already
     // told us what they are.
     expect(navbar).toContain('"/auth/create-account?mode=create&role=resident"');

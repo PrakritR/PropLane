@@ -1,17 +1,18 @@
 /**
- * The home hero is scroll-driven (portal redesign, captain 2026-10-07): a sticky frame pins the headline while the
+ * The retained lifecycle demo is scroll-driven (portal redesign, captain 2026-10-07): a sticky frame pins the headline while the
  * window grows with a transform, the track is always frame + run (no layout jump), and a phone or reduced motion
  * gets the static, full-size window. These are source guards on the three pieces that must keep agreeing.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { HOME_HEADLINE } from "@/lib/marketing/home-copy";
 
 const read = (rel: string) => readFileSync(path.join(process.cwd(), rel), "utf8");
 const css = read("src/components/marketing/resident-lifecycle-hero.css");
 const tsx = read("src/components/marketing/resident-lifecycle-prototypes.tsx");
 
-describe("home hero grows on scroll", () => {
+describe("retained lifecycle demo grows on scroll", () => {
   it("pins the headline and window in a sticky frame inside a track that also holds the run", () => {
     expect(tsx).toMatch(/className="rlp-grow"/);
     expect(tsx).toMatch(/className="rlp-grow-frame"/);
@@ -40,5 +41,40 @@ describe("home hero grows on scroll", () => {
     expect(tsx).not.toMatch(/--rlp-phone-top/);
     expect(css).toMatch(/\.rlp-story-phone-slot\s*\{\s*top:\s*max\(calc\(var\(--rlp-hdr\) \+ 12px\), calc\(50svh - /);
     expect(read("src/components/marketing/resident-lifecycle-prototypes.css")).toMatch(/\.rlp-story-phone-slot\s*\{[^}]*position:\s*sticky/);
+  });
+});
+
+
+// The public homepage now uses a light text-first hero; the lifecycle demo above remains reusable.
+describe("text-first homepage composition", () => {
+  const home = read("src/app/(public)/page.tsx");
+  const homeCss = read("src/components/marketing/texting-home.css");
+  it("has exactly four sections: hero, people, managed service, and shared pricing cards", () => {
+    expect(home.match(/<TextingHomeHero\b/g)).toHaveLength(1);
+    const sections = [...home.matchAll(/<section\s+id="([^"]+)"/g)].map((match) => match[1]);
+    expect(sections).toEqual(["how-it-works", "for-managers", "pricing"]);
+    expect(home.match(/<section\b/g)).toHaveLength(3);
+    expect(home).toMatch(/import\s*\{\s*PricingCards\s*\}\s*from\s*"@\/components\/marketing\/site\/pricing-cards"/);
+    expect(home).toContain("<PricingCards />");
+    expect(home.indexOf("<TextingHomeHero")).toBeLessThan(home.indexOf('id="how-it-works"'));
+    expect(home).toContain('<TextingHomeLazy kind="dashboard"');
+    expect(home).not.toMatch(/ResidentLifecyclePrototypes|resident-lifecycle-prototypes/);
+    expect(homeCss).toMatch(/@media\s*\(max-width:\s*639px\)[\s\S]*\.texting-dashboard\s*\{\s*display:\s*none/);
+  });
+  it("uses the approved headline for the hero and search metadata", () => {
+    expect(HOME_HEADLINE).toBe("Your AI Property Manager");
+    expect(home).toContain("title: HOME_HEADLINE");
+    expect(read("src/components/marketing/texting-home-hero.tsx")).toMatch(/<h1[^>]*>\{HOME_HEADLINE\}<\/h1>/);
+  });
+  it("keeps the founders' proof to the three captain-provided facts", () => {
+    const proof = home.match(/<dl\s[^>]*className="texting-track-record"[\s\S]*?<\/dl>/)?.[0];
+    expect(proof).toBeDefined();
+    expect([...proof!.matchAll(/<dd>([^<]+)<\/dd>/g)].map((match) => match[1])).toEqual([
+      "3 Seattle homes", "Room rentals + Airbnb", "six-figure profit",
+    ]);
+    expect(home).toContain('href="/service"');
+  });
+  it("disables sample bubble and typing animations for reduced motion", () => {
+    expect(homeCss).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\.texting-bubble,\s*\.texting-tour-card,\s*\.texting-typing i\s*\{\s*animation:\s*none/);
   });
 });

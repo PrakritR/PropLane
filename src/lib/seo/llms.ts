@@ -1,3 +1,4 @@
+import { HOME_DESCRIPTION } from "@/lib/marketing/home-copy";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { BLOG_POSTS, formatBlogDate, type BlogPost } from "@/lib/blog/posts";
@@ -34,10 +35,11 @@ export function llmsOrigin(env: NodeJS.ProcessEnv = process.env): string {
 const usd = formatRateCardUsd;
 
 export const LLMS_SUMMARY =
-  `PropLane is property management software for shared houses and room rentals. ` +
+  `${HOME_DESCRIPTION} ` +
+  `PropLane offers property management software and hands-on managed service for shared houses and room rentals. ` +
   `It runs listings, applications, tours, leases, rent collection and payments, bookings (including Airbnb calendar sync), ` +
-  `a work phone number and work email for each workspace, and separate resident and vendor portals, with an AI assistant ` +
-  `that drafts work and never sends without the manager's approval. Built in Seattle. ` +
+  `one shared texting number, workspace email, and separate resident and vendor portals. ` +
+  `Managers control drafts and enabled automations. Built in Seattle. ` +
   `Pricing: Free for ${RATE_CARD.free.includedDoors} residents, Pro at ${usd(RATE_CARD.pro.floorMonthlyCents)}/month ` +
   `(${RATE_CARD.pro.includedDoors} residents included), Business at ${usd(RATE_CARD.business.floorMonthlyCents)}/month ` +
   `(${RATE_CARD.business.includedDoors} residents included); ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day trial on paid plans, no card required.`;
@@ -51,6 +53,7 @@ const DOCS: Entry[] = [
 
 const PRODUCT: Entry[] = [
   { title: "Home", path: "/", note: "What PropLane does, from first tour to fixed faucet." },
+  { title: "Features", path: "/features", note: "Tours, applications, leases, rent collection and services in detail." },
   { title: "Why PropLane", path: "/why-proplane", note: "The AI assistant does the relaying between residents, vendors and owners; you approve what matters." },
   { title: "For managers and landlords", path: "/partner", note: "List, screen, lease and collect from one queue on web and iPhone." },
   { title: "Vendors", path: "/vendors", note: "Get matched to jobs by text, bid from your phone, and get paid through PropLane." },

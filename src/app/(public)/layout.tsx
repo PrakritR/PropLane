@@ -7,6 +7,9 @@ import { PublicLightThemeLock } from "@/components/providers/public-light-theme-
 import type { Metadata } from "next";
 import { IOS_APP_STORE_APP_ID } from "@/lib/ios-app-download";
 import { siteDisplayFont } from "@/components/marketing/fonts/site-display-font";
+import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
+import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
+import QRCode from "qrcode";
 
 /**
  * Smart App Banner: iPhone Safari shows the native "Open in App Store" strip on
@@ -16,24 +19,34 @@ export const metadata: Metadata = {
   itunes: { appId: IOS_APP_STORE_APP_ID, appArgument: "https://prop-lane.space/app" },
 };
 
-export default function PublicLayout({
+export default async function PublicLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const texting = await getPublicTextingConfig();
+  const qrDataUrl = texting.smsHref
+    ? await QRCode.toDataURL(texting.smsHref, {
+        width: 208,
+        margin: 1,
+        color: { dark: "#143a66", light: "#ffffff" },
+      })
+    : null;
   return (
-    <div className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable}`}>
-      <PublicLightThemeLock />
-      <HideOnNative>
-        <ChromeSubstrate variant="quiet" />
-        <PublicNavbar />
-      </HideOnNative>
-      <PublicMainTransition>
-        <main className="flex-1">{children}</main>
-      </PublicMainTransition>
-      <HideOnNative>
-        <PublicFooter />
-      </HideOnNative>
-    </div>
+    <PublicTextingProvider value={{ ...texting, qrDataUrl }}>
+      <div className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable}`}>
+        <PublicLightThemeLock />
+        <HideOnNative>
+          <ChromeSubstrate variant="quiet" />
+          <PublicNavbar texting={texting} />
+        </HideOnNative>
+        <PublicMainTransition>
+          <main className="flex-1">{children}</main>
+        </PublicMainTransition>
+        <HideOnNative>
+          <PublicFooter texting={texting} />
+        </HideOnNative>
+      </div>
+    </PublicTextingProvider>
   );
 }

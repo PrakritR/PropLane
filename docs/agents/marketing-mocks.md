@@ -227,3 +227,24 @@ internal-inconsistency failure as a Pending tab showing an `Approved` badge.
 ## App Store screenshots: a showcase account, a fixed frame, and live routes
 
 `app-store/screenshots/**` are real captures of the real portal (Apple guideline 2.3.7), framed by `scripts/ios-app-store-screenshots.mjs`, never drawn. They are shot as a dedicated **showcase manager** created by `npm run app-store:seed` (`scripts/app-store-seed.mjs`: dev/test project only, idempotent, rewrites only that manager's rows, never `manager2@` or the e2e seed; `SHOT_EMAIL` / `SHOT_PASSWORD` land in the gitignored `.env.local`). The books are small-landlord realistic (6 houses, 15 rooms, 87% let, rent ~96% collected, 0 overdue, applicants, tours, leases in four stages, a work number on file) and money is rent only: a listing that configures an application fee, deposit, move-in fee or utilities makes the app bill each of them itself the moment it loads a signed lease, which is how 92 overdue charges appeared on the first dashboard shot. No photo is invented; a room with no upload keeps the house glyph. Frame rules: brand blue and deep navy alternating by slot (the install sheet reads blue, navy, blue), the product's own mark from `src/app/icon.svg`, a two-line white headline with **no subtext** (shrunk to fit, never three lines; the unit test fails a third line or "work order"), the device bleeding off the bottom edge, and the app captured without `.portal-mobile-nav-bar` and `.axis-assistant-fab`. Slots 02 and 05 are a zoomed crop card of the one element that sells them. The generator fails the run, rather than shooting a wrong page, when a route redirects elsewhere, an expected element is missing, or the page text contains a fixture string (`FORBIDDEN_TEXT`). Lesson: two slots were silently broken for months. `/portal/move-in/inspections/*` now redirects to the Residents list (slot 08 is a resident's **Move in** section, `/portal/residents/current/<id>/move-in`), and on a phone the listing editor has no side rail (slot 10 reaches Rooms through the Steps picker, `phone-strip-picker-toggle` then `workspace-step-rooms-picker`). Re-run the generator after any change to a gallery screen and look at all twenty PNGs. `npm run test:seed` prunes the showcase account, so re-run `app-store:seed` after a full reseed.
+
+## Text-first homepage (captain Oct 18, 2026)
+
+The homepage uses `texting-home-hero.tsx`: the existing Room 3 fixture conversation
+plays once, or appears in full with reduced motion. The shared number comes from
+`public-texting.server.ts`; null/unavailable falls back to Start free. QR generation
+is server-side. The full dashboard is below the fold and never loaded on phones.
+The control proof uses the real `InboxComposer`, with sample-only local state.
+Long lifecycle/import/FAQ content now lives at `/features`. The live web demo
+loads only after Open the demo (or `/?demo=open`) and uses the existing sandbox
+agent; see `demo-sandbox.md`. Homepage copy is shared with AI-search descriptions
+through `home-copy.ts`; pricing structured data still derives from the rate card.
+
+The later Oct 18 addendum sets the headline to “Your AI Property Manager” and
+exactly four sections: hero, Who texts, managed-service founder proof, and
+software/managed-service pricing. The captain supplied “3 Seattle homes”,
+room rentals + Airbnb, and “six-figure profit”; no other performance figure
+is added. The draft and dashboard sit inside the service section. W14/on/marketing
+owns the shared `PricingCards` component and `/service`; the lane's same-name
+placeholder is explicitly authorized for replacement at integration. Software
+and managed service both use the same configured PropLane line.

@@ -4,13 +4,12 @@ import { PartnerMeetingScheduler } from "@/components/partner/partner-meeting-sc
 import { MarketingPageShell } from "@/components/marketing/marketing-page-shell";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { SegmentedTwo } from "@/components/ui/segmented-control";
+import { usePublicTexting } from "@/components/marketing/public-texting-context";
 import {
   PUBLIC_SUPPORT_EMAIL,
-  PUBLIC_SUPPORT_PHONE_DISPLAY,
-  PUBLIC_SUPPORT_PHONE_TEL,
 } from "@/lib/marketing/public-contact";
 import { SITE_MEASURE } from "@/components/marketing/site/primitives";
-import { Building2, Mail, Phone } from "lucide-react";
+import { Building2, Mail, MessageSquareText } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -46,6 +45,7 @@ export default function ContactPage() {
 }
 
 function ContactInner() {
+  const texting = usePublicTexting();
   const { showToast } = useAppUi();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -71,16 +71,16 @@ function ContactInner() {
         </div>
       </header>
 
-      {/* One centered column: three ways to reach a human, then the form under them. */}
+      {/* One centered column of configured contact channels, then the form. */}
       <div className={`${SITE_MEASURE} flex flex-col items-center pb-20 pt-8 sm:pb-24 sm:pt-12`}>
-        <div className="grid w-full max-w-[60rem] gap-4 sm:grid-cols-3">
-          <a href={`tel:${PUBLIC_SUPPORT_PHONE_TEL}`} data-attr="contact-card-phone" className={CONTACT_CARD}>
+        <div className={`grid w-full max-w-[60rem] gap-4 ${texting.smsHref && texting.phone ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+          {texting.smsHref && texting.phone ? <a href={texting.smsHref} data-attr="contact-card-phone" className={CONTACT_CARD}>
             <span className={CONTACT_ICON}>
-              <Phone strokeWidth={2} aria-hidden />
+              <MessageSquareText strokeWidth={2} aria-hidden />
             </span>
-            <p className={CONTACT_LABEL}>Text or call</p>
-            <p className="mt-2 text-[17px] font-bold tabular-nums tracking-tight text-foreground">{PUBLIC_SUPPORT_PHONE_DISPLAY}</p>
-          </a>
+            <p className={CONTACT_LABEL}>Text PropLane</p>
+            <p className="mt-2 text-[17px] font-bold tabular-nums tracking-tight text-foreground">{texting.phone}</p>
+          </a> : null}
           <a href={`mailto:${PUBLIC_SUPPORT_EMAIL}`} data-attr="contact-card-email" className={CONTACT_CARD}>
             <span className={CONTACT_ICON}>
               <Mail strokeWidth={2} aria-hidden />

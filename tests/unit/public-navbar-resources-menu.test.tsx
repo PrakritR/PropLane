@@ -33,7 +33,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {}, replace: () => {}, prefetch: () => {} }),
 }));
 
-import { PublicNavbar } from "@/components/layout/public-navbar";
+import { LegacyPublicNavbar as PublicNavbar } from "@/components/layout/legacy-public-navbar";
 
 async function openResourcesMenu() {
   const user = userEvent.setup();
@@ -49,7 +49,7 @@ describe("public navbar Resources dropdown", () => {
     mockPathname = "/";
   });
 
-  it("carries the reading — Docs, MCP, Security under Learn; Reviews, About, Contact under Company — while Pricing and Why are tabs", async () => {
+  it("carries the reading — Docs, MCP, Security under Learn; Reviews, About, Contact under Company — while Pricing, Service and Why are tabs", async () => {
     await openResourcesMenu();
 
     expect(screen.getAllByRole("link", { name: /documentation/i })[0]).toHaveAttribute("href", "/docs");
@@ -62,9 +62,13 @@ describe("public navbar Resources dropdown", () => {
     expect(screen.queryByRole("link", { name: /^mobile app$/i })).toBeNull();
 
     // Pricing is the second thing every buyer looks for: a top-level tab, not a
-    // dropdown entry. Why PropLane sits beside it.
+    // dropdown entry. Service sits immediately after Pricing, followed by Why PropLane.
     expect(screen.getAllByRole("link", { name: /^pricing$/i })[0]).toHaveAttribute("href", "/pricing");
     expect(screen.getAllByRole("link", { name: /^why proplane$/i })[0]).toHaveAttribute("href", "/why-proplane");
+    const pricing = screen.getAllByRole("link", { name: /^pricing$/i })[0];
+    const service = screen.getAllByRole("link", { name: /^service$/i })[0];
+    expect(service).toHaveAttribute("href", "/service");
+    expect(pricing.closest("li")?.nextElementSibling).toContainElement(service);
   });
 
   it("highlights the Pricing tab on /pricing, not Resources", async () => {
@@ -75,6 +79,13 @@ describe("public navbar Resources dropdown", () => {
     expect(pricing.className).toContain("text-primary");
     const trigger = (await screen.findAllByRole("button", { name: /resources/i }))[0];
     expect(trigger.className).not.toContain("text-primary");
+  });
+
+  it("highlights Service on its page without highlighting Pricing", async () => {
+    mockPathname = "/service";
+    render(<PublicNavbar />);
+    expect((await screen.findAllByRole("link", { name: /^service$/i }))[0]).toHaveClass("text-primary");
+    expect(screen.getAllByRole("link", { name: /^pricing$/i })[0]).not.toHaveClass("text-primary");
   });
 
   it("offers Start free and Book a demo on every page", async () => {

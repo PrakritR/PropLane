@@ -12,6 +12,7 @@ export const revalidate = 3600;
 const PATHS = [
   "",
   "/about",
+  "/features",
   "/pricing",
   "/why-proplane",
   "/contact",
