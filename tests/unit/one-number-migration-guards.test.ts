@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeE164 as tsNormalizeE164 } from "@/lib/phone-e164";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
@@ -129,5 +130,29 @@ describe("validateBackup", () => {
     expect(check(goodBackup({ createdAt: "2026-10-19T08:00:00Z" }))).toThrow(/minutes old/);
     expect(check(goodBackup({ createdAt: "2026-10-20T08:00:00Z" }))).toThrow(/future/);
     expect(check(goodBackup({ createdAt: "garbage" }))).toThrow(/creation time/);
+  });
+});
+
+describe("bootstrap reads the env FILE, not the shell", () => {
+  it("a production file beats an ambient dev URL, and a mismatch is still refused", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { bootstrap } = await import("../../scripts/one-number/lib/runtime.mjs");
+    const dir = mkdtempSync(join(tmpdir(), "w18-env-"));
+    const prodFile = join(dir, "prod.env");
+    writeFileSync(prodFile, `NEXT_PUBLIC_SUPABASE_URL=${PROD_URL}\nSUPABASE_SERVICE_ROLE_KEY=k\n`);
+    const before = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = DEV_URL;
+    try {
+      const lines: string[] = [];
+      const ok = bootstrap("t", ["--target", "production", "--env-file", prodFile, "--confirm-ref", TARGET_REFS.production], {}, { write: false, deps: { db: {}, log: (l: string) => lines.push(l) } });
+      expect(ok.resolved.ref).toBe(TARGET_REFS.production);
+      expect(lines[0]).toContain(`project=${TARGET_REFS.production}`);
+      expect(() => bootstrap("t", ["--target", "dev", "--env-file", prodFile], {}, { write: false, deps: { db: {}, log: () => {} } })).toThrow(/expects project/);
+      expect(() => bootstrap("t", ["--target", "dev", "--env-file", join(dir, "missing.env")], {}, { write: false, deps: { db: {}, log: () => {} } })).toThrow(/not found/);
+    } finally {
+      if (before === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = before;
+    }
   });
 });
