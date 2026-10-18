@@ -51,7 +51,9 @@ export async function finishSetup(
 
   try {
     if (link.kind === "landlord") {
-      const decision = await decideWaitlist(db, link, deps.env);
+      // Someone who already runs a workspace is not a new landlord and never waits.
+      const { data: managerRole } = await db.from("profile_roles").select("role").eq("user_id", user.id).eq("role", "manager").maybeSingle();
+      const decision = managerRole ? { admit: true as const } : await decideWaitlist(db, link, deps.env);
       if (!decision.admit) {
         await markSetupLinkWaitlisted(db, link.id, user.id, now);
         return { ok: false, reason: "waitlisted" };
