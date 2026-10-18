@@ -3,15 +3,20 @@ import type { AgentContext } from "@/lib/tools/context";
 import { makeWritableCtx, previewWrite, executeWrite } from "./fake-agent-ctx";
 
 const send = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>>, fail: false }));
-vi.mock("@/lib/tools/domains/messaging", () => ({
-  sendMessageTool: {
-    handler: vi.fn(async (_ctx: unknown, input: Record<string, unknown>) => {
-      send.calls.push(input);
-      if (send.fail) throw new Error("no delivery");
-      return { reply: "ok" };
-    }),
-  },
-}));
+vi.mock("@/lib/tools/domains/messaging", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tools/domains/messaging")>();
+  return {
+    ...actual,
+    sendMessageTool: {
+      ...actual.sendMessageTool,
+      handler: vi.fn(async (_ctx: unknown, input: Record<string, unknown>) => {
+        send.calls.push(input);
+        if (send.fail) throw new Error("no delivery");
+        return { reply: "ok" };
+      }),
+    },
+  };
+});
 const optedOut = vi.hoisted(() => new Set<string>());
 vi.mock("@/lib/sms-consent", async () => {
   const actual = await vi.importActual<typeof import("@/lib/sms-consent")>("@/lib/sms-consent");
