@@ -11,7 +11,16 @@ function latestCheckList(constraint: string): string[] {
   for (const file of files) {
     const sql = readFileSync(join(MIGRATIONS, file), "utf8");
     const re = new RegExp(`add constraint ${constraint}[\\s\\S]*?check\\s*\\(\\s*\\w+\\s+in\\s*\\(([\\s\\S]*?)\\)\\s*\\)`, "g");
-    for (const match of sql.matchAll(re)) list = [...match[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+    for (const match of sql.matchAll(re)) {
+      const values = [...match[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+      // A migration that rebuilds the check from the live definition (`pg_get_constraintdef`, e.g.
+      // 20261018120100_vendor_dispatch_engine) only APPENDS a value; its `in (%s)` holds no literal
+      // list, so it adds to the last static list instead of replacing it.
+      list = /pg_get_constraintdef/.test(sql) ? [...new Set([...list, ...values])] : values;
+    }
+    if (/pg_get_constraintdef/.test(sql) && sql.includes(`'${constraint}'`)) {
+      for (const m of sql.matchAll(/array_append\(vals,\s*'([^']+)'\)/g)) if (!list.includes(m[1]!)) list = [...list, m[1]!];
+    }
   }
   return list;
 }

@@ -4,6 +4,13 @@ import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types
 import { leaseIsFullyExecuted, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
+import {
+  DEFAULT_PROPERTY_STAY_TIMES,
+  normalizeStayTime,
+  resolveStayTimes,
+  type PropertyStayTimes,
+  type StayAddOns,
+} from "@/lib/bookings/stay-times";
 
 /**
  * What the Bookings calendar draws.
@@ -32,7 +39,31 @@ export type PropertyBookingEntry = {
   bookingStatus?: "hold" | "confirmed" | "cancelled";
   rate?: number;
   rateBasis?: "daily" | "weekly" | "monthly";
-  stayDetails?: { linen?: string; earlyCheckIn?: string; lateCheckOut?: string; baggage?: string; source?: string; holdExpiresAt?: string; decision?: string };
+  stayDetails?: {
+    linen?: string;
+    /** Legacy: the Add/Edit sheet used to write a time here. Read only through `resolveStayTimes`; writers stop writing it. */
+    earlyCheckIn?: string;
+    /** Legacy, as `earlyCheckIn`. */
+    lateCheckOut?: string;
+    baggage?: string;
+    source?: string;
+    holdExpiresAt?: string;
+    decision?: string;
+    /** Paid early check-in / late checkout on this stay (server-owned: its payments write it). */
+    addOns?: StayAddOns;
+    /** "HH:MM" the guest expects to arrive. */
+    estimatedArrival?: string;
+  };
+  /**
+   * The stay's resolved check-in / check-out times, "HH:MM" property wall time (explicit, else legacy, else
+   * the property's defaults). Consumers fall back to `resolveStayTimes(entry)` when absent.
+   */
+  checkInTime?: string;
+  checkOutTime?: string;
+  /** Paid early / late add-ons on this stay, mirrored from `stayDetails.addOns`. */
+  addOns?: StayAddOns;
+  /** "HH:MM" the guest expects to arrive, mirrored from `stayDetails.estimatedArrival`. */
+  estimatedArrival?: string;
   sourceUid?: string;
   /** Room-block entries only - "closed" = the manager shut the room with a reason and nobody is staying. */
   blockKind?: "closed";
@@ -164,6 +195,9 @@ export type RoomDateBlock = {
   rate?: number;
   rateBasis?: "daily" | "weekly" | "monthly";
   stayDetails?: PropertyBookingEntry["stayDetails"];
+  /** The stay's own exact times, "HH:MM" property wall time. Absent on a row saved before they existed. */
+  checkInTime?: string;
+  checkOutTime?: string;
   id: string;
   propertyId: string;
   /** "" = every room / the whole home. */
@@ -224,14 +258,14 @@ export function isImportedChannelBlock(block: Pick<RoomDateBlock, "reason">): bo
  */
 export function importedAirbnbStayEntries(
   blocks: readonly RoomDateBlock[],
-  opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
+  opts: RoomBlockEntryOptions,
 ): PropertyBookingEntry[] {
   return importedChannelStayEntries(blocks, opts);
 }
 
 export function importedChannelStayEntries(
   blocks: readonly RoomDateBlock[],
-  opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
+  opts: RoomBlockEntryOptions,
 ): PropertyBookingEntry[] {
   return roomBlockEntries(blocks.filter(isImportedChannelBlock), opts).map((entry) => ({
     ...entry,
@@ -248,9 +282,62 @@ export function lastNightBeforeCheckout(checkOut: string): string {
   return `${night.getFullYear()}-${String(night.getMonth() + 1).padStart(2, "0")}-${String(night.getDate()).padStart(2, "0")}`;
 }
 
+export type RoomBlockEntryOptions = {
+  propertyLabelForId: (propertyId: string) => string;
+  roomLabelForId: (propertyId: string, roomId: string) => string;
+  /** The property's default stay times (`listingSubmission.stayTimes`); absent = 3:00 pm / 11:00 am. */
+  stayTimesForProperty?: (propertyId: string) => PropertyStayTimes;
+};
+
+/** The resolved times, add-ons and arrival a stay row's entry carries. */
+function stayTimeFields(
+  stay: { checkInTime?: string | null; checkOutTime?: string | null; stayDetails?: PropertyBookingEntry["stayDetails"] },
+  property: PropertyStayTimes | undefined,
+): Pick<PropertyBookingEntry, "checkInTime" | "checkOutTime" | "addOns" | "estimatedArrival"> {
+  const details = stay.stayDetails;
+  const times = resolveStayTimes(
+    {
+      checkInTime: stay.checkInTime,
+      checkOutTime: stay.checkOutTime,
+      legacyEarlyCheckIn: details?.earlyCheckIn,
+      legacyLateCheckOut: details?.lateCheckOut,
+    },
+    property,
+  );
+  const arrival = normalizeStayTime(details?.estimatedArrival);
+  return {
+    ...times,
+    ...(details?.addOns && Object.keys(details.addOns).length > 0 ? { addOns: details.addOns } : {}),
+    ...(arrival ? { estimatedArrival: arrival } : {}),
+  };
+}
+
+/**
+ * Fills the resolved check-in / check-out times on every entry that has none (resident stays, holds and
+ * leases draw from sources that carry no time of their own): the property's default, else 3:00 pm / 11:00 am.
+ */
+export function withResolvedStayTimes(
+  entries: readonly PropertyBookingEntry[],
+  stayTimesForProperty?: (propertyId: string) => PropertyStayTimes,
+): PropertyBookingEntry[] {
+  return entries.map((entry) => {
+    if (entry.checkInTime && entry.checkOutTime) return entry;
+    const times = resolveStayTimes(
+      {
+        checkInTime: entry.checkInTime,
+        checkOutTime: entry.checkOutTime,
+        legacyEarlyCheckIn: entry.stayDetails?.earlyCheckIn,
+        legacyLateCheckOut: entry.stayDetails?.lateCheckOut,
+      },
+      stayTimesForProperty?.(entry.propertyId) ?? DEFAULT_PROPERTY_STAY_TIMES,
+    );
+    return { ...entry, ...times };
+  });
+}
+
 export function roomBlockEntries(
   blocks: readonly RoomDateBlock[],
-  opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
+  opts: RoomBlockEntryOptions,
 ): PropertyBookingEntry[] {
   const out: PropertyBookingEntry[] = [];
   for (const block of blocks) {
@@ -272,6 +359,7 @@ export function roomBlockEntries(
       rate: block.rate,
       rateBasis: block.rateBasis,
       stayDetails: block.stayDetails,
+      ...stayTimeFields(block, opts.stayTimesForProperty?.(block.propertyId)),
       blockId: block.id,
       reason: block.reason,
       ...(block.residentName?.trim() ? { residentName: block.residentName.trim() } : {}),
@@ -436,6 +524,7 @@ export function normalizeBookingDateKey(value: string | null | undefined): strin
 
 export function airbnbBookingEntries(
   properties: ManagerChannelBookingProperty[],
+  opts: { stayTimesForProperty?: (propertyId: string) => PropertyStayTimes } = {},
 ): PropertyBookingEntry[] {
   const out: PropertyBookingEntry[] = [];
   for (const property of properties) {
@@ -465,6 +554,17 @@ export function airbnbBookingEntries(
           lastSyncedAt: room.lastSyncedAt,
           start,
           end: normalizeBookingDateKey(range.end) || start,
+          // A manager's override (stored as instants, read here as property wall time); the property's
+          // defaults fill the rest when the caller supplies them, else `withResolvedStayTimes` does later.
+          ...(opts.stayTimesForProperty
+            ? resolveStayTimes(
+                { checkInTime: range.checkInTime, checkOutTime: range.checkOutTime },
+                opts.stayTimesForProperty(property.propertyId),
+              )
+            : {
+                ...(range.checkInTime ? { checkInTime: range.checkInTime } : {}),
+                ...(range.checkOutTime ? { checkOutTime: range.checkOutTime } : {}),
+              }),
         });
       }
     }

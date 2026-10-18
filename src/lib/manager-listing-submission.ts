@@ -24,6 +24,7 @@ import {
   storedTermForLeaseType,
   type LeaseTypeId,
 } from "@/lib/rental-application/lease-terms";
+import { normalizePropertyStayTimes, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fee";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
@@ -973,6 +974,13 @@ export type ManagerListingSubmissionV1 = {
    * resolved downstream (docs/agents/bookings.md § Guest portal stays).
    */
   shortStayInstantBookReturning?: boolean;
+  /**
+   * Default check-in / check-out times, the cleaning buffer and the paid early / late window for every stay
+   * on this listing (`Check-in and check-out` in the listing editor). Absent reads as 3:00 pm / 11:00 am via
+   * `normalizePropertyStayTimes`. The public projection exposes the times and add-on prices, never the buffer
+   * (docs/agents/bookings.md § Exact times).
+   */
+  stayTimes?: PropertyStayTimes;
   shortTermDailyCost?: string;
   shortTermDeposit?: string;
   /** Move-in fee charged for short-term stays (used to calculate upgrade delta when switching to long-term). */
@@ -3055,6 +3063,7 @@ function normalizeManagerListingSubmissionV1Base(
     airbnbRentalsAllowed: Boolean(sub.airbnbRentalsAllowed),
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
     ...(typeof sub.shortStayInstantBookReturning === "boolean" ? { shortStayInstantBookReturning: sub.shortStayInstantBookReturning } : {}),
+    ...(sub.stayTimes && typeof sub.stayTimes === "object" ? { stayTimes: normalizePropertyStayTimes(sub.stayTimes) } : {}),
     shortTermDailyCost: typeof sub.shortTermDailyCost === "string" ? sub.shortTermDailyCost : "",
     shortTermDeposit: typeof sub.shortTermDeposit === "string" ? sub.shortTermDeposit : "",
     shortTermPricingMode:

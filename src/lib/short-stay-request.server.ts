@@ -20,6 +20,16 @@ import "server-only";
  * `holdExpiresAt` on a hold, the guest's `residentUserId` and a `source`.
  */
 import { randomUUID } from "node:crypto";
+import {
+  normalizeStayTime,
+  wallInstantIso,
+  STAY_ADD_ON_KINDS,
+  stayAddOnAvailability,
+  type StayAddOnKind,
+  type StayAddOnRecord,
+  type StayAddOns,
+} from "@/lib/bookings/stay-times";
+import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server";
 import { rateLimit } from "@/lib/rate-limit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
@@ -35,6 +45,8 @@ import { pacificTodayKey } from "@/lib/room-availability-range";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { ensureGuestLogin } from "@/lib/short-stay/guest-login.server";
+import { offerFromQuote, withPriceFloor, type StayAddOnOffer } from "@/lib/short-stay/stay-add-ons";
+import { StayAddOnReadError, loadRoomOtherStays } from "@/lib/short-stay/stay-add-ons.server";
 import {
   GUEST_PORTAL_SHORT_STAY_SOURCE,
   PUBLIC_SHORT_STAY_SOURCE,
@@ -63,9 +75,23 @@ export type ShortStayRequestBody = {
   email?: unknown;
   /** A field real people never see; any value means a bot. */
   honeypot?: unknown;
+  /** "HH:MM", the hour the guest expects to arrive. Stored on the stay; never changes its check-in time. */
+  estimatedArrival?: unknown;
+  /** Paid add-ons asked for at booking: `early_check_in` / `late_check_out`. Kept only where available. */
+  addOns?: unknown;
+  /** Reports which add-ons are on offer for these nights and writes nothing. Needs no name or phone. */
+  dryRun?: unknown;
 };
 
-export type ShortStayRequestResult = { ok: true } | { ok: false; status: 400 | 404 | 409 | 429 | 503; error: string };
+export type ShortStayRequestResult =
+  | { ok: true; addOns?: StayAddOnOffer[] }
+  | { ok: false; status: 400 | 404 | 409 | 429 | 503; error: string };
+
+/** The add-on kinds a request body names, deduplicated and filtered to the two real ones. */
+export function requestedAddOnKinds(value: unknown): StayAddOnKind[] {
+  if (!Array.isArray(value)) return [];
+  return STAY_ADD_ON_KINDS.filter((kind) => value.includes(kind));
+}
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -85,6 +111,24 @@ export async function submitShortStayRequest(
   const email = str(body.email, 320).toLowerCase();
   const guests = Number(body.guests);
   if (!propertyId || !roomId) return { ok: false, status: 400, error: "Choose a room." };
+  if (body.dryRun === true) {
+    // The card asks which add-ons these nights could carry. Nothing is written and no identity is needed.
+    const dryGuests = Number.isInteger(guests) && guests >= 1 && guests <= SHORT_STAY_MAX_GUESTS ? guests : 1;
+    const checked = validateShortStayDates(body.checkIn, body.checkOut, options.today ?? pacificTodayKey());
+    if (!checked.ok) return { ok: false, status: 400, error: checked.error };
+    const dryLoaded = await loadShortStayListing(db, { propertyId, roomId, guests: dryGuests });
+    if (!dryLoaded.ok) return { ok: false, status: dryLoaded.status, error: dryLoaded.error };
+    const [dry] = await createShortStayRows(db, {
+      actor: { source: PUBLIC_SHORT_STAY_SOURCE, name: "", phone: "", email: "", residentUserId: null },
+      listing: dryLoaded.listing,
+      guests: dryGuests,
+      ranges: [{ checkIn: checked.checkIn, checkOut: checked.checkOut, nights: checked.nights }],
+      status: "hold",
+      dryRun: true,
+    });
+    if (!dry || !dry.ok) return { ok: false, status: dry && !dry.ok ? dry.status : 503, error: dry && !dry.ok ? dry.error : "We couldn't check the calendar right now." };
+    return { ok: true, addOns: dry.addOnOffers };
+  }
   if (!name) return { ok: false, status: 400, error: "Enter your name." };
   if (!phone) return { ok: false, status: 400, error: "Enter a mobile number so we can text you." };
   if (email && !EMAIL_RE.test(email)) return { ok: false, status: 400, error: "That email doesn't look right." };
@@ -133,6 +177,8 @@ export async function submitShortStayRequest(
     guests,
     ranges: [{ checkIn: dates.checkIn, checkOut: dates.checkOut, nights: dates.nights }],
     status: "hold",
+    estimatedArrival: normalizeStayTime(body.estimatedArrival),
+    addOns: requestedAddOnKinds(body.addOns),
   });
   if (!created || !created.ok || !created.blockId) {
     const failed = created && !created.ok ? created : { status: 503 as const, error: "We couldn't save your request. Try again in a minute." };
@@ -298,6 +344,10 @@ export type ShortStayRowResult =
       blockId: string | null;
       holdExpiresAt: string | null;
       rowData: Record<string, unknown> | null;
+      /** Which paid add-ons these nights could carry (kind, time, price; never why not). */
+      addOnOffers: StayAddOnOffer[];
+      /** Add-ons the guest asked for that are NOT on the stay (no longer available when it was written). */
+      addOnsSkipped: StayAddOnKind[];
     }
   | { ok: false; range: ShortStayRowRange; status: 400 | 409 | 503; error: string };
 
@@ -319,11 +369,17 @@ export async function createShortStayRows(
     status: "hold" | "confirmed";
     dryRun?: boolean;
     now?: Date;
+    /** "HH:MM" the guest says they will arrive; stored, never acted on. */
+    estimatedArrival?: string | null;
+    /** Add-ons the guest ticked; each is stored `requested` only when it is available for these exact nights. */
+    addOns?: readonly StayAddOnKind[];
   },
 ): Promise<ShortStayRowResult[]> {
   const { actor, listing, guests, status } = input;
   const nowDate = input.now ?? new Date();
   const results: ShortStayRowResult[] = [];
+  // The property's own check-in / check-out times and clock: a stay row is stamped with real instants.
+  const { times: stayTimes, timeZone } = await loadPropertyStayClock(db, listing.propertyId);
   for (const range of input.ranges) {
     const availability = await roomAvailabilityForRange(
       { propertyId: listing.propertyId, roomId: listing.room.id, moveIn: range.checkIn, moveOut: range.checkOut },
@@ -343,10 +399,37 @@ export async function createShortStayRows(
       continue;
     }
     const total = shortStayTotal(listing.nightly, range.nights);
+
+    // What the property's add-on rule says about THESE nights, against the room's other stays. An unreadable
+    // calendar offers nothing (fail closed); it never blocks the stay itself.
+    const newStay = { id: "new-stay", checkIn: range.checkIn, checkOut: range.checkOut, checkInTime: stayTimes.checkInTime, checkOutTime: stayTimes.checkOutTime };
+    let addOnOffers: StayAddOnOffer[] = STAY_ADD_ON_KINDS.map((kind) => ({ kind, available: false }));
+    let addOnQuotes: Partial<Record<StayAddOnKind, Extract<ReturnType<typeof withPriceFloor>, { available: true }>>> = {};
+    try {
+      const others = await loadRoomOtherStays(db, { propertyId: listing.propertyId, roomId: listing.room.id, selfId: null, checkIn: range.checkIn, checkOut: range.checkOut, times: stayTimes });
+      const quotes = STAY_ADD_ON_KINDS.map((kind) => withPriceFloor(stayAddOnAvailability(kind, { stay: newStay, others, times: stayTimes })));
+      addOnOffers = quotes.map(offerFromQuote);
+      for (const quote of quotes) if (quote.available) addOnQuotes = { ...addOnQuotes, [quote.kind]: quote };
+    } catch (error) {
+      if (!(error instanceof StayAddOnReadError)) throw error;
+    }
+    const askedFor = input.addOns ?? [];
+    const addOnsSkipped = askedFor.filter((kind) => !addOnQuotes[kind]);
     if (input.dryRun) {
-      results.push({ ok: true, range, status, total, blockId: null, holdExpiresAt: null, rowData: null });
+      results.push({ ok: true, range, status, total, blockId: null, holdExpiresAt: null, rowData: null, addOnOffers, addOnsSkipped });
       continue;
     }
+    const nowIso = nowDate.toISOString();
+    const requestedAddOns: StayAddOns = {};
+    for (const kind of askedFor) {
+      const quote = addOnQuotes[kind];
+      if (!quote) continue;
+      const record: StayAddOnRecord = { time: quote.time, priceCents: quote.priceCents, status: "requested", requestedAt: nowIso };
+      requestedAddOns[kind] = record;
+    }
+    const arrival = normalizeStayTime(input.estimatedArrival);
+    const startsAt = wallInstantIso(range.checkIn, stayTimes.checkInTime, timeZone);
+    const endsAt = wallInstantIso(range.checkOut, stayTimes.checkOutTime, timeZone);
 
     const now = nowDate.toISOString();
     const blockId = roomDateBlockRecordId(listing.ownerId, randomUUID());
@@ -375,10 +458,15 @@ export async function createShortStayRows(
         source: actor.source,
         guests,
         ...(holdExpiresAt ? { holdExpiresAt } : { confirmedAt: now }),
+        ...(arrival ? { estimatedArrival: arrival } : {}),
+        ...(Object.keys(requestedAddOns).length ? { addOns: requestedAddOns } : {}),
       },
+      // The dates stay authoritative; the property's standard times ride beside them as real instants.
+      checkInTime: stayTimes.checkInTime,
+      checkOutTime: stayTimes.checkOutTime,
       createdAt: now,
-      startsAt: `${range.checkIn}T00:00:00`,
-      endsAt: `${range.checkOut}T00:00:00`,
+      startsAt,
+      endsAt,
     };
     const { error: insertError } = await db.from("portal_schedule_records").upsert(
       {
@@ -403,7 +491,7 @@ export async function createShortStayRows(
       }
       continue;
     }
-    results.push({ ok: true, range, status, total, blockId, holdExpiresAt, rowData });
+    results.push({ ok: true, range, status, total, blockId, holdExpiresAt, rowData, addOnOffers, addOnsSkipped });
   }
   return results;
 }

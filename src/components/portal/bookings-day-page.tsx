@@ -10,7 +10,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Lock, Tag } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Lock, Tag } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -35,6 +35,8 @@ import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room
 import { dayStayDisplayName, groupStaysByRoom, isAvailabilityBlockRow } from "@/lib/occupancy/snapshot";
 import { bookingRecordHref, managerBookingDayHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { entryMoments, entryStayTimes, paidAddOnFacts } from "@/components/portal/bookings-stay-times";
+import { propertyStayTimesFor } from "@/components/portal/bookings-stay-times-store";
 import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
@@ -209,6 +211,9 @@ export function BookingsDayPage({
                     // The house is the group header, so the place line is just the room.
                     const placeLine = entry.roomLabel || "Whole home";
                     const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
+                    // Check-in and check-out are a date and a time; a paid early check-in / late checkout is a plain fact beside them.
+                    const moments = isAvailabilityBlock ? null : entryMoments(entry, entryStayTimes(entry, propertyStayTimesFor(entry.propertyId)));
+                    const addOnFacts = isAvailabilityBlock ? [] : paidAddOnFacts(entry);
                     const row = (
                       <PortalApplicantRecordRow
                         name={name}
@@ -220,6 +225,16 @@ export function BookingsDayPage({
                             <PortalRowFact icon={CalendarDays} srLabel="Stay">
                               {formatBookingStayRange(entry.start, entry.end, entry.openEnded)}
                             </PortalRowFact>
+                            {moments ? (
+                              <PortalRowFact icon={Clock3} srLabel="Check-in and check-out">
+                                {`In ${moments.inLabel}${moments.outLabel ? ` · Out ${moments.outLabel}` : ""}`}
+                              </PortalRowFact>
+                            ) : null}
+                            {addOnFacts.map((fact) => (
+                              <PortalRowFact key={fact} icon={Clock3} srLabel="Add-on">
+                                {fact}
+                              </PortalRowFact>
+                            ))}
                             <PortalRowFact icon={Tag} srLabel="Source">
                               {bookingSourceLabel(entry.source, entry.channelLabel)}
                               {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}

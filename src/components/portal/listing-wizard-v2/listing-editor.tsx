@@ -45,6 +45,8 @@ import {
   listingSyndicationPhotoUrls,
 } from "@/lib/listing-syndication/zillow-feed";
 import { track } from "@/lib/analytics/track-client";
+import { normalizePropertyStayTimes, normalizeStayTime, type PropertyStayTimes } from "@/lib/bookings/stay-times";
+import { centsToDollarsText, dollarsTextToCents, stayTimeOptions } from "@/lib/bookings/stay-time-options";
 import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
 import {
@@ -862,7 +864,64 @@ function StepBasics({
           </FactRow>
         </div>
       </SectionGroup>
+
+      <SectionGroup title="Check-in and check-out">
+        <StayTimesRows sub={sub} patch={patch} />
+      </SectionGroup>
     </StepColumn>
+  );
+}
+
+/**
+ * The listing's default check-in / check-out times, cleaning buffer and the paid early / late window.
+ * Saved on `sub.stayTimes`; every stay without a time of its own reads these (`resolveStayTimes`), and an
+ * imported channel stay takes them too. Shown for every listing: a channel stay needs times as much as a
+ * PropLane booking.
+ */
+function StayTimesRows({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const times = normalizePropertyStayTimes(sub.stayTimes);
+  const write = (next: Partial<PropertyStayTimes>) => patch({ stayTimes: { ...times, ...next } });
+  const timeRow = (label: string, key: "checkInTime" | "checkOutTime" | "earliestEarlyCheckIn" | "latestLateCheckOut", attr: string, first = false) => (
+    <FactRow first={first} label={label}>
+      <RowSelectCell
+        ariaLabel={label}
+        value={times[key]}
+        options={stayTimeOptions(times[key])}
+        dataAttr={attr}
+        onChange={(v) => write({ [key]: normalizeStayTime(v) ?? times[key] })}
+      />
+    </FactRow>
+  );
+  const priceRow = (label: string, key: "earlyCheckInPriceCents" | "lateCheckOutPriceCents", attr: string) => (
+    <FactRow label={label}>
+      <MoneyInput
+        label={label}
+        value={centsToDollarsText(times[key])}
+        dataAttr={attr}
+        onChange={(raw) => write({ [key]: dollarsTextToCents(raw) ?? 0 })}
+      />
+    </FactRow>
+  );
+  return (
+    <div className="rounded-2xl border border-border bg-card" data-attr="listing-v2-stay-times">
+      {timeRow("Check-in", "checkInTime", "listing-v2-stay-check-in", true)}
+      {timeRow("Check-out", "checkOutTime", "listing-v2-stay-check-out")}
+      <FactRow label="Cleaning buffer (hours)">
+        <CountStepper
+          compact
+          value={Math.round(times.cleaningBufferMinutes / 60)}
+          min={0}
+          max={12}
+          label="Cleaning buffer in hours"
+          dataAttr="listing-v2-stay-buffer"
+          onChange={(hours) => write({ cleaningBufferMinutes: hours * 60 })}
+        />
+      </FactRow>
+      {timeRow("Earliest early check-in", "earliestEarlyCheckIn", "listing-v2-stay-earliest")}
+      {timeRow("Latest late checkout", "latestLateCheckOut", "listing-v2-stay-latest")}
+      {priceRow("Early check-in price", "earlyCheckInPriceCents", "listing-v2-stay-early-price")}
+      {priceRow("Late checkout price", "lateCheckOutPriceCents", "listing-v2-stay-late-price")}
+    </div>
   );
 }
 

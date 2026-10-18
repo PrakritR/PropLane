@@ -43,6 +43,7 @@ import { autoCloseResidentConfirmations } from "@/lib/work-order-resident-confir
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
+import { sweepStayTimeReminders } from "@/lib/reminders/subjects/stay-times.server";
 import { sweepMoveInFormReminders, sweepMoveOutForms } from "@/lib/reminders/subjects/move-in-forms.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -88,6 +89,8 @@ export async function GET(req: Request) {
       ["outgoing_payment", sweepOutgoingPaymentReminders],
       ["payment_manager", sweepPaymentManagerReminders],
       ["booking", sweepBookingReminders],
+      // The guest of a confirmed short stay: arrival guide 24 h before check-in, checkout reminder that morning.
+      ["stay_times", sweepStayTimeReminders],
       ["inspection", sweepInspectionReminders],
       // PLAN-0915 services: escalations and the vendor loop.
       ["work_order_escalations", sweepWorkOrderEscalations],

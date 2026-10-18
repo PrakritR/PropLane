@@ -12,6 +12,8 @@ import "server-only";
  * writes nothing, which is how the sheet learns what its button should say.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { propertyStayClockFromRecord } from "@/lib/bookings/property-stay-times.server";
+import { normalizeStayTime, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
@@ -41,10 +43,13 @@ import {
 import { emitShortStayTeamNotice, loadOwnerIdentity, loadStayLabels } from "@/lib/short-stay/hold-decisions.server";
 import { guestIsReturning, instantBookStatus, listingBooksReturningGuestsInstantly } from "@/lib/short-stay/instant-book.server";
 import { ensureGuestStayCharge } from "@/lib/short-stay/stay-charge.server";
+import { readStayAddOns } from "@/lib/short-stay/stay-add-ons";
+import { raiseRequestedStayAddOnCharges, storedStayTimes } from "@/lib/short-stay/stay-add-ons.server";
 import {
   createShortStayRows,
   emitShortStayRequestedEvent,
   loadShortStayListing,
+  requestedAddOnKinds,
   type ShortStayRowRange,
 } from "@/lib/short-stay-request.server";
 import {
@@ -88,7 +93,7 @@ type StayRecord = { id: string; property_id: string | null; record_type: string;
 /** Pure: one stored block as the guest's list row. */
 export function guestStayFromRecord(
   record: StayRecord,
-  property: { propertyLabel: string; roomLabel: string; canBookAgain: boolean },
+  property: { propertyLabel: string; roomLabel: string; canBookAgain: boolean; stayTimes?: PropertyStayTimes },
 ): GuestStay | null {
   const row = asRecord(record.row_data);
   const checkIn = String(row.checkIn ?? "");
@@ -109,6 +114,8 @@ export function guestStayFromRecord(
   const nights = Number(row.quotedNights) || Math.max(1, rangeDaysBetween(checkIn, checkOut));
   const quoted = Number(row.quotedTotal);
   const guests = Number(details.guests ?? row.guests);
+  const times = property.stayTimes ? storedStayTimes(row, property.stayTimes) : null;
+  const addOns = readStayAddOns(details);
   return {
     id: record.id,
     propertyId: String(record.property_id ?? row.propertyId ?? ""),
@@ -124,6 +131,9 @@ export function guestStayFromRecord(
     total: Number.isFinite(quoted) && quoted > 0 ? quoted : Number.isFinite(nightly) && nightly > 0 ? Math.round(nightly * nights * 100) / 100 : null,
     nightly: Number.isFinite(nightly) && nightly > 0 ? nightly : null,
     canBookAgain: property.canBookAgain,
+    ...(times ?? {}),
+    estimatedArrival: normalizeStayTime(details.estimatedArrival),
+    ...(Object.keys(addOns).length ? { addOns } : {}),
   };
 }
 
@@ -159,6 +169,7 @@ export async function listGuestStays(db: SupabaseClient, input: { userId: string
       propertyLabel: property ? propertyLabelOf(data) : "A PropLane home",
       roomLabel: roomIndex >= 0 ? rooms[roomIndex]!.name?.trim() || `Room ${roomIndex + 1}` : "Room",
       canBookAgain: Boolean(property && property.status === "live" && bookable),
+      stayTimes: propertyStayClockFromRecord(property ? { property_data: property.property_data } : null).times,
     });
     if (stay) stays.push(stay);
   }
@@ -173,7 +184,15 @@ export type GuestBookableListing = {
   rooms: BookableRoom[];
   /** True when the guest would be confirmed at once for free nights (flag on and a completed stay here). */
   confirmsInstantly: boolean;
+  /** The standard times and add-on prices the sheet shows. The cleaning buffer is the host's and is not sent. */
+  stayTimes: Omit<PropertyStayTimes, "cleaningBufferMinutes">;
 };
+
+function publicStayTimes(times: PropertyStayTimes): GuestBookableListing["stayTimes"] {
+  const { cleaningBufferMinutes: _buffer, ...shown } = times;
+  void _buffer;
+  return shown;
+}
 
 export async function loadGuestBookableListing(
   db: SupabaseClient,
@@ -200,6 +219,7 @@ export async function loadGuestBookableListing(
     propertyLabel: propertyLabelOf(property),
     rooms,
     confirmsInstantly: instantBookStatus({ flagOn: listingBooksReturningGuestsInstantly(submission), returning }) === "confirmed",
+    stayTimes: publicStayTimes(propertyStayClockFromRecord({ property_data: data.property_data }).times),
   };
 }
 
@@ -211,6 +231,10 @@ export type GuestBookBody = {
   ranges?: unknown;
   guests?: unknown;
   dryRun?: unknown;
+  /** "HH:MM" the guest expects to arrive (stored on every stay of the request). */
+  estimatedArrival?: unknown;
+  /** Paid add-ons ticked in the sheet (`early_check_in` / `late_check_out`), kept on each stay only where available. */
+  addOns?: unknown;
 };
 
 export type GuestBookResult =
@@ -291,6 +315,8 @@ export async function bookGuestStays(
       status,
       dryRun,
       now: input.now,
+      estimatedArrival: normalizeStayTime(body.estimatedArrival),
+      addOns: requestedAddOnKinds(body.addOns),
     });
     created.forEach((row, i) => {
       const target = validIndex[i]!;
@@ -302,6 +328,8 @@ export async function bookGuestStays(
             total: row.total,
             outcome: row.status === "confirmed" ? "confirmed" : "pending",
             ...(row.blockId ? { stayId: row.blockId } : {}),
+            addOns: row.addOnOffers,
+            ...(row.addOnsSkipped.length ? { addOnsSkipped: row.addOnsSkipped } : {}),
           }
         : { checkIn: row.range.checkIn, checkOut: row.range.checkOut, nights: row.range.nights, total: null, outcome: "unavailable", error: row.error };
     });
@@ -319,6 +347,8 @@ export async function bookGuestStays(
           // nobody can find. `ensureGuestStayCharge` logs its own `{ ok: false }`; this catches a throw.
           await ensureGuestStayCharge(db, { blockId: row.blockId, ownerId: listing.ownerId, propertyId, propertyLabel: listing.propertyLabel, row: row.rowData })
             .catch(bestEffortFailed("guest stay charge", { blockId: row.blockId, propertyId }));
+          // Add-ons asked for at booking were stored `requested`; the stay is confirmed, so their charges go up now.
+          await raiseRequestedStayAddOnCharges(db, { blockId: row.blockId, now: input.now });
           await emitShortStayTeamNotice(db, { event: "short_stay_confirmed", headline: "Short stay confirmed", blockId: row.blockId, ownerId: listing.ownerId, propertyId, row: row.rowData, labels, owner }).catch(() => undefined);
         } else {
           await emitShortStayRequestedEvent(db, {

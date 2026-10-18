@@ -51,6 +51,12 @@ export type ChannelStayMoney = {
   paidAt?: string;
   currency?: string;
   source?: string;
+  /** The manager's override of the stay's times, as instants (`check_in_at` / `check_out_at`). Absent = the property's defaults. */
+  checkInAt?: string;
+  checkOutAt?: string;
+  /** The same override as "HH:MM" on the property's wall clock (derived server-side). */
+  checkInTime?: string;
+  checkOutTime?: string;
 };
 
 export const CHANNEL_STAY_PHONE_MAX = 40;

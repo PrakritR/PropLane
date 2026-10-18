@@ -74,6 +74,8 @@ const UNGATED_TOOLS = [
   "set_autopay",
   // One-number knowledge: approved answers for the resident's own house.
   "lookup_property_knowledge",
+  // The guest's own stays: check-in / checkout times and the paid early / late add-ons (read-only, no gate).
+  "get_my_stay_times",
 ];
 
 describe("resident registry gating", () => {
@@ -84,6 +86,7 @@ describe("resident registry gating", () => {
         "get_resident_links",
         "research_my_property_location",
         "get_my_application_status",
+        "get_my_stay_times",
         "list_my_inbox_threads",
         "get_my_scheduled_messages",
         "send_message_to_manager",

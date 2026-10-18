@@ -538,6 +538,12 @@ const PLAN_0915_META: Partial<Record<ReminderSubjectKind, ReminderSubjectSetting
     subject: "Welcome to PropLane", body: ["Welcome to {propertyTitle}. Set up your account, add a payment method, and request service any time from Services.", "", "{url}"], preview: { url: "https://proplane.ai/resident/dashboard" } }),
   inspection_acknowledge: compactMeta({ directions: ["after"], timingLabel: "Remind after the report is shared", counterparty: "Resident",
     subject: "Review your inspection report", body: ["Your {title} for {propertyTitle} was shared {duePhrase} and is waiting for your acknowledgement.", "", "{url}"], preview: { title: "move-in report", duePhrase: "5 days ago", url: "https://proplane.ai/resident/move-in/inspections" } }),
+  // ---- Stay times (bookings-times-1018). Built from the house's own details at send time
+  // (`buildArrivalGuideText`), so the saved wording is a preview of the shape, not a template. ----
+  stay_arrival_guide: compactMeta({ directions: ["before"], timingLabel: "Send before check-in", counterparty: "Guest", recipientPreview: "Alex Guest",
+    subject: "Your arrival guide for {propertyTitle}", body: ["Check-in is at {whenLabel}.", "Door code, Wi-Fi, parking and house rules are in this message.", "", "Your stay: {url}"], preview: { whenLabel: "3:00 pm on Oct 16", url: "https://proplane.ai/resident/stays" } }),
+  stay_checkout_reminder: compactMeta({ directions: ["before"], timingLabel: "Send the morning of checkout", counterparty: "Guest", recipientPreview: "Alex Guest",
+    subject: "Checkout is at {whenLabel} today", body: ["Checkout at {propertyTitle} is at {whenLabel} today.", "", "Your stay: {url}"], preview: { whenLabel: "11:00 am", url: "https://proplane.ai/resident/stays" } }),
 };
 
 export const REMINDER_SUBJECT_SETTINGS_META: Partial<

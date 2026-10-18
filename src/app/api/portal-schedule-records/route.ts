@@ -1,4 +1,7 @@
 import { afterResponse } from "@/lib/after-response.server";
+import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server";
+import { resolveRowStayTimes, stampStayRow } from "@/lib/bookings/stay-stamp";
+import { DEFAULT_PROPERTY_STAY_TIMES, staysOverlap, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
 import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
@@ -115,8 +118,12 @@ async function roomDateBlockOverlapConflict(args: {
   roomId: string;
   checkIn: string;
   checkOut: string;
+  /** This save's resolved wall times and the property's defaults, so the other stays' times read the same way. */
+  checkInTime: string;
+  checkOutTime: string;
+  propertyTimes: PropertyStayTimes;
 }): Promise<string | null> {
-  const { db, managerUserId, recordId, propertyId, roomId, checkIn, checkOut } = args;
+  const { db, managerUserId, recordId, propertyId, roomId, checkIn, checkOut, checkInTime, checkOutTime, propertyTimes } = args;
   if (!propertyId || !checkIn || !checkOut) return null;
   const { data, error } = await db
     .from("portal_schedule_records")
@@ -133,9 +140,15 @@ async function roomDateBlockOverlapConflict(args: {
     const otherCheckIn = roomDateBlockField(row, "checkIn");
     const otherCheckOut = roomDateBlockField(row, "checkOut");
     if (!otherCheckIn || !otherCheckOut) continue;
-    // Check-out is EXCLUSIVE (block Sep 10 -> Sep 12 frees the 12th), so two
-    // ranges collide only when each starts before the other's end.
-    const overlaps = checkIn < otherCheckOut && otherCheckIn < checkOut;
+    // Check-out is EXCLUSIVE (block Sep 10 -> Sep 12 frees the 12th), and the stays carry exact
+    // times: an 11:00 check-out and a 3:00 pm check-in on one day do not collide, a 2:00 pm late
+    // checkout against a noon early check-in does.
+    const otherData = row.row_data && typeof row.row_data === "object" ? (row.row_data as Record<string, unknown>) : {};
+    const otherTimes = resolveRowStayTimes(otherData, null, propertyTimes);
+    const overlaps = staysOverlap(
+      { id: recordId, checkIn, checkOut, checkInTime, checkOutTime },
+      { id: String(row.id ?? ""), checkIn: otherCheckIn, checkOut: otherCheckOut, ...otherTimes },
+    );
     if (!overlaps) continue;
     const otherRoomLabel = roomDateBlockField(row, "roomId") ? "That room" : "This room";
     const who = roomDateBlockField(row, "residentName") || roomDateBlockField(row, "reason") || "another hold";
@@ -381,6 +394,29 @@ const route = createJsonRecordRoute({
     return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    // Every manager write of a stay stamps its exact times and real instants (docs/agents/bookings.md
+    // § Exact times): the save's own times, else the stored row's, else the property's defaults. The
+    // paid early / late add-ons are carried from the stored row, never taken from the body.
+    let stayTimes: { checkInTime: string; checkOutTime: string } = { checkInTime: "15:00", checkOutTime: "11:00" };
+    let propertyStayTimes: PropertyStayTimes | null = null;
+    if (isRoomDateBlockRecordType(String(record.record_type ?? ""))) {
+      // The guest's login is server-owned: `createShortStayRows` stamps it from a session or a proven
+      // phone, and the stay charge, the guest's Stays and the arrival-guide / checkout texts are all
+      // keyed on it. A save from this route never sets or moves it - the body's value is dropped and
+      // the stored one kept - so a manager cannot aim a charge or a door code at another account.
+      const { residentUserId: _bodyGuest, ...bodyRowData } = roomDateBlockData(record);
+      const storedGuest = existing ? roomDateBlockData(existing).residentUserId : undefined;
+      record.row_data = typeof storedGuest === "string" && storedGuest ? { ...bodyRowData, residentUserId: storedGuest } : bodyRowData;
+      const clock = await loadPropertyStayClock(db, String(record.property_id ?? "").trim() || null);
+      const stamped = stampStayRow(roomDateBlockData(record), existing ? roomDateBlockData(existing) : null, clock);
+      record.row_data = stamped.rowData;
+      if (stamped.startsAt && stamped.endsAt) {
+        record.starts_at = stamped.startsAt;
+        record.ends_at = stamped.endsAt;
+      }
+      stayTimes = { checkInTime: String(stamped.rowData.checkInTime), checkOutTime: String(stamped.rowData.checkOutTime) };
+      propertyStayTimes = clock.times;
+    }
     if (isRoomDateBlockRecordType(String(record.record_type ?? "")) && existing) {
       // Changing or removing a block needs the same Calendar edit access that creating it did,
       // re-checked now: a revoked grant must not keep a block of someone else's house writable.
@@ -452,6 +488,8 @@ const route = createJsonRecordRoute({
         roomId: roomDateBlockField(record as RoomDateBlockRow, "roomId"),
         checkIn: roomDateBlockField(record as RoomDateBlockRow, "checkIn"),
         checkOut: roomDateBlockField(record as RoomDateBlockRow, "checkOut"),
+        ...stayTimes,
+        propertyTimes: propertyStayTimes ?? DEFAULT_PROPERTY_STAY_TIMES,
       });
       if (conflict) return { handled: true, error: conflict, status: 409 };
       return { handled: false };

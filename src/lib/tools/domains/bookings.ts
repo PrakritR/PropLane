@@ -28,6 +28,9 @@ import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-b
 import { afterResponse } from "@/lib/after-response.server";
 import { occupancySnapshotForManager } from "@/lib/occupancy/snapshot.server";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
+import { stampStayRow, type StayClock } from "@/lib/bookings/stay-stamp";
+import { formatStayTime, normalizePropertyStayTimes, normalizeStayTime } from "@/lib/bookings/stay-times";
+import { propertyTimeZoneForZip } from "@/lib/property-time-zone";
 import { propertyInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 import { wrapUntrustedContent } from "../untrusted-content";
 import { smsAccessAllowsPropertyRecord, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
@@ -147,6 +150,20 @@ async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProp
   return out.sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/** The property's default stay times and time zone, read off its own listing submission. */
+function propertyClock(property: ScopedProperty): StayClock {
+  const submission = asObject(property.submission);
+  return { times: normalizePropertyStayTimes(submission?.stayTimes), timeZone: propertyTimeZoneForZip(str(submission, "zip")) };
+}
+
+/** An optional "HH:MM" tool argument; a value that is not a real time is refused rather than ignored. */
+function optionalStayTime(value: string | undefined, label: string): string | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const time = normalizeStayTime(value);
+  if (!time) throw new Error(`${label} must be a 24-hour time such as 15:00.`);
+  return time;
+}
+
 function pickProperty(readable: ScopedProperty[], propertyId: string): ScopedProperty {
   const found = readable.find((p) => p.id === propertyId.trim());
   if (!found) {
@@ -175,6 +192,9 @@ type BlockView = {
   rateBasis: "daily" | "weekly" | "monthly";
   /** True for a room the manager closed with a reason and no guest. */
   closed: boolean;
+  /** The stay's own exact times, "HH:MM" property wall time; "" on a row that predates them. */
+  checkInTime: string;
+  checkOutTime: string;
 };
 
 function blockFromRecord(rec: BlockRecord): BlockView | null {
@@ -200,6 +220,8 @@ function blockFromRecord(rec: BlockRecord): BlockView | null {
     rateBasis: basis === "daily" || basis === "weekly" ? basis : "monthly",
     // A block saved before the rule existed with nobody attached is a closed room too.
     closed: data?.blockKind === ROOM_BLOCK_KIND_CLOSED || !str(data, "residentName"),
+    checkInTime: normalizeStayTime(data?.checkInTime) ?? "",
+    checkOutTime: normalizeStayTime(data?.checkOutTime) ?? "",
   };
 }
 
@@ -425,6 +447,8 @@ export const listRoomBlocksTool = defineTool({
           roomLabel: b.roomId ? (property.rooms.get(b.roomId) ?? "Room") : "Whole home",
           checkIn: b.checkIn,
           checkOut: b.openEnded ? null : b.checkOut,
+          checkInTime: b.checkInTime || normalizePropertyStayTimes(asObject(property.submission)?.stayTimes).checkInTime,
+          checkOutTime: b.checkOutTime || normalizePropertyStayTimes(asObject(property.submission)?.stayTimes).checkOutTime,
           openEnded: b.openEnded,
           reason: b.reason ? (imported ? external(b.reason) : b.reason) : null,
           heldFor: b.residentName ? (imported ? external(b.residentName) : b.residentName) : null,
@@ -450,6 +474,8 @@ type BlockInput = {
   reason?: string;
   residentName?: string;
   closed?: boolean;
+  checkInTime?: string;
+  checkOutTime?: string;
 };
 
 type ResolvedBlock = {
@@ -462,6 +488,9 @@ type ResolvedBlock = {
   residentName: string;
   /** No guest: the room is closed, and `reason` says why. */
   closed: boolean;
+  /** Explicit times for this stay; absent = the property's defaults (or, on an update, the stored row's). */
+  checkInTime?: string;
+  checkOutTime?: string;
 };
 
 async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<ResolvedBlock> {
@@ -494,6 +523,8 @@ async function resolveBlockInput(ctx: AgentContext, input: BlockInput): Promise<
     reason,
     residentName,
     closed: !residentName,
+    checkInTime: optionalStayTime(input.checkInTime, "checkInTime"),
+    checkOutTime: optionalStayTime(input.checkOutTime, "checkOutTime"),
   };
 }
 
@@ -526,6 +557,8 @@ export const blockRoomDatesTool = defineWriteTool({
       reason: z.string().max(200).optional().describe("Why the dates are closed (shown on the calendar). Required when closed is true; \"Airbnb\" and \"Booking\" are reserved."),
       residentName: z.string().max(120).optional().describe("Who the booking is for. Required unless closed is true."),
       closed: z.boolean().optional().describe("True to close the room with no guest; needs a reason."),
+      checkInTime: z.string().max(5).optional().describe("Check-in time, 24-hour HH:MM property time. Omit for the property's standard check-in."),
+      checkOutTime: z.string().max(5).optional().describe("Check-out time, 24-hour HH:MM property time. Omit for the property's standard check-out."),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -568,6 +601,11 @@ export const blockRoomDatesTool = defineWriteTool({
       { label: "Room", value: r.roomLabel },
       { label: "Dates", value: `${formatDay(r.start)} to ${formatDay(r.end)} (${nights} night${nights === 1 ? "" : "s"}; free again ${formatDay(r.end)})` },
     ];
+    const clock = propertyClock(r.property);
+    fields.push({
+      label: "Times",
+      value: `Check-in ${formatStayTime(r.checkInTime ?? clock.times.checkInTime)}, check-out ${formatStayTime(r.checkOutTime ?? clock.times.checkOutTime)}`,
+    });
     if (r.reason) fields.push({ label: "Reason", value: r.reason });
     if (r.residentName) fields.push({ label: "Held for", value: r.residentName });
     return {
@@ -607,7 +645,8 @@ export const blockRoomDatesTool = defineWriteTool({
 
     // The same row shape saveRoomDateBlock stores through /api/portal-schedule-records.
     const now = new Date().toISOString();
-    const row = {
+    const stamped = stampStayRow(
+      {
       id,
       propertyId: r.property.id,
       roomId: r.roomId,
@@ -620,9 +659,14 @@ export const blockRoomDatesTool = defineWriteTool({
       createdAt: now,
       createdByUserId: ctx.userId,
       recordType: ROOM_DATE_BLOCK_RECORD_TYPE,
-      startsAt: `${r.start}T00:00:00`,
-      endsAt: `${r.end}T00:00:00`,
-    };
+      ...(r.checkInTime ? { checkInTime: r.checkInTime } : {}),
+      ...(r.checkOutTime ? { checkOutTime: r.checkOutTime } : {}),
+      },
+      null,
+      propertyClock(r.property),
+    );
+    // Times stamped, and the real instants in startsAt / endsAt (what saveRoomDateBlock stores through the route).
+    const row = { ...stamped.rowData, startsAt: stamped.startsAt ?? `${r.start}T00:00:00`, endsAt: stamped.endsAt ?? `${r.end}T00:00:00` } as Obj & { startsAt: string; endsAt: string };
     // A room block belongs to the house: the capacity trigger only accepts the property OWNER's id.
     // The preview already required Calendar edit; a co-manager's block is stamped to the owner.
     const ownerId = r.property.ownerId.trim() || ctx.userId;
@@ -756,6 +800,8 @@ type UpdateBlockInput = {
   guestName?: string;
   phone?: string;
   notes?: string;
+  checkInTime?: string;
+  checkOutTime?: string;
 };
 
 /** The live block, the house it sits on, and the merged next values - all re-derived from actor-scoped data. */
@@ -785,6 +831,8 @@ async function resolveBlockUpdate(ctx: AgentContext, input: UpdateBlockInput) {
     reason: input.notes !== undefined ? input.notes.trim() : block.reason,
     residentName: input.guestName !== undefined ? input.guestName.trim() : block.residentName,
     closed: block.closed,
+    checkInTime: optionalStayTime(input.checkInTime, "checkInTime"),
+    checkOutTime: optionalStayTime(input.checkOutTime, "checkOutTime"),
   };
   // A booking keeps its name (clearing it would make it nameless); a closed room keeps its reason.
   // The rule arbitrates NEW content only, same exemption as the schedule-records route's
@@ -818,6 +866,8 @@ export const updateRoomBlockTool = defineWriteTool({
       guestName: z.string().max(120).optional().describe("Who the room is held for; empty clears it."),
       phone: z.string().max(40).optional().describe("The guest's phone; empty clears it."),
       notes: z.string().max(200).optional().describe("Why the dates are held (shown on the calendar)."),
+      checkInTime: z.string().max(5).optional().describe("New check-in time, 24-hour HH:MM property time."),
+      checkOutTime: z.string().max(5).optional().describe("New check-out time, 24-hour HH:MM property time."),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -827,14 +877,23 @@ export const updateRoomBlockTool = defineWriteTool({
       next.residentName !== block.residentName,
       phone !== undefined,
       next.reason !== block.reason,
+      Boolean(next.checkInTime && next.checkInTime !== block.checkInTime),
+      Boolean(next.checkOutTime && next.checkOutTime !== block.checkOutTime),
     ].some(Boolean);
-    if (!changed) throw new Error("Nothing to change: pass new dates, guest name, phone or notes.");
+    if (!changed) throw new Error("Nothing to change: pass new dates, times, guest name, phone or notes.");
     const nights = daysBetween(next.start, next.end);
     const fields = [
       { label: "House", value: next.property.title },
       { label: "Room", value: next.roomLabel },
       { label: "Dates", value: `${formatDay(next.start)} to ${formatDay(next.end)} (${nights} night${nights === 1 ? "" : "s"}; free again ${formatDay(next.end)})` },
     ];
+    if (next.checkInTime || next.checkOutTime) {
+      const clock = propertyClock(next.property);
+      fields.push({
+        label: "Times",
+        value: `Check-in ${formatStayTime(next.checkInTime ?? (block.checkInTime || clock.times.checkInTime))}, check-out ${formatStayTime(next.checkOutTime ?? (block.checkOutTime || clock.times.checkOutTime))}`,
+      });
+    }
     if (next.residentName) fields.push({ label: "Held for", value: next.residentName });
     if (phone) fields.push({ label: "Phone", value: phone });
     if (next.reason) fields.push({ label: "Notes", value: next.reason });
@@ -849,7 +908,7 @@ export const updateRoomBlockTool = defineWriteTool({
   },
   handler: async (ctx, input) => {
     const { block, next, phone } = await resolveBlockUpdate(ctx, input);
-    const dedupeKey = `update_room_block:${ctx.landlordId}:${block.id}:${next.start}:${next.end}:${next.residentName}:${phone ?? ""}:${next.reason}`;
+    const dedupeKey = `update_room_block:${ctx.landlordId}:${block.id}:${next.start}:${next.end}:${next.residentName}:${phone ?? ""}:${next.reason}:${next.checkInTime ?? ""}:${next.checkOutTime ?? ""}`;
     const audit = await writeAuditLog(ctx, {
       action: "update_room_block",
       toolName: "update_room_block",
@@ -870,13 +929,24 @@ export const updateRoomBlockTool = defineWriteTool({
     if (readError) throw new Error(readError.message);
     const prior = asObject(((existing ?? []) as Array<{ row_data: unknown }>)[0]?.row_data) ?? {};
     const now = new Date().toISOString();
+    // The new dates (and any new times) over the stored row; the stamp keeps the stored times when the
+    // call names none and re-derives the real instants from the dates and the property's clock.
+    const stamped = stampStayRow(
+      {
+        ...prior,
+        checkIn: next.start,
+        checkOut: next.end,
+        reason: next.reason,
+        ...(next.checkInTime ? { checkInTime: next.checkInTime } : {}),
+        ...(next.checkOutTime ? { checkOutTime: next.checkOutTime } : {}),
+      },
+      prior,
+      propertyClock(next.property),
+    );
     const row: Obj = {
-      ...prior,
-      checkIn: next.start,
-      checkOut: next.end,
-      reason: next.reason,
-      startsAt: `${next.start}T00:00:00`,
-      endsAt: `${next.end}T00:00:00`,
+      ...stamped.rowData,
+      startsAt: stamped.startsAt ?? `${next.start}T00:00:00`,
+      endsAt: stamped.endsAt ?? `${next.end}T00:00:00`,
     };
     if (next.residentName) {
       row.residentName = next.residentName;

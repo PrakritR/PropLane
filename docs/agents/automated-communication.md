@@ -42,7 +42,7 @@ Invariants:
 | Tours | Guest and manager tour reminders now ship on fixed defaults, not a per-workspace rule (C191) — see "What PropLane sends" above | confirmed, cancelled by guest, claimed by a teammate (team); bookings: new / cancelled on any linked channel calendar, Other calendar included, plus new / cancelled for a booking made in PropLane itself (manager, `channel_booking` domain; owned by [`bookings.md`](bookings.md) § Booking alerts and reminders). The guest short-stay notices (requested / confirmed / declined / expired) ride the same domain and are owned by [`bookings.md`](bookings.md) § Guest portal stays; they have no `AUTOMATED_MESSAGE_CATALOG` entry yet, so "What PropLane sends" does not list them |
 | Payments | Rent reminder schedule, my payment alerts, delinquency, outgoing payments | charge created, processing, received, partial, failed, refunded, late fee applied, deposit received |
 | Communication | Unanswered message reminder, welcome sequence (off), AI draft auto-send | after-hours reply, emergency flagged, availability changed (team) |
-| Bookings | Booking reminders | — |
+| Bookings | Booking reminders; guest arrival guide (24 h before check-in) and checkout reminder (8:00 am), confirmed short stays with a login only (`reminders/subjects/stay-times.server.ts`, [`bookings.md`](bookings.md) § Exact times) | — |
 | Inspections | Room photos (resident / you) | resident submitted, report reopened |
 | Tasks | Task reminders, overdue | **task assigned to a vendor** |
 | Residents | Welcome message | — |

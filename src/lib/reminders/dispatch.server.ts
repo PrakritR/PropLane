@@ -30,6 +30,7 @@ import type { NotificationCategory } from "@/lib/notification-preferences";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import { reminderIsCurrent } from "@/lib/reminders/current.server";
+import { isStayTimeReminderKind, renderStayTimeReminder } from "@/lib/reminders/subjects/stay-times.server";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { recordRefFromReminderRow } from "@/lib/reminders/reminder-record-ref";
 
@@ -110,6 +111,9 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   task_overdue: "messages",
   resident_welcome: "account",
   inspection_acknowledge: "inspections",
+  // A guest's stay silences with leases, like the manager-side booking reminder.
+  stay_arrival_guide: "leases",
+  stay_checkout_reminder: "leases",
 };
 
 /**
@@ -189,12 +193,30 @@ export async function dispatchReminderRow(
     return "sent";
   }
 
-  const { subject, body } = renderReminder({
-    kind: row.kind,
-    leadMinutes: row.leadMinutes,
-    recipientRole: row.recipientRole,
-    payload: row.payload as ReminderPayload,
-  });
+  // A guest's timed stay text (arrival guide, checkout reminder) is built from the house's current
+  // details at send time and reaches ONE person: the guest, in their own 1:1 thread. It carries the
+  // door code, so nothing else (a teammate, the manager, a group) is ever a recipient of it.
+  const stayTime = isStayTimeReminderKind(row.kind);
+  if (stayTime && row.recipientRole !== "counterparty") {
+    await resolveReminder(db, row.id, workerId, "failed", "stay texts go to the guest alone");
+    return "failed";
+  }
+  let stayRendered: Awaited<ReturnType<typeof renderStayTimeReminder>> = null;
+  if (stayTime) {
+    stayRendered = await renderStayTimeReminder(db, row);
+    if (!stayRendered) {
+      await resolveReminder(db, row.id, workerId, "failed", "subject changed or is no longer active");
+      return "failed";
+    }
+  }
+  const { subject, body } =
+    stayRendered ??
+    renderReminder({
+      kind: row.kind,
+      leadMinutes: row.leadMinutes,
+      recipientRole: row.recipientRole,
+      payload: row.payload as ReminderPayload,
+    });
 
   // Manager and team reminders are a PropLane Assistant surface, not a manager sending
   // a message to themselves. Route them through the shared manager notifier so
@@ -251,7 +273,20 @@ export async function dispatchReminderRow(
         fromName: sender.name,
         subject,
         text: body,
-        ...(vendorUserId ? { toUserIds: [vendorUserId] } : { toEmails: [row.recipientEmail] }),
+        ...(stayRendered
+          ? {
+              // The guest is the login on the stay row re-read just now (manager = this sender,
+              // confirmed, same user as the queued row), which is the proof the inbox's
+              // "connected to your account" filter cannot see for a guest with no lease. The
+              // recipient is that one user id: never an address from the payload, never a group.
+              toUserIds: [stayRendered.guestUserId],
+              recipientsAuthorizedByCaller: true,
+              propertyId: stayRendered.propertyId || null,
+              ...(stayRendered.smsText ? { smsText: stayRendered.smsText } : {}),
+            }
+          : vendorUserId
+            ? { toUserIds: [vendorUserId] }
+            : { toEmails: [row.recipientEmail] }),
         deliverToPortalInbox: channels.inbox,
         deliverViaEmail: channels.email,
         deliverViaSms: channels.sms,

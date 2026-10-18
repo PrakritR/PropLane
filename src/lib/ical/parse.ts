@@ -23,6 +23,19 @@ function parseIcsDateValue(line: string): string | null {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+/**
+ * The wall "HH:MM" a DATE-TIME value carries, when it is a local one: floating (`20261016T150000`)
+ * or pinned to a zone (`DTSTART;TZID=America/Los_Angeles:...`). A UTC value (`...Z`) names an instant,
+ * not the property's wall time, and a parser that knows no time zone cannot turn one into the other,
+ * so it yields none and the property's default time applies. Date-only values yield none.
+ */
+function parseIcsLocalTime(line: string): string | null {
+  const colon = line.indexOf(":");
+  if (colon < 0) return null;
+  const match = /^\d{8}T([01]\d|2[0-3])([0-5]\d)(?:[0-5]\d)?$/.exec(line.slice(colon + 1).trim());
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
 function addDaysYmd(ymd: string, days: number): string {
   const [y, mo, d] = ymd.split("-").map((x) => Number(x));
   const dt = new Date(Date.UTC(y, mo - 1, d + days));
@@ -50,6 +63,8 @@ function parseVeventBlock(lines: string[]): IcalEvent | null {
   let description = "";
   let dtStart: string | null = null;
   let dtEnd: string | null = null;
+  let startTime: string | null = null;
+  let endTime: string | null = null;
 
   for (const line of lines) {
     const upper = line.toUpperCase();
@@ -58,8 +73,13 @@ function parseVeventBlock(lines: string[]): IcalEvent | null {
     else if (upper.startsWith("DESCRIPTION:") || upper.startsWith("DESCRIPTION;")) {
       const colon = line.indexOf(":");
       if (colon >= 0) description = unescapeIcsText(line.slice(colon + 1)).trim();
-    } else if (upper.startsWith("DTSTART")) dtStart = parseIcsDateValue(line);
-    else if (upper.startsWith("DTEND")) dtEnd = parseIcsDateValue(line);
+    } else if (upper.startsWith("DTSTART")) {
+      dtStart = parseIcsDateValue(line);
+      startTime = parseIcsLocalTime(line);
+    } else if (upper.startsWith("DTEND")) {
+      dtEnd = parseIcsDateValue(line);
+      endTime = parseIcsLocalTime(line);
+    }
   }
 
   if (!dtStart) return null;
@@ -71,6 +91,10 @@ function parseVeventBlock(lines: string[]): IcalEvent | null {
     ...(description ? { description } : {}),
     startDate,
     endDate,
+    // A site that publishes real times (some "Other calendar" feeds) keeps them; an all-day or UTC
+    // event carries none and the property's default check-in / check-out time applies.
+    ...(startTime ? { checkInTime: startTime } : {}),
+    ...(endTime && dtEnd && dtEnd > startDate ? { checkOutTime: endTime } : {}),
   };
 }
 

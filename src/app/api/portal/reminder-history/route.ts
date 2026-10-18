@@ -105,6 +105,8 @@ const KIND_LABELS: Record<ReminderSubjectKind, string> = {
   task_overdue: "Task overdue",
   resident_welcome: "Welcome",
   inspection_acknowledge: "Inspection acknowledge",
+  stay_arrival_guide: "Guest arrival guide",
+  stay_checkout_reminder: "Guest checkout reminder",
 };
 
 const DEFAULT_LIMIT = 25;

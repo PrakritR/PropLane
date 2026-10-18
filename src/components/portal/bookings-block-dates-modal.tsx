@@ -24,7 +24,9 @@ import {
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import { addDaysToDateKey, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
-import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { stayTimeOptions } from "@/lib/bookings/stay-time-options";
+import { normalizePropertyStayTimes } from "@/lib/bookings/stay-times";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import { airbnbLinkForRoom, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
@@ -49,6 +51,9 @@ export type BlockDatesDraft = {
   rate?: number;
   rateBasis?: PropertyBookingEntry["rateBasis"];
   stayDetails?: PropertyBookingEntry["stayDetails"];
+  /** "HH:MM" property wall time. Left out = the property's standard time (or, on an edit, the stored row's). */
+  checkInTime?: string;
+  checkOutTime?: string;
   id?: string;
   propertyId: string;
   roomId: string;
@@ -196,6 +201,9 @@ export function BookingsBlockDatesModal({
   const [checkOut, setCheckOut] = useState("");
   const [reason, setReason] = useState("");
   const [stayDetails, setStayDetails] = useState<NonNullable<PropertyBookingEntry["stayDetails"]>>({});
+  // "" = not chosen: the dropdowns then read the house's standard times and a new booking stores them.
+  const [checkInTime, setCheckInTime] = useState("");
+  const [checkOutTime, setCheckOutTime] = useState("");
   const [residentChoice, setResidentChoice] = useState("");
   const [newResidentName, setNewResidentName] = useState("");
   const [newResidentEmail, setNewResidentEmail] = useState("");
@@ -223,6 +231,8 @@ export function BookingsBlockDatesModal({
     setStepIdx(mode === "reserve" && !editingBlock && property && initialDayKey ? 2 : 0);
     setReason(initialReason ?? "");
     setStayDetails(editingBlock?.stayDetails ?? {});
+    setCheckInTime(editingBlock?.checkInTime ?? "");
+    setCheckOutTime(editingBlock?.checkOutTime ?? "");
     setResidentChoice("");
     setNewResidentName("");
     setNewResidentEmail("");
@@ -336,6 +346,8 @@ export function BookingsBlockDatesModal({
   const airbnbLink = airbnbLinkForRoom(channelLinks, propertyId, roomId);
   const reserving = mode === "reserve" && !editingBlockId;
   const selectedProperty = propertyOptions.find((property) => property.id === propertyId) ?? null;
+  // The house's standard times: what the Check-in / Check-out dropdowns read until the manager picks their own.
+  const houseTimes = normalizePropertyStayTimes(getPropertyById(propertyId)?.listingSubmission?.stayTimes);
   const selectedRoom = roomOptions.find((room) => room.value === roomChoice) ?? null;
   const residentSummary = isClosed
     ? "Closed"
@@ -379,6 +391,8 @@ export function BookingsBlockDatesModal({
         reason,
         ...(isClosed ? { blockKind: "closed" as const } : {}),
         stayDetails,
+        ...(checkInTime ? { checkInTime } : {}),
+        ...(checkOutTime ? { checkOutTime } : {}),
         bookingStatus: editingBlock?.bookingStatus,
         rate: editingBlock?.rate,
         rateBasis: editingBlock?.rateBasis,
@@ -664,7 +678,8 @@ export function BookingsBlockDatesModal({
             <div><span className={POPUP_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}</Select></div>
             {isClosed ? null : <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>}
             {(["linen", "baggage"] as const).map((key) => <div key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select aria-label={key === "linen" ? "Linen" : "Baggage"} id={`booking-stay-${key}`} value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value} value={value}>{value}</option>)}</Select></div>)}
-            {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })} /></label>)}
+            <div><span className={POPUP_FIELD_LABEL_CLASS}>Check-in</span><Select aria-label="Check-in" id="booking-stay-check-in" value={checkInTime || houseTimes.checkInTime} disabled={busy} onChange={(event) => setCheckInTime(event.target.value)}>{stayTimeOptions(checkInTime || houseTimes.checkInTime).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></div>
+            <div><span className={POPUP_FIELD_LABEL_CLASS}>Check-out</span><Select aria-label="Check-out" id="booking-stay-check-out" value={checkOutTime || houseTimes.checkOutTime} disabled={busy} onChange={(event) => setCheckOutTime(event.target.value)}>{stayTimeOptions(checkOutTime || houseTimes.checkOutTime).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></div>
           </div>
         </div>
 

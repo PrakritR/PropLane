@@ -5,6 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
+import { useTurnoverCleaningRuns } from "@/hooks/use-turnover-cleaning-runs";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import {
@@ -430,6 +431,8 @@ export function ManagerBookingsHub({
   const [anchorDate, setAnchorDate] = useState(() => startOfLocalDay(new Date()));
 
   const today = useMemo(() => startOfLocalDay(new Date()), []);
+  // Optional: which turnovers have a cleaning job. A failed read just means no hatched strips.
+  const cleaningKeys = useTurnoverCleaningRuns(calendarOnly);
 
   const monthStart = useMemo(
     () => new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1),
@@ -576,6 +579,7 @@ export function ManagerBookingsHub({
                   roomFilterId={roomFilterId}
                   occupancyDays={occupancyDays}
                   emptyMessage={emptyMessage}
+                  cleaningKeys={cleaningKeys}
                 />
               ) : (
                 <>
