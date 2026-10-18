@@ -112,6 +112,7 @@ export async function requestPhoneOtp(
     subject_id: input.subjectId,
     code_hash: hashOtpCode(challengeId, phoneKey, code),
     attempts: 0,
+    created_at: now.toISOString(),
     expires_at: new Date(now.getTime() + SHARED_LINE_OTP_RULES.ttlMinutes * 60 * 1000).toISOString(),
   });
   if (insertError) return { ok: false, reason: "unavailable" };
