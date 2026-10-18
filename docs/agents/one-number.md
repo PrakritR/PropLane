@@ -348,3 +348,71 @@ with the secure-link notice in every agent deliverer (`redactedInboundReplyOverr
 **Segment guard.** `toGsm7` / `smsSegmentCount` (`segments.ts`) run in the manager, resident,
 leasing and vendor agent reply deliverers and in `sendSharedLineMessage`. Text that is already
 GSM-7 is returned unchanged.
+
+## W11 - Preset auto-sends (Automations), house facts, escalations inbox
+
+Spec: `texting-plan-1018` "Preset auto-sends", "Resident fast path" (house facts) and "New data". Migration
+`20261018200000_automations.sql` (dev applied, ledger row recorded): `workspace_automation_settings` (workspace, preset,
+mode `auto|draft|off`, optional wording), `workspace_automation_runs` (the ledger; `unique (workspace_id, idempotency_key)` is the
+idempotency, `held` = a draft waiting), and `sms_escalated_questions` gains `source` (`agent|ra|unanswered`), `excerpt`,
+`resolved_by`. Both new tables are RLS-on, service role only, classified in `account-purge-manifest.ts`. Every read treats 42P01 /
+42703 / PGRST205 as "nothing there".
+
+**Presets** (`src/lib/automations/presets.ts`, pure). Ten from the spec table plus `arrival_guide` and `checkout_reminder`, which
+claude-2's check-in/out times work fires through `fireAutomation` (below); they draw in Settings only once their id is added to
+`EXTERNAL_PRESETS_LIVE`. Two engines: `existing` presets (`rent_due_3d`, `rent_late_3d`, `maintenance_booked`, `move_out`) gate a
+message the product already sends, `off` stops it (payment-reminder cron via `presetForScheduledPaymentKind`, `workOrderEvent` for the
+resident's visit notice, `sweepTenancyReminders` for the move-out checklist; all through `loadOffPresetResolver`, which fails OPEN) and
+nothing else about today's behaviour moves; `automation` presets are the new texts. New presets default `draft`; `announcement` defaults
+`auto` (the manager already said send). Rent late stays 1:1; a group preset never offers a name, room, amount, pay link or secret
+(`GROUP_FORBIDDEN_VARIABLES`, enforced by `validateTemplate`).
+
+**Flag safety.** The sweep serves a workspace only when it has picked a mode for at least one preset (`loadOptedInWorkspaces`) or is on
+the shared line; a workspace that never opens Automations keeps today's behaviour. The first pick opts it in and every other new preset
+then runs at its default (draft).
+
+**The spine.** `sweep.server.ts` (`sweepAutomations`) rides the existing 5-minute `/api/cron/dispatch-reminders` tick: no new cron.
+`moments.ts` is the pure date logic (3 days before move-in, lease signed in the last 7 days, move-in / rent due / move-out today,
+pickup the evening before, monthly cleaning on the 1st, nothing before 9 am or after 9 pm Pacific or inside the house's own quiet
+window); `sources.server.ts` loads signed leases (`portal_lease_pipeline_records`), their houses, rent charges due today and services
+scheduled in the last day (`action_events`). `fire.server.ts` `fireAutomation(db, { workspaceId, ownerUserId, preset, idempotencyKey,
+vars, target })` is the one door: off -> nothing recorded; draft -> held (a pending `sms_ai_reply_drafts` row in the resident's
+thread, `topic = automation:<preset>`, plus the run row; a group draft is the run row alone, listed under Settings > Automations);
+auto -> sent. A quiet-hours / budget / rate-limit refusal releases the claim so a later tick retries; opt-out, no consent and no group
+are recorded as `skipped`. 1:1 goes through `sendResidentAutomationText` (`sendSharedLineMessage` on the shared line, else the work
+number with scoped automated consent). Group posts go through `postToHouseGroup` (`src/lib/house-groups/post.server.ts`; W10 owns the
+body, the stub answers `not_enabled`) after `houseGroupReady` (`ready.server.ts`, reads `house_group_conversations`, false until W10's
+table exists). A group-only preset with no group is silent (no draft); `announcement` and house-wide `maintenance_booked` fall back to
+one text per resident (never a name, amount or secret either way). `approveHeldRun` re-checks a held group text against who lives
+there NOW; `reconcileHeldRuns` follows a draft the manager handled from the thread.
+
+**Templates** (`templates.ts`). `{variable}` from a fixed list, filled from data only (never an AI-written amount); a sentence whose
+variable is empty is dropped whole; GSM-7. `groupTextViolations` refuses money, any resident's first name and any house secret in
+the RENDERED group text (templates, announcements alike).
+
+**House facts** (`src/lib/house-info.ts`, additive). New fields: recycling day, manager contact, `rules.escalateAfter` (complaint
+threshold, a `count` stepper). `HouseInfoField.secret` marks door code, gate code, lockbox, Wi-Fi password and alarm
+(`houseInfoSecretValues`, `containsHouseSecret`); `.internal` marks the threshold (never drawn to a resident or printed). Recycling day
+is resident-only: `TRASH_PUBLIC_KEYS` no longer lists it, so the public page and printables are unchanged (C2-RE12). Secrets reach only a
+verified current resident past the move-in lock (W6 lookup scope, `loadMoveInDetailsLock` in the move-in text), never a prospect, a
+vendor, the public listing or a group post.
+
+**Announce.** `announce.server.ts` `announceToHouses` (houses re-derived from the actor's workspace; a co-manager only their own);
+route `POST /api/portal/automations/announce`; manager chat/SMS tool `announce_to_house` (confirm gate; with several houses and none
+named the preview refuses with "Which house: A, B, or all?"; registered in `COMMUNICATION_SENDING_TOOLS` and the MCP exclusion list).
+UI: megaphone icon in Settings > Communication > Automations opens the pop-up.
+
+**Settings UI.** `automations-settings.tsx` (`AutomationsSection`, mounted after "Answers for all houses"): held drafts first (Send /
+Dismiss icon actions), then one row per preset (glyph for 1:1 or group, mode dropdown, "Edit text" in the row menu for presets that own
+their wording). `AutomationTextModal`: plain "Insert" dropdown (no chips), live preview from one real resident. Routes under
+`/api/portal/automations` (`GET`, `PUT` owner only, `preview`, `runs/[id]`, `announce`).
+
+**Escalations inbox.** `escalations.server.ts` (`listEscalations`, `resolveEscalation`, `recordEscalationItem`, `recordHouseComplaint`),
+route `GET|PATCH /api/portal/one-number/escalations`, page `/portal/communication/escalations`
+(`manager-escalations-inbox.tsx`, `PortalRecordListSurface`, Open | Resolved, reached by the triangle icon in the Communication header,
+`manager-escalations-action.tsx`). Phones leave the server as the last four digits. W10's RA calls `recordEscalationItem` (source `ra`)
+and `recordHouseComplaint` (logged quietly; the complaint that reaches the house's threshold files ONE open "repeated complaints"
+item with the excerpt; no punishment by AI).
+
+Tests: `tests/unit/automations-{presets,templates,moments,house-facts,fire,sweep,store,escalations,routes,announce-tool,door-code-reach,service-visit-gate}.test.ts`,
+`tests/unit/automations-settings.test.tsx`, helper `tests/helpers/automations-fake-db.ts`.
