@@ -31,6 +31,8 @@ export const adminPortal: PortalDefinition = {
     { section: "payments", label: "Payments", tabs: [] },
     { section: "promo-codes", label: "Promo codes", tabs: [] },
     { section: "finances", label: "Finances", tabs: [] },
+    // PropLane-held owner and vendor funds: platform cash, what is owed, fee policies per managed workspace (owner management).
+    { section: "managed-finance", label: "Managed funds", tabs: [] },
     { section: "properties", label: "Properties", tabs: [] },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },
     { section: "events", label: "Meetings", tabs: [] },
@@ -70,6 +72,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Payments", path: "/admin/payments" },
   { label: "Promo codes", path: "/admin/promo-codes" },
   { label: "Finances", path: "/admin/finances" },
+  { label: "Managed funds", path: "/admin/managed-finance" },
   { label: "Properties", path: "/admin/properties" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Meetings", path: "/admin/events" },

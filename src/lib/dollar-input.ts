@@ -17,3 +17,20 @@ export function centsToDollarsInput(cents: number): string {
   const safe = Number.isFinite(cents) ? Math.max(0, Math.trunc(cents)) : 0;
   return `${Math.floor(safe / 100)}.${String(safe % 100).padStart(2, "0")}`;
 }
+
+/** "90" -> 9000, "87.5" -> 8750 (basis points). A unit conversion, not fee math. Null for anything that is not a plain percent with at most two decimals. */
+export function parsePercentToBps(raw: string, allowZero = true): number | null {
+  const cleaned = raw.trim().replace(/%$/, "").trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+  const [whole, frac = ""] = cleaned.split(".") as [string, string?];
+  const bps = Number(whole) * 100 + Number((frac ?? "").padEnd(2, "0"));
+  if (!Number.isSafeInteger(bps)) return null;
+  return bps > 0 || allowZero ? bps : null;
+}
+
+/** 9000 -> "90", 8750 -> "87.5". */
+export function bpsToPercentInput(bps: number): string {
+  const safe = Number.isFinite(bps) ? Math.max(0, Math.trunc(bps)) : 0;
+  const frac = String(safe % 100).padStart(2, "0").replace(/0+$/, "");
+  return frac ? `${Math.floor(safe / 100)}.${frac}` : String(Math.floor(safe / 100));
+}

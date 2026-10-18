@@ -21,6 +21,7 @@ import type { AdminSubscribersPanel } from "@/components/portal/admin-subscriber
 import type { AdminUnassignedLeadsPanel } from "@/components/portal/admin-unassigned-leads-panel";
 import type { AdminPromoCodesPanel } from "@/components/portal/admin-promo-codes-panel";
 import type { AdminFinancesPanel } from "@/components/portal/admin-finances-panel";
+import type { AdminManagedFinancePanel } from "@/components/portal/admin-managed-finance-panel";
 import type { GrowthAdminClient } from "@/components/portal/growth-admin-client";
 import type { ResidentDashboard } from "@/components/portal/resident-dashboard";
 import type { ResidentMoveInPanel } from "@/components/portal/resident-move-in-panel";
@@ -94,6 +95,7 @@ export type PortalPanels = Partial<{
   AdminUnassignedLeadsPanel: typeof AdminUnassignedLeadsPanel;
   AdminPromoCodesPanel: typeof AdminPromoCodesPanel;
   AdminFinancesPanel: typeof AdminFinancesPanel;
+  AdminManagedFinancePanel: typeof AdminManagedFinancePanel;
   GrowthAdminClient: typeof GrowthAdminClient;
   ResidentDashboard: typeof ResidentDashboard;
   ResidentMoveInPanel: typeof ResidentMoveInPanel;

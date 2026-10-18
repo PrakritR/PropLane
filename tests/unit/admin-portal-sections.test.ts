@@ -53,6 +53,7 @@ describe("admin nav groups", () => {
       "payments",
       "promo-codes",
       "finances",
+      "managed-finance",
       "properties",
       "bugs-feedback",
       "events",

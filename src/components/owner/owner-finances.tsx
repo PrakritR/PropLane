@@ -9,6 +9,7 @@ import {
   Clock,
   Download,
   ExternalLink,
+  ListChecks,
   Percent,
   Receipt,
   Settings,
@@ -274,19 +275,18 @@ export function OwnerFinancesPage() {
 
   // A link from a text or email: `?approve=<expense>` opens that one repair to confirm; `?review=<agreement>` marks the agreement.
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const openedApproveRef = useRef("");
-  useEffect(() => {
-    if (!approveId || openedApproveRef.current === approveId || !view) return;
-    if (view.pendingApprovals.some((p) => p.id === approveId)) {
-      openedApproveRef.current = approveId;
-      setConfirmId(approveId);
-    }
-  }, [approveId, view]);
+  const [dismissedApprove, setDismissedApprove] = useState("");
+  const linkedApprove = approveId && approveId !== dismissedApprove && view?.pendingApprovals.some((p) => p.id === approveId) ? approveId : null;
+  const confirmTarget = confirmId ?? linkedApprove;
+  const closeConfirm = () => {
+    setConfirmId(null);
+    setDismissedApprove(approveId);
+  };
   const reviewRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     reviewRef.current?.scrollIntoView?.({ block: "center" });
   }, [reviewId, waiting.length]);
-  const confirming = view?.pendingApprovals.find((p) => p.id === confirmId) ?? null;
+  const confirming = view?.pendingApprovals.find((p) => p.id === confirmTarget) ?? null;
 
   const downloadStatement = () => {
     if (!view) return;
@@ -426,7 +426,7 @@ export function OwnerFinancesPage() {
                     <PortalServiceRecordRow
                       key={row.id}
                       title={row.label}
-                      subtitle={row.propertyLabel ?? undefined}
+                      subtitle={(row as { propertyLabel?: string | null }).propertyLabel ?? undefined}
                       useServiceTile={false}
                       leading={
                         <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
@@ -462,7 +462,7 @@ export function OwnerFinancesPage() {
               {view.pendingApprovals.length > 0 ? (
                 <div className="mt-5" data-attr="owner-finances-approvals">
                   <OwnerBand label="Repair approvals" count={view.pendingApprovals.length}>
-                    <PortalIconAction icon={CheckCircle2} label="Approve routine repairs" data-attr="owner-finances-approve-routine" onClick={openRoutine} />
+                    <PortalIconAction icon={ListChecks} label="Approve routine repairs" data-attr="owner-finances-approve-routine" onClick={openRoutine} />
                   </OwnerBand>
                   <PortalRecordListSurface dataAttr="owner-finances-approvals-list">
                     {view.pendingApprovals.map((p) => (
@@ -599,7 +599,7 @@ export function OwnerFinancesPage() {
       <Modal
         open={confirming !== null}
         title={confirming ? confirming.title : "Repair"}
-        onClose={() => setConfirmId(null)}
+        onClose={closeConfirm}
         dataAttr="owner-finances-confirm-modal"
         footer={
           confirming ? (
@@ -608,7 +608,7 @@ export function OwnerFinancesPage() {
                 variant="danger"
                 data-attr="owner-finances-confirm-decline"
                 onClick={async () => {
-                  if (await decide(confirming.id, false)) setConfirmId(null);
+                  if (await decide(confirming.id, false)) closeConfirm();
                 }}
               >
                 Decline
@@ -616,7 +616,7 @@ export function OwnerFinancesPage() {
               <Button
                 data-attr="owner-finances-confirm-approve"
                 onClick={async () => {
-                  if (await decide(confirming.id, true)) setConfirmId(null);
+                  if (await decide(confirming.id, true)) closeConfirm();
                 }}
               >
                 Approve

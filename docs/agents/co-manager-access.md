@@ -774,7 +774,7 @@ not run `20261007100000_property_owner_role.sql` lists documents normally.
 **Deliberate deviations (captain-approved, plan `property-owner-role-1006`).**
 Do not "fix" these without asking:
 
-- **No management fee anywhere in the owner's numbers.** The by-month table's
+- **No management fee anywhere in the owner's numbers (except a PropLane-managed workspace).** For a house in a workspace with an accepted fee policy ([`owner-management.md`](owner-management.md)), `queryOwnerStatement` now reports the real fee booked in `managed_rent_allocations`; every other house still reports 0. The paragraph below is the rule for all other houses. The by-month table's
   **Fees** column is the *processing* fees Profitability already reports
   (`summary.ts` `processingFees` → `feesCents`), not a management fee, and
   `queryOwnerStatement` keeps `managementFee = 0`. That is what lets the owner's
