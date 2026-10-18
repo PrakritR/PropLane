@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
-import { agentRegistry, buildManagerSmsRegistry, MANAGER_PORTAL_ONLY_TOOLS } from "@/lib/tools";
+import { agentRegistry, buildManagerSmsRegistry, MANAGER_PORTAL_ONLY_TOOLS, MANAGER_SMS_DEEP_LINK_ONLY_TOOLS } from "@/lib/tools";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import { MANAGER_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
@@ -44,7 +44,7 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
     // tool (`MANAGER_PORTAL_ONLY_TOOLS`) are two independent rules with two
     // independent reasons; this test only re-checks the destructive one.
     const withheld = [...agentRegistry.keys()]
-      .filter((name) => !registry.has(name) && !MANAGER_PORTAL_ONLY_TOOLS.includes(name))
+      .filter((name) => !registry.has(name) && !MANAGER_PORTAL_ONLY_TOOLS.includes(name) && !MANAGER_SMS_DEEP_LINK_ONLY_TOOLS.includes(name))
       .sort();
     expect(withheld).toEqual([
       "allocate_utility_bill",
@@ -124,7 +124,7 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
       [...agentRegistry.values()].filter((t) => t.kind === "write" && t.destructive).map((t) => t.name),
     );
     const missing = [...agentRegistry.keys()].filter(
-      (name) => !registry.has(name) && !MANAGER_PORTAL_ONLY_TOOLS.includes(name),
+      (name) => !registry.has(name) && !MANAGER_PORTAL_ONLY_TOOLS.includes(name) && !MANAGER_SMS_DEEP_LINK_ONLY_TOOLS.includes(name),
     );
     expect(new Set(missing)).toEqual(flagged);
   });

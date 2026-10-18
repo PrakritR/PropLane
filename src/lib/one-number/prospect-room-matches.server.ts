@@ -98,7 +98,7 @@ export async function runProspectRoomMatches(db: SupabaseClient, depsIn: Prospec
   const ownerOf = new Map(((workspaces ?? []) as Row[]).map((w) => [String(w.id), String(w.owner_user_id)] as const));
 
   const catalog = await (depsIn.listings ?? getCrawlPublicListings)().catch(() => [] as MockProperty[]);
-  const send = depsIn.send ?? sendSharedLineMessage;
+  const send = depsIn.send ?? ((client: SupabaseClient, input: Parameters<NonNullable<ProspectMatchDeps["send"]>>[1]) => sendSharedLineMessage(client, { ...input, role: "prospect" }));
   const today = pacificToday(now());
 
   for (const raw of leads) {
