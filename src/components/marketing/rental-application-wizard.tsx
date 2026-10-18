@@ -1123,15 +1123,23 @@ function RentalApplicationWizardInner({
     }
 
     let cancelled = false;
-    // "No in-progress application matches" is only true when the read that says so SUCCEEDED. A failed or
-    // timed-out read (a slow or flapping server) leaves the cache without the resident's drafts, and treating
-    // that as "genuinely fresh target" mints a new application id on every visit: duplicate "Incomplete" rows.
-    // Retry the read before concluding anything; only then fall back to the fresh-target path.
+    // "No in-progress application matches" is only true when the read that says so SUCCEEDED and was a
+    // complete catalog. A failed or timed-out read (a slow or flapping server) leaves the cache without the
+    // resident's drafts. A 200 that skipped a row (`skippedRowIds` — opening it threw) omits that draft too
+    // and reports the list incomplete. Treating either as "genuinely fresh target" mints a new application
+    // id on every visit: duplicate "Incomplete" rows. Retry a failed read before concluding anything; a
+    // skip is not transient, so an incomplete success never counts as proof of absence.
+    let readWasComplete = false;
     void (async () => {
       for (let attempt = 0; attempt < RECONCILE_READ_ATTEMPTS; attempt++) {
         const result = await syncManagerApplicationsFromServerWithStatus({ force: true });
         if (cancelled) return false;
-        if (result.ok) return true;
+        if (result.ok) {
+          // `complete` is already false when the route skipped rows. Check the ids too, so a
+          // 200 that omitted a live draft cannot authorize a second Incomplete application.
+          readWasComplete = result.complete === true && !(result.skippedRowIds?.length);
+          return true;
+        }
         if (attempt < RECONCILE_READ_ATTEMPTS - 1) {
           await new Promise((resolve) => window.setTimeout(resolve, RECONCILE_READ_RETRY_MS * (attempt + 1)));
           if (cancelled) return false;
@@ -1180,6 +1188,11 @@ function RentalApplicationWizardInner({
         setReconciledSignature(signature);
         return;
       }
+      // The read answered, but it was not a complete catalog (a row was skipped
+      // while opening, or the list was truncated). Nothing matched in what came
+      // back or stayed in the cache. The omitted row may be this target's live
+      // draft, so this is not a fresh target — do not clear or mint.
+      if (!readWasComplete) return;
       // No in-progress application matches this target. If a stale draft for
       // a different property/room is still loaded (same browser tab, no
       // reload), it must not bleed into a fresh application — clear it so a
@@ -1482,9 +1495,13 @@ function RentalApplicationWizardInner({
                 if (!res.ok) {
                   lookupFailed = Boolean(saved?.axisId) || (res.status !== 401 && res.status !== 403);
                 } else {
-                  const rows = ((await res.json()) as { rows?: DemoApplicantRow[] }).rows ?? [];
+                  const body = (await res.json()) as { rows?: DemoApplicantRow[]; skippedRowIds?: unknown };
+                  const rows = body.rows ?? [];
                   hit = rows.find((row) => row.id === saved?.axisId && isInProgressApplicationRow(row))
                     ?? rows.find((row) => isInProgressApplicationRow(row) && row.application?.propertyId === nextPid && String(row.application.rentalType ?? "standard") === rentalType && row.email?.trim().toLowerCase() === email);
+                  // A 200 that skipped a row omitted it. A miss is not proof this
+                  // target is fresh — minting here writes a second Incomplete draft.
+                  if (!hit && Array.isArray(body.skippedRowIds) && body.skippedRowIds.length > 0) lookupFailed = true;
                 }
               }
             } catch { lookupFailed = true; }

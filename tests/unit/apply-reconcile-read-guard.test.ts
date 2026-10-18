@@ -12,7 +12,8 @@ describe("portal apply reconcile read", () => {
   it("reads the resident's applications with their status and retries a failed read", () => {
     expect(source).toContain("syncManagerApplicationsFromServerWithStatus({ force: true })");
     expect(source).toMatch(/RECONCILE_READ_ATTEMPTS\s*=\s*[2-9]/);
-    expect(source).toContain("if (result.ok) return true;");
+    expect(source).toContain("if (result.ok) {");
+    expect(source).toContain("return true;");
   });
 
   it("concludes nothing at all when every attempt failed", () => {
@@ -25,6 +26,22 @@ describe("portal apply reconcile read", () => {
     expect(beforeConclusions).toContain("if (!readSucceeded) return;");
     // ...and nothing sets the signature before that guard, or the create effect would run.
     expect(beforeConclusions).not.toContain("setReconciledSignature");
+  });
+
+  it("does not mint when a successful read skipped rows or was otherwise incomplete", () => {
+    // A 200 that omitted a row (`skippedRowIds`, or any other incomplete catalog) used to
+    // count as `result.ok` and fall through to the fresh-target branch. The live draft
+    // then looked missing, and the next save minted a second Incomplete application.
+    expect(source).toContain("readWasComplete = result.complete === true && !(result.skippedRowIds?.length)");
+    expect(source).toContain("if (!hit && Array.isArray(body.skippedRowIds) && body.skippedRowIds.length > 0) lookupFailed = true;");
+    const callback = source.slice(source.indexOf(".then((readSucceeded) => {"));
+    const guardAt = callback.indexOf("if (!readWasComplete) return;");
+    // After a resumed match, and before the fresh-target branch clears the draft or
+    // unlocks the create effect.
+    expect(guardAt).toBeGreaterThan(callback.indexOf("if (hit?.application)"));
+    const afterGuard = callback.slice(guardAt);
+    expect(afterGuard.indexOf("clearRentalWizardDraft")).toBeGreaterThan(0);
+    expect(afterGuard.indexOf("setReconciledSignature")).toBeGreaterThan(afterGuard.indexOf("clearRentalWizardDraft"));
   });
 
   it("never reconciles through the status-blind sync", () => {
