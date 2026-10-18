@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { fetchJsonWithTimeout } from "@/lib/comms-billing/checkout-timeout";
+import { fetchJsonWithTimeout } from "@/lib/fetch-json-with-timeout";
 
 /**
  * Lifted from the old `manager-comms-billing-panel.tsx` so both the Extra
@@ -20,6 +20,9 @@ export type CreditCheckoutState = {
 };
 
 const ENDPOINT = "/api/manager/comms-billing/checkout";
+
+/** This flow's own timeout copy — only the checkout call site says "checkout". */
+export const CHECKOUT_TIMEOUT_MESSAGE = "Checkout is taking too long. Check your connection and try again.";
 
 export function useCreditCheckout() {
   const lastRequest = useRef<{ creditCents: number; workspaceId: string } | null>(null);
@@ -46,12 +49,16 @@ export function useCreditCheckout() {
       operation.current = { id: crypto.randomUUID(), amount: creditCents, workspaceId };
     }
     try {
-      const { ok, body } = await fetchJsonWithTimeout<{ clientSecret?: string; purchaseId?: string; error?: string }>(ENDPOINT, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purchaseId: operation.current.id, creditCents, workspaceId }),
-      });
+      const { ok, body } = await fetchJsonWithTimeout<{ clientSecret?: string; purchaseId?: string; error?: string }>(
+        ENDPOINT,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purchaseId: operation.current.id, creditCents, workspaceId }),
+        },
+        { timeoutMessage: CHECKOUT_TIMEOUT_MESSAGE },
+      );
       if (!ok || !body.clientSecret) throw new Error(body.error || "Checkout could not be opened.");
       setState({ clientSecret: body.clientSecret, loading: false, error: null, purchaseId: body.purchaseId ?? null });
       return body.purchaseId ?? null;

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
-import { fetchJsonWithTimeout } from "@/lib/comms-billing/checkout-timeout";
+import { fetchJsonWithTimeout } from "@/lib/fetch-json-with-timeout";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { formatAddonPrice, PLAN_ADDON_STOREFRONT_IDS, type PlanAddonId } from "@/lib/plan-addons";
 
