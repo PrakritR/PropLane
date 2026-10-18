@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { compactPremisesAccessParagraph } from "@/lib/lease-templates/build-compact-room-lease-html";
 import { readFileSync } from "node:fs";
+import {
+  CALIFORNIA_LEASE_CONFIG,
+  DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW,
+  WASHINGTON_LEASE_CONFIG,
+} from "@/lib/lease-templates/types";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
@@ -24,15 +29,29 @@ describe("room lease wording", () => {
   });
 });
 
-describe("lease templates carry no handwritten signature lines", () => {
-  it.each(["build-compact-room-lease-html.ts", "build-lease-html.ts"])("%s", (file) => {
+describe("the move-in condition report is a hand-filled printable", () => {
+  it.each(["build-compact-room-lease-html.ts", "build-lease-html.ts"])("%s keeps its signature and date lines", (file) => {
     const source = readFileSync(`src/lib/lease-templates/${file}`, "utf8");
-    expect(source).not.toContain("Landlord signature: ____");
-    expect(source).not.toContain("Resident signature: ____");
+    const addendum = source.slice(source.indexOf("The completed condition report requires both parties"));
+    expect(addendum).toContain("Landlord signature: ____________________ Date: __________");
+    expect(addendum).toContain("Resident signature: ____________________ Date: __________");
+  });
+});
+
+describe("the deposit-return paragraph is owned by the jurisdiction module", () => {
+  it.each(["build-compact-room-lease-html.ts", "build-lease-html.ts"])("%s authors no deposit obligation of its own", (file) => {
+    const source = readFileSync(`src/lib/lease-templates/${file}`, "utf8");
+    expect(source).not.toContain("Landlord shall return any refundable portion");
+    expect(source).toContain("DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW");
   });
 
-  it("the compact template completes the deposit-return sentence instead of printing a fragment", () => {
-    const source = readFileSync("src/lib/lease-templates/build-compact-room-lease-html.ts", "utf8");
-    expect(source).toContain("Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions");
+  it("Washington's window is a complete sentence and the fallback asserts no figure", () => {
+    expect(WASHINGTON_LEASE_CONFIG.depositReturnWindow).toContain("Within 30 days");
+    expect(WASHINGTON_LEASE_CONFIG.depositReturnWindow).toContain("written itemized statement of deductions");
+    expect(WASHINGTON_LEASE_CONFIG.depositReturnWindow?.trim().endsWith(".")).toBe(true);
+    // No verified figure for California, so the sentence names no number of days and no statute.
+    expect(CALIFORNIA_LEASE_CONFIG.depositReturnWindow).toBeUndefined();
+    expect(DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW).not.toMatch(/\d/);
+    expect(DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW).not.toMatch(/RCW|Civil Code/);
   });
 });

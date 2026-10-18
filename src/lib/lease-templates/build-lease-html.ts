@@ -36,7 +36,7 @@ import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import { PROPERTY_LEASE_TEMPLATE_PLACEHOLDER, formatLeaseAddressForDisplay } from "@/lib/property-lease-preview";
 import { sharedSpaceAccessNames, sharedSpaceIsEveryone } from "@/lib/listing-shared-space-access";
 import { jointLeasePartiesParagraph } from "@/lib/bundle-group/joint-lease";
-import { leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
+import { DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW, leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { resolveJurisdiction } from "@/lib/lease-jurisdiction";
 import {
   disclosureVerbatimHtmlForSection,
@@ -1772,7 +1772,7 @@ ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySi
 <p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>
 <p>The total security deposit is <strong>${secDep}</strong>; the payment summary states the amount due at signing. The deposit shall be held in accordance with ${config.depositStatuteRef} and secures Resident&apos;s full performance under this Agreement. Resident&apos;s liability is not limited to the deposit amount, and the deposit may not be applied toward rent or other charges during the tenancy.</p>
 ${holdingDepositHtml}
-<p>${config.depositReturnWindow ?? "Within the period required by applicable law after termination of the tenancy and vacancy of the Premises"}, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund. Any refund may be issued as a single check payable to all Residents.</p>
+<p>${config.depositReturnWindow ?? DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW} Any refund may be issued as a single check payable to all Residents.</p>
 <p>Deductions from the deposit may include, to the extent permitted by law:</p>
 <ul>
   <li>Unpaid rent, utilities, or other charges.</li>
@@ -1980,6 +1980,7 @@ ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySi
   <tr><td>Other / notes</td><td colspan="2">&nbsp;</td></tr>
 </table>
 <p>Signing this Agreement does not certify blank condition entries or a report completed later. The completed condition report requires both parties&apos; signatures and dates.</p>
+<p>Landlord signature: ____________________ Date: __________<br/>Resident signature: ____________________ Date: __________</p>
 ${moveInDisclosureHtml}
 </div>
 

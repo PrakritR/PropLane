@@ -1949,24 +1949,30 @@ export const ManagerInbox = forwardRef<
     const next = local.map((t) => (t.id === activeThread.id ? updated : t));
     setDiscardedDraftIds((prev) => new Set(prev).add(activeThread.id));
     persistInboxRef.current = false;
+    stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
     setLocal(next);
     let saved = false;
     try {
       saved = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
     } catch {
       saved = false;
+    }
+    try {
+      if (!saved) {
+        // The server still holds the draft: put the row back on screen and in the
+        // local cache as well as un-latching the id, or the UI shows the draft
+        // gone while the toast says it is still there.
+        stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, local);
+        setLocal(local);
+        setDiscardedDraftIds((prev) => {
+          const restored = new Set(prev);
+          restored.delete(activeThread.id);
+          return restored;
+        });
+        showToast("Could not discard the draft. Try again.");
+      }
     } finally {
       persistInboxRef.current = true;
-    }
-    if (!saved) {
-      // The server still holds the draft: say so instead of showing it gone and
-      // having it come back on the next load.
-      setDiscardedDraftIds((prev) => {
-        const restored = new Set(prev);
-        restored.delete(activeThread.id);
-        return restored;
-      });
-      showToast("Could not discard the draft. Try again.");
     }
   }, [activeThread, local, setReplyDraft, showToast]);
 

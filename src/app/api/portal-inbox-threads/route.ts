@@ -162,11 +162,14 @@ async function collapsedSiblingMessageIds(
     ),
   ].slice(0, 50);
   if (ids.length === 0) return [];
-  const { data } = await db
+  const { data, error } = await db
     .from("portal_inbox_thread_records")
     .select("row_data")
     .in("id", ids)
     .eq("scope", scopeKey);
+  // A refused read suppresses nothing (the append goes through), so it is not fatal here — but it
+  // is the reason a duplicated turn would show up, so it is never silent.
+  if (error) console.error("collapsedSiblingMessageIds sibling read failed", error);
   return (Array.isArray(data) ? data : []).flatMap((sibling) =>
     storedThreadMessageIds((sibling as { row_data?: unknown }).row_data),
   );
@@ -208,16 +211,23 @@ async function settleCollapsedSiblingsRead(
     .in("id", ids)
     .eq("scope", scopeKey);
   query = applyPortalInboxThreadScope(query, user, []) as typeof query;
-  const { data } = await query;
-  for (const sibling of Array.isArray(data) ? data : []) {
-    const rowData = (sibling as { row_data?: Record<string, unknown> | null }).row_data;
-    if (!rowData || rowData.unread !== true) continue;
-    const { error } = await db.rpc("mark_portal_inbox_thread_read_surgical", {
-      p_id: String((sibling as { id: string }).id),
-      p_scope: scopeKey,
-    });
-    if (error) console.error("settleCollapsedSiblingsRead failed", error);
+  const { data, error: readError } = await query;
+  // A refused read looks exactly like "no siblings": say so, or folded rows stay unread with
+  // nothing anywhere to explain why the badge came back.
+  if (readError) {
+    console.error("settleCollapsedSiblingsRead sibling read failed", readError);
+    return;
   }
+  const unreadIds = (Array.isArray(data) ? data : [])
+    .filter((sibling) => (sibling as { row_data?: Record<string, unknown> | null }).row_data?.unread === true)
+    .map((sibling) => String((sibling as { id: string }).id));
+  // Bounded at the 50 ids above, and each flip is independent — one round trip of latency, not 50.
+  await Promise.all(
+    unreadIds.map(async (id) => {
+      const { error } = await db.rpc("mark_portal_inbox_thread_read_surgical", { p_id: id, p_scope: scopeKey });
+      if (error) console.error("settleCollapsedSiblingsRead failed", error);
+    }),
+  );
 }
 
 export async function GET(request: Request) {

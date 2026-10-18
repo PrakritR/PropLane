@@ -25,10 +25,27 @@ export async function fetchJsonWithTimeout<T>(
     timedOut = true;
     controller.abort();
   }, timeoutMs);
+  // A caller's own signal is honoured, not silently replaced by ours: its abort cancels the
+  // request too, and rejects with the caller's reason rather than a timeout the caller did not hit.
+  const callerSignal = init.signal ?? null;
+  let callerAborted = false;
+  const abortFromCaller = () => {
+    callerAborted = true;
+    controller.abort();
+  };
   // Race the abort too, so a fetch that ignores its signal still settles.
   const timeout = new Promise<never>((_, reject) => {
-    controller.signal.addEventListener("abort", () => reject(new CheckoutTimeoutError()));
+    const fail = () =>
+      reject(
+        callerAborted
+          ? (callerSignal?.reason ?? new DOMException("Aborted", "AbortError"))
+          : new CheckoutTimeoutError(),
+      );
+    if (controller.signal.aborted) fail();
+    else controller.signal.addEventListener("abort", fail, { once: true });
   });
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     const request = (async () => {
       const res = await fetchImpl(input, { ...init, signal: controller.signal });
@@ -38,9 +55,11 @@ export async function fetchJsonWithTimeout<T>(
     request.catch(() => undefined);
     return await Promise.race([request, timeout]);
   } catch (e) {
+    if (callerAborted) throw callerSignal?.reason ?? e;
     if (timedOut) throw new CheckoutTimeoutError();
     throw e;
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
 }

@@ -73,6 +73,11 @@ describe("one money format", () => {
     expect(formatMoneyAmountsInLabel("Rent range $1000–$1350/mo")).toBe("Rent range $1,000–$1,350/mo");
     expect(formatMoneyAmountsInLabel("Rent: $1000.00/mo")).toBe("Rent: $1,000/mo");
     expect(formatMoneyAmountsInLabel("Room 1: $1150")).toBe("Room 1: $1,150");
+    // A sentence comma after an amount is punctuation, not a thousands separator.
+    expect(formatMoneyAmountsInLabel("Deposit $500, rent $1200")).toBe("Deposit $500, rent $1,200");
+    expect(formatMoneyAmountsInLabel("Rent: $1,050, utilities included")).toBe("Rent: $1,050, utilities included");
+    // Real thousands separators still group.
+    expect(formatMoneyAmountsInLabel("Total $1,050,000")).toBe("Total $1,050,000");
   });
 
   it("the Send listing range label no longer prints cents on whole dollars", () => {

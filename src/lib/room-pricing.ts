@@ -265,9 +265,14 @@ export function formatRoomPriceAmount(amount: number): string {
  */
 export function formatMoneyAmountsInLabel(label: string): string {
   return label.replace(/\$(\d[\d,]*(?:\.\d+)?)/g, (_match, num: string) => {
-    const n = Number(num.replace(/,/g, ""));
+    // A comma right after an amount ("Deposit $500, rent $1200") is the sentence's punctuation,
+    // not a thousands separator: it is handed back after the figure instead of being swallowed.
+    const trailingCommas = /,+$/.exec(num)?.[0] ?? "";
+    const digits = trailingCommas ? num.slice(0, -trailingCommas.length) : num;
+    const n = Number(digits.replace(/,/g, ""));
     // "$1000.00" is a whole-dollar amount: round to cents first so it drops its ".00".
-    return Number.isFinite(n) ? formatRoomPriceAmount(Number(n.toFixed(2))) : `$${num}`;
+    const figure = Number.isFinite(n) ? formatRoomPriceAmount(Number(n.toFixed(2))) : `$${digits}`;
+    return `${figure}${trailingCommas}`;
   });
 }
 

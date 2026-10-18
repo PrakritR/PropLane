@@ -37,6 +37,20 @@ describe("createTtlCache", () => {
     expect(await cache.get("a", async () => "A2")).toBe("A2");
   });
 
+  it("a clear during an in-flight load is not undone when that load settles", async () => {
+    const cache = createTtlCache<string>(60_000, () => 1_000);
+    let release: (value: string) => void = () => {};
+    const slow = cache.get("k", () => new Promise<string>((resolve) => { release = resolve; }));
+
+    cache.clear();
+    release("pre-clear");
+    expect(await slow).toBe("pre-clear");
+
+    // The cleared cache must recompute, not serve the value the cleared load produced.
+    expect(await cache.get("k", async () => "after-clear")).toBe("after-clear");
+    expect(await cache.get("k", async () => "third")).toBe("after-clear");
+  });
+
   it("is switched off under test so route tests read their mocks live", () => {
     expect(serverSnapshotCacheEnabled()).toBe(false);
   });

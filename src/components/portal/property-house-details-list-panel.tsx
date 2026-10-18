@@ -72,7 +72,7 @@ import {
   propertyAmenitiesSummary,
   propertyFactsSummary,
 } from "@/components/portal/property-house-submission-house-tab";
-import { submissionWithNewRoom } from "@/lib/property-house-add-room";
+import { mergeAddedRoomIntoLatest, submissionWithNewRoom } from "@/lib/property-house-add-room";
 import { floorLevelSelectOptions } from "@/data/manager-listing-presets";
 
 type SavePayload = {
@@ -127,8 +127,9 @@ export function PropertyHouseDetailsListPanel({
   const [target, setTarget] = useState<HouseDetailsEditorTarget | null>(null);
   const [saving, setSaving] = useState(false);
   // Add room: the form opens on a copy of the listing holding the new blank room. Nothing is
-  // written until Save; closing the form drops it.
-  const [pendingAdd, setPendingAdd] = useState<ManagerListingSubmissionV1 | null>(null);
+  // written until Save; closing the form drops it. The copy is a snapshot, so Save grafts the
+  // new room onto the listing as it stands THEN rather than writing the snapshot back whole.
+  const [pendingAdd, setPendingAdd] = useState<{ sub: ManagerListingSubmissionV1; roomId: string } | null>(null);
   const [infoPreview, setInfoPreview] = useState<
     | { kind: "section"; spec: HouseInfoSectionSpec }
     | { kind: "other" }
@@ -190,8 +191,11 @@ export function PropertyHouseDetailsListPanel({
   );
 
   const saveEditor = (payload: SavePayload) => {
+    const effective: SavePayload = pendingAdd
+      ? { ...payload, sub: mergeAddedRoomIntoLatest(sub, payload.sub, pendingAdd.roomId) }
+      : payload;
     setSaving(true);
-    const ok = onPersist(payload);
+    const ok = onPersist(effective);
     setSaving(false);
     if (!ok) {
       showToast?.("Could not save.");
@@ -216,7 +220,7 @@ export function PropertyHouseDetailsListPanel({
 
   const addRoom = () => {
     const next = submissionWithNewRoom(sub);
-    setPendingAdd(next.sub);
+    setPendingAdd({ sub: next.sub, roomId: next.roomId });
     openEditor({ kind: "room", roomId: next.roomId });
   };
 
@@ -776,7 +780,7 @@ export function PropertyHouseDetailsListPanel({
       <PropertyHouseDetailsEditorModal
         open={editorOpen}
         target={target}
-        sub={pendingAdd ?? sub}
+        sub={pendingAdd?.sub ?? sub}
         propertyId={propertyId}
         managerUserId={managerUserId}
         onGoToBathrooms={() => {
@@ -784,6 +788,9 @@ export function PropertyHouseDetailsListPanel({
           closeEditor();
         }}
         onOpenLinkedRoom={(roomId) => {
+          // Navigating away from an unsaved new room drops it: saving the room we land on must
+          // not also persist a blank "Room N" nobody filled in.
+          if (pendingAdd && pendingAdd.roomId !== roomId) setPendingAdd(null);
           openEditor({ kind: "room", roomId });
         }}
         houseInfo={houseInfo}

@@ -1,7 +1,7 @@
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { leaseUtilityKindLabel } from "@/lib/lease-utilities";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import type { LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
+import { DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { paymentAtSigningIncludedLabels } from "@/lib/rental-application/listing-fees-display";
 import { isIntraMonthStay } from "@/lib/short-term-stay-pricing";
 
@@ -684,7 +684,7 @@ ${input.holdingDepositHtml ?? ""}
   <li>Lost or damaged furnishings</li>
   <li>Other charges permitted by Washington law</li>
 </ul>
-<p>${input.config.depositReturnWindow ? `${input.config.depositReturnWindow.replace(/[.\s]+$/, "")}, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund.` : "Any refundable balance shall be returned in accordance with Washington law after Resident vacates and provides a forwarding address."}</p>
+<p>${input.config.depositReturnWindow ?? DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW}</p>
 <p>The security deposit may not be used as the final month&apos;s rent.</p>
 
 <h2>6. Utilities</h2>
@@ -784,6 +784,7 @@ ${disputeVenue ? `<p>Any legal proceeding arising from this Agreement shall be b
   <tr><td>Other / notes</td><td colspan="2">&nbsp;</td></tr>
 </table>
 <p>Signing this Agreement does not certify blank condition entries or a report completed later. The completed condition report requires both parties&apos; signatures and dates.</p>
+<p>Landlord signature: ____________________ Date: __________<br/>Resident signature: ____________________ Date: __________</p>
 </div>
 
 <div class="addendum">

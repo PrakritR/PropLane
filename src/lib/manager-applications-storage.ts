@@ -76,6 +76,12 @@ export type ManagerApplicationsSyncResult = {
    * must not act on those.
    */
   complete?: boolean;
+  /**
+   * How many rows the route could not open and left out of `rows` (its `skippedRowIds`). The list
+   * is short by that many, so every tab count is too — the Applications list says so in one line
+   * rather than quietly showing one fewer application.
+   */
+  skippedCount?: number;
 };
 let managerApplicationsSyncPromise: Promise<ManagerApplicationsSyncResult> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
@@ -90,6 +96,8 @@ let applicationsReadSucceeded = false;
  * evidence a fresh read gave it instead of silently losing it on a remount.
  */
 let applicationsReadWasComplete = false;
+/** How many rows the last successful read's route left out. Reused answers carry it too. */
+let applicationsReadSkippedCount = 0;
 let applicationsReadScope: "manager" | "self" | null = null;
 let applicationsReadGeneration = 0;
 let applicationWriteGeneration = 0;
@@ -98,6 +106,7 @@ function clearSensitiveApplicationCache() {
   const changed = memoryRows.length > 0;
   applicationsReadSucceeded = false;
   applicationsReadWasComplete = false;
+  applicationsReadSkippedCount = 0;
   applicationsReadScope = null;
   applicationsReadGeneration++;
   memoryRows = [];
@@ -914,7 +923,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
   if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < (opts?.maxAgeMs ?? MANAGER_APPLICATIONS_SYNC_TTL_MS)) {
-    return { rows: readManagerApplicationRows(), ok: true, complete: applicationsReadWasComplete };
+    return { rows: readManagerApplicationRows(), ok: true, complete: applicationsReadWasComplete, skippedCount: applicationsReadSkippedCount };
   }
   const generation = applicationsScopeGeneration;
   const readGeneration = ++applicationsReadGeneration;
@@ -948,14 +957,14 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // that throw never masquerades as a network failure, then retry the GET
       // once immediately (C200): a transient empty response must not fall
       // straight back to a possibly-stale cache with no further attempt.
-      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(res);
+      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean; skippedRowIds?: unknown }>(res);
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         const retryRes = await fetchWithTimeout(url, { credentials: "include" }, MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS).catch(() => null);
         if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
         if (retryRes) {
           notePortalResponse(retryRes.status);
-          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(retryRes);
+          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean; skippedRowIds?: unknown }>(retryRes);
         }
       }
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
@@ -975,6 +984,9 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // Absence also only proves a deletion WITHIN one scope: the list is narrowed to the
       // active workspace, so the confirmed set must have been gathered under the same
       // workspace this answer describes, and that workspace must still be the selected one.
+      // Rows the route could not open are missing from `rows`, so this answer is NOT a complete
+      // list: absence cannot prove a deletion while a row is being skipped.
+      const skippedCount = Array.isArray(body.skippedRowIds) ? body.skippedRowIds.length : 0;
       const serverIds = new Set(body.rows.map((row) => normalizeApplicationRow(row).id));
       const workspaceStillActive = readWorkspaceId === selectedWorkspaceId();
       // Only a manager-scope read can confirm that a row exists for the LIST. A
@@ -985,6 +997,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       const listIsComplete =
         !opts?.selfScope
         && body.truncated !== true
+        && skippedCount === 0
         && body.rows.length < MANAGER_APPLICATIONS_READ_CAP
         && workspaceStillActive;
       const absenceIsDeletion = listIsComplete && confirmedApplicationsWorkspaceId === readWorkspaceId;
@@ -1001,10 +1014,11 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       persistManagerApplicationsToSession(rows, managerUserId);
       applicationsReadSucceeded = true;
       applicationsReadWasComplete = listIsComplete;
+      applicationsReadSkippedCount = skippedCount;
       managerApplicationsLastSyncedAt = Date.now();
       managerApplicationsSuccessfulServerSyncAt = managerApplicationsLastSyncedAt;
       if (changed) emit();
-      return { rows, ok: true, complete: listIsComplete };
+      return { rows, ok: true, complete: listIsComplete, skippedCount };
     })().catch(() =>
       isCurrentRead()
         ? (applicationsReadSucceeded = false, managerApplicationsSuccessfulServerSyncAt = 0, { rows: readManagerApplicationRows(), ok: false })

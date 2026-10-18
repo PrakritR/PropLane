@@ -636,6 +636,8 @@ export function ManagerApplications({
   const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
   /** Icon-only Download/Run/Re-run screening actions, published into the record header while the Screening tab is open (docs/agents/record-page.md § Known gap). */
   const [screeningHeaderActions, setScreeningHeaderActions] = useState<ReactNode>(null);
+  /** Rows the route could not open: the list and every tab count are short by this many, so it says so. */
+  const [skippedRowCount, setSkippedRowCount] = useState(0);
   useEffect(() => {
     if (!authReady) return;
     let active = true;
@@ -647,6 +649,7 @@ export function ManagerApplications({
       if (!active || version !== readVersion || result.stale) return;
       sync();
       if (result.ok) {
+        setSkippedRowCount(result.skippedCount ?? 0);
         setInitialReadUserId(userId);
         setInitialReadErrorUserId(undefined);
       } else {
@@ -1959,6 +1962,11 @@ export function ManagerApplications({
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
       {checkrScreeningModal}
+        {skippedRowCount > 0 ? (
+          <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending" data-attr="applications-skipped-rows-note">
+            {skippedRowCount === 1 ? "1 application couldn't be loaded." : `${skippedRowCount} applications couldn't be loaded.`}
+          </div>
+        ) : null}
         <PortalRecordListSurface
           loading={rows.length === 0 && (!authReady || (initialReadErrorUserId !== userId && initialReadUserId !== userId))}
           loadError={authReady && rows.length === 0 && initialReadErrorUserId === userId ? "Could not load applications." : undefined}

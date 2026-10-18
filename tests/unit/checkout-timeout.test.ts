@@ -43,4 +43,29 @@ describe("fetchJsonWithTimeout", () => {
     await assertion;
     expect(signal?.aborted).toBe(true);
   });
+
+  it("honours a caller's own signal instead of discarding it", async () => {
+    const caller = new AbortController();
+    let signal: AbortSignal | undefined;
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>(() => undefined);
+    });
+    const pending = fetchJsonWithTimeout("/x", { signal: caller.signal }, 15_000, fetchImpl as unknown as typeof fetch);
+    const assertion = expect(pending).rejects.toThrow(/stopped/);
+    caller.abort(new Error("caller stopped it"));
+    await assertion;
+    // The request itself was cancelled, and this is NOT reported as a checkout timeout.
+    expect(signal?.aborted).toBe(true);
+    await expect(pending).rejects.not.toBeInstanceOf(CheckoutTimeoutError);
+  });
+
+  it("still times out a request whose caller signal never fires", async () => {
+    const caller = new AbortController();
+    const fetchImpl = vi.fn(() => new Promise<Response>(() => undefined));
+    const pending = fetchJsonWithTimeout("/x", { signal: caller.signal }, 15_000, fetchImpl as unknown as typeof fetch);
+    const assertion = expect(pending).rejects.toBeInstanceOf(CheckoutTimeoutError);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await assertion;
+  });
 });
