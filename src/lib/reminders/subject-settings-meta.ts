@@ -545,7 +545,7 @@ export const REMINDER_SUBJECT_SETTINGS_META: Partial<
 > = {
   ...PLAN_0915_META,
   tour: TOUR_META,
-  tour_interest: { ...TOUR_META, directions: ["after"], timingLabel: "24 hours after your tour response",
+  tour_interest: { ...TOUR_META, directions: ["after"], timingLabel: "24 and 72 hours after your tour response",
     defaultTemplate: { subject: "Still interested in a tour?", body: "Hi, are you still interested in a tour? Reply and we can find a time that works for you." } },
   task: TASK_META,
   service_order: SERVICE_ORDER_META,

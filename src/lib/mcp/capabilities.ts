@@ -97,6 +97,15 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "dispatch_vendor",
   "announce_to_house",
   "update_room_block",
+  // Manager operations by text (one-number W8): they answer a texting manager and stay on the assistants.
+  // A broadcast texts every resident of a house; payouts and application links are person-bound.
+  "list_tours_on_day",
+  "list_unpaid_rent",
+  "get_application_review_link",
+  "broadcast_to_residents",
+  "set_up_payouts",
+  "list_vacant_rooms",
+  "mark_room_rented",
 ]);
 
 export const API_KEY_TOOL_NAMES = new Set(

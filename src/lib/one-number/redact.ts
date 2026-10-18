@@ -1,5 +1,5 @@
 /**
- * Card and bank number redaction for inbound texts. A texted card or bank
+ * Card, bank and social security number redaction for inbound texts. A texted card or bank
  * number is never stored, never shown to an agent and never repeated: it is
  * replaced with `[redacted]` BEFORE the body reaches the receipt, the
  * projection turn or the inbound log, and the sender is pointed at the secure
@@ -11,7 +11,7 @@ export const REDACTION_MARK = "[redacted]";
 export const SECURE_PAYMENT_REPLY =
   "For your security, please do not text card or bank numbers. Use your secure payment link instead.";
 
-export type RedactionKind = "card" | "bank";
+export type RedactionKind = "card" | "bank" | "ssn";
 
 export type RedactionResult = {
   text: string;
@@ -49,6 +49,8 @@ const CARD_CANDIDATE = /(?<![\d])\d(?:[ -]?\d){12,18}(?![\d])/g;
 // "account/acct/acc number/no/#", "routing", "aba" followed by 6-17 digits (spaces/dashes allowed inside).
 const BANK_KEYWORD =
   /\b(?:acct|account|acc|routing|aba)\b(?:\s*(?:number|num|no|#))?\s*(?:is|:|-|=)?\s*#?\s*(\d(?:[ -]?\d){5,16})(?![\d])/gi;
+// A dashed US social security number (123-45-6789), not part of a longer dashed or digit run.
+const SSN_DASHED = /(?<![\d-])\d{3}-\d{2}-\d{4}(?![\d-])/g;
 const NINE_DIGITS = /(?<![\d])\d{9}(?![\d])/g;
 const ACCOUNT_RUN = /(?<![\d])\d{6,17}(?![\d])/g;
 
@@ -57,6 +59,13 @@ function redactCards(text: string, kinds: Set<RedactionKind>): string {
     const digits = match.replace(/\D/g, "");
     if (digits.length < 13 || digits.length > 19 || !passesLuhn(digits)) return match;
     kinds.add("card");
+    return REDACTION_MARK;
+  });
+}
+
+function redactSsn(text: string, kinds: Set<RedactionKind>): string {
+  return text.replace(SSN_DASHED, () => {
+    kinds.add("ssn");
     return REDACTION_MARK;
   });
 }
@@ -101,6 +110,7 @@ export function redactSensitiveNumbers(body: string): RedactionResult {
   const kinds = new Set<RedactionKind>();
   const original = String(body ?? "");
   let text = redactCards(original, kinds);
+  text = redactSsn(text, kinds);
   text = redactBank(text, kinds);
   return { text, redacted: kinds.size > 0, kinds: [...kinds] };
 }

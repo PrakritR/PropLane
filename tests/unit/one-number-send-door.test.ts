@@ -5,9 +5,9 @@ const mocks = vi.hoisted(() => ({
   sendFromManagerWorkNumber: vi.fn(),
 }));
 
-vi.mock("@/lib/one-number/shared-line-number.server", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/one-number/shared-line-number.server")>()),
-  readSharedLineConfig: vi.fn(async () => ({
+vi.mock("@/lib/one-number/config.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/one-number/config.server")>()),
+  loadSharedLineConfig: vi.fn(async () => ({
     mode: "per_workspace", sharedNumber: null, messagingServiceSid: null, pilotWorkspaceIds: [], ...mocks.config,
   })),
 }));
@@ -55,6 +55,14 @@ describe("sendSharedLineMessage", () => {
       text: "It's booked\n- 5259 Brooklyn team", dedupeKey: "shared-line:turn-1",
       counterpartyRole: "prospect", sendClass: "transactional",
     }));
+  });
+
+  it("hands outbound media to the transport, and sends none when there is none", async () => {
+    mocks.config = { mode: "shared", sharedNumber: "+12065550100", pilotWorkspaceIds: [] };
+    await sendSharedLineMessage({} as never, { ...base, mediaUrls: ["https://cdn.example.com/room.jpg"] });
+    expect(mocks.sendFromManagerWorkNumber.mock.calls[0][0]).toMatchObject({ mediaUrls: ["https://cdn.example.com/room.jpg"] });
+    await sendSharedLineMessage({} as never, { ...base, idempotencyKey: "turn-2" });
+    expect(mocks.sendFromManagerWorkNumber.mock.calls[1][0]).not.toHaveProperty("mediaUrls");
   });
 
   it("maps refusals onto the contract reasons", async () => {

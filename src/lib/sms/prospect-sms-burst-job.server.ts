@@ -8,6 +8,40 @@ import {
   recoverProspectTourBookingForBurst,
 } from "@/lib/prospect-tour-booking-recovery.server";
 
+const MISSING_SCHEMA_CODES = new Set(["42P01", "42703", "PGRST204", "PGRST205"]);
+
+/**
+ * The workspace a burst's texts were stamped with. The burst row carries none, so it is read back
+ * from the receipts of the claimed messages (`sms_inbound_receipts.workspace_id`, stamped from the
+ * claim payload on the work-number path and by the shared-line router), then re-checked to be a
+ * workspace of the burst's owner. Null when nothing is stamped or the column is not migrated yet:
+ * the reply then behaves exactly as before.
+ */
+export async function loadBurstWorkspaceId(
+  db: SupabaseClient,
+  ownerUserId: string,
+  sourceIds: string[],
+): Promise<string | null> {
+  try {
+    if (!ownerUserId || sourceIds.length === 0) return null;
+    const { data, error } = await db.from("sms_inbound_receipts")
+      .select("message_sid,workspace_id").in("message_sid", sourceIds);
+    if (error) {
+      if (!MISSING_SCHEMA_CODES.has(String(error.code ?? ""))) console.warn("burst workspace stamp unreadable");
+      return null;
+    }
+    const stamped = new Set((data ?? []).map((row) => String((row as { workspace_id?: unknown }).workspace_id ?? "").trim()).filter(Boolean));
+    // A burst never spans two workspaces; if it somehow does, stamp nothing rather than guess.
+    if (stamped.size !== 1) return null;
+    const workspaceId = [...stamped][0];
+    const { data: workspace } = await db.from("portal_workspaces").select("id")
+      .eq("id", workspaceId).eq("owner_user_id", ownerUserId).maybeSingle();
+    return workspace?.id ? String(workspace.id) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** One claimed, revision-fenced run of a prospect burst. The QStash callback,
  * the inbound QStash-outage fallback and the recovery cron all run exactly this,
  * so the database claim is the single arbiter of who replies. */
@@ -114,11 +148,13 @@ export async function runProspectSmsBurstJob(
       });
     }
   }
+  const workspaceId = await loadBurstWorkspaceId(db, String(burst.manager_user_id), sourceIds);
   let result;
   try {
     result = await handleClawLeasingInbound({
     from: String(burst.counterparty_phone_e164), text: originals.map((row) => row.body).join("\n"),
     messageId: sourceIds.at(-1) ?? null, mergedMessageIds: sourceIds, managerUserId: String(burst.manager_user_id),
+    ...(workspaceId ? { workspaceId } : {}),
     originalMessages: originals,
     workNumber: burst.reply_from_number ? String(burst.reply_from_number) : null,
     durableBurstWorker: true,

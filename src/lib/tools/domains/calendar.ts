@@ -70,7 +70,7 @@ function summarizeEvent(rec: RawScheduleRecord) {
  * column predicate — it is applied per item via ownedSingletonItems below
  * (managerUserId === ctx.landlordId), mirroring the schedule-records GET route.
  */
-async function readSingletonItems(ctx: AgentContext, recordId: string): Promise<Record<string, unknown>[]> {
+export async function readSingletonItems(ctx: AgentContext, recordId: string): Promise<Record<string, unknown>[]> {
   const query = ctx.testWorkspaceId
     ? ctx.db
         .from("test_workspace_schedule_records")
@@ -102,7 +102,7 @@ async function readSingletonRecord(
   return { rowData, items: rowsFromRecord(rowData) };
 }
 
-function ownedSingletonItems(items: Record<string, unknown>[], landlordId: string): Record<string, unknown>[] {
+export function ownedSingletonItems(items: Record<string, unknown>[], landlordId: string): Record<string, unknown>[] {
   return items.filter((item) => str(item, "managerUserId") === landlordId);
 }
 

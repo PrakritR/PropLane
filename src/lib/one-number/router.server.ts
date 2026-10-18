@@ -18,7 +18,7 @@ import {
   findWorkspaceProspectCandidate,
 } from "@/lib/one-number/router-lookups.server";
 import { saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
-import { handleUnassignedLeadInbound } from "@/lib/one-number/unassigned-leads.server";
+import { handleUnknownSenderInbound } from "@/lib/one-number/onboarding/unknown-sender.server";
 
 export {
   findApplicantCandidates,
@@ -214,6 +214,10 @@ export type SharedLineRouteResult = {
   decision: RoutingDecision;
   /** The Unassigned-leads reply to text back, when the decision is `unassigned`. */
   unassignedReply: string | null;
+  /** Several texts to send in order (the DEMO's bubbles); `unassignedReply` is them joined. */
+  unassignedReplies?: string[];
+  /** One real listing photo the reply carries (https), when the lead agent attached one. */
+  unassignedMediaUrls?: string[];
 };
 
 /** Every lookup, in routing order. A failing lookup is an empty one. */
@@ -275,7 +279,7 @@ export async function routeSharedLineInboundWithReply(
 
   // Step 7: nobody knows this number. Shadow mode only reports it.
   if (options.dryRun) return { decision: { kind: "unassigned", role: "prospect", leadId: null }, unassignedReply: null };
-  const turn = await handleUnassignedLeadInbound(db, inbound);
+  const turn = await handleUnknownSenderInbound(db, inbound);
   if (turn.assignedWorkspaceId) {
     const assigned = await findWorkspaceProspectCandidate(db, turn.assignedWorkspaceId);
     if (assigned) {
@@ -283,7 +287,12 @@ export async function routeSharedLineInboundWithReply(
       return { decision: { kind: "routed", ...assigned }, unassignedReply: null };
     }
   }
-  return { decision: { kind: "unassigned", role: "prospect", leadId: turn.leadId }, unassignedReply: turn.reply };
+  return {
+    decision: { kind: "unassigned", role: "prospect", leadId: turn.leadId },
+    unassignedReply: turn.reply,
+    ...(turn.replies && turn.replies.length > 1 ? { unassignedReplies: turn.replies } : {}),
+    ...(turn.mediaUrls?.length ? { unassignedMediaUrls: turn.mediaUrls } : {}),
+  };
 }
 
 export async function routeSharedLineInbound(

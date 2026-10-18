@@ -18,7 +18,7 @@ vi.mock("@/lib/one-number/team-alerts.server", () => ({
   }),
 }));
 const unassigned = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => ({ leadId: "lead-1" as string | null, reply: "Welcome! Budget?" as string | null, assignedWorkspaceId: null as string | null })));
-vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: unassigned }));
+vi.mock("@/lib/one-number/onboarding/unknown-sender.server", () => ({ handleUnknownSenderInbound: unassigned }));
 
 import { handleSharedLineInbound, HUMAN_ACK_REPLY } from "@/lib/one-number/inbound-seam.server";
 import { loadThreadPause } from "@/lib/one-number/session.server";
@@ -142,6 +142,14 @@ describe("unassigned text", () => {
     expect(await run(db, "do you have rooms?")).toEqual({ kind: "handled", twiml: "Welcome! Budget?" });
     expect(unassigned).toHaveBeenCalledTimes(1);
     expect(sent).toEqual([]);
+  });
+
+  it("a lead's one real listing photo rides the TwiML reply; an emergency never carries it", async () => {
+    const { db } = world();
+    unassigned.mockResolvedValueOnce({ leadId: "lead-1", reply: "Room at 5259 Brooklyn, $900.", assignedWorkspaceId: null, mediaUrls: ["https://cdn.example.com/r1.jpg", "https://cdn.example.com/r2.jpg"] } as never);
+    expect(await run(db, "yes please")).toEqual({ kind: "handled", twiml: "Room at 5259 Brooklyn, $900.", mediaUrl: "https://cdn.example.com/r1.jpg" });
+    unassigned.mockResolvedValueOnce({ leadId: "lead-1", reply: "Room.", assignedWorkspaceId: null, mediaUrls: ["https://cdn.example.com/r1.jpg"] } as never);
+    expect(await run(db, "fire")).toEqual({ kind: "handled", twiml: EMERGENCY_SAFETY_REPLY });
   });
 
   it("a stranger texting an emergency word gets the safety text first", async () => {

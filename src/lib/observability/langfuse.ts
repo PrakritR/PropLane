@@ -507,6 +507,31 @@ async function scoreTraceNumeric(opts: {
   }
 }
 
+/**
+ * Attach an SMS turn's delivery-feel numbers to its trace as scores (one numeric
+ * score each, stable id so a replay never double-counts). The intent and lane ride
+ * in the comment. Best-effort like every score here.
+ */
+export async function scoreSmsDelivery(opts: {
+  traceId: string;
+  intent: string;
+  lane: string;
+  firstBubbleMs: number | null;
+  totalLatencyMs: number | null;
+  bubbleCount: number;
+}): Promise<void> {
+  const comment = `intent:${opts.intent} lane:${opts.lane}`.slice(0, 200);
+  const scores: [string, number | null][] = [
+    ["sms-first-bubble-ms", opts.firstBubbleMs],
+    ["sms-total-latency-ms", opts.totalLatencyMs],
+    ["sms-bubble-count", opts.bubbleCount],
+  ];
+  for (const [name, value] of scores) {
+    if (value === null || !Number.isFinite(value)) continue;
+    await scoreTraceNumeric({ traceId: opts.traceId, name, value, id: `${name}-${opts.traceId}`, comment });
+  }
+}
+
 type TurnInput = { role: string; content: string }[];
 
 type TurnUsage = { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number; reasoningOutputTokens?: number };

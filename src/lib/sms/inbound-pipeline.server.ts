@@ -64,15 +64,51 @@ import { loadThreadPause } from "@/lib/one-number/session.server";
 import { gateAiReply } from "@/lib/one-number/knowledge/reply-modes.server";
 import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 import { attachVendorJobMedia, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
+import { loadFeelSettings } from "@/lib/one-number/feel-settings.server";
+import { debounceInbound } from "@/lib/one-number/debounce.server";
+import { classifySmsIntent, type IntentResult } from "@/lib/one-number/intent.server";
+import { recordSmsTurnMetrics, elapsedSince, type TurnLane, type TurnReplyStatus } from "@/lib/one-number/turn-metrics.server";
+import { splitIntoBubbles, textHasEmoji } from "@/lib/one-number/bubbles";
+import { WORK_ACK_DEDUPE_SUFFIX, WORK_ACK_TEXT } from "@/lib/one-number/slow-work";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Empty TwiML — replies are sent asynchronously via the Messaging API. */
-export function twimlOk(reply?: string): NextResponse {
-  const escaped = reply
-    ? reply.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    : "";
+/** An https URL is the only thing allowed into a TwiML `<Media>`; anything else is dropped. */
+export function twimlMediaUrl(url: string | null | undefined): string | null {
+  try {
+    const parsed = new URL(String(url ?? "").trim());
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function xmlText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** One TwiML message: plain text, or text with its own https photo. */
+export type TwimlBubble = string | { body: string; mediaUrl?: string | null };
+
+/**
+ * Empty TwiML — replies are sent asynchronously via the Messaging API. A reply is one text or a list of bubbles
+ * (one `<Message>` each, in order); a bubble may carry an https `mediaUrl` that rides it as `<Media>`. For a
+ * single-string reply the second argument is that one message's photo.
+ */
+export function twimlOk(reply?: string | TwimlBubble[], mediaUrl?: string | null): NextResponse {
+  const list: TwimlBubble[] = Array.isArray(reply) ? reply : reply ? [mediaUrl ? { body: reply, mediaUrl } : reply] : [];
+  const messages = list
+    .map((bubble) => (typeof bubble === "string" ? { body: bubble, mediaUrl: null } : { body: bubble.body, mediaUrl: bubble.mediaUrl ?? null }))
+    .filter((bubble) => bubble.body.length > 0)
+    .map((bubble) => {
+      const escaped = xmlText(bubble.body);
+      const media = twimlMediaUrl(bubble.mediaUrl);
+      return media
+        ? `<Message><Body>${escaped}</Body><Media>${xmlText(media)}</Media></Message>`
+        : `<Message>${escaped}</Message>`;
+    })
+    .join("");
   return new NextResponse(
-    `<?xml version="1.0" encoding="UTF-8"?><Response>${escaped ? `<Message>${escaped}</Message>` : ""}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${messages}</Response>`,
     {
       status: 200,
       headers: { "Content-Type": "text/xml" },
@@ -700,6 +736,52 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
   }
 
+  // Delivery feel (bubbles, resident fast path, burst debounce, work ack). Defaults are ON for the
+  // shared line and OFF for a work number, so a per-workspace line behaves exactly as before.
+  const onSharedLine = Boolean(saved?.sharedLine || input.sharedLine);
+  const feel = await loadFeelSettings(db, { workspaceId, sharedLine: onSharedLine });
+  // The intent label is for the log only. Started lazily (the Haiku call, when the rules cannot
+  // tell) so a text that never reaches an agent costs nothing.
+  let intentPromise: Promise<IntentResult> | null = null;
+  const intentOf = (text?: string) => (intentPromise ??= classifySmsIntent(text ?? body, { useModel: onSharedLine }));
+  /** Log one answered turn: intent, lane, model, latency, draft vs sent. Never throws. */
+  const recordAnswered = async (a: {
+    role: string;
+    traceId?: string | null;
+    lane: TurnLane;
+    model: string | null;
+    replyText: string | null;
+    status: TurnReplyStatus;
+    firstBubbleAt: number | null;
+  }): Promise<void> => {
+    try {
+      const intent = a.lane === "fast_path" ? "faq" as const : (await intentOf()).intent;
+      const bubbleCount = !a.replyText
+        ? 0
+        : feel.bubbleReplies
+          ? Math.max(1, splitIntoBubbles(a.replyText, { allowEmoji: textHasEmoji(body) }).length)
+          : 1;
+      await recordSmsTurnMetrics(db, {
+        ownerUserId: managerId,
+        messageSid,
+        role: a.role,
+        workspaceId: workspaceId ?? null,
+        traceId: a.traceId ?? null,
+        metrics: {
+          intent,
+          lane: a.lane,
+          modelUsed: a.model,
+          bubbleCount,
+          firstBubbleMs: a.firstBubbleAt === null ? null : elapsedSince(occurredAt, a.firstBubbleAt),
+          totalLatencyMs: elapsedSince(occurredAt),
+          replyStatus: a.status,
+        },
+      });
+    } catch {
+      /* the log never blocks a reply */
+    }
+  };
+
   /** Complete once a durable outbox row owns delivery; provider callbacks and
    * the dispatcher handle the rest, so Twilio must not rerun the agent turn. */
   const finishPreparedDelivery = async (
@@ -772,6 +854,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         workNumber: normalizeE164(toPhone) ?? toPhone,
         inboundMessageSid: messageSid,
         traceId: replay.receipt.turnTraceId,
+        workspaceId: workspaceId ?? null,
+        bubbles: feel.bubbleReplies,
+        inboundText: body,
       });
       return finishPreparedDelivery(replay.receipt, delivered);
     }
@@ -784,6 +869,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         workNumber: normalizeE164(toPhone) ?? toPhone,
         inboundMessageSid: messageSid,
         traceId: replay.receipt.turnTraceId,
+        workspaceId: workspaceId ?? null,
+        bubbles: feel.bubbleReplies,
+        inboundText: body,
       });
       return finishPreparedDelivery(replay.receipt, delivered);
     }
@@ -796,6 +884,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         workNumber: normalizeE164(toPhone) ?? toPhone,
         inboundMessageSid: messageSid,
         traceId: replay.receipt.turnTraceId,
+        workspaceId: workspaceId ?? null,
+        bubbles: feel.bubbleReplies,
+        inboundText: body,
       });
       return finishPreparedDelivery(replay.receipt, delivered);
     }
@@ -918,12 +1009,57 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     if (assistantThread && !assistantThread.ok) {
       console.error("manager inbound assistant thread mirror failed", assistantThread.error);
     }
+    // Burst debounce: wait for the manager to finish typing; the newest text answers all of them.
+    const managerDebounce = managerIdentity.ok
+      ? await debounceInbound(db, {
+          ownerUserId: managerId,
+          role: "manager",
+          phone: fromPhone,
+          messageSid,
+          body: agentBody,
+          waitMs: feel.debounceMs,
+          immediate: (Number(media.NumMedia) || 0) > 0,
+        })
+      : null;
+    if (managerDebounce && !managerDebounce.proceed) {
+      mark("debounce:yield");
+      const { error: cleanupError } = await db
+        .from("inbound_sms_log")
+        .delete()
+        .eq("message_sid", messageSid)
+        .eq("manager_user_id", managerId);
+      if (cleanupError || !(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+    const managerTurnText = managerDebounce?.proceed ? managerDebounce.body : agentBody;
+    const ackOwnerId = managerInbound.workNumberOwnerId;
+    const ackActorId = managerInbound.actorUserId;
+    let managerFirstBubbleAt: number | null = null;
+    if (managerIdentity.ok) void intentOf(managerTurnText);
+    const settleManagerDebounce = async () => {
+      if (managerDebounce?.proceed) await managerDebounce.settle();
+    };
     const turn = managerIdentity.ok
       ? await runManagerSmsAgentTurn(db, {
           ctx: managerIdentity.ctx,
           managerPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
-          inboundText: agentBody,
+          inboundText: managerTurnText,
           inboundMessageSid: messageSid,
+          onSlowWork: feel.workAck
+            ? async () => {
+                await deliverManagerSmsReply({
+                  managerUserId: ackOwnerId,
+                  actorUserId: ackActorId,
+                  toPhone: fromPhone,
+                  text: WORK_ACK_TEXT,
+                  workNumber,
+                  inboundMessageSid: messageSid,
+                  dedupeSuffix: WORK_ACK_DEDUPE_SUFFIX,
+                });
+              }
+            : undefined,
           onInboundPersisted: async () => {
             const { error } = await db
               .from("inbound_sms_log")
@@ -985,7 +1121,11 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
+        workspaceId: workspaceId ?? null,
+        bubbles: feel.bubbleReplies,
+        inboundText: managerTurnText,
       });
+      managerFirstBubbleAt = Date.now();
       const finished = await finishPreparedDelivery(
         {
           status: "processing",
@@ -1002,8 +1142,19 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         delivered,
       );
       if (finished.status !== 200) return finished;
+      await settleManagerDebounce();
+      await recordAnswered({
+        role: "manager",
+        traceId: turn.traceId,
+        lane: turn.lane ?? "agent",
+        model: turn.model ?? null,
+        replyText: stripLongDashes(turn.reply),
+        status: "sent",
+        firstBubbleAt: managerFirstBubbleAt,
+      });
     }
     if (turn) {
+      if (!turn.reply) await settleManagerDebounce();
       if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
         return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
       }
@@ -1081,15 +1232,36 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "vendor", counterpartyUserId: vendor.session.vendor_user_id, fromPhone })
     }).eq("message_sid", messageSid).eq("manager_user_id", managerId);
     // The manager's own conversation wins (Decide #3, Oct 6): see handleVendorSessionInbound.
-    const vendorRoute = await handleVendorSessionInbound(db, {
-      managerUserId: managerId,
-      phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+    // Burst debounce: the newest text from this vendor answers all of them.
+    const vendorDebounce = await debounceInbound(db, {
+      ownerUserId: managerId,
+      role: "vendor",
+      phone: fromPhone,
       messageSid,
       body,
-      vendor,
-      runTurn: runVendorAgentSessionTurn as never,
+      waitMs: feel.debounceMs,
+      immediate: (Number(media.NumMedia) || 0) > 0,
     });
+    if (!vendorDebounce.proceed) mark("debounce:yield");
+    const vendorTurnBody = vendorDebounce.proceed ? vendorDebounce.body : body;
+    const vendorRoute = vendorDebounce.proceed
+      ? await handleVendorSessionInbound(db, {
+          managerUserId: managerId,
+          phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+          messageSid,
+          body: vendorTurnBody,
+          vendor,
+          // The reply is bubbled on the shared line (workspace feel settings), like every other role.
+          runTurn: ((turnDb: SupabaseClient, session: never, text: string, channel: "sms", options: Record<string, unknown>) =>
+            runVendorAgentSessionTurn(turnDb, session, text, channel, {
+              ...options,
+              workspaceId: workspaceId ?? null,
+              bubbles: feel.bubbleReplies,
+            } as never)) as never,
+        })
+      : { route: "yielded" as const };
     if (vendorRoute.route === "manager_thread") mark("vendor:manager-wins");
+    if (vendorDebounce.proceed) await vendorDebounce.settle();
     // A photo texted on an open job belongs to that job's record.
     if ((Number(media.NumMedia) || 0) > 0 && vendor.session.work_order_id) {
       await attachVendorJobMedia(db, {
@@ -1156,6 +1328,21 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       }
       return twimlOk();
     }
+    // Burst debounce: wait for the resident to finish; the newest text answers all of them. A text
+    // that carries a photo answers at once (it still merges anything already waiting). A yielded
+    // text skips the agent only: the team forwards below still run for it.
+    const residentDebounce = await debounceInbound(db, {
+      ownerUserId: managerId,
+      role: "resident",
+      phone: fromPhone,
+      messageSid,
+      body,
+      waitMs: feel.debounceMs,
+      immediate: (Number(media.NumMedia) || 0) > 0,
+    });
+    const residentYielded = !residentDebounce.proceed;
+    if (residentYielded) mark("debounce:yield");
+    const residentTurnBody = residentDebounce.proceed ? residentDebounce.body : body;
     // Photo intake is additive. Every failure inside it (unconfigured Twilio
     // credentials, an oversized or unreadable media part, an unexpected redirect
     // host) must degrade to text-only rather than abort the turn — otherwise the
@@ -1182,13 +1369,33 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       : photoIntakeFailed
         ? "The resident attached photos but they could not be received. Answer the text, say the photos did not come through, and ask them to resend or upload in the portal.\n"
         : "";
-    const turn = await runResidentSmsAgentTurn(db, {
-      ctx: residentIdentity.ctx,
-      ownerManagerUserId: managerId,
-      residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
-      inboundText: `${photoPrefix}${body}`,
-      inboundMessageSid: messageSid,
-    });
+    let residentFirstBubbleAt: number | null = null;
+    // Label the text while the turn runs (rules first; the cheap model only when they cannot tell).
+    if (!residentYielded) void intentOf(residentTurnBody);
+    const turn = residentYielded
+      ? null
+      : await runResidentSmsAgentTurn(db, {
+          ctx: residentIdentity.ctx,
+          ownerManagerUserId: managerId,
+          residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
+          inboundText: `${photoPrefix}${residentTurnBody}`,
+          inboundMessageSid: messageSid,
+          // Stored-fact answers (Wi-Fi, door code, trash day...) skip the model on the shared line.
+          fastPath: feel.residentFastPath,
+          onSlowWork: feel.workAck
+            ? async () => {
+                await deliverResidentSmsReply({
+                  ownerManagerUserId: managerId,
+                  residentUserId: residentIdentity.ctx.userId,
+                  toPhone: fromPhone,
+                  text: WORK_ACK_TEXT,
+                  workNumber,
+                  inboundMessageSid: messageSid,
+                  dedupeSuffix: WORK_ACK_DEDUPE_SUFFIX,
+                });
+              }
+            : undefined,
+        });
     // One-number reply modes: in a workspace that picked a mode for this topic, a `draft` reply is
     // held for the manager instead of texted. No mode picked = the reply goes out exactly as before.
     const residentHeld = turn
@@ -1198,7 +1405,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
             ownerUserId: managerId,
             role: "resident",
             phone: fromPhone,
-            inboundText: body,
+            inboundText: residentTurnBody,
             replyText: stripLongDashes(turn.reply),
           })
         ).held
@@ -1228,7 +1435,11 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
+        workspaceId: workspaceId ?? null,
+        bubbles: feel.bubbleReplies,
+        inboundText: residentTurnBody,
       });
+      residentFirstBubbleAt = Date.now();
       const finished = await finishPreparedDelivery(
         {
           status: "processing",
@@ -1245,6 +1456,19 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         delivered,
       );
       if (finished.status !== 200) return finished;
+    }
+    if (turn) {
+      // The reply is durable (sent, or held as a draft): the texts it answered are settled.
+      if (residentDebounce.proceed) await residentDebounce.settle();
+      await recordAnswered({
+        role: "resident",
+        traceId: turn.traceId,
+        lane: turn.lane ?? "agent",
+        model: turn.model ?? null,
+        replyText: stripLongDashes(turn.reply),
+        status: residentHeld ? "draft" : "sent",
+        firstBubbleAt: residentHeld ? null : residentFirstBubbleAt,
+      });
     }
     await db
       .from("inbound_sms_log")

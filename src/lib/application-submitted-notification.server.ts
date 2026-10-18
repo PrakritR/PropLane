@@ -15,6 +15,7 @@ import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { getBundleChoiceLabel, getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
+import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
@@ -167,6 +168,16 @@ export async function notifyManagerApplicationSubmitted(
       }).catch(() => undefined),
     ),
   );
+
+  // The owner's listed alert phones (no PropLane account) are the one leg the notices above skip.
+  await alertPhonesOf(db as never, {
+    ownerUserId: managerUserId,
+    kind: "new_application",
+    entityId: row.id.trim(),
+    propertyId: propertyId || null,
+    text: `New application from ${applicantName} for ${propertyLabel}. Review it in PropLane.`,
+    url: `${origin.replace(/\/$/, "")}/portal/applications`,
+  });
 
   return { ok: true };
 }

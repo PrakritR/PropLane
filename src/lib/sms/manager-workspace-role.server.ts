@@ -434,7 +434,7 @@ const lineDigits = (raw: unknown): string => {
 };
 
 export type ConversationSendLine =
-  | { ok: true; numberId: string | null; phoneNumber: string | null; via: "line" | "house" | "only" }
+  | { ok: true; numberId: string | null; phoneNumber: string | null; via: "line" | "house" | "only" | "shared" }
   | { ok: false; reason: "work_line_ambiguous" };
 
 /**
@@ -473,6 +473,19 @@ export async function resolveConversationSendLine(
     if (!key) continue;
     const hit = rows.find((row) => lineDigits(row.phone) === key);
     if (hit) return { ok: true, numberId: hit.id, phoneNumber: hit.phone || null, via: "line" };
+  }
+
+  // The shared PropLane number has no `manager_sms_numbers` row, so a conversation that went through it
+  // matches no work line above. It answers from that same shared number (no numberId: there is no row),
+  // never from the owner's default workspace number. The config read fails closed to per_workspace,
+  // in which case this never matches and nothing changes.
+  const unmatched = (hints.linePhones ?? []).map((phone) => normalizeE164(phone)).filter((phone): phone is string => Boolean(phone));
+  if (unmatched.length > 0) {
+    const { loadSharedLineConfig } = await import("@/lib/one-number/config.server");
+    const config = await loadSharedLineConfig(db);
+    if (config.mode === "shared" && config.sharedNumber && unmatched.includes(config.sharedNumber)) {
+      return { ok: true, numberId: null, phoneNumber: config.sharedNumber, via: "shared" };
+    }
   }
 
   const propertyId = hints.propertyId?.trim();
