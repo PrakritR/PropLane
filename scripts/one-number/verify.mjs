@@ -45,6 +45,7 @@ async function takeBaseline(db) {
     contactIds: contacts.rows.map((r) => r.id),
     turnCount: turns.count,
     optedOutKeys: [...out].sort(),
+    unresolvedKeys: (await unresolvedKeys(db)).unresolved,
   };
 }
 
@@ -74,7 +75,7 @@ export async function run(argv, deps = {}) {
   results.push(await countsCheck(db, baseline, flags["strict-counts"]));
   results.push(...(await stampChecks(db, Boolean(flags["strict-orphans"]))));
   results.push(await optOutCheck(db, baseline, flags["service-sid"]));
-  results.push(await aliasCheck(db));
+  results.push(await aliasCheck(db, baseline));
   results.push(await isolationCheck(db));
   results.push(await contactsCheck(db));
 
@@ -172,7 +173,8 @@ async function optOutCheck(db, baseline, flagSid) {
   return check("optouts", failures, `${now.size} phones opted out`, warnings);
 }
 
-async function aliasCheck(db) {
+/** Old conversation keys (from the message tables) that resolve to no conversation and no legacy_key alias. */
+export async function unresolvedKeys(db) {
   const [messages, log, convs, aliases] = await Promise.all([
     fetchAll(db, "manager_sms_messages", "id, manager_user_id, conversation_key", { filter: (q) => q.not("conversation_key", "is", null) }),
     fetchAll(db, "inbound_sms_log", "id, manager_user_id, conversation_key", { filter: (q) => q.not("conversation_key", "is", null) }),
@@ -185,16 +187,27 @@ async function aliasCheck(db) {
   }
   for (const a of aliases.rows) if (a.alias_kind === "legacy_key") known.add(`${a.owner_manager_user_id}|${a.alias_value}`);
   const seen = new Set();
-  const failures = [];
+  const unresolved = [];
   for (const row of [...messages.rows, ...log.rows]) {
     const key = String(row.conversation_key ?? "").trim();
     if (!key || key.startsWith("unresolved:") || !row.manager_user_id) continue;
     const tuple = `${row.manager_user_id}|${key}`;
     if (seen.has(tuple)) continue;
     seen.add(tuple);
-    if (!known.has(tuple)) failures.push(`conversation key "${key}" (owner ${row.manager_user_id}) resolves to no conversation or alias`);
+    if (!known.has(tuple)) unresolved.push(tuple);
   }
-  return check("aliases", failures, `${seen.size} distinct old keys`);
+  return { checked: seen.size, unresolved };
+}
+
+async function aliasCheck(db, baseline) {
+  const { checked, unresolved } = await unresolvedKeys(db);
+  const before = new Set(baseline?.unresolvedKeys ?? []);
+  const fresh = unresolved.filter((t) => !before.has(t));
+  const failures = fresh.map((t) => `conversation key "${t.split("|").slice(1).join("|")}" (owner ${t.split("|")[0]}) resolves to no conversation or alias`);
+  const warnings = [];
+  const carried = unresolved.length - fresh.length;
+  if (carried) warnings.push(`${carried} key(s) already resolved to nothing before the migration (never projected into a conversation); not a regression`);
+  return check("aliases", failures, `${checked} distinct old keys`, warnings);
 }
 
 async function isolationCheck(db) {
