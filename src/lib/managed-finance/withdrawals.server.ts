@@ -95,6 +95,19 @@ export async function withdrawFromManagedFunds(stripe: Stripe, db: SupabaseClien
   const destination = await resolvePayoutDestination(stripe, db, input.userId).catch(() => ({ error: "Could not check your payout account. Try again." }));
   if ("error" in destination) return { ok: false, status: 402, error: destination.error, code: "PAYOUTS_NOT_READY" };
 
+  const key = `wd:${input.kind}:${party.partyId}:${party.workspaceId ?? "-"}:${input.clientKey?.trim() || randomUUID()}`;
+
+  // A repeat of a click that already completed returns that withdrawal as it was: no Stripe call, no balance question.
+  const { data: prior } = await db
+    .from("party_withdrawals")
+    .select("id, status, amount_cents, stripe_transfer_id, stripe_payout_id, party_id")
+    .eq("idempotency_key", key)
+    .maybeSingle();
+  const priorRow = prior as { id?: string; status?: string; amount_cents?: number | string; stripe_transfer_id?: string | null; stripe_payout_id?: string | null; party_id?: string } | null;
+  if (priorRow?.status === "completed" && priorRow.party_id === party.partyId && Number(priorRow.amount_cents) === input.amountCents && priorRow.stripe_transfer_id) {
+    return { ok: true, withdrawalId: String(priorRow.id), transferId: priorRow.stripe_transfer_id, payoutId: priorRow.stripe_payout_id ?? null, payoutPending: !priorRow.stripe_payout_id };
+  }
+
   // The ledger and Stripe must agree before anything is reserved: PropLane's platform balance at Stripe has to hold the money.
   let platform: number;
   try {
@@ -106,7 +119,6 @@ export async function withdrawFromManagedFunds(stripe: Stripe, db: SupabaseClien
     return { ok: false, status: 409, code: "FUNDS_CLEARING", error: "Those funds are still arriving. Try again later today." };
   }
 
-  const key = `wd:${input.kind}:${party.partyId}:${party.workspaceId ?? "-"}:${input.clientKey?.trim() || randomUUID()}`;
   const { data: reserved, error: reserveError } = await db.rpc("reserve_party_withdrawal", {
     p_kind: input.kind, p_party: party.partyId, p_workspace: party.workspaceId, p_amount: input.amountCents,
     p_destination: destination.accountId, p_key: key, p_reserve: party.reserveCents, p_source: input.source ?? "manual",
