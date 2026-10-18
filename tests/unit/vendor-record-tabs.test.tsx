@@ -22,8 +22,9 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
+const messaging = vi.hoisted(() => ({ status: null as Record<string, unknown> | null }));
 vi.mock("@/hooks/use-manager-messaging-number-status", () => ({
-  useManagerMessagingNumberStatus: () => ({ status: null }),
+  useManagerMessagingNumberStatus: () => ({ status: messaging.status }),
 }));
 vi.mock("@/components/portal/record-communication-section", () => ({
   RecordCommunicationSection: (props: { recordRef: { kind: string; id: string }; contactIds?: string[]; fill?: boolean }) => (
@@ -69,6 +70,7 @@ let outgoing: { invoices: unknown[]; payouts: unknown[] } = { invoices: [], payo
 let reviews: unknown[] = [];
 
 beforeEach(() => {
+  messaging.status = null;
   fetched.length = 0;
   outgoing = { invoices: [], payouts: [] };
   reviews = [];
@@ -264,6 +266,37 @@ describe("Outgoing payments tab", () => {
   it("offers the round + for a vendor with a linked login", async () => {
     renderDetail("invoices", vendor({ vendorUserId: "login-1" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Add payment" })).toBeTruthy());
+  });
+});
+
+describe("Reach them by", () => {
+  // A teammate texts a vendor from the WORKSPACE line. Whether they may use it
+  // is their OWN Communication grant (`canSend`), not the line's readiness —
+  // offering Text to a read-only teammate makes the send 403 on click.
+  const workspaceLine = (over: Record<string, unknown>) => ({
+    workspaceRole: "co_manager",
+    workspaceNumber: { phoneNumber: "+12065550199" },
+    number: null,
+    sendingAvailable: true,
+    lineReady: true,
+    ...over,
+  });
+
+  const reachRow = async () => {
+    const label = await waitFor(() => screen.getByText("Reach them by"));
+    return label.parentElement?.textContent ?? "";
+  };
+
+  it("offers Text to a teammate who may send on the workspace line", async () => {
+    messaging.status = workspaceLine({ canSend: true });
+    renderDetail("overview");
+    expect(await reachRow()).toBe("Reach them byText");
+  });
+
+  it("falls back to Email for a read-only teammate, even though the line is live", async () => {
+    messaging.status = workspaceLine({ canSend: false });
+    renderDetail("overview");
+    expect(await reachRow()).toBe("Reach them byEmail");
   });
 });
 

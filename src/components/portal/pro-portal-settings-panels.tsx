@@ -67,7 +67,11 @@ import {
 } from "@/lib/manager-communication-deliver-via";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { workspaceWorkNumber, type ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import {
+  workNumberAwaitingCarrier,
+  workspaceWorkNumber,
+  type ManagerMessagingNumberStatus,
+} from "@/lib/sms/manager-messaging-number";
 import {
   PAYMENT_REMINDER_PRESETS,
   applyReminderPreset,
@@ -1483,7 +1487,9 @@ export function CommunicationSettingsPanel({
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
-  const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
+  const [smsSetup, setSmsSetup] = useState<
+    { phone: string | null; lineReady: boolean; awaitingCarrier: boolean } | null
+  >(null);
   const [source, setSource] = useState<SettingsResolutionSource | null>(null);
 
   const anySmsEnabled = useMemo(
@@ -1534,7 +1540,8 @@ export function CommunicationSettingsPanel({
             status
               ? {
                   phone: normalizeE164(workspaceWorkNumber(status)),
-                  canSend: status.canSend,
+                  lineReady: status.lineReady,
+                  awaitingCarrier: workNumberAwaitingCarrier(status),
                 }
               : null,
           );
@@ -1649,7 +1656,7 @@ export function CommunicationSettingsPanel({
   // Captain, Oct 3: the "Reminders and messages" entry row left Communication
   // (reminder timing is fixed; "What PropLane sends" is the read-only map).
   // What stays here is the work-number hint, and only while it applies.
-  const showSmsHint = anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone));
+  const showSmsHint = anySmsEnabled && !(smsSetup?.lineReady === true && Boolean(smsSetup?.phone));
   if (!showSmsHint) return null;
 
   return (
@@ -1660,7 +1667,8 @@ export function CommunicationSettingsPanel({
       <ManagerSmsWorkNumberHint
         show
         phone={smsSetup?.phone ?? null}
-        canSend={smsSetup?.canSend === true}
+        lineReady={smsSetup?.lineReady === true}
+        awaitingCarrier={smsSetup?.awaitingCarrier === true}
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
     </PortalSettingsSection>

@@ -100,6 +100,22 @@ export type ManagerMessagingNumberStatus = {
    * there is one read and one source for what Settings renders.
    */
   requestedAtSignup: boolean;
+  /**
+   * Whether the WORKSPACE's line itself can send right now: the owner's number
+   * and allowlist seat, the workspace wallet, and this deployment's send
+   * switch. Deliberately independent of who is looking - a teammate with
+   * read-only Communication still reads a live line as live, so the work-number
+   * card never reports a sendable number as "Finishing setup". Anything that
+   * describes the LINE reads this; only the viewer's own send affordance reads
+   * `canSend`.
+   */
+  lineReady: boolean;
+  /**
+   * Whether THIS VIEWER may text from that line: `lineReady` plus, for a
+   * teammate, their own Communication (`inbox`) grant at edit level - the gate
+   * `manager-sms-send.server.ts` applies, so the Text channel is never offered
+   * for a send that would come back 403.
+   */
   canSend: boolean;
   personalPhone: {
     phone: string | null;
@@ -179,6 +195,24 @@ export function formatManagerMessagingPhone(
     return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
   }
   return phone;
+}
+
+/**
+ * A line that EXISTS but is still waiting on carrier registration - the one
+ * state where "SMS is waiting on carrier approval" is a true reason and there
+ * is nothing left for the manager to finish. Every other reason a line cannot
+ * send (the workspace wallet, the deployment's send switch, a quarantine) must
+ * not borrow that sentence, and a teammate reading a workspace line they are
+ * simply not allowed to use must not borrow it either: they have no `number`
+ * row, so this is false for them.
+ */
+export function workNumberAwaitingCarrier(
+  status: { number?: ManagerMessagingNumber | null } | null | undefined,
+): boolean {
+  const number = status?.number;
+  if (!number || !number.phoneNumber) return false;
+  if (number.state !== "active" && number.state !== "provisioning") return false;
+  return number.registrationState !== "approved" || number.carrierRegistrationState !== "registered";
 }
 
 /** Just the fields of the status that say which line a workspace texts from. */

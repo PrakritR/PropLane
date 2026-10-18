@@ -5,7 +5,6 @@ import { CalendarDays, CircleCheck } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
-import { bookingRowStatusFact } from "@/components/portal/manager-bookings-list-view";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
@@ -17,7 +16,7 @@ import {
   type BookingsListTabId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
-import { bookingRateLabel } from "@/lib/channel-calendar/booking-presentation";
+import { bookingRateLabel, bookingStatusLabel } from "@/lib/channel-calendar/booking-presentation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
 
@@ -99,7 +98,7 @@ export function ManagerBookingsListPanel({
             .filter(Boolean)
             .join(" · ");
           const href = bookingRecordHref(basePath, key);
-          const status = bookingRowStatusFact(entry);
+          const status = bookingStatusLabel(entry);
           return (
             <BookingsRowOverflow
               key={key}

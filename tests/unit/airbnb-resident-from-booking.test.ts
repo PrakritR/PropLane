@@ -204,6 +204,48 @@ describe("Airbnb email names the resident", () => {
     expect(untouched!.name).toBe("Someone Else");
   });
 
+  it("never puts the code label back over a name the manager typed, when the mail names nobody", async () => {
+    // A payout mail carries no guest name and the feed summary is generic, so the computed name
+    // degrades to "Airbnb guest · HM…". Writing that would lose the typed name for good: the next
+    // sync recomputes the very same placeholder.
+    const tables: Record<string, Row[]> = {
+      external_calendar_connections: [connection],
+      channel_stay_details: [],
+      manager_application_records: [
+        {
+          id: "axis-1", manager_user_id: "mgr-1", resident_email: "airbnb.c1.uid1@import.proplane.local",
+          row_data: { id: "axis-1", name: "Juan Angel", icalConnectionId: "c1", icalSourceUid: "uid-1", application: { fullLegalName: "Juan Angel" } },
+        },
+      ],
+    };
+    const result = await applyAirbnbEmailToStay(
+      fakeDb(tables),
+      "mgr-1",
+      { kind: "payout", confirmationCode: "HMHW5SHXRB", payoutCents: 42_000 },
+      "2099-10-09T00:00:00.000Z",
+    );
+    expect(result).toEqual({ applied: true, connectionId: "c1", sourceUid: "uid-1" });
+    expect(tables.channel_stay_details[0]).toMatchObject({ payout_cents: 42_000 });
+    const row = tables.manager_application_records[0]!.row_data as Row;
+    expect(row.name).toBe("Juan Angel");
+    expect((row.application as Row).fullLegalName).toBe("Juan Angel");
+  });
+
+  it("still fills a placeholder the sync invented, even from a mail that names nobody", async () => {
+    const tables: Record<string, Row[]> = {
+      external_calendar_connections: [connection],
+      channel_stay_details: [{ connection_id: "c1", source_uid: "uid-1", guest_name: "Juan" }],
+      manager_application_records: [
+        {
+          id: "axis-1", manager_user_id: "mgr-1", resident_email: "airbnb.c1.uid1@import.proplane.local",
+          row_data: { id: "axis-1", name: "Reserved", icalConnectionId: "c1", icalSourceUid: "uid-1", application: {} },
+        },
+      ],
+    };
+    await applyAirbnbEmailToStay(fakeDb(tables), "mgr-1", { kind: "payout", confirmationCode: "HMHW5SHXRB", payoutCents: 1 }, "2099-10-09T00:00:00.000Z");
+    expect((tables.manager_application_records[0]!.row_data as Row).name).toBe("Juan");
+  });
+
   it("leaves a resident a real person attached an account to alone", async () => {
     const tables: Record<string, Row[]> = {
       external_calendar_connections: [connection],

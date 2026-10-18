@@ -37,17 +37,6 @@ export function bookingRowSourceLabel(source: PropertyBookingEntry["source"]): s
 }
 
 /**
- * The stage a stay is at, as plain fact text — the one word the record page and
- * the calendar bar print, so a closed room reads "Blocked" here too and is not
- * confused with a guest's pending "Hold" (the row's Source fact renders for
- * channel imports only, so it cannot carry that difference).
- * No pill on a row (`tests/unit/portal-list-rows-no-pills.test.ts`).
- */
-export function bookingRowStatusFact(entry: PropertyBookingEntry, today = dateKey(new Date())): string {
-  return bookingStatusLabel(entry, today);
-}
-
-/**
  * The Upcoming / In-house / Past list — a row is a booking RECORD now
  * (PLAN-0920-1058, area 1e): the whole row opens `/bookings/<id>/overview`.
  * `onEditBlock` / `onDeleteBlock` still drive the one combined Add/Edit
@@ -105,7 +94,11 @@ export function ManagerBookingsListView({
           const name = guestName(entry);
           const subtitle = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
           const href = bookingRecordHref(basePath, key);
-          const status = bookingRowStatusFact(entry);
+          // The one word the record page and the calendar bar print, so a closed
+          // room reads "Blocked" here too and is never confused with a guest's
+          // pending "Hold". Rendered as a plain fact, never a pill
+          // (`tests/unit/portal-list-rows-no-pills.test.ts`).
+          const status = bookingStatusLabel(entry);
           const residentHref = bookingResidentHref(entry, basePath, dateKey(new Date()));
           // A signed lease's dates belong to the Lease record, and a channel
           // import is owned by Airbnb — the same jump the record page's header

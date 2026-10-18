@@ -76,7 +76,10 @@ async function guestNamesForConnection(db: SupabaseClient, connectionId: string)
 /**
  * Put a guest's name on the placeholder resident filed for one reservation (matched on feed
  * connection + event UID). Only an `@import.proplane.local` placeholder is renamed - a row a real
- * person attached an account to keeps its own name. Returns whether a row was renamed.
+ * person attached an account to keeps its own name. A name this module invented ("Airbnb guest ·
+ * HM...") never replaces one a person typed either: the same precedence
+ * `upsertAirbnbResidentsFromImportedRanges` applies, so a rename in Residents is not lost to the
+ * next payout mail that names nobody. Returns whether a row was renamed.
  */
 export async function renameAirbnbResident(
   db: SupabaseClient,
@@ -98,6 +101,8 @@ export async function renameAirbnbResident(
     const currentName = typeof hit.row_data.name === "string" ? hit.row_data.name.trim() : "";
     if (currentName && !isSyncPlaceholderName(currentName) && isSyncPlaceholderName(name)) continue;
     if (hit.row_data.name === name) continue;
+    const storedName = typeof hit.row_data.name === "string" ? hit.row_data.name : "";
+    if (isSyncPlaceholderName(name) && !isSyncPlaceholderName(storedName)) continue;
     const application = (hit.row_data.application as Record<string, unknown> | undefined) ?? {};
     const row = { ...hit.row_data, name, application: { ...application, fullLegalName: name } };
     const { error: writeError } = await db

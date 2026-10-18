@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaSmsPhone } from "@/lib/claw-leasing-links";
 import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
+import { workspaceWorkNumber, type WorkspaceWorkNumberSource } from "@/lib/sms/manager-messaging-number";
 import { sharedGet } from "@/lib/shared-get-cache";
 
 async function contactSmsFromPublicCatalog(listingId: string): Promise<string | null> {
@@ -16,8 +17,12 @@ async function ownManagerListingCtaPhone(workspaceId?: string): Promise<string |
   try {
     const res = await sharedGet(`/api/manager/messaging-number${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
     if (!res.ok) return null;
-    const data = res.data as { canSend?: boolean; number?: { phoneNumber?: string }; workspaceNumber?: { phoneNumber?: string } } | null;
-    return data?.canSend ? listingCtaSmsPhone(data.workspaceNumber?.phoneNumber ?? data.number?.phoneNumber) : null;
+    const data = res.data as ({ lineReady?: boolean } & WorkspaceWorkNumberSource) | null;
+    // The CTA prints the line the workspace texts FROM - a teammate's own
+    // retired row is never it (`workspaceWorkNumber` is the one answer) - and
+    // it is a fact about that LINE, not about whether the signed-in viewer may
+    // send on it: a prospect is the one who will text it.
+    return data?.lineReady ? listingCtaSmsPhone(workspaceWorkNumber(data)) : null;
   } catch {
     return null;
   }

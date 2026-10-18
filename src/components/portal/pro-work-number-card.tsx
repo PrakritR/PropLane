@@ -26,15 +26,24 @@ import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 
-/** One plain line about whether the number can actually send right now. */
+/**
+ * One plain line about whether the LINE can actually send right now, or "" when
+ * it can. It reads `lineReady`, never the viewer's own `canSend`: a teammate
+ * with read-only Communication is looking at the same live workspace number the
+ * owner is, and reporting it as "Finishing setup" sends them hunting for a
+ * control that is not theirs and does not exist.
+ */
 export function workNumberReadinessCaption(args: {
-  canSend: boolean;
+  lineReady: boolean;
   sendingAvailable: boolean;
-  carrierRegistered: boolean;
+  coManager?: boolean;
 }): string {
+  if (args.lineReady && args.sendingAvailable) return "";
+  // A teammate cannot act on this deployment's send switch, so the reason is
+  // not theirs to read - the one word they get is that setup is unfinished.
+  if (args.coManager) return "Finishing setup";
   if (!args.sendingAvailable) return "Texting is off for this deployment";
-  if (!args.canSend) return "Finishing setup";
-  return "";
+  return "Finishing setup";
 }
 
 function useManagerWorkEmail(): { email: string | null; ready: boolean } {
@@ -171,17 +180,12 @@ export function ManagerWorkNumberCard() {
     }
     if (phone) {
       const formatted = formatSmsPhoneLabel(phone) || phone;
-      const sendReady = Boolean(status.canSend) && Boolean(status.sendingAvailable);
-      const readiness = workNumberReadinessCaption({
-        canSend: Boolean(status.canSend),
-        sendingAvailable: Boolean(status.sendingAvailable),
-        carrierRegistered: status.number?.carrierRegistrationState === "registered",
-      });
-      const statusLine = sendReady
-        ? undefined
-        : coManager
-          ? "Finishing setup"
-          : readiness || undefined;
+      const statusLine =
+        workNumberReadinessCaption({
+          lineReady: Boolean(status.lineReady),
+          sendingAvailable: Boolean(status.sendingAvailable),
+          coManager,
+        }) || undefined;
       return (
         <PortalInboxContactCard
           padded={false}

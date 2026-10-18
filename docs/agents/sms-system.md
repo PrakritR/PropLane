@@ -89,14 +89,34 @@ through it or through the workspace-keyed helpers in
   (`resolveWorkspaceStatusLine`, the status-screen twin of
   `resolveOwnerSendNumberRow`), so a line the workspace holds by sharing or an
   owner's legacy unplaced row shows instead of "No work number yet" —
-  `resolveWorkspaceWorkNumbers` alone only matches HOME rows. `canSend` and
+  `resolveWorkspaceWorkNumbers` alone only matches HOME rows. `lineReady` and
   `sendingAvailable` for a teammate read the OWNER's access, not the viewer's:
-  `canSend` is `sendEnvEnabled && evaluateWorkspaceSendReadiness` for that
+  `lineReady` is `sendEnvEnabled && evaluateWorkspaceSendReadiness` for that
   workspace + owner (fail closed on any error), and the runtime/allowlist gate
   is checked against the owner's seat. The viewer-allowlist gate is
   deliberately not re-applied to a teammate — readiness already applies the
   owner's. Gating a teammate on their own (absent) number, seat or wallet is
   what reported the workspace's live line as "Finishing setup" (Oct 15).
+  **Two fields, two questions.** `lineReady` is the LINE's own answer (owner's
+  number, owner's seat, workspace wallet, deployment send switch) and is
+  identical for everyone looking at that workspace — everything that describes
+  the line reads it: the work-number card's caption
+  (`workNumberReadinessCaption`), `ManagerSmsWorkNumberHint` on every compose
+  surface, the resident-welcome reachability line, the listing CTA phone, and
+  the Workspace number row's Ready / Not ready. Only `workNumberAwaitingCarrier`
+  (a real `number` row short of registration) may name the carrier as the
+  reason; every other refusal gets neutral copy. `canSend` is the VIEWER's
+  answer, and it gates every surface that offers a send — the inbox Text
+  channel, the notification compose channel picker, and the vendor record's
+  "Reach them by": `lineReady` plus, for a
+  teammate, their own Communication (`inbox`) grant at **edit** level, read with
+  the same `resolveSmsScopeManagerIds(db, actorUserId, "edit")` the send path
+  uses, so a read-only teammate is never offered a Text channel for a send
+  `manager-sms-send.server.ts` would answer 403. Fail closed on any error, and
+  never fold the viewer's grant back into `lineReady` or `sendingAvailable` —
+  that is exactly how a live workspace number came to read "Finishing setup".
+  The grant read is skipped when the deployment cannot send and otherwise runs
+  alongside the readiness chain, not after it.
 - **The setup nag is OWNER-ONLY.** The "Phone number not set up · Set up
   messaging" banner (`messaging-setup-banner.tsx`), the dashboard CTA and the
   attention-queue item are suppressed for `workspaceRole === "co_manager"`
@@ -109,7 +129,8 @@ through it or through the workspace-keyed helpers in
   retired row is not the workspace's line. Coverage:
   `tests/unit/workspace-work-number.test.ts`,
   `tests/unit/manager-messaging-setup-banner.test.tsx`,
-  `tests/unit/manager-messaging-number-teammate-can-send.test.ts`.
+  `tests/unit/manager-messaging-number-teammate-can-send.test.ts`,
+  `tests/unit/work-number-readiness-caption.test.ts`.
 - **Inbound** follows the number: `resolveOwnedWorkNumber` returns the row's
   `workspaceId`, and `resolveWorkspaceOwnerForWorkNumber(db, owner, { workspaceId })`
   answers with that workspace's owner before resident identity, leasing and
@@ -1359,9 +1380,11 @@ never defaulting — the stored property JSON's own `contactSmsPhone` is
 manager-editable and is deliberately ignored), `/api/manager/phone` returns it
 as `listingCtaPhone` for manager-side previews, and the browser's
 `listingCtaSmsPhone` only normalizes/rejects. The browser must NEVER substitute
-a number of its own. In the manager's OWN preview of the listing
-(`managerPreviewChrome`) a missing work number also raises a "Set up messaging"
-banner, which a prospect never sees. Note `managerContactSmsPhoneForPublicCta`
+a number of its own. The listing preview carries no messaging banner: the
+"Set up messaging" notice lives in the portal layout
+(`ManagerMessagingSetupBanner`), is owner-only, and renders only on
+Communication and the messaging settings tab.
+Note `managerContactSmsPhoneForPublicCta`
 still collapses everything onto the Claw line under the shared-line bridge — it
 backs the SEND transport (`proplane-sms-transport.server.ts`) and work-number
 UI, not CTAs. Coverage:

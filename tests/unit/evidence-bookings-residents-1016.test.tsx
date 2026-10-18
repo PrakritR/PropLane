@@ -548,7 +548,7 @@ describe("evidence · Bookings reads In-house, and one reservation draws once", 
 
     writeShot(
       "bookings-upcoming-confirmed-vs-hold",
-      `Manager portal → Bookings → Upcoming, ${HOUSE_LABEL} (today ${TODAY}).\nDaniel Reyes is an approved resident arriving Nov 5 — he reads Confirmed, not Hold. "Hold" is left for the pending native block (Priya Shah, Room 4). The closed room draws under its reason, "Painting", and reads Blocked — the same word the calendar bar uses (bookingRowStatusFact).`,
+      `Manager portal → Bookings → Upcoming, ${HOUSE_LABEL} (today ${TODAY}).\nDaniel Reyes is an approved resident arriving Nov 5 — he reads Confirmed, not Hold. "Hold" is left for the pending native block (Priya Shah, Room 4). The closed room draws under its reason, "Painting", and reads Blocked — the same word the calendar bar uses (bookingStatusLabel).`,
       view.container.innerHTML,
     );
   });

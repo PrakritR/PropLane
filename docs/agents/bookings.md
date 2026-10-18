@@ -89,7 +89,7 @@ entry) is never a pending hold — **In-house** once their dates have started,
 **Confirmed** before them, and neither needs an `applicationId`, so a
 calendar-only teammate reads the same word. **Hold** is left for a native block
 still waiting to be confirmed. A list row prints that
-same word (`bookingRowStatusFact`) — a closed room reads **Blocked** on the row
+same word (`bookingStatusLabel` again) — a closed room reads **Blocked** on the row
 too, because the row's Source fact renders for channel imports only and so
 cannot tell a closed room from a guest's pending Hold. The label is a plain fact on a
 row, never a pill (AGENTS.md § Portal UI system) — and Confirmed says nothing at

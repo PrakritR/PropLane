@@ -1,4 +1,4 @@
-import { after } from "next/server";
+import { afterResponse } from "@/lib/after-response.server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
 import { roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
@@ -638,18 +638,13 @@ const route = createJsonRecordRoute({
     // Deleting a live booking is a cancellation as far as its owner is concerned. Best-effort, idempotent
     // on the block id - and off the response's critical path, exactly like `afterWrite`: the client must
     // not wait on two reads, the delivery fan-out and an outbound email to learn the row is gone.
-    const run = async () => {
+    afterResponse(async () => {
       for (const target of records) {
         if (!isRoomDateBlockRecordType(String(target.record_type ?? "")) || !isAnnouncedBooking(target)) continue;
         if (String(target.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) continue;
         await announceNativeBooking(db, "booking_cancelled", target).catch((e) => console.warn("[bookings] cancel notice failed", e));
       }
-    };
-    try {
-      after(run);
-    } catch {
-      void run();
-    }
+    }, "bookings");
   },
   afterWrite: async ({ record, existing, db }) => {
     const recordType = String(record.record_type ?? "");
@@ -668,12 +663,7 @@ const route = createJsonRecordRoute({
           if (isAnnouncedBooking(asLive)) await announceNativeBooking(db, "booking_cancelled", record);
         }
       };
-      const run = () => task().catch((e) => console.warn("[bookings] booking notice failed", e));
-      try {
-        after(run);
-      } catch {
-        void run();
-      }
+      afterResponse(task, "bookings");
       return;
     }
     if (!AVAILABILITY_RECORD_TYPES.has(recordType)) return;
@@ -698,11 +688,7 @@ const route = createJsonRecordRoute({
           previousRowData,
         }).catch((e) => console.warn("[team-comms] availability change notice failed", e)),
       ]);
-    try {
-      after(task);
-    } catch {
-      void task();
-    }
+    afterResponse(task, "availability");
   },
 });
 

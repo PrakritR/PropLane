@@ -512,8 +512,10 @@ export function ManagerVendorDetail({
   const [reviewsTab, setReviewsTab] = useState<"reviews" | "ratings">("reviews");
   const [reviewSearch, setReviewSearch] = useState("");
   const messaging = useManagerMessagingNumberStatus();
-  // A teammate texts a vendor from the WORKSPACE line, which is never their own row.
-  const smsAvailable = Boolean(messaging.status?.sendingAvailable && workspaceWorkNumber(messaging.status));
+  // A teammate texts a vendor from the WORKSPACE line, which is never their own
+  // row - and only when they themselves may send on it (`canSend`), or the
+  // send comes back 403 from `loadRosterVendorForActor`.
+  const smsAvailable = Boolean(messaging.status?.canSend && workspaceWorkNumber(messaging.status));
 
   const initialDefaults = useMemo(() => {
     const map = readManagerVendorCategorySettings(managerUserId).defaultVendorIdByTrade;

@@ -33,10 +33,10 @@ afterEach(() => {
 describe("ManagerSmsWorkNumberHint", () => {
   it.each([123, {}, [], true, null, undefined])("handles a malformed phone (%j) with SMS enabled or disabled", (phone) => {
     const { rerender } = render(
-      <ManagerSmsWorkNumberHint show phone={phone as unknown as string} canSend />,
+      <ManagerSmsWorkNumberHint show phone={phone as unknown as string} lineReady />,
     );
     expect(screen.getByRole("alert").textContent).toContain("SMS needs an active work number.");
-    rerender(<ManagerSmsWorkNumberHint show phone={phone as unknown as string} canSend={false} />);
+    rerender(<ManagerSmsWorkNumberHint show phone={phone as unknown as string} lineReady={false} />);
     expect(screen.getByRole("alert").textContent).toContain("SMS needs an active work number.");
   });
 
@@ -52,7 +52,7 @@ describe("ManagerSmsWorkNumberHint", () => {
 
   it("does not link to the settings page it is already rendered on", () => {
     pathname.mockReturnValue("/portal/profile");
-    render(<ManagerSmsWorkNumberHint show phone="+18559168031" canSend={false} />);
+    render(<ManagerSmsWorkNumberHint show phone="+18559168031" lineReady={false} />);
 
     // Telling someone to go to the page they are reading is a dead end.
     expect(screen.queryByRole("link")).toBeNull();
@@ -63,7 +63,7 @@ describe("ManagerSmsWorkNumberHint", () => {
 
   it("links to settings from a compose surface elsewhere", () => {
     pathname.mockReturnValue("/portal/communication");
-    render(<ManagerSmsWorkNumberHint show phone={null} canSend={false} />);
+    render(<ManagerSmsWorkNumberHint show phone={null} lineReady={false} />);
 
     expect(screen.getByRole("link").getAttribute("href")).toBe(
       "/portal/profile?tab=messaging",
@@ -74,7 +74,7 @@ describe("ManagerSmsWorkNumberHint", () => {
   });
 
   it("says a provisioned number is awaiting the carrier, not awaiting setup", () => {
-    render(<ManagerSmsWorkNumberHint show phone="+18559168031" canSend={false} />);
+    render(<ManagerSmsWorkNumberHint show phone="+18559168031" lineReady={false} awaitingCarrier />);
 
     const text = screen.getByRole("alert").textContent ?? "";
     // There is no setup step left for the manager here — the carrier is
@@ -85,8 +85,19 @@ describe("ManagerSmsWorkNumberHint", () => {
     expect(text).not.toContain("Finish setup");
   });
 
-  it("says nothing at all once the number can send", () => {
-    const { container } = render(<ManagerSmsWorkNumberHint show phone="+18559168031" canSend />);
+  it("never blames the carrier for a line that is not pending registration", () => {
+    // Out of workspace credit, or the deployment's send switch off: the number
+    // is registered and the carrier has nothing to do with the refusal.
+    render(<ManagerSmsWorkNumberHint show phone="+18559168031" lineReady={false} />);
+
+    const text = screen.getByRole("alert").textContent ?? "";
+    expect(text).toContain("SMS cannot send from +1 (855) 916-8031 right now.");
+    expect(text).not.toContain("carrier");
+    expect(text).not.toContain("Finish setup");
+  });
+
+  it("says nothing at all once the line can send, whoever is reading", () => {
+    const { container } = render(<ManagerSmsWorkNumberHint show phone="+18559168031" lineReady />);
 
     // A working number is Settings → Messaging's business. Compose popups all
     // share one field set (To / Subject / Send via / Message / Schedule), and a

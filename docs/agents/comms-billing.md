@@ -361,7 +361,7 @@ send's billing model, never blocks the send. Reads that are not
 on that write path (`loadCommsWallet`, the admin billing list's
 `loadCommsWalletTotals`, and `evaluateManagerCommsBillingGate`'s pre-send
 check in `workspace-send-readiness.server.ts` — which since Oct 15 also backs a
-teammate's displayed `canSend`) still read the OLD per-workspace
+teammate's displayed `lineReady`) still read the OLD per-workspace
 wallet regardless of the flag; wiring those to the pool is a follow-up once
 the flag actually ships. This is a display/pre-check gap only, never a
 spending one — the pre-check being stale can at worst pre-refuse a send the

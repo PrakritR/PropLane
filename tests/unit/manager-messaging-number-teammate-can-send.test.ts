@@ -1,3 +1,4 @@
+import { appendFileSync, mkdirSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
@@ -5,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   cookies: {} as Record<string, string>,
   requireManagerRouteUser: vi.fn(),
   billing: vi.fn(),
+  smsScope: vi.fn(),
 }));
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
@@ -28,6 +30,13 @@ vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn().mockResolvedValue({ ok: 
 vi.mock("@/lib/comms-billing/eligibility.server", () => ({
   evaluateManagerCommsBillingGate: mocks.billing,
 }));
+// Spied, not stubbed: the grant answer still comes from the real
+// `account_link_invites` read so the permission maps below mean what they say.
+vi.mock("@/lib/manager-sms-messages.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/manager-sms-messages.server")>();
+  mocks.smsScope.mockImplementation(actual.resolveSmsScopeManagerIds);
+  return { ...actual, resolveSmsScopeManagerIds: mocks.smsScope };
+});
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (mocks.cookies[name] ? { value: mocks.cookies[name] } : undefined),
@@ -55,6 +64,8 @@ function teammateDb(
     mode: "automatic",
     pilot_manager_user_ids: [],
   },
+  /** The teammate's own grant on the owner's house. Legacy `true` is every level of that module. */
+  housePerms: unknown = { inbox: true },
 ) {
   const db = createMemoryDb({
     sms_runtime_config: [{ singleton: true, ...runtime }],
@@ -92,7 +103,7 @@ function teammateDb(
         inviter_user_id: OWNER,
         status: "accepted",
         assigned_property_ids: ["house-1"],
-        property_co_manager_permissions: { "house-1": { inbox: true } },
+        property_co_manager_permissions: { "house-1": housePerms },
       },
     ],
   });
@@ -154,7 +165,35 @@ function twoWorkspaceTeammateDb(placedIn: string) {
 async function statusFor(db: ReturnType<typeof teammateDb>, workspaceId: string = SHARED_WS) {
   mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
   mocks.cookies["proplane-workspace"] = workspaceId;
-  return (await GET(new Request("http://localhost"))).json();
+  const body = await (await GET(new Request("http://localhost"))).json();
+  recordStatusEvidence(body);
+  return body;
+}
+
+/**
+ * With EVIDENCE_DIR set, keep the payload `/api/manager/messaging-number`
+ * really answers a teammate with - the fields the Communication header and the
+ * compose surfaces read - as a reviewer-readable transcript.
+ */
+function recordStatusEvidence(body: Record<string, unknown>) {
+  const out = process.env.EVIDENCE_DIR ?? "";
+  if (!out) return;
+  mkdirSync(out, { recursive: true });
+  const shown = {
+    workspaceRole: body.workspaceRole,
+    workspace: (body.workspace as { id?: string } | null)?.id ?? null,
+    workspaceNumber: (body.workspaceNumber as { phoneNumber?: string | null } | null)?.phoneNumber ?? null,
+    number: (body.number as { phoneNumber?: string | null } | null)?.phoneNumber ?? null,
+    sendingAvailable: body.sendingAvailable,
+    lineReady: body.lineReady,
+    canSend: body.canSend,
+    canRequest: body.canRequest,
+  };
+  appendFileSync(
+    `${out}/teammate-messaging-number-api.txt`,
+    `GET /api/manager/messaging-number — ${expect.getState().currentTestName}\n  ${JSON.stringify(shown)}\n\n`,
+    "utf8",
+  );
 }
 
 beforeEach(() => {
@@ -220,6 +259,61 @@ describe("messaging-number status: a teammate's canSend is the workspace line's"
     process.env.SMS_OUTBOX_SCHEDULER_READY = "0";
     const body = await statusFor(teammateDb({ provision_state: "active" }));
     expect(body.canSend).toBe(false);
+    expect(mocks.billing).not.toHaveBeenCalled();
+  });
+});
+
+describe("messaging-number status: a teammate needs their OWN Communication edit grant to text", () => {
+  // The send path 403s a teammate without `inbox` at edit level
+  // (`manager-sms-send.server.ts`), so `canSend` must not offer the Text
+  // channel for a send that would be refused. It is the ONLY field that
+  // narrows: the line's own readiness is the same answer for everyone.
+  it("read-only Communication cannot text, and the live line is still reported live", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active" }, undefined, { inbox: { read: true } }));
+    expect(body.workspaceRole).toBe("co_manager");
+    expect(body.workspaceNumber.phoneNumber).toBe("+12065550199");
+    expect(body.canSend).toBe(false);
+    // No false "Finishing setup": the workspace's line is ready, the viewer is
+    // simply not allowed to use it.
+    expect(body.lineReady).toBe(true);
+    expect(body.sendingAvailable).toBe(true);
+  });
+
+  it("an edit grant follows the owner's line readiness, both ways", async () => {
+    const ready = await statusFor(teammateDb({ provision_state: "active" }, undefined, { inbox: { read: true, edit: true } }));
+    expect(ready.canSend).toBe(true);
+    expect(ready.lineReady).toBe(true);
+    expect(ready.sendingAvailable).toBe(true);
+    const pending = await statusFor(
+      teammateDb({ provision_state: "pending_registration", registration_state: "pending" }, undefined, { inbox: { read: true, edit: true } }),
+    );
+    expect(pending.canSend).toBe(false);
+    expect(pending.lineReady).toBe(false);
+  });
+
+  it("a grant on another module is not Communication", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active" }, undefined, { properties: true }));
+    expect(body.canSend).toBe(false);
+    expect(body.lineReady).toBe(true);
+    expect(body.sendingAvailable).toBe(true);
+  });
+
+  it("an unready line reads the same for a read-only and an edit teammate", async () => {
+    for (const perms of [{ inbox: { read: true } }, { inbox: { read: true, edit: true } }]) {
+      const body = await statusFor(
+        teammateDb({ provision_state: "pending_registration", registration_state: "pending" }, undefined, perms),
+      );
+      expect(body.lineReady).toBe(false);
+      expect(body.canSend).toBe(false);
+      expect(body.sendingAvailable).toBe(true);
+    }
+  });
+
+  it("skips the grant read entirely when the deployment cannot send", async () => {
+    process.env.SMS_RUNTIME_ENABLED = "0";
+    const body = await statusFor(teammateDb({ provision_state: "active" }, undefined, { inbox: { read: true, edit: true } }));
+    expect(body.canSend).toBe(false);
+    expect(mocks.smsScope).not.toHaveBeenCalled();
     expect(mocks.billing).not.toHaveBeenCalled();
   });
 });
