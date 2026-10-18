@@ -357,3 +357,19 @@ export async function closeStaleRetiredGroups(db: SupabaseClient, gateway: Conve
   }
   return closed;
 }
+
+/**
+ * After a lease change that can alter who lives in a house (an early move-out), re-sync that house's
+ * group right away instead of waiting for the daily run. Safe to fire and forget: it never throws, does
+ * nothing for a house whose workspace has house chat off, and is idempotent.
+ */
+export async function syncHouseGroupForProperty(db: SupabaseClient, propertyId: string, reason: SyncReason = "early_move_out"): Promise<SyncResult | null> {
+  try {
+    const { data } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
+    const workspaceId = String((data as Row | null)?.workspace_id ?? "").trim();
+    if (!workspaceId) return null;
+    return await syncHouseGroup(db, { workspaceId, propertyId, reason });
+  } catch {
+    return null;
+  }
+}
