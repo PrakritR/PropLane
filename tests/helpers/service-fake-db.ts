@@ -75,6 +75,7 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
         eq: (col: string, value: unknown) => (filters.push((r) => r[col] === value), q),
         in: (col: string, values: unknown[]) => (filters.push((r) => values.includes(r[col])), q),
         is: (col: string, value: unknown) => (filters.push((r) => (value === null ? r[col] == null : r[col] === value)), q),
+        limit: () => q,
         order: (col: string) => ((orderBy = { col }), q),
         maybeSingle: async () => {
           const res = run();
