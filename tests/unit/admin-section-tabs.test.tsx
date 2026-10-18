@@ -77,6 +77,7 @@ describe("admin sidebar rows", () => {
     ["axis-users", "axis-users"],
     ["subscribers", "axis-users"],
     ["unassigned-leads", "axis-users"],
+    ["service", "axis-users"],
     ["test-accounts", "axis-users"],
     ["payments", "payments"],
     ["promo-codes", "payments"],
@@ -100,11 +101,12 @@ describe("admin sidebar rows", () => {
 
   it("drops the operator-only Test accounts tab from the Accounts row for everyone else", () => {
     const accounts = rowsFor(nonOperator).find((r) => r.label === "Accounts");
-    expect(accounts?.groupSections).toEqual(["axis-users", "subscribers", "unassigned-leads"]);
+    expect(accounts?.groupSections).toEqual(["axis-users", "subscribers", "unassigned-leads", "service"]);
     expect(rowsFor(operator).find((r) => r.label === "Accounts")?.groupSections).toEqual([
       "axis-users",
       "subscribers",
       "unassigned-leads",
+      "service",
       "test-accounts",
     ]);
   });
@@ -119,7 +121,7 @@ describe("admin sidebar rows", () => {
     // native bottom bar) stays the group's first section; only the link moves.
     expect(row?.section).toBe(adminNavRowSection("subscribers"));
     expect(row?.href).toBe("/admin/subscribers");
-    expect(row?.groupSections).toEqual(["subscribers", "unassigned-leads", "test-accounts"]);
+    expect(row?.groupSections).toEqual(["subscribers", "unassigned-leads", "service", "test-accounts"]);
   });
 
   it("puts the Meetings count on the Support row", () => {
@@ -151,7 +153,7 @@ describe("adminSectionTabsFor", () => {
 
   it("omits an unavailable (operator-only) tab", () => {
     const withoutOperator = all.filter((s) => s !== "test-accounts");
-    expect(adminSectionTabsFor("axis-users", withoutOperator)?.sections).toEqual(["axis-users", "subscribers", "unassigned-leads"]);
+    expect(adminSectionTabsFor("axis-users", withoutOperator)?.sections).toEqual(["axis-users", "subscribers", "unassigned-leads", "service"]);
   });
 
   it("covers every group member in the registry", () => {
@@ -164,10 +166,10 @@ describe("adminSectionTabsFor", () => {
 describe("AdminSectionTabs strip", () => {
   const labels = () => screen.queryAllByRole("link").map((a) => a.textContent);
 
-  it("renders Accounts · Subscribers · Unassigned leads · Test accounts for the operator, as links, with the page's tab active", () => {
+  it("renders Accounts · Subscribers · Unassigned leads · Service · Test accounts for the operator, as links, with the page's tab active", () => {
     state.pathname = "/admin/subscribers";
     render(<AdminSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads", "Test accounts"]);
+    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads", "Service", "Test accounts"]);
     expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Accounts" }).getAttribute("href")).toBe("/admin/axis-users");
     expect(screen.getByRole("link", { name: "Test accounts" }).getAttribute("href")).toBe("/admin/test-accounts");
@@ -176,7 +178,7 @@ describe("AdminSectionTabs strip", () => {
   it("omits Test accounts for a non-operator", () => {
     state.pathname = "/admin/axis-users";
     render(<AdminSectionTabs definition={nonOperator} />);
-    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads"]);
+    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads", "Service"]);
   });
 
   it("renders Payments · Promo codes · Finances on a Money page", () => {

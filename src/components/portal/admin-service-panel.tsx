@@ -51,7 +51,7 @@ export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
   const facts: PortalEntryRowFact[] = [
     { icon: Home, label: `${row.houseCount} ${row.houseCount === 1 ? "house" : "houses"}`, srLabel: "Houses" },
     { icon: Phone, label: row.workNumber ?? "No number", srLabel: "Work number" },
-    { icon: Users, label: row.viewerRole ? `${row.teamCount + 1} on team` : "Not on team", srLabel: "Team" },
+    { icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" },
   ];
   return facts;
 }
