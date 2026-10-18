@@ -15,6 +15,11 @@ import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation
 import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { routeUnrecognizedInboundText } from "@/lib/sms/inbound-text-routing.server";
 import { handleVendorSessionInbound } from "@/lib/sms/vendor-inbound-session.server";
+import {
+  handleManagerDispatchReply,
+  handleResidentDispatchReply,
+  handleVendorDispatchReply,
+} from "@/lib/vendor-dispatch/inbound.server";
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
@@ -767,6 +772,40 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   mark("identity");
   if (managerInbound) {
     mark("route:manager");
+    // Vendor dispatch (vendor-dispatch-1018): Y / N / 2 / R / B answering a dispatch approval is
+    // parsed here, deterministically, before the Team chat or the Assistant sees the text. Only a
+    // sender with something waiting on them is claimed; everything else falls through unchanged.
+    const dispatchAnswer = await handleManagerDispatchReply(db, {
+      ownerUserId: managerInbound.workNumberOwnerId,
+      workspaceId: workspaceId ?? null,
+      actorUserId: managerInbound.actorUserId,
+      body,
+    }).catch((error: unknown) => {
+      console.error("vendor dispatch manager reply failed", error instanceof Error ? error.message : "unknown");
+      return { handled: false as const };
+    });
+    if (dispatchAnswer.handled) {
+      mark("dispatch:manager-answer");
+      if (dispatchAnswer.reply) {
+        await deliverManagerSmsReply({
+          managerUserId: managerInbound.workNumberOwnerId,
+          actorUserId: managerInbound.actorUserId,
+          toPhone: fromPhone,
+          text: stripLongDashes(dispatchAnswer.reply),
+          workNumber,
+          inboundMessageSid: messageSid,
+        }).catch((error: unknown) => console.error("vendor dispatch reply not delivered", error instanceof Error ? error.message : "unknown"));
+      }
+      const { error: cleanupError } = await db
+        .from("inbound_sms_log")
+        .delete()
+        .eq("message_sid", messageSid)
+        .eq("manager_user_id", managerId);
+      if (cleanupError || !(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
     // A member texting the work number is talking to the team unless the text
     // is addressed to the Assistant ("@assistant ...") or the workspace has one
     // member. A team line is appended to the workspace Team chat as that member
@@ -929,6 +968,34 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     return NextResponse.json({ error: "Manager assistant turn unavailable." }, { status: 503 });
   }
 
+  // A vendor answering a dispatch offer (YES / NO / BUSY / DONE / INVOICE) is handled by code before
+  // any vendor agent: the offer is the context, and the first YES must win in one conditional write.
+  const dispatchVendor = await handleVendorDispatchReply(db, {
+    ownerUserId: managerId,
+    workspaceId: workspaceId ?? null,
+    phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+    body,
+    messageSid,
+  }).catch((error: unknown) => {
+    console.error("vendor dispatch vendor reply failed", error instanceof Error ? error.message : "unknown");
+    return { handled: false as const };
+  });
+  if (dispatchVendor.handled) {
+    mark("dispatch:vendor-answer");
+    await projectClassifiedInbound(db, {
+      managerUserId: managerId,
+      role: "vendor",
+      counterpartyUserId: dispatchVendor.vendorUserId ?? null,
+      fromPhone,
+      toPhone,
+      messageSid,
+      body,
+      occurredAt,
+    }).catch((error) => console.error("vendor dispatch inbound projection failed", error instanceof Error ? error.message : "unknown"));
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
+    return twimlOk();
+  }
+
   // The destination work number scopes vendor sessions before a prospect fallback.
   const { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } = await import("@/lib/agent/vendor-agent.server");
   const vendor = await resolveVendorAgentSessionForInbound(db, normalizeE164(fromPhone) ?? fromPhone, body, managerId, workspaceId);
@@ -990,6 +1057,30 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       counterpartyRole: "resident",
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+    // "Is it fixed?" after a dispatched job: a bare YES / NO from the resident the question was
+    // asked of closes or reopens that service. Anyone else's YES / NO reaches the resident agent.
+    const fixedAnswer = await handleResidentDispatchReply(db, {
+      ownerUserId: managerId,
+      residentEmail: residentIdentity.ctx.email,
+      body,
+    }).catch(() => ({ handled: false as const }));
+    if (fixedAnswer.handled) {
+      mark("dispatch:resident-answer");
+      if (fixedAnswer.reply) {
+        await deliverResidentSmsReply({
+          ownerManagerUserId: managerId,
+          residentUserId: residentIdentity.ctx.userId,
+          toPhone: fromPhone,
+          text: stripLongDashes(fixedAnswer.reply),
+          workNumber,
+          inboundMessageSid: messageSid,
+        }).catch(() => null);
+      }
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
     // Photo intake is additive. Every failure inside it (unconfigured Twilio
     // credentials, an oversized or unreadable media part, an unexpected redirect
     // host) must degrade to text-only rather than abort the turn — otherwise the

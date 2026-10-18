@@ -126,6 +126,7 @@ import { listSpreadsheetsTool, readSpreadsheetTool, syncSpreadsheetTool } from "
 import { listDocumentsTool } from "./domains/documents";
 import { managerFinancialsWriteTools } from "./domains/financials-write";
 import { managerServicesWriteTools } from "./domains/services-write";
+import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { confirmTourInquiryTool } from "./domains/tours-write";
 import {
   bookTourTool,
@@ -278,6 +279,8 @@ export const agentRegistry = buildRegistry([
   deletePromotionTool,
   syncSpreadsheetTool,
   ...managerServicesWriteTools,
+  // Vendor dispatch: the manager approves a waiting run by name, or sends a role to an existing service.
+  ...managerDispatchTools,
   // Bookings reads + room-block writes (calendar area). remove_room_block is destructive.
   ...managerBookingsTools,
   // The accounting writes (bills, budgets, deposit dispositions, owner
