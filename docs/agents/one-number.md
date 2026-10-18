@@ -406,6 +406,25 @@ set of manager-side files that use an admin gate, and forbids any of them import
 admin ROLE is still not the all-owners read. Purge: `platform_service_settings` is classified in
 `account-purge-manifest.ts` (deleting the owner clears it, so the exemption fails closed).
 
+**Admin navigation: two halves** (Settings is untouched, in the account menu). `ADMIN_SECTION_TABS` /
+`ADMIN_GROUPS` in `src/lib/portals/nav-groups.ts` are the one source:
+- **Property management** (headed sidebar group, one row keyed on `properties`): tabs Properties (existing
+  all-owners oversight) · Service · PropLane line · Unassigned leads (moved here from Accounts).
+- **Software** (headed group, two rows): Accounts (Accounts · Subscribers · Test accounts) and Money
+  (Payments · Promo codes · Finances), regrouped, not rebuilt. Support and Growth follow, unheaded.
+Every section id and route is unchanged (`/admin/unassigned-leads` etc.); the row key `properties` is kept so
+the native bottom bar (`NATIVE_BOTTOM_NAV_ADMIN_PRIMARY`) still resolves.
+
+**The PropLane line** (`/admin/proplane-line`, `src/lib/service/proplane-line.server.ts`, route
+`/api/admin/proplane-line`): the shared number on the website is the admin account's number
+(`sms_runtime_config.shared_number_e164`, mode `line_mode`, `shared_pilot_workspace_ids`). The panel shows number,
+mode (Per workspace / Shadow / Shared; status Off / Shadow / Live) and the workspaces on it; **Change** needs a
+reason. `PATCH` is `requireAdminRoute`, validates the mode, the E.164 number (shared needs one) and that every
+workspace id exists, refuses a no-op (409), and writes the `audit_log` row (`admin_proplane_line_change`, before /
+after / reason) **before** applying - no audit row, no change; the row is stamped `applied: true|false` after.
+It never touches Twilio and no sms module is imported (guard test). Existing manager workspaces, their numbers
+and ownership are untouched.
+
 **Not done / notes.** The service owner still needs a plan for *inviting non-admin teammates by role* through
 the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
 admins directly and links to the portal for role invites.
