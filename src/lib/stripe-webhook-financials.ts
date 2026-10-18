@@ -640,15 +640,17 @@ export async function handleStripeDisputeEvent(db: SupabaseClient, dispute: Stri
   const stripeChargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
   if (!stripeChargeId) return false;
 
+  // A managed workspace's rent: freeze, release or write off the owner's share in the party ledger. It stands on its own (the
+  // allocation names the PaymentIntent), so it does not wait on the manager's payment row carrying the Charge id.
+  const managedHandled = await applyManagedDispute(db, dispute);
+
   const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId);
   const managerUserId = payment?.manager_user_id;
-  if (!managerUserId) return false;
+  if (!managerUserId) return managedHandled;
 
   if (await refuseClassifiedFinancialMutation(db, managerUserId, "dispute")) return true;
 
   await upsertStripeDisputeRecord(db, dispute, managerUserId, payment?.source_charge_id ?? null);
-  // A managed workspace's rent: freeze, release or write off the owner's share in the party ledger.
-  await applyManagedDispute(db, dispute);
   return true;
 }
 

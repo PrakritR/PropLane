@@ -132,7 +132,7 @@ export async function creditVerifiedHouseholdManualSource(
 async function creditManagedIfApplicable(
   db: SupabaseClient, stripe: Stripe,
   input: {
-    pi: Stripe.PaymentIntent; chargeId: string; grossCents: number;
+    pi: Stripe.PaymentIntent; chargeId: string; grossCents: number; sourceId: string;
     paid: Array<{ id: string; charge: HouseholdCharge }>; components: CapturedComponent[];
   },
 ): Promise<boolean> {
@@ -152,6 +152,8 @@ async function creditManagedIfApplicable(
     policy: managed.policy, paymentIntentId: input.pi.id, stripeChargeId: input.chargeId,
     grossCents: input.grossCents, components,
   });
+  // Stamp the Stripe Charge on the manager's own payment row (best effort, like the hold path) so a later dispute or refund finds it.
+  await recordLedgerChargeFacts(db, stripe, input.chargeId, input.sourceId);
   return true;
 }
 
@@ -355,7 +357,7 @@ export async function creditVerifiedHouseholdCheckoutSource(
     return { id, charge: saved };
   });
   const components = allocateComponents(paid, principal, net);
-  if (await creditManagedIfApplicable(db, stripe, { pi, chargeId: charge.id, grossCents: gross, paid, components })) return;
+  if (await creditManagedIfApplicable(db, stripe, { pi, chargeId: charge.id, grossCents: gross, sourceId: session.id, paid, components })) return;
   const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
   if (existing) {
     const { data: verified, error: verifiedError } = await db.from("platform_payment_holds")
@@ -444,7 +446,7 @@ export async function creditVerifiedHouseholdAutopaySource(
   }
   const components = allocateComponents([{ id: chargeId, charge: saved }], principal, net);
   if (await creditManagedIfApplicable(db, stripe, {
-    pi, chargeId: charge.id, grossCents: pi.amount_received, paid: [{ id: chargeId, charge: saved }], components,
+    pi, chargeId: charge.id, grossCents: pi.amount_received, sourceId: pi.id, paid: [{ id: chargeId, charge: saved }], components,
   })) return;
   const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
   if (existing) {
