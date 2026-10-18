@@ -38,6 +38,7 @@ export function useDispatchRules(enabled = true): DispatchRulesState {
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState(false);
   const generation = useRef(0);
+  const retried = useRef(false);
 
   const load = useCallback(
     async (force: boolean) => {
@@ -49,10 +50,17 @@ export function useDispatchRules(enabled = true): DispatchRulesState {
       const result = await sharedGet(adminOversightUrl(RULES_URL), { force });
       if (mine !== generation.current) return;
       if (!result.ok) {
+        // One quiet retry: a slow first read should not leave the list in an error until the person taps Try again.
+        if (!retried.current) {
+          retried.current = true;
+          void load(true);
+          return;
+        }
         setError(true);
         setLoading(false);
         return;
       }
+      retried.current = false;
       const data = result.data as { rules?: DispatchRule[]; workspacePropertyIds?: string[] } | null;
       setRules(Array.isArray(data?.rules) ? data!.rules! : []);
       setHouses(Array.isArray(data?.workspacePropertyIds) ? data!.workspacePropertyIds! : []);
