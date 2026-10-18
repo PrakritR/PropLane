@@ -112,6 +112,31 @@ function openRouterMessages(messages: Anthropic.MessageParam[]) {
   return out;
 }
 
+/**
+ * Prompt caching for the Anthropic call. The static system prompt (the role
+ * prompt, the property/house block, custom instructions: identical turn after
+ * turn and across the loop's own iterations) and the tool catalog are cache
+ * prefixes: a `cache_control` breakpoint on the system block and on the LAST tool
+ * caches everything up to and including it (tools, then system). Reads are billed
+ * at a tenth of input and skip prompt processing, which is most of the time to
+ * first token on a long property block. Prefixes under the model's minimum
+ * (1024 tokens; 2048 on Haiku) are simply not cached, so this is always safe.
+ * The cache key is the exact prefix, so the only dynamic piece in it, the daily
+ * clock line, changes at most once a day.
+ */
+export function withPromptCaching(args: { system: string; tools: AnthropicToolSchema[] }): {
+  system: Anthropic.TextBlockParam[];
+  tools: Anthropic.Tool[];
+} {
+  const system: Anthropic.TextBlockParam[] = args.system
+    ? [{ type: "text", text: args.system, cache_control: { type: "ephemeral" } }]
+    : [];
+  const tools = (args.tools as unknown as Anthropic.Tool[]).map((tool, index, all) =>
+    index === all.length - 1 ? { ...tool, cache_control: { type: "ephemeral" as const } } : tool,
+  );
+  return { system, tools };
+}
+
 async function completeAnthropic(args: {
   model: string;
   system: string;
@@ -122,11 +147,12 @@ async function completeAnthropic(args: {
 }): Promise<ProviderCompletion> {
   const started = performance.now();
   const client = new Anthropic(args.timeoutMs ? { timeout: args.timeoutMs } : undefined);
+  const cached = withPromptCaching({ system: args.system, tools: args.tools });
   const response = await client.messages.create({
     model: args.model,
     max_tokens: args.maxOutputTokens ?? 4096,
-    system: args.system,
-    tools: args.tools as unknown as Anthropic.Tool[],
+    system: cached.system,
+    tools: cached.tools,
     messages: args.messages,
   });
   return {

@@ -6,7 +6,7 @@ import { loadHouseResidentCandidates } from "@/lib/house-groups/residents.server
 import { loadActiveGroup, loadMembers, loadSettings, saveSettings } from "@/lib/house-groups/store.server";
 import { pacificDayKey } from "@/lib/house-groups/time";
 import { propertyInWorkspace, resolveListingChannelContext } from "@/lib/listing-channels/route-context.server";
-import { readSharedLineConfig, sharedLineActiveFor } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -20,8 +20,8 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const config = await readSharedLineConfig(ctx.db);
-  if (!sharedLineActiveFor(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  const config = await loadSharedLineConfig(ctx.db);
+  if (!workspaceOnSharedLine(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() ?? "";
   if (!propertyId || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
@@ -77,8 +77,8 @@ export async function POST(request: Request) {
   }
   const ctx = await resolveListingChannelContext(request, typeof body.workspaceId === "string" ? body.workspaceId : null).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const config = await readSharedLineConfig(ctx.db);
-  if (!sharedLineActiveFor(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  const config = await loadSharedLineConfig(ctx.db);
+  if (!workspaceOnSharedLine(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
   const action = typeof body.action === "string" ? body.action : "";
   const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";

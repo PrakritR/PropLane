@@ -20,6 +20,8 @@ export const COMMUNICATION_SENDING_TOOLS = new Set([
   "reply_to_sms_conversation",
   "send_rent_reminder",
   "send_work_order_reminder",
+  // A broadcast texts every resident of a house on the manager's behalf.
+  "broadcast_to_residents",
   // Dispatch texts vendors on the manager's behalf.
   "approve_vendor_dispatch",
   "dispatch_vendor",

@@ -9,7 +9,7 @@ import {
   smsMediaAppUrl,
   storeInboundMediaBytes,
 } from "@/lib/sms-media.server";
-import { isMissingSchemaError } from "@/lib/one-number/shared-line-number.server";
+import { isMissingSchemaError } from "@/lib/one-number/config.server";
 
 /**
  * Inbound MMS for every role. Each media item on an inbound text is downloaded

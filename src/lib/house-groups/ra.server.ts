@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { EMERGENCY_SAFETY_REPLY } from "@/lib/one-number/contracts";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
-import { readSharedLineConfig, sharedLineActiveFor } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -207,9 +207,9 @@ export async function handleGroupMessage(db: SupabaseClient, message: GroupWebho
   if (message.author.trim() === PROPLANE_IDENTITY) return { handled: false, reason: "own_message" };
   if (group.status === "closed") return { handled: false, reason: "closed" };
 
-  const config = await readSharedLineConfig(db);
+  const config = await loadSharedLineConfig(db);
   const settings = await loadSettings(db, group.workspaceId);
-  if (!sharedLineActiveFor(config, group.workspaceId) || !settings.enabled) return { handled: false, reason: "not_enabled" };
+  if (!workspaceOnSharedLine(config, group.workspaceId) || !settings.enabled) return { handled: false, reason: "not_enabled" };
 
   const gateway = deps.gateway === undefined ? createConversationsGateway() : deps.gateway;
 
@@ -392,8 +392,8 @@ export async function handleGroupPreferenceText(
   for (const h of extra) workspaceIds.add(h.workspaceId);
   if (workspaceIds.size === 0) return { handled: false, reply: null };
 
-  const config = await readSharedLineConfig(db);
-  const live = [...workspaceIds].filter((w) => sharedLineActiveFor(config, w));
+  const config = await loadSharedLineConfig(db);
+  const live = [...workspaceIds].filter((w) => workspaceOnSharedLine(config, w));
   const enabled: string[] = [];
   for (const w of live) if ((await loadSettings(db, w)).enabled) enabled.push(w);
   if (enabled.length === 0) return { handled: false, reply: null };

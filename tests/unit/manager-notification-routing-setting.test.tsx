@@ -70,7 +70,9 @@ describe("ManagerNotificationRoutingSetting", () => {
     expect(screen.getByRole("radio", { name: /^Both/ })).toHaveProperty("checked", true);
     expect(screen.getByRole("radio", { name: /^PropLane Assistant/ })).toHaveProperty("checked", false);
     expect(screen.getByRole("radio", { name: /No updates/ })).toBeTruthy();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(MANAGER_NOTIFICATION_CATEGORIES.length);
+    // The topics, plus the one "Text me a summary at 8am" box (on by default for an owner).
+    expect(screen.getAllByRole("checkbox")).toHaveLength(MANAGER_NOTIFICATION_CATEGORIES.length + 1);
+    expect(screen.getByRole("checkbox", { name: /summary at 8am/i })).toHaveProperty("checked", true);
     expect(screen.getByRole("radio", { name: /^Off/ })).toHaveProperty("checked", true);
   });
 

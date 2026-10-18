@@ -385,3 +385,102 @@ Invariants:
 Tests: `tests/unit/house-groups-{members,ra-policy,post,sync,ra-handler,routes}.test.ts`, helpers `tests/helpers/house-group-fake-db.ts`, `tests/helpers/house-group-fixtures.ts`. Twilio is mocked; a live group proof needs the shared number.
 
 Not done: move-out checklist link in the leaver's goodbye (no `move_out` link purpose exists; the text offers it by reply), booking-acceptance consent (only the lease signing window carries it), a STOP does not remove a member until the next sync, and the live Twilio proof (blocked on the shared number and campaign registration).
+
+## W-int - Integration seams
+
+- **One config reader.** `config.server.ts` (`loadSharedLineConfig`, `workspaceOnSharedLine`, `isSharedLineNumber`, `isMissingSchemaError`) is the only implementation; fail closed to `per_workspace` (read error, unknown mode, `shared` without a number). `shared-line-number.server.ts` keeps only transport helpers (`isConfiguredSharedNumber`, `resolveSendWorkspaceId`, `resolveSharedLineHumanSend`, sign-off) and re-exports the config names. `readSharedLineConfig` / `sharedLineActiveFor` are gone. `workspaceOnSharedLine` is false for an empty workspace id. `vendor-dispatch/send.server.ts` `workspaceOnSharedLine(db, ws)` delegates to it.
+- **Platform lead texts** (`lead-send.server.ts`) go through `sendSms` with `purpose: "platform_lead"`: valid only from the configured shared number, no credit hold (no workspace to bill), still behind the opt-out ledger, the real-customer shield and test capture; quiet hours stay in `sendPlatformLeadText`. No platform usage meter exists, so these texts are not metered.
+- **One redaction.** `redact.ts` `redactSensitiveNumbers` (card, bank, dashed SSN with kind `ssn`); `lead-redact.ts` is deleted. The secure-link reply text is unchanged for an SSN.
+- **Lead photo.** `routeSharedLineInboundWithReply` returns `unassignedMediaUrls`; the seam returns `mediaUrl` (never on an emergency reply); `twimlOk(reply, mediaUrl)` draws `<Message><Body/><Media/></Message>` only for an https URL.
+- **Prospect burst stamp.** `loadBurstWorkspaceId` (prospect-sms-burst-job) reads `sms_inbound_receipts.workspace_id` for the claimed message ids, requires one workspace held by the burst's owner, and passes `workspaceId` to `handleClawLeasingInbound`. Null (nothing stamped, column missing) changes nothing.
+- **Shared-line readers.** A shared-line conversation has `work_line_phone` = the shared number and `work_line_id` = its workspace id, so `manager_sms_numbers` joins find nothing. `sharedLineWorkspaceIdOf` (`line-label.ts`) recognises it; the Communication list/detail pass `sharedLineWorkspaceId` to `conversationVisible` (placed by that workspace alone, no house tag needed); `ManagerSmsResidentConversation.sharedLine` drives the Text line picker label "PropLane line"; `resolveConversationSendLine` returns `via: "shared"` (numberId null, the shared number) when `line_mode = shared` and the thread used it, and `sendInboxMessage` refuses with 409 when such a thread cannot send on the line instead of using a work number. `per_workspace` is unchanged (the extra config read happens only when a hint matched no work line).
+- **Outbound MMS.** Migration `20261018240000_sms_outbox_media_urls.sql` (applied to dev, ledger row recorded) adds `sms_outbox.media_urls text[]`. `SharedLineSend.mediaUrls` -> `sendFromManagerWorkNumber` -> `enqueueOwnerSms` (https only, max 10; insert retried without the column before the migration) -> dispatcher reads it for `shared_line_message` rows only -> `sendSms` `mediaUrls`. Credit is still reserved by text segments; MMS is not priced separately.
+
+Tests: `one-number-{shared-config,config,lead-send,redact,twiml-media,burst-workspace,shared-line-readers,outbox-media,send-door,sendsms-shared-from,inbound-seam}.test.ts`.
+
+## W9 - Delivery feel: bubbles, burst debounce, resident fast path, latency log
+
+Migration `20261018210000_one_number_feel.sql` (dev applied, ledger row recorded): `sms_runtime_config.feel_settings jsonb`;
+nine additive columns on `sms_projection_turns` (`intent`, `reply_lane`, `model_used`, `fast_path`, `bubble_count`, `first_bubble_ms`,
+`total_latency_ms`, `reply_status` in sent / draft / none, `replied_at`); table `sms_reply_debounce` (service role only, classified in
+`account-purge-manifest.ts`) with RPCs `sms_debounce_register` / `_claim` / `_settle`. Every read tolerates 42P01 / 42703 / PGRST205.
+
+**Switches** (`feel-settings.server.ts`, `loadFeelSettings`): `bubbleReplies`, `residentFastPath`, `debounceMs`, `workAck`. Defaults are ON
+(1500 ms) for a workspace on the shared line and OFF for a work number, so `per_workspace` behaves exactly as before. Override per lane in
+`sms_runtime_config.feel_settings` as `{"shared": {...}, "work": {...}}`; 15 s in-process cache; wrong types ignored; debounce clamped 0-5000.
+
+**Bubbles.** `bubbles.ts` (pure): `splitIntoBubbles` strips markdown, makes the text GSM-7 (emoji kept only when the texter used one),
+packs sentences greedily into bubbles of one segment, at most 3 (overflow stays in the last, nothing is dropped), never splits a URL.
+`bubble-delivery.server.ts`: bubble 1 is sent inside the request through the caller's own send; bubbles 2-3 follow 500-800 ms apart,
+sequentially, in `after()` (no `setTimeout` in the handler; falls back to inline outside a request). A refused bubble stops the rest.
+Idempotency: bubble 1 keeps `inbound_reply_<sid>`, the rest `..._b2`, `..._b3`, so a replay (which re-splits the stored reply body) sends
+nothing twice. Wired into `deliverResidentSmsReply`, `deliverManagerSmsReply`, `deliverLeasingSmsReply`, `deliverVendorAgentReply` through
+`deliverAgentReply`: a deliverer bubbles only when told (`bubbles`) or when a `workspaceId` resolves to a bubbling lane, so every other
+caller is unchanged. A tour-booking confirmation is never split; a prospect burst's revision fence and booking id ride bubble 1 only.
+
+**Burst debounce.** `debounce.server.ts`: each inbound registers its text (revision per text), sleeps `debounceMs`, then claims; the newest
+revision answers every text of the burst merged oldest first, older invocations yield (claim completed, no reply; the resident path still
+runs its team forwards). `settle` drops the answered texts once the reply is durable. A text carrying a photo registers and merges but does
+not wait. Fail-open: any RPC problem answers at once with that text alone. Wired for manager, resident and vendor-session replies;
+prospects keep their durable QStash burst queue (`prospect-sms-burst*.ts`, 10 s quiet window) untouched.
+
+**Resident fast path.** `resident-fast-path.ts` (pure matcher) + `resident-fast-path.server.ts` (scope). Runs before the resident agent,
+shared line only, for a phone VERIFIED on a profile texting its manager's line. Scope is `resolveResidentKnowledgeScope`: the resident's
+lease house, house details only past the move-in lock (`includeHouseInfo`), approved Q&A only in the resident's audiences. Topics: Wi-Fi,
+door/gate code, parking, trash / recycling day, laundry, quiet hours, guests, smoking, pets, manager / emergency contact, house chat link;
+then approved Q&A with >= 60% question coverage. It answers only when the text is obviously a house question (no other intent rule matches,
+no always-escalate topic, <= 160 chars, <= 2 question marks), every needed fact is on file, and the reply fits one segment; otherwise null
+and the normal agent runs. The reply goes through the turn runner as a precomputed reply (`precomputedLane: "fast_path"`): persisted, no
+model, no AI credit. Reads `access.doorCode/gateCode/parking`, `wifi.network/password`, `trash.day` (+ `recyclingDay`/`recycleDay`/`recycling`
+when W11 adds them), `rules.*`, `contacts.*`, `laundry.*`; missing fields mean no match.
+
+**Long work.** `slow-work.ts` lists dispatch / screening / payment tools. When a confirmed YES runs one, the turn runner calls `onSlowWork`
+and the pipeline texts "On it, I'll text you when it's done." (key `inbound_reply_<sid>_ack`) before the work; the result follows as the
+normal reply. Manager and resident replies only; vendor replies and read-tool waits are not acknowledged.
+
+**Latency + intent log.** `intent.ts` (rules) and `intent.server.ts` (the cheapest configured model, `TIER_MODELS.simple`, 1.5 s cap, only
+when the rules cannot tell and only on the shared line; log-only). `turn-metrics.server.ts` `recordSmsTurnMetrics` writes the fields to the
+INBOUND projection turn of the answered text, sends PostHog `sms_reply_sent` (ids and numbers only) for a sent reply, and scores the
+Langfuse trace (`sms-first-bubble-ms`, `sms-total-latency-ms`, `sms-bubble-count`; intent and lane in the comment). `first_bubble_ms` runs
+from the receipt (`first_received_at`) to the first bubble handed to the transport; `total_latency_ms` to the end of the turn (later bubbles
+follow after the response). Logged for manager and resident turns; the prospect and vendor paths do not log yet.
+
+**Prompt caching.** `provider.ts` `withPromptCaching`: the Anthropic call now sends the system prompt as a cached block and puts a breakpoint
+on the last tool, so the static prompt, property block and tool catalog are read from cache across loop iterations and turns (below the
+model minimum the breakpoint is a no-op). The only moving piece in the prefix is the daily clock line.
+
+Tests: `one-number-bubbles`, `-bubble-delivery`, `-feel-settings`, `-debounce`, `-resident-fast-path` (pure matcher + door-code scoping),
+`-feel-agents` (runner hand-off, deliverer bubbles and keys), `-feel-misc` (intent, slow work, caching, metrics), `-feel-pipeline`
+(resident path on the shared line and on a work number).
+
+## W8 - Manager operations by text, alerts, the 8am digest, follow-ups, payouts
+
+Flags: nothing here changes `per_workspace`. The 8am digest and the new-room text run only while `sms_runtime_config.line_mode = shared` (and, with a pilot list, only for those workspaces); "set up payouts" mints a link only on the shared line (else the tool answers `links_unavailable`). The command tools, alert-phone texts and the 72h tour nudge are additive to today's paths. No migration: the one new setting rides `manager_automation_settings.row_data`.
+
+Manager commands (the manager SMS registry is the portal catalog minus destructive tools; every write is previewed and needs a YES inside 10 minutes through `agent_pending_actions`, and writes its own `audit_log` row):
+
+| Text | Tool (file) | Kind |
+| --- | --- | --- |
+| "Who's touring tomorrow?" | `list_tours_on_day` (`manager-ops.ts`, reads `ops-facts.server.ts`) | read; the tool resolves today/tomorrow/date in Pacific time, the model never computes a date |
+| "What's vacant at 5259 Brooklyn?" | `list_vacant_rooms` (`manager-ops-rooms.ts`) | read; `roomAvailabilityForRange` per room, the calendar the public listing uses |
+| "Who hasn't paid October rent?" | `list_unpaid_rent` | read; `summarizeRentForMonth` (`ops-text.ts`) is the one rent math, the digest uses it too |
+| "Mark room 3 at 4709A rented to Sam from Nov 1" | `mark_room_rented` | write; the same `room_date_block` row `block_room_dates` writes, open-ended (`9999-12-31`) unless `until` |
+| "Drop room 2 price to $950" | `update_room_rent` (existing) | write |
+| "Approve Priya's application" | `get_application_review_link` | read; replies with the portal link. `update_application_bucket` and `set_resident_approval` are in `MANAGER_SMS_DEEP_LINK_ONLY_TOOLS` and are NOT in the text catalog (AGENTS.md: approval is not an agent tool) |
+| "Text all 5257 residents: ..." | `broadcast_to_residents` | write; preview lists the recipient count and how many are textable; sends each resident their own message through `send_message` (its sender-scope gate, consent and audit), re-deriving recipients at execute. A manager with several houses who names none gets "Which house: A, B, or all?" (`whichHouseQuestion`, which W10's announce reuses) |
+| "Send the plumber to the 8th Ave leak" | `dispatch_vendor` (W7a) | write |
+| "set up payouts" | `set_up_payouts` | read; see Payouts |
+
+Scoping: every reader takes the context it is given (`workspace` of the number, a teammate's `assignedPropertyIds`); `opsContextSeesProperty` is the single house check. Data-changing commands come only from a verified manager or teammate phone (`resolveManagerSmsInboundIdentity`), a spoofed number never reaches the registry. Rent, move-in and move-out texts are W11's; the house-group announce is W10's.
+
+Alerts (`ops-alerts.server.ts`): the six spec alerts. HUMAN, emergency word and new lead already go through `alertWorkspaceTeam`. New application, booked tour, emergency maintenance, failed payment, late fee and an unanswerable question each already reached the owner and the people who hold the house; the one missing leg was the owner's listed alert phones. `alertPhonesOf` adds exactly that leg (via `notifyWorkNumberRecipients`, idempotent on `ops-alert:<kind>:<entity>`, redacted, never throws) from `notifyManagerApplicationSubmitted`, `emitTourManagerEvent` (confirmed), `emitCreatedWorkOrder` and `createWorkOrderFromResidentSms` (Emergency), `emitHouseholdChargeTransition` (failed, late fee) and `recordEscalatedQuestion` (leasing, resident, vendor escalations). Nobody is told twice.
+
+8am digest (`morning-digest.server.ts`, cron `/api/cron/manager-morning-digest` at 15:00 and 16:00 UTC, acts only when it is 8 in Pacific): tours today, open services, rent paid / unpaid with the amount for the month, new leads (prospect contacts stamped with the workspace in the last day); one GSM-7 segment with the "Good morning" subject, skipped when there is nothing to say. Per workspace it goes to the owner unless they turned it off, and to a teammate only if they turned it on (`managerMorningTextDigest` in their own automation settings, null = owner on / teammate off; the checkbox is in Settings -> Manager alerts). Each person's numbers are computed in their scope (workspace + assigned houses); a houses-only teammate gets no lead count. It rides `sendManagerNotificationSms`, so their alert destination and "attention digest" topic still decide whether a text leaves. Dedupe `morning-digest:<workspace>:<person>:<day>`.
+
+Follow-ups: the tour-interest reminder (`reminders/subjects/tour-interest.server.ts`) now queues a second row 72 hours out (`TOUR_INTEREST_SECOND_BODY`, `followupStep: 2`) beside the 24h one, same prospect/thread/currency checks (any reply, application or booked tour cancels it, STOP is checked at send), then nothing. The saved rule stays the one-day rule. `prospect-room-matches.server.ts` (hourly, inside `/api/cron/unassigned-lead-followups`): a lead a team already owns (`status = assigned`) with saved criteria gets one text when a room that fits appears in THAT team's houses after a baseline sweep recorded `roomsSeen`; `newRoomTexted` is written before the send (overlapping sweeps send one), STOP is never retried, other failures are.
+
+Payouts: `set_up_payouts` (manager) / the vendor twin added by `withSharedLineTools` in the vendor SMS turn mint a `payouts` phone-bound link to the texter's own verified phone (the code is texted when it opens; money session 30 minutes), or answer "already set up" with the last four. `handleStripeAccountUpdated` reads the profile's payout flag before its write and, on the not-ready to ready transition only, calls `textPayoutsReady` (`payouts-ready.server.ts`): it texts "Payouts are set up to the account ending 4417." once per link to a person with a payouts link minted in the last 7 days; someone who set up payouts in the app is not texted. Only the last four and the status are read (`payout_destinations_cache`); nothing about money movement changed.
+
+Tests: `tests/unit/one-number-ops-{text,alerts,payouts}.test.ts`, `one-number-morning-digest.test.ts`, `one-number-prospect-room-matches.test.ts`, `tests/unit/tools/manager-ops-tools.test.ts`, the 72h cases in `tour-interest-reminders.test.ts`, and the exclusion rule in `manager-sms-agent.test.ts`.
+
+Not done: a live proof needs the shared number, a live Stripe Connect onboarding and Twilio; the vendor-number-AI surface and the vendor SMS surface for payouts outside a job session are not wired (a vendor texts payouts from a job session only).

@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findResidentCandidates } from "@/lib/one-number/router-lookups.server";
-import { readSharedLineConfig, sharedLineActiveFor } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { recordConsent, recordOptOut, loadSettings } from "./store.server";
@@ -16,10 +16,10 @@ async function residentTargets(db: SupabaseClient, userId: string): Promise<{ ph
   const row = data as { phone?: unknown; phone_verified_at?: unknown } | null;
   const e164 = normalizeE164(row?.phone == null ? "" : String(row.phone));
   if (!row?.phone_verified_at || !e164) return null;
-  const config = await readSharedLineConfig(db);
+  const config = await loadSharedLineConfig(db);
   const found = await findResidentCandidates(db, e164).catch(() => []);
   const targets = found
-    .filter((f) => sharedLineActiveFor(config, f.workspaceId))
+    .filter((f) => workspaceOnSharedLine(config, f.workspaceId))
     .map((f) => ({ workspaceId: f.workspaceId, propertyId: f.propertyId }));
   return targets.length > 0 ? { phoneKey: normalizeConsentPhone(e164), targets } : null;
 }

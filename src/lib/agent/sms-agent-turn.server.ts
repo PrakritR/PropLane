@@ -49,6 +49,7 @@ import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { isSlowWorkTool } from "@/lib/one-number/slow-work";
 
 type Db = SupabaseClient;
 
@@ -123,6 +124,10 @@ export type SmsAgentTurn = {
   /** Set when this turn ended by texting a write proposal awaiting YES/NO. */
   awaitingConfirmation?: boolean;
   toolTrace?: { tool: string; ok: boolean }[];
+  /** Who wrote the reply, for the delivery log: a stored-fact answer, a scripted one, or the model. */
+  lane?: "fast_path" | "scripted" | "agent";
+  /** The model that wrote an agent reply. */
+  model?: string | null;
 };
 
 /** Static, per-surface configuration. One object per texting surface. */
@@ -385,6 +390,8 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     maxReplyChars: number;
     skipBilling?: boolean;
     sourceMessageSid?: string | null;
+    /** Called once, before the work, when the confirmed action is a slow one (dispatch, screening, payments). */
+    onSlowWork?: (toolName: string) => Promise<void>;
   },
 ): Promise<SmsAgentTurn | null> {
   const { ctx, session, surface } = args;
@@ -452,6 +459,11 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     };
   }
 
+  // Long work: acknowledge at once so the thread is never silent while it runs. Best effort.
+  if (args.onSlowWork && isSlowWorkTool(open.toolName)) {
+    await args.onSlowWork(open.toolName).catch(() => undefined);
+  }
+
   // One executor for every surface: it re-checks the portal, re-validates the
   // STORED input against the tool's current schema, and scores the decision.
   const decision = await decidePendingAction({
@@ -494,6 +506,10 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     onInboundPersisted?: () => Promise<boolean>;
     /** Optional deterministic response for a scoped lookup miss/ambiguity. */
     precomputedReply?: string | null;
+    /** Who wrote `precomputedReply`: a stored-fact answer (no model, no AI credit) or a scripted one. */
+    precomputedLane?: "fast_path" | "scripted";
+    /** Instant "On it" for a confirmed slow action; see `slow-work.ts`. */
+    onSlowWork?: (toolName: string) => Promise<void>;
     /** Tool-grounded context resolved before intent classification. */
     additionalSystemContext?: string | null;
     traceActor: TraceActor;
@@ -655,15 +671,17 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     maxReplyChars,
     skipBilling: Boolean(args.testActor),
     sourceMessageSid: inboundMessageSid,
+    onSlowWork: args.onSlowWork,
   });
-  if (confirmation) return { ...confirmation, inboundMessageId };
+  if (confirmation) return { ...confirmation, inboundMessageId, lane: "scripted" as const };
 
   const precomputedReply = args.precomputedReply?.trim().slice(0, maxReplyChars);
   if (precomputedReply) {
     const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null, inboundMessageSid);
     track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
-    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
-    return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId, toolTrace: [] };
+    // A stored-fact answer ran no model, so it uses no AI credit.
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor) || args.precomputedLane === "fast_path");
+    return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId, toolTrace: [], lane: args.precomputedLane ?? "scripted", model: null };
   }
 
   const { data: historyRows } = await db
@@ -784,6 +802,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       traceId,
       awaitingConfirmation: true,
       toolTrace: result.toolTrace,
+      lane: "agent" as const,
+      model: result.model,
     };
   }
 
@@ -795,7 +815,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     tools: result.toolTrace.length,
   });
   await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
-  return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId, toolTrace: result.toolTrace };
+  return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId, toolTrace: result.toolTrace, lane: "agent" as const, model: result.model };
   };
   // The standing no-em-dash rule lives here, not at each call site: every reply this runner can
   // produce (model, confirmation, proposal preview, precomputed, rate limit, error) leaves

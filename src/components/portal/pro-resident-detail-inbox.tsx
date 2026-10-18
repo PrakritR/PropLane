@@ -1,4 +1,5 @@
 "use client";
+import { textLineLabel } from "@/lib/one-number/line-label";
 import { AssistantPauseControl, assistantPauseConversationId } from "@/components/portal/assistant-pause-control";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
@@ -1102,7 +1103,7 @@ export function ResidentDirectChatPane({
                 options={projectionSummaries.map((resident, index) => {
                   const preview = resident.messages?.[0];
                   const line = preview?.direction === "inbound" ? preview.toPhone : preview?.fromPhone;
-                  return { value: resident.projectionId!, label: `${resident.counterpartyRole ?? "Text"} · ${line || `Line ${index + 1}`}${resident.sendDisabled ? " · history only" : ""}` };
+                  return { value: resident.projectionId!, label: `${resident.counterpartyRole ?? "Text"} · ${textLineLabel({ sharedLine: resident.sharedLine, phone: line, index })}${resident.sendDisabled ? " · history only" : ""}` };
                 })}
               />
             </div>

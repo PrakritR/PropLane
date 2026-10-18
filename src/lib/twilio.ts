@@ -31,7 +31,13 @@ export async function sendSms(
     skipOptOutCheck?: boolean;
     mediaUrls?: string[];
     creditReservationKey?: string;
-    purpose?: "phone_verification";
+    /**
+     * `phone_verification`: the authenticated OTP route. `platform_lead`: a text from PropLane
+     * itself on the shared number to a lead that has no workspace yet (no wallet to hold credit
+     * from); it is valid ONLY from the configured shared number and keeps the shield, the
+     * opt-out ledger and test capture above.
+     */
+    purpose?: "phone_verification" | "platform_lead";
     /**
      * Provider Messaging Service for this call: the dispatcher sets it when the
      * text leaves from the shared PropLane number, and platform auth sets its
@@ -92,7 +98,12 @@ export async function sendSms(
   // Manager-funded SMS has one dispatcher. Legacy/shared-number transports
   // cannot bypass its number registration, owner authorization, or prepaid hold.
   // The authenticated, rate-limited phone verification route is the sole exemption.
-  if (opts?.purpose !== "phone_verification") {
+  if (opts?.purpose === "platform_lead") {
+    const db = createSupabaseServiceRoleClient();
+    if (!(await isConfiguredSharedNumber(db, fromNorm))) {
+      return { sent: false, providerAttempted: false, error: "Use the work-number dispatcher to send messages." };
+    }
+  } else if (opts?.purpose !== "phone_verification") {
     if (!opts?.creditReservationKey) return { sent: false, providerAttempted: false, error: "Use the work-number dispatcher to send messages." };
     const db = createSupabaseServiceRoleClient();
     const { data: number, error: numberError } = await db.from("manager_sms_numbers").select("manager_user_id")

@@ -8,11 +8,8 @@ import {
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
-import {
-  readSharedLineConfig,
-  resolveSendWorkspaceId,
-  sharedLineActiveFor,
-} from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { resolveSendWorkspaceId } from "@/lib/one-number/shared-line-number.server";
 
 export type SendNumberRow = {
   manager_user_id: string;
@@ -101,13 +98,13 @@ export async function evaluateWorkspaceSendReadiness(input: {
   // the pilot, the text leaves from the shared number instead of a work number.
   // Any trouble reading the line config reads as `per_workspace`, so this block
   // is inert until the rollout switch is deliberately flipped.
-  const sharedConfig = await readSharedLineConfig(db);
+  const sharedConfig = await loadSharedLineConfig(db);
   if (sharedConfig.mode === "shared") {
     const sharedWorkspaceId = await resolveSendWorkspaceId(db, ownerId, {
       workspaceId: input.sharedLineWorkspaceId ?? input.workspaceId ?? null,
       propertyId: input.propertyId ?? null,
     });
-    if (sharedLineActiveFor(sharedConfig, sharedWorkspaceId)) {
+    if (workspaceOnSharedLine(sharedConfig, sharedWorkspaceId)) {
       return evaluateSharedLineReadiness({
         db,
         ownerId,

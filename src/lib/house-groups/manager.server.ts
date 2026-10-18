@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
-import { readSharedLineConfig, sharedLineActiveFor } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { complaintFollowUp, introText, joinOffer, leaverGoodbye } from "./copy";
@@ -106,8 +106,8 @@ export async function syncHouseGroup(
   const base: SyncResult = { propertyId, outcome: "disabled", members: 0, overflow: 0 };
   const now = (deps.now ?? (() => new Date()))();
 
-  const config = await readSharedLineConfig(db);
-  if (!sharedLineActiveFor(config, workspaceId) || !config.sharedNumber) return base;
+  const config = await loadSharedLineConfig(db);
+  if (!workspaceOnSharedLine(config, workspaceId) || !config.sharedNumber) return base;
   const settings = await loadSettings(db, workspaceId);
   if (!settings.enabled) return base;
 

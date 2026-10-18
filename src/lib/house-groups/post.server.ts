@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { finishCommsCredit, reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
-import { readSharedLineConfig, sharedLineActiveFor } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { smsSegmentCount, toGsm7 } from "@/lib/one-number/segments";
 import { createConversationsGateway } from "./conversations-gateway.server";
@@ -60,8 +60,8 @@ export async function postToHouseGroup(
   if (!workspaceId || !propertyId || !key || !text) return { ok: false, reason: "provider_error", detail: "invalid_post" };
   const now = (deps.now ?? (() => new Date()))();
 
-  const config = await readSharedLineConfig(db);
-  if (!sharedLineActiveFor(config, workspaceId)) return { ok: false, reason: "not_enabled" };
+  const config = await loadSharedLineConfig(db);
+  if (!workspaceOnSharedLine(config, workspaceId)) return { ok: false, reason: "not_enabled" };
   const settings = await loadSettings(db, workspaceId);
   if (!settings.enabled) return { ok: false, reason: "not_enabled" };
 
