@@ -19,6 +19,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 }));
 vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
   upsertAirbnbResidentsFromImportedRanges: mocks.upsertResidents,
+  releaseAirbnbResidentsAbsentFromFeed: async () => undefined,
 }));
 
 import {

@@ -33,7 +33,7 @@ import { parseIcsCalendar } from "@/lib/ical/parse";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
+import { releaseAirbnbResidentsAbsentFromFeed, upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
 import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
 import {
   clearChannelStayTombstonesForRoom,
@@ -607,6 +607,22 @@ export async function syncChannelCalendarConnection(
     if (recheck.dropped.length > 0) {
       await persistConnectionImportedRanges(db, parseConnectionRow(saved as Record<string, unknown>), recheck.kept);
     }
+    // The placeholder for a reservation that left this feed has to leave with it. Best-effort,
+    // and retried on the next sync: a resident row must never fail the calendar sync.
+    const today = pacificCalendarDateYmd(new Date(now));
+    try {
+      await releaseAirbnbResidentsAbsentFromFeed(db, {
+        managerUserId: connection.manager_user_id,
+        connectionId: connection.id,
+        ranges: recheck.kept,
+        today,
+      });
+    } catch (releaseError) {
+      console.warn("[channel-calendar] cancelled resident release failed", {
+        connectionId: connection.id,
+        message: releaseError instanceof Error ? releaseError.message : String(releaseError),
+      });
+    }
     // Every sync path (cron, Sync, Sync all) ends here, so the alert diff lives here too.
     // Best-effort: an alert that cannot be sent must never fail a calendar sync.
     try {
@@ -618,7 +634,7 @@ export async function syncChannelCalendarConnection(
         baseline: !connection.last_synced_at,
         // The Pacific wall date, like every other date key here: a UTC date is
         // already tomorrow after 17:00 PT, which filed today's stays as history.
-        today: pacificCalendarDateYmd(new Date(now)),
+        today,
       });
       const base = {
         connectionId: connection.id,

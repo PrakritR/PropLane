@@ -3,7 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("server-only", () => ({}));
 
-import { airbnbResidentName, upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
+import { airbnbResidentName, releaseAirbnbResidentsAbsentFromFeed, upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
+import { applicationHoldEntries } from "@/lib/channel-calendar/property-bookings";
 import { applyAirbnbEmailToStay } from "@/lib/channel-calendar/airbnb-email-intake.server";
 import {
   residentEntriesFromStays,
@@ -166,6 +167,110 @@ describe("Airbnb sync files a resident per reservation", () => {
     await upsertAirbnbResidentsFromImportedRanges(db, { ...baseInput, ranges });
     await upsertAirbnbResidentsFromImportedRanges(db, { ...baseInput, ranges });
     expect(residents()).toHaveLength(2);
+  });
+
+  it("a cancelled reservation's placeholder stops occupying the room", async () => {
+    const db = fakeDb(tables);
+    await upsertAirbnbResidentsFromImportedRanges(db, {
+      ...baseInput,
+      ranges: [
+        reserved(),
+        reserved({ id: "uid-2", sourceUid: "uid-2", reservationCode: "HMZZZZZZZZ", start: "2099-11-01", end: "2099-11-04" }),
+      ],
+    });
+    residents().push(
+      {
+        id: "axis-real",
+        manager_user_id: "mgr-1",
+        resident_email: "juan@example.com",
+        row_data: {
+          id: "axis-real", name: "Juan", bucket: "approved", icalConnectionId: "c1", icalSourceUid: "uid-1",
+          assignedPropertyId: "p1", assignedRoomChoice: "p1::r1",
+          application: { leaseStart: "2099-10-13", leaseEnd: "2099-10-16", roomChoice1: "p1::r1" },
+          manualResidentDetails: { moveInDate: "2099-10-13", moveOutDate: "2099-10-16" },
+        },
+      },
+      {
+        id: "axis-past",
+        manager_user_id: "mgr-1",
+        resident_email: "airbnb.c1.uidold@import.proplane.local",
+        row_data: {
+          id: "axis-past", name: "Past guest", bucket: "approved", icalConnectionId: "c1", icalSourceUid: "uid-old",
+          assignedPropertyId: "p1", assignedRoomChoice: "p1::r1",
+          application: { leaseStart: "2020-01-01", leaseEnd: "2020-01-04" },
+          manualResidentDetails: { moveInDate: "2020-01-01", moveOutDate: "2020-01-04" },
+        },
+      },
+      {
+        id: "axis-other-feed",
+        manager_user_id: "mgr-1",
+        resident_email: "airbnb.cother.uid1@import.proplane.local",
+        row_data: {
+          id: "axis-other-feed", name: "Other feed", bucket: "approved", icalConnectionId: "c-other", icalSourceUid: "uid-1",
+          assignedPropertyId: "p1", assignedRoomChoice: "p1::r1",
+          application: { leaseStart: "2099-10-13", leaseEnd: "2099-10-16" },
+          manualResidentDetails: { moveInDate: "2099-10-13", moveOutDate: "2099-10-16" },
+        },
+      },
+    );
+    const occupying = () =>
+      applicationHoldEntries(
+        residents().map((record) => {
+          const data = record.row_data as Row;
+          return {
+            id: String(record.id),
+            bucket: String(data.bucket ?? ""),
+            name: typeof data.name === "string" ? data.name : undefined,
+            assignedPropertyId: typeof data.assignedPropertyId === "string" ? data.assignedPropertyId : undefined,
+            assignedRoomChoice: typeof data.assignedRoomChoice === "string" ? data.assignedRoomChoice : undefined,
+            application: data.application as { leaseStart?: string; leaseEnd?: string; roomChoice1?: string } | undefined,
+            manualResidentDetails: data.manualResidentDetails as { moveInDate?: string; moveOutDate?: string } | undefined,
+          };
+        }),
+        {
+          properties: [{ id: "p1", label: "Brooklyn" }],
+          roomLabelForId: () => "Room 9",
+          isLeased: () => false,
+          openEndedHorizonKey: "2110-01-01",
+        },
+      ).filter((entry) => entry.start === "2099-10-13");
+    const cancelled = residents().find(
+      (record) =>
+        (record.row_data as Row).icalSourceUid === "uid-1" &&
+        String(record.resident_email).endsWith("@import.proplane.local") &&
+        (record.row_data as Row).icalConnectionId === "c1",
+    );
+    expect(occupying().map((entry) => entry.summary).sort()).toEqual(["Airbnb guest · HMHW5SHXRB", "Juan", "Other feed"]);
+
+    // The feed still carries events, but this reservation is gone — the cancellation the owner is mailed about.
+    await releaseAirbnbResidentsAbsentFromFeed(db, {
+      managerUserId: "mgr-1",
+      connectionId: "c1",
+      today: "2099-01-01",
+      ranges: [
+        reserved({ id: "uid-2", sourceUid: "uid-2", reservationCode: "HMZZZZZZZZ", start: "2099-11-01", end: "2099-11-04" }),
+        reserved({ id: "uid-b", sourceUid: "uid-b", summary: "Airbnb (Not available)", reservationCode: undefined, start: "2099-12-01", end: "2099-12-05" }),
+      ],
+    });
+
+    expect(residents().some((record) => record.id === cancelled?.id)).toBe(false);
+    expect(occupying().map((entry) => entry.summary).sort()).toEqual(["Juan", "Other feed"]);
+    expect(residents().some((record) => (record.row_data as Row).icalSourceUid === "uid-2")).toBe(true);
+    expect(residents().some((record) => record.id === "axis-past")).toBe(true);
+    expect(residents().some((record) => record.id === "axis-real")).toBe(true);
+    expect(residents().some((record) => record.id === "axis-other-feed")).toBe(true);
+  });
+
+  it("an empty feed is not treated as every reservation being cancelled", async () => {
+    const db = fakeDb(tables);
+    await upsertAirbnbResidentsFromImportedRanges(db, { ...baseInput, ranges: [reserved()] });
+    await releaseAirbnbResidentsAbsentFromFeed(db, {
+      managerUserId: "mgr-1",
+      connectionId: "c1",
+      today: "2099-01-01",
+      ranges: [],
+    });
+    expect(residents()).toHaveLength(1);
   });
 });
 
