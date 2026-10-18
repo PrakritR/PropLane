@@ -10,6 +10,11 @@ import { ArrowUpRight, FileCheck2, Mail, MapPin, MessageSquare, Phone, ShieldChe
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { VendorListFilterFields } from "@/components/portal/vendor-list-filter-fields";
+import {
+  VENDOR_TRADE_OPTIONS_DISPATCH,
+  vendorDispatchRoles,
+  vendorRoleLabels,
+} from "@/lib/vendor-dispatch/vendor-roles";
 import { VendorServicesPanel } from "@/components/portal/vendor-services-panel";
 import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
 import {
@@ -173,6 +178,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [directoryVendors, setDirectoryVendors] = useState<AxisCatalogVendor[]>([]);
   // Category (the vendor's trade) narrows both tabs; Area and Rating narrow the PropLane directory.
   const [vendorCategoryFilter, setVendorCategoryFilter] = useState<string[]>([]);
+  const [vendorRoleFilter, setVendorRoleFilter] = useState<string[]>([]);
   const [directoryAreaFilter, setDirectoryAreaFilter] = useState("");
   const [directoryMinRatingFilter, setDirectoryMinRatingFilter] = useState("");
   const [addingDirectoryId, setAddingDirectoryId] = useState<string | null>(null);
@@ -335,6 +341,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       vendors.filter(
         (row) =>
           vendorMatchesCategories(row, vendorCategoryFilter) &&
+          (vendorRoleFilter.length === 0 || vendorDispatchRoles(row).some((role) => vendorRoleFilter.includes(role))) &&
           matchesPortalListSearch(
             vendorSearch,
             row.name,
@@ -346,7 +353,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             vendorRowMeta(row),
           ),
       ),
-    [vendors, vendorSearch, vendorCategoryFilter],
+    [vendors, vendorSearch, vendorCategoryFilter, vendorRoleFilter],
   );
 
   const routeVendorId = vendorIdProp?.trim() || null;
@@ -893,6 +900,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         onClick: () => {
           setVendorSearch("");
           setVendorCategoryFilter([]);
+          setVendorRoleFilter([]);
         },
         dataAttr: clearDataAttr,
       }}
@@ -1105,6 +1113,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             .join(", ");
           const linkPhoneFact = vendorLinkPhoneFact(row);
           const meta = vendorRowMeta(row);
+          const roleLabels = vendorRoleLabels(vendorDispatchRoles(row)).join(", ");
           const reviewAggregate = row.vendorUserId ? reviewAggregatesByVendorUserId[row.vendorUserId] : undefined;
           const serviceCount = row.vendorUserId ? serviceCountByVendorUserId[row.vendorUserId] ?? 0 : 0;
           const reviewFact =
@@ -1121,8 +1130,13 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               // in more than one category lists the others, and one with no trade says so.
               address={hasTrade ? otherCategories || undefined : tradeLabel}
               facts={
-                phone || linkPhoneFact || email || meta || reviewFact ? (
+                phone || linkPhoneFact || email || meta || reviewFact || roleLabels ? (
                   <>
+                    {roleLabels ? (
+                      <PortalRowFact icon={Wrench} srLabel="Dispatch roles">
+                        {roleLabels}
+                      </PortalRowFact>
+                    ) : null}
                     {phone ? (
                       <PortalRowFact icon={Phone} srLabel="Phone">
                         {formatUsPhoneDisplay(phone)}
@@ -1205,7 +1219,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <div className={PORTAL_LIST_PAGE_BODY}>
         <PortalGroupedRecordList
           // A different question (category) starts the open / closed state over.
-          key={`yours:${vendorCategoryFilter.join(",")}`}
+          key={`yours:${vendorCategoryFilter.join(",")}:${vendorRoleFilter.join(",")}`}
           items={visibleVendors}
           groupLabel={yoursGroupLabel}
           otherLabel={VENDOR_OTHER_CATEGORY}
@@ -1285,16 +1299,18 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([
         vendorCategoryFilter,
+        directoryTab === "catalog" ? "" : vendorRoleFilter,
         directoryTab === "catalog" ? directoryAreaFilter.trim() : "",
         directoryTab === "catalog" ? directoryMinRatingFilter : "",
       ])}
       compactPanel
       commandStripTrigger
-      filterFieldCount={directoryTab === "catalog" ? 3 : 1}
+      filterFieldCount={directoryTab === "catalog" ? 3 : 2}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
       onReset={() => {
         setVendorCategoryFilter([]);
+        setVendorRoleFilter([]);
         setDirectoryAreaFilter("");
         setDirectoryMinRatingFilter("");
       }}
@@ -1309,6 +1325,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         onAreaChange={setDirectoryAreaFilter}
         rating={directoryMinRatingFilter}
         onRatingChange={setDirectoryMinRatingFilter}
+        roleOptions={VENDOR_TRADE_OPTIONS_DISPATCH.map((option) => ({ value: option.value, label: option.label }))}
+        roles={vendorRoleFilter}
+        onRolesChange={setVendorRoleFilter}
       />
     </PortalFilterSortSheet>
   );

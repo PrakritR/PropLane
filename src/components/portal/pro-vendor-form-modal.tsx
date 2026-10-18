@@ -59,6 +59,16 @@ import {
   typicalRatePropertyIds,
 } from "@/lib/manager-vendor-typical-rates";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+import { DateField } from "@/components/ui/date-field";
+import {
+  VENDOR_PAY_MODELS,
+  VENDOR_TRADE_OPTIONS_DISPATCH,
+  centsToDollarsInput,
+  dollarsInputToCents,
+  vendorDispatchRoles,
+  type VendorPayModel,
+} from "@/lib/vendor-dispatch/vendor-roles";
+import type { VendorTrade } from "@/lib/vendor-dispatch/trades";
 
 
 export type ManagerVendorFormDraft = {
@@ -75,6 +85,15 @@ export type ManagerVendorFormDraft = {
   propertyIds: string[];
   catalogId?: string;
   typicalRates: ManagerVendorTypicalRate[];
+  /** Dispatch roles and profile (vendor-dispatch-1018): what job types the engine may offer them. */
+  dispatchTrades: VendorTrade[];
+  serviceArea: string;
+  /** Dollars as typed; saved as cents. */
+  dispatchRate: string;
+  dispatchPayModel: "" | VendorPayModel;
+  insuranceExpiresAt: string;
+  licenseNumber: string;
+  dispatchAvailable: boolean;
 };
 
 export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
@@ -91,6 +110,13 @@ export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
   propertyIds: [],
   catalogId: undefined,
   typicalRates: [],
+  dispatchTrades: [],
+  serviceArea: "",
+  dispatchRate: "",
+  dispatchPayModel: "",
+  insuranceExpiresAt: "",
+  licenseNumber: "",
+  dispatchAvailable: true,
 };
 
 function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
@@ -109,6 +135,13 @@ function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
     propertyIds: row.propertyIds ?? [],
     catalogId: row.catalogId,
     typicalRates: normalizeTypicalRates(row.typicalRates),
+    dispatchTrades: vendorDispatchRoles(row),
+    serviceArea: row.serviceArea ?? "",
+    dispatchRate: centsToDollarsInput(row.dispatchRateCents),
+    dispatchPayModel: row.dispatchPayModel ?? "",
+    insuranceExpiresAt: row.insuranceExpiresAt ?? "",
+    licenseNumber: row.licenseNumber ?? "",
+    dispatchAvailable: row.dispatchAvailable !== false,
   };
 }
 
@@ -590,6 +623,13 @@ export function ManagerVendorFormModal({
       vendorPriority: draft.vendorPriority || undefined,
       propertyIds: draft.propertyIds.length ? draft.propertyIds : undefined,
       catalogId: draft.catalogId || existing?.catalogId,
+      dispatchTrades: draft.dispatchTrades.length ? draft.dispatchTrades : undefined,
+      serviceArea: draft.serviceArea.trim() || undefined,
+      dispatchRateCents: dollarsInputToCents(draft.dispatchRate) ?? undefined,
+      dispatchPayModel: draft.dispatchPayModel || undefined,
+      insuranceExpiresAt: draft.insuranceExpiresAt || undefined,
+      licenseNumber: draft.licenseNumber.trim() || undefined,
+      dispatchAvailable: draft.dispatchAvailable ? undefined : false,
       typicalRates: expandTypicalRateCells({
         propertyIds: typicalRatePropertyIds(draft.propertyIds),
         trades: draft.trades,
@@ -892,6 +932,7 @@ export function ManagerVendorFormModal({
           { id: "vendor", label: "Vendor", incomplete: !draft.name.trim() },
           { id: "properties", label: "Properties" },
           { id: "trades", label: "Who can handle", incomplete: draft.trades.length === 0 },
+          { id: "dispatch", label: "Dispatch" },
           { id: "rates", label: "Typical price" },
           { id: "review", label: "Review", incomplete: !draft.name.trim() },
         ]
@@ -904,6 +945,7 @@ export function ManagerVendorFormModal({
           { id: "contact", label: "Contact", incomplete: !draft.name.trim() },
           { id: "properties", label: "Properties" },
           { id: "trades", label: "What they do", incomplete: draft.trades.length === 0 },
+          { id: "dispatch", label: "Dispatch" },
           { id: "rates", label: "Typical price" },
           { id: "review", label: "Review", incomplete: !draft.name.trim() },
         ];
@@ -924,7 +966,7 @@ export function ManagerVendorFormModal({
     scope: `vendor:${mode}:${vendor?.id ?? "new"}`,
     actor: userId,
     open, value: { draft, invitePath, axisInput, draftAxisId, draftAxisName, stepIdx, issueQuery, checkedCatalogIds },
-    restore: (saved) => { setDraft(saved.draft); setInvitePath(saved.invitePath); setAxisInput(saved.axisInput); setDraftAxisId(saved.draftAxisId); setDraftAxisName(saved.draftAxisName); setStepIdx(saved.stepIdx); setIssueQuery(saved.issueQuery); setCheckedCatalogIds(saved.checkedCatalogIds); },
+    restore: (saved) => { setDraft({ ...EMPTY_MANAGER_VENDOR_FORM_DRAFT, ...saved.draft }); setInvitePath(saved.invitePath); setAxisInput(saved.axisInput); setDraftAxisId(saved.draftAxisId); setDraftAxisName(saved.draftAxisName); setStepIdx(saved.stepIdx); setIssueQuery(saved.issueQuery); setCheckedCatalogIds(saved.checkedCatalogIds); },
   });
 
   if (!open) return null;
@@ -1142,6 +1184,81 @@ export function ManagerVendorFormModal({
                 </>
               ) : null}
               {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+            </div>
+          ) : null}
+          {stepId === "dispatch" ? (
+            <div className="space-y-4" data-attr="vendor-form-dispatch">
+              <CheckboxMultiSelect
+                label="Jobs they take"
+                options={VENDOR_TRADE_OPTIONS_DISPATCH.map((option) => ({ value: option.value, label: option.label }))}
+                selected={draft.dispatchTrades}
+                onChange={(next) => patch({ dispatchTrades: next as VendorTrade[] })}
+                emptyLabel="None selected"
+                dataAttr="vendor-dispatch-trades"
+              />
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold">Service area</span>
+                <Input
+                  value={draft.serviceArea}
+                  onChange={(e) => patch({ serviceArea: e.target.value })}
+                  placeholder="Neighborhoods or ZIPs"
+                  maxLength={120}
+                  data-attr="vendor-dispatch-area"
+                />
+              </label>
+              <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="vendor-dispatch-rate">Rate</label>
+                  <Input
+                    id="vendor-dispatch-rate"
+                    inputMode="decimal"
+                    value={draft.dispatchRate}
+                    onChange={(e) => patch({ dispatchRate: e.target.value.replace(/[^0-9.]/g, "") })}
+                    placeholder="$"
+                    data-attr="vendor-dispatch-rate"
+                  />
+                </div>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <FieldSingleSelect
+                    label="Paid"
+                    dataAttr="vendor-dispatch-pay-model"
+                    value={draft.dispatchPayModel}
+                    placeholder="Not set"
+                    onChange={(next) => patch({ dispatchPayModel: next as "" | VendorPayModel })}
+                    options={VENDOR_PAY_MODELS.map((model) => ({ value: model.id, label: model.label }))}
+                  />
+                </div>
+              </div>
+              <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="vendor-dispatch-insurance">Insurance expires</label>
+                  <DateField
+                    id="vendor-dispatch-insurance"
+                    value={draft.insuranceExpiresAt}
+                    onChange={(insuranceExpiresAt) => patch({ insuranceExpiresAt })}
+                    data-attr="vendor-dispatch-insurance"
+                  />
+                </div>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="vendor-dispatch-license">License</label>
+                  <Input
+                    id="vendor-dispatch-license"
+                    value={draft.licenseNumber}
+                    onChange={(e) => patch({ licenseNumber: e.target.value })}
+                    maxLength={60}
+                    data-attr="vendor-dispatch-license"
+                  />
+                </div>
+              </div>
+              <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                <input
+                  type="checkbox"
+                  checked={draft.dispatchAvailable}
+                  onChange={(e) => patch({ dispatchAvailable: e.target.checked })}
+                  data-attr="vendor-dispatch-available"
+                />
+                Available for dispatch
+              </label>
             </div>
           ) : null}
           {stepId === "rates" ? (

@@ -9,6 +9,7 @@ import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { normalizeVendorDispatchFields } from "@/lib/vendor-dispatch/vendor-roles";
 import { resolveActiveWorkspaceRowScope, type WorkspaceRowScope } from "@/lib/workspaces/row-scope.server";
 
 export const runtime = "nodejs";
@@ -38,6 +39,8 @@ function normalizeRow(row: ManagerVendorRow, managerUserId: string): ManagerVend
     sharedWithManagers: row.sharedWithManagers === true,
     shareOnProplane: row.shareOnProplane === true,
     propertyIds: Array.isArray(row.propertyIds) ? row.propertyIds : undefined,
+    // Dispatch roles/area/rate/license/availability: unknown values are stripped, never stored.
+    ...normalizeVendorDispatchFields(row as unknown as Record<string, unknown>),
     updatedAt: new Date().toISOString(),
   };
 }

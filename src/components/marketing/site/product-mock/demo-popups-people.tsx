@@ -74,7 +74,7 @@ import {
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
 } from "@/components/portal/portal-message-compose-fields";
-import { ManagerVendorFormFields, TypicalPriceFields, type ManagerVendorFormDraft } from "@/components/portal/pro-vendor-form-modal";
+import { EMPTY_MANAGER_VENDOR_FORM_DRAFT, ManagerVendorFormFields, TypicalPriceFields, type ManagerVendorFormDraft } from "@/components/portal/pro-vendor-form-modal";
 import { PortalInvitePaths, type PortalInvitePath } from "@/components/portal/portal-invite-paths";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import type { AddWorkspaceStep } from "@/components/portal/add-workspace";
@@ -918,6 +918,7 @@ export function DemoVendorFormPopup({
   const [invitePath, setInvitePath] = useState<PortalInvitePath>("link");
   const [axisInput, setAxisInput] = useState("");
   const [draft, setDraft] = useState<ManagerVendorFormDraft>(() => ({
+    ...EMPTY_MANAGER_VENDOR_FORM_DRAFT,
     name: vendor?.name ?? catalog?.name ?? "",
     trade: vendor?.trade ?? contact?.trade ?? VENDOR_TRADE_OPTIONS[0],
     trades: vendor ? [vendor.trade] : contact ? [contact.trade] : [VENDOR_TRADE_OPTIONS[0]],
