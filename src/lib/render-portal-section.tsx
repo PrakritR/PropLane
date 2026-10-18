@@ -1662,10 +1662,13 @@ export async function renderPortalSectionWith(
         legacyStatus === "overdue" || legacyStatus === "paid" || legacyStatus === "pending"
           ? legacyStatus
           : "pending";
-      // `?pay=<chargeId|now>` (the dashboard's overdue / Balance due links) rides through this redirect:
-      // dropping it left the resident on a list with nothing opened.
-      const payParam = typeof searchParams?.pay === "string" && searchParams.pay ? searchParams.pay : undefined;
-      redirect(`${def.basePath}/payments/${bucket}${payParam ? searchSuffix(undefined, { pay: payParam }) : ""}`);
+      // The WHOLE query rides through this redirect, not an allowlist of it. `?pay=…` (the
+      // dashboard's overdue / Balance due links) needs it to open a charge, and the Stripe
+      // return URL (`?ach_checkout=return&session_id=…`) needs it for the panel's verify
+      // effect to run at all — dropping it left a paid charge sitting in Upcoming until a
+      // webhook landed. `status` is the one param this redirect consumes (it chose the bucket).
+      const { status: _legacyStatus, ...carried } = (searchParams ?? {}) as PortalSearchParams;
+      redirect(`${def.basePath}/payments/${bucket}${searchSuffix(carried)}`);
     }
     // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
     if (tabParts.length > 3) notFound();
@@ -1674,7 +1677,7 @@ export async function renderPortalSectionWith(
       ? (tabRaw as (typeof PAY_BUCKETS)[number])
       : "pending";
     if (tabRaw !== paymentBucket) {
-      redirect(`${def.basePath}/payments/${paymentBucket}`);
+      redirect(`${def.basePath}/payments/${paymentBucket}${searchSuffix(searchParams)}`);
     }
     const chargeId = tabParts.length >= 2 ? decodeSegment(tabParts[1]!) : undefined;
     const chargeDetailTab = tabParts.length === 3 ? tabParts[2] : undefined;

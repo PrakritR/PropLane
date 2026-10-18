@@ -18,7 +18,7 @@ import { RecordHeaderHostContext, useLgUp } from "@/components/portal/portal-tit
 import {
   computeSharedSlotActionBudget,
   pickAdaptiveActions,
-  recordHeaderInlineLimit,
+  recordHeaderInlineCap,
   resolveAdaptiveOptionalFitCount,
   splitAdaptiveActions,
   type PortalAdaptiveAction,
@@ -38,6 +38,23 @@ function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
   const sectionRow = container.closest<HTMLElement>("[data-slot='portal-section-action-row']");
   const slot = container.closest<HTMLElement>("[data-portal-action-slot]");
   const bandRow = sectionRow?.parentElement;
+
+  // A record's detail header hands its actions a CONTENT-SIZED slot, so the row's own
+  // clientWidth is whatever it is already rendering — measure that and a folded row stays
+  // folded forever. The header marks the flex child that really owns the leftover space;
+  // the budget is that width minus the static buttons sitting beside the slot.
+  const recordHeader = container.closest<HTMLElement>("[data-portal-record-header-actions]");
+  if (recordHeader && recordHeader.clientWidth > 0) {
+    const siblingWidths: number[] = [];
+    for (const child of recordHeader.children) {
+      if (child instanceof HTMLElement && !child.contains(container)) {
+        siblingWidths.push(child.offsetWidth);
+      }
+    }
+    const headerGap = parseFloat(getComputedStyle(recordHeader).gap) || gapPx;
+    const budget = computeSharedSlotActionBudget(recordHeader.clientWidth, siblingWidths, headerGap);
+    if (budget > 0) return budget;
+  }
   if (
     slot &&
     slot.clientWidth > 0 &&
@@ -137,13 +154,18 @@ export function PortalAdaptiveActionRow({
   const bulkBarLimit = useContext(BulkBarActionLimitContext);
   const inRecordHeader = useContext(RecordHeaderHostContext);
   const lgUp = useLgUp();
-  const fixedLimit = inRecordMenu
-    ? actions.length
-    : maxVisible ?? bulkBarLimit ?? recordHeaderInlineLimit(actions.length, inRecordHeader, lgUp);
+  const fixedLimit = inRecordMenu ? actions.length : maxVisible ?? bulkBarLimit;
   const fixed = fixedLimit != null;
+  // A record header still MEASURES; the cap only stops it inlining more icons than a header
+  // should ever carry. Folding is decided by the space the header actually has.
+  const headerCap = fixed ? undefined : recordHeaderInlineCap(actions.length, inRecordHeader, lgUp);
+  const optionalCap =
+    headerCap != null ? Math.max(0, headerCap - (actions.length - optional.length)) : undefined;
   const optionalFitCount = fixed
     ? Math.max(0, fixedLimit - (actions.length - optional.length))
-    : measuredFitCount;
+    : optionalCap != null
+      ? Math.min(measuredFitCount, optionalCap)
+      : measuredFitCount;
   const moreBtnClass = moreButtonClassName ?? DEFAULT_MORE_BTN;
 
   const pinnedCount = pinnedMenuItems.length;
@@ -314,6 +336,7 @@ export const PortalAdaptiveHeaderActions = PortalAdaptiveActionRow;
 export type { PortalAdaptiveAction, PortalAdaptiveAction as PortalAdaptiveHeaderAction } from "@/lib/portal-adaptive-actions";
 export {
   computeSharedSlotActionBudget,
+  recordHeaderInlineCap,
   fitOptionalBetweenEdges,
   pickAdaptiveActions,
   pickAdaptiveActions as pickAdaptiveHeaderActions,

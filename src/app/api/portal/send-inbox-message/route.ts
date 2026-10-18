@@ -835,7 +835,10 @@ export async function POST(req: Request) {
         propertyId,
         propertyTitle,
         subject,
-        message: text,
+        // In-app: the body the resident typed, with the files beside it as chips. The
+        // "Attachments:" URL block belongs to the email copy alone.
+        message: storedText,
+        attachments: inboxAttachmentsFromUrls(attachmentUrls),
         ...(sendId ? {
           messageIds: propertyManagerSendMessageIds(user.id, sendId, {
             managerUserId: managerUserIdForProperty,
@@ -869,7 +872,8 @@ export async function POST(req: Request) {
             senderName: fromName,
             senderRole: portalSenderRole,
             subject,
-            body: text,
+            body: storedText,
+            attachments: inboxAttachmentsFromUrls(attachmentUrls),
           });
         }
       }

@@ -96,6 +96,7 @@ import { getPropertyById } from "@/lib/rental-application/data";
 import { sharedRoomCardFor } from "@/lib/shared-room-card";
 import { stripeSetupStateFromStatus } from "@/lib/stripe-setup-state";
 import { uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { cn } from "@/lib/utils";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -409,7 +410,7 @@ function LeaseSendSheetBody({
             lease.id,
             {
               application: { ...(lease.application ?? {}), ...patch },
-              signedRentLabel: `$${parseFloat(next.rent).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / month`,
+              signedRentLabel: `${formatRoomPriceAmount(parseMoneyAmount(next.rent))} / month`,
             },
             managerUserId,
           );

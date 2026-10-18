@@ -508,4 +508,45 @@ describe("deliverResidentPropertyManagerChatMessage", () => {
       rootOutbound: true,
     });
   });
+
+  it("carries the sender's files as attachments on both sides, never as links in the body", async () => {
+    const { db, rows } = globalPrimaryKeyDb();
+    const attachments = [{ url: "/api/portal/inbox-attachments?path=user-1%2Froof.png", name: "roof.png" }];
+    const result = await deliverResidentPropertyManagerChatMessage(db as never, {
+      residentEmail: "resident@test.proplane.local",
+      residentUserId: "user-1",
+      residentName: "Test Resident",
+      managerUserId: "mgr-1",
+      managerEmail: "manager@test.proplane.local",
+      propertyId: "prop-oak",
+      propertyTitle: "Oak House",
+      subject: "Leak",
+      message: "Photo of the ceiling",
+      attachments,
+    });
+
+    for (const row of rows.values()) {
+      expect(row.row_data.attachments).toEqual(attachments);
+      expect(String(row.row_data.body)).toBe("Photo of the ceiling");
+      expect(String(row.row_data.body)).not.toMatch(/Attachments:|inbox-attachments/);
+    }
+    // Appending to the same thread keeps the files on the turn itself.
+    await deliverResidentPropertyManagerChatMessage(db as never, {
+      residentEmail: "resident@test.proplane.local",
+      residentUserId: "user-1",
+      residentName: "Test Resident",
+      managerUserId: "mgr-1",
+      managerEmail: "manager@test.proplane.local",
+      propertyId: "prop-oak",
+      propertyTitle: "Oak House",
+      subject: "Leak",
+      message: "One more angle",
+      attachments,
+    });
+    const turns = rows.get(result.threadId)?.row_data.messages as { body: string; attachments?: unknown }[];
+    const latest = turns[turns.length - 1]!;
+    expect(latest.attachments).toEqual(attachments);
+    expect(latest.body).not.toMatch(/inbox-attachments/);
+  });
+
 });

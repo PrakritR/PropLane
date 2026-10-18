@@ -111,6 +111,22 @@ describe("admin-shared-inbox.server", () => {
     expect(db._rows[0]!.row_data.body).toBe("First message");
   });
 
+  it("stores the sender's files beside the body, never as links inside it", async () => {
+    const db = makeDb();
+    const attachments = [{ url: "/api/portal/inbox-attachments?path=mgr-1%2Flease.pdf", name: "lease.pdf" }];
+    await deliverPortalMessageToAdminSharedInbox(db as never, {
+      senderEmail: "manager@test.com",
+      senderName: "Test Manager",
+      senderRole: "manager",
+      subject: "Help",
+      body: "The lease is attached",
+      attachments,
+    });
+    expect(db._rows[0]!.row_data.attachments).toEqual(attachments);
+    expect(String(db._rows[0]!.row_data.body)).toBe("The lease is attached");
+    expect(String(db._rows[0]!.row_data.body)).not.toMatch(/Attachments:|inbox-attachments/);
+  });
+
   it("appends follow-up portal messages into the same admin thread", async () => {
     const threadId = adminPortalThreadIdForSender("manager@test.com");
     const db = makeDb([

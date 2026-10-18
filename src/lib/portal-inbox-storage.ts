@@ -1,5 +1,5 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
-import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
+import { sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
 
 /** The list route, as `sharedGet` keys it (every scope starts with this). */
 const INBOX_THREADS_URL = "/api/portal-inbox-threads";
@@ -596,12 +596,12 @@ export async function deleteInboxThreadIds(ids: string[]): Promise<boolean> {
   // Demo sandbox is local-only: pretend the server delete succeeded.
   if (isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/portal-inbox-threads", {
+    const res = await writeThroughFetch("/api/portal-inbox-threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ action: "deleteIds", ids: clean }),
-    });
+    }, { invalidatePrefix: INBOX_THREADS_URL });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
     return res.ok && data.ok !== false;
   } catch {
@@ -633,7 +633,6 @@ async function postInboxRows(
   key: string,
   rows: PersistedInboxThread[],
 ): Promise<boolean> {
-  invalidateSharedGets(INBOX_THREADS_URL);
   const serialize = (thread: PersistedInboxThread) => {
     const {
       readSources: _readSources,
@@ -648,7 +647,10 @@ async function postInboxRows(
   const replaceRows = action === "replace" ? rows.filter((row) => !isSharedTeamThread(row)) : rows;
   if (replaceRows.length === 0) return true;
   try {
-    const res = await fetch("/api/portal-inbox-threads", {
+    // `writeThroughFetch` drops the cached GET once the write has SETTLED. Invalidating
+    // before it would let a read that starts while the write is in flight settle the
+    // pre-write rows into the cache and serve them for the whole TTL.
+    const res = await writeThroughFetch("/api/portal-inbox-threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -657,7 +659,7 @@ async function postInboxRows(
           ? { action, rows: replaceRows.map(serialize) }
           : { action, row: serialize(rows[0]!) },
       ),
-    });
+    }, { invalidatePrefix: INBOX_THREADS_URL });
     if (!res.ok) return false;
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     return data.ok !== false;
@@ -694,16 +696,15 @@ export async function changePersistedInboxThreadFolders(
   ids: string[],
   action: "archive" | "restore",
 ): Promise<boolean> {
-  invalidateSharedGets(INBOX_THREADS_URL);
   if (!canUse() || ids.length === 0) return false;
   if (isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/portal-inbox-threads", {
+    const res = await writeThroughFetch("/api/portal-inbox-threads", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "changeFolder", scope: key, ids, folderAction: action }),
-    });
+    }, { invalidatePrefix: INBOX_THREADS_URL });
     if (!res.ok) return false;
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
     return data.ok !== false;
@@ -724,16 +725,15 @@ export async function clearInboxThreadMessagesOnServer(
   threadId: string,
   placeholder: { preview?: string; subject?: string; from?: string },
 ): Promise<boolean> {
-  invalidateSharedGets(INBOX_THREADS_URL);
   if (!canUse() || !threadId.trim()) return false;
   if (isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/portal-inbox-threads", {
+    const res = await writeThroughFetch("/api/portal-inbox-threads", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "clearMessages", scope: key, id: threadId.trim(), placeholder }),
-    });
+    }, { invalidatePrefix: INBOX_THREADS_URL });
     if (!res.ok) return false;
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
     return data.ok !== false;
@@ -791,12 +791,12 @@ export function persistInbox(key: string, threads: PersistedInboxThread[]): void
         return { ...stored, scope: key };
       });
     if (storedRows.length === 0) return;
-    await fetch("/api/portal-inbox-threads", {
+    await writeThroughFetch("/api/portal-inbox-threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ action: "replace", rows: storedRows }),
-    }).catch(() => undefined);
+    }, { invalidatePrefix: INBOX_THREADS_URL }).catch(() => undefined);
   })();
 }
 
@@ -1524,11 +1524,10 @@ export async function markPersistedInboxSourcesRead(
   sources: { id: string; observation: string }[],
 ): Promise<{ id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[] | null> {
   if (!canUse() || key !== MANAGER_INBOX_STORAGE_KEY || sources.length === 0) return null;
-  invalidateSharedGets(INBOX_THREADS_URL);
-  const response = await fetch("/api/portal-inbox-threads", {
+  const response = await writeThroughFetch("/api/portal-inbox-threads", {
     method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "markRead", scope: key, sources }),
-  });
+  }, { invalidatePrefix: INBOX_THREADS_URL });
   const body = await response.json().catch(() => null) as { results?: { id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[] } | null;
   const results = body?.results;
   const requested = new Set(sources.map((source) => source.id));

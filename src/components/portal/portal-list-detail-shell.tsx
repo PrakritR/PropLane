@@ -162,6 +162,11 @@ export function PortalDetailHeader({
         {/* The host stays mounted even while empty — a publisher only claims
             a slot it can see, so an unmounted host would never receive one. */}
         <div
+          // `flex-1 basis-0` makes this the child that holds the header's leftover width, so it
+          // is the one honest measure of how many action icons fit. The published row reads it
+          // through this attribute (`measureAvailableWidth`) instead of its own content-sized
+          // slot, which would measure whatever it already folded down to.
+          {...(iconTitleActions && !inlineActions ? { "data-portal-record-header-actions": "" } : {})}
           className={cn(
             inlineActions
               ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"

@@ -11,6 +11,8 @@ export type InboxThreadReply = {
   authorLabel: string;
   body: string;
   createdAt: string;
+  /** Files that rode with this turn — chips beside the bubble, never URLs in the body. */
+  attachments?: { url: string; name?: string }[];
 };
 
 export type InboxMessage = {
@@ -27,6 +29,8 @@ export type InboxMessage = {
   trashedFrom?: "inbox" | "sent";
   senderRole: InboxSenderRole;
   thread: InboxThreadReply[];
+  /** Root-turn attachments when the thread was opened with files. */
+  attachments?: { url: string; name?: string }[];
   /** Sent-folder only: who the admin addressed */
   composeAudience?:
     | "manager"

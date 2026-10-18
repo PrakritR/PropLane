@@ -3,6 +3,8 @@
  * that LEAVES the app (email / SMS) only; the in-app thread, its preview and the sender's copy
  * store the message text as typed.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -125,6 +127,24 @@ describe("send-inbox-message attachments", () => {
       expect(side.body).not.toMatch(/Attachments:|inbox-attachments/);
       expect(side.preview).toBe("Here is the photo");
       expect(side.attachments).toBeTruthy();
+    }
+  });
+
+  it("hands EVERY in-app delivery the stored text and the attachments, never the email copy", () => {
+    // The resident -> property-manager chat and the admin shared inbox write their turn
+    // verbatim from the body they are handed; passing `text` there put the email's
+    // "Attachments:" URL block in the bubble, so both take `storedText` + `attachments`.
+    const source = readFileSync(
+      join(__dirname, "..", "..", "src", "app", "api", "portal", "send-inbox-message", "route.ts"),
+      "utf8",
+    );
+    for (const call of ["deliverResidentPropertyManagerChatMessage(", "deliverPortalMessageToAdminSharedInbox("]) {
+      const start = source.indexOf(call);
+      expect(start).toBeGreaterThan(-1);
+      const args = source.slice(start, source.indexOf("});", start));
+      expect(args).toMatch(/(message|body): storedText/);
+      expect(args).toMatch(/attachments: inboxAttachmentsFromUrls\(attachmentUrls\)/);
+      expect(args).not.toMatch(/(message|body): text,/);
     }
   });
 

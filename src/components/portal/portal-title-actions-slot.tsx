@@ -103,9 +103,11 @@ export function useLgUp(): boolean {
 }
 
 /**
- * True for everything rendered inside a record's own detail-header host. The header's title slot is
- * content-sized, so a measured action row reads its own folded width back as the space it has and stays
- * folded; a row in this context shows a short action set as icons instead (see `recordHeaderInlineLimit`).
+ * True for everything rendered inside a record's own detail-header host. The host itself is
+ * content-sized, so a row that measured its own width read back whatever it had already folded
+ * to and stayed folded; a row in this context measures the header's real free space instead
+ * (`data-portal-record-header-actions`) and caps how many icons it inlines
+ * (see `recordHeaderInlineCap`).
  */
 export const RecordHeaderHostContext = createContext(false);
 

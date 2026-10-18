@@ -75,6 +75,9 @@ export function adminInboxMessageToThread(message: InboxMessage): PersistedInbox
     body: reply.body,
     at: stampOf(reply.createdAt),
     outbound: reply.authorLabel === ADMIN_REPLY_AUTHOR_LABEL,
+    // A turn's files stay with it: the in-app bubble shows chips, so the body never
+    // has to carry the raw links the email copy sends.
+    ...(reply.attachments?.length ? { attachments: reply.attachments } : {}),
   }));
   const last = message.thread[message.thread.length - 1];
   const email = counterpartyEmail(message);
@@ -93,6 +96,7 @@ export function adminInboxMessageToThread(message: InboxMessage): PersistedInbox
     unread: message.folder === "inbox" && !message.read,
     rootOutbound: sent,
     rootAt: stampOf(message.createdAt),
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
     messages,
   };
 }

@@ -1,5 +1,6 @@
 "use client";
 import { managerUnreadConversationCount, subscribeManagerUnreadConversationCount } from "@/lib/manager-unread-conversation-count";
+import { formatMoneyAmountsInLabel } from "@/lib/room-pricing";
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { Fragment, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -1235,7 +1236,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
               tone={sectionTone}
               title={lease.residentName || lease.residentEmail}
               subtitle={formatCompactPlacementLine(lease.unit || "—")}
-              meta={lease.signedRentLabel}
+              meta={lease.signedRentLabel ? formatMoneyAmountsInLabel(lease.signedRentLabel) : undefined}
               pill={
                 <StatusPill tone={sectionTone}>
                   {yourTurn ? "Your signature" : "Resident signing"}
@@ -1267,7 +1268,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
               tone={rowTone}
               title={lease.residentName || lease.residentEmail}
               subtitle={formatCompactPlacementLine(lease.unit || "—")}
-              meta={lease.signedRentLabel}
+              meta={lease.signedRentLabel ? formatMoneyAmountsInLabel(lease.signedRentLabel) : undefined}
               pill={
                 <StatusPill tone={rowTone}>
                   {item.activated ? "Activated" : "No account yet"}

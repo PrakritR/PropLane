@@ -30,7 +30,7 @@ import {
   type OpenResidentSlot,
   type RoomResidentSlotPlacement,
 } from "@/lib/rental-application/room-occupancy";
-import type { RoomPricingLike, RoomResidentPrice } from "@/lib/room-pricing";
+import { formatRoomPriceAmount, type RoomPricingLike, type RoomResidentPrice } from "@/lib/room-pricing";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/property-pipeline-events";
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 
@@ -1203,7 +1203,8 @@ export function signedRentLabelForRow(
   row: Pick<DemoApplicantRow, "signedMonthlyRent" | "application">,
 ): string | null {
   if (!Number.isFinite(row.signedMonthlyRent ?? NaN) || (row.signedMonthlyRent ?? 0) <= 0) return null;
-  const amount = `$${Number(row.signedMonthlyRent).toFixed(2)}`;
+  // Through the shared money formatter: "$1,050", and cents only when the rent has any.
+  const amount = formatRoomPriceAmount(Number(row.signedMonthlyRent));
   if (row.application?.rentalType === "short_term") return amount;
   return `${amount} / month`;
 }

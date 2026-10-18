@@ -54,6 +54,7 @@ import {
 import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applications-storage";
 import { TourApplicationFirstPanel } from "@/components/marketing/tour-application-first-panel";
 import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 type TourStep = 1 | 2 | 3;
 
@@ -891,7 +892,11 @@ function Step2({
 }) {
   const daysInMonth = getDaysInMonth(calYear, calMonth);
   const firstDay = getFirstDayOfMonth(calYear, calMonth);
-  const today = new Date();
+  // Slot keys are Pacific wall time, so "today" has to be Pacific too. Read from the
+  // browser's own calendar, a prospect east of Pacific whose local date has already
+  // rolled over is told "No tour times yet" about slots that are still open today, and
+  // the cell holding them is drawn as past.
+  const todayPacific = pacificCalendarDateYmd();
   const selectedDateStr = selectedDay != null ? toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0)) : null;
   const openSlots = selectedDateStr ? openSlotIndicesForDateStr(availability, selectedDateStr) : [];
 
@@ -915,7 +920,7 @@ function Step2({
             Try again
           </button>
         </div>
-      ) : !tourAvailabilityHasUpcoming(availability, toLocalDateStr(today)) ? (
+      ) : !tourAvailabilityHasUpcoming(availability, todayPacific) ? (
         <div
           data-attr="tour-no-times-yet"
           className="flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-pending"
@@ -960,7 +965,7 @@ function Step2({
             const day = i + 1;
             const isAvailable = dateHasAvailability(new Date(calYear, calMonth, day, 12, 0, 0, 0), availability);
             const isSelected = selectedDay === day;
-            const isPast = calYear === today.getFullYear() && calMonth === today.getMonth() && day < today.getDate();
+            const isPast = toLocalDateStr(new Date(calYear, calMonth, day, 12, 0, 0, 0)) < todayPacific;
             return (
               <button
                 key={day}

@@ -21,7 +21,7 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
-import { roomDailyRentPrice } from "@/lib/room-pricing";
+import { formatRoomPriceAmount, roomDailyRentPrice } from "@/lib/room-pricing";
 
 export type SubmissionRoomLookup = {
   /** Room-choice values in priority order (e.g. assignedRoomChoice, then roomChoice1). */
@@ -111,13 +111,15 @@ export function resolveSubmissionRoom(
 }
 
 /**
- * Period-aware rent line for one room: `"$55.00 / day"` for a daily-priced room,
- * `"$1200.00 / month"` otherwise, `undefined` when nothing is priced.
+ * Period-aware rent line for one room: `"$55 / day"` for a daily-priced room,
+ * `"$1,200 / month"` otherwise, `undefined` when nothing is priced. Written through the
+ * shared money formatter, so a four-figure rent carries its thousands separator and a
+ * whole-dollar amount does not read as "$1000.00" wherever this line is shown.
  */
 export function submissionRoomRentLabel(room: ManagerRoomSubmission | null | undefined): string | undefined {
   if (!room) return undefined;
   const daily = roomDailyRentPrice(room);
-  if (daily !== undefined) return `$${daily.toFixed(2)} / day`;
-  if (room.monthlyRent > 0) return `$${room.monthlyRent.toFixed(2)} / month`;
+  if (daily !== undefined) return `${formatRoomPriceAmount(daily)} / day`;
+  if (room.monthlyRent > 0) return `${formatRoomPriceAmount(room.monthlyRent)} / month`;
   return undefined;
 }

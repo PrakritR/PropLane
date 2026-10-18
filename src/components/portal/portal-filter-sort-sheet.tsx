@@ -52,7 +52,9 @@ function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; la
   return (
     <button
       type="button"
-      className="text-xs font-semibold text-primary hover:underline max-md:-mx-2 max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-2"
+      // `shrink-0` + no wrapping: beside a long apply label ("Show 12 tasks") the footer
+      // squeezed this to two lines on a phone.
+      className="shrink-0 whitespace-nowrap text-xs font-semibold text-primary hover:underline max-md:-mx-2 max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-2"
       onClick={onReset}
       data-attr="portal-filter-reset"
     >
@@ -91,7 +93,7 @@ function FilterSheetFooter({
   return (
     <ModalFooter className="w-full justify-between">
       <FilterResetLink onReset={onReset} label={resetLabel} />
-      <Button type="button" variant="primary" className="rounded-full" onClick={onSave} data-attr="portal-filter-save">
+      <Button type="button" variant="primary" className="min-w-0 rounded-full" onClick={onSave} data-attr="portal-filter-save">
         {applyLabel ?? "Save"}
       </Button>
     </ModalFooter>

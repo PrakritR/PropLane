@@ -112,7 +112,7 @@ describe("ManagerWorkNumberCard identity", () => {
     await waitFor(() => {
       expect(screen.getByText("inbox@axis.housing")).toBeTruthy();
     });
-    expect(screen.getByTitle(/Your work number:/)).toBeTruthy();
+    expect(screen.getByTitle(/Work number:/)).toBeTruthy();
     expect(screen.getByTitle(/Work email:/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Tell residents" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Tell residents about this number" })).toBeNull();
@@ -140,7 +140,7 @@ describe("ManagerWorkNumberCard identity", () => {
     await waitFor(() => {
       expect(screen.getByText("Set up work email")).toBeTruthy();
     });
-    expect(screen.getByTitle(/Your work number:/)).toBeTruthy();
+    expect(screen.getByTitle(/Work number:/)).toBeTruthy();
     expect(screen.getByRole("link", { name: /Set up work email/ }).getAttribute("href")).toBe(
       "/portal/profile?tab=messaging",
     );

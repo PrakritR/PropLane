@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   processingResult: { ok: true, marked: 1 } as { ok: boolean; marked: number },
   paidCalls: vi.fn(), creditCalls: vi.fn(), processingCalls: vi.fn(), bindCalls: vi.fn(),
   residentRole: true,
+  creditThrows: false,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -38,7 +39,10 @@ vi.mock("@/lib/stripe-household-charge", () => ({
 }));
 
 vi.mock("@/lib/household-captured-source.server", () => ({
-  creditVerifiedHouseholdCheckoutSource: async () => { state.creditCalls(); },
+  creditVerifiedHouseholdCheckoutSource: async () => {
+    state.creditCalls();
+    if (state.creditThrows) throw new Error("Household captured source has an unverified prior allocation.");
+  },
 }));
 
 import { GET } from "@/app/api/stripe/household-charge-verify/route";
@@ -79,6 +83,7 @@ describe("resident household checkout verification", () => {
     state.paidResult = { ok: true, alreadyPaid: false };
     state.processingResult = { ok: true, marked: 1 };
     state.residentRole = true;
+    state.creditThrows = false;
     state.bindCalls.mockResolvedValue({ data: true, error: null });
     fixture();
   });
@@ -133,6 +138,18 @@ describe("resident household checkout verification", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ paid: false, processing: true });
     expect(state.processingCalls).toHaveBeenCalledOnce();
+  });
+
+  it("still reports the settled payment when the platform allocation declines", async () => {
+    // The charge rows are already paid by the settlement above, and the webhook runs the
+    // same (idempotent) credit and retries. Answering `paid: false` told the resident
+    // their completed payment had not gone through and left it in Upcoming.
+    state.creditThrows = true;
+    const response = await verify();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ paid: true, chargeId: "hc_a", sourceReview: true });
+    expect(state.paidCalls).toHaveBeenCalledOnce();
+    expect(state.creditCalls).toHaveBeenCalledOnce();
   });
 
   it("holds unclaimed historical sessions for review", async () => {

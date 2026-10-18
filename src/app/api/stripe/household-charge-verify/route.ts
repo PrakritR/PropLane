@@ -72,6 +72,8 @@ export async function GET(req: Request) {
 
     const chargeId = attempt.charge_ids[0] ?? null;
     let alreadyPaid = false;
+    /** The platform-side allocation refused; the resident's charge is paid regardless. */
+    let sourceReview = false;
 
     if (paid) {
       const result = await markHouseholdChargePaidFromStripeSession(db, session);
@@ -79,9 +81,16 @@ export async function GET(req: Request) {
         error: "The payment source could not be settled yet." }, { status: 409 });
       try {
         await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
-      } catch {
-        return NextResponse.json({ paid: false, processing: false,
-          error: "The payment source needs review." }, { status: 409 });
+      } catch (e) {
+        // The charge rows are ALREADY paid by the line above, so answering `paid: false`
+        // told the resident their completed payment had not gone through and left it
+        // sitting in Upcoming. Crediting the manager's hold is platform accounting, it is
+        // idempotent, and the `checkout.session.completed` webhook runs the very same
+        // credit and retries until it lands — so it is reported, never a refusal of a
+        // settled payment. The reason is logged instead of swallowed: this branch is the
+        // only place that knows WHY the allocation declined.
+        console.error("[household verify] credit verified source", e);
+        sourceReview = true;
       }
       alreadyPaid = result.alreadyPaid ?? false;
     } else if (processing) {
@@ -98,6 +107,7 @@ export async function GET(req: Request) {
       paymentStatus: session.payment_status,
       chargeId,
       alreadyPaid,
+      ...(sourceReview ? { sourceReview: true } : {}),
       sessionId: session.id,
     });
   } catch (e) {

@@ -17,6 +17,8 @@ export type AdminInboxThreadReply = {
   authorLabel: string;
   body: string;
   createdAt: string;
+  /** Files that rode with this turn — chips beside the bubble, never URLs in the body. */
+  attachments?: { url: string; name?: string }[];
 };
 
 export type AdminInboxThreadRow = {
@@ -31,6 +33,8 @@ export type AdminInboxThreadRow = {
   folder: "inbox" | "sent" | "trash";
   senderRole: AdminInboxSenderRole;
   thread: AdminInboxThreadReply[];
+  /** Root-turn attachments when the thread was opened with files. */
+  attachments?: { url: string; name?: string }[];
   scope: typeof ADMIN_INBOX_SCOPE;
 };
 
@@ -64,6 +68,11 @@ function parseAdminInboxRowData(rowData: Record<string, unknown>): AdminInboxThr
   const thread = Array.isArray(rowData.thread)
     ? (rowData.thread as AdminInboxThreadReply[])
     : [];
+  // The root turn's files belong to the stored row, not to this read: rebuilding the row
+  // without them dropped the attachment the next time anyone appended to the thread.
+  const storedAttachments = Array.isArray(rowData.attachments)
+    ? (rowData.attachments as { url: string; name?: string }[])
+    : undefined;
   return {
     id,
     name: String(rowData.name ?? email),
@@ -76,6 +85,7 @@ function parseAdminInboxRowData(rowData: Record<string, unknown>): AdminInboxThr
     folder: "inbox",
     senderRole,
     thread,
+    ...(storedAttachments?.length ? { attachments: storedAttachments } : {}),
     scope: ADMIN_INBOX_SCOPE,
   };
 }
@@ -115,17 +125,22 @@ export async function deliverPortalMessageToAdminSharedInbox(
     senderRole: AdminInboxSenderRole;
     subject: string;
     body: string;
+    /** Files the sender attached. Stored beside the body so the file stays reachable without
+     * pasting its URL into the message (the email copy is the only place that carries links). */
+    attachments?: { url: string; name?: string }[];
   },
 ): Promise<{ threadId: string; created: boolean }> {
   const senderEmail = opts.senderEmail.trim().toLowerCase();
   const nowIso = new Date().toISOString();
   const when = formatPacificDateTime(new Date());
   const existing = await findAdminPortalThreadBySender(db, senderEmail);
+  const attachments = opts.attachments?.length ? opts.attachments : undefined;
   const message: AdminInboxThreadReply = {
     id: `portal-msg-${Date.now().toString(36)}`,
     authorLabel: opts.senderName.trim() || senderEmail,
     body: opts.body.trim(),
     createdAt: nowIso,
+    ...(attachments ? { attachments } : {}),
   };
 
   if (existing) {
@@ -172,6 +187,7 @@ export async function deliverPortalMessageToAdminSharedInbox(
     folder: "inbox",
     senderRole: PORTAL_SENDER_ROLES.has(opts.senderRole) ? opts.senderRole : "manager",
     thread: [],
+    ...(attachments ? { attachments } : {}),
     scope: ADMIN_INBOX_SCOPE,
   };
   const record = buildPortalInboxThreadUpsert({ ...row, conversationKey: emailKey(senderEmail) }, { id: "", email: null });

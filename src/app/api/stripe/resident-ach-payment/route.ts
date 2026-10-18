@@ -49,16 +49,22 @@ async function answer(paymentIntentId: string, userId: string) {
   const settled = await reconcileResidentManualAchPaymentIntent(db, paymentIntent, userId);
   if (!settled.ok) return NextResponse.json({ paid: false, processing: false,
     bankStatus: "review", error: "Bank payment needs review." }, { status: 409 });
+  let sourceReview = false;
   if (settled.paid) {
     try {
       await creditVerifiedHouseholdManualSource(db, stripe, paymentIntent);
-    } catch {
-      return NextResponse.json({ paid: false, processing: false,
-        bankStatus: "review", error: "Bank payment needs review." }, { status: 409 });
+    } catch (e) {
+      // The charge rows are already paid by the reconcile above. Crediting the manager's
+      // hold is platform accounting — idempotent, and retried by the webhook — so a refusal
+      // there is reported, never turned into "your completed payment did not go through".
+      // Logged rather than swallowed: this is the only place that knows why it declined.
+      console.error("[resident ach verify] credit verified source", e);
+      sourceReview = true;
     }
   }
   return NextResponse.json({ paid: settled.paid, processing: settled.processing,
-    bankStatus: state, chargeId: settled.chargeId, ...clientFields });
+    bankStatus: state, chargeId: settled.chargeId,
+    ...(sourceReview ? { sourceReview: true } : {}), ...clientFields });
 }
 
 export async function GET(req: Request) {

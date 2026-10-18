@@ -63,6 +63,7 @@ beforeEach(() => {
         thread_type: "portal_message",
         conversation_key: "ws:W1",
         workspace_id: "W1",
+        updated_at: "2026-10-16T00:00:00.000Z",
         row_data: { id: "msg_inbox_notice", folder: "inbox", unread: true, body: "Charge created", messages: [] },
       },
       {
@@ -74,6 +75,7 @@ beforeEach(() => {
         thread_type: null,
         conversation_key: "ws:W1",
         workspace_id: "W1",
+        updated_at: "2026-10-16T00:00:00.000Z",
         row_data: { id: "msg_f4290f7c", folder: "sent", unread: true, body: "Hi", messages: [] },
       },
     ],
@@ -117,6 +119,51 @@ describe("resident saves a merged conversation", () => {
     expect(res.status).toBe(200);
     const sibling = rows().find((row) => row.id === "msg_f4290f7c")!;
     expect((sibling.row_data as { unread: boolean }).unread).toBe(false);
+  });
+
+  it("never rolls a sibling's history back to the copy the read-settle saw", async () => {
+    // `row_data` is one jsonb column: writing it back whole from the read above would drop
+    // a turn an inbound delivery appended in between. The flip is a compare-and-set, so a
+    // stale write lands on nothing and re-reads on top of the newer copy.
+    const sibling = rows().find((row) => row.id === "msg_f4290f7c")! as Record<string, unknown>;
+    const deliverConcurrently = () => {
+      sibling.row_data = {
+        ...(sibling.row_data as Record<string, unknown>),
+        messages: [{ id: "inbound-1", body: "Sent while you were reading" }],
+      };
+      sibling.updated_at = "2026-10-16T00:00:05.000Z";
+    };
+    // The route reads the siblings, then writes each one: land the append in that window.
+    const db = state.db as { from: (table: string) => unknown };
+    const original = db.from.bind(db);
+    let reads = 0;
+    (state.db as { from: (table: string) => unknown }).from = (table: string) => {
+      const builder = original(table) as Record<string, unknown> & { select?: (...a: unknown[]) => unknown };
+      if (table === "portal_inbox_thread_records") {
+        const select = builder.select as (...a: unknown[]) => unknown;
+        builder.select = (...args: unknown[]) => {
+          const next = select.apply(builder, args);
+          if (String(args[0] ?? "").includes("updated_at") && reads++ === 0) deliverConcurrently();
+          return next;
+        };
+      }
+      return builder;
+    };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: "msg_inbox_notice",
+        scope: RES,
+        folder: "inbox",
+        unread: false,
+        sourceThreadIds: ["msg_inbox_notice", "msg_f4290f7c"],
+      },
+    });
+    expect(res.status).toBe(200);
+    const settled = rows().find((row) => row.id === "msg_f4290f7c")! as { row_data: Record<string, unknown> };
+    expect(settled.row_data.unread).toBe(false);
+    expect(settled.row_data.messages).toEqual([{ id: "inbound-1", body: "Sent while you were reading" }]);
   });
 
   it("does not mark a sibling read when the save leaves the conversation unread", async () => {

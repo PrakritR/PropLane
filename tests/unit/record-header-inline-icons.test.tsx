@@ -15,7 +15,7 @@ import {
   PortalTitleActionsProvider,
   usePublishTitleActions,
 } from "@/components/portal/portal-title-actions-slot";
-import { RECORD_HEADER_INLINE_MAX, recordHeaderInlineLimit } from "@/lib/portal-adaptive-actions";
+import { RECORD_HEADER_INLINE_MAX, recordHeaderInlineCap } from "@/lib/portal-adaptive-actions";
 
 afterEach(() => {
   cleanup();
@@ -59,14 +59,15 @@ function Header({ count, detail }: { count: number; detail: boolean }) {
   );
 }
 
-describe("recordHeaderInlineLimit", () => {
-  it("shows a short set inline only in a record header on desktop", () => {
-    expect(recordHeaderInlineLimit(2, true, true)).toBe(2);
-    expect(recordHeaderInlineLimit(RECORD_HEADER_INLINE_MAX, true, true)).toBe(RECORD_HEADER_INLINE_MAX);
-    expect(recordHeaderInlineLimit(RECORD_HEADER_INLINE_MAX + 1, true, true)).toBeUndefined();
-    expect(recordHeaderInlineLimit(3, true, false)).toBeUndefined();
-    expect(recordHeaderInlineLimit(3, false, true)).toBeUndefined();
-    expect(recordHeaderInlineLimit(0, true, true)).toBeUndefined();
+describe("recordHeaderInlineCap", () => {
+  it("is a ceiling for a desktop record header and nothing anywhere else", () => {
+    // A CAP, not a count: measurement still decides how many of them actually fit, which is
+    // what lets a narrow header fold instead of squeezing its title.
+    expect(recordHeaderInlineCap(2, true, true)).toBe(RECORD_HEADER_INLINE_MAX);
+    expect(recordHeaderInlineCap(RECORD_HEADER_INLINE_MAX + 1, true, true)).toBe(RECORD_HEADER_INLINE_MAX);
+    expect(recordHeaderInlineCap(3, true, false)).toBeUndefined();
+    expect(recordHeaderInlineCap(3, false, true)).toBeUndefined();
+    expect(recordHeaderInlineCap(0, true, true)).toBeUndefined();
   });
 });
 
@@ -85,7 +86,7 @@ describe("a record header's actions", () => {
     expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
   });
 
-  it("falls back to the measured row (hidden measure strip + ⋯ slot) when there are more than five", () => {
+  it("keeps a measure strip so a header that runs out of room can fold", () => {
     stubViewport(true);
     render(<Header count={6} detail />);
     expect(document.querySelector("[data-portal-adaptive-fit-more]")).not.toBeNull();
@@ -101,10 +102,21 @@ describe("a record header's actions", () => {
     expect(document.querySelector("[data-portal-adaptive-fit-more]")).not.toBeNull();
   });
 
-  it("measures nothing for a short set in a desktop record header", () => {
+  it("keeps measuring a short set too, so the ⋯ can appear when the window is too narrow", () => {
+    // The earlier fix skipped measurement for 1-5 actions, which meant a record header
+    // NEVER folded at any desktop width and a narrow one truncated its title instead.
     stubViewport(true);
     render(<Header count={3} detail />);
-    expect(document.querySelector("[data-portal-adaptive-fit-more]")).toBeNull();
+    expect(document.querySelector("[data-portal-adaptive-fit-more]")).not.toBeNull();
+    for (let n = 1; n <= 3; n++) expect(screen.getByRole("button", { name: `Action ${n}` })).toBeTruthy();
+  });
+
+  it("caps the inline icons at five even when there is room for more", () => {
+    stubViewport(true);
+    render(<Header count={6} detail />);
+    const inline = [1, 2, 3, 4, 5, 6].filter((n) => screen.queryByRole("button", { name: `Action ${n}` }));
+    expect(inline.length).toBeLessThanOrEqual(RECORD_HEADER_INLINE_MAX);
+    expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy();
   });
 });
 

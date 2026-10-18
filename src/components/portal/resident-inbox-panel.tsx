@@ -99,6 +99,11 @@ import {
   type InboxComposerAttachment,
 } from "@/lib/inbox-attachments";
 
+/** The resident's scheduled sends, as `sharedGet` keys them. */
+const SCHEDULED_MESSAGES_URL = "/api/portal/scheduled-inbox-messages?as=resident";
+/** One load's worth: long enough that two mounts share a read, short enough to stay live. */
+const SCHEDULED_MESSAGES_TTL_MS = 5_000;
+
 type InboxThread = PersistedInboxThread;
 
 /** Stable seed when localStorage is empty (matches demo-portal resident inbox seeds). */
@@ -261,16 +266,20 @@ export const ResidentInboxPanel = forwardRef<
       .catch(() => setSmsConfigured(false));
   }, [smsUiEnabled]);
 
-  const reloadScheduledMessages = useCallback(async () => {
+  const reloadScheduledMessages = useCallback(async (opts?: { force?: boolean }) => {
     if (isDemoModeActive()) return;
     setScheduledLoading(true);
     try {
-      const res = await fetch("/api/portal/scheduled-inbox-messages?as=resident", {
-        credentials: "include",
-        cache: "no-store",
+      // Through `sharedGet`: this panel is mounted more than once per load (the list and the
+      // thread), and each copy asking for itself cost an identical request every time. A
+      // mount read joins whatever is already in flight or settled; a reload AFTER a write
+      // (schedule / send now / cancel) forces a fresh one.
+      const res = await sharedGet(SCHEDULED_MESSAGES_URL, {
+        force: opts?.force === true,
+        ttlMs: opts?.force ? 0 : SCHEDULED_MESSAGES_TTL_MS,
       });
       if (!res.ok) return;
-      const data = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
+      const data = (res.data ?? {}) as { messages?: ScheduledInboxMessageRecord[] };
       setScheduledMessages(Array.isArray(data.messages) ? data.messages : []);
     } finally {
       setScheduledLoading(false);
@@ -462,7 +471,7 @@ export const ResidentInboxPanel = forwardRef<
         });
         if (!res.ok) throw new Error("Could not update scheduled message.");
         showToast(cancelled ? "Scheduled message cancelled." : "Scheduled message restored.");
-        void reloadScheduledMessages();
+        void reloadScheduledMessages({ force: true });
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not update scheduled message.");
         if (options?.rethrow) throw e;
@@ -1024,7 +1033,7 @@ export const ResidentInboxPanel = forwardRef<
                     try {
                       await sendManualScheduledMessageNow(row.id, { asResident: true });
                       showToast("Message sent.");
-                      void reloadScheduledMessages();
+                      void reloadScheduledMessages({ force: true });
                     } catch (e) {
                       showToast(e instanceof Error ? e.message : "Could not send message.");
                     }
@@ -1113,7 +1122,7 @@ export const ResidentInboxPanel = forwardRef<
       }
       showToast(ok === 1 ? "Message sent." : `Sent ${ok} messages.`);
       scheduleSelection.clearSelection();
-      void reloadScheduledMessages();
+      void reloadScheduledMessages({ force: true });
     } finally {
       setBulkBusy(false);
     }
@@ -1547,7 +1556,7 @@ export const ResidentInboxPanel = forwardRef<
         updateReplyDraft("");
         setScheduleLater(false);
         showToast("Message scheduled.");
-        void reloadScheduledMessages();
+        void reloadScheduledMessages({ force: true });
       } catch {
         showToast("Could not schedule message.");
       } finally {

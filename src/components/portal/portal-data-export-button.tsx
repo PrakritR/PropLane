@@ -8,7 +8,11 @@ import { Modal } from "@/components/ui/modal";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { downloadOrShareFile } from "@/lib/native/download-or-share";
-import { EXPORT_FILE_MIME, validateExportPassword } from "@/lib/account-export/export-password";
+import {
+  EXPORT_FILE_MIME,
+  EXPORT_PASSWORD_MIN_LENGTH,
+  validateExportPassword,
+} from "@/lib/account-export/export-password";
 
 const FALLBACK_FILE_NAME = "proplane-export.proplane";
 
@@ -117,8 +121,10 @@ export function PortalDataExportButton({ className }: { className?: string }) {
         <div className="space-y-4 text-sm text-foreground">
           <div className="space-y-3">
             <div className="space-y-1.5">
+              {/* The two facts with real consequence stay ON the label, not in a paragraph under it:
+                  the length rule, and that a forgotten password means the file never opens again. */}
               <label htmlFor={passwordId} className="block text-xs font-medium text-foreground">
-                Export password
+                {`Export password (${EXPORT_PASSWORD_MIN_LENGTH}+ characters, we can't recover it)`}
               </label>
               <PasswordInput
                 id={passwordId}

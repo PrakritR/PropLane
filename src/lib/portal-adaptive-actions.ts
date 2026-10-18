@@ -17,18 +17,25 @@ export type PortalAdaptiveAction = {
 /** @deprecated Use {@link PortalAdaptiveAction}. */
 export type PortalAdaptiveHeaderAction = PortalAdaptiveAction;
 
-/** A record header shows this many actions (or fewer) as icons on desktop; more fold into ⋯ by measured space. */
+/** The most actions a record header ever inlines as icons on desktop; the rest fold into ⋯. */
 export const RECORD_HEADER_INLINE_MAX = 5;
 
 /**
- * How many actions a row must show without measuring, or `undefined` to let it measure.
- * Only a record's own detail header on a desktop viewport shows a short set (≤ {@link RECORD_HEADER_INLINE_MAX})
- * as icons; phones and longer sets keep the measured row with its ⋯.
+ * The CEILING on inline actions for a record's own detail header on a desktop viewport, or
+ * `undefined` for every other row (a phone, a list band, a bulk bar), which has none.
+ *
+ * It is a cap, never a count: the row still measures the space it actually has and folds
+ * what does not fit. An earlier version returned a FIXED count equal to the action count,
+ * which short-circuited measurement entirely — so a 1-5 action header never folded at any
+ * desktop width and a narrow header squeezed its title instead. The row's own measurement
+ * was unusable then because it read its own folded width back as the space available; the
+ * fix is to measure the header's real free space (see `measureAvailableWidth`), not to stop
+ * measuring.
  */
-export function recordHeaderInlineLimit(actionCount: number, inRecordHeader: boolean, desktop: boolean): number | undefined {
+export function recordHeaderInlineCap(actionCount: number, inRecordHeader: boolean, desktop: boolean): number | undefined {
   if (!inRecordHeader || !desktop) return undefined;
-  if (actionCount <= 0 || actionCount > RECORD_HEADER_INLINE_MAX) return undefined;
-  return actionCount;
+  if (actionCount <= 0) return undefined;
+  return RECORD_HEADER_INLINE_MAX;
 }
 
 function adaptiveActionTone(action: PortalAdaptiveAction) {

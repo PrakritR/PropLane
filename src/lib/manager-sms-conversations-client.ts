@@ -107,7 +107,9 @@ export async function loadManagerSmsConversationsClient(
         pending.force = false;
         const result = await sharedGet(`/api/manager/sms-conversations${query}`, { force, ttlMs: 0 });
         const status = result.ok ? result.status : result.status >= 200 && result.status <= 599 ? result.status : 503;
-        const text = result.ok ? JSON.stringify(result.data ?? null) : "{}";
+        // The route's own error payload rides through on a refusal too: a caller that reads
+        // `error` off the body gets the real reason instead of an empty object.
+        const text = JSON.stringify(result.data ?? (result.ok ? null : {}));
         return {
           body: new TextEncoder().encode(text).buffer as ArrayBuffer,
           status,

@@ -143,7 +143,10 @@ export function ManagerWorkNumberCard() {
   const workspace = status?.workspaceNumber ?? null;
   const phone =
     (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
-  const numberLabel = coManager ? "Workspace number" : "Your work number";
+  // "Work number", not "Your work number": the box is half of a two-column grid in the
+  // inbox rail, and with a retry action sharing the label line the longer wording was
+  // clipped to "Your work nu…". It also reads as a pair with "Work email" beside it.
+  const numberLabel = coManager ? "Workspace number" : "Work number";
   const emailLabel = coManager ? "Workspace email" : "Work email";
   const owner = workspace?.ownerName?.trim() || "your workspace owner";
 

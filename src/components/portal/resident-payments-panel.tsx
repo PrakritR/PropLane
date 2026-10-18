@@ -320,6 +320,15 @@ export function ResidentPaymentsPanel({
     });
   }, [applicationTick, email, tick, userId]);
 
+  // Both parties signed: "Pay this before signing your lease" is an instruction about a gate
+  // that is already behind the resident, and a prorated first-month charge keeps
+  // `blocksLeaseUntilPaid` on the row long after it stopped blocking anything.
+  const leaseFullySigned = useMemo(() => {
+    void tick;
+    if (!email) return false;
+    return Boolean(findLeaseForResidentEmail(email)?.fullySignedAt?.trim());
+  }, [email, tick]);
+
   const [rentReporting, setRentReporting] = useState<RentReportingCardState | null>(null);
   const [rentReportingConsentOpen, setRentReportingConsentOpen] = useState(false);
   const [rentReportingLegalName, setRentReportingLegalName] = useState("");
@@ -565,10 +574,13 @@ export function ResidentPaymentsPanel({
     const achCheckout = searchParams.get("ach_checkout");
     const sessionId = searchParams.get("session_id")?.trim();
     if (!achCheckout || !sessionId) return;
+    // Back to the routed list this panel is already showing — bare `/payments` only
+    // server-redirects here again, one round trip to land on the same page.
+    const listPath = `${basePath}/payments/${resolvedBucketProp}`;
 
     if (achCheckout === "cancel") {
       showToast("Bank payment cancelled.");
-      router.replace("/resident/payments");
+      router.replace(listPath);
       return;
     }
 
@@ -584,7 +596,7 @@ export function ResidentPaymentsPanel({
 
       if (!res.ok) {
         showToast(typeof data.error === "string" ? data.error : "Could not verify bank payment.");
-        router.replace("/resident/payments");
+        router.replace(listPath);
         return;
       }
 
@@ -600,9 +612,9 @@ export function ResidentPaymentsPanel({
       } else {
         showToast(typeof data.error === "string" ? data.error : "Payment not completed yet.");
       }
-      router.replace("/resident/payments");
+      router.replace(listPath);
     })();
-  }, [refresh, router, searchParams, showToast]);
+  }, [basePath, refresh, resolvedBucketProp, router, searchParams, showToast]);
 
   const rows = useMemo(() => {
     // Ledger-only payments carry no application, so they belong to the long-term section.
@@ -1155,7 +1167,7 @@ export function ResidentPaymentsPanel({
         {row.status === "paid" && row.paidAt ? (
           <p className="mt-2 text-xs text-muted">Marked paid {safeFormatDateTime(row.paidAt)}</p>
         ) : null}
-        {row.blocksLeaseUntilPaid && row.status === "pending" ? (
+        {row.blocksLeaseUntilPaid && row.status === "pending" && !leaseFullySigned ? (
           <p className="mt-3 text-sm text-amber-900">
             Pay this before signing your lease.{" "}
             <Link href="/resident/lease" className="font-semibold text-primary underline underline-offset-2">
@@ -1703,7 +1715,7 @@ export function ResidentPaymentsPanel({
             One payment covers everything above. Your deposit is still held separately, so it is refunded on its own
             terms when you move out.
           </p>
-          {group.blocksLeaseUntilPaid ? (
+          {group.blocksLeaseUntilPaid && !leaseFullySigned ? (
             <p className="mt-3 text-sm text-amber-900">
               Pay this before signing your lease.{" "}
               <Link href="/resident/lease" className="font-semibold text-primary underline underline-offset-2">

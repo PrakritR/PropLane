@@ -1130,15 +1130,22 @@ function RentalApplicationWizardInner({
     void (async () => {
       for (let attempt = 0; attempt < RECONCILE_READ_ATTEMPTS; attempt++) {
         const result = await syncManagerApplicationsFromServerWithStatus({ force: true });
-        if (cancelled) return;
-        if (result.ok) break;
+        if (cancelled) return false;
+        if (result.ok) return true;
         if (attempt < RECONCILE_READ_ATTEMPTS - 1) {
           await new Promise((resolve) => window.setTimeout(resolve, RECONCILE_READ_RETRY_MS * (attempt + 1)));
-          if (cancelled) return;
+          if (cancelled) return false;
         }
       }
-    })().then(() => {
+      return false;
+    })().then((readSucceeded) => {
       if (cancelled) return;
+      // Every attempt failed (a flapping server, or the session ended). Nothing below may
+      // run: clearing the draft and minting a fresh axis id on a read that never answered
+      // is exactly the duplicate "Incomplete" row the retries exist to prevent. Leaving
+      // `reconciledSignature` unset keeps this effect eligible to reconcile again — and
+      // keeps the sync/create effect from writing a second application in the meantime.
+      if (!readSucceeded) return;
       const inProgress = applicationsForResidentEmail(email).filter(isInProgressApplicationRow);
       const hit = findInProgressRowForTarget(inProgress, target);
       if (hit?.application) {
