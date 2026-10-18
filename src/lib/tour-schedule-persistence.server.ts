@@ -39,6 +39,27 @@ export async function mutateConfirmedTourSchedule(
   db: Db,
   mutation: ScheduleMutation,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const result = await mutateConfirmedTourScheduleCore(db, mutation);
+  if (result.ok && mutation.operation === "append") offerTourToHostRule(db, mutation.event);
+  return result;
+}
+
+/**
+ * A booked tour at a house with a tour-host dispatch rule opens a run for the manager to
+ * approve (vendor-dispatch-1018). Best-effort and never awaited by the booking: a dispatch
+ * failure must not fail a tour the guest was already told is confirmed.
+ */
+function offerTourToHostRule(db: Db, event: Record<string, unknown>): void {
+  if (String(event.kind ?? "") !== "tour") return;
+  void import("@/lib/vendor-dispatch/triggers.server")
+    .then(({ maybeDispatchTourHost }) => maybeDispatchTourHost(db as never, event))
+    .catch((error: unknown) => console.error("tour host dispatch failed", error instanceof Error ? error.message : "unknown"));
+}
+
+async function mutateConfirmedTourScheduleCore(
+  db: Db,
+  mutation: ScheduleMutation,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const event = stampSmsTestProvenance(mutation.event);
   // Old unit fixtures and pre-migration local databases do not expose RPCs.
   // Production always takes the RPC path; this compatibility path preserves
@@ -163,6 +184,9 @@ export async function confirmProspectSmsTourOffer(
   const result = data as { ok?: unknown; reason?: unknown; idempotent?: unknown; plannedEventId?: unknown; status?: unknown } | null;
   if (result?.ok !== true || typeof result.plannedEventId !== "string") {
     return { ok: false, reason: typeof result?.reason === "string" ? result.reason : "That tour time is no longer available." };
+  }
+  if (result.idempotent !== true) {
+    offerTourToHostRule(db, { kind: "tour", propertyId: args.propertyId, attendeeName: args.contactName, ...args.event, id: result.plannedEventId });
   }
   return {
     ok: true,

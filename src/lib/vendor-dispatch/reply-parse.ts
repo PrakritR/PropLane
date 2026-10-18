@@ -1,0 +1,119 @@
+/**
+ * Deterministic parsing of the replies the dispatch loop expects, run BEFORE
+ * any AI agent sees the text (vendor-dispatch-1018). Pure.
+ *
+ * Manager: `Y`, `YES`, `Y 7`, `N 7`, `2`, `2 7`, `R 7` (retry), `B 7` (offer all).
+ * Vendor:  `YES [time] [$price]`, `NO`, `BUSY [2h]`, `DONE`, each with an optional job number.
+ * Anything else is "not ours" and falls through to the normal agents.
+ */
+
+export type ManagerDispatchReply =
+  | { kind: "approve"; handle: number | null }
+  | { kind: "decline"; handle: number | null }
+  | { kind: "pick"; position: number; handle: number | null }
+  | { kind: "retry"; handle: number | null }
+  | { kind: "broadcast"; handle: number | null };
+
+const MANAGER_REPLY = /^\s*(?:(y|yes)|(n|no)|(\d)|(r|retry)|(b|broadcast))\s*(?:[#\s]\s*(\d{1,6}))?\s*[.!]?\s*$/i;
+
+export function parseManagerDispatchReply(body: string): ManagerDispatchReply | null {
+  const match = MANAGER_REPLY.exec(String(body ?? ""));
+  if (!match) return null;
+  const handle = match[6] ? Number(match[6]) : null;
+  if (match[1]) return { kind: "approve", handle };
+  if (match[2]) return { kind: "decline", handle };
+  if (match[3]) {
+    const position = Number(match[3]);
+    return position >= 1 ? { kind: "pick", position, handle } : null;
+  }
+  if (match[4]) return { kind: "retry", handle };
+  return { kind: "broadcast", handle };
+}
+
+export type VendorDispatchReply =
+  | { kind: "yes"; handle: number | null; timeText: string | null; priceCents: number | null }
+  | { kind: "no"; handle: number | null }
+  | { kind: "busy"; handle: number | null; minutes: number }
+  | { kind: "done"; handle: number | null; note: string | null }
+  | { kind: "invoice"; handle: number | null; amountCents: number };
+
+const YES_WORDS = new Set(["y", "yes", "yep", "yeah", "yup", "accept", "accepted", "sure"]);
+const NO_WORDS = new Set(["n", "no", "nope", "pass", "decline", "declined"]);
+const BUSY_WORDS = new Set(["busy", "unavailable", "booked"]);
+const DONE_WORDS = new Set(["done", "finished", "complete", "completed"]);
+const INVOICE_WORDS = new Set(["invoice", "bill", "total"]);
+
+export const DEFAULT_BUSY_MINUTES = 120;
+
+/** "2h", "30m", "2 hours", "90 min" -> minutes. */
+export function parseBusyMinutes(text: string): number | null {
+  const match = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|d|day|days)\b/i.exec(text);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2]!.toLowerCase();
+  const minutes = unit.startsWith("d") ? amount * 1440 : unit.startsWith("h") ? amount * 60 : amount;
+  const rounded = Math.round(minutes);
+  return rounded >= 5 && rounded <= 14 * 1440 ? rounded : null;
+}
+
+function parsePriceCents(text: string): number | null {
+  const match = /\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{1,2})?)/.exec(text);
+  if (!match) return null;
+  const value = Number(match[1]!.replace(/,/g, ""));
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) : null;
+}
+
+/** A bare integer right after the verb is the job number, unless it is the hour of a time ("2pm", "2:30"). */
+function takeHandle(rest: string): { handle: number | null; rest: string } {
+  const match = /^#?\s*(\d{1,6})\b(?!\s*(?:am|pm|a\.m|p\.m|:|h\b|hr|hour|min|m\b))/i.exec(rest.trim());
+  if (!match) return { handle: null, rest: rest.trim() };
+  if (match[0].trim().length === 0) return { handle: null, rest: rest.trim() };
+  return { handle: Number(match[1]), rest: rest.trim().slice(match[0].length).trim() };
+}
+
+export function parseVendorDispatchReply(body: string): VendorDispatchReply | null {
+  const text = String(body ?? "").trim();
+  if (!text || text.length > 120) return null;
+  const word = /^([A-Za-z]+)\b/.exec(text);
+  if (!word) return null;
+  const verb = word[1]!.toLowerCase();
+  const remainder = text.slice(word[0].length).replace(/^[\s,.:!-]+/, "");
+
+  if (YES_WORDS.has(verb)) {
+    const price = parsePriceCents(remainder);
+    const withoutPrice = remainder.replace(/(?:for\s+)?\$\s*\d[\d,]*(?:\.\d{1,2})?/i, "").trim();
+    const taken = takeHandle(withoutPrice);
+    const timeText = taken.rest.replace(/^[\s,.:!-]+|[\s,.!-]+$/g, "");
+    return { kind: "yes", handle: taken.handle, timeText: timeText || null, priceCents: price };
+  }
+  if (NO_WORDS.has(verb)) {
+    const taken = takeHandle(remainder);
+    return { kind: "no", handle: taken.handle };
+  }
+  if (BUSY_WORDS.has(verb)) {
+    const taken = takeHandle(remainder);
+    return { kind: "busy", handle: taken.handle, minutes: parseBusyMinutes(taken.rest) ?? DEFAULT_BUSY_MINUTES };
+  }
+  if (INVOICE_WORDS.has(verb)) {
+    // "INVOICE $240", "INVOICE 240", "INVOICE #7 $240": a number is dollars; a job number needs its "#".
+    const handleMatch = /#\s*(\d{1,6})\b/.exec(remainder);
+    const withoutHandle = handleMatch ? remainder.replace(handleMatch[0], " ") : remainder;
+    const amountMatch = /\$?\s*(\d{1,6}(?:,\d{3})*(?:\.\d{1,2})?)/.exec(withoutHandle);
+    const cents = amountMatch ? Math.round(Number(amountMatch[1]!.replace(/,/g, "")) * 100) : 0;
+    if (!Number.isFinite(cents) || cents <= 0) return null;
+    return { kind: "invoice", handle: handleMatch ? Number(handleMatch[1]) : null, amountCents: cents };
+  }
+  if (DONE_WORDS.has(verb)) {
+    const taken = takeHandle(remainder);
+    return { kind: "done", handle: taken.handle, note: taken.rest || null };
+  }
+  return null;
+}
+
+/** A resident's answer to "Is it fixed? Reply YES or NO". */
+export function parseResidentFixedReply(body: string): "fixed" | "not_fixed" | null {
+  const text = String(body ?? "").trim();
+  if (/^(yes|y|yep|yeah|fixed|all good|resolved)\s*[.!]*$/i.test(text)) return "fixed";
+  if (/^(no|n|nope|not fixed|still broken|still a problem)\s*[.!]*$/i.test(text)) return "not_fixed";
+  return null;
+}

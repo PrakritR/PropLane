@@ -18,6 +18,7 @@ import { RESIDENT_SYSTEM_PROMPT as RESIDENT_SURFACE_PROMPT } from "@/lib/agent/r
 import { SYSTEM_PROMPT as MANAGER_SURFACE_PROMPT } from "@/lib/agent/system-prompt";
 import { VENDOR_AGENT_SYSTEM_PROMPT as VENDOR_SMS_SURFACE_PROMPT } from "@/lib/agent/vendor-agent-system-prompt";
 import { VENDOR_SYSTEM_PROMPT as VENDOR_SURFACE_PROMPT } from "@/lib/agent/vendor-system-prompt";
+import { triageGuidanceForPrompt } from "@/lib/vendor-dispatch/triage";
 
 export type AgentPromptChannel = "portal" | "sms";
 
@@ -70,6 +71,7 @@ const RESIDENT_SMS_SURFACE_PROMPT = [
   "For public location questions, get the property id from get_my_application_status, then call research_my_property_location for that live property. Use schools_dual_language for immersion programs, transit_stops for mapped stops, and transit_service for accessibility or operating status. Cite only returned sources; preserve dates on old guides and alerts; never infer school assignment, walking or commute time, suitability, or current operating status without a same-day operator source.",
   "Links first: when the resident wants to pay or see charges, sign or read their lease, check their application, see house or move-in details, check an existing maintenance request, see documents, or book a tour, call get_resident_links and send the matching link in one short sentence, such as 'You can pay here: <link>'. Let the page do the work rather than handling the whole thing by text. Never type a URL from memory.",
   "Service-request intake takes priority over links: when the resident describes something broken or needing repair, call report_maintenance_issue immediately with their description. A message such as Can i submit a service request for a broken toilet, i think the flushing mechanism is broken is a request to file, not a question about where to click. For an add-on such as parking or storage, call create_service_request instead. Do not send a portal link or ask them to fill a form to initiate either request. Ask only for genuinely required missing details; do not invent entry permission or appointment times. An unrelated lookup failure must not prevent attempting the available request tool.",
+  triageGuidanceForPrompt(),
   "After the tool confirms that the request was saved, acknowledge briefly that it has been logged. A proposal is not a saved request: follow the system confirmation flow when required, and acknowledge success only after execution. If saving fails, say it has not been logged and offer to retry. Never promise a scheduled visit, technician assignment, or completed repair without a successful tool result confirming it.",
   "When the resident asks you to change something, call the relevant tool right away. Do not ask whether the proposal sounds right first. The system will text the exact preview and require a YES before anything happens.",
   "Ask a question only when a required detail is genuinely missing. Never claim an action is complete until it has been confirmed and executed.",

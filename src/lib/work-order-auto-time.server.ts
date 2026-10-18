@@ -37,14 +37,18 @@ export type AutoTimeOutcome =
 export async function willDispatchRun(
   db: SupabaseClient,
   managerUserId: string,
-  row: Pick<DemoManagerWorkOrderRow, "managerInitiated" | "bucket" | "vendorId" | "selfAssigned" | "category">,
+  row: Pick<DemoManagerWorkOrderRow, "managerInitiated" | "bucket" | "vendorId" | "selfAssigned" | "category"> &
+    Partial<Pick<DemoManagerWorkOrderRow, "title" | "description" | "priority" | "propertyId" | "assignedPropertyId">>,
 ): Promise<boolean> {
   if (row.managerInitiated === true) return false;
   if (row.bucket !== "open") return false;
   if (row.vendorId || row.selfAssigned) return false;
   if (!row.category) return false;
   const settings = await loadVendorDispatchSettings(db, managerUserId);
-  return settings.mode !== "off";
+  if (settings.mode !== "off") return true;
+  // A rule-based dispatch run (vendor-dispatch-1018) claims the row the same way.
+  const { ruleWouldDispatchWorkOrder } = await import("@/lib/vendor-dispatch/triggers.server");
+  return ruleWouldDispatchWorkOrder(db, managerUserId, row);
 }
 
 /**

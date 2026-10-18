@@ -104,3 +104,8 @@ above. The decision is `handleVendorSessionInbound`
 Vendors no longer have a number of their own, so "unknown numbers silently dropped"
 above now means: not on the owner's Vendors list, not a linked account's verified
 phone, and not texted by the owner in the last 90 days.
+
+**Rule-based dispatch runs (Oct 18).** A workspace with an active dispatch rule for a job's trade
+and issue gets a text-approved run instead of the proposal above: `prepareDispatch` hands the service
+to `maybeCreateRuleRunForWorkOrder` first. Both paths stay: with no rule, everything above is
+unchanged. The loop, its invariants and the files are in [`one-number.md`](one-number.md) § W7a.

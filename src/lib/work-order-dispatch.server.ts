@@ -26,6 +26,7 @@ import {
   type WorkOrderRowWithDispatch,
 } from "@/lib/work-order-dispatch";
 import { loadManagerWorkOrders, loadVendorsForMatching } from "@/lib/tools/domains/work-orders";
+import { maybeCreateRuleRunForWorkOrder } from "@/lib/vendor-dispatch/triggers.server";
 
 type Db = SupabaseClient;
 
@@ -50,6 +51,15 @@ export async function prepareDispatch(db: Db, workOrderId: string): Promise<void
   if (row.vendorId || row.selfAssigned) return;
   if (!row.category) return;
   if (row.dispatch) return;
+
+  // Rule-based dispatch (vendor-dispatch-1018): a workspace with an active rule for this trade
+  // and issue gets a run awaiting the manager's text approval INSTEAD of the legacy proposal.
+  // No rule, or nothing to run, leaves the legacy path below exactly as it was.
+  const ruleOutcome = await maybeCreateRuleRunForWorkOrder(db, workOrderId).catch((error: unknown) => {
+    console.error("prepareDispatch: rule dispatch failed", workOrderId, error instanceof Error ? error.message : error);
+    return "skipped" as const;
+  });
+  if (ruleOutcome === "created" || ruleOutcome === "existing" || ruleOutcome === "refused" || ruleOutcome === "no_vendors") return;
 
   const settings = await loadVendorDispatchSettings(db, managerUserId);
   if (settings.mode === "off") return;

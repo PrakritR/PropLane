@@ -35,6 +35,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/vendor-dispatch-sweep",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/listing-channel-posts",
       "schedule": "*/5 * * * *"
     },

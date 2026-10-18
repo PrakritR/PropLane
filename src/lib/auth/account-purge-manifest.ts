@@ -1057,6 +1057,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "vendor_dispatch_runs",
     phase: 1,
     manager: { ids: ["owner_user_id"] },
+    // The resident who reported the job; their address goes, the manager's run stays.
+    resident: { detachEmails: ["resident_email"] },
   },
   {
     table: "vendor_dispatch_handle_counters",
