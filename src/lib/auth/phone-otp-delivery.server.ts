@@ -6,6 +6,20 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendSms } from "@/lib/twilio";
 
+/** Shared-mode hooks may send only against the app's atomic, rate-limited reservation. */
+export async function claimPhoneAuthHookDelivery(phone: string): Promise<boolean> {
+  try {
+    const db = createSupabaseServiceRoleClient();
+    if ((await loadSharedLineConfig(db)).mode !== "shared") return true;
+    const { data, error } = await db.rpc("phone_auth_claim_hook_delivery", { p_phone: phone });
+    // A missing migration, a duplicate hook, or an unsolicited GoTrue request
+    // has no delivery authority. Never fall back to an unbudgeted send.
+    return !error && data === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Auth codes are platform traffic, never billed to or sent from a workspace.
  * Both the signed Supabase hook and the local challenge flow use this path.

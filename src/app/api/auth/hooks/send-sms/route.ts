@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Webhook } from "standardwebhooks";
-import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
+import { claimPhoneAuthHookDelivery, sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
 import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
 import { normalizeE164 } from "@/lib/phone-e164";
 
@@ -47,6 +47,7 @@ export async function POST(request: Request) {
   ) return failure(400);
 
   try {
+    if (!(await claimPhoneAuthHookDelivery(normalizedPhone))) return failure(429);
     if (!(await sendPhoneAuthCode(normalizedPhone, otp, id))) return failure(503);
     return NextResponse.json({});
   } catch {

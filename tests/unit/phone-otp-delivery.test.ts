@@ -1,22 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ sendSms: vi.fn(), config: vi.fn(), service: vi.fn() }));
+const mocks = vi.hoisted(() => ({ sendSms: vi.fn(), config: vi.fn(), service: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/twilio", () => ({ sendSms: mocks.sendSms }));
 vi.mock("@/lib/one-number/config.server", () => ({ loadSharedLineConfig: mocks.config }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: mocks.service }));
 
-import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
+import { claimPhoneAuthHookDelivery, sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550100");
-  mocks.service.mockReturnValue({});
+  mocks.service.mockReturnValue({ rpc: mocks.rpc });
   mocks.config.mockResolvedValue({ mode: "per_workspace", sharedNumber: null });
   mocks.sendSms.mockResolvedValue({ sent: true });
+  mocks.rpc.mockResolvedValue({ data: true, error: null });
 });
 afterEach(() => vi.unstubAllEnvs());
 
 describe("phone auth transport", () => {
+  it("keeps existing hook delivery behavior outside shared mode", async () => {
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(true);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("requires an atomic pending challenge claim for shared-mode hook delivery", async () => {
+    mocks.config.mockResolvedValue({ mode: "shared", sharedNumber: "+12065550199" });
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(true);
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("phone_auth_claim_hook_delivery", { p_phone: "+12065550142" });
+  });
+
+  it.each([
+    { data: false, error: null },
+    { data: null, error: { code: "42P01" } },
+    { data: null, error: { code: "42703" } },
+    { data: null, error: { code: "PGRST205" } },
+  ])("fails closed when shared delivery has no reservation or schema %#", async (result) => {
+    mocks.config.mockResolvedValue({ mode: "shared", sharedNumber: "+12065550199" });
+    mocks.rpc.mockResolvedValue(result);
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(false);
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+  });
+
   it("uses the platform verification path, never a workspace sender", async () => {
     expect(await sendPhoneAuthCode("2065550142", "123456", "actor")).toBe(true);
     expect(mocks.sendSms).toHaveBeenCalledExactlyOnceWith(

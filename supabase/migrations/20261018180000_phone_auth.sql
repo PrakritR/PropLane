@@ -6,6 +6,7 @@ alter table public.phone_otp_challenges add column if not exists completed_at ti
 -- consumed_at also marks superseded/failed-delivery codes; it is NOT proof.
 alter table public.phone_otp_challenges add column if not exists verified_at timestamptz;
 alter table public.phone_otp_challenges add column if not exists auth_provider text;
+alter table public.phone_otp_challenges add column if not exists delivered_at timestamptz;
 
 -- Short leases span the separate Auth API and application-database calls.
 -- This closes create-vs-attach races for legacy accounts with no Auth phone.
@@ -78,6 +79,21 @@ begin
     where phone_key = p_phone_key and purpose = p_purpose and auth_user_id is not distinct from p_user and consumed_at is null;
   insert into public.phone_otp_challenges(id, phone_key, purpose, subject_id, auth_user_id, phone_e164, browser_hash, code_hash, auth_provider, expires_at)
     values(p_id, p_phone_key, p_purpose, p_user::text, p_user, p_phone, p_browser_hash, p_code_hash, p_provider, now() + interval '10 minutes');
+  return true;
+end $$;
+
+-- A public GoTrue OTP request must not bypass the application's send budget.
+-- Its signed hook can spend only a still-pending, rate-limited reservation.
+create or replace function public.phone_auth_claim_hook_delivery(p_phone text)
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare challenge_id uuid;
+begin
+  select id into challenge_id from public.phone_otp_challenges
+    where phone_e164 = p_phone and purpose = 'sign_in' and auth_provider = 'supabase'
+      and delivered_at is null and consumed_at is null and expires_at > now()
+    order by created_at desc limit 1 for update skip locked;
+  if not found then return false; end if;
+  update public.phone_otp_challenges set delivered_at = now() where id = challenge_id;
   return true;
 end $$;
 
@@ -226,11 +242,13 @@ end $$;
 
 revoke all on function public.phone_auth_e164(text), public.phone_auth_owners(text),
   public.phone_auth_claim_operation(uuid,text,uuid), public.phone_auth_release_operation(uuid),
+  public.phone_auth_claim_hook_delivery(text),
   public.phone_auth_start(uuid,text,text,text,uuid,text,text,text), public.phone_auth_consume(uuid,uuid,text,text),
   public.phone_auth_complete_native(uuid,text), public.phone_auth_bind(uuid,uuid,text,uuid,uuid),
   public.guard_verified_phone_change(), public.guard_auth_phone_change() from public, anon, authenticated;
 grant execute on function public.phone_auth_e164(text), public.phone_auth_owners(text),
   public.phone_auth_claim_operation(uuid,text,uuid), public.phone_auth_release_operation(uuid),
+  public.phone_auth_claim_hook_delivery(text),
   public.phone_auth_start(uuid,text,text,text,uuid,text,text,text), public.phone_auth_consume(uuid,uuid,text,text),
   public.phone_auth_complete_native(uuid,text), public.phone_auth_bind(uuid,uuid,text,uuid,uuid),
   public.guard_verified_phone_change(), public.guard_auth_phone_change() to service_role;

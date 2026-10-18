@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ sendPhoneAuthCode: vi.fn() }));
+const mocks = vi.hoisted(() => ({ sendPhoneAuthCode: vi.fn(), claimPhoneAuthHookDelivery: vi.fn() }));
 vi.mock("@/lib/auth/phone-otp-delivery.server", () => mocks);
 
 import { POST } from "@/app/api/auth/hooks/send-sms/route";
@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("SUPABASE_SEND_SMS_HOOK_SECRET", SECRET);
   mocks.sendPhoneAuthCode.mockResolvedValue(true);
+  mocks.claimPhoneAuthHookDelivery.mockResolvedValue(true);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -103,5 +104,18 @@ describe("Supabase Send SMS hook", () => {
   it("never reports success when the provider did not accept the code", async () => {
     mocks.sendPhoneAuthCode.mockResolvedValue(false);
     expect((await POST(request())).status).toBe(503);
+  });
+
+  it("refuses a correctly signed hook with no pending delivery reservation", async () => {
+    mocks.claimPhoneAuthHookDelivery.mockResolvedValue(false);
+    expect((await POST(request())).status).toBe(429);
+    expect(mocks.sendPhoneAuthCode).not.toHaveBeenCalled();
+  });
+
+  it("does not resend the same challenge for duplicate signed hooks", async () => {
+    mocks.claimPhoneAuthHookDelivery.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    expect((await POST(request())).status).toBe(200);
+    expect((await POST(request())).status).toBe(429);
+    expect(mocks.sendPhoneAuthCode).toHaveBeenCalledTimes(1);
   });
 });
