@@ -11,8 +11,33 @@
  * the fix; a bigger z-index is not.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+
+/**
+ * On a phone the on-screen keyboard shrinks the VISUAL viewport but not the layout one, so a
+ * `fixed inset-0` sheet keeps its footer (the primary action) under the keyboard. While the
+ * keyboard is up, pin the sheet to the visual viewport instead; otherwise leave it alone.
+ */
+function useKeyboardAwareFrame(): CSSProperties | undefined {
+  const [frame, setFrame] = useState<CSSProperties | undefined>(undefined);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => {
+      const covered = window.innerHeight - viewport.height - viewport.offsetTop;
+      setFrame(window.innerWidth < 640 && covered > 80 ? { top: viewport.offsetTop, height: viewport.height, bottom: "auto" } : undefined);
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, []);
+  return frame;
+}
 
 export function ListingWizardOverlay({
   children,
@@ -22,6 +47,7 @@ export function ListingWizardOverlay({
   ariaLabel?: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const keyboardFrame = useKeyboardAwareFrame();
   useEffect(() => {
     setMounted(true);
     // The page behind must not scroll while the wizard owns the screen.
@@ -37,6 +63,7 @@ export function ListingWizardOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
+      style={keyboardFrame}
       className="pointer-events-none fixed inset-0 z-[80] flex min-h-0 min-w-0 outline-none overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-5"
     >
       {/*

@@ -5,7 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const emitActionEvent = vi.fn<(db: unknown, input: unknown) => Promise<unknown>>(async () => ({ eventId: "e" }));
 vi.mock("@/lib/action-events.server", () => ({ emitActionEvent: (db: unknown, input: unknown) => emitActionEvent(db, input) }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: () => undefined }));
-vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({ upsertAirbnbResidentsFromImportedRanges: async () => undefined }));
+vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
+  upsertAirbnbResidentsFromImportedRanges: async () => undefined,
+  releaseAirbnbResidentsAbsentFromFeed: async () => undefined,
+}));
 vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => new Set<string>() }));
 
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";

@@ -10,7 +10,7 @@
  */
 import { useMemo } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import {
   assigneeIsStale,
   assignmentCandidatesFor,
@@ -83,7 +83,7 @@ export function WorkAssignmentPicker({
     <div>
       <FieldSingleSelect
         label={label}
-        labelClassName={MODAL_FIELD_LABEL_CLASS}
+        labelClassName={POPUP_FIELD_LABEL_CLASS}
         value={stale ? UNASSIGNED : selected}
         onChange={pick}
         disabled={disabled}

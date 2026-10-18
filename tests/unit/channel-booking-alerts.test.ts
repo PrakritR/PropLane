@@ -8,7 +8,10 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: (...args: unknown[]) => track
 // The owner's email leg has its own test (owner-booking-email.test.ts); here it must not reach a real mailer.
 vi.mock("@/lib/manager-notice-email.server", () => ({ sendManagerNoticeEmail: async () => ({ status: "sent" }) }));
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({ resolveManagerAssistantWorkspace: async () => ({ workspaceId: "", isDefault: true }) }));
-vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({ upsertAirbnbResidentsFromImportedRanges: async () => undefined }));
+vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
+  upsertAirbnbResidentsFromImportedRanges: async () => undefined,
+  releaseAirbnbResidentsAbsentFromFeed: async () => undefined,
+}));
 vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => new Set<string>() }));
 
 import { diffChannelReservations } from "@/lib/channel-calendar/channel-booking-diff";

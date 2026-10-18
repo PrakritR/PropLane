@@ -13,8 +13,8 @@ import { Input, Select } from "@/components/ui/input";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingCancelLabel, canRemoveBooking } from "@/lib/channel-calendar/booking-presentation";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { POPUP_FIELD_LABEL_CLASS, POPUP_FIELD_LINK_CLASS } from "@/components/portal/popup-phone-styles";
 import {
-  MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
   PORTAL_MODAL_FORM_FULL_ROW_CLASS,
 } from "@/components/ui/modal";
@@ -31,7 +31,7 @@ import { airbnbLinkForRoom, type ChannelRoomLink } from "@/lib/channel-calendar/
 import { roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { cn } from "@/lib/utils";
 
-const FIELD_LINK = "text-xs font-semibold normal-case tracking-normal text-primary hover:underline disabled:opacity-50";
+const FIELD_LINK = POPUP_FIELD_LINK_CLASS;
 
 /** Stable defaults: an inline `[]` default is a new array every render and would retrigger the open effect forever. */
 const NO_RESIDENTS: readonly BlockDatesResidentOption[] = [];
@@ -465,7 +465,7 @@ export function BookingsBlockDatesModal({
       >
         <div hidden={stepId !== "property"} className="sm:space-y-4">
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <div className={MODAL_FIELD_LABEL_CLASS}>
+            <div className={POPUP_FIELD_LABEL_CLASS}>
               Property
             </div>
             <Select
@@ -488,7 +488,7 @@ export function BookingsBlockDatesModal({
           </div>
 
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <div className={`${MODAL_FIELD_LABEL_CLASS} flex items-center`}>
+            <div className={`${POPUP_FIELD_LABEL_CLASS} flex items-center`}>
               <span>Resident</span>
               {isNewResident ? (
                 <button
@@ -568,7 +568,7 @@ export function BookingsBlockDatesModal({
 
           {isClosed ? (
             <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-closed-reason">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="bookings-block-closed-reason">
                 Reason
               </label>
               <Input
@@ -586,7 +586,7 @@ export function BookingsBlockDatesModal({
 
           {propertyId ? (
             <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-              <div className={MODAL_FIELD_LABEL_CLASS}>
+              <div className={POPUP_FIELD_LABEL_CLASS}>
                 Room
               </div>
               <Select
@@ -608,15 +608,9 @@ export function BookingsBlockDatesModal({
         </div>
 
         <div hidden={stepId !== "when"}>
-          <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div><span className={MODAL_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}</Select></div>
-            {isClosed ? null : <label><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>}
-            {(["linen", "baggage"] as const).map((key) => <div key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select aria-label={key === "linen" ? "Linen" : "Baggage"} id={`booking-stay-${key}`} value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value} value={value}>{value}</option>)}</Select></div>)}
-            {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })} /></label>)}
-          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-in">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-in">
                 Move in
               </label>
               <Input
@@ -629,7 +623,7 @@ export function BookingsBlockDatesModal({
               />
             </div>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-out">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="bookings-block-check-out">
                 Move out
               </label>
               <Input
@@ -666,32 +660,38 @@ export function BookingsBlockDatesModal({
               </ul>
             </div>
           ) : null}
+          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div><span className={POPUP_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}</Select></div>
+            {isClosed ? null : <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>}
+            {(["linen", "baggage"] as const).map((key) => <div key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select aria-label={key === "linen" ? "Linen" : "Baggage"} id={`booking-stay-${key}`} value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value} value={value}>{value}</option>)}</Select></div>)}
+            {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })} /></label>)}
+          </div>
         </div>
 
         <div hidden={stepId !== "review"}>
           <dl className="divide-y divide-border">
             <div className="flex items-start justify-between gap-4 py-3">
-              <dt className="text-sm text-muted">Property</dt>
-              <dd className="text-right text-sm font-semibold text-foreground">{selectedProperty?.label || "—"}</dd>
+              <dt className="text-sm text-muted max-lg:text-[16px]">Property</dt>
+              <dd className="text-right text-sm font-semibold text-foreground max-lg:text-[16px]">{selectedProperty?.label || "—"}</dd>
             </div>
             <div className="flex items-start justify-between gap-4 py-3">
-              <dt className="text-sm text-muted">Room</dt>
-              <dd className="text-right text-sm font-semibold text-foreground">
+              <dt className="text-sm text-muted max-lg:text-[16px]">Room</dt>
+              <dd className="text-right text-sm font-semibold text-foreground max-lg:text-[16px]">
                 {selectedRoom?.label || (propertyId ? "Whole home" : "—")}
               </dd>
             </div>
             <div className="flex items-start justify-between gap-4 py-3">
-              <dt className="text-sm text-muted">Resident</dt>
-              <dd className="text-right text-sm font-semibold text-foreground">{residentSummary}</dd>
+              <dt className="text-sm text-muted max-lg:text-[16px]">Resident</dt>
+              <dd className="text-right text-sm font-semibold text-foreground max-lg:text-[16px]">{residentSummary}</dd>
             </div>
             <div className="flex items-start justify-between gap-4 py-3">
-              <dt className="text-sm text-muted">When</dt>
-              <dd className="text-right text-sm font-semibold text-foreground">{checkIn && checkOut ? whenSummary : "—"}</dd>
+              <dt className="text-sm text-muted max-lg:text-[16px]">When</dt>
+              <dd className="text-right text-sm font-semibold text-foreground max-lg:text-[16px]">{checkIn && checkOut ? whenSummary : "—"}</dd>
             </div>
             {airbnbLink ? (
               <div className="flex items-start justify-between gap-4 py-3" data-attr="bookings-block-airbnb-fact">
-                <dt className="text-sm text-muted">Airbnb</dt>
-                <dd className="text-right text-sm font-semibold text-foreground">Updates when Airbnb next checks PropLane</dd>
+                <dt className="text-sm text-muted max-lg:text-[16px]">Airbnb</dt>
+                <dd className="text-right text-sm font-semibold text-foreground max-lg:text-[16px]">Updates when Airbnb next checks PropLane</dd>
               </div>
             ) : null}
           </dl>
@@ -708,8 +708,8 @@ export function BookingsBlockDatesModal({
                     data-attr={`bookings-sheet-block-${entry.blockId}`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">{name}</p>
-                      <p className="truncate text-xs text-muted">{subtitle}</p>
+                      <p className="truncate text-sm font-semibold text-foreground max-lg:text-[16px]">{name}</p>
+                      <p className="truncate text-xs text-muted max-lg:text-[13px]">{subtitle}</p>
                     </div>
                     <BookingsRowOverflow
                       label={name}

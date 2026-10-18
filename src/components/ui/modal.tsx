@@ -417,7 +417,7 @@ function ModalPanelInner({
             <h3
               className={cn(
                 "min-w-0 flex-1 font-semibold leading-tight text-foreground",
-                "text-[16px] font-[650] tracking-tight",
+                "text-[17px] sm:text-[16px] font-[650] tracking-tight",
               )}
             >
               {title}

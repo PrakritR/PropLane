@@ -6,8 +6,8 @@ import { PreviewPanel } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import {
-  MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
   PORTAL_MODAL_FORM_FULL_ROW_CLASS,
   PORTAL_MODAL_FORM_GRID_CLASS,
@@ -673,7 +673,7 @@ export function ManagerTaskFormModal({
     >
       <div hidden={stepId !== "task"}>
       <div className="pb-4">
-        <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
+        <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
           Task type
         </label>
         <Select
@@ -708,7 +708,7 @@ export function ManagerTaskFormModal({
         {isTour ? (
           <>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-name">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-name">
                 Guest name
               </label>
               <Input
@@ -720,7 +720,7 @@ export function ManagerTaskFormModal({
               />
             </div>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-email">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-email">
                 Guest email
               </label>
               <Input
@@ -733,7 +733,7 @@ export function ManagerTaskFormModal({
               />
             </div>
             <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-phone">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-phone">
                 Guest phone
               </label>
               <PhoneNumberField
@@ -751,7 +751,7 @@ export function ManagerTaskFormModal({
             data-wizard-label={isWorkOrder ? "Task title" : "Description"}
             data-wizard-required={titleRequired ? "true" : undefined}
           >
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
+            <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
               {isWorkOrder ? "Task title" : "Description"}
               {titleRequired ? (
                 <>
@@ -800,7 +800,7 @@ export function ManagerTaskFormModal({
       <>
         <div hidden={stepId !== "property"}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-property">
+          <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-property">
             Property
           </label>
           <Select
@@ -837,7 +837,7 @@ export function ManagerTaskFormModal({
 
         {isWorkOrder ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-work-order-category">
+            <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-work-order-category">
               Category
             </label>
             <Select
@@ -864,7 +864,7 @@ export function ManagerTaskFormModal({
 
         {showResidentPicker ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-resident">
+            <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-resident">
               Resident
             </label>
             <Select
@@ -893,7 +893,7 @@ export function ManagerTaskFormModal({
 
         {form.propertyId ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-room">
+            <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-room">
               Room
             </label>
             <Select
@@ -926,7 +926,7 @@ export function ManagerTaskFormModal({
         {isTour ? (
           <>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
                 Schedule date
               </label>
               <Input
@@ -943,7 +943,7 @@ export function ManagerTaskFormModal({
               />
             </div>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-tour-start-time">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-tour-start-time">
                 Start time
               </label>
               <Input
@@ -956,7 +956,7 @@ export function ManagerTaskFormModal({
               />
             </div>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-duration">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-duration">
                 Duration
               </label>
               <Select
@@ -978,7 +978,7 @@ export function ManagerTaskFormModal({
         ) : (
           <>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-urgency">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-urgency">
                 Timing
               </label>
               <Select
@@ -1010,7 +1010,7 @@ export function ManagerTaskFormModal({
             </div>
 
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-priority">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-priority">
                 Priority
               </label>
               <Select
@@ -1034,7 +1034,7 @@ export function ManagerTaskFormModal({
 
             {showDueDate ? (
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-due-date">
+                <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-due-date">
                   Due date
                 </label>
                 <Input
@@ -1061,7 +1061,7 @@ export function ManagerTaskFormModal({
               data-attr="manager-task-schedule"
             >
               <div className="flex items-baseline justify-between gap-3">
-                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
+                <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
                   Schedule
                 </label>
                 {taskSuggestLoading ? (
@@ -1129,7 +1129,7 @@ export function ManagerTaskFormModal({
             ) : null}
 
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-recurrence">
+              <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-recurrence">
                 Repeats
               </label>
               <Select
@@ -1150,7 +1150,7 @@ export function ManagerTaskFormModal({
 
         <div hidden={stepId !== "review"}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-notes">
+          <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-notes">
             Notes
           </label>
           <textarea
@@ -1163,7 +1163,7 @@ export function ManagerTaskFormModal({
         </div>
 
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-checklist">
+          <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-checklist">
             Checklist
           </label>
           <textarea
@@ -1182,7 +1182,7 @@ export function ManagerTaskFormModal({
         </div>
 
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-attachments">
+          <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="manager-task-attachments">
             Attachments
           </label>
           <textarea
@@ -1197,7 +1197,7 @@ export function ManagerTaskFormModal({
 
         {editingId ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)} data-attr="manager-task-comments">
-            <p className={MODAL_FIELD_LABEL_CLASS}>Comments</p>
+            <p className={POPUP_FIELD_LABEL_CLASS}>Comments</p>
             {comments.length === 0 ? (
               <p className="text-xs text-muted">No comments yet.</p>
             ) : (

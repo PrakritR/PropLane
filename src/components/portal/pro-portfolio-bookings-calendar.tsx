@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
@@ -317,6 +317,7 @@ export function ManagerPortfolioBookingsCalendar({
   preferenceKey,
   selectedDayKey,
   searchQuery = "",
+  footer,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -341,6 +342,8 @@ export function ManagerPortfolioBookingsCalendar({
   preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
+  /** Drawn at the foot of the calendar frame, directly under the grid (the colour legend). */
+  footer?: ReactNode;
 }) {
   return (
     <ManagerBookingsHub
@@ -365,6 +368,7 @@ export function ManagerPortfolioBookingsCalendar({
       preferenceKey={preferenceKey}
       selectedDayKey={selectedDayKey}
       searchQuery={searchQuery}
+      footer={footer}
     />
   );
 }
@@ -390,6 +394,7 @@ export function ManagerBookingsHub({
   preferenceKey,
   selectedDayKey,
   searchQuery = "",
+  footer,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -415,6 +420,8 @@ export function ManagerBookingsHub({
   preferenceKey?: string;
   selectedDayKey?: string;
   searchQuery?: string;
+  /** Drawn at the foot of the calendar frame, directly under the grid (the colour legend). */
+  footer?: ReactNode;
 }) {
   const navigate = usePortalNavigate();
   const loading = entriesLoading;
@@ -437,13 +444,15 @@ export function ManagerBookingsHub({
 
   void showToast;
 
+  // The room filter narrows what the calendar is given; the search does not, because the portfolio
+  // timeline matches houses and rooms as well as guests and needs the whole house to do it.
+  const roomFiltered = useMemo(
+    () => filterBookingEntriesByRoom(extraEntries ?? [], roomFilterId),
+    [extraEntries, roomFilterId],
+  );
   const entries = useMemo(
-    () =>
-      filterBookingsBySearch(
-        filterBookingEntriesByRoom(extraEntries ?? [], roomFilterId),
-        searchQuery,
-      ),
-    [extraEntries, roomFilterId, searchQuery],
+    () => filterBookingsBySearch(roomFiltered, searchQuery),
+    [roomFiltered, searchQuery],
   );
 
   const navSubtitle = useMemo(() => {
@@ -552,7 +561,8 @@ export function ManagerBookingsHub({
                 // shipped product uses today but a unit test still exercises.
                 <BookingsPortfolioTimeline
                   propertyIds={propertyIds}
-                  entries={entries}
+                  entries={roomFiltered}
+                  searchQuery={searchQuery}
                   today={today}
                   onOpenDay={openDay}
                   onAddBooking={onAddBooking}
@@ -730,6 +740,7 @@ export function ManagerBookingsHub({
                   ) : null}
                 </>
               )}
+              {calendarOnly ? footer : null}
             </div>
           </div>
         )}

@@ -37,16 +37,11 @@ afterEach(() => {
 });
 
 
-// studio-redesign standard (ui-page-structure.md § Reference implementations): a pick is a
-// FieldSingleSelect dropdown, never a native <select>. The view switch is a listbox button.
-const viewButton = () => screen.getByRole("button", { name: "Calendar view" });
-const viewValue = () => viewButton().textContent?.trim().toLowerCase();
-function pickView(value: string) {
-  if (viewButton().getAttribute("aria-expanded") !== "true") fireEvent.click(viewButton());
-  const option = within(screen.getByRole("listbox")).getByText(value[0]!.toUpperCase() + value.slice(1));
-  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-}
+// The view switch is the portal's PortalSegmentedControl ("Calendar period": Day · Week · Month · Year),
+// not a labeled dropdown - the labeled "Calendar view" select is gone.
+const viewTab = (value: string) => screen.getByRole("tab", { name: value[0]!.toUpperCase() + value.slice(1) });
+const viewValue = () => screen.getAllByRole("tab").find(tab => tab.getAttribute("aria-selected") === "true")?.textContent?.trim().toLowerCase();
+const pickView = (value: string) => fireEvent.click(viewTab(value));
 
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -110,10 +105,11 @@ describe("BookingsPortfolioTimeline", () => {
 
     const bar = document.querySelector('[data-attr="bookings-calendar-bar"]');
     expect(bar).toBeTruthy();
-    expect(bar?.className).toContain("bg-[#3d7d46]");
+    // The 44px button is the touch target; the status colour is on the 32px bar inside it.
+    expect(bar?.querySelector("[data-bar-visual]")?.className).toContain("bg-[#3d7d46]");
   });
 
-  it("carries the occupancy figures on Calendar: staying, check-ins, check-outs and 'n of N occupied'", () => {
+  it("carries the occupancy figures on Calendar as four tiles: staying, check-ins, check-outs and beds on the focus day", () => {
     render(
       <BookingsPortfolioTimeline
         propertyIds={["prop-a"]}
@@ -124,9 +120,8 @@ describe("BookingsPortfolioTimeline", () => {
     );
     pickView("day");
     const summary = document.querySelector('[data-attr="bookings-calendar-summary"]')!.textContent!;
-    expect(summary).toContain("1 staying");
-    expect(summary).toContain("1 check-ins");
-    expect(summary).toContain("1 of 1 occupied · 100%");
+    // Value on top, label below; no sentence, and no peak printed beside an average percent.
+    expect(summary).toBe("1Staying1Check-ins0Check-outs1/1Tonight");
   });
 
   it("calls onOpenDay with the clicked date's key", () => {
@@ -151,7 +146,7 @@ describe("BookingsPortfolioTimeline", () => {
 
     expect(document.querySelector('[data-attr="bookings-empty-houses-banner"]')).toBeTruthy();
     expect(screen.getByText("No houses yet")).toBeTruthy();
-    expect(viewButton()).toBeTruthy();
+    expect(viewTab("month")).toBeTruthy();
   });
   it("keeps empty room rows while changing to year and drilling into a month", () => {
     render(<BookingsPortfolioTimeline propertyIds={["prop-a"]} entries={[]} today={TODAY} />);
@@ -182,7 +177,7 @@ describe("BookingsPortfolioTimeline", () => {
     pickView("day");
     expect(screen.getByText("Checks out today")).toBeTruthy();
     expect(screen.getByText("Checks in today")).toBeTruthy();
-    expect(screen.getByText("1 staying · 1 check-ins · 1 check-outs")).toBeTruthy();
+    expect(document.querySelector('[data-attr="bookings-calendar-summary"]')!.textContent).toBe("1Staying1Check-ins1Check-outs1/1Tonight");
   });
 
   it("omits cancelled stays from every calendar view and preserves empty rooms", () => {

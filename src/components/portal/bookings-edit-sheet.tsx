@@ -8,7 +8,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
-import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { bookingConflictsFor, lastNightBeforeCheckout, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDaysToDateKey, describeBookingConflict } from "@/lib/channel-calendar/bookings-ui";
@@ -196,34 +196,34 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     finishDataAttr="bookings-edit-save"
   >
     {has("guest") ? <EditSection id="guest" label="Guest">
-      <label><span className={MODAL_FIELD_LABEL_CLASS}>Name</span><Input disabled={guestLocked || busy} maxLength={120} value={guestName} onChange={(event) => setGuestName(event.target.value)} /></label>
-      <label><span className={MODAL_FIELD_LABEL_CLASS}>Email</span><Input type="email" disabled={guestLocked || busy} maxLength={200} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>
-      <div><span className={MODAL_FIELD_LABEL_CLASS}>Phone</span><PhoneNumberField id="booking-edit-phone" value={guestPhone} onChange={setGuestPhone} disabled={guestLocked || busy} dataAttr="booking-edit-phone" /></div>
-      <FieldSingleSelect label="Status" dataAttr="select-booking-edit-status" disabled={locked || busy || decidable} value={status} onChange={setStatus} options={[{ value: "hold", label: "Hold" }, { value: "confirmed", label: "Confirmed" }]} />
+      <label><span className={POPUP_FIELD_LABEL_CLASS}>Name</span><Input disabled={guestLocked || busy} maxLength={120} value={guestName} onChange={(event) => setGuestName(event.target.value)} /></label>
+      <label><span className={POPUP_FIELD_LABEL_CLASS}>Email</span><Input type="email" disabled={guestLocked || busy} maxLength={200} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>
+      <div><span className={POPUP_FIELD_LABEL_CLASS}>Phone</span><PhoneNumberField id="booking-edit-phone" value={guestPhone} onChange={setGuestPhone} disabled={guestLocked || busy} dataAttr="booking-edit-phone" /></div>
+      <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Status" dataAttr="select-booking-edit-status" disabled={locked || busy || decidable} value={status} onChange={setStatus} options={[{ value: "hold", label: "Hold" }, { value: "confirmed", label: "Confirmed" }]} />
     </EditSection> : null}
     <EditSection id="where" label="Where">
-      <FieldSingleSelect label="Property" dataAttr="select-booking-edit-property" disabled={locked || busy} value={propertyId} onChange={(next) => { setPropertyId(next); chooseRoom("", next); }} options={properties.map((property) => ({ value: property.id, label: property.label }))} />
-      <FieldSingleSelect label="Room" dataAttr="select-booking-edit-room" disabled={locked || busy} value={roomId} onChange={(next) => chooseRoom(next)} options={[{ value: "", label: "Whole home" }, ...rooms.map((room) => ({ value: room.id, label: `${room.label}${room.conflicts.length ? " · Booked" : ""}` }))]} />
+      <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Property" dataAttr="select-booking-edit-property" disabled={locked || busy} value={propertyId} onChange={(next) => { setPropertyId(next); chooseRoom("", next); }} options={properties.map((property) => ({ value: property.id, label: property.label }))} />
+      <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Room" dataAttr="select-booking-edit-room" disabled={locked || busy} value={roomId} onChange={(next) => chooseRoom(next)} options={[{ value: "", label: "Whole home" }, ...rooms.map((room) => ({ value: room.id, label: `${room.label}${room.conflicts.length ? " · Booked" : ""}` }))]} />
     </EditSection>
     <EditSection id="when" label="When">
-      <label><span className={MODAL_FIELD_LABEL_CLASS}>Check-in</span><Input type="date" disabled={locked || busy} value={checkIn} onChange={(event) => setCheckIn(event.target.value)} /></label>
-      <label><span className={MODAL_FIELD_LABEL_CLASS}>Check-out</span><Input type="date" disabled={locked || busy || openEnded} value={openEnded ? "" : checkOut} onChange={(event) => setCheckOut(event.target.value)} /></label>
-      <label className="flex items-center gap-2 sm:col-span-2"><input type="checkbox" role="switch" checked={openEnded} disabled={locked || busy} onChange={(event) => setOpenEnded(event.target.checked)} />Open-ended</label>
+      <label><span className={POPUP_FIELD_LABEL_CLASS}>Check-in</span><Input type="date" disabled={locked || busy} value={checkIn} onChange={(event) => setCheckIn(event.target.value)} /></label>
+      <label><span className={POPUP_FIELD_LABEL_CLASS}>Check-out</span><Input type="date" disabled={locked || busy || openEnded} value={openEnded ? "" : checkOut} onChange={(event) => setCheckOut(event.target.value)} /></label>
+      <label className="flex min-h-11 items-center gap-2 text-[16px] sm:col-span-2 lg:min-h-0 lg:text-base"><input type="checkbox" role="switch" checked={openEnded} disabled={locked || busy} onChange={(event) => setOpenEnded(event.target.checked)} />Open-ended</label>
       {conflicts.length && !locked ? <p className="text-sm text-danger sm:col-span-2" role="alert" data-bk-alert>{describeBookingConflict(conflicts[0], conflicts[0].roomLabel)}</p> : null}
     </EditSection>
     {reservation ? <EditSection id="label" label="Label">
-      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Guest name</span><Input disabled={busy} maxLength={120} value={reservedName} onChange={(event) => setReservedName(event.target.value)} /></label>
-      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>{reservedLabel ? "Notes" : "Reason"}</span><Input disabled={busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+      <label className="sm:col-span-2"><span className={POPUP_FIELD_LABEL_CLASS}>Guest name</span><Input disabled={busy} maxLength={120} value={reservedName} onChange={(event) => setReservedName(event.target.value)} /></label>
+      <label className="sm:col-span-2"><span className={POPUP_FIELD_LABEL_CLASS}>{reservedLabel ? "Notes" : "Reason"}</span><Input disabled={busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
       {reservationError ? <p className="text-sm text-danger sm:col-span-2" role="alert" data-bk-alert>{reservationError}</p> : null}
     </EditSection> : <>
       <EditSection id="rate" label="Rate">
-        <label><span className={MODAL_FIELD_LABEL_CLASS}>Rate / {rateUnit}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>
+        <label><span className={POPUP_FIELD_LABEL_CLASS}>Rate / {rateUnit}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>
       </EditSection>
       <EditSection id="details" label="Stay details">
-        <FieldSingleSelect label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails({ ...details, source: next })} options={[...["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: details.source === "guest_portal" ? "Guest portal" : "Public request" }] : [])]} />
-        <label><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-        {(["linen", "baggage"] as const).map((key) => <FieldSingleSelect key={key} label={key === "linen" ? "Linen" : "Baggage"} dataAttr={`select-booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(next) => setDetails({ ...details, [key]: next })} options={[{ value: "", label: "Not set" }, ...(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => ({ value, label: value }))]} />)}
-        {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })} /></label>)}
+        <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails({ ...details, source: next })} options={[...["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: details.source === "guest_portal" ? "Guest portal" : "Public request" }] : [])]} />
+        <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+        {(["linen", "baggage"] as const).map((key) => <FieldSingleSelect key={key} labelClassName={POPUP_FIELD_LABEL_CLASS} label={key === "linen" ? "Linen" : "Baggage"} dataAttr={`select-booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(next) => setDetails({ ...details, [key]: next })} options={[{ value: "", label: "Not set" }, ...(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => ({ value, label: value }))]} />)}
+        {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })} /></label>)}
       </EditSection>
     </>}
     {error ? <p role="alert" className="text-danger">{error}</p> : null}

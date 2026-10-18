@@ -116,6 +116,53 @@ function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Last night stored on a placeholder the sync filed, the same dates occupancy holds the room for. */
+function storedStayEnd(row: Record<string, unknown> | undefined): string {
+  const manual = row?.manualResidentDetails as { moveOutDate?: unknown } | undefined;
+  const application = row?.application as { leaseEnd?: unknown } | undefined;
+  for (const value of [manual?.moveOutDate, application?.leaseEnd]) {
+    const end = String(value ?? "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end)) return end;
+  }
+  return "";
+}
+
+/**
+ * A reservation that left the feed stops occupying the room. The upsert only writes stays still
+ * on the feed, so the approved placeholder it filed earlier would keep the nights — In-house on
+ * the calendar, and blocked on every export that reads that row. Only an `@import.proplane.local`
+ * placeholder is removed; a resident a real person attached an account to stays. An empty feed
+ * is not evidence (an upstream blip looks the same), and a stay whose last night is already past
+ * is history the channel dropped, not a cancellation.
+ */
+export async function releaseAirbnbResidentsAbsentFromFeed(
+  db: SupabaseClient,
+  input: {
+    managerUserId: string;
+    connectionId: string;
+    ranges: readonly ChannelCalendarImportedRange[];
+    today: string;
+  },
+): Promise<void> {
+  if (input.ranges.length === 0) return;
+  const present = new Set(icalGuestStaysForResidents(input.connectionId, input.ranges).map((stay) => stay.sourceUid));
+  const { data, error } = await db
+    .from("manager_application_records")
+    .select("id, resident_email, row_data")
+    .eq("manager_user_id", input.managerUserId)
+    .eq("row_data->>icalConnectionId", input.connectionId);
+  if (error) throw new Error(error.message);
+  for (const hit of (data ?? []) as Array<{ id?: string; resident_email?: string | null; row_data?: Record<string, unknown> }>) {
+    if (!hit.id || !String(hit.resident_email ?? "").endsWith(IMPORT_EMAIL_SUFFIX)) continue;
+    const uid = typeof hit.row_data?.icalSourceUid === "string" ? hit.row_data.icalSourceUid.trim() : "";
+    if (!uid || present.has(uid)) continue;
+    const end = storedStayEnd(hit.row_data);
+    if (end && end < input.today) continue;
+    const { error: deleteError } = await db.from("manager_application_records").delete().eq("id", hit.id);
+    if (deleteError) throw new Error(deleteError.message);
+  }
+}
+
 export async function upsertAirbnbResidentsFromImportedRanges(
   db: SupabaseClient,
   input: {

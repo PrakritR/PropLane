@@ -77,6 +77,23 @@ whole calendar, and do not grow a second error surface. Because residents come f
 `failedSources` and off the band. Coverage:
 `tests/unit/bookings-failed-sources.test.tsx`.
 
+## The calendar grid at scale (Oct 18 2026)
+
+`BookingsPortfolioTimeline` (+ `bookings-timeline-bar.tsx`, `bookings-timeline-layout.ts`) is one scroller with
+a sticky day header and a sticky label column. **Every sticky surface is opaque** (`bg-[var(--pl-surface-raised)]`):
+`--card` is translucent on the portal's light surface, which is how day labels showed through "Room" and bars
+painted behind the labels. Bars and the occupancy strip live only in the track, positioned in px from the
+measured column width (`columnPx`: Week fits a 390px phone, Month scrolls), never under the label column.
+A multi-room house is a collapsible row (collapsed by default past three houses, remembered per page, opened by a
+search or room filter); only expanded houses lay out rooms, and rows are windowed from 60 rows up. The house line
+reads `8/10 tonight · 69% avg` (beds on the focus day, then the range average) and the KPI strip is four
+tiles - never a peak beside an average percent. Search matches house, room and guest
+(`narrowHouseBySearch`), and a hidden stay still keeps its nights busy. A bar under 56px draws its name beside it;
+a bar's name is `position: sticky` inside an `overflow-clip` bar. Phone taps open a bottom sheet
+(`BookingBarSheet`), desktop keeps the non-modal popover, mounted on first use (a Radix menu per bar is slow).
+Dev proof: `/dev-fixtures/bookings-scale` (100 houses x 10 rooms; 404s outside `next dev`).
+Coverage: `tests/unit/bookings-timeline-scale.test.tsx`.
+
 ## Status is derived from the dates, never stored
 
 `bookingStatusLabel` (`booking-presentation.ts`) is the label a row or record

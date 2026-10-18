@@ -35,7 +35,7 @@ export const FIELD_SELECT_MENU_CLASS =
 /** Opaque row surface — backgrounds owned by `.field-dropdown-menu-option` in globals.css. */
 export const FIELD_SELECT_MENU_OPTION_CLASS = "field-dropdown-menu-option";
 
-export const FIELD_SELECT_LABEL_CLASS = "text-[11px] font-bold uppercase tracking-[0.12em] text-muted";
+export const FIELD_SELECT_LABEL_CLASS = "text-[13px] sm:text-[11px] font-bold uppercase tracking-[0.12em] text-muted";
 
 export const FIELD_SELECT_CHEVRON_CLASS = "h-4 w-4 shrink-0 text-muted";
 

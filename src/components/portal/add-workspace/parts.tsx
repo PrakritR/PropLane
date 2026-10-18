@@ -117,7 +117,7 @@ export function WizardLockedField({
     <div className="block" data-locked="1" title={lockTip}>
       <span className={WIZARD_LABEL_CLASS}>{label}</span>
       <div
-        className="flex min-h-10 items-center justify-between gap-2 rounded-lg border border-[var(--input)] bg-[var(--pl-canvas)] px-3 text-[13px] text-muted"
+        className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-[var(--input)] bg-[var(--pl-canvas)] px-3 text-[16px] text-muted sm:min-h-10 sm:text-[13px]"
         aria-label={`${label}: ${typeof value === "string" ? value : ""}. ${lockTip}`}
       >
         <span className="text-foreground">{value}</span>

@@ -65,7 +65,7 @@ export function WizardModal({
   return (
     <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-[10px] bg-white shadow-[0_24px_60px_-12px_rgba(16,24,40,0.45)] [html[data-theme=dark]_&]:bg-card">
       <div className="flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-b border-border px-5">
-        <b className="truncate text-[16px] font-[650] tracking-tight text-foreground">{title}</b>
+        <b className="truncate text-[17px] font-[650] tracking-tight text-foreground lg:text-[16px]">{title}</b>
         <div className="flex shrink-0 items-center gap-2">
           {headerAside}
           {onClose ? (
@@ -202,7 +202,7 @@ export function ListingWorkspace({
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:min-h-[56px] sm:px-5 sm:py-2 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
-            <b className="truncate text-[16px] font-[650] tracking-tight text-foreground">{title}</b>
+            <b className="truncate text-[17px] font-[650] tracking-tight text-foreground lg:text-[16px]">{title}</b>
             <span className="shrink-0">{badge}</span>
           </div>
           {/* On a phone the address and the save state lose to the title and the
@@ -280,7 +280,7 @@ export function ListingWorkspace({
           </aside>
         ) : null}
       </div>
-      <div className="flex min-h-[56px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-white px-4 py-2 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom,0px))] [html[data-theme=dark]_&]:bg-card">
+      <div className="flex min-h-[56px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-white px-4 py-2 max-lg:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom,0px))] [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
       {previewInEye && sidePanel && eyeOpen ? <PreviewSheet onClose={() => setEyeOpen(false)}>{sidePanel}</PreviewSheet> : null}

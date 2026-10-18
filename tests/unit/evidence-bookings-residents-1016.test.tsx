@@ -563,8 +563,9 @@ describe("evidence · Bookings reads In-house, and one reservation draws once", 
     const labels = bars.map((bar) => `${bar.getAttribute("aria-label") ?? ""} ${bar.textContent ?? ""}`.replace(/\s+/g, " ").trim());
 
     const band = (view.container.textContent ?? "").replace(/\s+/g, " ");
-    const staying = "2 staying · 2 check-ins · 1 check-outs";
-    const occupied = "2 of 4 occupied · 32%";
+    // Four KPI tiles (value over label); beds are "on the focus day / bed count", never a peak beside an average.
+    const staying = "2Staying2Check-ins1Check-outs";
+    const occupied = "2/4Tonight";
     say("5 · BOOKINGS -> Calendar");
     say(`    band: ${band.includes(staying) ? staying : "(not shown)"} — ${band.includes(occupied) ? occupied : "(not shown)"}`);
     // Residents count as staying and as an occupied bed: Maya Chen (Room 1) and the Airbnb guest (Room 3).
