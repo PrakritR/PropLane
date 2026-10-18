@@ -7,6 +7,8 @@ import { AxisLogoLink } from "@/components/brand/axis-logo";
 import { Button } from "@/components/ui/button";
 import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
+import { HomeNavDropdown } from "@/components/layout/home-nav-dropdown";
+import { PUBLIC_PRICING_LINKS, PUBLIC_WHY_LINKS } from "@/components/layout/public-navbar-links";
 import styles from "@/components/layout/home-navbar.module.css";
 
 const HomeMobileMenu = dynamic(() => import("@/components/layout/home-mobile-menu"), { ssr: false });
@@ -62,8 +64,8 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           <div className={styles.brand}><AxisLogoLink href="/" size="compact" /></div>
           <nav aria-label="Main navigation" className={styles.desktopLinks}>
             <a href="#how-it-works">How it works</a>
-            <Link href="/why-proplane" prefetch={false}>Why PropLane</Link>
-            <a href="#pricing">Pricing</a>
+            <HomeNavDropdown title="Why PropLane" links={PUBLIC_WHY_LINKS} />
+            <HomeNavDropdown title="Pricing" links={PUBLIC_PRICING_LINKS} />
             <Link href="/service" prefetch={false}>Service</Link>
           </nav>
           <div className={styles.desktopActions}>

@@ -14,7 +14,6 @@ import { HOME_DESCRIPTION, HOME_HEADLINE } from "@/lib/marketing/home-copy";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { homeJsonLd, jsonLdString } from "@/lib/seo/json-ld";
 import { llmsOrigin } from "@/lib/seo/llms";
-import "@/components/marketing/texting-home.css";
 
 export const revalidate = 60;
 

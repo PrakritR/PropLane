@@ -23,6 +23,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }), use
 import AboutPage from "@/app/(public)/about/page";
 import SupportPage from "@/app/(public)/support/page";
 import ContactPage from "@/app/(public)/contact/page";
+import { ManagedTalkSection } from "@/components/marketing/site/managed-service-sections";
 
 const configured = publicTextingConfig("+12065550123");
 const unavailable = publicTextingConfig(null);
@@ -54,6 +55,31 @@ describe("one configured number on public contact pages", () => {
     expect(container.querySelector('a[href^="sms:"],a[href^="tel:"]')).toBeNull();
     expect(screen.queryByText("Text PropLane")).not.toBeInTheDocument();
     expect(container).not.toHaveTextContent(PUBLIC_SUPPORT_PHONE_DISPLAY);
+  });
+
+  it("managed service uses the same configured SMS destination", async () => {
+    const { container } = render(await ManagedTalkSection({}));
+    const link = screen.getByRole("link", { name: /Text PropLane/ });
+    expect(link).toHaveAttribute("href", configured.smsHref);
+    expect(link).toHaveTextContent(configured.phone!);
+    expect(container.querySelector('a[href^="tel:"]')).toBeNull();
+    expect(container).not.toHaveTextContent(PUBLIC_SUPPORT_PHONE_DISPLAY);
+    expect(mocks.config).toHaveBeenCalledOnce();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it("managed service omits the SMS option when unconfigured and retains email", async () => {
+    mocks.config.mockResolvedValue(unavailable);
+    const { container } = render(await ManagedTalkSection({}));
+    expect(container.querySelector('a[href^="sms:"],a[href^="tel:"]')).toBeNull();
+    expect(screen.queryByRole("link", { name: /Text PropLane/ })).not.toBeInTheDocument();
+    expect(container.querySelector('a[href^="mailto:"]')).toBeTruthy();
+    expect(container).not.toHaveTextContent(PUBLIC_SUPPORT_PHONE_DISPLAY);
+  });
+
+  it("managed service never imports the fixed support number", () => {
+    const source = readFileSync("src/components/marketing/site/managed-service-sections.tsx", "utf8");
+    expect(source).not.toMatch(/PUBLIC_SUPPORT_PHONE_(DISPLAY|TEL)/);
   });
 
   it("contact reads the layout snapshot without another request", () => {

@@ -15,7 +15,9 @@ export const siteDisplayFont = localFont({
   weight: "200 800",
   style: "normal",
   display: "swap",
-  preload: true,
+  // Load this full weight/width family only where it is used. Home preloads
+  // its smaller 600-weight instance, preserving optical sizing and all glyphs.
+  preload: false,
   fallback: ["Schibsted Grotesk", "-apple-system", "BlinkMacSystemFont", "Helvetica Neue", "ui-sans-serif", "system-ui", "sans-serif"],
   adjustFontFallback: "Arial",
 });

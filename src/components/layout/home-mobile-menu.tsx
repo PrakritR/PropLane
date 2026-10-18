@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { HomeNavDropdown } from "@/components/layout/home-nav-dropdown";
+import { PUBLIC_PRICING_LINKS, PUBLIC_WHY_LINKS } from "@/components/layout/public-navbar-links";
 import styles from "@/components/layout/home-navbar.module.css";
 
 export default function HomeMobileMenu({ onClose, restoreFocus }: { onClose: () => void; restoreFocus: () => void }) {
@@ -11,10 +13,10 @@ export default function HomeMobileMenu({ onClose, restoreFocus }: { onClose: () 
         onCloseAutoFocus={(event) => { event.preventDefault(); restoreFocus(); }}>
         <SheetTitle className={styles.menuTitle}>PropLane</SheetTitle>
         <nav aria-label="Mobile navigation" className={styles.menuLinks}>
+          <SheetClose asChild><Link href="#how-it-works" prefetch={false}>How it works</Link></SheetClose>
+          <HomeNavDropdown title="Why PropLane" links={PUBLIC_WHY_LINKS} mobile onNavigate={onClose} />
+          <HomeNavDropdown title="Pricing" links={PUBLIC_PRICING_LINKS} mobile onNavigate={onClose} />
           {[
-            ["#how-it-works", "How it works"],
-            ["/why-proplane", "Why PropLane"],
-            ["#pricing", "Pricing"],
             ["/service", "Service"],
             ["/auth/sign-in", "Sign in"],
           ].map(([href, label]) => (

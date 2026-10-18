@@ -11,10 +11,13 @@
 }
 .texting-home h1,
 .texting-section-title {
-  font-family: var(--font-site-display), var(--font-brand-sans), sans-serif;
+  font-family: var(--font-home-display), var(--font-brand-sans), sans-serif;
   letter-spacing: -0.055em;
   font-weight: 600;
   text-wrap: balance;
+}
+.texting-home h1 {
+  font-family: var(--font-home-headline), var(--font-home-display), var(--font-brand-sans), sans-serif;
 }
 .texting-hero {
   display: grid;
@@ -460,11 +463,9 @@
 }
 @keyframes texting-bubble-in {
   from {
-    opacity: 0;
     transform: translateY(5px);
   }
   to {
-    opacity: 1;
     transform: translateY(0);
   }
 }

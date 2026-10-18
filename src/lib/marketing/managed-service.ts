@@ -1,6 +1,6 @@
 /**
  * PropLane Managed: we run an owner's home ourselves, on PropLane. One module
- * feeds /pricing (Managed service tab), /pricing/service, the Why PropLane
+ * feeds /pricing (the fourth pricing option), /pricing/service, the Why PropLane
  * pages, llms.txt and the sitemap, so the offering is never described two ways.
  *
  * There is no price. The captain has not set one, so the honest label is
@@ -9,7 +9,6 @@
  */
 
 export const MANAGED_SERVICE_HREF = "/pricing/service";
-export const MANAGED_SERVICE_TAB_HREF = "/pricing?view=service";
 export const MANAGED_SERVICE_NAME = "PropLane Managed";
 /** The Contact route topic this offering files under (see `TOPICS` in the contact page). */
 export const MANAGED_SERVICE_TOPIC = "Property management services";

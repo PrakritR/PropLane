@@ -60,6 +60,12 @@ describe("the generic Get started CTA lands on the role picker", () => {
     // Not a bug to fix later: a plan CTA carries a tier too, and stripping the
     // role there would lose the selection the visitor just made.
     expect(MANAGER_GET_STARTED_HREF).toContain("role=manager");
-    expect(read("src/app/(public)/pricing/page.tsx")).toContain("MANAGER_GET_STARTED_HREF");
+    const cards = read("src/components/marketing/site/pricing-cards.tsx");
+    expect(cards).toContain("const CTA_BASE = MANAGER_GET_STARTED_HREF");
+    expect(cards).toContain("export const TIER_CTA");
+    const pricing = read("src/app/(public)/pricing/page.tsx");
+    expect(pricing).toMatch(/import \{[^}]*PricingCards[^}]*TIER_CTA[^}]*\} from "@\/components\/marketing\/site\/pricing-cards"/);
+    expect(pricing).toContain("<PricingCards annual={annual} />");
+    expect(pricing).toContain("primaryHref={TIER_CTA.free.href}");
   });
 });

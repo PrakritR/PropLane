@@ -41,8 +41,50 @@ describe("lightweight homepage chrome", () => {
     expect(screen.getByRole("link", { name: "Text PropLane" })).toHaveAttribute("href", "#text-proplane");
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/auth/sign-in");
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
-    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["#how-it-works", "/why-proplane", "#pricing", "/service"]);
+    expect([...nav.querySelectorAll(":scope > a")].map((link) => link.getAttribute("href"))).toEqual(["#how-it-works", "/service"]);
     expect(screen.queryByRole("button", { name: /search/i })).not.toBeInTheDocument();
+  });
+
+  it("opens Pricing and Why PropLane menus with every requested destination", () => {
+    render(<HomeNavbar texting={texting} />);
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    const pricing = within(nav).getByText("Pricing", { selector: "summary" });
+    fireEvent.click(pricing);
+    expect(within(nav).getByRole("link", { name: "Software" })).toHaveAttribute("href", "/pricing");
+    expect(within(nav).getByRole("link", { name: "Managed service" })).toHaveAttribute("href", "/pricing/service");
+    fireEvent.click(within(nav).getByText("Why PropLane", { selector: "summary" }));
+    for (const [name, href] of [["Overview", "/why-proplane"], ["Our track record", "/why-proplane/track-record"], ["How we manage", "/why-proplane/how-we-manage"], ["The software", "/why-proplane/software"]]) {
+      expect(within(nav).getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    expect(pricing.closest("details")?.nextElementSibling).toHaveAttribute("href", "/service");
+  });
+
+  it("closes an open home dropdown on Escape or an outside pointer and restores keyboard focus", () => {
+    render(<HomeNavbar texting={texting} />);
+    const summary = screen.getByText("Pricing", { selector: "summary" });
+    const disclosure = summary.closest("details")!;
+    fireEvent.click(summary);
+    expect(disclosure).toHaveAttribute("open");
+    const software = screen.getByRole("link", { name: "Software" });
+    software.focus();
+    fireEvent.keyDown(software, { key: "Escape" });
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(summary).toHaveFocus();
+    fireEvent.click(summary);
+    fireEvent.pointerDown(document.body);
+    expect(disclosure).not.toHaveAttribute("open");
+  });
+
+  it("shows all Why PropLane destinations inside the phone sheet", async () => {
+    render(<HomeNavbar texting={texting} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const sheet = await screen.findByRole("dialog", { name: "PropLane" }, { timeout: 5000 });
+    fireEvent.click(within(sheet).getByText("Why PropLane", { selector: "summary" }));
+    for (const [name, href] of [["Overview", "/why-proplane"], ["Our track record", "/why-proplane/track-record"], ["How we manage", "/why-proplane/how-we-manage"], ["The software", "/why-proplane/software"]]) {
+      expect(within(sheet).getByRole("link", { name })).toHaveAttribute("href", href);
+    }
+    fireEvent.click(within(sheet).getByRole("link", { name: "Overview" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("uses Start free and a real signup link when the public number is unavailable", () => {
@@ -79,8 +121,11 @@ describe("lightweight homepage chrome", () => {
     const trigger = screen.getByRole("button", { name: "Open menu" });
     fireEvent.click(trigger);
     const sheet = await screen.findByRole("dialog", { name: "PropLane" }, { timeout: 5000 });
-    expect(within(sheet).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["#how-it-works", "/why-proplane", "#pricing", "/service", "/auth/sign-in"]);
-    fireEvent.click(within(sheet).getByRole("link", { name: "Pricing" }));
+    expect([...within(sheet).getByRole("navigation").querySelectorAll(":scope > a")].map((link) => link.getAttribute("href"))).toEqual(["#how-it-works", "/service", "/auth/sign-in"]);
+    fireEvent.click(within(sheet).getByText("Pricing", { selector: "summary" }));
+    expect(within(sheet).getByRole("link", { name: "Software" })).toHaveAttribute("href", "/pricing");
+    expect(within(sheet).getByRole("link", { name: "Managed service" })).toHaveAttribute("href", "/pricing/service");
+    fireEvent.click(within(sheet).getByRole("link", { name: "Managed service" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });

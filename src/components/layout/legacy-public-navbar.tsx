@@ -1,5 +1,6 @@
 "use client";
 
+import { PUBLIC_PRICING_LINKS, PUBLIC_WHY_LINKS } from "@/components/layout/public-navbar-links";
 import { AxisLogoLink } from "@/components/brand/axis-logo";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import {
@@ -160,12 +161,8 @@ export function LegacyPublicNavbar() {
 
   const menu: NavbarMenuItem[] = useMemo(
     () => {
-      // Product ▾ · Pricing · Service · Why PropLane · Resources ▾ · Contact.
-      //
-      // Pricing is the second thing every buyer looks for, so it is a tab, not
-      // a dropdown entry; Product is the audience switch; Resources carries the
-      // reading. Routes are unchanged — /partner is "For managers", /rent is
-      // "For residents" — only the words moved.
+      // Pricing and Why PropLane expose the same destinations on desktop and phones.
+      // The managed-service page stays beside Pricing as its own top-level link.
       const items: NavbarMenuItem[] = [
         {
           title: "Product",
@@ -241,7 +238,7 @@ export function LegacyPublicNavbar() {
                 },
                 {
                   title: "AI assistant",
-                  url: "/why-proplane",
+                  url: "/why-proplane/software",
                   description: "Ask anything about your portfolio; it acts through the same tools you do",
                   icon: <Sparkles strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-assistant",
@@ -256,6 +253,8 @@ export function LegacyPublicNavbar() {
           url: "/pricing",
           active: pricingActive,
           dataAttr: "nav-pricing",
+          items: PUBLIC_PRICING_LINKS,
+          activeChildHref: pathname,
         },
         {
           title: "Service",
@@ -268,6 +267,8 @@ export function LegacyPublicNavbar() {
           url: "/why-proplane",
           active: whyActive,
           dataAttr: "nav-why",
+          items: PUBLIC_WHY_LINKS,
+          activeChildHref: pathname,
         },
         {
           title: "Resources",

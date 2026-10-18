@@ -20,6 +20,18 @@ describe("analytics bearer URL redaction", () => {
     expect(sanitizeAnalyticsProperties("https://example.com/auth#access_token=secret-value")).not.toContain("secret-value");
     expect(sanitizeAnalyticsProperties("https://example.com/invite/secret-value")).toBe("https://example.com/invite/[redacted]?[redacted]");
   });
+  it("scrubs emailed token_hash confirmations, including encoded next redirects", () => {
+    const target = "/auth/confirm?token_hash=private-proof&type=email";
+    for (const url of [
+      `https://proplane.ai${target}`,
+      `/auth/sign-in?next=${encodeURIComponent(target)}`,
+      `/auth/sign-in?next=${encodeURIComponent(encodeURIComponent(target))}`,
+    ]) {
+      const event = { $current_url: url, $referrer: url, $elements: [{ attr__href: url }] };
+      expect(JSON.stringify(sanitizeAnalyticsProperties(event))).not.toContain("private-proof");
+    }
+    expect(sanitizeAnalyticsProperties(`https://proplane.ai${target}`)).toBe("https://proplane.ai/auth/confirm?[redacted]");
+  });
   describe("linked-form share links (/f/<token>)", () => {
     const token = "Abc123_-xyzABC123_-xyzABC123_-xyzABC12345";
     it("redacts the token in the path of every URL-valued property", () => {

@@ -244,7 +244,15 @@ The later Oct 18 addendum sets the headline to “Your AI Property Manager” an
 exactly four sections: hero, Who texts, managed-service founder proof, and
 software/managed-service pricing. The captain supplied “3 Seattle homes”,
 room rentals + Airbnb, and “six-figure profit”; no other performance figure
-is added. The draft and dashboard sit inside the service section. W14/on/marketing
-owns the shared `PricingCards` component and `/service`; the lane's same-name
-placeholder is explicitly authorized for replacement at integration. Software
-and managed service both use the same configured PropLane line.
+is added. The draft and dashboard sit inside the service section. The shared
+`PricingCards` component shows Free, Pro, Business, and “We manage it for you”
+on `/pricing` and the homepage. Its compact `overview` variant keeps the same
+four options in a phone swipe row and four desktop columns. `/service`
+redirects to `/pricing/service`. Both offerings use the same configured PropLane
+line. The public layout supplies that snapshot and its QR to the synchronous
+homepage so the loading shell cannot push the footer down after first paint.
+The homepage uses a smaller instance of the same Bricolage display face at its
+existing 600 weight and normal width, retaining all glyphs and optical sizing.
+Only its 4 KB headline subset is preloaded. Regenerate both with
+`scripts/generate-home-display-font.py` whenever `HOME_HEADLINE` changes. Other
+public headings load the original full variable family when used.

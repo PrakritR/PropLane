@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const mocks = vi.hoisted(() => ({ config: vi.fn(), optedOut: vi.fn(), shield: vi.fn(), create: vi.fn() }));
+const mocks = vi.hoisted(() => ({ config: vi.fn(), sendSms: vi.fn() }));
 vi.mock("@/lib/one-number/config.server", () => ({ loadSharedLineConfig: mocks.config }));
-vi.mock("@/lib/sms-consent", () => ({ isPhoneOptedOut: mocks.optedOut }));
-vi.mock("@/lib/protected-accounts.server", () => ({ isShieldedRecipient: mocks.shield }));
-vi.mock("@/lib/twilio-client.server", () => ({ createTwilioRestClient: () => ({ messages: { create: mocks.create } }) }));
+vi.mock("@/lib/twilio", () => ({ sendSms: mocks.sendSms }));
 import { sendPlatformLeadText } from "@/lib/one-number/lead-send.server";
 
 const db = {} as SupabaseClient;
@@ -14,42 +12,42 @@ const message = { to: "+12065550123", body: "Your requested demo link", now: new
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.config.mockResolvedValue({ mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: null });
-  mocks.optedOut.mockResolvedValue(false);
-  mocks.shield.mockResolvedValue(false);
-  mocks.create.mockResolvedValue({ sid: "SMrequested" });
+  mocks.sendSms.mockResolvedValue({ sent: true, sid: "SMrequested", providerAttempted: true });
 });
 
 describe("requested informational platform message", () => {
   it("keeps scheduled nudges quiet overnight by default", async () => {
     expect(await sendPlatformLeadText(db, message)).toEqual({ ok: false, reason: "quiet_hours" });
-    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
   });
 
   it("answers an expressly requested demo link at night", async () => {
     expect(await sendPlatformLeadText(db, { ...message, purpose: "requested_demo_link" })).toEqual({ ok: true, sid: "SMrequested" });
-    expect(mocks.create).toHaveBeenCalledOnce();
-    expect(mocks.create.mock.calls[0][0]).toMatchObject({ to: message.to, from: "+12065550100" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+    expect(mocks.sendSms).toHaveBeenCalledWith(message.to, message.body, "+12065550100", { purpose: "platform_lead", messagingServiceSid: null });
   });
 
   it("still refuses a stopped number", async () => {
-    mocks.optedOut.mockResolvedValue(true);
+    mocks.sendSms.mockResolvedValue({ sent: false, error: "recipient_opted_out", providerAttempted: false });
     expect(await sendPlatformLeadText(db, { ...message, purpose: "requested_demo_link" })).toEqual({ ok: false, reason: "opted_out" });
-    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
   });
 
   it("still shields real recipients outside production", async () => {
-    mocks.shield.mockResolvedValue(true);
+    mocks.sendSms.mockResolvedValue({ sent: false, error: "protected_account_shielded", providerAttempted: false });
     expect(await sendPlatformLeadText(db, { ...message, purpose: "requested_demo_link" })).toEqual({ ok: false, reason: "shielded" });
-    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
   });
 
   it.each([
-    [new Error("socket timed out"), "delivery_unknown"],
-    [{ status: 503 }, "delivery_unknown"],
-    [{ status: 400 }, "provider_error"],
-  ])("does not retry or misstate a provider outcome %#", async (error, reason) => {
-    mocks.create.mockRejectedValue(error);
+    [{ sent: false, providerAttempted: true, error: "socket timed out" }, "delivery_unknown"],
+    [{ sent: false, providerAttempted: true, error: "Service unavailable" }, "delivery_unknown"],
+    [{ sent: false, providerAttempted: true, error: "Bad Request" }, "delivery_unknown"],
+    [{ sent: false, providerAttempted: false, error: "not configured" }, "provider_error"],
+    [{ sent: true, providerAttempted: true }, "delivery_unknown"],
+  ])("does not retry or misstate a consolidated transport outcome %#", async (result, reason) => {
+    mocks.sendSms.mockResolvedValue(result);
     expect(await sendPlatformLeadText(db, { ...message, purpose: "requested_demo_link" })).toEqual({ ok: false, reason });
-    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
   });
 });

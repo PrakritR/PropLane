@@ -7,7 +7,7 @@ import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { MANAGED_FAQ } from "@/lib/marketing/managed-service";
+import { MANAGED_SERVICE_HREF } from "@/lib/marketing/managed-service";
 import { TrackOnMount } from "@/components/analytics/track-on-mount";
 import { SiteFaq,type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
@@ -18,8 +18,7 @@ import {
   SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
-import { ManagedTalkSection, PricingTabs } from "@/components/marketing/site/managed-service-sections";
-import { ServicePricingCard, SoftwarePricingCards, TIER_CTA } from "@/components/marketing/site/pricing-cards";
+import { PricingCards, TIER_CTA } from "@/components/marketing/site/pricing-cards";
 import { SitePage } from "@/components/marketing/site/site-page";
 import "@/components/marketing/site/page-polish.css";
 import { cn } from "@/lib/utils";
@@ -188,9 +187,9 @@ function MobileStickyCta() {
       className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-3 border-t border-border bg-card/95 px-4 py-2.5 backdrop-blur-md md:hidden [html[data-native]_&]:pb-[max(0.625rem,env(safe-area-inset-bottom))]"
       data-attr="pricing-sticky-cta"
     >
-      <p className="flex-1 text-[12.5px] text-muted">Free for {RATE_CARD.free.includedDoors} residents, no card.</p>
-      <Link href={TIER_CTA.free.href} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
-        Get started
+      <p className="flex-1 text-[12.5px] text-muted">Let PropLane manage your home.</p>
+      <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
+        Talk to us
       </Link>
     </div>
   );
@@ -199,7 +198,7 @@ function MobileStickyCta() {
 function BillingToggle({ annual }: { annual: boolean }) {
   const pill = (on: boolean) =>
     cn(
-      "inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13.5px] font-bold transition-colors",
+      "inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-[13.5px] font-bold transition-colors",
       on ? "bg-card text-foreground shadow-[var(--shadow-sm)]" : "text-muted hover:text-foreground",
     );
   return (
@@ -217,39 +216,6 @@ function BillingToggle({ annual }: { annual: boolean }) {
   );
 }
 
-/**
- * `/pricing?view=service`: the Managed service tab. The short version of
- * `/pricing/service` - the price card (what is included, how it works), the
- * form, and the questions - with a door to the long page.
- */
-function ManagedServiceTab() {
-  return (
-    <SitePage>
-      <TrackOnMount event="pricing_viewed" properties={{ billing: "service" }} />
-      <SitePageHero
-        id="pricing-title"
-        wide
-        eyebrow="Pricing"
-        title={
-          <>
-            Prefer not to run it yourself?
-            <span className="site-accent">We will run it for you.</span>
-          </>
-        }
-        lede="PropLane Managed: our team manages your home using our own software. Tell us about the home and we will quote it."
-        actions={<PricingTabs active="service" />}
-      />
-      <section className="py-10 sm:py-12" aria-label="PropLane Managed">
-        <div className={SITE_MEASURE}>
-          <ServicePricingCard />
-        </div>
-      </section>
-      <ManagedTalkSection showFullPageLink />
-      <SiteFaq items={[...MANAGED_FAQ]} id="managed-faq" />
-    </SitePage>
-  );
-}
-
 export default async function PricingPage({
   searchParams,
 }: {
@@ -259,8 +225,6 @@ export default async function PricingPage({
   const annual = params.billing === "annual";
   const rates = COMMS_BILLING_RATES_CENTS;
 
-  if (params.view === "service") return <ManagedServiceTab />;
-
   return (
     <SitePage className="pb-16 md:pb-0">
       <TrackOnMount event="pricing_viewed" properties={{ billing: annual ? "annual" : "monthly" }} />
@@ -269,24 +233,22 @@ export default async function PricingPage({
         wide
         title={
           <>
-            Free for {RATE_CARD.free.includedDoors} residents.
-            <span className="site-accent">Pay when the portfolio earns it.</span>
+            We manage it for you.
+            <span className="site-accent">Or choose the software to run it yourself.</span>
           </>
         }
         actions={
           <div className="flex flex-col items-center gap-4">
-            <PricingTabs active="software" />
+            <Link href={`${MANAGED_SERVICE_HREF}#talk`} className={SITE_BTN_PRIMARY} data-attr="pricing-hero-talk">Talk to us</Link>
             <BillingToggle annual={annual} />
           </div>
         }
       />
 
       <section className="py-12 sm:py-14" aria-label="Plans">
-        {/* C178 (captain-requested reversal of PRP-314's side-by-side snap
-            scroller): phone stacks full-width cards in one column; md+ keeps
-            the unchanged 3-column grid. */}
+        {/* All four choices remain together; phones swipe the same row. */}
         <div className={SITE_MEASURE}>
-          <SoftwarePricingCards annual={annual} />
+          <PricingCards annual={annual} />
         </div>
         <div className={SITE_MEASURE}>
           {/* C178: phone gets a per-plan accordion instead of the sideways-
@@ -300,10 +262,6 @@ export default async function PricingPage({
         </div>
       </section>
       <MobileStickyCta />
-
-      <SiteSection ariaLabel="Managed service">
-        <ServicePricingCard attrPrefix="pricing-software-service" showSteps={false} />
-      </SiteSection>
 
       <SiteSection ariaLabel="Credit and fees">
         <div className="grid gap-4 md:grid-cols-2">

@@ -7,12 +7,11 @@ import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { MANAGED_INCLUDES, MANAGED_PRICE_HEADLINE, MANAGED_PRICE_NOTE, MANAGED_SERVICE_HREF, MANAGED_STEPS } from "@/lib/marketing/managed-service";
 import { Check, Dash } from "@/components/marketing/site/pricing-compare-data";
-import { PricingSwitch } from "@/components/marketing/site/pricing-switch";
 import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY } from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
 
 /**
- * The shared pricing cards: `/pricing` (software), `/pricing/service` and the
+ * The shared pricing cards: `/pricing`, `/pricing/service` and the
  * home page's pricing band all import from here, so the plans and the managed
  * service can never be listed differently on two surfaces. Every dollar figure
  * is read from `RATE_CARD`; the managed service has no price until the captain
@@ -89,15 +88,27 @@ export function tierIncludes(id: PlanTierId): { heading: string; items: { text: 
   };
 }
 
-export function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: boolean }) {
+export function PlanCard({ tier, annual, compact = false }: { tier: ManagerPlanTierDefinition; annual: boolean; compact?: boolean }) {
   const featured = tier.id === "pro";
   const price = annual ? tier.annual : tier.monthly;
   const cta = TIER_CTA[tier.id];
   const includes = tierIncludes(tier.id);
-  const headline = tier.id === "free" ? "$0" : price.headline;
+  const headline = tier.id === "free" ? formatRateCardUsd(RATE_CARD.free.floorMonthlyCents) : price.headline;
   const period = tier.id === "free" ? null : annual ? "/yr" : "/mo";
+  if (compact) return (
+    <article className="pl-pricing-card pl-pricing-compact" aria-label={tier.label} data-attr={`pricing-plan-${tier.id}`}>
+      <h3>{tier.label}</h3>
+      <p className="pl-pricing-price"><strong>{headline}</strong>{period && <span>{period}</span>}</p>
+      <p className="pl-pricing-billing">{tier.id === "free" ? "No card required" : annual ? "Billed yearly" : "Billed monthly"}</p>
+      <ul className="pl-pricing-short-list">
+        {includes.items.filter((item) => item.included).slice(0, 2).map((item) => <li key={item.text}>{item.text}</li>)}
+      </ul>
+      <Link href={cta.href} data-attr={`pricing-plan-${tier.id}-cta`} className="pl-pricing-cta">{cta.label}</Link>
+    </article>
+  );
   return (
-    <div
+    <article
+      aria-label={tier.label}
       className={cn(
         "pricing-card relative flex flex-col rounded-3xl border bg-card p-6 sm:p-7",
         featured ? "pricing-card-featured border-primary/50 pt-12 sm:pt-14" : "border-border",
@@ -109,7 +120,7 @@ export function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; an
           Most popular
         </span>
       ) : null}
-      <p className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">{tier.label}</p>
+      <h3 className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">{tier.label}</h3>
       <p className="mt-2 min-h-[40px] text-[14px] leading-snug text-muted">{TIER_TAGLINE[tier.id]}</p>
       <p className="mt-5 flex items-end gap-1.5">
         <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">{headline}</span>
@@ -134,21 +145,7 @@ export function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; an
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/** The three software plans, monthly. `annual` mirrors the /pricing billing toggle. */
-export function SoftwarePricingCards({ annual = false }: { annual?: boolean }) {
-  return (
-    <div
-      className="flex flex-col gap-5 pt-3 md:grid md:grid-cols-3 md:items-stretch md:gap-6 md:pt-0"
-      data-attr="pricing-plan-stack"
-    >
-      {MANAGER_PLAN_TIERS.map((tier) => (
-        <PlanCard key={tier.id} tier={tier} annual={annual} />
-      ))}
-    </div>
+    </article>
   );
 }
 
@@ -221,39 +218,32 @@ export function ServicePricingCard({
   );
 }
 
-/**
- * The home page's pricing band: Software | Managed service tabs over the plan
- * cards and the service card. codex-1: import `PricingCards` and drop it in
- * `/`; it needs no props. Wrap it in your own section/heading.
- */
-export function PricingCards({ defaultView = "software", variant = "full" }: {
-  defaultView?: "software" | "service";
+/** A fourth plan in the same comparison row; the full service detail card above stays on /pricing/service. */
+function ManagedPlanCard({ compact }: { compact: boolean }) {
+  return (
+    <article className={cn("pl-pricing-card pl-pricing-managed", compact && "pl-pricing-compact")} aria-label="We manage it for you" data-attr="pricing-plan-managed">
+      <span className="pl-pricing-service-label">Managed service</span>
+      <h3>We manage it for you</h3>
+      <p className="pl-pricing-price"><strong>{MANAGED_PRICE_HEADLINE}</strong></p>
+      {!compact && <p className="pl-pricing-billing">{MANAGED_PRICE_NOTE}</p>}
+      <ul className="pl-pricing-short-list">
+        {(compact ? MANAGED_INCLUDES.slice(0, 2) : MANAGED_INCLUDES).map((item) => <li key={item.id}>{item.title}</li>)}
+      </ul>
+      <Link href={`${MANAGED_SERVICE_HREF}#talk`} prefetch={false} className="pl-pricing-cta" data-attr="pricing-plan-managed-cta">Talk to us</Link>
+    </article>
+  );
+}
+
+/** Four choices are always visible in the same row; billing changes only software prices. */
+export function PricingCards({ annual = false, variant = "full" }: {
+  annual?: boolean;
   variant?: "full" | "overview";
 }) {
-  // The homepage compares the two offerings in one compact band; detailed
-  // plans and the billing switch remain on their dedicated pricing pages.
-  if (variant === "overview") return (
-    <div className="texting-pricing-grid">
-      <article className="texting-pricing-card">
-        <span className="texting-eyebrow">SOFTWARE</span>
-        <h3>You run it. PropLane helps.</h3>
-        <p className="texting-plan-price">From {formatRateCardUsd(RATE_CARD.free.floorMonthlyCents)} / month</p>
-        <Link href="/pricing" prefetch={false} className="texting-primary" data-attr="home-software-pricing">View software plans</Link>
-      </article>
-      <article className="texting-pricing-card texting-managed-card">
-        <span className="texting-eyebrow">MANAGED SERVICE</span>
-        <h3>We run your home for you.</h3>
-        <p className="texting-plan-price">{MANAGED_PRICE_HEADLINE}</p>
-        <Link href={`${MANAGED_SERVICE_HREF}#talk`} prefetch={false} className="texting-primary" data-attr="home-managed-service-pricing">Talk to us</Link>
-      </article>
-    </div>
-  );
+  const compact = variant === "overview";
   return (
-    <PricingSwitch
-      attrPrefix="home-pricing-switch"
-      defaultView={defaultView}
-      software={<SoftwarePricingCards />}
-      service={<ServicePricingCard attrPrefix="home-pricing-service" />}
-    />
+    <div className={cn("pl-pricing-options", compact && "pl-pricing-overview")} role="region" aria-label="Pricing options; swipe to compare all four plans" tabIndex={0} data-attr="pricing-plan-stack">
+      {MANAGER_PLAN_TIERS.map((tier) => <PlanCard key={tier.id} tier={tier} annual={annual} compact={compact} />)}
+      <ManagedPlanCard compact={compact} />
+    </div>
   );
 }
