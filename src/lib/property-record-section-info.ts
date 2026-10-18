@@ -42,7 +42,7 @@ export const PROPERTY_RECORD_SECTION_INFO: Readonly<
     body: "Promote this property to more renters — flyers, posts, printables and listing feeds.",
   },
   "ai-info": {
-    title: "AI info",
+    title: "Answers",
     body: "What the PropLane assistant knows when it answers renters about tours, rules, pricing and the area.",
   },
   activity: {

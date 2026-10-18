@@ -107,7 +107,7 @@ export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   "move-in": "Move-in",
   application: "Apply",
   promotion: "Promo",
-  "ai-info": "AI",
+  "ai-info": "Answers",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
