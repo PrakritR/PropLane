@@ -1048,6 +1048,26 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["user_id"] },
   },
   {
+    // One-number entry codes ("Text BROOKLYN5"): the workspace owner's own rows.
+    table: "sms_entry_codes",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
+  {
+    // Shared-line shadow log: what the router would have decided vs the real owner.
+    table: "sms_line_shadow_decisions",
+    phase: 1,
+    manager: { ids: ["actual_owner_user_id"] },
+  },
+  {
+    // Global contact keyed on the phone; the login link is detached, the phone row stays.
+    table: "sms_phone_contacts",
+    phase: 2,
+    manager: { detachIds: ["user_id"] },
+    resident: { detachIds: ["user_id"] },
+    vendor: { detachIds: ["user_id"] },
+  },
+  {
     table: "sms_consent",
     phase: 2,
     manager: { ids: ["user_id"] },
@@ -1335,6 +1355,17 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_delivery_events: "Child of sms_outbox (cascades); carries no account column.",
   sms_provider_events: "Raw provider webhook log; carries no account column.",
   sms_segment_usage: "Aggregate billing counters; carries no account column.",
+  sms_line_sessions: "Shared-line router state keyed on a phone; carries no account column.",
+  sms_line_thread_state: "Per phone + workspace AI pause state; cascades with the workspace.",
+  sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
+  sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
+  sms_media_files: "MMS file index keyed on message sid and phone; no account column.",
+  phone_bound_links: "Phone-bound signed links; keyed on a phone, cascade with the workspace.",
+  phone_bound_link_sessions: "Verified link sessions; cascade with the link.",
+  phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",
+  property_knowledge_entries: "Workspace knowledge base; cascades with the workspace.",
+  sms_topic_reply_modes: "Workspace auto-reply settings; cascade with the workspace.",
+  sms_ai_reply_outcomes: "Workspace reply-quality counters; cascade with the workspace.",
   rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",
   tour_inquiry_claims:
     "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",
