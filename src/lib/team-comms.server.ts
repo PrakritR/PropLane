@@ -219,6 +219,8 @@ type TeamThreadMessage = {
   outbound?: boolean;
   actorUserId?: string;
   channel?: "sms" | "proplane";
+  /** Files beside the bubble. The body stays the typed text. */
+  attachments?: { url: string; name?: string }[];
 };
 
 type TeamThreadRow = { id: string; row_data: Record<string, unknown> | null; updated_at: string | null };
@@ -317,6 +319,8 @@ export async function postTeamThreadMessage(
     text: string;
     messageId: string;
     channel?: TeamMessageChannel;
+    /** In-app chips. Omitted when the line has no files; never written into `text`. */
+    attachments?: { url: string; name?: string }[];
   },
 ): Promise<{ ok: true; posted: boolean; threadId: string; workspaceId: string | null } | { ok: false; error: string }> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -345,6 +349,7 @@ export async function postTeamThreadMessage(
     outbound: true,
     actorUserId: input.actorUserId ?? ownerId,
     channel,
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
   });
 
   for (let attempt = 0; attempt < TEAM_THREAD_APPEND_ATTEMPTS; attempt += 1) {

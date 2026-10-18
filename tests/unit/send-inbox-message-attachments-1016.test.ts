@@ -138,11 +138,15 @@ describe("send-inbox-message attachments", () => {
       join(__dirname, "..", "..", "src", "app", "api", "portal", "send-inbox-message", "route.ts"),
       "utf8",
     );
-    for (const call of ["deliverResidentPropertyManagerChatMessage(", "deliverPortalMessageToAdminSharedInbox("]) {
+    for (const call of [
+      "deliverResidentPropertyManagerChatMessage(",
+      "deliverPortalMessageToAdminSharedInbox(",
+      "postTeamThreadMessage(",
+    ]) {
       const start = source.indexOf(call);
       expect(start).toBeGreaterThan(-1);
       const args = source.slice(start, source.indexOf("});", start));
-      expect(args).toMatch(/(message|body): storedText/);
+      expect(args).toMatch(/(message|body|text): storedText/);
       expect(args).toMatch(/attachments: inboxAttachmentsFromUrls\(attachmentUrls\)/);
       expect(args).not.toMatch(/(message|body): text,/);
     }

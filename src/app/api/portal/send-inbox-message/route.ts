@@ -421,6 +421,7 @@ export async function POST(req: Request) {
           actorUserId: user.id,
           actorName,
           text: storedText,
+          attachments: inboxAttachmentsFromUrls(attachmentUrls),
           messageId,
           channel: "app",
         });
