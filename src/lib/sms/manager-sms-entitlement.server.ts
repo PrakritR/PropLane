@@ -6,6 +6,7 @@ import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { getStripe } from "@/lib/stripe";
 import { isSignupTrialManagerPurchase, managerPurchasePeriodEndMs } from "@/lib/manager-tier-expiry";
 import { isTrialWorkNumberOnboardingEnabled } from "@/lib/sms/number-registration-policy";
+import { isPlatformServiceOwner } from "@/lib/service/service-owner.server";
 import {
   getAcceptedCoManagerInviterIds,
   isPureCoManagerWorkspace,
@@ -118,6 +119,29 @@ async function reconcileTrialEntitlement(
  * workspace owner when requesting their own work number (per-account, not shared).
  */
 export async function reconcileManagerSmsEntitlement(
+  db: SupabaseClient,
+  managerUserId: string,
+  deps: {
+    preferPaid?: boolean;
+    loadPurchase?: (id: string) => Promise<PurchaseSku>;
+    loadStripeSubscription?: (id: string) => Promise<Stripe.Subscription>;
+  } = {},
+): Promise<SmsEntitlement> {
+  const billed = await reconcileManagerSmsEntitlementFromBilling(db, managerUserId, deps);
+  return billed.eligible ? billed : (await serviceOwnerEntitlement(db, managerUserId)) ?? billed;
+}
+
+/**
+ * The PropLane service owner's workspaces carry their own work number regardless of plan
+ * (admin Service tab). Only the stored service owner qualifies; any read failure is "no".
+ */
+async function serviceOwnerEntitlement(db: SupabaseClient, managerUserId: string): Promise<SmsEntitlement | null> {
+  return (await isPlatformServiceOwner(db, managerUserId))
+    ? { eligible: true, tier: "business", source: "none" }
+    : null;
+}
+
+async function reconcileManagerSmsEntitlementFromBilling(
   db: SupabaseClient,
   managerUserId: string,
   deps: {
@@ -266,6 +290,14 @@ export async function getEffectiveManagerSmsEntitlement(
 
 /** Fast, fail-closed dispatch-time read. Billing reconciliation happens outside the hot path. */
 export async function getStoredManagerSmsEntitlement(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<SmsEntitlement> {
+  const stored = await getStoredManagerSmsEntitlementFromRow(db, managerUserId);
+  return stored.eligible ? stored : (await serviceOwnerEntitlement(db, managerUserId)) ?? stored;
+}
+
+async function getStoredManagerSmsEntitlementFromRow(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<SmsEntitlement> {
