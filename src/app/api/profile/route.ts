@@ -88,11 +88,9 @@ export async function PATCH(req: Request) {
     // caller cannot name the row or the columns.
     const db = createSupabaseServiceRoleClient();
     const shared = (await loadSharedLineConfig(db)).mode === "shared";
-    const { data: currentProfile, error: profileReadError } = await db
-      .from("profiles")
-      .select(shared ? "phone, phone_verified_at" : "phone")
-      .eq("id", user.id)
-      .maybeSingle();
+    const { data: currentProfile, error: profileReadError } = shared
+      ? await db.from("profiles").select("phone, phone_verified_at").eq("id", user.id).maybeSingle()
+      : await db.from("profiles").select("phone").eq("id", user.id).maybeSingle();
     if (shared && profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
     const decision = legacyPhoneWriteDecision(currentProfile,
       shared && body.phone === undefined ? currentProfile?.phone ?? null : phoneRaw || null, shared);

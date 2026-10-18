@@ -42,7 +42,7 @@ export async function readPhoneIdentity(db: SupabaseClient, userId: string) {
   if (phone && data?.phone_verified_at) return { phone, verified: true };
   const auth = await db.auth.admin.getUserById(userId);
   if (auth.error || !auth.data.user) throw new Error(PHONE_AUTH_ERROR);
-  const authPhone = normalizeE164(auth.data.user.phone);
+  const authPhone = auth.data.user.phone ? normalizeE164(`+${auth.data.user.phone.replace(/^\+/, "")}`) : null;
   if (authPhone && auth.data.user.phone_confirmed_at) return { phone: authPhone, verified: true };
   return { phone, verified: false };
 }
@@ -90,7 +90,7 @@ export async function startPhoneChallenge(input: {
     const owners = await phoneOwners(db, phone);
     if (owners.length === 1) {
       const { data, error } = await db.auth.admin.getUserById(owners[0]);
-      if (!error && data.user.phone_confirmed_at && normalizeE164(data.user.phone) === phone) provider = "supabase";
+      if (!error && data.user.phone_confirmed_at && data.user.phone && normalizeE164(`+${data.user.phone.replace(/^\+/, "")}`) === phone) provider = "supabase";
     }
   }
   const actor = purpose === "sign_in" ? null : userId;
@@ -178,30 +178,32 @@ export async function verifyPhoneChallenge(input: {
   const claimed = await db.rpc("phone_auth_claim_operation", { p_operation: operation, p_phone: proof.phone, p_user: actor });
   if (claimed.error || claimed.data !== true) throw new Error(PHONE_AUTH_ERROR);
   try {
-  const owners = await phoneOwners(db, proof.phone);
-  if (owners.length > 1 || (actor && owners.some((id) => id !== actor))) throw new Error(PHONE_AUTH_ERROR);
-  let user: User;
-  if (actor) {
-    const result = await db.auth.admin.getUserById(actor);
-    if (result.error || !result.data.user) throw new Error(PHONE_AUTH_ERROR);
-    user = result.data.user;
-  } else {
-    user = await resolvePhoneUser(db, proof.phone);
-  }
-  if (nativeUser && nativeUser.id !== user.id) throw new Error(PHONE_AUTH_ERROR);
-  const claimedUser = await db.rpc("phone_auth_claim_operation", { p_operation: operation, p_phone: proof.phone, p_user: user.id });
-  if (claimedUser.error || claimedUser.data !== true) throw new Error(PHONE_AUTH_ERROR);
-  const bound = await db.rpc("phone_auth_bind", {
-    p_id: challengeId, p_user: user.id, p_browser_hash: browserHash,
-    p_old_id: input.oldChallengeId ?? null, p_operation: operation,
-  });
-  if (bound.error || bound.data !== true) throw new Error(PHONE_AUTH_ERROR);
-  const updated = await db.auth.admin.updateUserById(user.id, { phone: proof.phone, phone_confirm: true });
-  if (updated.error || !updated.data.user) throw new Error(PHONE_AUTH_ERROR);
-  // The projection reader attaches old SMS by verified phone and workspace;
-  // sms_phone_contacts is bound atomically above, without moving tenant rows.
-  if (actor) return { ok: true as const };
-  return { ok: true as const, session: await mintPhoneSession(db, updated.data.user) };
+    const owners = await phoneOwners(db, proof.phone);
+    if (owners.length > 1 || (actor && owners.some((id) => id !== actor))) throw new Error(PHONE_AUTH_ERROR);
+    let user: User;
+    if (actor) {
+      const result = await db.auth.admin.getUserById(actor);
+      if (result.error || !result.data.user) throw new Error(PHONE_AUTH_ERROR);
+      user = result.data.user;
+    } else {
+      user = await resolvePhoneUser(db, proof.phone);
+    }
+    if (nativeUser && nativeUser.id !== user.id) throw new Error(PHONE_AUTH_ERROR);
+    const claimedUser = await db.rpc("phone_auth_claim_operation", { p_operation: operation, p_phone: proof.phone, p_user: user.id });
+    if (claimedUser.error || claimedUser.data !== true) throw new Error(PHONE_AUTH_ERROR);
+    const bound = await db.rpc("phone_auth_bind", {
+      p_id: challengeId, p_user: user.id, p_browser_hash: browserHash,
+      p_old_id: input.oldChallengeId ?? null, p_operation: operation,
+    });
+    if (bound.error || bound.data !== true) throw new Error(PHONE_AUTH_ERROR);
+    // The bind transaction updates Auth phone/identity and application ownership
+    // together. Read back only; an external phone update would split the change.
+    const updated = await db.auth.admin.getUserById(user.id);
+    if (updated.error || !updated.data.user) throw new Error(PHONE_AUTH_ERROR);
+    // The projection reader attaches old SMS by verified phone and workspace;
+    // sms_phone_contacts is bound atomically above, without moving tenant rows.
+    if (actor) return { ok: true as const };
+    return { ok: true as const, session: await mintPhoneSession(db, updated.data.user) };
   } finally {
     await db.rpc("phone_auth_release_operation", { p_operation: operation });
   }
