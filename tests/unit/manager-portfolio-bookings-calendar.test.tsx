@@ -91,7 +91,7 @@ describe("ManagerPortfolioBookingsCalendar", () => {
     expect(screen.queryByRole("tablist", { name: "Bookings layout" })).toBeNull();
     // C2-CAL1 replaces the fixed 21-day strip with a remembered view dropdown.
     expect(screen.getByText("September 2026")).toBeTruthy();
-    // The view pick is a FieldSingleSelect dropdown button showing the current view.
-    expect(screen.getByRole("button", { name: "Calendar view" }).textContent?.trim()).toBe("Month");
+    // The view pick is the "Calendar period" segmented control with the current view selected.
+    expect(screen.getByRole("tab", { name: "Month" }).getAttribute("aria-selected")).toBe("true");
   });
 });

@@ -352,7 +352,7 @@ export function AddWorkspace({
                   disabled={busy}
                   onClick={discardDraft}
                   data-attr={`${dataAttrPrefix}-discard-draft`}
-                  className="text-[13px] font-semibold text-danger hover:underline disabled:opacity-50"
+                  className="inline-flex min-h-[44px] items-center whitespace-nowrap px-1 text-[14px] font-semibold text-danger hover:underline disabled:opacity-50 lg:min-h-0 lg:text-[13px]"
                 >
                   Discard draft
                 </button>
@@ -360,7 +360,7 @@ export function AddWorkspace({
             </div>
             <span className="min-w-0 flex-1 text-center text-[13px] text-muted">
               {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
-              {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
+              {hideFooterStepCount || steps.length < 2 ? null : <span className="whitespace-nowrap max-sm:hidden">Step {current + 1} of {steps.length}</span>}
             </span>
             <div className="flex items-center gap-2.5">
               {footer.showBack ? (
@@ -371,7 +371,7 @@ export function AddWorkspace({
                     if (prevPath != null) onJump(prevPath);
                   }}
                   data-attr={`${dataAttrPrefix}-back`}
-                  className="min-h-[44px] rounded-lg border border-[var(--input)] bg-card px-4 text-[13.5px] font-semibold text-foreground disabled:opacity-45 lg:min-h-9"
+                  className="min-h-[44px] rounded-lg border border-[var(--input)] bg-card px-4 text-[16px] font-semibold lg:text-[13.5px] text-foreground disabled:opacity-45 lg:min-h-9"
                 >
                   Back
                 </button>
@@ -382,7 +382,7 @@ export function AddWorkspace({
                   onClick={finish}
                   disabled={lastDisabled || busy}
                   data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
-                  className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-60 lg:min-h-9"
+                  className="min-h-[44px] rounded-lg bg-primary px-4 text-[16px] font-semibold lg:text-[13.5px] text-white disabled:opacity-60 lg:min-h-9"
                 >
                   {busy ? "Saving…" : footer.primaryLabel}
                 </button>
@@ -394,7 +394,7 @@ export function AddWorkspace({
                   aria-disabled={nextDisabled || stepIncomplete || steps[current]?.incomplete || undefined}
                   data-attr={`${dataAttrPrefix}-next`}
                   aria-label={nextPath != null ? `Next: ${steps[nextPath]!.label}` : "Next"}
-                  className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted lg:min-h-9"
+                  className="min-h-[44px] rounded-lg bg-primary px-4 text-[16px] font-semibold lg:text-[13.5px] text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted lg:min-h-9"
                 >
                   {footer.primaryLabel}
                 </button>

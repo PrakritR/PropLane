@@ -1,27 +1,40 @@
 "use client";
 
-import { Fragment, memo, useMemo, useSyncExternalStore, useState, type ReactNode } from "react";
-import { ArrowUpRight, Ban, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
-import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { BookingBar, BookingBarSheet, useIsPhoneWidth, type BookingBarHandlers } from "@/components/portal/bookings-timeline-bar";
+import {
+  columnPx,
+  dayDiff,
+  entryBelongsToRoom,
+  HOUSE_ROW_HEIGHT,
+  labelWidthPx,
+  layoutRoom,
+  lazyCache,
+  narrowHouseBySearch,
+  placeBars,
+  ROOM_ROW_MIN_HEIGHT,
+  windowRows,
+  type RoomLayout,
+  type TimelineRoom,
+} from "@/components/portal/bookings-timeline-layout";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
+import { isResidentStay, BOOKING_CALENDAR_VIEWS, bookingCheckout, calendarOccupancy, calendarOccupancyDays, calendarOccupancyOnDay, calendarOccupancySummary, calendarRange, calendarStatusClass, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
 import { addDaysToDateKey, bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
-import { BOOKING_CALENDAR_VIEWS, bookingActiveOn, bookingCheckout, bookingLanes, calendarOccupancy, calendarOccupancySummary, calendarRange, calendarStatus, calendarStatusClass, isResidentStay, occupancyCell, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { dateKey } from "@/lib/room-availability-calendar";
 import { occupancyStayKind, type OccupancyCapacities } from "@/lib/occupancy/snapshot";
 import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
-import { bookingRecordHref } from "@/lib/portal-detail-routes";
-import { bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
-import { bookingRemovalActions } from "@/lib/channel-calendar/booking-presentation";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+
+export type TimelineHouseInfo = { name: string; address?: string };
 
 export type BookingsPortfolioTimelineProps = {
   propertyIds: string[];
+  /** Room-filtered entries; the timeline applies `searchQuery` itself so it can match houses and rooms too. */
   entries: PropertyBookingEntry[];
   today: Date;
   onOpenDay?: (dayKey: string) => void;
@@ -42,10 +55,16 @@ export type BookingsPortfolioTimelineProps = {
   /** Explicit page scope, so filtering the workspace never changes its preference. */
   preferenceKey?: string;
   roomFilterId?: string;
+  /** Houses, rooms and guests the calendar narrows to. */
+  searchQuery?: string;
+  /** Injection points; each defaults to the listing store. */
+  resolveRooms?: (propertyId: string, entries: PropertyBookingEntry[]) => TimelineRoom[];
+  resolveHouse?: (propertyId: string, entries: PropertyBookingEntry[]) => TimelineHouseInfo;
+  capacities?: OccupancyCapacities;
 };
+
 const subscribe = (notify: () => void) => { window.addEventListener("resize", notify); window.addEventListener("storage", notify); return () => { window.removeEventListener("resize", notify); window.removeEventListener("storage", notify); }; };
 const dateLabel = (key: string, options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }) => new Date(`${key}T12:00:00`).toLocaleDateString("en-US", options);
-const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
 
 /**
  * The bookable rows of one property: a row per saved room (the room picker's
@@ -66,62 +85,132 @@ export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[
   if (!seen.size) seen.set("", { id: "", label: "Whole home", rent: "" });
   return [...seen.values()];
 }
-/** The calendar's colour key: one quiet row, colour dot + name, drawn under the calendar itself. */
+/** The calendar's colour key: one row that never wraps (it scrolls sideways on a phone), colour dot + name. */
 export function BookingsCalendarLegend() {
-  return <ul className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-1 pt-2 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
+  return <ul className="flex flex-nowrap items-center gap-x-4 overflow-x-auto whitespace-nowrap px-1 pt-1 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex shrink-0 items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
 }
-/**
- * One bar and its info popover. The popover is NON-modal with no scrim: it is a light card, so opening it
- * never locks the page (no `pointer-events: none` on <body>) and a dialog opened from an item cannot inherit one.
- * Memoized, and every prop a bar takes is stable across a parent render, so opening a modal redraws no bar.
- */
-type BookingBarHandlers = { onEdit?: (entry: PropertyBookingEntry) => void; onUnblock?: (entry: PropertyBookingEntry) => void; onDeleteBlock?: (entry: PropertyBookingEntry) => void; onUnblockChannelStay?: (entry: PropertyBookingEntry) => void; canRemove?: (entry: PropertyBookingEntry) => boolean };
-const BookingBar = memo(function BookingBar({ entry, today, children, className, style, onEdit, onUnblock, onDeleteBlock, onUnblockChannelStay, canRemove }: { entry: PropertyBookingEntry; today: string; children?: ReactNode; className?: string; style?: React.CSSProperties } & BookingBarHandlers) {
-  const removal = bookingRemovalActions(entry, today, canRemove ? canRemove(entry) : true);
-  const status = calendarStatus(entry, today);
-  const checkout = bookingCheckout(entry);
-  const barLabel = entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
-  return <DropdownMenu modal={false}><DropdownMenuTrigger asChild><button type="button" style={style} className={`rounded-lg px-2 py-1 text-left text-xs ${calendarStatusClass(status)} ${className ?? ""}`} data-attr="bookings-calendar-bar" aria-label={`${barLabel}, ${status}`}>
-    <span className="block truncate font-semibold">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3" strokeWidth={1.7} /> : entry.source === "booking_com" ? "B · " : entry.source === "vrbo" ? "V · " : entry.source === "ical" ? `${(entry.channelLabel?.trim() || "O").charAt(0).toUpperCase()} · ` : ""}{barLabel}</span>{children}
-  </button></DropdownMenuTrigger><DropdownMenuContent align="start" backdrop={false} className="max-w-[calc(100vw-2rem)]">
-    <div className="grid gap-2 p-3 text-sm"><strong>{barLabel}</strong><span>{dateLabel(entry.start)} – {checkout ? dateLabel(checkout) : "Open-ended"}</span><span>{entry.roomLabel || "Whole home"}</span><span>{status}</span></div>
-    {onEdit && !isChannelBookingSource(entry.source) ? <DropdownMenuItem onSelect={() => onEdit(entry)}><Pencil />Edit</DropdownMenuItem> : null}
-    {removal.unblock && onUnblock ? <DropdownMenuItem onSelect={() => onUnblock(entry)} data-attr="bookings-bar-unblock"><Ban />Unblock</DropdownMenuItem> : null}
-    {removal.unblockChannel && onUnblockChannelStay ? <DropdownMenuItem onSelect={() => onUnblockChannelStay(entry)} data-attr="bookings-bar-unblock-channel"><Ban />Unblock in PropLane</DropdownMenuItem> : null}
-    {removal.deleteBlock && onDeleteBlock ? <DropdownMenuItem onSelect={() => onDeleteBlock(entry)} data-attr="bookings-bar-delete"><Trash2 />Delete</DropdownMenuItem> : null}
-    <DropdownMenuItem asChild><Link href={bookingRecordHref("/portal", bookingEntryKey(entry))}><ArrowUpRight />Open booking</Link></DropdownMenuItem>
-  </DropdownMenuContent></DropdownMenu>;
-});
 
 /**
  * `bedsTotal` / `roomCapacity` both re-enter `getPropertyById`, which reads the
  * listing store. One cache per computation turns a lookup per property-day — a
  * year view is ~365 days — into one lookup per property.
  */
-function cachedOccupancyCapacities(): OccupancyCapacities {
+function cachedOccupancyCapacities(base: OccupancyCapacities): OccupancyCapacities {
   const beds = new Map<string, number>();
   const rooms = new Map<string, number>();
   return {
     bedsTotal: propertyId => {
       let value = beds.get(propertyId);
-      if (value === undefined) { value = bookingOccupancyCapacities.bedsTotal(propertyId); beds.set(propertyId, value); }
+      if (value === undefined) { value = base.bedsTotal(propertyId); beds.set(propertyId, value); }
       return value;
     },
     roomCapacity: (propertyId, roomId) => {
       const key = `${propertyId}\u0000${roomId}`;
       let value = rooms.get(key);
-      if (value === undefined) { value = bookingOccupancyCapacities.roomCapacity(propertyId, roomId); rooms.set(key, value); }
+      if (value === undefined) { value = base.roomCapacity(propertyId, roomId); rooms.set(key, value); }
       return value;
     },
   };
 }
 
+const isGuestStay = (entry: PropertyBookingEntry) => isResidentStay(entry) || entry.bookingStatus === "confirmed" || ["lease", "guest"].includes(occupancyStayKind(entry));
+const STRIP_COLOR = (percent: number) => `rgba(40,99,240,${percent ? .1 + .8 * percent / 100 : .05})`;
+
+type HouseModel = {
+  propertyId: string;
+  name: string;
+  address: string;
+  single: boolean;
+  rooms: TimelineRoom[];
+  /** Every stay of the house: occupancy figures read these, never the search-narrowed set. */
+  entries: PropertyBookingEntry[];
+  entriesByRoom: Map<string, PropertyBookingEntry[]> | null;
+  scopeEntries: PropertyBookingEntry[];
+};
+type HouseStats = { strip: number[]; avg: number; occupied: number; beds: number };
+type DayMeta = { day: string; weekend: boolean; today: boolean; top: string; bottom: string; openLabel: string; longLabel: string };
+type TimelineRowModel =
+  | { key: string; kind: "house"; top: number; height: number; house: HouseModel }
+  | { key: string; kind: "room"; top: number; height: number; house: HouseModel; layout: RoomLayout };
+type RowContext = {
+  meta: DayMeta[];
+  view: BookingCalendarView;
+  colPx: number;
+  trackW: number;
+  labelPx: number;
+  /** How far the track is scrolled left: a bar's start under the label column pushes its name right by that much. */
+  scrollLeft: number;
+  todayKey: string;
+  anchor: string;
+  focusLabel: string;
+  handlers: BookingBarHandlers;
+  onOpenSheet?: (entry: PropertyBookingEntry) => void;
+  onToggle: (propertyId: string) => void;
+  onDrill: (day: string) => void;
+  onReserveRoomDay?: BookingsPortfolioTimelineProps["onReserveRoomDay"];
+};
+
+/** Surfaces that stick (the label column, the day header) must be opaque: `--card` is translucent on the portal's light surface. */
+const OPAQUE = "bg-[var(--pl-surface-raised)]";
+const HOUSE_TINT = "bg-gradient-to-b from-accent/30 to-accent/30";
+
+const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { row: TimelineRowModel; ctx: RowContext; stats?: HouseStats; expanded: boolean }) {
+  const { meta, view, colPx, trackW, labelPx, todayKey, anchor } = ctx;
+  const labelStyle = { width: labelPx, height: row.height };
+  const labelBase = `sticky left-0 z-20 flex shrink-0 flex-col justify-center border-r border-border ${OPAQUE}`;
+  const house = row.house;
+  const title = [house.name, house.address].filter(Boolean).join(" · ");
+  const pixelBars = useMemo(() => (row.kind === "room" ? placeBars(row.layout.bars, colPx, trackW) : []), [row, colPx, trackW]);
+  if (row.kind === "house") {
+    const s = stats!;
+    return <div className="flex border-b border-border" style={{ height: row.height, width: labelPx + trackW }} data-attr={`bookings-timeline-property-${house.propertyId}`}>
+      <div className={`${labelBase} ${HOUSE_TINT}`} style={labelStyle} title={title}>
+        <button type="button" aria-expanded={expanded} onClick={() => ctx.onToggle(house.propertyId)} className="flex min-h-11 w-full min-w-0 flex-col justify-center px-2 text-left outline-none hover:bg-accent/40 focus-visible:bg-accent/40 sm:px-3">
+          <span className="flex min-w-0 items-center gap-1 text-[13px] font-semibold leading-4 text-foreground sm:text-sm"><span className="truncate">{house.name}</span><ChevronDown aria-hidden className={`size-4 shrink-0 text-muted transition-transform ${expanded ? "" : "-rotate-90"}`} /></span>
+          <span className="truncate text-[11px] leading-[13px] text-muted tabular-nums sm:text-xs" data-attr="bookings-property-occupied">{s.occupied}/{s.beds} {ctx.focusLabel}<span className="max-sm:hidden"> · {s.avg}% avg</span></span>
+        </button>
+      </div>
+      <div className={`relative flex items-center ${HOUSE_TINT}`} style={{ width: trackW, height: row.height }}>
+        {meta.map((m, index) => <div key={m.day} title={`${s.strip[index]}% occupied`} className="flex flex-none items-center px-px" style={{ width: colPx }}><div className="h-2 w-full rounded" style={{ backgroundColor: STRIP_COLOR(s.strip[index]!) }} /></div>)}
+      </div>
+    </div>;
+  }
+  const { layout } = row;
+  const room = layout.room;
+  const label = <div className={`${labelBase} px-2 sm:px-3`} style={labelStyle} title={title}>
+    <span className="truncate text-[13px] font-semibold leading-4 text-foreground sm:text-sm">{house.single ? house.name : room.label}</span>
+    {house.single && room.label && room.label !== "Whole home" && room.label !== house.name ? <span className="truncate text-xs text-muted">{room.label}</span> : null}
+    {room.rent ? <span className="truncate text-xs text-muted">{room.rent}</span> : null}
+  </div>;
+  let track;
+  if (view === "year") {
+    track = <div className="flex" style={{ width: trackW, height: row.height }}>{meta.map((m, index) => { const percent = layout.monthPercents[index]!; return <button type="button" key={m.day} onClick={() => ctx.onDrill(m.day)} title={`${room.label} · ${dateLabel(m.day, { month: "long" })}: ${percent}% occupied`} className="flex-none border-r border-border text-xs font-semibold tabular-nums" style={{ width: colPx, backgroundColor: percent ? `rgba(40,99,240,${.1 + .75 * percent / 100})` : undefined }}>{percent ? `${percent}%` : ""}</button>; })}</div>;
+  } else if (view === "day") {
+    track = <div className="flex items-center gap-2 p-1.5" style={{ width: trackW, height: row.height }}>{layout.dayEntries.map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} className="h-auto min-h-11 min-w-0 flex-1" detail={<span className="block truncate px-2 text-xs">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span>} />)}{!layout.dayEntries.length ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div>;
+  } else {
+    const reserve = ctx.onReserveRoomDay;
+    const name = house.single ? house.name : room.label;
+    track = <div className="relative" style={{ width: trackW, height: row.height }}>
+      <div className="absolute inset-0 flex">{meta.map((m, index) => {
+        const cellClass = `flex-none border-r border-border/40 ${m.today ? "bg-primary/10" : m.weekend ? "bg-muted/5" : ""}`;
+        const free = !!reserve && m.day >= todayKey && !layout.busy[index];
+        return free ? <button type="button" key={m.day} style={{ width: colPx }} className={`${cellClass} hover:bg-primary/10 focus-visible:bg-primary/10`} data-attr="bookings-calendar-empty-cell" data-day={m.day} data-room={room.id} aria-label={`Mark ${name} reserved on ${m.longLabel}`} onClick={() => reserve({ propertyId: house.propertyId, roomId: room.id, dayKey: m.day })} /> : <div key={m.day} style={{ width: colPx }} className={cellClass} />;
+      })}</div>
+      {pixelBars.map(bar => <BookingBar key={bar.key} entry={bar.entry} today={todayKey} conflict={bar.conflict} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} placement={{ left: bar.left, top: bar.top, width: bar.width, nameInset: Math.max(0, Math.min(bar.width - 24, ctx.scrollLeft - bar.left)), narrow: bar.narrow, labelWidth: bar.labelWidth }} />)}
+    </div>;
+  }
+  return <div className="flex border-b border-border" style={{ height: row.height, width: labelPx + trackW }} data-attr={house.single ? `bookings-timeline-property-${house.propertyId}` : undefined} data-room-row="">{label}{track}</div>;
+});
+
 export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps) {
-  const { propertyIds, today, onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, onAddBooking, onReserveRoomDay, roomFilterId } = props;
+  const { propertyIds, today, onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, onAddBooking, onReserveRoomDay, roomFilterId, canRemoveBooking, onOpenDay, resolveRooms, resolveHouse } = props;
+  const phone = useIsPhoneWidth();
+  const labelPx = labelWidthPx(phone);
   const entries = useMemo(() => props.entries.filter(entry => entry.bookingStatus !== "cancelled" && entry.statusLabel?.toLowerCase() !== "cancelled"), [props.entries]);
   const scope = `proplane:bookings-calendar:${props.preferenceKey ?? "workspace"}`;
+  const expandedKey = `${scope}:expanded`;
   const savedView = useSyncExternalStore(subscribe, () => { try { const saved = localStorage.getItem(scope); if (BOOKING_CALENDAR_VIEWS.includes(saved as BookingCalendarView)) return saved as BookingCalendarView; } catch {} return window.innerWidth < 640 ? "week" : "month"; }, () => "month" as BookingCalendarView);
-  const guests = useMemo(() => entries.filter(entry => isResidentStay(entry) || entry.bookingStatus === "confirmed" || ["lease", "guest"].includes(occupancyStayKind(entry))), [entries]);
+  const savedExpanded = useSyncExternalStore(subscribe, () => { try { return localStorage.getItem(expandedKey); } catch { return null; } }, () => null);
   const [chosenView, setChosenView] = useState<{ scope: string; view: BookingCalendarView } | null>(null);
   const view = chosenView?.scope === scope ? chosenView.view : savedView;
   const [anchor, setAnchor] = useState(() => dateKey(today));
@@ -129,82 +218,227 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
   const days = useMemo(() => calendarRange(view, anchor), [view, anchor]);
   const todayKey = dateKey(today);
   const next = (direction: number) => { if (view === "week" || view === "day") setAnchor(addDaysToDateKey(anchor, direction * (view === "week" ? 7 : 1))); else { const d = new Date(`${anchor}T12:00:00`); setAnchor(dateKey(new Date(d.getFullYear() + (view === "year" ? direction : 0), d.getMonth() + (view === "month" ? direction : 0), 1))); } };
-  const drill = (day: string) => { setAnchor(day); changeView("month"); };
-  const rangeTitle = view === "year" ? anchor.slice(0,4) : view === "month" ? dateLabel(anchor, { month: "long", year: "numeric" }) : view === "day" ? dateLabel(anchor, { weekday: "short", month: "short", day: "numeric" }) : `${dateLabel(days[0]!)} – ${dateLabel(days.at(-1)!)}`;
-  const empty = !entries.some(entry => propertyIds.includes(entry.propertyId) && entry.start <= (view === "year" ? `${anchor.slice(0,4)}-12-31` : days.at(-1)!) && (entry.openEnded || entry.end >= days[0]!));
-  const colWidth = view === "week" ? 90 : view === "month" ? 32 : view === "year" ? 70 : 320;
-  const labelClass = "sticky left-0 z-10 flex w-36 shrink-0 flex-col justify-center border-b border-r border-border bg-card px-3 py-2 text-xs sm:w-48";
-  const gridStyle = { display: "grid", gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` };
-  // Year expands to every day of every month, so the figures below are memoized on
-  // the data and the range: a resize or a view-preference read never recomputes them.
+  const drill = useCallback((day: string) => { setAnchor(day); setChosenView({ scope, view: "month" }); try { localStorage.setItem(scope, "month"); } catch {} }, [scope]);
+  const rangeTitle = view === "year" ? anchor.slice(0, 4) : view === "month" ? dateLabel(anchor, { month: "long", year: "numeric" }) : view === "day" ? dateLabel(anchor, { weekday: "short", month: "short", day: "numeric" }) : `${dateLabel(days[0]!)} – ${dateLabel(days.at(-1)!)}`;
+  // Year expands to every day of every month; the figures below are memoized on the data and the range.
   const rangeDays = useMemo(() => view === "year" ? days.flatMap(month => calendarRange("month", month)) : days, [view, days]);
-  // The range's figures, read through occupancyForDay (never a rooms.length count): who is staying,
-  // arriving and leaving across the visible days, and how full the scoped houses are.
-  const summaryParts = useMemo(() => {
-    const rangeFirst = rangeDays[0]!, rangeLast = rangeDays.at(-1)!;
-    const scoped = guests.filter(entry => propertyIds.includes(entry.propertyId));
-    const staying = scoped.filter(entry => rangeDays.some(day => bookingActiveOn(entry, day))).length;
-    const checkIns = scoped.filter(entry => entry.start >= rangeFirst && entry.start <= rangeLast).length;
-    const checkOuts = scoped.filter(entry => { const out = bookingCheckout(entry); return out !== null && out >= rangeFirst && out <= rangeLast; }).length;
-    const portfolio = calendarOccupancySummary(entries, rangeDays, propertyIds, cachedOccupancyCapacities());
-    return [`${staying} staying · ${checkIns} check-ins · ${checkOuts} check-outs`, `${portfolio.peak} of ${portfolio.beds} occupied · ${portfolio.percent}%`];
-  }, [entries, guests, propertyIds, rangeDays]);
-  const bands = useMemo(() => {
-    const capacities = cachedOccupancyCapacities();
-    return new Map(propertyIds.map(propertyId => [propertyId, calendarOccupancySummary(entries.filter(entry => entry.propertyId === propertyId), rangeDays, [propertyId], capacities)] as const));
-  }, [entries, propertyIds, rangeDays]);
-  // The grid's figures - lanes, occupancy strips, conflict rings, bar geometry - are derived once from the
-  // data and the range, so opening a dialog (or a popover) never recomputes them.
-  const layout = useMemo(() => {
-    const capacities = cachedOccupancyCapacities();
-    const firstDay = days[0]!, lastDay = days.at(-1)!;
-    return propertyIds.map(propertyId => {
-      const mine = entries.filter(entry => entry.propertyId === propertyId);
-      const property = getPropertyById(propertyId);
-      const allRooms = propertyRooms(propertyId, mine);
-      const rooms = allRooms.filter(room => !roomFilterId || room.id === roomFilterId);
-      const propertyName = mine[0]?.propertyLabel || property?.title || "Untitled listing";
-      // A whole home (one bookable row) is a single row under its own name: no separate
-      // property strip above a "Whole home" row that repeats it. Read from the house's own
-      // rooms, never the filtered list: narrowing to one room of a multi-room house does not
-      // turn that house into a whole home.
+  const focusDay = rangeDays.includes(todayKey) ? todayKey : rangeDays[0]!;
+  const focusLabel = focusDay === todayKey ? "tonight" : `on ${dateLabel(focusDay)}`;
+
+  // ---- Measured size: one scroller, so the column width comes from its width, never from percentages.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setSize(prev => (prev.w === el.clientWidth && prev.h === el.clientHeight ? prev : { w: el.clientWidth, h: el.clientHeight }));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const measuredTrack = size.w > 0 ? size.w - labelPx : 0;
+  const colPx = columnPx(view, days.length, measuredTrack, phone);
+  const trackW = view === "day" ? colPx : days.length * colPx;
+
+  const baseCapacities = props.capacities ?? bookingOccupancyCapacities;
+  const needle = (props.searchQuery ?? "").trim();
+
+  // ---- Entries grouped once by house; per-house models (name, rooms, search narrowing).
+  const byProperty = useMemo(() => {
+    const scoped = new Set(propertyIds);
+    const grouped = new Map<string, PropertyBookingEntry[]>();
+    for (const entry of entries) { if (!scoped.has(entry.propertyId)) continue; const list = grouped.get(entry.propertyId); if (list) list.push(entry); else grouped.set(entry.propertyId, [entry]); }
+    return grouped;
+  }, [entries, propertyIds]);
+  const capacities = useMemo(() => cachedOccupancyCapacities(baseCapacities), [baseCapacities, byProperty]); // eslint-disable-line react-hooks/exhaustive-deps -- a fresh cache whenever the data changes
+  const houses = useMemo<HouseModel[]>(() => {
+    const out: HouseModel[] = [];
+    for (const propertyId of propertyIds) {
+      const mine = byProperty.get(propertyId) ?? [];
+      const allRooms = (resolveRooms ?? propertyRooms)(propertyId, mine);
+      const info = resolveHouse ? resolveHouse(propertyId, mine) : (() => { const property = getPropertyById(propertyId); return { name: mine[0]?.propertyLabel || property?.title || "Untitled listing", address: property?.address }; })();
+      // A whole home (one bookable row) is a single row under its own name. Read from the house's own
+      // rooms, never the filtered list: narrowing to one room of a multi-room house does not make a whole home.
       const single = allRooms.length === 1;
-      const strip = single ? [] : days.map(day => calendarOccupancy(mine, view === "year" ? calendarRange("month", day) : [day], propertyId, capacities));
-      return {
-        propertyId, property, propertyName, single, strip,
-        rooms: rooms.map(room => {
-          const all = mine.filter(entry => !entry.roomId || entry.roomId === room.id);
-          const visible = all.filter(entry => entry.start <= lastDay && (entry.openEnded || entry.end >= firstDay));
-          const lanes = bookingLanes(visible);
-          const capacity = capacities.roomCapacity(propertyId, room.id);
-          const minHeight = Math.max(62, 18 + (Math.max(0, ...lanes.map(row => row.lane)) + 1) * 34);
-          const monthPercents = view === "year" ? days.map(month => calendarOccupancy(all, calendarRange("month", month), propertyId, { bedsTotal: () => capacity, roomCapacity: () => capacity })) : [];
-          const bars = view === "week" || view === "month" ? lanes.map(({ entry, lane }) => {
-            const start = Math.max(0, dayDiff(entry.start, firstDay));
-            const end = entry.openEnded ? days.length : Math.min(days.length, dayDiff(bookingCheckout(entry)!, firstDay));
-            const conflict = days.some(day => bookingActiveOn(entry, day) && occupancyCell(all, day, capacity).conflicts);
-            return { entry, conflict, style: { top: 9 + lane * 34, left: `calc(${start / days.length * 100}% + 2px)`, width: `calc(${(end - start) / days.length * 100}% - 4px)` } satisfies React.CSSProperties };
-          }) : [];
-          return { room, all, minHeight, monthPercents, bars };
-        }),
-      };
+      const rooms = roomFilterId ? allRooms.filter(room => room.id === roomFilterId) : allRooms;
+      if (roomFilterId && !rooms.length) continue;
+      const narrowed = narrowHouseBySearch({ propertyId, name: info.name, address: info.address ?? "", rooms, entries: mine }, needle);
+      if (!narrowed) continue;
+      out.push({ propertyId, name: info.name, address: info.address ?? "", single, rooms: narrowed.rooms, entries: mine, entriesByRoom: narrowed.entriesByRoom, scopeEntries: narrowed.scopeEntries });
+    }
+    return out;
+  }, [propertyIds, byProperty, resolveRooms, resolveHouse, roomFilterId, needle]);
+  const multiIds = useMemo(() => houses.filter(house => !house.single).map(house => house.propertyId), [houses]);
+
+  // ---- Which houses are open. Collapsed by default past three houses; remembered per page; a filter or search opens its matches.
+  const autoExpand = !!needle || !!roomFilterId;
+  const [chosenExpanded, setChosenExpanded] = useState<{ scope: string; ids: string[] } | null>(null);
+  const [autoCollapsed, setAutoCollapsed] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
+  const autoKey = `${needle}\u0000${roomFilterId ?? ""}`;
+  const baseExpanded = useMemo(() => {
+    if (chosenExpanded?.scope === expandedKey) return new Set(chosenExpanded.ids);
+    if (savedExpanded) { try { const parsed = JSON.parse(savedExpanded); if (Array.isArray(parsed)) return new Set(parsed.filter((id): id is string => typeof id === "string")); } catch {} }
+    return new Set(multiIds.length > 3 ? [] : multiIds);
+  }, [chosenExpanded, expandedKey, savedExpanded, multiIds]);
+  const collapsedHere = useMemo(() => new Set(autoCollapsed.key === autoKey ? autoCollapsed.ids : []), [autoCollapsed, autoKey]);
+  const expandedNow = useMemo(() => new Set(multiIds.filter(id => (autoExpand ? !collapsedHere.has(id) : baseExpanded.has(id)))), [multiIds, autoExpand, collapsedHere, baseExpanded]);
+  const persistExpanded = useCallback((ids: string[]) => { setChosenExpanded({ scope: expandedKey, ids }); try { localStorage.setItem(expandedKey, JSON.stringify(ids)); } catch {} }, [expandedKey]);
+  const toggleHouse = useCallback((propertyId: string) => {
+    if (autoExpand) { const set = new Set(collapsedHere); if (set.has(propertyId)) set.delete(propertyId); else set.add(propertyId); setAutoCollapsed({ key: autoKey, ids: [...set] }); return; }
+    const set = new Set(baseExpanded); if (set.has(propertyId)) set.delete(propertyId); else set.add(propertyId);
+    persistExpanded([...set]);
+  }, [autoExpand, autoKey, collapsedHere, baseExpanded, persistExpanded]);
+  const anyCollapsed = multiIds.some(id => !expandedNow.has(id));
+  const toggleAll = () => {
+    if (anyCollapsed) { setAutoCollapsed({ key: autoKey, ids: [] }); persistExpanded(multiIds); }
+    else { setAutoCollapsed({ key: autoKey, ids: multiIds }); persistExpanded([]); }
+  };
+
+  // ---- Lazy layout: a room's lanes and bars exist only once its house is expanded.
+  const rows = useMemo<TimelineRowModel[]>(() => {
+    const layoutCache = lazyCache<RoomLayout>(houses, `${view}|${anchor}`, capacities);
+    const out: TimelineRowModel[] = [];
+    let top = 0;
+    const push = (row: TimelineRowModel) => { out.push(row); top += row.height; };
+    for (const house of houses) {
+      if (!house.single) push({ key: `h:${house.propertyId}`, kind: "house", top, height: HOUSE_ROW_HEIGHT, house });
+      if (!house.single && !expandedNow.has(house.propertyId)) continue;
+      for (const room of house.rooms) {
+        const cacheKey = `${house.propertyId}\u0000${room.id}`;
+        let layout = layoutCache.get(cacheKey);
+        if (!layout) {
+          const all = house.entries.filter(entry => entryBelongsToRoom(entry, room.id));
+          layout = layoutRoom({ room, all, shown: house.entriesByRoom?.get(room.id), view, days, anchor, propertyId: house.propertyId, capacities, entryKey: bookingEntryKey });
+          layoutCache.set(cacheKey, layout);
+        }
+        push({ key: `r:${house.propertyId}:${room.id}`, kind: "room", top, height: Math.max(ROOM_ROW_MIN_HEIGHT, layout.height), house, layout });
+      }
+    }
+    return out;
+  }, [houses, expandedNow, view, days, anchor, capacities]);
+  const totalHeight = rows.length ? rows.at(-1)!.top + rows.at(-1)!.height : 0;
+
+  // ---- Windowing: only the rows near the viewport are drawn (and only when there are many).
+  const [scrollTop, setScrollTop] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const rowsRef = useRef(rows);
+  const sizeRef = useRef(size);
+  const appliedWindow = useRef({ first: 0, last: 0 });
+  useEffect(() => { rowsRef.current = rows; sizeRef.current = size; });
+  const frame = useRef(0);
+  const onScroll = useCallback(() => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      const el = scrollRef.current;
+      if (!el) return;
+      const left = Math.round(el.scrollLeft / 4) * 4;
+      setScrollLeft(current => (current === left ? current : left));
+      const win = windowRows(rowsRef.current, el.scrollTop, sizeRef.current.h);
+      if (win.first === appliedWindow.current.first && win.last === appliedWindow.current.last) return;
+      appliedWindow.current = win;
+      setScrollTop(el.scrollTop);
     });
-  }, [entries, propertyIds, days, view, roomFilterId]);
+  }, []);
+  useEffect(() => () => { if (frame.current) cancelAnimationFrame(frame.current); }, []);
+  const win = windowRows(rows, scrollTop, size.h);
+  useEffect(() => { appliedWindow.current = win; }, [win.first, win.last]); // eslint-disable-line react-hooks/exhaustive-deps
+  const windowed = win.first > 0 || win.last < rows.length;
+  const visibleRows = windowed ? rows.slice(win.first, win.last) : rows;
+  const topSpacer = windowed && rows[win.first] ? rows[win.first]!.top : 0;
+  const bottomSpacer = windowed ? Math.max(0, totalHeight - (visibleRows.length ? visibleRows.at(-1)!.top + visibleRows.at(-1)!.height : 0) - topSpacer) : 0;
+
+  // Opening a page puts today (or the first day) in view; a resize never re-scrolls.
+  const measured = size.w > 0;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !measured) return;
+    if (view === "day" || view === "year") { el.scrollLeft = 0; return; }
+    const index = days.indexOf(focusDay);
+    el.scrollLeft = index > 0 ? Math.max(0, index * colPx - (el.clientWidth - labelPx) / 3) : 0;
+  }, [view, anchor, measured]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Per-day header facts, computed once per range (a date format per cell is the slow part).
+  const meta = useMemo<DayMeta[]>(() => days.map(day => {
+    const weekend = [0, 6].includes(new Date(`${day}T12:00:00`).getDay());
+    return { day, weekend, today: day === todayKey, top: dateLabel(day, view === "year" ? { year: "numeric" } : { weekday: "short" }), bottom: dateLabel(day, view === "year" ? { month: "short" } : { day: "numeric" }), openLabel: `Open ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`, longLabel: dateLabel(day, { weekday: "long", month: "long", day: "numeric" }) };
+  }), [days, todayKey, view]);
+
+  // ---- Figures, read through occupancyForDay (never a rooms.length count).
+  const kpis = useMemo(() => {
+    const first = rangeDays[0]!, last = rangeDays.at(-1)!;
+    const guests = houses.flatMap(house => house.scopeEntries).filter(isGuestStay);
+    const staying = guests.filter(entry => entry.start <= last && (entry.openEnded || entry.end >= first)).length;
+    const checkIns = guests.filter(entry => entry.start >= first && entry.start <= last).length;
+    const checkOuts = guests.filter(entry => { const out = bookingCheckout(entry); return out !== null && out >= first && out <= last; }).length;
+    const occupied = calendarOccupancyOnDay(houses.flatMap(house => house.entries), focusDay, houses.map(house => house.propertyId), capacities);
+    return { staying, checkIns, checkOuts, occupied };
+  }, [houses, rangeDays, focusDay, capacities]);
+  const statsCache = lazyCache<HouseStats>(houses, `${view}|${anchor}|${focusDay}`, capacities);
+  const statsFor = (house: HouseModel): HouseStats => {
+    let stats = statsCache.get(house.propertyId);
+    if (stats) return stats;
+    const now = calendarOccupancyOnDay(house.entries, focusDay, [house.propertyId], capacities);
+    if (view === "year") {
+      stats = { strip: days.map(month => calendarOccupancy(house.entries, calendarRange("month", month), house.propertyId, capacities)), avg: calendarOccupancySummary(house.entries, rangeDays, [house.propertyId], capacities).percent, occupied: now.occupied, beds: now.beds };
+    } else {
+      const result = calendarOccupancyDays(house.entries, days, house.propertyId, capacities);
+      stats = { strip: result.perDay.map(cell => (cell.beds ? Math.round(cell.occupied / cell.beds * 100) : 0)), avg: result.percent, occupied: now.occupied, beds: now.beds };
+    }
+    statsCache.set(house.propertyId, stats);
+    return stats;
+  };
+
+  const empty = !entries.some(entry => propertyIds.includes(entry.propertyId) && entry.start <= (view === "year" ? `${anchor.slice(0, 4)}-12-31` : days.at(-1)!) && (entry.openEnded || entry.end >= days[0]!));
+  const noMatches = !!needle && propertyIds.length > 0 && houses.length === 0;
+
+  // ---- Phone: tapping a bar opens a sheet (one for the whole grid) instead of the popover.
+  const [sheet, setSheet] = useState<{ entry: PropertyBookingEntry | null; open: boolean }>({ entry: null, open: false });
+  const openSheet = useCallback((entry: PropertyBookingEntry) => setSheet({ entry, open: true }), []);
+  const closeSheet = useCallback(() => setSheet(current => ({ ...current, open: false })), []);
+  const handlers = useMemo<BookingBarHandlers>(() => ({ onEdit: onEditBooking, onUnblock: onUnblockBooking, onDeleteBlock, onUnblockChannelStay, canRemove: canRemoveBooking }), [onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, canRemoveBooking]);
+  const openDay = useCallback((day: string) => onOpenDay?.(day), [onOpenDay]);
+
+  const ctx = useMemo<RowContext>(() => ({ meta, view, colPx, trackW, labelPx, todayKey, anchor, focusLabel, scrollLeft, handlers, onOpenSheet: phone ? openSheet : undefined, onToggle: toggleHouse, onDrill: drill, onReserveRoomDay }), [meta, view, colPx, trackW, labelPx, scrollLeft, todayKey, anchor, focusLabel, handlers, phone, openSheet, toggleHouse, drill, onReserveRoomDay]);
+  const houseCount = houses.length;
+  const tileValue = "text-[17px] font-semibold leading-6 tabular-nums text-foreground";
+  const tileLabel = "truncate text-xs text-muted";
+
   return <div className="flex min-w-0 flex-col gap-3" data-attr="bookings-portfolio-timeline" data-view={view}>
-    <div className="flex flex-wrap items-center gap-2"><PortalIconAction icon={ChevronLeft} label={`Previous ${view}`} onClick={() => next(-1)} /><PortalIconAction icon={ChevronRight} label={`Next ${view}`} onClick={() => next(1)} /><strong className="text-sm">{rangeTitle}</strong><button type="button" className="rounded-full border border-border px-3 py-1 text-sm" onClick={() => setAnchor(todayKey)}>Today</button><FieldSingleSelect label="Calendar view" value={view} onChange={(next) => changeView(next as BookingCalendarView)} options={BOOKING_CALENDAR_VIEWS.map((option) => ({ value: option, label: option[0]!.toUpperCase() + option.slice(1) }))} /></div>
-    <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
-      {empty ? <div data-attr="bookings-empty-houses-banner" className="flex items-center justify-between border-b border-border px-4 py-3 text-sm"><span>{propertyIds.length ? "No bookings in this range" : props.emptyMessage || "No houses yet"}</span>{onAddBooking ? <PortalPrimaryIconAction label="Add booking" onClick={onAddBooking} /> : null}</div> : null}
-      <div className="max-w-full overflow-x-auto" data-attr="bookings-calendar-scroll"><div style={{ minWidth: `calc(9rem + ${days.length * colWidth}px)` }}>
-        <div className="flex"><div className={labelClass}>Room</div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map(day => <button type="button" key={day} data-attr={`portfolio-booking-day-${day}`} aria-label={`Open ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => view === "year" ? drill(day) : props.onOpenDay?.(day)} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`}><span className="text-[10px] uppercase text-muted">{dateLabel(day, view === "year" ? { year: "numeric" } : { weekday: "short" })}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full ${day === todayKey ? "bg-primary text-white" : ""}`}>{dateLabel(day, view === "year" ? { month: "short" } : { day: "numeric" })}</strong></button>)}</div></div>
-        <div className="sticky left-0 flex max-w-[calc(100vw-4rem)] flex-wrap gap-x-3 gap-y-1 border-b border-border p-3 text-sm" data-attr="bookings-calendar-summary">{summaryParts.map(part => <span key={part}>{part}</span>)}</div>
-        {layout.map(({ propertyId, property, propertyName, single, strip, rooms }) => {
-          const band = bands.get(propertyId)!;
-          return <Fragment key={propertyId}>{single ? null : <><div className="flex" data-attr={`bookings-timeline-property-${propertyId}`}><div className={`${labelClass} bg-accent/30 font-semibold`} title={property?.address}><span>{propertyName}</span><span className="font-normal text-muted" data-attr="bookings-property-occupied">{band.peak} of {band.beds} occupied · {band.percent}%</span></div><div className="flex-1 border-b border-border" style={gridStyle}>{days.map((day, index) => { const percent = strip[index]!; return <div key={day} title={`${percent}% occupied`} className="flex min-h-9 items-center px-px"><div className="h-1.5 w-full rounded" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .8 * percent / 100 : .03})` }} /></div>; })}</div></div></>}
-          {rooms.map(({ room, all, minHeight, monthPercents, bars }) => <div className="flex" key={room.id} data-attr={single ? `bookings-timeline-property-${propertyId}` : undefined}><div className={labelClass} title={property?.address}><span className="font-semibold">{single ? propertyName : room.label}</span>{single && room.label && room.label !== "Whole home" && room.label !== propertyName ? <span className="text-muted">{room.label}</span> : null}{room.rent ? <span className="text-muted">{room.rent}</span> : null}</div><div className="relative flex-1 border-b border-border" style={{ minHeight }}>
-          {view === "year" ? <div style={gridStyle}>{days.map((month, index) => { const percent = monthPercents[index]!; return <button type="button" key={month} onClick={() => drill(month)} title={`${room.label} · ${dateLabel(month, { month: "long" })}: ${percent}% occupied`} className="min-h-16 border-r border-border text-xs font-semibold" style={{ backgroundColor: `rgba(40,99,240,${percent ? .1 + .75 * percent / 100 : 0})` }}>{percent ? `${percent}%` : ""}</button>; })}</div> : view === "day" ? <div className="flex min-h-16 gap-2 p-2">{all.filter(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor).map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} onUnblock={onUnblockBooking} onDeleteBlock={onDeleteBlock} onUnblockChannelStay={onUnblockChannelStay} canRemove={props.canRemoveBooking} className="min-w-0 flex-1"><span className="block text-[11px]">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span></BookingBar>)}{!all.some(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor) ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div> : <><div className="absolute inset-0" style={gridStyle}>{days.map(day => { const cellClass = `border-r border-border/40 ${day === todayKey ? "bg-primary/10" : [0,6].includes(new Date(`${day}T12:00:00`).getDay()) ? "bg-muted/5" : ""}`; const free = !!onReserveRoomDay && day >= todayKey && !all.some(entry => bookingActiveOn(entry, day)); return free ? <button type="button" key={day} className={`${cellClass} hover:bg-primary/10 focus-visible:bg-primary/10`} data-attr="bookings-calendar-empty-cell" data-day={day} data-room={room.id} aria-label={`Mark ${single ? propertyName : room.label} reserved on ${dateLabel(day, { weekday: "long", month: "long", day: "numeric" })}`} onClick={() => onReserveRoomDay({ propertyId, roomId: room.id, dayKey: day })} /> : <div key={day} className={cellClass} />; })}</div>{bars.map(({ entry, conflict, style }) => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onEdit={onEditBooking} onUnblock={onUnblockBooking} onDeleteBlock={onDeleteBlock} onUnblockChannelStay={onUnblockChannelStay} canRemove={props.canRemoveBooking} className={`absolute h-8 overflow-hidden ${conflict ? "ring-2 ring-red-500" : ""}`} style={style} />)}</>}
-          </div></div>)}</Fragment>;
-        })}
-      </div></div>
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 items-center gap-1 sm:flex-1">
+        <PortalIconAction icon={ChevronLeft} label={`Previous ${view}`} onClick={() => next(-1)} />
+        <strong className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold leading-6 text-foreground sm:text-left" data-attr="bookings-calendar-title">{rangeTitle}</strong>
+        <PortalIconAction icon={ChevronRight} label={`Next ${view}`} onClick={() => next(1)} />
+        <button type="button" data-attr="bookings-calendar-today" className="h-11 shrink-0 rounded-full border border-border px-4 text-sm font-semibold text-foreground hover:bg-accent/40 md:h-9" onClick={() => setAnchor(todayKey)}>Today</button>
+      </div>
+      <div className="flex min-w-0 items-center gap-1 sm:shrink-0">
+        <div className="min-w-0 flex-1 sm:w-72 sm:flex-none"><PortalSegmentedControl size="sm" ariaLabel="Calendar period" value={view} onChange={changeView} options={BOOKING_CALENDAR_VIEWS.map(option => ({ id: option, label: option[0]!.toUpperCase() + option.slice(1) }))} /></div>
+        {multiIds.length >= 2 ? <PortalIconAction icon={anyCollapsed ? ChevronsUpDown : ChevronsDownUp} label={anyCollapsed ? "Expand all" : "Collapse all"} data-attr="bookings-timeline-expand-all" onClick={toggleAll} /> : null}
+      </div>
     </div>
+    <div className={`min-w-0 overflow-hidden rounded-xl border border-border ${OPAQUE}`}>
+      {empty || noMatches ? <div data-attr="bookings-empty-houses-banner" className="flex items-center justify-between border-b border-border px-4 py-3 text-sm"><span>{noMatches ? "No matches" : propertyIds.length ? "No bookings in this range" : props.emptyMessage || "No houses yet"}</span>{onAddBooking && !noMatches ? <PortalPrimaryIconAction label="Add booking" onClick={onAddBooking} /> : null}</div> : null}
+      <div className="grid grid-cols-4 divide-x divide-border border-b border-border" data-attr="bookings-calendar-summary">
+        <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.staying}</span><span className={tileLabel}>Staying</span></div>
+        <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.checkIns}</span><span className={tileLabel}>Check-ins</span></div>
+        <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.checkOuts}</span><span className={tileLabel}>Check-outs</span></div>
+        <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.occupied.occupied}/{kpis.occupied.beds}</span><span className={tileLabel}>{focusDay === todayKey ? "Tonight" : dateLabel(focusDay)}</span></div>
+      </div>
+      <div ref={scrollRef} onScroll={onScroll} className="relative min-w-0 overflow-auto overscroll-contain max-h-[max(22rem,calc(100dvh-17rem))] sm:max-h-[calc(100dvh-15rem)]" data-attr="bookings-calendar-scroll">
+        <div className="relative" style={{ width: labelPx + trackW, minWidth: "100%" }}>
+          <div className={`sticky top-0 z-30 flex border-b border-border ${OPAQUE}`} style={{ height: 56, width: labelPx + trackW }}>
+            <div className={`sticky left-0 z-40 flex shrink-0 items-center border-r border-border px-2 text-xs font-medium text-muted sm:px-3 ${OPAQUE}`} style={{ width: labelPx }}>{houseCount} {houseCount === 1 ? "house" : "houses"}</div>
+            <div className="flex" style={{ width: trackW }}>{meta.map(m => <button type="button" key={m.day} data-attr={`portfolio-booking-day-${m.day}`} aria-label={m.openLabel} onClick={() => view === "year" ? drill(m.day) : openDay(m.day)} style={{ width: colPx }} className={`flex flex-none flex-col items-center justify-center gap-1 border-r border-border/50 ${m.today ? "bg-primary/10" : m.weekend ? "bg-muted/5" : ""}`}><span className="text-[11px] uppercase leading-none text-muted">{m.top}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[15px] font-semibold leading-none ${m.today ? "bg-primary text-white" : "text-foreground"}`}>{m.bottom}</strong></button>)}</div>
+          </div>
+          {topSpacer ? <div style={{ height: topSpacer }} aria-hidden /> : null}
+          {visibleRows.map(row => <TimelineRow key={row.key} row={row} ctx={ctx} stats={row.kind === "house" ? statsFor(row.house) : undefined} expanded={row.kind === "house" ? expandedNow.has(row.house.propertyId) : true} />)}
+          {bottomSpacer ? <div style={{ height: bottomSpacer }} aria-hidden /> : null}
+        </div>
+      </div>
+    </div>
+    <BookingBarSheet entry={sheet.entry} open={sheet.open} today={todayKey} onClose={closeSheet} {...handlers} />
   </div>;
 }

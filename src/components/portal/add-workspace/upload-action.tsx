@@ -116,7 +116,7 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
     if (file && !off) { if (asScan || !acceptsImages) void capture(file); else if (accepts(file)) onPick(file); }
     event.target.value = "";
   };
-  const button = "min-h-[40px] rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50";
+  const button = "min-h-[44px] rounded-full border border-border bg-card px-5 text-[16px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50 sm:min-h-[40px] sm:text-[13.5px]";
   return (
     <div
       data-attr={dataAttr}

@@ -16,7 +16,7 @@ export function BookingsDeleteBlockDialog({ entry, onClose, onDelete }: { entry:
     setBusy(true);
     try { if ((await onDelete(entry.blockId)) !== false) onClose(); } finally { setBusy(false); }
   };
-  return <PortalDialog open onClose={onClose} title="Delete this block?" tone="danger" dataAttr="bookings-delete-block-dialog" primaryAction={{ label: "Delete", onClick: run, disabled: busy || !entry.blockId, loading: busy, dataAttr: "bookings-delete-block-confirm" }}>
+  return <PortalDialog open onClose={onClose} fullScreenMobile={false} title="Delete this block?" tone="danger" dataAttr="bookings-delete-block-dialog" primaryAction={{ label: "Delete", onClick: run, disabled: busy || !entry.blockId, loading: busy, dataAttr: "bookings-delete-block-confirm" }}>
     <div className="space-y-2 text-sm"><p>{[entry.propertyLabel, entry.roomLabel].filter(Boolean).join(" · ")}</p><p>{formatBookingStayRange(entry.start, entry.end, entry.openEnded)}</p></div>
   </PortalDialog>;
 }

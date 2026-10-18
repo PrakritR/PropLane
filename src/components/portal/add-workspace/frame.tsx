@@ -40,7 +40,7 @@ export function WorkspaceDeleteButton({
       onClick={onClick}
       data-attr={dataAttr}
       data-workspace-delete
-      className="min-h-[44px] px-2 text-[13px] font-semibold text-danger hover:underline disabled:opacity-50"
+      className="min-h-[44px] px-2 text-[16px] font-semibold text-danger hover:underline disabled:opacity-50 lg:text-[13px]"
     >
       Delete
     </button>

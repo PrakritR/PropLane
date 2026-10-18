@@ -866,6 +866,14 @@ html {
   background-color: #f1f5f9 !important;
 }
 
+/* Phone: every dropdown option is a 44px row at 16px (Apple HIG touch target and body size). */
+@media (max-width: 639px) {
+  .field-dropdown-menu-option {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}
+
 .field-dropdown-menu-option[aria-selected="true"] {
   background-color: #e8eefc !important;
   font-weight: 500;

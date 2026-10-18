@@ -14,7 +14,8 @@ export const MODAL_INSET_BOX_PRE_CLASS = `${MODAL_INSET_BOX_CLASS} whitespace-pr
 export const MODAL_WARNING_BOX_CLASS =
   "rounded-xl border px-3 py-2 text-sm leading-relaxed portal-banner-pending";
 
-export const MODAL_FIELD_LABEL_CLASS = "text-xs font-semibold uppercase tracking-wide text-muted";
+/** 13px on a phone (Apple footnote, the smallest label that still reads at arm's length); desktop keeps 12px. */
+export const MODAL_FIELD_LABEL_CLASS = "text-[13px] sm:text-xs font-semibold uppercase tracking-wide text-muted";
 
 /** Modal forms in portal drawer (< lg): one column; desktop dialog: two columns. */
 export const PORTAL_MODAL_FORM_GRID_CLASS =

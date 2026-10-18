@@ -48,6 +48,13 @@ function dayTitle(dayKey: string): string {
   return `${weekday}, ${monthDay}`;
 }
 
+/** "Thu, Oct 22": the phone header has the day arrows and the close beside the title, so the long form wraps. */
+function dayTitleShort(dayKey: string): string {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  if (!y || !m || !d) return dayKey;
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
 export function BookingsDayPage({
   dayKey,
   basePath,
@@ -145,7 +152,7 @@ export function BookingsDayPage({
       <PortalDialog
         open={!sheetOpen}
         onClose={closeDay}
-        title={dayTitle(dayKey)}
+        title={<><span className="lg:hidden" aria-hidden>{dayTitleShort(dayKey)}</span><span className="max-lg:sr-only">{dayTitle(dayKey)}</span></>}
         size="wizard"
         primaryAction={null}
         // A list, not a form: no left rail and no "Preview · No changes" box to squeeze the rows.
@@ -158,7 +165,7 @@ export function BookingsDayPage({
               type="button"
               aria-label="Previous day"
               data-attr="bookings-day-prev"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground lg:h-9 lg:w-9"
               onClick={() => navigate(managerBookingDayHref(basePath, addDaysToDateKey(dayKey, -1)))}
             >
               <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -167,7 +174,7 @@ export function BookingsDayPage({
               type="button"
               aria-label="Next day"
               data-attr="bookings-day-next"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground lg:h-9 lg:w-9"
               onClick={() => navigate(managerBookingDayHref(basePath, addDaysToDateKey(dayKey, 1)))}
             >
               <ChevronRight className="h-4 w-4" aria-hidden />

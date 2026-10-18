@@ -22,7 +22,7 @@ describe("dropdown menus keep the liquid default", () => {
     expect(out.map((l) => l.replace(/:\d+:.*$/, "")).sort()).toEqual([
       "src/components/portal/application-form-builder.tsx",
       // The Bookings bar popover is a light, non-modal info card: no scrim, no page lock.
-      "src/components/portal/bookings-portfolio-timeline.tsx",
+      "src/components/portal/bookings-timeline-bar.tsx",
       // The shared question editor's ⋯ menu lives in the same full-page editor modals.
       "src/components/portal/question-editor/question-sections-editor.tsx",
     ]);

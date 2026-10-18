@@ -34,7 +34,8 @@ export function calendarStatusClass(status: string): string {
   if (status === "Hold") return "border border-dashed border-amber-600 bg-amber-100 text-amber-900";
   if (status === "Confirmed") return "bg-[#3d7d46] text-white";
   if (status === "In-house") return "bg-primary text-white";
-  return "bg-slate-400 text-white";
+  // slate-500 (4.76:1 against white); slate-400 was 2.5:1 and failed WCAG AA for the bar's text.
+  return "bg-slate-500 text-white";
 }
 /** Entries store the last occupied night. All displayed intervals use exclusive checkout. */
 export function calendarRange(view: BookingCalendarView, anchor: string): string[] {
@@ -62,6 +63,9 @@ export function occupancyCell(entries: readonly PropertyBookingEntry[], day: str
   const reserved = active.length > 0 && active.every(entry => ["hold", "block"].includes(occupancyStayKind(entry)) && entry.bookingStatus !== "confirmed" && entry.statusLabel?.toLowerCase() !== "confirmed");
   return { active, outgoing, incoming, conflicts, label: conflicts ? "Overlapping stays" : outgoing.length || incoming.length ? `${names(outgoing) || "Vacant"} → ${names(active) || "Vacant"}` : active.length ? `${reserved ? "Reserved · " : ""}${names(active)}` : "Vacant" };
 }
+/** The entries that fill a bed: residents, anything but a pending hold, and a confirmed hold. */
+const occupyingEntries = (entries: readonly PropertyBookingEntry[]) =>
+  entries.filter(entry => isResidentStay(entry) || occupancyStayKind(entry) !== "hold" || (entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed"));
 /**
  * Beds occupied across `propertyIds` over `days`, read through `occupancyForDay`
  * (never a `rooms.length` count). Occupancy visualization counts residents (in-house or booked) and excludes pending holds without
@@ -69,13 +73,36 @@ export function occupancyCell(entries: readonly PropertyBookingEntry[], day: str
  * on any one day ("n of N occupied"); `percent` is bed-nights used over bed-nights offered.
  */
 export function calendarOccupancySummary(entries: readonly PropertyBookingEntry[], days: string[], propertyIds: readonly string[], capacities: OccupancyCapacities) {
-  const occupied = entries.filter(entry => isResidentStay(entry) || occupancyStayKind(entry) !== "hold" || (entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed"));
+  const occupied = occupyingEntries(entries);
   let used = 0, total = 0, peak = 0, beds = 0;
   for (const day of days) {
     const cell = occupancyForDay(occupied, day, propertyIds, capacities);
     used += cell.occupied; total += cell.total; peak = Math.max(peak, cell.occupied); beds = Math.max(beds, cell.total);
   }
   return { peak, beds, percent: total ? Math.round(used / total * 100) : 0 };
+}
+/**
+ * Beds occupied on ONE day across `propertyIds` (`occupied` of `beds`), through the same filter and the same
+ * `occupancyForDay` as {@link calendarOccupancySummary}. This is the figure to print next to "tonight": a peak
+ * over a range printed beside an average percent reads as a contradiction ("10 of 10 occupied · 69%").
+ */
+export function calendarOccupancyOnDay(entries: readonly PropertyBookingEntry[], day: string, propertyIds: readonly string[], capacities: OccupancyCapacities) {
+  const cell = occupancyForDay(occupyingEntries(entries), day, propertyIds, capacities);
+  return { occupied: cell.occupied, beds: cell.total };
+}
+/**
+ * One house's occupancy over `days` in ONE pass: the beds filled and offered on each day, plus the
+ * range average (bed-nights used over offered). The row strip and the "avg" figure both read this.
+ */
+export function calendarOccupancyDays(entries: readonly PropertyBookingEntry[], days: readonly string[], propertyId: string, capacities: OccupancyCapacities) {
+  const occupied = occupyingEntries(entries);
+  let used = 0, total = 0;
+  const perDay = days.map(day => {
+    const cell = occupancyForDay(occupied, day, [propertyId], capacities);
+    used += cell.occupied; total += cell.total;
+    return { occupied: cell.occupied, beds: cell.total };
+  });
+  return { perDay, percent: total ? Math.round(used / total * 100) : 0 };
 }
 export function calendarOccupancy(entries: readonly PropertyBookingEntry[], days: string[], propertyId: string, capacities: OccupancyCapacities) {
   return calendarOccupancySummary(entries, days, [propertyId], capacities).percent;

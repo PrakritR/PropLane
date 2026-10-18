@@ -10,6 +10,7 @@ import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-ico
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import { Input } from "@/components/ui/input";
 import {
   deleteChannelCalendarConnection,
@@ -275,7 +276,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     <StepHeading title="Link" />
     {errorAlert}
     <div className="mb-5 space-y-4">
-      {!initialProvider ? <FieldSingleSelect label="Channel" dataAttr="channel-calendar-link-provider" value={provider} placeholder="Pick a channel…" disabled={busy} options={CHANNEL_OPTIONS} onChange={(next) => { if (next !== provider) { setDrafts({}); setChecks({}); } setProvider(next as ChannelCalendarProvider); }} /> : null}
+      {!initialProvider ? <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Channel" dataAttr="channel-calendar-link-provider" value={provider} placeholder="Pick a channel…" disabled={busy} options={CHANNEL_OPTIONS} onChange={(next) => { if (next !== provider) { setDrafts({}); setChecks({}); } setProvider(next as ChannelCalendarProvider); }} /> : null}
       {isIcal ? <div className="space-y-1.5">
         <label htmlFor="channel-calendar-site-name" className="text-sm font-medium">Name</label>
         <Input id="channel-calendar-site-name" value={siteName} maxLength={ICAL_LABEL_MAX_LENGTH} list="channel-calendar-site-names" disabled={busy} placeholder="Houfy, Furnished Finder…" onChange={(e) => setSiteName(e.target.value)} data-attr="channel-calendar-site-name" />
@@ -285,15 +286,15 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     {loading ? <p role="status">Loading linked rooms…</p> : rows.length === 0 ? <p>This workspace has no rooms listed.</p> : <div className="space-y-5" data-attr="channel-calendar-link-table">
       <div className={`hidden text-xs font-medium text-muted ${gridClass}`}><span>Room</span><span>{name} calendar link</span><span>PropLane link</span><span className="w-9" /></div>
       {groups.filter((g) => g.rows.length).map((group) => <section key={group.propertyId} aria-label={group.label} className="overflow-hidden rounded-2xl border border-border bg-card">
-        <h3 className="border-b border-border px-4 py-2.5 text-sm font-semibold">{group.label}</h3>
+        <h3 className="border-b border-border px-4 py-2.5 text-sm font-semibold max-lg:text-[16px]">{group.label}</h3>
         {group.rows.map((row) => {
           const connection = connections.get(row.key);
           const url = urlFor(row);
           const conflicts = conflictingChannelStays(entries, row.propertyId, row.unit.id, channel);
           const bad = isBad(row);
           return <div key={row.key} data-attr="channel-calendar-room-row" className={`space-y-2 border-b border-border px-4 py-3 last:border-0 ${gridClass}`}>
-            <div className="text-sm font-medium md:pt-2.5">{row.title}
-              {conflicts.length ? <Link className="mt-1 flex items-center gap-1.5 text-xs font-normal text-danger underline" href={bookingRecordHref("/portal", bookingEntryKey(conflicts[0]!))} onClick={onOpenBooking}><AlertCircle className="size-3.5" />{conflicts.length} {conflicts.length === 1 ? "conflict" : "conflicts"}</Link> : null}
+            <div className="text-sm font-medium max-lg:text-[16px] md:pt-2.5">{row.title}
+              {conflicts.length ? <Link className="mt-1 flex min-h-11 items-center gap-1.5 text-[13px] font-normal text-danger underline md:min-h-0 md:text-xs" href={bookingRecordHref("/portal", bookingEntryKey(conflicts[0]!))} onClick={onOpenBooking}><AlertCircle className="size-3.5" />{conflicts.length} {conflicts.length === 1 ? "conflict" : "conflicts"}</Link> : null}
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -304,13 +305,14 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
               {bad ? <p role="alert" className="text-sm text-danger">Enter a valid {name} calendar link.</p> : null}
               {checks[row.key]?.state === "ok" ? <p role="status" className="text-sm">{(checks[row.key] as { text: string }).text}</p> : null}
               {checks[row.key]?.state === "bad" ? <p role="alert" className="text-sm text-danger">{(checks[row.key] as { text: string }).text}</p> : null}
-              {connection?.lastError ? <p role="alert" className="text-sm text-danger">{connection.lastError}</p> : null}
+              {connection?.lastError ? <p role="alert" className="break-words text-sm text-danger">{connection.lastError}</p> : null}
             </div>
             <div className="flex items-center gap-2">
               <Input readOnly aria-label={`${row.unit.label} PropLane export link`} value={url} placeholder="Created when you copy it" data-attr="channel-calendar-export-url" />
               <CopyIconAction label="Copy PropLane calendar link" disabled={busy} onCopy={() => run(() => copy(row))} />
             </div>
-            <div data-attr="channel-calendar-room-status" className="text-xs text-muted md:col-start-2 md:col-span-2">
+            <div className="flex items-center justify-between gap-2 md:contents">
+            <div data-attr="channel-calendar-room-status" className="min-w-0 break-words text-[13px] text-muted md:col-start-2 md:col-span-2 md:text-xs">
               <ChannelStatusText connection={connection} channel={channel} label={site} />
             </div>
             <div className="flex md:justify-end">
@@ -320,6 +322,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
                 {channel === "airbnb" ? <DropdownMenuItem disabled={busy} onSelect={() => { void run(() => copyListingPack(row)); }}>Copy Airbnb listing pack</DropdownMenuItem> : null}
                 <DropdownMenuItem className="text-danger" disabled={!connection || busy} onSelect={() => setDisconnect({ id: connection!.connectionId, label: row.unit.label })}>Disconnect</DropdownMenuItem>
               </DropdownMenuContent></DropdownMenu>
+            </div>
             </div>
           </div>;
         })}

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input } from "@/components/ui/input";
-import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import { saveChannelStayGuestName } from "@/lib/channel-calendar/client";
 import { CHANNEL_STAY_GUEST_NAME_MAX } from "@/lib/channel-calendar/stay-details";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -32,9 +32,9 @@ export function BookingsGuestNameDialog({ entry, onClose, onSaved, save = saveCh
     }
   };
   return (
-    <PortalDialog open onClose={onClose} title="Guest name" dataAttr="booking-guest-name-dialog" primaryAction={{ label: "Save", onClick: submit, disabled: busy || !entry.connectionId || !entry.sourceUid, loading: busy, dataAttr: "booking-guest-name-save" }}>
+    <PortalDialog open onClose={onClose} fullScreenMobile={false} title="Guest name" dataAttr="booking-guest-name-dialog" primaryAction={{ label: "Save", onClick: submit, disabled: busy || !entry.connectionId || !entry.sourceUid, loading: busy, dataAttr: "booking-guest-name-save" }}>
       <div className="space-y-4">
-        <label className="block"><span className={MODAL_FIELD_LABEL_CLASS}>Name</span><Input value={value} maxLength={CHANNEL_STAY_GUEST_NAME_MAX} autoFocus disabled={busy} onChange={(event) => setValue(event.target.value)} data-attr="booking-guest-name-input" /></label>
+        <label className="block"><span className={POPUP_FIELD_LABEL_CLASS}>Name</span><Input value={value} maxLength={CHANNEL_STAY_GUEST_NAME_MAX} autoFocus disabled={busy} onChange={(event) => setValue(event.target.value)} data-attr="booking-guest-name-input" /></label>
         {error ? <p role="alert" className="text-danger">{error}</p> : null}
       </div>
     </PortalDialog>

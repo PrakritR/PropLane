@@ -446,8 +446,8 @@ function useBookingsWorkspace({
         onDayClick={goToDayPage}
         selectedDayKey={selectedDayKey}
         searchQuery={listSearch}
+        footer={<BookingsCalendarLegend />}
       />
-      <BookingsCalendarLegend />
       </>
     ) : (
       <>
