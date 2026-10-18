@@ -35,6 +35,26 @@ const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
 
 const PROSPECT_TOUR_REMINDER_PURPOSE = "prospect_tour_followup";
 
+/** Outbound MMS media: https URLs only, at most 10 (the provider's limit). */
+export function cleanOutboundMediaUrls(urls: readonly string[] | null | undefined): string[] {
+  const out: string[] = [];
+  for (const raw of urls ?? []) {
+    try {
+      const parsed = new URL(String(raw ?? "").trim());
+      if (parsed.protocol === "https:" && !out.includes(parsed.toString())) out.push(parsed.toString());
+    } catch {
+      // not a URL: dropped
+    }
+    if (out.length === 10) break;
+  }
+  return out;
+}
+
+function isMissingMediaColumn(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (!error) return false;
+  return /media_urls/i.test(String(error.message ?? "")) || ["42703", "PGRST204"].includes(String(error.code ?? ""));
+}
+
 export type OwnerSmsEnqueueInput = {
   managerUserId: string;
   /**
@@ -43,6 +63,11 @@ export type OwnerSmsEnqueueInput = {
    * the text carries. Never read under `per_workspace`.
    */
   workspaceId?: string | null;
+  /**
+   * Outbound MMS: https media URLs delivered with the text (at most 10). Stored on the outbox row
+   * (`media_urls`) and sent by the dispatcher; only the shared-line door sets it today.
+   */
+  mediaUrls?: string[] | null;
   actorUserId: string;
   /** Server-authorized selected work-line epoch for an existing conversation. */
   selectedWorkLineId?: string | null;
@@ -373,10 +398,12 @@ export async function enqueueOwnerSms(
       deduplicated: prepared.deduplicated === true,
     };
   }
-  const { data, error } = await withWorkspaceStamp(stampWorkspaceId, (stamp) => db
+  const mediaUrls = cleanOutboundMediaUrls(input.mediaUrls);
+  const insertRow = (media: boolean) => withWorkspaceStamp(stampWorkspaceId, (stamp) => db
     .from("sms_outbox")
     .insert({
       ...stamp,
+      ...(media && mediaUrls.length ? { media_urls: mediaUrls } : {}),
       manager_user_id: input.managerUserId,
       selected_work_line_id: input.selectedWorkLineId ?? null,
       actor_user_id: input.actorUserId,
@@ -402,6 +429,9 @@ export async function enqueueOwnerSms(
     })
     .select("id, status")
     .single());
+  let { data, error } = await insertRow(true);
+  // `media_urls` is additive: before its migration the text still goes, without the photo.
+  if (error && mediaUrls.length && isMissingMediaColumn(error)) ({ data, error } = await insertRow(false));
   if (!error && data) {
     const outboxId = String(data.id);
     return { ok: true, outboxId, status: String(data.status), deduplicated: false };
@@ -424,6 +454,8 @@ type ClaimedOutboxRow = {
   selected_work_line_id?: string | null;
   /** Workspace stamped at enqueue; absent on rows written before the column existed. */
   workspace_id?: string | null;
+  /** Outbound MMS media stamped at enqueue (shared-line door); absent before its column existed. */
+  media_urls?: string[] | null;
   actor_user_id: string | null;
   recipient_user_id: string | null;
   recipient_email: string | null;
@@ -749,6 +781,15 @@ export async function dispatchOwnerSmsOutbox(
     for (const row of rows) {
       row.selected_work_line_id = linesById.get(row.id) ?? null;
       row.workspace_id = workspacesById.get(row.id) ?? null;
+    }
+    // Only the shared-line door ever attaches media, so every other row costs no extra read.
+    const mediaRowIds = rows.filter((row) => row.purpose === "shared_line_message").map((row) => row.id);
+    if (mediaRowIds.length) {
+      const mediaRead = await db.from("sms_outbox").select("id,media_urls").in("id", mediaRowIds);
+      if (!mediaRead.error) {
+        const mediaById = new Map((mediaRead.data ?? []).map((row) => [String((row as { id: unknown }).id), cleanOutboundMediaUrls((row as { media_urls?: string[] | null }).media_urls)]));
+        for (const row of rows) row.media_urls = mediaById.get(row.id) ?? null;
+      }
     }
   }
   const result = {
@@ -1112,6 +1153,7 @@ export async function dispatchOwnerSmsOutbox(
       ...(policy.viaSharedLine && policy.providerMessagingServiceSid
         ? { messagingServiceSid: policy.providerMessagingServiceSid }
         : {}),
+      ...(row.media_urls?.length ? { mediaUrls: row.media_urls } : {}),
     });
     if (!sent.sent && sent.providerAttempted === false) {
       await finishCommsCredit(db, row.manager_user_id, creditKey, true);

@@ -64,6 +64,8 @@ describe("isSharedLineNumber / workspaceOnSharedLine", () => {
     expect(workspaceOnSharedLine(pilot, "ws-1")).toBe(true);
     expect(workspaceOnSharedLine(pilot, "ws-2")).toBe(false);
     expect(workspaceOnSharedLine(pilot, null)).toBe(false);
+    expect(workspaceOnSharedLine(shared, null)).toBe(false);
+    expect(workspaceOnSharedLine({ ...shared, sharedNumber: null }, "ws-1")).toBe(false);
     expect(workspaceOnSharedLine({ ...shared, mode: "shadow" }, "ws-1")).toBe(false);
     expect(workspaceOnSharedLine(PER_WORKSPACE_CONFIG, "ws-1")).toBe(false);
   });

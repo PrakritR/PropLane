@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveSmsConversationRef } from "@/lib/communication/conversation-key.server";
-import { readSharedLineConfig } from "@/lib/one-number/shared-line-number.server";
+import { loadSharedLineConfig } from "@/lib/one-number/config.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 export type SmsProjectionRole = "prospect" | "resident" | "applicant" | "vendor" | "manager" | "admin" | "unknown";
@@ -137,7 +137,7 @@ async function resolveSharedLineWorkLine(
 ): Promise<{ workLineId: string; phoneNumber: string; workspaceId: string } | null> {
   const phone = normalizeE164(args.phoneNumber);
   if (!phone) return null;
-  const config = await readSharedLineConfig(db);
+  const config = await loadSharedLineConfig(db);
   if (!config.sharedNumber || config.sharedNumber !== phone) return null;
   const { data, error } = await db.from("portal_workspaces").select("id")
     .eq("id", args.workspaceId).eq("owner_user_id", args.ownerManagerUserId).maybeSingle();

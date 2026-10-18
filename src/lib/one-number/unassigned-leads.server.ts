@@ -26,7 +26,7 @@ import {
   withoutProtectedClauses,
   type LeadProfile,
 } from "@/lib/one-number/lead-qualifying";
-import { redactLeadBody } from "@/lib/one-number/lead-redact";
+import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { findWorkspaceProspectCandidate, propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
@@ -44,6 +44,11 @@ export type UnassignedLeadTurn = {
   /** At most one real listing photo, to ride the reply as MMS. */
   mediaUrls?: string[];
 };
+
+/** A lead's stored text never keeps a card, bank or SSN number (the one redaction, `redact.ts`). */
+function redactLeadBody(body: string): string {
+  return redactSensitiveNumbers(body).text.slice(0, 1000);
+}
 
 export type LeadDeps = {
   now?: () => Date;

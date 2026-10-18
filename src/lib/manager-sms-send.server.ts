@@ -181,6 +181,14 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
         { status: 409 },
       );
     }
+    if (line.via === "shared") {
+      // The thread went through the shared PropLane number but this workspace cannot send on it now
+      // (line off or workspace outside the pilot). Never answer it from a work number it never used.
+      return response(
+        { error: "This conversation is on the PropLane line, which is not available for this workspace right now." },
+        { status: 409 },
+      );
+    }
     selectedWorkLineId = line.numberId;
   }
   if (match?.counterpartyRole === "vendor") {
