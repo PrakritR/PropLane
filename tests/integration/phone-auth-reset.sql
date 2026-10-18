@@ -105,6 +105,22 @@ begin
     or exists(select 1 from public.sms_phone_contacts where user_id=vendor_id) then raise exception 'Vendor identity survived'; end if;
   if (select count(*) from public.audit_log where action='phone_auth_reset' and actor_user_id=manager_id) <> 2 then raise exception 'Refused attempts wrote audits'; end if;
   perform public.phone_auth_release_operation(vendor_operation);
+
+  -- A vendor who joined by submitting a bid needs no invite. Re-establish the
+  -- fixture through the real OTP bind transition, then use that second proof.
+  new_proof := gen_random_uuid(); vendor_operation := gen_random_uuid();
+  perform public.phone_auth_start(new_proof,vendor_phone,'2025550182','sign_in',vendor_id,browser,'vendor','local');
+  perform public.phone_auth_consume(new_proof,vendor_id,browser,'vendor');
+  perform public.phone_auth_claim_operation(vendor_operation,vendor_phone,vendor_id);
+  if not public.phone_auth_bind(new_proof,vendor_id,browser,null,vendor_operation) then raise exception 'Vendor fixture rebind'; end if;
+  delete from public.vendor_invites where vendor_directory_id=roster_id and accepted_user_id=vendor_id;
+  insert into public.portal_work_order_records(id,manager_user_id,property_id,row_data)
+    values(service_id,manager_id,property_id,'{}');
+  insert into public.work_order_bids(work_order_id,vendor_user_id,vendor_directory_id,manager_user_id,amount_cents,proposed_time,status)
+    values(service_id,vendor_id,roster_id,manager_id,10000,now()+interval '1 day','submitted');
+  if not public.phone_auth_reset(manager_id,vendor_id,workspace_id,vendor_phone,vendor_operation) then raise exception 'Vendor submitted-bid reset refused'; end if;
+  if (select count(*) from public.audit_log where action='phone_auth_reset' and actor_user_id=manager_id) <> 3 then raise exception 'Submitted-bid reset audit'; end if;
+  perform public.phone_auth_release_operation(vendor_operation);
 end $$;
 rollback;
 select 'W5 reset scope, consent, proof invalidation and audit checks passed; all fixtures rolled back' as result;
