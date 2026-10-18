@@ -1,6 +1,6 @@
 "use client";
 
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -638,6 +638,9 @@ export function ManagerApplications({
   const [screeningHeaderActions, setScreeningHeaderActions] = useState<ReactNode>(null);
   /** Rows the route could not open: the list and every tab count are short by this many, so it says so. */
   const [skippedRowCount, setSkippedRowCount] = useState(0);
+  const applicationsWorkspaceIdRef = useRef<string | null>(
+    typeof window === "undefined" ? null : selectedWorkspaceId(),
+  );
   useEffect(() => {
     if (!authReady) return;
     let active = true;
@@ -657,9 +660,22 @@ export function ManagerApplications({
       }
     };
     const pull = () => void read(true);
+    // A switch remounts this page at count 0, then an unforced read would
+    // replay the previous workspace's skip count for the whole TTL. Drop the
+    // line immediately and read this workspace. The first id (null → selected)
+    // is not a switch.
+    const onWorkspace = () => {
+      const nextWorkspaceId = selectedWorkspaceId();
+      const previousWorkspaceId = applicationsWorkspaceIdRef.current;
+      applicationsWorkspaceIdRef.current = nextWorkspaceId;
+      if (previousWorkspaceId === null || previousWorkspaceId === nextWorkspaceId) return;
+      setSkippedRowCount(0);
+      void read(true);
+    };
     sync();
     void read(readRetryEpoch > 0);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, sync);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     const onVisible = () => {
       if (document.visibilityState === "visible") pull();
     };
@@ -669,6 +685,7 @@ export function ManagerApplications({
     return () => {
       active = false;
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, sync);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
       window.removeEventListener("focus", pull);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(poll);

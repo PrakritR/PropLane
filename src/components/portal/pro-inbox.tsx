@@ -197,6 +197,42 @@ type InboxThread = {
 };
 
 /**
+ * Put one thread's pre-discard draft back onto the rows that exist NOW.
+ * A send, archive, or inbound event during the failed upsert lives in storage
+ * or in `localRef`; reverting the whole click-time list would drop it.
+ */
+function restoreDiscardedDraftOnLatestRows(
+  stored: InboxThread[],
+  reactRows: InboxThread[],
+  threadId: string,
+  prior: InboxThread,
+): InboxThread[] {
+  const reactById = new Map(reactRows.map((row) => [row.id, row]));
+  const seen = new Set<string>();
+  const withDraft = (row: InboxThread): InboxThread =>
+    row.id === threadId
+      ? {
+          ...row,
+          aiDraft: prior.aiDraft,
+          aiDraftQueue: prior.aiDraftQueue,
+          resolvedAiDraftIds: prior.resolvedAiDraftIds,
+        }
+      : row;
+  const merged: InboxThread[] = [];
+  for (const row of stored) {
+    seen.add(row.id);
+    const reactRow = reactById.get(row.id);
+    const reactTurns = reactRow?.messages?.length ?? 0;
+    const storedTurns = row.messages?.length ?? 0;
+    merged.push(withDraft(reactRow && reactTurns > storedTurns ? reactRow : row));
+  }
+  for (const row of reactRows) {
+    if (!seen.has(row.id)) merged.push(withDraft(row));
+  }
+  return merged;
+}
+
+/**
  * The house a reply into this conversation is about, or "" when none can be named.
  *
  * `houses` is already narrowed to the houses this account holds, so the single
@@ -1940,41 +1976,54 @@ export const ManagerInbox = forwardRef<
 
   const discardActiveDraft = useCallback(async () => {
     if (!activeThread?.aiDraft) return;
-    if (adoptedAiDraftByThreadRef.current.has(activeThread.id)) {
-      adoptedAiDraftByThreadRef.current.delete(activeThread.id);
+    const threadId = activeThread.id;
+    if (adoptedAiDraftByThreadRef.current.has(threadId)) {
+      adoptedAiDraftByThreadRef.current.delete(threadId);
       setReplyDraft("");
-      clearInboxReplyDraft(activeThread.id);
+      clearInboxReplyDraft(threadId);
     }
-    const updated: InboxThread = advanceInboxAiDraft(activeThread);
-    const next = local.map((t) => (t.id === activeThread.id ? updated : t));
-    setDiscardedDraftIds((prev) => new Set(prev).add(activeThread.id));
-    persistInboxRef.current = false;
-    stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
-    setLocal(next);
-    let saved = false;
-    try {
-      saved = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
-    } catch {
-      saved = false;
-    }
-    try {
-      if (!saved) {
-        // The server still holds the draft: put the row back on screen and in the
-        // local cache as well as un-latching the id, or the UI shows the draft
-        // gone while the toast says it is still there.
-        stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, local);
-        setLocal(local);
-        setDiscardedDraftIds((prev) => {
-          const restored = new Set(prev);
-          restored.delete(activeThread.id);
-          return restored;
-        });
-        showToast("Could not discard the draft. Try again.");
+    void runInboxMutation(async () => {
+      const prev = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
+      const target = prev.find((row) => row.id === threadId);
+      if (!target?.aiDraft) return;
+      const updated: InboxThread = advanceInboxAiDraft(target);
+      const next = prev.map((row) => (row.id === threadId ? updated : row));
+      setDiscardedDraftIds((ids) => new Set(ids).add(threadId));
+      persistInboxRef.current = false;
+      try {
+        stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
+        setLocal(next);
+        let saved = false;
+        try {
+          saved = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [updated], next);
+        } catch {
+          saved = false;
+        }
+        if (!saved) {
+          // The server still holds the draft. Re-read first and put only this
+          // thread's draft back, or a send/archive/inbound turn that landed
+          // during the await is replaced by the list from when discard started
+          // and the draft can stay missing while the toast says to retry.
+          const reverted = restoreDiscardedDraftOnLatestRows(
+            loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[],
+            localRef.current,
+            threadId,
+            target,
+          );
+          stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, reverted);
+          setLocal(reverted);
+          setDiscardedDraftIds((ids) => {
+            const restored = new Set(ids);
+            restored.delete(threadId);
+            return restored;
+          });
+          showToast("Could not discard the draft. Try again.");
+        }
+      } finally {
+        persistInboxRef.current = true;
       }
-    } finally {
-      persistInboxRef.current = true;
-    }
-  }, [activeThread, local, setReplyDraft, showToast]);
+    });
+  }, [activeThread, setReplyDraft, showToast]);
 
   /**
    * Send the pending draft the composer holds. Resolves "sent", "failed" (a send

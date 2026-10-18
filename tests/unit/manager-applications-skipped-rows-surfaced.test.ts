@@ -29,6 +29,7 @@ let replies: Array<{ rows: DemoApplicantRow[]; skippedRowIds?: string[] }>;
 
 function stubBrowser() {
   replies = [];
+  const listeners = new Map<string, Set<(event: Event) => void>>();
   vi.stubGlobal("window", {
     sessionStorage: {
       length: 0,
@@ -38,9 +39,18 @@ function stubBrowser() {
       removeItem: () => undefined,
     },
     localStorage: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined },
-    dispatchEvent: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
+    addEventListener: vi.fn((type: string, listener: (event: Event) => void) => {
+      const set = listeners.get(type) ?? new Set();
+      set.add(listener);
+      listeners.set(type, set);
+    }),
+    removeEventListener: vi.fn((type: string, listener: (event: Event) => void) => {
+      listeners.get(type)?.delete(listener);
+    }),
+    dispatchEvent: vi.fn((event: Event) => {
+      for (const listener of listeners.get(event.type) ?? []) listener(event);
+      return true;
+    }),
   });
   vi.stubGlobal(
     "fetch",
@@ -122,5 +132,45 @@ describe("the Applications list says so in one line", () => {
     const line = notice.slice(0, notice.indexOf("</div>"));
     expect(line).toContain("1 application couldn't be loaded.");
     expect(line).toContain("applications couldn't be loaded.");
+  });
+
+  it("drops the line when the workspace changes instead of waiting for the next poll", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "..", "src", "components", "portal", "pro-applications.tsx"),
+      "utf8",
+    );
+    const effect = source.slice(source.indexOf("const [skippedRowCount, setSkippedRowCount]"));
+    const body = effect.slice(0, effect.indexOf("Returning from embedded Stripe"));
+    expect(body).toContain("WORKSPACE_SELECTION_EVENT");
+    expect(body).toContain("setSkippedRowCount(0)");
+    expect(body).toContain("void read(true)");
+  });
+});
+
+describe("a workspace switch does not keep the previous skip count", () => {
+  it("forgets the count when the confirmed workspace changes, and a TTL read does not replay it", async () => {
+    const store = await loadStore();
+    const { setWorkspaceSelection } = await import("@/lib/workspaces/selection");
+    const select = (id: string | null) =>
+      setWorkspaceSelection({ workspaces: [], activeWorkspaceId: id });
+    try {
+      select("ws-a");
+      replies.push({ rows: [KEPT], skippedRowIds: ["PROPLANE-SKIP111"] });
+      const first = await store.syncManagerApplicationsFromServerWithStatus({ force: true, managerUserId: "mgr-1" });
+      expect(first.skippedCount).toBe(1);
+
+      // Refreshing the same workspace is not a switch.
+      select("ws-a");
+      const same = await store.syncManagerApplicationsFromServerWithStatus({ managerUserId: "mgr-1" });
+      expect(same.skippedCount).toBe(1);
+
+      select("ws-b");
+      replies.push({ rows: [KEPT] });
+      const next = await store.syncManagerApplicationsFromServerWithStatus({ managerUserId: "mgr-1" });
+      expect(next.ok).toBe(true);
+      expect(next.skippedCount).toBe(0);
+    } finally {
+      select(null);
+    }
   });
 });

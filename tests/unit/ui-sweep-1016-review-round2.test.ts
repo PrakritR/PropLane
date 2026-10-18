@@ -10,15 +10,23 @@ const ROOT = join(__dirname, "..", "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf8");
 
 describe("a refused draft discard puts the draft back", () => {
-  it("restores the rows on screen and in the local cache, not just the latched id", () => {
+  it("restores that draft onto the latest rows, not the list from click time", () => {
     const source = read("src", "components", "portal", "pro-inbox.tsx");
     const fn = source.slice(source.indexOf("const discardActiveDraft = useCallback"));
-    const body = fn.slice(0, fn.indexOf("}, [activeThread, local"));
+    const body = fn.slice(0, fn.indexOf("}, [activeThread, setReplyDraft, showToast]"));
+    expect(body).toContain("runInboxMutation");
+    expect(body).toContain("loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, [])");
     const failure = body.slice(body.indexOf("if (!saved)"));
-    // The optimistic write committed `next` to memory, so the revert has to re-commit `local`.
-    expect(failure).toContain("stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, local)");
-    expect(failure).toContain("setLocal(local)");
-    expect(failure).toContain("restored.delete(activeThread.id)");
+    // The optimistic write committed `next` to memory. The revert re-reads storage
+    // and `localRef` and puts only this thread's draft back, so a send, archive,
+    // or inbound turn during the await is not replaced by the click-time list.
+    expect(failure).toContain("localRef.current");
+    expect(failure).toContain("restoreDiscardedDraftOnLatestRows(");
+    expect(failure).toContain("stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, reverted)");
+    expect(failure).toContain("setLocal(reverted)");
+    expect(failure).not.toContain("stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, local)");
+    expect(failure).not.toContain("setLocal(local)");
+    expect(failure).toContain("restored.delete(threadId)");
     // The revert runs while the persist effect is still latched off.
     expect(body.indexOf("persistInboxRef.current = true")).toBeGreaterThan(body.indexOf("if (!saved)"));
   });

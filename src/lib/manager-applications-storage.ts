@@ -165,8 +165,21 @@ if (typeof window !== "undefined") {
     if (isDemoModeActive()) return;
     const nextWorkspaceId = selectedWorkspaceId();
     if (nextWorkspaceId === confirmedApplicationsWorkspaceId) return;
+    // Null means no confirmed read yet (the selection arriving on first load).
+    // That must not drop the skip count an in-flight read is about to publish.
+    const leavingConfirmedWorkspace = confirmedApplicationsWorkspaceId !== null;
     confirmedApplicationIds = new Set();
     confirmedApplicationsWorkspaceId = null;
+    if (!leavingConfirmedWorkspace) return;
+    // The skip count and the TTL that replays it belong to the workspace we
+    // just left. An unforced read would otherwise report that failure on the
+    // workspace now on screen.
+    applicationsReadSucceeded = false;
+    applicationsReadWasComplete = false;
+    applicationsReadSkippedCount = 0;
+    applicationsReadGeneration++;
+    managerApplicationsSuccessfulServerSyncAt = 0;
+    managerApplicationsSyncPromise = null;
   });
 }
 
