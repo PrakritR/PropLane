@@ -388,8 +388,8 @@ export async function handleGroupPreferenceText(
   const workspaceIds = new Set(memberships.map((m) => m.group.workspaceId));
 
   // A resident with no group yet may still say "join group": find the houses they live in.
-  const extra = await residentWorkspaces(db, phoneKey);
-  for (const w of extra) workspaceIds.add(w);
+  const extra = await residentHouses(db, phoneKey);
+  for (const h of extra) workspaceIds.add(h.workspaceId);
   if (workspaceIds.size === 0) return { handled: false, reply: null };
 
   const config = await readSharedLineConfig(db);
@@ -404,6 +404,7 @@ export async function handleGroupPreferenceText(
   }
   const houses = new Map<string, string>();
   for (const m of memberships) if (enabled.includes(m.group.workspaceId)) houses.set(m.group.propertyId, m.group.workspaceId);
+  for (const h of extra) if (h.propertyId && enabled.includes(h.workspaceId)) houses.set(h.propertyId, h.workspaceId);
   for (const [propertyId, workspaceId] of houses) {
     await syncHouseGroup(db, { workspaceId, propertyId, reason: "consent_change" }, { now: deps.now, gateway: deps.gateway, ...deps.sync }).catch(() => undefined);
   }
@@ -411,12 +412,12 @@ export async function handleGroupPreferenceText(
   return { handled: true, reply: input.command === "leave" ? LEAVE_CONFIRM : hasThread ? JOIN_CONFIRM : JOIN_NEEDS_THREAD };
 }
 
-/** Workspaces whose house this phone is a verified resident of (so "join group" works before the first group exists). */
-async function residentWorkspaces(db: SupabaseClient, phoneKey: string): Promise<string[]> {
+/** Houses this phone is a verified resident of (so "join group" works before the first group exists). */
+async function residentHouses(db: SupabaseClient, phoneKey: string): Promise<{ workspaceId: string; propertyId: string | null }[]> {
   try {
     const { findResidentCandidates } = await import("@/lib/one-number/router-lookups.server");
     const found = await findResidentCandidates(db, phoneKey);
-    return [...new Set(found.map((f) => f.workspaceId))];
+    return found.map((f) => ({ workspaceId: f.workspaceId, propertyId: f.propertyId }));
   } catch {
     return [];
   }
