@@ -48,8 +48,12 @@ remaining amount.
   Callers: `household-captured-source.server.ts` (card verify, manual ACH,
   autopay, Checkout), `vendor-captured-source.server.ts`, the application-fee
   fulfillment. RPCs: `verify_platform_hold_source`, `credit_verified_platform_hold`,
-  `credit_verified_platform_income_mirror`. A failed source credit is review/409;
-  nothing swallows it and nothing marks a charge paid before it.
+  `credit_verified_platform_income_mirror`. Household settlement attests the exact
+  captured source and settles the claim before the separate platform allocation.
+  Failed settlement stays an error/review response; an allocation refusal after successful
+  settlement keeps interactive verification `paid: true` with `sourceReview: true`
+  and files the refusal for staff (see In-app payouts below). Webhook allocation
+  failures still fail delivery for retry; no path invents a credit.
 - **`classified_held` isolates new money.** A NEW verified source row is
   `platform_payment_holds.status = 'classified_held'` so the legacy
   `status='held'` transfer scanners never see it; old rows keep `held` and their

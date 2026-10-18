@@ -105,8 +105,11 @@ provider call. Reopening after close or reload is `GET` on the exact original
 PI/SI only: no new claim, no new PI, no credit until the PI is paid. Once exactly
 paid, the card verify route, manual-ACH route, synchronous autopay and the
 webhook each call the matching `creditVerifiedHousehold{Checkout,Manual,Autopay}Source`
-(`household-captured-source.server.ts`) before success; failure is 409/review, never
-a swallowed hold insert. Source, slot and funds model: `financials.md` § Source
+(`household-captured-source.server.ts`). Exact source/claim settlement must succeed
+before `paid: true`; a failure remains an error/review response. After settlement succeeds, interactive verification keeps
+`paid: true` if the separate platform allocation refuses, returns `sourceReview: true`,
+and files the refusal for staff; webhook allocation failures still fail delivery
+for retry. Source, slot and funds model: `financials.md` § Source
 arbitration. Manager-assisted collection is card-only and settles by webhook.
 
 A legacy open household Checkout source may carry no charge-side session
