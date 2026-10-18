@@ -186,6 +186,8 @@ export function AdminProplaneLinePanel() {
         open={open}
         title="Change PropLane line"
         onClose={() => setOpen(false)}
+        contextPanel={null}
+        preview={null}
         dataAttr="admin-proplane-line-modal"
         footer={
           <ModalFooter>

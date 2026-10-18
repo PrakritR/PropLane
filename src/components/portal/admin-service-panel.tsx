@@ -393,6 +393,8 @@ export function AdminServicePanel() {
         open={renameOpen}
         title="Rename workspace"
         onClose={() => setRenameOpen(false)}
+        contextPanel={null}
+        preview={null}
         dataAttr="admin-service-rename-modal"
         footer={
           <ModalFooter>
@@ -419,7 +421,9 @@ export function AdminServicePanel() {
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
       </Modal>
 
-      <Modal open={teamOpen} title="Team" onClose={() => setTeamOpen(false)} dataAttr="admin-service-team-modal">
+      <Modal open={teamOpen} title="Team" onClose={() => setTeamOpen(false)} contextPanel={null}
+        preview={null}
+        dataAttr="admin-service-team-modal">
         {team ? (
           <div className="space-y-4">
             <ul className="divide-y divide-border" data-attr="admin-service-team-list">
