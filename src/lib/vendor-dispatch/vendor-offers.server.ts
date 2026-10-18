@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingDispatchRelation } from "@/lib/vendor-dispatch/access.server";
-import { asAttemptStatus, type DispatchAttemptStatus } from "@/lib/vendor-dispatch/runs-view";
+import { asAttemptStatus, type VendorDispatchOffer } from "@/lib/vendor-dispatch/runs-view";
 import { issueDefinition, tradeDefinition } from "@/lib/vendor-dispatch/trades";
 
 /**
@@ -13,18 +13,7 @@ import { issueDefinition, tradeDefinition } from "@/lib/vendor-dispatch/trades";
  * street address, no resident) plus trade, pay and deadline. Nothing here
  * returns a house id or a workspace id.
  */
-export type VendorDispatchOffer = {
-  attemptId: string;
-  handle: number;
-  tradeLabel: string;
-  issueLabel: string | null;
-  urgency: string;
-  offerText: string;
-  payCents: number | null;
-  status: DispatchAttemptStatus;
-  /** When the offer lapses; null = until the manager moves on. */
-  answerBy: string | null;
-};
+export type { VendorDispatchOffer };
 
 type AttemptRow = {
   id: string;

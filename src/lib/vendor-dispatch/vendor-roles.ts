@@ -76,9 +76,9 @@ export function normalizeIsoDate(value: unknown): string | undefined {
  * (undefined when invalid) so a spread over the row overwrites a bad stored
  * value instead of leaving it behind.
  */
-export function normalizeVendorDispatchFields(row: Record<string, unknown>): Required<{
-  [K in keyof VendorDispatchFields]: VendorDispatchFields[K] | undefined;
-}> {
+export function normalizeVendorDispatchFields(row: Record<string, unknown>): {
+  [K in keyof VendorDispatchFields]-?: VendorDispatchFields[K] | undefined;
+} {
   const trades = Array.isArray(row.dispatchTrades)
     ? [...new Set(row.dispatchTrades.filter(isVendorTrade))].slice(0, VENDOR_TRADES.length)
     : [];

@@ -122,3 +122,17 @@ export function pickRunForSource(runs: readonly DispatchRunView[]): DispatchRunV
   if (open) return open;
   return runs.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 }
+
+/** One open offer in the vendor portal: the general area only (the offer text), never a house or resident. */
+export type VendorDispatchOffer = {
+  attemptId: string;
+  handle: number;
+  tradeLabel: string;
+  issueLabel: string | null;
+  urgency: string;
+  offerText: string;
+  payCents: number | null;
+  status: DispatchAttemptStatus;
+  /** When the offer lapses; null = until the manager moves on. */
+  answerBy: string | null;
+};
