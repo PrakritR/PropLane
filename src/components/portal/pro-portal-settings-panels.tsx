@@ -67,7 +67,11 @@ import {
 } from "@/lib/manager-communication-deliver-via";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { workspaceWorkNumber, type ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import {
+  workNumberAwaitingCarrier,
+  workspaceWorkNumber,
+  type ManagerMessagingNumberStatus,
+} from "@/lib/sms/manager-messaging-number";
 import {
   PAYMENT_REMINDER_PRESETS,
   applyReminderPreset,
@@ -1483,7 +1487,9 @@ export function CommunicationSettingsPanel({
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
-  const [smsSetup, setSmsSetup] = useState<{ phone: string | null; lineReady: boolean } | null>(null);
+  const [smsSetup, setSmsSetup] = useState<
+    { phone: string | null; lineReady: boolean; awaitingCarrier: boolean } | null
+  >(null);
   const [source, setSource] = useState<SettingsResolutionSource | null>(null);
 
   const anySmsEnabled = useMemo(
@@ -1535,6 +1541,7 @@ export function CommunicationSettingsPanel({
               ? {
                   phone: normalizeE164(workspaceWorkNumber(status)),
                   lineReady: status.lineReady,
+                  awaitingCarrier: workNumberAwaitingCarrier(status),
                 }
               : null,
           );
@@ -1660,7 +1667,8 @@ export function CommunicationSettingsPanel({
       <ManagerSmsWorkNumberHint
         show
         phone={smsSetup?.phone ?? null}
-        canSend={smsSetup?.lineReady === true}
+        lineReady={smsSetup?.lineReady === true}
+        awaitingCarrier={smsSetup?.awaitingCarrier === true}
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
     </PortalSettingsSection>

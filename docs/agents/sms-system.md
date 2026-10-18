@@ -101,8 +101,14 @@ through it or through the workspace-keyed helpers in
   number, owner's seat, workspace wallet, deployment send switch) and is
   identical for everyone looking at that workspace — everything that describes
   the line reads it: the work-number card's caption
-  (`workNumberReadinessCaption`), the Automation SMS hint, the resident-welcome
-  reachability line. `canSend` is the VIEWER's answer: `lineReady` plus, for a
+  (`workNumberReadinessCaption`), `ManagerSmsWorkNumberHint` on every compose
+  surface, the resident-welcome reachability line, the listing CTA phone, and
+  the Workspace number row's Ready / Not ready. Only `workNumberAwaitingCarrier`
+  (a real `number` row short of registration) may name the carrier as the
+  reason; every other refusal gets neutral copy. `canSend` is the VIEWER's
+  answer, and it gates every surface that offers a send — the inbox Text
+  channel, the notification compose channel picker, and the vendor record's
+  "Reach them by": `lineReady` plus, for a
   teammate, their own Communication (`inbox`) grant at **edit** level, read with
   the same `resolveSmsScopeManagerIds(db, actorUserId, "edit")` the send path
   uses, so a read-only teammate is never offered a Text channel for a send

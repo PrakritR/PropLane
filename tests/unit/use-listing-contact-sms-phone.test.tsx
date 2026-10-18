@@ -39,7 +39,7 @@ describe("useListingContactSmsPhone", () => {
       url.startsWith("/api/manager/messaging-number")
         ? {
             ok: true,
-            json: async () => ({ canSend: false, number: { phoneNumber: CLAW_DEFAULT_AGENT_PHONE } }),
+            json: async () => ({ lineReady: false, number: { phoneNumber: CLAW_DEFAULT_AGENT_PHONE } }),
           }
         : emptyCatalog,
     );
@@ -56,7 +56,7 @@ describe("useListingContactSmsPhone", () => {
         ? {
             ok: true,
             json: async () => ({
-              canSend: true,
+              lineReady: true,
               workspaceRole: "co_manager",
               workspaceNumber: { phoneNumber: MANAGER_PHONE },
             }),
@@ -74,7 +74,7 @@ describe("useListingContactSmsPhone", () => {
     // must resolve to null, not to whoever happens to be signed in.
     const spy = stubFetch((url) =>
       url.startsWith("/api/manager/messaging-number")
-        ? { ok: true, json: async () => ({ canSend: true, number: { phoneNumber: OTHER_MANAGER_PHONE } }) }
+        ? { ok: true, json: async () => ({ lineReady: true, number: { phoneNumber: OTHER_MANAGER_PHONE } }) }
         : emptyCatalog,
     );
 
@@ -86,10 +86,31 @@ describe("useListingContactSmsPhone", () => {
     expect(spy.mock.calls.some(([input]) => String(input).startsWith("/api/manager/messaging-number"))).toBe(false);
   });
 
+  it("prints the workspace line for a teammate who may not text from it themselves", async () => {
+    // The CTA is what a PROSPECT texts: the viewer's own Communication grant
+    // has nothing to do with it, so `canSend: false` must not blank it.
+    stubFetch((url) =>
+      url.startsWith("/api/manager/messaging-number")
+        ? {
+            ok: true,
+            json: async () => ({
+              lineReady: true,
+              canSend: false,
+              workspaceRole: "co_manager",
+              workspaceNumber: { phoneNumber: MANAGER_PHONE },
+            }),
+          }
+        : emptyCatalog,
+    );
+
+    const { result } = renderHook(() => useListingContactSmsPhone({ listingId: "preview-1" }));
+    await waitFor(() => expect(result.current).toBe(MANAGER_PHONE));
+  });
+
   it("uses the signed-in manager's own number when they own the listing", async () => {
     stubFetch((url) =>
       url.startsWith("/api/manager/messaging-number")
-        ? { ok: true, json: async () => ({ canSend: true, number: { phoneNumber: MANAGER_PHONE } }) }
+        ? { ok: true, json: async () => ({ lineReady: true, number: { phoneNumber: MANAGER_PHONE } }) }
         : emptyCatalog,
     );
 

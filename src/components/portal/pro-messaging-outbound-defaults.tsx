@@ -128,7 +128,7 @@ export function ManagerMessagingOutboundDefaults({
           <ManagerSmsWorkNumberHint
             show={channels.viaSms}
             phone={workNumber}
-            canSend={canSendSms}
+            lineReady={canSendSms}
           />
           {workNumber ? (
             <PortalSettingsField

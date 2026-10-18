@@ -141,12 +141,21 @@ export function ManagerWorkEmailCopyControl({
 export function ManagerSmsWorkNumberHint({
   show,
   phone,
-  canSend,
+  lineReady,
+  awaitingCarrier: awaitingCarrierProp = false,
   className,
 }: {
   show: boolean;
   phone: string | null;
-  canSend: boolean;
+  /**
+   * Whether the LINE itself can send (`ManagerMessagingNumberStatus.lineReady`),
+   * never whether this viewer may use it: this hint explains the number, and a
+   * teammate without Communication edit is looking at a line that is perfectly
+   * well set up.
+   */
+  lineReady: boolean;
+  /** `workNumberAwaitingCarrier(status)` - the only state that names the carrier. */
+  awaitingCarrier?: boolean;
   className?: string;
 }) {
   const pathname = usePathname();
@@ -154,30 +163,35 @@ export function ManagerSmsWorkNumberHint({
   if (!show) return null;
 
   const trimmed = typeof phone === "string" ? phone.trim() : "";
-  if (canSend && trimmed) return null;
+  if (lineReady && trimmed) return null;
 
   // This hint renders inside the messaging settings page itself as well as in
   // compose surfaces, so pointing at "Settings → Messaging" can send the reader
   // to the page they are already reading. Drop the link there and keep the
   // reason.
   const alreadyOnSettings = pathname?.startsWith(MESSAGING_SETTINGS_PATH) ?? false;
-  // A number that exists but cannot send is waiting on carrier approval — there
-  // is no setup left for the manager to "finish", and saying otherwise sends
-  // them hunting for a control that is not there.
-  const awaitingCarrier = Boolean(trimmed);
+  const haveNumber = Boolean(trimmed);
+  // A number waiting on carrier approval has no setup step left for the
+  // manager, and saying otherwise sends them hunting for a control that is not
+  // there. Every OTHER reason a live number cannot send (the workspace wallet,
+  // the deployment's send switch) is not the carrier's doing, so it does not
+  // get to blame them.
+  const awaitingCarrier = haveNumber && awaitingCarrierProp;
 
   return (
     <p className={cn("text-xs font-medium text-danger", className)} role="alert">
       {awaitingCarrier
         ? `SMS is waiting on carrier approval for ${formatManagerMessagingPhone(trimmed)}.`
-        : "SMS needs an active work number."}{" "}
+        : haveNumber
+          ? `SMS cannot send from ${formatManagerMessagingPhone(trimmed)} right now.`
+          : "SMS needs an active work number."}{" "}
       {alreadyOnSettings ? null : (
         <>
           <Link
             href="/portal/profile?tab=messaging"
             className="font-semibold text-primary hover:underline"
           >
-            {awaitingCarrier ? "Check status in Settings → Messaging" : "Finish setup in Settings → Messaging"}
+            {haveNumber ? "Check status in Settings → Messaging" : "Finish setup in Settings → Messaging"}
           </Link>
           ,{" "}
         </>

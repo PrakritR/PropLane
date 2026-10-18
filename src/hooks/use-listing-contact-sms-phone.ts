@@ -17,10 +17,12 @@ async function ownManagerListingCtaPhone(workspaceId?: string): Promise<string |
   try {
     const res = await sharedGet(`/api/manager/messaging-number${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
     if (!res.ok) return null;
-    const data = res.data as ({ canSend?: boolean } & WorkspaceWorkNumberSource) | null;
+    const data = res.data as ({ lineReady?: boolean } & WorkspaceWorkNumberSource) | null;
     // The CTA prints the line the workspace texts FROM - a teammate's own
-    // retired row is never it (`workspaceWorkNumber` is the one answer).
-    return data?.canSend ? listingCtaSmsPhone(workspaceWorkNumber(data)) : null;
+    // retired row is never it (`workspaceWorkNumber` is the one answer) - and
+    // it is a fact about that LINE, not about whether the signed-in viewer may
+    // send on it: a prospect is the one who will text it.
+    return data?.lineReady ? listingCtaSmsPhone(workspaceWorkNumber(data)) : null;
   } catch {
     return null;
   }

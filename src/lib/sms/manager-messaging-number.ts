@@ -197,6 +197,24 @@ export function formatManagerMessagingPhone(
   return phone;
 }
 
+/**
+ * A line that EXISTS but is still waiting on carrier registration - the one
+ * state where "SMS is waiting on carrier approval" is a true reason and there
+ * is nothing left for the manager to finish. Every other reason a line cannot
+ * send (the workspace wallet, the deployment's send switch, a quarantine) must
+ * not borrow that sentence, and a teammate reading a workspace line they are
+ * simply not allowed to use must not borrow it either: they have no `number`
+ * row, so this is false for them.
+ */
+export function workNumberAwaitingCarrier(
+  status: { number?: ManagerMessagingNumber | null } | null | undefined,
+): boolean {
+  const number = status?.number;
+  if (!number || !number.phoneNumber) return false;
+  if (number.state !== "active" && number.state !== "provisioning") return false;
+  return number.registrationState !== "approved" || number.carrierRegistrationState !== "registered";
+}
+
 /** Just the fields of the status that say which line a workspace texts from. */
 export type WorkspaceWorkNumberSource = {
   workspaceRole?: ManagerMessagingWorkspaceRole | string | null;

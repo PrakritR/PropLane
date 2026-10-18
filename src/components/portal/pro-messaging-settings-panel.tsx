@@ -37,6 +37,7 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import {
   formatManagerMessagingPhone,
+  workNumberAwaitingCarrier,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 import { workNumberStatusWord, type WorkNumberStatusInput } from "@/lib/sms/work-number-status";
@@ -515,7 +516,7 @@ export function ManagerMessagingSettingsPanel() {
   if (isCoManager) {
     const workspacePhone = status.workspaceNumber?.phoneNumber?.trim() || "";
     return <PortalSettingsSection title="Work identity"><PortalSettingsGroup>
-      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.canSend ? "Ready" : "Not ready"}` : "Not set up"}>
+      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.lineReady ? "Ready" : "Not ready"}` : "Not set up"}>
         <PortalSettingsField label="Workspace number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up"} />
         <PortalSettingsField label="Managed by" value={status.workspaceNumber?.ownerName || "Workspace owner"} />
         {workspacePhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone)}>Copy number</Button> : null}
@@ -739,12 +740,18 @@ export function ManagerMessagingSettingsPanel() {
           dataAttr="messaging-announce-body"
         />
         {announceChannels.viaSms && phoneNumber ? (
-          <ManagerSmsWorkNumberHint show phone={phoneNumber} canSend={status?.canSend === true} />
+          <ManagerSmsWorkNumberHint
+            show
+            phone={phoneNumber}
+            lineReady={status?.lineReady === true}
+            awaitingCarrier={workNumberAwaitingCarrier(status)}
+          />
         ) : announceSmsBlocked ? (
           <ManagerSmsWorkNumberHint
             show
             phone={phoneNumber}
-            canSend={false}
+            lineReady={false}
+            awaitingCarrier={workNumberAwaitingCarrier(status)}
           />
         ) : null}
       </PortalMessageComposeModalBody>

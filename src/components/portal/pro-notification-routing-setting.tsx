@@ -125,7 +125,7 @@ export function ManagerNotificationRoutingSetting() {
 
   const workNumberAssigned = Boolean(workspaceWorkNumber(numberStatus));
   const textConnectionReady = Boolean(
-    numberStatus?.canSend &&
+    numberStatus?.lineReady &&
       workNumberAssigned &&
       trimmedText(numberStatus.personalPhone?.phone) &&
       numberStatus.personalPhone.forwardInbound,
