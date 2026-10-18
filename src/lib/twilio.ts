@@ -5,6 +5,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { isConfiguredSharedNumber } from "@/lib/one-number/shared-line-number.server";
 
 /**
  * Back-compat re-export for the server-side callers that already import it from here.
@@ -33,6 +34,12 @@ export async function sendSms(
     purpose?: "phone_verification";
     /** Trusted actor identity for delayed/provider calls outside SMS ALS. */
     actorUserId?: string;
+    /**
+     * Provider Messaging Service for this call, set only by the dispatcher when
+     * the text leaves from the shared PropLane number. Defaults to the
+     * deployment's TWILIO_MESSAGING_SERVICE_SID.
+     */
+    messagingServiceSid?: string;
   },
 ): Promise<{ sent: boolean; sid?: string; error?: string; providerAttempted?: boolean }> {
   if (captureSmsTestDelivery({
@@ -91,13 +98,18 @@ export async function sendSms(
       .eq("phone_number", fromNorm).neq("provision_state", "released").maybeSingle();
     const { data: hold, error: creditError } = await db.from("manager_comms_usage_events")
       .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", opts.creditReservationKey).maybeSingle();
-    if (numberError || creditError || !number || !hold || hold.manager_user_id !== number.manager_user_id || hold.meter !== "sms_outbound_segment"
+    // The one shared PropLane number is configured on the platform, not owned by
+    // a manager row: it is a valid `from` only when it IS the configured shared
+    // number, and then the reserved hold alone proves whose wallet pays.
+    const sharedFrom = !number && !numberError && await isConfiguredSharedNumber(db, fromNorm);
+    const holdOwner = sharedFrom ? hold?.manager_user_id : number?.manager_user_id;
+    if (numberError || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
       || hold.credit_state !== "reserved" || Number(hold.quantity) !== estimateSmsSegments(body).segmentCount) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }
   }
 
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  const messagingServiceSid = opts?.messagingServiceSid?.trim() || process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
   const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
 
   try {

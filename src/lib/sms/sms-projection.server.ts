@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveSmsConversationRef } from "@/lib/communication/conversation-key.server";
+import { readSharedLineConfig } from "@/lib/one-number/shared-line-number.server";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 export type SmsProjectionRole = "prospect" | "resident" | "applicant" | "vendor" | "manager" | "admin" | "unknown";
 export type SmsProjectionDirection = "inbound" | "outbound";
@@ -56,6 +58,12 @@ export type SmsProjectionEventInput = {
   ownerManagerUserId: string;
   counterpartyRole: SmsProjectionRole;
   workLineId: string;
+  /**
+   * The workspace a shared-line event belongs to. Not sent to the projection
+   * RPC (the synthetic `workLineId` already is the workspace); it rides in the
+   * retry payload so a repaired event can be placed on the shared line again.
+   */
+  workspaceId?: string | null;
   /** Stable server-resolved identity. Do not switch phone identities to user IDs without source proof. */
   identityKey: string;
   identityKind: SmsProjectionIdentityKind;
@@ -116,8 +124,42 @@ function mapTurn(row: Record<string, unknown>): SmsProjectionTurn {
   };
 }
 
+/**
+ * The shared PropLane number has no `manager_sms_numbers` row. A conversation
+ * on it is placed on a synthetic work line whose id IS the workspace id, so the
+ * existing (owner, role, work_line_id, identity_key) key already separates two
+ * workspaces of one owner. Returns null unless `phoneNumber` is the configured
+ * shared number and `workspaceId` is a workspace this owner holds.
+ */
+async function resolveSharedLineWorkLine(
+  db: SupabaseClient,
+  args: { ownerManagerUserId: string; phoneNumber: string; workspaceId: string },
+): Promise<{ workLineId: string; phoneNumber: string; workspaceId: string } | null> {
+  const phone = normalizeE164(args.phoneNumber);
+  if (!phone) return null;
+  const config = await readSharedLineConfig(db);
+  if (!config.sharedNumber || config.sharedNumber !== phone) return null;
+  const { data, error } = await db.from("portal_workspaces").select("id")
+    .eq("id", args.workspaceId).eq("owner_user_id", args.ownerManagerUserId).maybeSingle();
+  if (error || !data) return null;
+  return { workLineId: args.workspaceId, phoneNumber: phone, workspaceId: args.workspaceId };
+}
+
 /** Resolve an active work-number epoch using exact server-owned owner+number evidence. */
 export async function resolveSmsProjectionWorkLine(
+  db: SupabaseClient,
+  args: { ownerManagerUserId: string; phoneNumber: string; occurredAt?: string; workspaceId?: string | null },
+): Promise<{ workLineId: string; phoneNumber: string; workspaceId: string | null } | null> {
+  const fromWorkNumber = await resolveWorkNumberProjectionLine(db, args);
+  if (fromWorkNumber || !args.workspaceId?.trim()) return fromWorkNumber;
+  return resolveSharedLineWorkLine(db, {
+    ownerManagerUserId: args.ownerManagerUserId.trim(),
+    phoneNumber: args.phoneNumber,
+    workspaceId: args.workspaceId.trim(),
+  });
+}
+
+async function resolveWorkNumberProjectionLine(
   db: SupabaseClient,
   args: { ownerManagerUserId: string; phoneNumber: string; occurredAt?: string },
 ): Promise<{ workLineId: string; phoneNumber: string; workspaceId: string | null } | null> {
@@ -190,8 +232,12 @@ export async function projectOriginalEvent(
   if (required.some((value) => !value.trim()) || typeof input.body !== "string" || !Number.isFinite(Date.parse(input.occurredAt))) {
     throw new Error("Invalid SMS projection event");
   }
-  const { data, error } = await db.rpc("project_sms_conversation_event", {
+  // A shared-line event sits on the synthetic work line that IS its workspace id
+  // (see `resolveSharedLineWorkLine`); it is projected by the shared-line twin.
+  const onSharedLine = Boolean(input.workspaceId && input.workLineId === input.workspaceId);
+  const { data, error } = await db.rpc(onSharedLine ? "project_shared_line_event" : "project_sms_conversation_event", {
     p_event: {
+      ...(onSharedLine ? { workspaceId: input.workspaceId } : {}),
       ownerManagerUserId: input.ownerManagerUserId,
       counterpartyRole: input.counterpartyRole,
       workLineId: input.workLineId,

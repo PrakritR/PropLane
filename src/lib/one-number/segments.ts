@@ -32,7 +32,10 @@ function inGsm7(character: string): boolean {
 
 /** Rewrite `text` so it encodes as GSM-7. Idempotent; plain ASCII passes through untouched. */
 export function toGsm7(text: string): string {
-  let out = String(text ?? "");
+  const original = String(text ?? "");
+  // Already GSM-7: not one character changes (no trimming, no re-spacing).
+  if (isGsm7(original)) return original;
+  let out = original;
   for (const [pattern, replacement] of REPLACEMENTS) out = out.replace(pattern, replacement);
   out = out.replace(EMOJI, "");
   let rebuilt = "";
@@ -51,6 +54,12 @@ export function toGsm7(text: string): string {
 /** Billed SMS segments for `text` exactly as it would be sent (0 for an empty body). */
 export function smsSegmentCount(text: string): number {
   return estimateSmsSegments(String(text ?? "")).segmentCount;
+}
+
+/** "<text>\n- <signOff>" (a plain hyphen: a long dash would turn the whole text into UCS-2). */
+export function appendSignOff(text: string, signOff: string | null | undefined): string {
+  const sign = toGsm7(String(signOff ?? ""));
+  return sign ? `${text.trimEnd()}\n- ${sign}` : text;
 }
 
 /** True when `text` already encodes as GSM-7. */

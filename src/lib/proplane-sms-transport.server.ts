@@ -140,6 +140,8 @@ export async function sendPropLaneSms(args: {
   selectedWorkLineId?: string | null;
   /** The account the text goes to when it is a PropLane user (a teammate's notice), so consent reads that profile. */
   recipientUserId?: string | null;
+  /** The workspace the text is about. Stamped on the outbox row; on the shared line it names the paying wallet. */
+  workspaceId?: string | null;
   /**
    * When set, logs outbound SMS for the Communication → SMS → Sent tab.
    * Pass `null` to skip (e.g. manager carbon-copy mirrors).
@@ -239,6 +241,7 @@ export async function sendPropLaneSms(args: {
   );
   const enqueued = await enqueueOwnerSms({
     managerUserId,
+    ...(args.workspaceId?.trim() ? { workspaceId: args.workspaceId.trim() } : {}),
     actorUserId: args.actorUserId?.trim() || managerUserId,
     selectedWorkLineId: args.selectedWorkLineId?.trim() || null,
     recipientPhone: to,
@@ -316,6 +319,8 @@ export async function sendFromManagerWorkNumber(args: {
   prospectTourBookingConfirmationId?: string | null;
   /** Skip only the Communication projection; owner identity still authorizes the send. */
   skipLog?: boolean;
+  /** The workspace the text is about (stamped on the outbox; names the paying wallet on the shared line). */
+  workspaceId?: string | null;
 }): Promise<PropLaneSmsResult> {
   const managerUserId = args.managerUserId.trim();
   if (!managerUserId) return { ok: false, error: "missing_manager" };
@@ -337,6 +342,7 @@ export async function sendFromManagerWorkNumber(args: {
     prospectBurst: args.prospectBurst,
     prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
     suppressConversationLog: args.skipLog === true,
+    ...(args.workspaceId?.trim() ? { workspaceId: args.workspaceId.trim() } : {}),
     log: {
       managerUserId,
       residentUserId: args.residentUserId,

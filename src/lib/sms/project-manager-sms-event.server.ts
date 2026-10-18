@@ -20,6 +20,8 @@ export async function projectManagerSmsEvent(
     counterpartyUserId: string | null;
     counterpartyPhone: string;
     workPhone: string | null;
+    /** The workspace the message belongs to; places a shared-line thread (no work-number row exists for it). */
+    workspaceId?: string | null;
     legacyConversationKey: string;
     messageSid: string | null;
     direction: "inbound" | "outbound";
@@ -41,7 +43,7 @@ export async function projectManagerSmsEvent(
   const phone = conversationPhoneRef(input.counterpartyPhone);
   const workPhone = input.workPhone?.trim() ?? "";
   const line = workPhone
-    ? await resolveSmsProjectionWorkLine(db, { ownerManagerUserId: input.ownerManagerUserId, phoneNumber: workPhone, occurredAt: input.occurredAt })
+    ? await resolveSmsProjectionWorkLine(db, { ownerManagerUserId: input.ownerManagerUserId, phoneNumber: workPhone, occurredAt: input.occurredAt, workspaceId: input.workspaceId ?? null })
     : null;
   const identityKind = input.counterpartyUserId ? "user" : input.counterpartyRole === "unknown" ? "unresolved" : "phone";
   const identityKey = input.counterpartyUserId
@@ -51,6 +53,7 @@ export async function projectManagerSmsEvent(
     ownerManagerUserId: input.ownerManagerUserId,
     counterpartyRole: input.counterpartyRole,
     workLineId: line?.workLineId ?? "",
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     identityKey,
     identityKind,
     counterpartyUserId: input.counterpartyUserId,

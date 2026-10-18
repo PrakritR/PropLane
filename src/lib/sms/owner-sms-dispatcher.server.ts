@@ -22,6 +22,7 @@ import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/co
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { VENDOR_CONVERSATION_PURPOSE } from "@/lib/sms/vendor-conversation-consent.server";
 import { getRoutableVendorNumber } from "@/lib/vendor-work-identity.server";
+import { isMissingWorkspaceColumn, withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 
 const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_request_received",
@@ -36,6 +37,12 @@ const PROSPECT_TOUR_REMINDER_PURPOSE = "prospect_tour_followup";
 
 export type OwnerSmsEnqueueInput = {
   managerUserId: string;
+  /**
+   * The workspace this message is about. Stamped on the outbox row and, while
+   * the line is `shared`, the workspace whose wallet pays and whose sign-off
+   * the text carries. Never read under `per_workspace`.
+   */
+  workspaceId?: string | null;
   actorUserId: string;
   /** Server-authorized selected work-line epoch for an existing conversation. */
   selectedWorkLineId?: string | null;
@@ -76,6 +83,10 @@ type SendPolicy =
       messagingServiceSid: string;
       /** The workspace that holds the sending line — its wallet pays. */
       workspaceId: string | null;
+      /** True while the text leaves from the one shared number. */
+      viaSharedLine?: boolean;
+      /** Messaging Service the provider call goes out through (shared line only). */
+      providerMessagingServiceSid?: string;
     }
   | { allowed: false; reason: string; deferUntil?: string };
 
@@ -118,6 +129,7 @@ async function loadSendPolicy(
     // A successful reservation belongs to this outbox attempt. Still read the
     // sending workspace wallet so a pause or unreadable balance blocks dispatch.
     requiredCents: creditAlreadyReserved ? 0 : segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"),
+    sharedLineWorkspaceId: input.workspaceId ?? null,
     now,
   });
   if (!readiness.canSend) return { allowed: false, reason: readiness.reason };
@@ -215,7 +227,21 @@ async function loadSendPolicy(
     segmentCount: segmentEstimate.segmentCount,
     messagingServiceSid: expectedServiceSid,
     workspaceId: sendWorkspaceId,
+    ...(readiness.viaSharedLine
+      ? { viaSharedLine: true, providerMessagingServiceSid: readiness.providerMessagingServiceSid }
+      : {}),
   };
+}
+
+/** Best-effort workspace stamp for an outbox row a database function inserted. */
+async function stampOutboxWorkspace(db: SupabaseClient, outboxId: string, workspaceId: string | null): Promise<void> {
+  const id = workspaceId?.trim();
+  if (!id) return;
+  try {
+    await db.from("sms_outbox").update({ workspace_id: id }).eq("id", outboxId);
+  } catch {
+    /* the stamp is advisory; a missing column or a blip never blocks a send */
+  }
 }
 
 export async function enqueueOwnerSms(
@@ -265,6 +291,7 @@ export async function enqueueOwnerSms(
   const segments = estimateSmsSegments(body).segmentCount;
   const dedupeKey = input.dedupeKey?.trim() || randomUUID();
   const status = enqueuePolicy.allowed ? "queued" : "deferred";
+  const stampWorkspaceId = input.workspaceId?.trim() || (policy.allowed ? policy.workspaceId : null);
   if (input.prospectTourBookingConfirmationId?.trim()) {
     const { data, error } = await db.rpc("prepare_prospect_tour_booking_confirmation", {
       p_booking_id: input.prospectTourBookingConfirmationId.trim(),
@@ -298,6 +325,7 @@ export async function enqueueOwnerSms(
     if (error || !prepared?.outbox_id) {
       return { ok: false, error: error ? "outbox_unavailable" : "prospect_tour_confirmation_stale" };
     }
+    await stampOutboxWorkspace(db, String(prepared.outbox_id), stampWorkspaceId);
     return {
       ok: true,
       outboxId: String(prepared.outbox_id),
@@ -337,6 +365,7 @@ export async function enqueueOwnerSms(
     if (error || !prepared?.prepared || !prepared?.outbox_id) {
       return { ok: false, error: error ? "outbox_unavailable" : "prospect_burst_stale" };
     }
+    await stampOutboxWorkspace(db, String(prepared.outbox_id), stampWorkspaceId);
     return {
       ok: true,
       outboxId: String(prepared.outbox_id),
@@ -344,9 +373,10 @@ export async function enqueueOwnerSms(
       deduplicated: prepared.deduplicated === true,
     };
   }
-  const { data, error } = await db
+  const { data, error } = await withWorkspaceStamp(stampWorkspaceId, (stamp) => db
     .from("sms_outbox")
     .insert({
+      ...stamp,
       manager_user_id: input.managerUserId,
       selected_work_line_id: input.selectedWorkLineId ?? null,
       actor_user_id: input.actorUserId,
@@ -371,7 +401,7 @@ export async function enqueueOwnerSms(
       blocked_reason: enqueuePolicy.allowed ? null : enqueuePolicy.reason,
     })
     .select("id, status")
-    .single();
+    .single());
   if (!error && data) {
     const outboxId = String(data.id);
     return { ok: true, outboxId, status: String(data.status), deduplicated: false };
@@ -392,6 +422,8 @@ type ClaimedOutboxRow = {
   id: string;
   manager_user_id: string;
   selected_work_line_id?: string | null;
+  /** Workspace stamped at enqueue; absent on rows written before the column existed. */
+  workspace_id?: string | null;
   actor_user_id: string | null;
   recipient_user_id: string | null;
   recipient_email: string | null;
@@ -549,6 +581,7 @@ async function persistSubmittedConversationLog(
   }
   const logged = await logManagerSmsMessage(db, {
     managerUserId: row.manager_user_id,
+    workspaceId: row.workspace_id ?? null,
     residentPhone: row.recipient_phone,
     residentUserId: row.recipient_user_id,
     direction: "outbound",
@@ -702,11 +735,20 @@ export async function dispatchOwnerSmsOutbox(
   }
   const rows = (data ?? []) as ClaimedOutboxRow[];
   if (rows.length) {
-    const { data: selectedLines, error: selectedLinesError } = await db.from("sms_outbox")
-      .select("id,selected_work_line_id").in("id", rows.map((row) => row.id));
+    let selectedRead = await db.from("sms_outbox")
+      .select("id,selected_work_line_id,workspace_id").in("id", rows.map((row) => row.id));
+    // `workspace_id` is additive: before its migration the read degrades to the old shape.
+    if (selectedRead.error && isMissingWorkspaceColumn(selectedRead.error)) {
+      selectedRead = await db.from("sms_outbox").select("id,selected_work_line_id").in("id", rows.map((row) => row.id));
+    }
+    const { data: selectedLines, error: selectedLinesError } = selectedRead;
     if (selectedLinesError) return { ok: false, claimed: rows.length, submitted: 0, blocked: 0, unknown: 0, infrastructureErrors: ["selected_work_line_unavailable"] };
     const linesById = new Map((selectedLines ?? []).map((row) => [String(row.id), row.selected_work_line_id == null ? null : String(row.selected_work_line_id)]));
-    for (const row of rows) row.selected_work_line_id = linesById.get(row.id) ?? null;
+    const workspacesById = new Map((selectedLines ?? []).map((row) => [String(row.id), (row as { workspace_id?: string | null }).workspace_id == null ? null : String((row as { workspace_id?: string | null }).workspace_id)]));
+    for (const row of rows) {
+      row.selected_work_line_id = linesById.get(row.id) ?? null;
+      row.workspace_id = workspacesById.get(row.id) ?? null;
+    }
   }
   const result = {
     ok: true,
@@ -743,6 +785,7 @@ export async function dispatchOwnerSmsOutbox(
     }
     const policy = await loadSendPolicy(db, {
       managerUserId: row.manager_user_id,
+      workspaceId: row.workspace_id ?? null,
       selectedWorkLineId: row.selected_work_line_id,
       actorUserId: row.actor_user_id ?? row.manager_user_id,
       recipientUserId: row.recipient_user_id,
@@ -1037,9 +1080,10 @@ export async function dispatchOwnerSmsOutbox(
     // Recheck after budget/credit awaits, at the last boundary before external
     // submission. Cancellation already fences the earlier state transition;
     // this also catches a new inbound, opt-out, booking or revoked grant.
-    if (row.selected_work_line_id || row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
+    if (row.selected_work_line_id || row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE || policy.viaSharedLine) {
       const finalPolicy = await loadSendPolicy(db, {
         managerUserId: row.manager_user_id, actorUserId: row.actor_user_id ?? row.manager_user_id,
+        workspaceId: row.workspace_id ?? null,
         selectedWorkLineId: row.selected_work_line_id,
         recipientUserId: row.recipient_user_id,
         recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
@@ -1061,7 +1105,13 @@ export async function dispatchOwnerSmsOutbox(
       }
     }
 
-    const sent = await sendSms(await providerDestinationFor(db, row), row.body, policy.fromNumber, { skipOptOutCheck: true, creditReservationKey: creditKey });
+    const sent = await sendSms(await providerDestinationFor(db, row), row.body, policy.fromNumber, {
+      skipOptOutCheck: true,
+      creditReservationKey: creditKey,
+      ...(policy.viaSharedLine && policy.providerMessagingServiceSid
+        ? { messagingServiceSid: policy.providerMessagingServiceSid }
+        : {}),
+    });
     if (!sent.sent && sent.providerAttempted === false) {
       await finishCommsCredit(db, row.manager_user_id, creditKey, true);
       await db.from("sms_outbox").update({ status: "blocked", blocked_reason: sent.error ?? "provider_unavailable",
@@ -1196,8 +1246,9 @@ export async function reconcileSubmittedSmsConversationLogs(
   | { ok: false; error: "inventory_unavailable" | "claim_unavailable"; attempted: number; persisted: number; failed: number }
 > {
   const now = new Date();
-  const { data, error: inventoryError } = await db.from("sms_outbox")
-    .select("id,manager_user_id,actor_user_id,recipient_user_id,recipient_email,recipient_phone,body,send_class,purpose,conversation_key,counterparty_role,property_id,recipient_timezone,dedupe_key,trace_id,segment_count,provider_message_sid,provider_from_phone,conversation_log_attempts,conversation_log_next_attempt_at,suppress_conversation_log")
+  const repairColumns = "id,manager_user_id,actor_user_id,recipient_user_id,recipient_email,recipient_phone,body,send_class,purpose,conversation_key,counterparty_role,property_id,recipient_timezone,dedupe_key,trace_id,segment_count,provider_message_sid,provider_from_phone,conversation_log_attempts,conversation_log_next_attempt_at,suppress_conversation_log";
+  const readRepairInventory = (columns: string) => db.from("sms_outbox")
+    .select(columns)
     .in("status", ["submitted", "sent", "delivered", "failed"])
     .in("conversation_log_status", ["pending", "failed"])
     .not("provider_message_sid", "is", null)
@@ -1207,6 +1258,10 @@ export async function reconcileSubmittedSmsConversationLogs(
     .lte("conversation_log_next_attempt_at", now.toISOString())
     .order("conversation_log_next_attempt_at", { ascending: true })
     .limit(Math.max(1, Math.min(limit, 100)));
+  let inventory = await readRepairInventory(`${repairColumns},workspace_id`);
+  // `workspace_id` is additive: before its migration the read degrades to the old shape.
+  if (inventory.error && isMissingWorkspaceColumn(inventory.error)) inventory = await readRepairInventory(repairColumns);
+  const { data, error: inventoryError } = inventory;
   if (inventoryError) return { ok: false, error: "inventory_unavailable", attempted: 0, persisted: 0, failed: 0 };
   let attempted = 0;
   let persisted = 0;

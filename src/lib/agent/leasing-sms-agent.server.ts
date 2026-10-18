@@ -1,4 +1,5 @@
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
+import { toGsm7 } from "@/lib/one-number/segments";
 import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
@@ -859,10 +860,12 @@ export async function deliverLeasingSmsReply(args: {
   prospectBurst?: { burstId: string; revision: number; workerId: string; candidateContext?: unknown; candidateShadowSnapshot?: unknown };
   prospectTourBookingConfirmationId?: string | null;
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
+  const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
   const result = await sendFromManagerWorkNumber({
     managerUserId: args.landlordId,
     to: args.toPhone,
-    text: args.text,
+    // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
+    text: toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text),
     fromNumber: args.workNumber,
     source: "automated",
     counterpartyRole: "prospect",

@@ -19,6 +19,7 @@ import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.serv
 import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
 import { resolveVendorNumberSenderPhone } from "@/lib/vendor-work-identity.server";
 import { ingestResidentAgentNumberSms } from "@/lib/resident-agent-number/inbound.server";
+import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 
 export const runtime = "nodejs";
 // ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
@@ -82,7 +83,11 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
 
   const fromPhone = String(params.From ?? "").trim();
   const toPhone = String(params.To ?? "").trim();
-  const body = String(params.Body ?? "").trim();
+  // A texted card or bank number is replaced with [redacted] before anything
+  // stores or reads the body: the receipt, the projection, the inbound log and
+  // the agent all see the redacted text.
+  const redaction = redactSensitiveNumbers(String(params.Body ?? "").trim());
+  const body = redaction.text;
   const messageSid = String(params.MessageSid ?? "").trim() || null;
   if (!fromPhone || !toPhone) return twimlOk();
   mark("signed");
@@ -267,6 +272,7 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   // Stored atomically with the claim so the recovery sweeper can always rerun it.
   const payload: InboundPayload = {
     fromPhone: senderPhone, toPhone, body,
+    ...(redaction.redacted ? { redacted: true } : {}),
     workspaceId: ownedNumber?.workspaceId ?? null,
     media: inboundMediaParams(params),
     runtime: inboundRuntime(),

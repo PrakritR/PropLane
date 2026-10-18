@@ -66,6 +66,38 @@ export async function intakePrivateChatPhotos(db: SupabaseClient, userId: string
   return { messages: [...messages.slice(0, -1), { ...last, content }], refs };
 }
 
+/**
+ * Download one MMS media item from Twilio. The URL must be a media URL of THIS
+ * account and THIS message (the verified webhook is the only source of both);
+ * the Basic credentials are sent only to api.twilio.com and are never forwarded
+ * to the CDN redirect. Throws `InspectionError` on any refusal.
+ */
+export async function fetchTwilioMessageMedia(
+  rawUrl: string,
+  messageSid: string,
+  maxBytes = MAX_BYTES,
+): Promise<{ bytes: Buffer; contentType: string }> {
+  const sid = process.env.TWILIO_ACCOUNT_SID?.trim(), token = process.env.TWILIO_AUTH_TOKEN?.trim();
+  if (!sid || !token || !/^(SM|MM)[a-fA-F0-9]{32}$/.test(messageSid)) throw new InspectionError("Photo intake is unavailable.", 503);
+  const url = new URL(rawUrl);
+  const expected = `/2010-04-01/Accounts/${sid}/Messages/${messageSid}/Media/`;
+  if (url.origin !== "https://api.twilio.com" || !url.pathname.startsWith(expected) || !/^ME[a-fA-F0-9]{32}$/.test(url.pathname.slice(expected.length)) || url.search) throw new InspectionError("Invalid message photo.");
+  let response = await fetch(url, { headers: { Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}` }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+  // Twilio redirects media to its signed CDN URL. Never forward account credentials.
+  if ([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = new URL(response.headers.get("location") || "", url);
+    if (location.origin !== "https://mms.twiliocdn.com" || location.username || location.password) throw new InspectionError("Invalid message photo redirect.");
+    await response.body?.cancel();
+    response = await fetch(location, { redirect: "error", signal: AbortSignal.timeout(15_000) });
+  }
+  if (!response.ok || !response.body) throw new InspectionError("Could not receive the photo. Please retry.", 503);
+  const contentType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  try { for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > maxBytes) throw new InspectionError("Photo must be smaller than 5 MB."); chunks.push(value); } }
+  finally { await reader.cancel(); }
+  return { bytes: Buffer.concat(chunks), contentType };
+}
+
 /** The verified Twilio webhook is the only source of these URLs and identity. */
 export async function intakeResidentSmsPhotos(db: SupabaseClient, input: { userId: string; ownerId: string; messageSid: string; params: Record<string, string> }): Promise<string[]> {
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim(), token = process.env.TWILIO_AUTH_TOKEN?.trim();
@@ -74,22 +106,8 @@ export async function intakeResidentSmsPhotos(db: SupabaseClient, input: { userI
   if (!sid || !token || !/^(SM|MM)[a-fA-F0-9]{32}$/.test(input.messageSid)) throw new InspectionError("Photo intake is unavailable.", 503);
   const refs: string[] = [];
   for (let i = 0; i < count; i++) {
-    const url = new URL(input.params[`MediaUrl${i}`]);
-    const expected = `/2010-04-01/Accounts/${sid}/Messages/${input.messageSid}/Media/`;
-    if (url.origin !== "https://api.twilio.com" || !url.pathname.startsWith(expected) || !/^ME[a-fA-F0-9]{32}$/.test(url.pathname.slice(expected.length)) || url.search) throw new InspectionError("Invalid message photo.");
-    let response = await fetch(url, { headers: { Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}` }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
-    // Twilio redirects media to its signed CDN URL. Never forward account credentials.
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = new URL(response.headers.get("location") || "", url);
-      if (location.origin !== "https://mms.twiliocdn.com" || location.username || location.password) throw new InspectionError("Invalid message photo redirect.");
-      await response.body?.cancel();
-      response = await fetch(location, { redirect: "error", signal: AbortSignal.timeout(15_000) });
-    }
-    if (!response.ok || !response.body) throw new InspectionError("Could not receive the photo. Please retry.", 503);
-    const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
-    try { for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > MAX_BYTES) throw new InspectionError("Photo must be smaller than 5 MB."); chunks.push(value); } }
-    finally { await reader.cancel(); }
-    refs.push(await storeInspectionIntake(db, input.userId, Buffer.concat(chunks), input.ownerId));
+    const { bytes } = await fetchTwilioMessageMedia(input.params[`MediaUrl${i}`], input.messageSid);
+    refs.push(await storeInspectionIntake(db, input.userId, bytes, input.ownerId));
   }
   return refs;
 }

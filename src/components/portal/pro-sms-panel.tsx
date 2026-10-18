@@ -1,5 +1,6 @@
 "use client";
 
+import { SmsMediaImages } from "@/components/portal/sms-media-images";
 import {
   Fragment,
   forwardRef,
@@ -1686,7 +1687,10 @@ function Bubble({
           {isVoiceCallNoteSid(message.messageSid) ? (
             <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Call</p>
           ) : null}
-          <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
+          {message.body || !message.media?.length ? (
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
+          ) : null}
+          <SmsMediaImages media={message.media} />
         </div>
         {pending ? (
           <span className="block text-[11.5px] italic text-muted/80">Sending…</span>

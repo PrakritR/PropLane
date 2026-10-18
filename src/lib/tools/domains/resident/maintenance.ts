@@ -303,6 +303,8 @@ export const reportMaintenanceIssueTool = defineWriteTool({
       // The resident explicitly asked for this, so the SMS channel's
       // "does this text look like maintenance?" heuristic must not veto it.
       skipIntentCheck: true,
+      // Photos texted just before this go on the request (MMS -> the record).
+      attachRecentSmsPhotos: ctx.channel === "sms",
       details: {
         ...(title ? { title } : {}),
         ...(input.priority ? { priority: input.priority } : {}),

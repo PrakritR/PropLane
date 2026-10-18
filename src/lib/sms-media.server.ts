@@ -57,8 +57,41 @@ export async function createSmsMediaSignedUrl(
 ): Promise<string | null> {
   const { data } = await db.storage
     .from(SMS_MEDIA_BUCKET)
-    .createSignedUrl(path, READ_SIGNED_URL_TTL_SECONDS);
+    // `download: true` makes the storage answer `Content-Disposition: attachment`:
+    // the bytes are sender-supplied, so they are never rendered as an on-origin
+    // document. An <img> preview is a subresource load and is unaffected.
+    .createSignedUrl(path, READ_SIGNED_URL_TTL_SECONDS, { download: true });
   return data?.signedUrl ?? null;
+}
+
+/** File extension for an allow-listed MMS content type, else null (outside the bucket allowlist). */
+export function smsMediaExtensionForMime(mime: string): string | null {
+  return EXT_BY_MIME[mime.split(";")[0].trim().toLowerCase()] ?? null;
+}
+
+/** Largest attachment kept; anything bigger is skipped. */
+export const SMS_MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Write one already-downloaded attachment into the private bucket under the
+ * owning manager's folder. The path (`manager/<owner>/<sid>/<index>.<ext>`) is
+ * the durable identifier. Returns null when the type is outside the allowlist,
+ * the size is out of range, or the upload fails.
+ */
+export async function storeInboundMediaBytes(
+  db: SupabaseClient,
+  args: { managerUserId: string; messageSid: string; index: number; bytes: Buffer; mime: string },
+): Promise<{ path: string; contentType: string; byteSize: number } | null> {
+  const mime = args.mime.split(";")[0].trim().toLowerCase();
+  const ext = EXT_BY_MIME[mime];
+  if (!ext) return null;
+  if (args.bytes.byteLength === 0 || args.bytes.byteLength > SMS_MEDIA_MAX_BYTES) return null;
+  const path = `manager/${args.managerUserId}/${args.messageSid}/${args.index}.${ext}`;
+  const { error } = await db.storage
+    .from(SMS_MEDIA_BUCKET)
+    .upload(path, args.bytes, { contentType: mime, upsert: true });
+  if (error) return null;
+  return { path, contentType: mime, byteSize: args.bytes.byteLength };
 }
 
 /**
@@ -81,21 +114,20 @@ export async function storeInboundMedia(
       const res = await fetch(url, { headers: { Authorization: `Basic ${basicAuth}` } });
       if (!res.ok) continue;
       const mime = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-      const ext = EXT_BY_MIME[mime];
-      if (!ext) continue; // outside the bucket allowlist
       const bytes = Buffer.from(await res.arrayBuffer());
-      if (bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024) continue;
-
-      const path = `manager/${args.managerUserId}/${args.messageSid}/${index}.${ext}`;
-      const { error: uploadError } = await db.storage
-        .from(SMS_MEDIA_BUCKET)
-        .upload(path, bytes, { contentType: mime, upsert: true });
-      if (uploadError) continue;
+      const kept = await storeInboundMediaBytes(db, {
+        managerUserId: args.managerUserId,
+        messageSid: args.messageSid,
+        index,
+        bytes,
+        mime,
+      });
+      if (!kept) continue;
 
       const { data: signed } = await db.storage
         .from(SMS_MEDIA_BUCKET)
-        .createSignedUrl(path, OUTBOUND_SIGNED_URL_TTL_SECONDS);
-      if (signed?.signedUrl) stored.push({ path, signedUrl: signed.signedUrl });
+        .createSignedUrl(kept.path, OUTBOUND_SIGNED_URL_TTL_SECONDS);
+      if (signed?.signedUrl) stored.push({ path: kept.path, signedUrl: signed.signedUrl });
     } catch {
       // best-effort: skip this attachment
     }

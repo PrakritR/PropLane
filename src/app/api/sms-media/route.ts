@@ -1,9 +1,32 @@
 import { NextResponse } from "next/server";
 import { createSmsMediaSignedUrl } from "@/lib/sms-media.server";
+import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
+
+async function teammateMayReadSmsMedia(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  viewerId: string,
+  ownerId: string,
+  path: string,
+): Promise<boolean> {
+  try {
+    if (!/^[0-9a-f-]{36}$/i.test(ownerId)) return false;
+    const { data: file } = await db
+      .from("sms_media_files")
+      .select("workspace_id")
+      .eq("storage_path", path)
+      .maybeSingle();
+    const workspaceId = String(file?.workspace_id ?? "").trim();
+    if (!workspaceId) return false;
+    const scope = await resolveCommunicationScope(db, viewerId, "read");
+    return scope.teamWorkspacesByOwner?.get(ownerId)?.has(workspaceId) === true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * GET /api/sms-media?path=manager/<uid>/<sid>/<n>.<ext> — mint a short-lived
@@ -19,13 +42,20 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const path = new URL(req.url).searchParams.get("path")?.trim() ?? "";
-  // Ownership: the path is namespaced manager/<manager_user_id>/... — only the
-  // owning manager may mint a link. A denial matches a missing object's 404.
-  if (!path.startsWith(`manager/${user.id}/`) || path.includes("..")) {
+  // Ownership: the path is namespaced manager/<manager_user_id>/... - the owning
+  // manager may mint a link. A denial matches a missing object's 404.
+  if (!path.startsWith("manager/") || path.includes("..")) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
 
   const db = createSupabaseServiceRoleClient();
+  if (!path.startsWith(`manager/${user.id}/`)) {
+    // A teammate of the owner's workspace: the file must be indexed to a
+    // workspace the viewer is an accepted team member of. Fail closed otherwise.
+    const ownerId = path.split("/")[1] ?? "";
+    const allowed = await teammateMayReadSmsMedia(db, user.id, ownerId, path);
+    if (!allowed) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   const signedUrl = await createSmsMediaSignedUrl(db, path);
   if (!signedUrl) return NextResponse.json({ error: "Not found." }, { status: 404 });
   return NextResponse.redirect(signedUrl, 302);

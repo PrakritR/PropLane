@@ -1,5 +1,6 @@
 "use client";
 
+import { SmsMediaImages } from "@/components/portal/sms-media-images";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import {
@@ -49,7 +50,10 @@ function SmsBubble({ msg, counterpartName }: { msg: ManagerSmsMessageRow; counte
         {isVoiceCallNoteSid(msg.messageSid) ? <span>Call</span> : null}
         <span className="ml-auto normal-case">{formatInboxStamp(new Date(msg.createdAt))}</span>
       </div>
-      <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
+      {msg.body || !msg.media?.length ? (
+        <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
+      ) : null}
+      <SmsMediaImages media={msg.media} />
     </div>
   );
 }

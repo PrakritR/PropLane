@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 import { isPlausibleContactName } from "@/lib/sms/contact-name";
 import {
   coerceCounterpartyRole,
@@ -84,6 +85,8 @@ export async function upsertManagerSmsContact(
     /** `null` clears the saved address; omit it to leave the stored one alone. */
     email?: string | null;
     lastInboundAt?: string | null;
+    /** The workspace the contact was last seen in; stamped on the row. */
+    workspaceId?: string | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const managerUserId = args.managerUserId.trim();
@@ -119,9 +122,10 @@ export async function upsertManagerSmsContact(
     ...(args.lastInboundAt ? { last_inbound_at: args.lastInboundAt } : {}),
     updated_at: now,
   };
-  const { error } = await db.from("manager_sms_contacts").upsert(row, {
-    onConflict: "manager_user_id,phone_e164,counterparty_role",
-  });
+  const { error } = await withWorkspaceStamp(args.workspaceId, (stamp) =>
+    db.from("manager_sms_contacts").upsert({ ...stamp, ...row }, {
+      onConflict: "manager_user_id,phone_e164,counterparty_role",
+    }));
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 

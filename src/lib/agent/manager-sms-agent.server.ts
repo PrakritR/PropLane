@@ -187,11 +187,14 @@ export async function deliverManagerSmsReply(args: {
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
   const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
   const { buildConversationKey } = await import("@/lib/sms-conversation-identity");
+  const { toGsm7 } = await import("@/lib/one-number/segments");
+  const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
   const actorUserId = (args.actorUserId ?? args.managerUserId).trim() || args.managerUserId;
   return sendFromManagerWorkNumber({
     managerUserId: args.managerUserId,
     to: args.toPhone,
-    text: args.text,
+    // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
+    text: toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text),
     fromNumber: args.workNumber,
     source: "automated",
     counterpartyRole: "manager",
