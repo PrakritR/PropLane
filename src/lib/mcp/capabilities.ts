@@ -95,6 +95,7 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "list_vendor_dispatches",
   "approve_vendor_dispatch",
   "dispatch_vendor",
+  "announce_to_house",
   "update_room_block",
 ]);
 

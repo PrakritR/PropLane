@@ -23,6 +23,8 @@ export const COMMUNICATION_SENDING_TOOLS = new Set([
   // Dispatch texts vendors on the manager's behalf.
   "approve_vendor_dispatch",
   "dispatch_vendor",
+  // An announcement texts a whole house on the manager's behalf.
+  "announce_to_house",
   // Welcome and invite mail the manager sends on request: a resident's welcome, a vendor's signup
   // invite and a prospect's listing / tour invite.
   "send_resident_welcome",

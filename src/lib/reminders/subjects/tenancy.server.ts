@@ -29,6 +29,7 @@ import {
 } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { loadLeaseAutomationSettingsForManagers } from "@/lib/lease-automation-settings.server";
+import { loadOffPresetResolver, type OffPresetResolver } from "@/lib/automations/store.server";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 
 const MAX_ROWS = 1000;
@@ -173,12 +174,23 @@ export async function sweepTenancyReminders(db: SupabaseClient, now: Date = new 
     loadLeaseAutomationSettingsForManagers(db, managerIds),
   ]);
   let queued = 0;
+  // Settings -> Automations "Move-out": off stops the resident's checklist too. Read lazily, once per manager.
+  const offByManager = new Map<string, Promise<OffPresetResolver>>();
+  const offFor = (managerUserId: string) => {
+    let pending = offByManager.get(managerUserId);
+    if (!pending) {
+      pending = loadOffPresetResolver(db, managerUserId);
+      offByManager.set(managerUserId, pending);
+    }
+    return pending;
+  };
   for (const row of rows) {
     // A house with its own reminder rules gets them; a lease with no property,
     // or an un-customized house, keeps the workspace rule (PLAN-0916-1040).
     const settings = reminderResolver.resolve(row.managerUserId, row.propertyId);
     for (const sweep of SWEEPS) {
       if (!settings.rules[sweep.kind]?.enabled) continue;
+      if (sweep.kind === "move_out_instructions" && (await offFor(row.managerUserId)).isOff("move_out", row.propertyId)) continue;
       const date = sweep.anchor(row);
       if (!date || date.getTime() <= now.getTime()) continue;
       const anchorIso = tenancyAnchorIso(date);
