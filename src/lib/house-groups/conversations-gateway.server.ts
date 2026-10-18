@@ -47,7 +47,7 @@ export function createConversationsGateway(): ConversationsGateway | null {
         await conversations(conversationSid).webhooks.create({
           target: "webhook",
           "configuration.url": conversationsWebhookUrl(),
-          "configuration.method": "POST",
+          "configuration.method": "post",
           "configuration.filters": ["onMessageAdded"],
         });
       } catch (error) {

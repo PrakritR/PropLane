@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Megaphone, MessagesSquare, RefreshCw, User } from "lucide-react";
+import { BedDouble, Megaphone, MessagesSquare, RefreshCw, User } from "lucide-react";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
@@ -151,7 +151,7 @@ export function PropertyHouseChatList({ propertyId, showToast }: { propertyId: s
               title={m.firstName || "Resident"}
               leading={<PortalRowIconTile icon={User} />}
               leadingShape="square"
-              facts={m.roomLabel ? [<PortalRowFact key="r" srLabel="Room">{m.roomLabel}</PortalRowFact>] : undefined}
+              facts={m.roomLabel ? [<PortalRowFact key="r" icon={BedDouble} srLabel="Room">{m.roomLabel}</PortalRowFact>] : undefined}
               dataAttr="property-house-chat-member"
             />
           ))
