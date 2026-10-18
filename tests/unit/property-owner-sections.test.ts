@@ -73,3 +73,24 @@ describe("ownerPathAllowed", () => {
     expect(ownerRedirectFor("/portal/owner/statements", false)).toBeNull();
   });
 });
+
+describe("owner Finances section", () => {
+  it("is present only for the owner of record of a managed workspace", () => {
+    expect(ownerNavItems(false, false).map((i) => i.id)).not.toContain("finances");
+    expect(ownerNavItems(false, true).map((i) => i.label)).toEqual(["Overview", "Properties", "Statements", "Finances", "Documents", "Profile"]);
+    expect(ownerNavItems(true, true).find((i) => i.id === "finances")?.href).toBe("/portal/owner/finances");
+  });
+
+  it("keeps Finances on the phone bottom bar when on", () => {
+    expect(ownerPrimaryNavItems(false, true).map((i) => i.id)).toContain("finances");
+    expect(ownerPrimaryNavItems(false).map((i) => i.id)).not.toContain("finances");
+  });
+
+  it("opens the Finances page only while it is on, and sends everyone else to Overview", () => {
+    expect(ownerPathAllowed("/portal/owner/finances", false)).toBe(false);
+    expect(ownerPathAllowed("/portal/owner/finances", false, true)).toBe(true);
+    expect(ownerPathAllowed("/portal/owner/finances/", true, true)).toBe(true);
+    expect(ownerRedirectFor("/portal/owner/finances", true)).toBe(OWNER_HOME_PATH);
+    expect(ownerRedirectFor("/portal/owner/finances", true, true)).toBeNull();
+  });
+});

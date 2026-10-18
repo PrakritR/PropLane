@@ -307,7 +307,7 @@ export async function renderPortalSectionWith(
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
     AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
-    AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminFinancesPanel, AdminManagedFinancePanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
@@ -815,6 +815,11 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "finances") {
     if (tabParts?.length) notFound();
     return <AdminFinancesPanel />;
+  }
+
+  if (kind === "admin" && section === "managed-finance") {
+    if (tabParts?.length) notFound();
+    return <AdminManagedFinancePanel />;
   }
 
   if (kind === "admin" && section === "growth") {

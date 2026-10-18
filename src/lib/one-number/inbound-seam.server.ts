@@ -98,6 +98,16 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
       console.error("house group preference failed", error instanceof Error ? error.name : "unknown");
     }
   }
+  // The owner of a PropLane-managed workspace asking about their house, or answering a repair approval. The router's team lane
+  // excludes owners and its role contracts are fixed, so this answers first, only for clearly owner questions; everything else
+  // (and everyone else) falls straight through to normal routing.
+  try {
+    const { handleOwnerLine } = await import("@/lib/owner-management/owner-line.server");
+    const owner = await handleOwnerLine(db, { fromPhone: input.fromPhone, body: input.body });
+    if (owner.handled) return { kind: "handled", twiml: owner.reply };
+  } catch (error) {
+    console.error("owner line failed", error instanceof Error ? error.name : "unknown");
+  }
   const inbound: SharedLineInbound = {
     fromPhone: input.fromPhone,
     phoneKey: input.phoneKey,

@@ -27,6 +27,8 @@ export const adminPortal: PortalDefinition = {
     { section: "service", label: "Service", tabs: [] },
     { section: "proplane-line", label: "PropLane line", tabs: [] },
     { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
+    // PropLane-held owner and vendor funds: platform cash, what is owed, fee policies per managed workspace (owner management).
+    { section: "managed-finance", label: "Managed funds", tabs: [] },
     // SOFTWARE (the subscriptions PropLane sells): Accounts, Subscribers, Payments, Promo codes, Finances.
     { section: "axis-users", label: "Accounts", tabs: [] },
     // Who pays, who is on a trial, who came in on a promo code - decided by the resolvers
@@ -75,6 +77,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Service", path: "/admin/service" },
   { label: "PropLane line", path: "/admin/proplane-line" },
   { label: "Unassigned leads", path: "/admin/unassigned-leads" },
+  { label: "Managed funds", path: "/admin/managed-finance" },
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Subscribers", path: "/admin/subscribers" },
   { label: "Payments", path: "/admin/payments" },

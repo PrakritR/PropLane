@@ -60,6 +60,7 @@ describe("admin nav groups", () => {
       "service",
       "proplane-line",
       "unassigned-leads",
+      "managed-finance",
       "axis-users",
       "subscribers",
       "test-accounts",

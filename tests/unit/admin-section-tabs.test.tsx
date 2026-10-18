@@ -84,6 +84,7 @@ describe("admin sidebar rows", () => {
     ["payments", "payments"],
     ["promo-codes", "payments"],
     ["finances", "payments"],
+    ["managed-finance", "payments"],
     ["bugs-feedback", "bugs-feedback"],
     ["events", "bugs-feedback"],
     ["health", "bugs-feedback"],
@@ -140,7 +141,7 @@ describe("adminSectionTabsFor", () => {
   const all = adminPortal.sections.map((s) => s.section);
 
   it("returns the group's tabs in order for a grouped section", () => {
-    expect(adminSectionTabsFor("promo-codes", all)?.sections).toEqual(["payments", "promo-codes", "finances"]);
+    expect(adminSectionTabsFor("promo-codes", all)?.sections).toEqual(["payments", "promo-codes", "finances", "managed-finance"]);
     expect(adminSectionTabsFor("health", all)).toMatchObject({ groupId: "support", label: "Support" });
   });
 
@@ -188,10 +189,10 @@ describe("AdminSectionTabs strip", () => {
     expect(labels()).toEqual(["Accounts", "Subscribers"]);
   });
 
-  it("renders Payments · Promo codes · Finances on a Money page", () => {
+  it("renders Payments · Promo codes · Finances · Managed funds on a Money page", () => {
     state.pathname = "/admin/promo-codes";
     render(<AdminSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Payments", "Promo codes", "Finances"]);
+    expect(labels()).toEqual(["Payments", "Promo codes", "Finances", "Managed funds"]);
     expect(screen.getByRole("link", { name: "Promo codes" }).getAttribute("aria-current")).toBe("page");
   });
 
