@@ -63,6 +63,18 @@ export async function recordEscalatedQuestion(
       escalated_at: new Date().toISOString(),
     });
     if (error && !isMissingSchemaError(error)) console.error("escalated question insert failed", error.message);
+    if (!error) {
+      // The unanswerable-question alert: the escalation tool told the owner; the listed alert phones hear it here.
+      const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+      await alertPhonesOf(db, {
+        ownerUserId: args.ownerUserId,
+        workspaceId,
+        propertyId: property?.id ?? null,
+        kind: "unanswered_question",
+        entityId: `${workspaceId}:${phoneKey}:${question.slice(0, 40)}`,
+        text: `A ${args.role} asked something I could not answer: ${question.slice(0, 90)}`,
+      });
+    }
   } catch {
     /* best effort */
   }

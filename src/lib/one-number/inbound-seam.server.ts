@@ -23,7 +23,14 @@ export const HUMAN_ACK_REPLY = "Got it. A person from your property team will te
 
 export type SharedLineSeamResult =
   /** Fully answered here. Respond to Twilio with `twiml` (empty when null) and stop. */
-  | { kind: "handled"; twiml: string | null; /** Several texts in order; `twiml` is them joined. */ messages?: string[] }
+  | {
+      kind: "handled";
+      twiml: string | null;
+      mediaUrl?: string;
+      /** Several texts in order (each may carry its own https photo); `twiml` is them joined. */
+      messages?: string[];
+      bubbles?: { body: string; mediaUrl?: string }[];
+    }
   /** Run the existing inbound pipeline as this workspace, exactly as a work-number inbound would. */
   | { kind: "continue"; owned: { managerId: string; workspaceId: string; messagingServiceSid: string } }
   /** Nothing to route (shared line off for this text): the existing no-owner path logs it. */
@@ -111,8 +118,18 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     if (decision.kind === "unassigned") {
       // No workspace to bill or sign off for: the reply rides the webhook's own TwiML.
       const text = keyword === "EMERGENCY" ? EMERGENCY_SAFETY_REPLY : routed.unassignedReply;
+      // The lead agent's one real listing photo rides the reply as TwiML <Media>; never an emergency text.
+      const photo = keyword === "EMERGENCY" ? null : routed.unassignedMediaUrls?.[0];
       const messages = keyword !== "EMERGENCY" && routed.unassignedReplies?.length ? routed.unassignedReplies : undefined;
-      return { kind: "handled", twiml: text, ...(messages ? { messages } : {}) };
+      const bubbles = messages
+        ? messages.map((body, index) => (index === 0 && photo ? { body, mediaUrl: photo } : { body }))
+        : undefined;
+      return {
+        kind: "handled",
+        twiml: text,
+        ...(messages ? { messages, bubbles } : {}),
+        ...(photo && text ? { mediaUrl: photo } : {}),
+      };
     }
   }
 

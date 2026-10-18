@@ -57,8 +57,8 @@ export function isSharedLineNumber(config: SharedLineConfig, toPhone: string | n
 
 /** Does this workspace answer on the shared line? Mode shared, and (no pilot list, or it is on the list). */
 export function workspaceOnSharedLine(config: SharedLineConfig, workspaceId: string | null | undefined): boolean {
-  if (config.mode !== "shared") return false;
-  if (config.pilotWorkspaceIds.length === 0) return true;
+  if (config.mode !== "shared" || !config.sharedNumber) return false;
   const id = String(workspaceId ?? "").trim();
-  return Boolean(id) && config.pilotWorkspaceIds.includes(id);
+  if (!id) return false;
+  return config.pilotWorkspaceIds.length === 0 || config.pilotWorkspaceIds.includes(id);
 }

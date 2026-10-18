@@ -80,6 +80,8 @@ export type ManagerSmsResidentConversation = {
   stateVersion?: number;
   /** Historical source lacks a presently authorized work-number send route. */
   sendDisabled?: boolean;
+  /** The conversation went through the shared PropLane number (no per-workspace work line). */
+  sharedLine?: boolean;
   residentUserId: string | null;
   residentEmail: string | null;
   name: string;

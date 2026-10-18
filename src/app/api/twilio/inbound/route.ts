@@ -189,7 +189,7 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
           mediaCount: Number(params.NumMedia) || 0,
           phoneKey: sharedKey,
         });
-        if (seam.kind === "handled") return twimlOk(seam.messages ?? seam.twiml ?? undefined);
+        if (seam.kind === "handled") return twimlOk(seam.bubbles ?? seam.twiml ?? undefined, seam.mediaUrl);
         if (seam.kind === "continue") {
           ownedNumber = { ...seam.owned };
           sharedLine = true;

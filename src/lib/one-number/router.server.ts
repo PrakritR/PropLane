@@ -216,6 +216,8 @@ export type SharedLineRouteResult = {
   unassignedReply: string | null;
   /** Several texts to send in order (the DEMO's bubbles); `unassignedReply` is them joined. */
   unassignedReplies?: string[];
+  /** One real listing photo the reply carries (https), when the lead agent attached one. */
+  unassignedMediaUrls?: string[];
 };
 
 /** Every lookup, in routing order. A failing lookup is an empty one. */
@@ -289,6 +291,7 @@ export async function routeSharedLineInboundWithReply(
     decision: { kind: "unassigned", role: "prospect", leadId: turn.leadId },
     unassignedReply: turn.reply,
     ...(turn.replies && turn.replies.length > 1 ? { unassignedReplies: turn.replies } : {}),
+    ...(turn.mediaUrls?.length ? { unassignedMediaUrls: turn.mediaUrls } : {}),
   };
 }
 

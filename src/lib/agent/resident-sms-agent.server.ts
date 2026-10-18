@@ -106,6 +106,10 @@ export async function runResidentSmsAgentTurn(
     inboundText: string;
     inboundMessageSid?: string | null;
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null; targetListingId: string };
+    /** One-number shared line: answer top house questions from stored facts, no model. */
+    fastPath?: boolean;
+    /** Instant "On it" for a confirmed slow action (dispatch, screening, payments). */
+    onSlowWork?: (toolName: string) => Promise<void>;
   },
 ): Promise<ResidentSmsTurn | null> {
   if (args.ctx.activeManagerId !== args.ownerManagerUserId) {
@@ -115,6 +119,12 @@ export async function runResidentSmsAgentTurn(
   const referenceResolution = resolveWorkOrderReference(args.inboundText).length
     ? await resolveResidentWorkOrderReference(args.ctx, args.inboundText)
     : null;
+  // Resident fast path: a verified current resident asking a stored-fact question is answered
+  // from the house's facts, no model. A miss (or any trouble) runs the normal agent below.
+  const fast =
+    args.fastPath && !args.testActor && !referenceResolution
+      ? await (await import("@/lib/one-number/resident-fast-path.server")).tryResidentFastPath(db, args.ctx, args.inboundText)
+      : null;
   return runSmsAgentTurn<ResidentAgentContext>(db, {
     ctx: args.ctx,
     surface: RESIDENT_SMS_SURFACE,
@@ -126,9 +136,12 @@ export async function runResidentSmsAgentTurn(
     inboundMessageSid: args.inboundMessageSid,
     testActor: args.testActor ? { ...args.testActor, mode: "resident" } : undefined,
     precomputedReply:
-      referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
+      fast?.reply ??
+      (referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
         ? referenceResolution.message
-        : null,
+        : null),
+    precomputedLane: fast ? "fast_path" : "scripted",
+    onSlowWork: args.onSlowWork,
     additionalSystemContext: referenceResolution
       ? workOrderReferencePromptContext(referenceResolution)
       : null,
@@ -162,31 +175,48 @@ export async function deliverResidentSmsReply(args: {
   workNumber?: string | null;
   inboundMessageSid?: string | null;
   traceId?: string | null;
+  /** Delivery feel (shared line): the workspace names the bubble setting; `bubbles` skips the lookup. */
+  workspaceId?: string | null;
+  bubbles?: boolean;
+  /** The text being answered (an emoji in it lets the reply keep its own). */
+  inboundText?: string | null;
+  /** Extra idempotency suffix for a second message answering the same inbound (the work ack). */
+  dedupeSuffix?: string;
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
   const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
   const { buildConversationKey } = await import("@/lib/sms-conversation-identity");
   const { toGsm7 } = await import("@/lib/one-number/segments");
   const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
-  return sendFromManagerWorkNumber({
-    managerUserId: args.ownerManagerUserId,
-    to: args.toPhone,
-    // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
-    text: toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text),
-    fromNumber: args.workNumber,
-    source: "automated",
-    counterpartyRole: "resident",
-    residentUserId: args.residentUserId,
-    conversationKey: buildConversationKey({
-      ownerManagerUserId: args.ownerManagerUserId,
-      role: "resident",
-      counterpartyUserId: args.residentUserId,
-      counterpartyPhone: args.toPhone,
-    }),
-    dedupeKey: args.inboundMessageSid?.trim()
-      ? `inbound_reply_${args.inboundMessageSid.trim()}`
-      : null,
-    purpose: "manager_conversation",
-    actorUserId: args.residentUserId,
-    traceId: args.traceId,
+  const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
+  // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
+  const text = toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text);
+  const baseKey = args.inboundMessageSid?.trim()
+    ? `inbound_reply_${args.inboundMessageSid.trim()}${args.dedupeSuffix ?? ""}`
+    : null;
+  return deliverAgentReply({
+    workspaceId: args.workspaceId,
+    bubbles: args.bubbles,
+    text,
+    inboundText: args.inboundText,
+    send: (bubble, index) =>
+      sendFromManagerWorkNumber({
+        managerUserId: args.ownerManagerUserId,
+        to: args.toPhone,
+        text: bubble,
+        fromNumber: args.workNumber,
+        source: "automated",
+        counterpartyRole: "resident",
+        residentUserId: args.residentUserId,
+        conversationKey: buildConversationKey({
+          ownerManagerUserId: args.ownerManagerUserId,
+          role: "resident",
+          counterpartyUserId: args.residentUserId,
+          counterpartyPhone: args.toPhone,
+        }),
+        dedupeKey: bubbleDedupeKey(baseKey, index),
+        purpose: "manager_conversation",
+        actorUserId: args.residentUserId,
+        traceId: args.traceId,
+      }),
   });
 }
