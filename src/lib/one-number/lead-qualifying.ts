@@ -291,8 +291,11 @@ export function extractBathroom(text: string): LeadProfile["bathroom"] | undefin
 
 export function extractFurnished(text: string): LeadProfile["furnished"] | undefined {
   const t = text.toLowerCase();
-  if (/\b(unfurnished|not furnished|no furniture|bring my own|my own furniture)\b/.test(t)) return "no";
-  if (/\bfurnished\b|\bwith furniture\b|\bfully furnished\b/.test(t)) return /\b(or|either|and) unfurnished\b|\bunfurnished (or|and)\b/.test(t) ? "any" : "yes";
+  const bare = /\b(unfurnished|not furnished|no furniture|bring my own|my own furniture)\b/.test(t);
+  const furnished = /(?<!un)\bfurnished\b|\bwith furniture\b|\bfully furnished\b/.test(t) || /\b(?:either|both)\b.*\bfurnished\b/.test(t);
+  if (bare && furnished) return "any";
+  if (bare) return "no";
+  if (furnished) return "yes";
   return undefined;
 }
 
@@ -305,7 +308,7 @@ export function extractHousehold(text: string, opts: { bare?: boolean } = {}): n
     const n = /^\d+$/.test(raw) ? Number(raw) : NUMBER_WORDS[raw] ?? 0;
     if (n >= 1 && n <= 12) return n;
   }
-  if (/\b(me and (?:my )?\w+|us two|the two of us|we are two|couple)\b/.test(t) && !/\bme and (?:my )?\w+ and\b/.test(t)) return 2;
+  if (/\b(me and (?:my )?\w+|my \w+ and i|us two|the two of us|we are two|we(?:'re| are) a couple)\b/.test(t) && !/\bme and (?:my )?\w+ and\b/.test(t)) return 2;
   if (opts.bare) {
     const only = t.match(/^(\d{1,2}|one|two|three|four|five|six|seven|eight)\.?$/);
     if (only) {

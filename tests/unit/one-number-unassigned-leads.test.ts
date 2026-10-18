@@ -91,7 +91,7 @@ async function toOffered(fake: LeadFakeDb) {
   await say(fake, "$1000");
   await say(fake, "Nov 1 for 6 months");
   await say(fake, "University District");
-  await say(fake, "shared bath, furnished");
+  await say(fake, "private bath, furnished");
   return say(fake, "just me");
 }
 
@@ -213,7 +213,7 @@ describe("fair housing", () => {
   it("no reply it writes describes a neighborhood or its people", async () => {
     const fake = seed();
     const sent: string[] = [];
-    for (const text of ["hi", "$1000", "Nov 1 for 6 months", "University District", "shared bath, furnished", "just me"]) {
+    for (const text of ["hi", "$1000", "Nov 1 for 6 months", "University District", "private bath, furnished", "just me"]) {
       sent.push((await say(fake, text)).reply ?? "");
     }
     for (const reply of sent) expect(reply).not.toMatch(/safe|quiet neighborhood|family|families|kids|religio|diverse|young|professional/i);

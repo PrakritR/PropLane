@@ -49,7 +49,12 @@ function addMonths(isoDate: string, months: number): string {
   return out.toISOString().slice(0, 10);
 }
 
-const furnishedText = (row: RoomListingRow) => `${row.descriptionBlurb} ${row.listingTags.join(" ")}`.toLowerCase();
+/** What a room says about furnishing: the room's own public `furnishing` field, then the listing blurb and tags. */
+function furnishingText(row: RoomListingRow, byId: Map<string, MockProperty>): string {
+  const sub = byId.get(row.propertyId)?.listingSubmission;
+  const room = sub && sub.v === 1 ? sub.rooms?.find((r) => r.id === row.roomId) : undefined;
+  return `${room?.furnishing ?? ""} ${row.descriptionBlurb} ${row.listingTags.join(" ")}`.toLowerCase();
+}
 
 /** Rooms that fit, cheapest first, furnished preference ranking only. At most one room per house. */
 export function matchRooms(
@@ -79,8 +84,9 @@ export function matchRooms(
   });
   const prefersFurnished = profile.furnished === "yes";
   const prefersBare = profile.furnished === "no";
+  const byId = new Map(inArea.map((p) => [p.id, p] as const));
   const rank = (row: RoomListingRow) => {
-    const text = furnishedText(row);
+    const text = furnishingText(row, byId);
     const unfurnished = /\bunfurnished\b/.test(text);
     const furnished = !unfurnished && /\bfurnished\b/.test(text);
     if (prefersFurnished) return furnished ? 0 : 1;

@@ -12,6 +12,7 @@ import {
   mergeModelFields,
   missingSteps,
   nextQuestion,
+  questionFor,
   sanitizeModelFields,
   toGsm7,
   touchesProtectedTopic,
@@ -130,10 +131,13 @@ describe("the questions come one at a time, in the fixed order", () => {
   });
 
   it("every question is plain GSM-7 and fits one segment", () => {
+    const partials: LeadProfile[] = [{}, { moveInDate: "2026-11-01" }, { leaseMonths: 6 }, { bathroom: "any" }, { furnished: "yes" }];
     for (const step of ["budget", "move_in", "area", "room", "household"] as const) {
-      const text = nextQuestion(step === "budget" ? {} : { budgetMax: 1, moveInDate: "2026-11-01", leaseMonths: 3, area: step === "area" ? undefined : "x", bathroom: step === "room" ? undefined : "any", furnished: step === "room" ? undefined : "any", household: step === "household" ? undefined : 1 })!.text;
-      expect(toGsm7(text)).toBe(text);
-      expect(text.length).toBeLessThanOrEqual(120);
+      for (const partial of partials) {
+        const text = questionFor(step, partial);
+        expect(toGsm7(text)).toBe(text);
+        expect(text.length).toBeLessThanOrEqual(120);
+      }
     }
   });
 });
