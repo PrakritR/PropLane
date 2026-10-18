@@ -102,6 +102,7 @@ async function photoFileToDataUrl(file: File): Promise<string> {
 export function ServiceDetailsSection({
   stages,
   who,
+  dispatch,
   cards,
   photos,
   onAddPhotos,
@@ -110,6 +111,8 @@ export function ServiceDetailsSection({
   stages: readonly StageBarItem[];
   /** The Who's doing it card (`ServiceWhoCard`). */
   who: ReactNode;
+  /** The Dispatch section (`ServiceDispatchSection`); it draws nothing when the service has no run. */
+  dispatch?: ReactNode;
   cards: readonly ServiceDetailsCard[];
   photos: readonly string[];
   /** The add-photo icon; omit where the record cannot take photos. Receives the picked images as data URLs. */
@@ -122,6 +125,7 @@ export function ServiceDetailsSection({
     <div data-attr="service-details" className="space-y-3 pb-6">
       <ServiceStageStepper stages={stages} />
       {who}
+      {dispatch}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2" data-attr="service-details-cards">
         {cards.map((card) => (
           <RecordFactCard key={card.id} title={card.title} action={card.action} dataAttr={`record-overview-card-${card.id}`}>

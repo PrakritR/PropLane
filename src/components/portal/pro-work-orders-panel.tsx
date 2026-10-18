@@ -69,6 +69,7 @@ import { canShareService, sendToPhoneToast } from "@/lib/service-work-share-ui";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { ServiceAssignDialog, type ServiceAssignMode } from "@/components/portal/service-assign-dialog";
 import { ServiceDetailsSection } from "@/components/portal/service-details-section";
+import { ServiceDispatchSection } from "@/components/portal/service-dispatch-section";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
 import { workOrderActivityEvents } from "@/lib/service-activity";
@@ -1734,6 +1735,7 @@ export function ManagerWorkOrdersPanel({
         />
       ) : (
         <ServiceDetailsSection
+          dispatch={<ServiceDispatchSection sourceType="work_order" sourceId={routeWorkOrder.id} />}
           stages={workOrderStageSteps(routeWorkOrder, { bids: routeBids, offers: routeOffers })}
           who={
             <ServiceWhoCard
