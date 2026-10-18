@@ -1048,6 +1048,22 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["user_id"] },
   },
   {
+    // Vendor dispatch rules (vendor-dispatch-1018): the workspace owner's own rows.
+    table: "vendor_dispatch_rules",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "vendor_dispatch_runs",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "vendor_dispatch_handle_counters",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
+  {
     // One-number entry codes ("Text BROOKLYN5"): the workspace owner's own rows.
     table: "sms_entry_codes",
     phase: 1,
@@ -1356,6 +1372,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_provider_events: "Raw provider webhook log; carries no account column.",
   sms_segment_usage: "Aggregate billing counters; carries no account column.",
   sms_line_sessions: "Shared-line router state keyed on a phone; carries no account column.",
+  vendor_dispatch_rule_vendors: "Ordered vendor chain of a dispatch rule; cascades with the rule and the vendor row.",
+  vendor_dispatch_attempts: "Offers inside one dispatch run; cascade with the run.",
   sms_line_thread_state: "Per phone + workspace AI pause state; cascades with the workspace.",
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
