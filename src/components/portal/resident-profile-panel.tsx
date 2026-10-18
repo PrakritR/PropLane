@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Bot, Lock, MessageSquareText, Pencil, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
+import { Lock, MessageSquareText, Pencil, Phone, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Input } from "@/components/ui/input";
@@ -343,7 +343,7 @@ export function ResidentProfilePanel({
               id: "agent" as const,
               label: "PropLane agent",
               description: "Your own number and the agent behind it.",
-              icon: Bot,
+              icon: Phone,
             },
           ]
         : []),

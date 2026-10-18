@@ -43,7 +43,7 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
     pages: [
       { id: "business", label: "Business details" },
       { id: "capabilities", label: "Trades & service area" },
-      { id: "ai-info", label: "AI info" },
+      { id: "ai-info", label: "Answers" },
       { id: "integrations", label: "Integrations" },
     ],
   },

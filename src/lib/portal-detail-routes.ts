@@ -34,7 +34,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   bookings: "Bookings",
   requests: "Requests",
   promotion: "Promotion",
-  "ai-info": "AI info",
+  "ai-info": "Answers",
   communication: "Communication",
   documents: "Documents",
 };
@@ -60,7 +60,7 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   pricing: "Pricing",
   requests: "Services",
   promotion: "Promotion",
-  "ai-info": "AI info",
+  "ai-info": "Answers",
   communication: "Communication",
   documents: "Documents",
 } as const;

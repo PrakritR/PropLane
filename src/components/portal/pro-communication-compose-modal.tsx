@@ -6,7 +6,7 @@ import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X, Paperclip, Sparkles } from "lucide-react";
+import { X, Paperclip, Pencil } from "lucide-react";
 import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
 import { INBOX_ATTACHMENT_ACCEPT, INBOX_MAX_ATTACHMENTS, createPendingInboxAttachment, uploadInboxAttachment, revokeInboxAttachmentPreview, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -1350,7 +1350,7 @@ export function ManagerCommunicationComposeModal({
           {caps.attach ? <label className="grid h-10 w-10 max-md:h-11 max-md:w-11 cursor-pointer place-items-center rounded-full text-muted hover:bg-accent" title="Attach files">
             <Paperclip className="h-4 w-4" aria-hidden /><input type="file" aria-label="Attach files" className="sr-only" accept={INBOX_ATTACHMENT_ACCEPT} multiple disabled={sending || attachments.length >= INBOX_MAX_ATTACHMENTS} onChange={(event) => {pickAttachments(event.target.files); event.target.value = "";}} data-attr="communication-compose-attach" />
           </label> : null}
-          {caps.draft ? <button type="button" aria-label="Draft with PropLane" title="Draft with PropLane" disabled={drafting || sending} className="grid h-10 w-10 max-md:h-11 max-md:w-11 place-items-center rounded-full text-primary disabled:opacity-40" onClick={() => draftMessage()} data-attr="communication-compose-draft"><Sparkles className="h-4 w-4" /></button> : null}
+          {caps.draft ? <button type="button" aria-label="Draft with PropLane" title="Draft with PropLane" disabled={drafting || sending} className="grid h-10 w-10 max-md:h-11 max-md:w-11 place-items-center rounded-full text-primary disabled:opacity-40" onClick={() => draftMessage()} data-attr="communication-compose-draft"><Pencil className="h-4 w-4" /></button> : null}
           {caps.schedule ? <InboxComposerScheduleMenu scheduleLater={scheduleLater} onScheduleLaterChange={setScheduleLater} sendAt={sendAt} onSendAtChange={setSendAt} scheduleDataAttr="communication-compose-schedule-later" sendAtDataAttr="communication-compose-schedule-at" /> : null}
         </div>
       </PortalMessageComposeModalBody>
