@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSharedPhoneAuth } from "@/hooks/use-shared-phone-auth";
 import { Modal } from "@/components/ui/modal";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +66,7 @@ export function PortalTextNotificationsBlock({
   description?: string;
 }) {
   const { showToast } = useAppUi();
+  const sharedPhoneAuth = useSharedPhoneAuth(demo);
   const [settings, setSettings] = useState<TextNotificationSettings | null>(() =>
     demo ? { phone: null, phoneVerifiedAt: null, smsConfigured: true } : null,
   );
@@ -197,6 +200,18 @@ export function PortalTextNotificationsBlock({
           <div className="h-4 w-44 animate-pulse rounded bg-accent motion-reduce:animate-none" />
           <div className="h-10 w-full max-w-80 animate-pulse rounded-lg bg-accent motion-reduce:animate-none" />
         </div>
+      ) : sharedPhoneAuth ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">Mobile number</p>
+            <span className="font-mono text-sm text-foreground">{formatSmsPhoneLabel(settings.phone) || "—"}</span>
+          </div>
+          <Button asChild variant="outline" className="h-10 min-h-10 shrink-0 rounded-full px-3 text-xs">
+            <Link href="/auth/verify-phone" data-attr={`${dataAttrPrefix}-text-notifications-change`}>
+              {settings.phoneVerifiedAt ? "Change phone" : "Verify phone"}
+            </Link>
+          </Button>
+        </div>
       ) : verified ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -301,9 +316,13 @@ export function PortalTextNotificationsBlock({
         </PortalSettingsFormBody>
   );
   if (compact) return <PortalSettingsSection title={title}><PortalSettingsGroup>
-    <button type="button" className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left text-[15px]" disabled={!settings} onClick={() => { setPhoneInput(coercePhoneInput(settings?.phone)); setError(null); setEditingPhone(true); }} data-attr={`${dataAttrPrefix}-text-notifications-change`}>
+    {sharedPhoneAuth ? (
+      <Link href="/auth/verify-phone" className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left text-[15px]" data-attr={`${dataAttrPrefix}-text-notifications-change`}>
+        <span>Personal phone</span><span className="ml-auto min-w-0 truncate text-right text-muted">{formatSmsPhoneLabel(settings?.phone) || "Verify phone"}</span><ChevronRight className="size-4 shrink-0 text-muted" />
+      </Link>
+    ) : <button type="button" className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left text-[15px]" disabled={!settings} onClick={() => { setPhoneInput(coercePhoneInput(settings?.phone)); setError(null); setEditingPhone(true); }} data-attr={`${dataAttrPrefix}-text-notifications-change`}>
       <span>Personal phone</span><span className="ml-auto min-w-0 truncate text-right text-muted">{settings ? settings.phone ? `${formatSmsPhoneLabel(settings.phone)}${settings.phoneVerifiedAt ? " · Verified" : " · Unverified"}` : "Add" : "Loading…"}</span><ChevronRight className="size-4 shrink-0 text-muted" />
-    </button>
+    </button>}
     <Modal open={editingPhone} onClose={() => setEditingPhone(false)} title="Personal phone">{form}</Modal>
   </PortalSettingsGroup></PortalSettingsSection>;
   return <PortalSettingsSection title={title}><PortalSettingsGroup>{form}</PortalSettingsGroup></PortalSettingsSection>;
