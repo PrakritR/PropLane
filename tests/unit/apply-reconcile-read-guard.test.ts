@@ -28,12 +28,14 @@ describe("portal apply reconcile read", () => {
     expect(beforeConclusions).not.toContain("setReconciledSignature");
   });
 
-  it("does not mint when a successful read skipped rows or was otherwise incomplete", () => {
-    // A 200 that omitted a row (`skippedRowIds`, or any other incomplete catalog) used to
-    // count as `result.ok` and fall through to the fresh-target branch. The live draft
-    // then looked missing, and the next save minted a second Incomplete application.
-    expect(source).toContain("readWasComplete = result.complete === true && !(result.skippedRowIds?.length)");
-    expect(source).toContain("if (!hit && Array.isArray(body.skippedRowIds) && body.skippedRowIds.length > 0) lookupFailed = true;");
+  it("does not mint when a skipped row could be this target, and ignores a skip of another house", () => {
+    // A 200 that omitted THIS target (`skippedRows` for the same house, or a truncated
+    // catalog) must not fall through to the fresh-target branch. A skip of a different
+    // house is not that omission — treating every skip as incomplete left apply stuck.
+    expect(source).toContain("applicationReadProvesTargetAbsent(");
+    expect(source).toContain("skippedCatalogHidesApplicationTarget(");
+    expect(source).not.toContain("readWasComplete = result.complete === true && !(result.skippedRowIds?.length)");
+    expect(source).not.toContain("if (!hit && Array.isArray(body.skippedRowIds) && body.skippedRowIds.length > 0) lookupFailed = true;");
     const callback = source.slice(source.indexOf(".then((readSucceeded) => {"));
     const guardAt = callback.indexOf("if (!readWasComplete) return;");
     // After a resumed match, and before the fresh-target branch clears the draft or

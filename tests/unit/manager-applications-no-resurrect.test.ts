@@ -25,7 +25,12 @@ const SERVER_A = row({ id: "PROPLANE-SERVERA" });
 const SERVER_B = row({ id: "PROPLANE-SERVERB", name: "Sam Lee" });
 const DRAFT = row({ id: "PROPLANE-DRAFT1", stage: "In progress" });
 
-let replies: Array<{ rows?: DemoApplicantRow[]; ok?: boolean; skippedRowIds?: string[] }>;
+let replies: Array<{
+  rows?: DemoApplicantRow[];
+  ok?: boolean;
+  skippedRowIds?: string[];
+  skippedRows?: unknown[];
+}>;
 let posts: Array<Record<string, unknown>>;
 
 function stubBrowser() {
@@ -58,6 +63,7 @@ function stubBrowser() {
         json: async () => ({
           rows: reply.rows ?? [],
           ...(reply.skippedRowIds ? { skippedRowIds: reply.skippedRowIds } : {}),
+          ...(reply.skippedRows ? { skippedRows: reply.skippedRows } : {}),
         }),
       });
     }),
@@ -123,12 +129,18 @@ describe("manager applications never resurrect a server-side delete", () => {
     // B threw while opening and was omitted from a short 200. C is a real delete in the same
     // answer. Neither absence is proof: the skipped row may be a live draft, and the catalog
     // is no longer complete, so a previously confirmed id stays in the cache.
-    replies.push({ rows: [SERVER_A], skippedRowIds: ["PROPLANE-SERVERB"] });
+    replies.push({
+      rows: [SERVER_A],
+      skippedRowIds: ["PROPLANE-SERVERB"],
+      skippedRows: [{ id: "PROPLANE-SERVERB", propertyId: "house-b", applicationRead: true }],
+    });
     const second = await store.syncManagerApplicationsFromServerWithStatus({ force: true, managerUserId: "mgr-1" });
 
     expect(second.ok).toBe(true);
     expect(second.complete).toBe(false);
+    expect(second.coveredAsideFromSkips).toBe(true);
     expect(second.skippedRowIds).toEqual(["PROPLANE-SERVERB"]);
+    expect(second.skippedRows).toEqual([{ id: "PROPLANE-SERVERB", propertyId: "house-b", applicationRead: true }]);
     expect(ids(store.readManagerApplicationRows())).toEqual(["PROPLANE-SERVERA", "PROPLANE-SERVERB", "PROPLANE-SERVERC"]);
   });
 

@@ -79,15 +79,18 @@ import {
   residentApplicationSubmitBlocked,
 } from "@/lib/rental-application/application-policy";
 import {
+  applicationReadProvesTargetAbsent,
   findInProgressRowForTarget,
   isInProgressApplicationRow,
   markApplicationSubmitInitiated,
   unmarkApplicationSubmitInitiated,
   shouldSyncInProgressDraft,
+  skippedCatalogHidesApplicationTarget,
   syncInProgressApplicationRow,
   targetMatchesApplication,
   type ApplicationRequestTarget,
 } from "@/lib/rental-application/in-progress-application";
+import { parseSkippedApplicationTargets } from "@/lib/rental-application/skipped-application-target";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import type { GroupRole, RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveSubmitGroupId, makeApplicationGroupId } from "@/lib/rental-application/application-groups";
@@ -1123,21 +1126,24 @@ function RentalApplicationWizardInner({
     }
 
     let cancelled = false;
-    // "No in-progress application matches" is only true when the read that says so SUCCEEDED and was a
-    // complete catalog. A failed or timed-out read (a slow or flapping server) leaves the cache without the
-    // resident's drafts. A 200 that skipped a row (`skippedRowIds` — opening it threw) omits that draft too
-    // and reports the list incomplete. Treating either as "genuinely fresh target" mints a new application
-    // id on every visit: duplicate "Incomplete" rows. Retry a failed read before concluding anything; a
-    // skip is not transient, so an incomplete success never counts as proof of absence.
+    // "No in-progress application matches" is only true when the read that says so SUCCEEDED and
+    // nothing it omitted could be this target. A failed or timed-out read (a slow or flapping server)
+    // leaves the cache without the resident's drafts. A skipped row is not transient: it blocks a new
+    // application only when that row might be this house. A malformed row for a different house must
+    // not stall apply. Truncation still might have cut this target off, so that is not proof either.
     let readWasComplete = false;
     void (async () => {
       for (let attempt = 0; attempt < RECONCILE_READ_ATTEMPTS; attempt++) {
         const result = await syncManagerApplicationsFromServerWithStatus({ force: true });
         if (cancelled) return false;
         if (result.ok) {
-          // `complete` is already false when the route skipped rows. Check the ids too, so a
-          // 200 that omitted a live draft cannot authorize a second Incomplete application.
-          readWasComplete = result.complete === true && !(result.skippedRowIds?.length);
+          readWasComplete = applicationReadProvesTargetAbsent({
+            complete: result.complete,
+            coveredAsideFromSkips: result.coveredAsideFromSkips,
+            skippedRowIds: result.skippedRowIds,
+            skippedRows: result.skippedRows,
+            target,
+          });
           return true;
         }
         if (attempt < RECONCILE_READ_ATTEMPTS - 1) {
@@ -1188,10 +1194,10 @@ function RentalApplicationWizardInner({
         setReconciledSignature(signature);
         return;
       }
-      // The read answered, but it was not a complete catalog (a row was skipped
-      // while opening, or the list was truncated). Nothing matched in what came
-      // back or stayed in the cache. The omitted row may be this target's live
-      // draft, so this is not a fresh target — do not clear or mint.
+      // The read answered, but a skipped or truncated row might still be this
+      // target's live draft. Absence is not proof — do not clear or mint.
+      // An unrelated skipped row does not take this branch: the read above
+      // already counted that catalog as proof this target is absent.
       if (!readWasComplete) return;
       // No in-progress application matches this target. If a stale draft for
       // a different property/room is still loaded (same browser tab, no
@@ -1495,13 +1501,32 @@ function RentalApplicationWizardInner({
                 if (!res.ok) {
                   lookupFailed = Boolean(saved?.axisId) || (res.status !== 401 && res.status !== 403);
                 } else {
-                  const body = (await res.json()) as { rows?: DemoApplicantRow[]; skippedRowIds?: unknown };
+                  const body = (await res.json()) as {
+                    rows?: DemoApplicantRow[];
+                    truncated?: boolean;
+                    skippedRowIds?: unknown;
+                    skippedRows?: unknown;
+                  };
                   const rows = body.rows ?? [];
                   hit = rows.find((row) => row.id === saved?.axisId && isInProgressApplicationRow(row))
                     ?? rows.find((row) => isInProgressApplicationRow(row) && row.application?.propertyId === nextPid && String(row.application.rentalType ?? "standard") === rentalType && row.email?.trim().toLowerCase() === email);
-                  // A 200 that skipped a row omitted it. A miss is not proof this
-                  // target is fresh — minting here writes a second Incomplete draft.
-                  if (!hit && Array.isArray(body.skippedRowIds) && body.skippedRowIds.length > 0) lookupFailed = true;
+                  // A skipped row blocks a fresh draft only when it might be this
+                  // property (or the saved axis id). Another house's unopenable
+                  // row is not this application. A truncated list still might have
+                  // cut this target off, so those skips are not proof either.
+                  const skippedRowIds = Array.isArray(body.skippedRowIds)
+                    ? body.skippedRowIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+                    : [];
+                  const skippedHidesTarget = skippedCatalogHidesApplicationTarget({
+                    skippedRowIds,
+                    skippedRows: parseSkippedApplicationTargets(body.skippedRows),
+                    savedAxisId: saved?.axisId,
+                    target: {
+                      propertyId: nextPid,
+                      rentalType: rentalType === "short_term" ? "short_term" : "standard",
+                    },
+                  });
+                  if (!hit && skippedRowIds.length > 0 && (body.truncated === true || skippedHidesTarget)) lookupFailed = true;
                 }
               }
             } catch { lookupFailed = true; }

@@ -102,9 +102,14 @@ describe("GET /api/manager-applications with an inconsistent applicant row", () 
     const { GET } = await import("@/app/api/manager-applications/route");
     const res = await GET(new Request("https://example.test/api/manager-applications"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rows: { id: string }[]; skippedRowIds?: string[] };
+    const body = (await res.json()) as {
+      rows: { id: string }[];
+      skippedRowIds?: string[];
+      skippedRows?: { id: string; propertyId?: string; applicationRead?: boolean }[];
+    };
     expect(body.rows.map((r) => r.id).sort()).toEqual(["AXIS-GOOD-1", "AXIS-GOOD-2"]);
     expect(body.skippedRowIds).toEqual(["AXIS-BAD"]);
+    expect(body.skippedRows).toEqual([{ id: "AXIS-BAD", propertyId: HOUSE, applicationRead: true }]);
     expect(JSON.stringify(body)).not.toContain("123-45-6789");
     expect(consoleError.mock.calls.some((call) => String(call[0]).includes("AXIS-BAD"))).toBe(true);
     consoleError.mockRestore();
