@@ -1,5 +1,5 @@
 import type { HouseInfoSectionId, HouseInfoV1 } from "@/lib/house-info";
-import { classifyIntentHeuristic } from "@/lib/one-number/intent";
+import { matchedIntents } from "@/lib/one-number/intent";
 import { tokenize } from "@/lib/one-number/knowledge/ranking";
 import { detectAlwaysEscalate } from "@/lib/one-number/knowledge/topics";
 import { smsSegmentCount, toGsm7 } from "@/lib/one-number/segments";
@@ -125,7 +125,8 @@ function factFor(topic: Exclude<FastPathTopic, "knowledge">, info: HouseInfoV1, 
       const manager = value(info, "contacts", ["managerPhone", "manager", "managerContact"]);
       const onSite = value(info, "contacts", ["onSite"]);
       const parts = [manager && `Manager ${manager}`, emergency && `after hours ${emergency}`, onSite && `on site ${onSite}`].filter(Boolean) as string[];
-      return parts.length ? `${parts.join(", ")}.` : null;
+      const line = parts.join(", ");
+      return line ? `${line.charAt(0).toUpperCase()}${line.slice(1)}.` : null;
     }
     case "group_chat": {
       const url = value(info, "contacts", ["groupChatUrl"]);
@@ -157,8 +158,7 @@ export function matchResidentFastPath(text: string, facts: FastPathFacts): FastP
   if ((body.match(/\?/g) ?? []).length > MAX_QUESTION_MARKS) return null;
   if (detectAlwaysEscalate(body)) return null;
   // Only a house-fact question: a complaint, rent, a repair or a request for a person is the agent's.
-  const intent = classifyIntentHeuristic(body);
-  if (intent !== null && intent !== "faq") return null;
+  if (matchedIntents(body).some((intent) => intent !== "faq")) return null;
 
   const info = facts.houseInfo;
   const matched = TOPICS.filter((t) => t.pattern.test(body)).map((t) => t.topic);
@@ -193,8 +193,7 @@ export function isFastPathCandidate(text: string): boolean {
   const body = String(text ?? "").trim();
   if (!body || body.length > MAX_TEXT_CHARS) return false;
   if ((body.match(/\?/g) ?? []).length > MAX_QUESTION_MARKS) return false;
-  const intent = classifyIntentHeuristic(body);
-  if (intent !== null && intent !== "faq") return false;
+  if (matchedIntents(body).some((intent) => intent !== "faq")) return false;
   if (detectAlwaysEscalate(body)) return false;
   return TOPICS.some((t) => t.pattern.test(body)) || /\?|^(what|where|when|how|who|can|could|is|are|do|does|may)\b/i.test(body);
 }

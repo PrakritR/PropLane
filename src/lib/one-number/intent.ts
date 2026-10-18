@@ -11,7 +11,7 @@ export type SmsIntent = (typeof SMS_INTENTS)[number];
 const RULES: [SmsIntent, RegExp][] = [
   [
     "human_needed",
-    /\b(real person|a human|talk to (a |the |my )?(person|human|manager|landlord|someone)|speak (to|with) (a |the )?(person|human|manager|landlord)|lawyer|attorney|sue\b|suing|evict|discriminat|harass|unsafe|emergency|gas leak|carbon monoxide|on fire|flood(ing|ed)?)\b|\bfire\b/i,
+    /\b(real person|a human|talk to (a |the |my )?(person|human|manager|landlord|someone)|speak (to|with) (a |the )?(person|human|manager|landlord)|lawyer|attorney|sue|suing|evict\w*|discriminat\w*|harass\w*|unsafe|emergency|gas leak|carbon monoxide|on fire|flood(ing|ed)?)\b|\bfire\b/i,
   ],
   [
     "maintenance",
@@ -32,6 +32,12 @@ export function classifyIntentHeuristic(text: string): SmsIntent | null {
   if (!body.trim()) return null;
   for (const [intent, pattern] of RULES) if (pattern.test(body)) return intent;
   return null;
+}
+
+/** Every intent whose rules match, in priority order. A text that matches more than the one it came for is mixed. */
+export function matchedIntents(text: string): SmsIntent[] {
+  const body = String(text ?? "");
+  return RULES.filter(([, pattern]) => pattern.test(body)).map(([intent]) => intent);
 }
 
 export function coerceIntent(value: string | null | undefined): SmsIntent {

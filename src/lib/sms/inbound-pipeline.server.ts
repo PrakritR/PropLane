@@ -713,7 +713,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   // The intent label is for the log only. Started lazily (the Haiku call, when the rules cannot
   // tell) so a text that never reaches an agent costs nothing.
   let intentPromise: Promise<IntentResult> | null = null;
-  const intentOf = () => (intentPromise ??= classifySmsIntent(body, { useModel: onSharedLine }));
+  const intentOf = (text?: string) => (intentPromise ??= classifySmsIntent(text ?? body, { useModel: onSharedLine }));
   /** Log one answered turn: intent, lane, model, latency, draft vs sent. Never throws. */
   const recordAnswered = async (a: {
     role: string;
@@ -1007,6 +1007,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     const ackOwnerId = managerInbound.workNumberOwnerId;
     const ackActorId = managerInbound.actorUserId;
     let managerFirstBubbleAt: number | null = null;
+    if (managerIdentity.ok) void intentOf(managerTurnText);
     const settleManagerDebounce = async () => {
       if (managerDebounce?.proceed) await managerDebounce.settle();
     };
@@ -1339,6 +1340,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         ? "The resident attached photos but they could not be received. Answer the text, say the photos did not come through, and ask them to resend or upload in the portal.\n"
         : "";
     let residentFirstBubbleAt: number | null = null;
+    // Label the text while the turn runs (rules first; the cheap model only when they cannot tell).
+    if (!residentYielded) void intentOf(residentTurnBody);
     const turn = residentYielded
       ? null
       : await runResidentSmsAgentTurn(db, {
@@ -1363,7 +1366,6 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
               }
             : undefined,
         });
-    if (turn?.lane !== "fast_path") void intentOf();
     // One-number reply modes: in a workspace that picked a mode for this topic, a `draft` reply is
     // held for the manager instead of texted. No mode picked = the reply goes out exactly as before.
     const residentHeld = turn

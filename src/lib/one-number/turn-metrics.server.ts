@@ -86,13 +86,17 @@ export async function recordSmsTurnMetrics(
     });
   }
   if (args.traceId) {
-    await scoreSmsDelivery({
-      traceId: args.traceId,
-      intent: m.intent,
-      lane: m.lane,
-      firstBubbleMs: m.firstBubbleMs,
-      totalLatencyMs: m.totalLatencyMs,
-      bubbleCount: m.bubbleCount,
-    }).catch(() => undefined);
+    try {
+      await scoreSmsDelivery({
+        traceId: args.traceId,
+        intent: m.intent,
+        lane: m.lane,
+        firstBubbleMs: m.firstBubbleMs,
+        totalLatencyMs: m.totalLatencyMs,
+        bubbleCount: m.bubbleCount,
+      });
+    } catch {
+      /* best effort */
+    }
   }
 }
