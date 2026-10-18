@@ -49,7 +49,8 @@ export type ModeRow = {
 
 /** Correction rate over the most recent `MODE_WINDOW` outcomes (newest first). */
 export function correctionStats(outcomesNewestFirst: readonly ReplyOutcomeKind[]): { total: number; corrections: number; rate: number } {
-  const window = outcomesNewestFirst.slice(0, MODE_WINDOW);
+  // An escalation is the agent declining to reply, not a reply a person judged.
+  const window = outcomesNewestFirst.filter((o) => o !== "escalated").slice(0, MODE_WINDOW);
   const corrections = window.filter(isCorrection).length;
   return { total: window.length, corrections, rate: window.length === 0 ? 0 : corrections / window.length };
 }

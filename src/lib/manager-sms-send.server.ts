@@ -6,6 +6,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.server";
 import { WORKSPACE_NO_WORK_NUMBER_CODE, WORKSPACE_NO_WORK_NUMBER_MESSAGE } from "@/lib/sms/workspace-no-work-number";
 import { track } from "@/lib/analytics/posthog";
+import { learnFromManagerSend } from "@/lib/one-number/knowledge/send-hook.server";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -214,7 +215,19 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     dedupeKey,
   });
 
-  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result, args.runDispatch);
+  const sent = await finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result, args.runDispatch);
+  if (sent.status === 200 || sent.status === 202) {
+    // One-number learning loop: an answer to an escalation, or an edited AI draft, becomes a
+    // suggested knowledge entry. Best effort; it never changes the send's result.
+    await learnFromManagerSend(db, {
+      ownerUserId: ownerManagerUserId,
+      actorUserId: args.actorUserId,
+      toPhone: matchedPhone,
+      text,
+      counterpartyRole: match?.counterpartyRole ?? null,
+    });
+  }
+  return sent;
 }
 
 type EnqueueResult = Awaited<ReturnType<typeof enqueueOwnerSms>>;

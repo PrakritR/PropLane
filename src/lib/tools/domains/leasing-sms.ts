@@ -1110,6 +1110,16 @@ export const escalateLeasingToManagerTool = defineWriteTool({
       };
     }
     await updateAuditResult(ctx, dedupeKey, { deliveryStatus: "delivered" });
+    // One-number learning loop: remember the question so the manager's answer can be captured.
+    if (!emailedIn && scope.prospectPhoneE164) {
+      const { recordEscalatedQuestion } = await import("@/lib/one-number/knowledge/capture.server");
+      await recordEscalatedQuestion(ctx.db, {
+        ownerUserId: ctx.landlordId,
+        phone: scope.prospectPhoneE164,
+        role: "prospect",
+        question: scope.currentInboundText || input.summary,
+      });
+    }
     await ctx.db
       .from("agent_sessions")
       .update({ status: "escalated", updated_at: new Date().toISOString() })
