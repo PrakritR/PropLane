@@ -91,7 +91,8 @@ function sectionLines(info: HouseInfoV1, sectionId: HouseInfoSectionId, skipKeys
   if (!spec) return [];
   const lines: HousePrintableLine[] = [];
   for (const field of spec.fields) {
-    if (field.pairKey || skipKeys.has(field.key)) continue;
+    // `internal` fields (the complaint threshold) are the manager's own setting, on no printout.
+    if (field.pairKey || field.internal || skipKeys.has(field.key)) continue;
     const value = getHouseInfoValue(info, sectionId, field.key);
     if (value) lines.push({ label: field.label, value });
   }
