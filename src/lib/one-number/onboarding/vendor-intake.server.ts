@@ -65,7 +65,7 @@ export async function handleVendorIntake(
     // A webhook retry says exactly what it said the first time.
     if (input.messageSid && lead.profile.lastSid === input.messageSid && lead.profile.lastReply) return { leadId: lead.id, reply: lead.profile.lastReply };
 
-    const welcome = input.firstReply || found.created ? `${VENDOR_COPY.welcome} ` : "";
+    const welcome = input.firstReply ? `${VENDOR_COPY.welcome} ` : "";
     const finish = async (lead: VendorLead, lead_text: string): Promise<string> => {
       const minted = await mintSetupLink(db, { kind: "vendor", phoneKey: input.phoneKey, context: { source: "direct", vendorLeadId: lead.id }, origin: deps.origin, now });
       return minted.ok ? `${lead_text} ${minted.url}` : lead_text.replace(/ ?(Finish your profile here:|Your profile link:)$/, "");

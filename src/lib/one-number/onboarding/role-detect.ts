@@ -42,6 +42,7 @@ const LANDLORD_PATTERNS: RegExp[] = [
 ];
 
 const SEARCHER_PATTERNS: RegExp[] = [
+  /\b(want|need|looking|trying|hoping|like|wanna) (to )?(rent|lease|find a|move in)\b/,
   /\b(looking|searching|hunting|shopping) for\b[^.?!]{0,40}\b(room|rooms|place|apartment|apt|housing|rental|studio|house|home|roommate)\b/,
   /\b(need|want|seeking|find) (a |an |to find |to rent )?(room|place|apartment|apt|housing|studio|roommates?)\b/,
   /\b(is|are) (the |that |this )?(room|rooms|unit|place|apartment|listing|house|studio)\b[^.?!]{0,20}\b(still )?(available|open|vacant|taken|rented|for rent)\b/,
