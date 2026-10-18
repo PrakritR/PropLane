@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 // A resident texts a photo of a leak with one line of text. Through the real seam and router the text is
 // stamped with their team; the photo is stored privately under that team's owner and indexed with the
 // workspace; the repair request the assistant files carries the photo and links it back. Another team's

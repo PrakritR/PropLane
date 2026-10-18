@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 import { describe, expect, it } from "vitest";
 import { cleanName, holdsAdminRole, run } from "../../scripts/one-number/create-service-workspace.mjs";
 import { run as shadow } from "../../scripts/one-number/shadow-report.mjs";

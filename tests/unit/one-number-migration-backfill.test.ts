@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 import { describe, expect, it } from "vitest";
 import { planAliases, planContacts, planScopedOptOuts, run } from "../../scripts/one-number/backfill.mjs";
 import { buildWorkspaceIndex, planStamps, STAMP_TABLES } from "../../scripts/one-number/lib/stamp-plan.mjs";
 import {
-  CONV1, CONV2, CONV3, DEV_ENV, N1, N2, O1, O2, O3, PROD_ENV, PROD_REF, WS1, WS1B, WS2, harness, world,
+  CONV1, CONV2, DEV_ENV, N1, N2, O1, O2, O3, PROD_ENV, PROD_REF, WS1, WS1B, WS2, harness, world,
 } from "./one-number-migration-fixtures";
 
 const SID = "MG" + "a".repeat(32);

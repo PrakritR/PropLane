@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 // A stranger texts the PropLane number with no code. Through the real seam, router, role detection, lead
 // qualifier, room matcher and assignment: welcome -> five questions -> rooms from every team -> a pick ->
 // that one team owns the conversation, with the history and an alert, and the next text reaches it.

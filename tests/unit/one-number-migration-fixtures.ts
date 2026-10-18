@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 import { fakeMigrationDb, type FakeRow } from "../helpers/migration-fake-db";
 
 export const PROD_REF = "qahnczmilgptcedaqype";

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 import { describe, expect, it, vi } from "vitest";
 import { NOTICE_PURPOSE, assertNumberOnService, classifyWorkspaces, movedNoticeText, run } from "../../scripts/one-number/cutover.mjs";
 import { DEV_ENV, N1, N2, O1, O2, PROD_ENV, PROD_REF, WS1, WS1B, WS2, harness, world } from "./one-number-migration-fixtures";

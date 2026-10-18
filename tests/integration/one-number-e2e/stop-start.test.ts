@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 // STOP and START on the shared PropLane number, through the real webhook route. The route runs the carrier
 // keywords BEFORE the router, so a STOP never reaches an agent or a team; it lands in the one global ledger
 // that every line and every team reads. The database function is replaced by a port of

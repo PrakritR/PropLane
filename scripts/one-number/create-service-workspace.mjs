@@ -59,7 +59,7 @@ export function cleanName(value) {
 }
 
 export async function run(argv, deps = {}) {
-  const { flags, resolved, db, log } = bootstrap(
+  const { flags, db, log } = bootstrap(
     SCRIPT,
     argv,
     { strings: ["name", "city", "owner-user-id"] },

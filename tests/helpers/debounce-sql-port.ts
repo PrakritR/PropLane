@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 /**
  * An in-memory port of the three burst-debounce functions in
  * supabase/migrations/20261018210000_one_number_feel.sql (sms_debounce_register / _claim / _settle) and of the

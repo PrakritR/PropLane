@@ -1,3 +1,4 @@
+ 
 // Simulated texting, no Twilio: a person texts the PropLane line and the real seam + router + session
 // code decides who answers. Only the transport (the send door) and the team alert are stand-ins, so every
 // text that "leaves" is recorded with the workspace it was billed to and the key that makes a retry safe.

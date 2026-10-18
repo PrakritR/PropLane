@@ -1,3 +1,4 @@
+ 
 // A resident texts for their rent link. The link is bound to their phone, opens only after a one-time code
 // texted to THAT phone, and the code step locks after five wrong guesses. Real tool, link service, OTP and
 // session code over a stateful fake; the only stand-in is the text that carries the code.

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 import { describe, expect, it } from "vitest";
 import { run as backfill } from "../../scripts/one-number/backfill.mjs";
 import { run, unresolvedKeys } from "../../scripts/one-number/verify.mjs";

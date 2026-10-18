@@ -1,3 +1,4 @@
+ 
 // The vendor loop by text, end to end, over the in-memory database the engine tests use: a lockout is filed,
 // the manager approves by text (nothing reaches a vendor first), the first vendor says NO, the next says YES
 // with a time and a price, the service is Scheduled, the vendor says DONE, the resident says YES.

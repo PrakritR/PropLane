@@ -1,3 +1,4 @@
+ 
 // A manager texts the PropLane line. "Who hasn't paid" is answered from the rent ledger of THEIR team only.
 // "Text all 5257 residents ..." is previewed, sent only after a YES, once, and never to another team or to
 // anyone who said STOP. The YES gate is the real one (classifier, SMS preview, write-tool pin).
