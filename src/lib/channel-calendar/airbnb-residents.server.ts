@@ -101,8 +101,6 @@ export async function renameAirbnbResident(
     const currentName = typeof hit.row_data.name === "string" ? hit.row_data.name.trim() : "";
     if (currentName && !isSyncPlaceholderName(currentName) && isSyncPlaceholderName(name)) continue;
     if (hit.row_data.name === name) continue;
-    const storedName = typeof hit.row_data.name === "string" ? hit.row_data.name : "";
-    if (isSyncPlaceholderName(name) && !isSyncPlaceholderName(storedName)) continue;
     const application = (hit.row_data.application as Record<string, unknown> | undefined) ?? {};
     const row = { ...hit.row_data, name, application: { ...application, fullLegalName: name } };
     const { error: writeError } = await db
