@@ -164,10 +164,10 @@ describe("adminSectionTabsFor", () => {
 describe("AdminSectionTabs strip", () => {
   const labels = () => screen.queryAllByRole("link").map((a) => a.textContent);
 
-  it("renders Accounts · Subscribers · Test accounts for the operator, as links, with the page's tab active", () => {
+  it("renders Accounts · Subscribers · Unassigned leads · Test accounts for the operator, as links, with the page's tab active", () => {
     state.pathname = "/admin/subscribers";
     render(<AdminSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Accounts", "Subscribers", "Test accounts"]);
+    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads", "Test accounts"]);
     expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Accounts" }).getAttribute("href")).toBe("/admin/axis-users");
     expect(screen.getByRole("link", { name: "Test accounts" }).getAttribute("href")).toBe("/admin/test-accounts");
@@ -176,7 +176,7 @@ describe("AdminSectionTabs strip", () => {
   it("omits Test accounts for a non-operator", () => {
     state.pathname = "/admin/axis-users";
     render(<AdminSectionTabs definition={nonOperator} />);
-    expect(labels()).toEqual(["Accounts", "Subscribers"]);
+    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads"]);
   });
 
   it("renders Payments · Promo codes · Finances on a Money page", () => {
