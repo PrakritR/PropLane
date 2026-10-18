@@ -11,7 +11,9 @@ export async function GET() {
     if (!gate.ok) return gate.response;
     const result = await listDispatchRules(gate.db, gate.actor);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ rules: result.value });
+    // The houses a rule may name, so the editor offers exactly what the server will accept.
+    const houses = gate.actor.workspace.propertyIds.map(String).filter((id) => gate.actor.grantedPropertyIds === null || gate.actor.grantedPropertyIds.has(id));
+    return NextResponse.json({ rules: result.value, workspacePropertyIds: houses, canEditAllHouses: gate.actor.grantedPropertyIds === null });
   } catch {
     return NextResponse.json({ error: "Could not load dispatch rules." }, { status: 500 });
   }
