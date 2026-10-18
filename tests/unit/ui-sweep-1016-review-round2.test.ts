@@ -66,10 +66,12 @@ describe("the merged-conversation read settle never swallows its own read error"
   });
 });
 
-describe("Add room never overwrites a sync", () => {
-  it("merges the new room onto the live listing on Save and drops it when navigating away", () => {
+describe("Add room never overwrites a sync, and never drops the form's own work", () => {
+  it("three-way merges the form's answer on Save and drops the room when navigating away", () => {
     const panel = read("src", "components", "portal", "property-house-details-list-panel.tsx");
-    expect(panel).toContain("mergeAddedRoomIntoLatest(sub, payload.sub, pendingAdd.roomId)");
+    expect(panel).toContain(
+      "mergePendingAddSubmission({ base: pendingAdd.base, latest: sub, edited: payload.sub })",
+    );
     const linked = panel.slice(panel.indexOf("onOpenLinkedRoom={(roomId) => {"));
     expect(linked.slice(0, linked.indexOf("}}"))).toContain(
       "if (pendingAdd && pendingAdd.roomId !== roomId) setPendingAdd(null)",

@@ -72,7 +72,7 @@ import {
   propertyAmenitiesSummary,
   propertyFactsSummary,
 } from "@/components/portal/property-house-submission-house-tab";
-import { mergeAddedRoomIntoLatest, submissionWithNewRoom } from "@/lib/property-house-add-room";
+import { mergePendingAddSubmission, submissionWithNewRoom } from "@/lib/property-house-add-room";
 import { floorLevelSelectOptions } from "@/data/manager-listing-presets";
 
 type SavePayload = {
@@ -127,9 +127,12 @@ export function PropertyHouseDetailsListPanel({
   const [target, setTarget] = useState<HouseDetailsEditorTarget | null>(null);
   const [saving, setSaving] = useState(false);
   // Add room: the form opens on a copy of the listing holding the new blank room. Nothing is
-  // written until Save; closing the form drops it. The copy is a snapshot, so Save grafts the
-  // new room onto the listing as it stands THEN rather than writing the snapshot back whole.
-  const [pendingAdd, setPendingAdd] = useState<{ sub: ManagerListingSubmissionV1; roomId: string } | null>(null);
+  // written until Save; closing the form drops it. The copy is a snapshot, so Save three-way
+  // merges the form's answer onto the listing as it stands THEN — `base` is the pre-add listing
+  // the form's changes are measured against.
+  const [pendingAdd, setPendingAdd] = useState<
+    { base: ManagerListingSubmissionV1; sub: ManagerListingSubmissionV1; roomId: string } | null
+  >(null);
   const [infoPreview, setInfoPreview] = useState<
     | { kind: "section"; spec: HouseInfoSectionSpec }
     | { kind: "other" }
@@ -192,7 +195,7 @@ export function PropertyHouseDetailsListPanel({
 
   const saveEditor = (payload: SavePayload) => {
     const effective: SavePayload = pendingAdd
-      ? { ...payload, sub: mergeAddedRoomIntoLatest(sub, payload.sub, pendingAdd.roomId) }
+      ? { ...payload, sub: mergePendingAddSubmission({ base: pendingAdd.base, latest: sub, edited: payload.sub }) }
       : payload;
     setSaving(true);
     const ok = onPersist(effective);
@@ -220,7 +223,7 @@ export function PropertyHouseDetailsListPanel({
 
   const addRoom = () => {
     const next = submissionWithNewRoom(sub);
-    setPendingAdd({ sub: next.sub, roomId: next.roomId });
+    setPendingAdd({ base: next.base, sub: next.sub, roomId: next.roomId });
     openEditor({ kind: "room", roomId: next.roomId });
   };
 
