@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/manager-access-server", () => ({ getEffectiveManagerSkuTier: mocks.getEffectiveManagerSkuTier }));
 vi.mock("@/lib/plan-addons.server", () => ({ loadManagerPlanAddonQuantities: mocks.loadManagerPlanAddonQuantities }));
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({ provisionManagerNumber: mocks.provisionManagerNumber }));
+const addOn = vi.hoisted(() => ({ entitled: false }));
+vi.mock("@/lib/number-subscription/subscription.server", () => ({ numberServiceEntitled: vi.fn(async () => addOn.entitled) }));
 
 import { PERSONAL_NUMBER_FREE_REFUSAL, planMayHavePersonalNumber } from "@/lib/one-number/personal-number";
 import { provisionNumberForWorkspace } from "@/lib/sms/work-numbers.server";
@@ -31,6 +33,7 @@ function seed() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  addOn.entitled = false;
   delete process.env.PROPLANE_SERVICE_OWNER_USER_ID;
   mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "pro" });
   mocks.loadManagerPlanAddonQuantities.mockResolvedValue({ ok: true, quantities: { extra_work_number: 0 } });
@@ -61,6 +64,29 @@ describe("provisionNumberForWorkspace by plan", () => {
     const result = await provisionNumberForWorkspace(seed() as never, OWNER, { workspaceId: WS });
     expect(result).toMatchObject({ ok: false, code: "not_entitled", error: "This workspace texts from the PropLane line." });
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("a Free account with the standalone PropLane Number subscription may hold exactly one number", async () => {
+    mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "free" });
+    addOn.entitled = true;
+    expect(await provisionNumberForWorkspace(seed() as never, OWNER, { workspaceId: WS })).toMatchObject({ ok: true });
+    expect(mocks.provisionManagerNumber).toHaveBeenCalledTimes(1);
+    // A second number on the same account is over the add-on's one-number budget.
+    const held = createWorkspaceMemoryDb({
+      portal_workspaces: [
+        { id: WS, owner_user_id: OWNER, name: "My workspace", is_default: true, created_at: "2026-02-01" },
+        { id: "ws-2", owner_user_id: OWNER, name: "Second", is_default: false, created_at: "2026-02-02" },
+      ],
+      manager_sms_numbers: [{ id: "n-1", manager_user_id: OWNER, workspace_id: "ws-2", phone_number: "+12065550009", provision_state: "active", released_at: null }],
+      workspace_work_numbers: [],
+    });
+    expect(await provisionNumberForWorkspace(held as never, OWNER, { workspaceId: WS })).toMatchObject({ ok: false, code: "budget_exceeded" });
+  });
+
+  it("a lapsed add-on (not entitled) is refused like Free", async () => {
+    mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "free" });
+    addOn.entitled = false;
+    expect(await provisionNumberForWorkspace(seed() as never, OWNER, { workspaceId: WS })).toMatchObject({ ok: false, code: "not_entitled" });
   });
 
   it("a Free account with an extra-number add-on still stays on the PropLane line", async () => {

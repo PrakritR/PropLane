@@ -18,6 +18,9 @@ import {
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
+import { managerPersonalNumberEntitlement } from "@/lib/one-number/personal-number-entitlement.server";
+import { getNumberAvailability } from "@/lib/number-subscription/availability.server";
+import { isNumberSubscriptionEnabled } from "@/lib/number-subscription/constants";
 import { resolveWorkspaceStatusLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -142,6 +145,7 @@ async function buildStatus(
     lineConfig && lineConfig.mode === "shared" && lineConfig.sharedNumber
       ? { number: lineConfig.sharedNumber, onSharedLine: workspaceOnSharedLine(lineConfig, workspace.id) }
       : null;
+  // (the add-on facts are filled in below, once the entitlement has been read)
 
 
   const configuredMode = runtimeResult.error
@@ -322,7 +326,25 @@ async function buildStatus(
     viewerMayText = true;
   }
   const canSend = lineReady && viewerMayText;
-  const canRequestBilling = entitlementCanBeReconciled;
+  // The standalone PropLane Number subscription lets a Free manager hold a number too. Read only while
+  // the shared line is live (otherwise Settings is exactly what it always was).
+  const personalNumber = lineConfig?.mode === "shared" && lineConfig.sharedNumber && !pureCoManager
+    ? await managerPersonalNumberEntitlement(db, userId)
+    : null;
+  const addOnActive = Boolean(personalNumber?.ok && personalNumber.entitled && personalNumber.via === "add_on");
+  const canRequestBilling = entitlementCanBeReconciled || addOnActive;
+  // What "Get your own number" can buy for this workspace: the plan includes it (`canRequest` runs the
+  // request), or the standalone PropLane Number subscription (`available` = checkout is on and a
+  // number can actually be delivered), or it is already subscribed (`active`).
+  let addOn: { available: boolean; active: boolean } | null = null;
+  if (sharedLine?.onSharedLine && personalNumber?.ok) {
+    const byPlan = personalNumber.entitled && personalNumber.via === "plan";
+    const deliverable =
+      !byPlan && !addOnActive && isNumberSubscriptionEnabled()
+        ? (await getNumberAvailability(db, "manager").catch(() => ({ available: false }))).available
+        : false;
+    addOn = { available: deliverable, active: addOnActive };
+  }
 
   // One work number per workspace: a co-manager reads the owner's line and
   // never gets a Request button. Their own legacy row (bought before numbers
@@ -354,7 +376,7 @@ async function buildStatus(
 
   return {
     mode,
-    sharedLine,
+    sharedLine: sharedLine && addOn ? { ...sharedLine, addOn } : sharedLine,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
     workspaceNumber,
     workspace: { id: workspace.id, name: workspace.name, owned: workspace.owned, isDefault: workspace.isDefault },
@@ -574,7 +596,15 @@ export async function POST(req: Request) {
   // read-only and billing/provider work happens only after a manager asks.
   // Only a paid Pro or Business workspace may take a personalized number; a Free workspace simply
   // texts from the PropLane line.
-  const entitlement = await reconcileManagerSmsEntitlement(actor.db, actor.userId);
+  let entitlement: Awaited<ReturnType<typeof reconcileManagerSmsEntitlement>> = await reconcileManagerSmsEntitlement(actor.db, actor.userId);
+  if (!entitlement.eligible) {
+    // A Free (or trialing) account may still hold a number through the standalone PropLane Number
+    // subscription; every other Pro feature stays locked.
+    const personal = await managerPersonalNumberEntitlement(actor.db, actor.userId);
+    if (personal.ok && personal.entitled && personal.via === "add_on") {
+      entitlement = { eligible: true, tier: "free", source: "none" };
+    }
+  }
   if (!entitlement.eligible) {
     if (entitlement.reason === "free") {
       return NextResponse.json(PERSONAL_NUMBER_FREE_REFUSAL, { status: 403, headers: { "Cache-Control": "private, no-store" } });

@@ -559,6 +559,24 @@ export function ManagerMessagingSettingsPanel() {
   /** This workspace texts from the set PropLane line (no number of its own). False in per_workspace. */
   const onSharedLine = (workspace: WorkspaceWithNumbers) =>
     Boolean(status.sharedLine?.onSharedLine) && workspace.workspaceId === status.workspace?.id;
+  const startNumberAddOnCheckout = async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/number-subscription/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "manager", returnPath: "/portal/profile?tab=messaging" }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (res.ok && body.url) {
+        window.location.assign(body.url);
+        return;
+      }
+      setError(body.error || "Checkout could not be started. Try again.");
+    } catch {
+      setError("Checkout could not be started. Try again.");
+    }
+  };
   const openAddNumberSheet = (workspaceId: string) => {
     setAddNumberWorkspaceId(workspaceId);
     setError(null);
@@ -642,11 +660,17 @@ export function ManagerMessagingSettingsPanel() {
                 </WorkIdentityRow>
               ) : null}
               {/* One number per workspace: empty → placeholder row; Setup only in ⋯ (no header + / dashed Add). */}
-              {canRequest && (!onSharedLine(workspace) || status.canRequest) ? (
+              {canRequest && (!onSharedLine(workspace) || status.canRequest || status.sharedLine?.addOn?.available) ? (
                 <WorkIdentityRow
                   label={onSharedLine(workspace) ? "Get your own number" : "Work number"}
                   value="Set up"
-                  onOpen={() => openAddNumberSheet(workspace.workspaceId)}
+                  // Pro / Business include a number (the request flow); a Free workspace buys the
+                  // standalone PropLane Number instead and returns here to request it.
+                  onOpen={() =>
+                    onSharedLine(workspace) && !status.canRequest
+                      ? void startNumberAddOnCheckout()
+                      : openAddNumberSheet(workspace.workspaceId)
+                  }
                   dataAttr="channel-row-number-empty"
                 />
               ) : null}

@@ -80,7 +80,16 @@ export type ManagerMessagingNumberStatus = {
    * THIS workspace texts from it (false once the workspace holds a number of its own). Null =
    * per_workspace: Settings draws exactly what it always has.
    */
-  sharedLine?: { number: string; onSharedLine: boolean } | null;
+  sharedLine?: {
+    number: string;
+    onSharedLine: boolean;
+    /**
+     * The standalone PropLane Number subscription ($5/month) a Free manager can buy for a number of
+     * their own. `active` = already subscribed; `available` = checkout is on and a number can be
+     * delivered. Absent when the plan includes a number (Pro / Business) or for a teammate.
+     */
+    addOn?: { available: boolean; active: boolean };
+  } | null;
   workspaceRole: ManagerMessagingWorkspaceRole;
   provisioningAvailable: boolean;
   /**

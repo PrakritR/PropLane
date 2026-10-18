@@ -117,3 +117,49 @@ describe("workNumberStatusWord", () => {
     expect(workNumberStatusWord({ sharedLine: false, state: "active" })).toBe("Ready");
   });
 });
+
+describe("Get your own number routes to the right purchase", () => {
+  it("a Free workspace with the PropLane Number offered buys it alone through checkout as a manager", async () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { value: { ...window.location, assign }, writable: true });
+    stub(status({
+      planTier: "free", canRequest: false, entitlement: { eligible: false, reason: "free" },
+      sharedLine: { number: SHARED, onSharedLine: true, addOn: { available: true, active: false } },
+    }));
+    const base = globalThis.fetch;
+    const calls: Array<{ url: string; body: unknown }> = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/number-subscription/checkout")) {
+        calls.push({ url, body: JSON.parse(String(init?.body)) });
+        return Response.json({ ok: true, url: "https://checkout.example/session" });
+      }
+      return base(input, init);
+    }) as typeof fetch;
+    render(<ManagerMessagingSettingsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /Get your own number/ }));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.example/session"));
+    expect(calls).toEqual([{ url: "/api/number-subscription/checkout", body: { role: "manager", returnPath: "/portal/profile?tab=messaging" } }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a Free workspace with no offer sees only the PropLane line", async () => {
+    stub(status({
+      planTier: "free", canRequest: false, entitlement: { eligible: false, reason: "free" },
+      sharedLine: { number: SHARED, onSharedLine: true, addOn: { available: false, active: false } },
+    }));
+    render(<ManagerMessagingSettingsPanel />);
+    expect(await screen.findByRole("button", { name: /PropLane line.*555-0100/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Get your own number/ })).toBeNull();
+  });
+
+  it("an active add-on runs the request flow, not checkout", async () => {
+    stub(status({
+      planTier: "free", canRequest: true, entitlement: { eligible: false, reason: "free" },
+      sharedLine: { number: SHARED, onSharedLine: true, addOn: { available: false, active: true } },
+    }));
+    render(<ManagerMessagingSettingsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /Get your own number/ }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+});

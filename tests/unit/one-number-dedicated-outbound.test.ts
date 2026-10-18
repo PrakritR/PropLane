@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
+vi.mock("@/lib/one-number/personal-number-entitlement.server", () => ({
+  managerPersonalNumberEntitlement: vi.fn(async () => ({ ok: true as const, entitled: true as const, via: "plan" as const, tier: "pro" as const })),
+}));
 vi.mock("@/lib/comms-billing/eligibility.server", () => ({ evaluateManagerCommsBillingGate: vi.fn(async () => ({ allowed: true })) }));
 vi.mock("@/lib/sms/number-registration-policy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/sms/number-registration-policy")>()),

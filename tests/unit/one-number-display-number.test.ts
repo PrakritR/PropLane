@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
+vi.mock("@/lib/one-number/personal-number-entitlement.server", () => ({
+  managerPersonalNumberEntitlement: vi.fn(async () => ({ ok: true as const, entitled: true as const, via: "plan" as const, tier: "pro" as const })),
+}));
 const own = vi.hoisted(() => ({} as Record<string, string | null>));
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
   resolveActiveManagerSendNumber: vi.fn(async (_db: unknown, _owner: string, workspaceId?: string | null) => own[workspaceId ?? "default"] ?? null),
@@ -26,7 +29,7 @@ function world(mode: "shared" | "per_workspace" = "shared", pilot: string[] = []
       { id: "ws-free", name: "Free Homes", owner_user_id: OWNER, is_default: true },
       { id: "ws-pro", name: "Pro Homes", owner_user_id: OWNER, is_default: false },
     ],
-    manager_sms_numbers: [{ id: "n-pro", manager_user_id: OWNER, workspace_id: "ws-pro", phone_number: OWN, provision_state: "active", released_at: null }],
+    manager_sms_numbers: [{ id: "n-pro", manager_user_id: OWNER, workspace_id: "ws-pro", phone_number: OWN, provision_state: "active", registration_state: "approved", released_at: null }],
     workspace_work_numbers: [],
     manager_property_records: [
       { id: "h-free", manager_user_id: OWNER, workspace_id: "ws-free" },

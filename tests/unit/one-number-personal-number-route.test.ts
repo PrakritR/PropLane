@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
   getManagerPortalNavSubscriptionTier: vi.fn(),
   provision: vi.fn(),
   rateLimit: vi.fn(),
+  personal: vi.fn(),
+  availability: vi.fn(),
 }));
+vi.mock("@/lib/one-number/personal-number-entitlement.server", () => ({ managerPersonalNumberEntitlement: mocks.personal }));
+vi.mock("@/lib/number-subscription/availability.server", () => ({ getNumberAvailability: mocks.availability }));
 vi.mock("@/lib/manager-route-guard.server", () => ({ requireManagerRouteUser: mocks.requireManagerRouteUser }));
 vi.mock("@/lib/manager-access-server", () => ({ getManagerPortalNavSubscriptionTier: mocks.getManagerPortalNavSubscriptionTier }));
 vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
@@ -60,6 +64,8 @@ beforeEach(() => {
   mocks.getManagerPortalNavSubscriptionTier.mockResolvedValue("pro");
   mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
   mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
+  mocks.personal.mockResolvedValue({ ok: true, entitled: true, via: "plan", tier: "pro" });
+  mocks.availability.mockResolvedValue({ available: true });
   mocks.provision.mockResolvedValue({ ok: true, number: "+12065550001", state: "provisioning", alreadyProvisioned: false });
   mocks.requireManagerRouteUser.mockResolvedValue({ db: dbFor("shared"), userId: MANAGER });
 });
@@ -73,6 +79,7 @@ afterEach(() => {
 describe("request_number by plan", () => {
   it("refuses a Free workspace with a neutral 403 and never provisions", async () => {
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "free" });
     const response = await post();
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ code: "personal_number_needs_paid_plan", error: "This workspace texts from the PropLane line." });
@@ -85,9 +92,24 @@ describe("request_number by plan", () => {
     expect(mocks.provision).toHaveBeenCalledWith(expect.anything(), MANAGER, expect.objectContaining({ workspaceId: "ws-1" }));
   });
 
+  it("lets a Free manager request a number once the standalone PropLane Number subscription is active", async () => {
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: true, via: "add_on", tier: "free" });
+    const response = await post();
+    expect(response.status).toBe(200);
+    expect(mocks.provision).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lapsed add-on is Free again: neutral 403", async () => {
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "free" });
+    expect((await post()).status).toBe(403);
+  });
+
   it("has no exemption for PropLane's managed-service account: Free stays on the PropLane line", async () => {
     process.env.PROPLANE_SERVICE_OWNER_USER_ID = MANAGER;
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "free" });
     const response = await post();
     expect(response.status).toBe(403);
     expect(mocks.provision).not.toHaveBeenCalled();
@@ -104,7 +126,7 @@ describe("request_number by plan", () => {
 describe("status: the PropLane line", () => {
   it("reports the shared line and that this workspace is on it", async () => {
     const body = await (await GET(new Request("http://localhost"))).json();
-    expect(body.sharedLine).toEqual({ number: SHARED, onSharedLine: true });
+    expect(body.sharedLine).toEqual({ number: SHARED, onSharedLine: true, addOn: { available: false, active: false } });
   });
 
   it("a workspace that holds its own number is not on the shared line", async () => {
@@ -127,8 +149,46 @@ describe("status: the PropLane line", () => {
 
   it("a Free account cannot request", async () => {
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "free" });
     const body = await (await GET(new Request("http://localhost"))).json();
     expect(body.canRequest).toBe(false);
+  });
+
+  it("a Free account is offered the standalone PropLane Number only when checkout is on and a number can be delivered", async () => {
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "free" });
+    vi.stubEnv("NUMBER_SUBSCRIPTION_ENABLED", "1");
+    try {
+      let body = await (await GET(new Request("http://localhost"))).json();
+      expect(body.sharedLine.addOn).toEqual({ available: true, active: false });
+      mocks.availability.mockResolvedValue({ available: false, reason: "capacity" });
+      body = await (await GET(new Request("http://localhost"))).json();
+      expect(body.sharedLine.addOn).toEqual({ available: false, active: false });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    mocks.availability.mockResolvedValue({ available: true });
+    const off = await (await GET(new Request("http://localhost"))).json();
+    expect(off.sharedLine.addOn).toEqual({ available: false, active: false });
+  });
+
+  it("a Free account with an active add-on can request its number", async () => {
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: true, via: "add_on", tier: "free" });
+    const body = await (await GET(new Request("http://localhost"))).json();
+    expect(body.sharedLine.addOn).toEqual({ available: false, active: true });
+    expect(body.canRequest).toBe(true);
+  });
+
+  it("a Pro account never sees the add-on offer: the plan includes the number", async () => {
+    vi.stubEnv("NUMBER_SUBSCRIPTION_ENABLED", "1");
+    try {
+      const body = await (await GET(new Request("http://localhost"))).json();
+      expect(body.sharedLine.addOn).toEqual({ available: false, active: false });
+      expect(body.canRequest).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -139,7 +199,7 @@ describe("status: a workspace on the PropLane line can text", () => {
     vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MGdefault");
     try {
       const body = await (await GET(new Request("http://localhost"))).json();
-      expect(body.sharedLine).toEqual({ number: SHARED, onSharedLine: true });
+      expect(body.sharedLine).toEqual({ number: SHARED, onSharedLine: true, addOn: { available: false, active: false } });
       expect(body.number).toBeNull();
       expect(body.lineReady).toBe(true);
       expect(body.canSend).toBe(true);
