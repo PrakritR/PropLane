@@ -74,6 +74,7 @@ import {
 } from "@/lib/resident-term-split";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { findLeaseForResidentEmail, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
+import { leaseFullyExecuted } from "@/lib/lease-execution-evidence";
 import { residentPaymentsUnlocked } from "@/lib/resident-payments-unlock";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
@@ -326,7 +327,8 @@ export function ResidentPaymentsPanel({
   const leaseFullySigned = useMemo(() => {
     void tick;
     if (!email) return false;
-    return Boolean(findLeaseForResidentEmail(email)?.fullySignedAt?.trim());
+    const lease = findLeaseForResidentEmail(email);
+    return Boolean(lease && leaseFullyExecuted(lease));
   }, [email, tick]);
 
   const [rentReporting, setRentReporting] = useState<RentReportingCardState | null>(null);

@@ -1096,9 +1096,11 @@ export function ManagerPropertyPromotionPanel({
         open={showForm}
         title="Edit flyer"
         onClose={closeForm}
-        // Two columns: the editor and the live flyer. The auto rail and the auto form
-        // snapshot are dropped — they only repeated one field's card on both sides.
+        // EXACTLY two columns: the editor and the live flyer. The auto rail and the auto
+        // form snapshot only repeated one field's card on both sides, and the assistant
+        // strip was a third column that squeezed the editor to about 205px.
         contextPanel={null}
+        assistantStrip={false}
         preview={<PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded />}
         previewLabel="Preview"
         footer={
@@ -1134,6 +1136,7 @@ export function ManagerPropertyPromotionPanel({
           onSelectProperty={() => {}}
           hidePropertyPicker
           hidePreview
+          singleColumn
         />
       </Modal>
 

@@ -10,6 +10,7 @@ import {
 } from "@/lib/stripe-household-charge";
 import { loadResidentCheckoutAttemptForSession } from "@/lib/resident-checkout-claim.server";
 import { creditVerifiedHouseholdCheckoutSource } from "@/lib/household-captured-source.server";
+import { recordHouseholdSourceReviewNeeded } from "@/lib/household-source-review.server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 
 export const runtime = "nodejs";
@@ -86,10 +87,20 @@ export async function GET(req: Request) {
         // told the resident their completed payment had not gone through and left it
         // sitting in Upcoming. Crediting the manager's hold is platform accounting, it is
         // idempotent, and the `checkout.session.completed` webhook runs the very same
-        // credit and retries until it lands — so it is reported, never a refusal of a
-        // settled payment. The reason is logged instead of swallowed: this branch is the
-        // only place that knows WHY the allocation declined.
-        console.error("[household verify] credit verified source", e);
+        // credit — so it is reported, never a refusal of a settled payment. Every refusal
+        // is deliberate and the webhook's retries cannot talk it round, so the reason is
+        // filed durably against the manager (one row per session, admin Health) instead of
+        // living in a log line nobody reads.
+        await recordHouseholdSourceReviewNeeded(db, {
+          ownerManagerUserId: session.metadata?.manager_user_id,
+          sourceId: session.id,
+          paymentIntentId: typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id ?? null,
+          chargeIds: attempt.charge_ids,
+          surface: "checkout_verify",
+          error: e,
+        });
         sourceReview = true;
       }
       alreadyPaid = result.alreadyPaid ?? false;

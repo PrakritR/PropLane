@@ -172,9 +172,6 @@ async function collapsedSiblingMessageIds(
   );
 }
 
-/** How many times a sibling's read-flip re-reads after losing a race with a concurrent append. */
-const MAX_SIBLING_READ_CAS_ATTEMPTS = 3;
-
 /**
  * A person conversation the list folded from several stored rows is read as one
  * row: the write above lands on the canonical row only, so the folded siblings
@@ -182,11 +179,13 @@ const MAX_SIBLING_READ_CAS_ATTEMPTS = 3;
  * on the next load. Only ever flips `unread` off, only on rows the caller's
  * own scope returns.
  *
- * The flip is a compare-and-set on the `updated_at` it read. `row_data` is one
- * jsonb column, so writing it back whole from an earlier read would drop a turn
- * an inbound email/SMS delivery appended in between — the very history the
- * canonical row's own write goes through `mergeInboxThreadRowData` to protect.
- * A stale write lands on nothing and re-reads instead.
+ * The flip is a surgical `jsonb_set` in the database
+ * (`mark_portal_inbox_thread_read_surgical`), the same shape
+ * `mark_portal_inbox_source_read` uses for the manager scope. `row_data` is one jsonb
+ * column: reading it here and writing the whole object back would drop a turn an inbound
+ * email/SMS delivery appended in between — exactly the history the canonical row's own
+ * write goes through `mergeInboxThreadRowData` to protect. Touching the single key cannot
+ * clobber that turn at all, so there is no snapshot to lose and no retry to run.
  */
 async function settleCollapsedSiblingsRead(
   db: SupabaseClient,
@@ -205,51 +204,20 @@ async function settleCollapsedSiblingsRead(
   if (ids.length === 0) return;
   let query = db
     .from("portal_inbox_thread_records")
-    .select("id, row_data, thread_type, updated_at")
+    .select("id, row_data, thread_type")
     .in("id", ids)
     .eq("scope", scopeKey);
   query = applyPortalInboxThreadScope(query, user, []) as typeof query;
   const { data } = await query;
   for (const sibling of Array.isArray(data) ? data : []) {
-    const id = String((sibling as { id: string }).id);
-    let current = sibling as { row_data?: Record<string, unknown> | null; updated_at?: string | null };
-    for (let attempt = 0; attempt < MAX_SIBLING_READ_CAS_ATTEMPTS; attempt += 1) {
-      const rowData = current.row_data;
-      if (!rowData || rowData.unread !== true) break;
-      const expectUpdatedAt = current.updated_at ?? null;
-      // No stored stamp to pin the write to: an unguarded write is the only option left,
-      // and a read receipt is not worth risking another writer's turn.
-      if (!expectUpdatedAt) break;
-      const { data: written, error } = await db
-        .from("portal_inbox_thread_records")
-        .update({ row_data: { ...rowData, unread: false }, updated_at: advanceAfterIso(expectUpdatedAt) })
-        .eq("id", id)
-        .eq("scope", scopeKey)
-        .eq("updated_at", expectUpdatedAt)
-        .select("id");
-      if (error) break;
-      if (Array.isArray(written) && written.length > 0) break;
-      // Someone else wrote this row between the read and the flip. Re-read and
-      // flip again on top of THEIR copy, so their turn survives.
-      let reread = db
-        .from("portal_inbox_thread_records")
-        .select("id, row_data, updated_at")
-        .eq("id", id)
-        .eq("scope", scopeKey);
-      reread = applyPortalInboxThreadScope(reread, user, []) as typeof reread;
-      const { data: fresh } = await reread.maybeSingle();
-      if (!fresh) break;
-      current = fresh as { row_data?: Record<string, unknown> | null; updated_at?: string | null };
-    }
+    const rowData = (sibling as { row_data?: Record<string, unknown> | null }).row_data;
+    if (!rowData || rowData.unread !== true) continue;
+    const { error } = await db.rpc("mark_portal_inbox_thread_read_surgical", {
+      p_id: String((sibling as { id: string }).id),
+      p_scope: scopeKey,
+    });
+    if (error) console.error("settleCollapsedSiblingsRead failed", error);
   }
-}
-
-/** Strictly after `previous`, so two writes inside one millisecond still differ for the next compare-and-set. */
-function advanceAfterIso(previous: string | null): string {
-  const nowIso = new Date().toISOString();
-  const prev = Date.parse(previous ?? "");
-  if (!Number.isFinite(prev) || Date.parse(nowIso) > prev) return nowIso;
-  return new Date(prev + 1).toISOString();
 }
 
 export async function GET(request: Request) {

@@ -318,6 +318,20 @@ if (typeof window !== "undefined") {
   });
 }
 const PORTAL_INBOX_SYNC_TTL_MS = 15_000;
+/**
+ * How long the shared GET for the thread list may answer a second reader from the first
+ * reader's result.
+ *
+ * The module TTL above only covers readers that arrive after a sync SETTLED into the cache;
+ * the readers on one page load arrive before that — the Communication shell, each panel
+ * mount, and `retryWhileStale` after a read was discarded as belonging to the previous
+ * viewer. Those each started their own request for the same URL. This window collapses
+ * them. It is safe to serve the same answer inside it: `sharedGet` drops every entry on
+ * `onPortalSessionViewerChange` (the same event that purges these caches), and a write to
+ * the route invalidates it, so the only thing reused is one viewer's own fresh read. A
+ * forced read still bypasses it.
+ */
+const INBOX_THREADS_SHARED_TTL_MS = 2_500;
 let inboxMutationDepth = 0;
 
 /** True while a trash/restore/delete/reply mutation is in flight — blocks stale full replace syncs. */
@@ -482,11 +496,13 @@ export async function syncPersistedInboxFromServerWithStatus(
   }
   const promise = (async (): Promise<PersistedInboxSyncResult> => {
     try {
-      // Through `sharedGet`: panels that mount together each ask for this list, and a forced ask
-      // used to be its own request every time. The sync keeps its own TTL above, so the shared
-      // cache only joins requests that are in flight (ttlMs 0); a forced ask still starts a request
-      // that begins after the ask.
-      const res = await sharedGet(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { force, ttlMs: 0 });
+      // Through `sharedGet`: the readers on one page load each used to ask for themselves.
+      // A forced ask still starts a request that begins after the ask; an unforced one may
+      // answer from the last few seconds (see INBOX_THREADS_SHARED_TTL_MS).
+      const res = await sharedGet(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, {
+        force,
+        ttlMs: force ? 0 : INBOX_THREADS_SHARED_TTL_MS,
+      });
       // An older viewer may complete after A -> B -> A. Do not let its 401
       // latch the new session or let any of its data touch the new cache slot.
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };

@@ -84,7 +84,7 @@ describe("the inbox work identity label fits its box", () => {
 describe("resident Payments after both parties sign", () => {
   it("drops the pay-before-signing instruction once the lease is fully signed", () => {
     const source = read("components", "portal", "resident-payments-panel.tsx");
-    expect(source).toContain("findLeaseForResidentEmail(email)?.fullySignedAt");
+    expect(source).toContain("leaseFullyExecuted(lease)");
     // Both sites — the charge detail and the move-in group — read the same gate.
     expect(source.match(/&& !leaseFullySigned \?/g)?.length).toBe(2);
     // Both labels are still there — they are gated, not deleted.
@@ -107,5 +107,70 @@ describe("inbox writes drop the shared GET after they settle", () => {
     expect(source).not.toContain("invalidateSharedGets(");
     expect(source.match(/writeThroughFetch\("\/api\/portal-inbox-threads"/g)?.length).toBe(6);
     expect(source).not.toMatch(/await fetch\("\/api\/portal-inbox-threads"/);
+  });
+});
+
+describe("the record header's fold reacts to the header, not only the window", () => {
+  it("observes the ancestor the budget is measured from", () => {
+    const source = read("components", "portal", "portal-adaptive-action-row.tsx");
+    // The row lives in a content-sized host, so its own box only moves once the fold has
+    // already changed: the detail pane opening or a longer record title would otherwise
+    // leave the fold stale until the next window resize.
+    expect(source).toContain('container.closest("[data-portal-record-header-actions]")');
+    const effect = source.slice(source.indexOf("new ResizeObserver(sync)"));
+    const observed = effect.slice(0, effect.indexOf("window.addEventListener"));
+    expect(observed).toContain("ro.observe(recordHeader)");
+  });
+});
+
+describe("the resident Payments lease gate", () => {
+  it("reads both signatures or the stamp, through the one execution-evidence predicate", () => {
+    const source = read("components", "portal", "resident-payments-panel.tsx");
+    expect(source).toContain("leaseFullyExecuted(lease)");
+    // Never the bare stamp: a row can carry both signatures without it (an offline-signed
+    // PDF returned to the manager).
+    expect(source).not.toMatch(/fullySignedAt\?\.trim\(\)/);
+  });
+});
+
+describe("the merged-conversation read settle", () => {
+  it("flips unread through the database's surgical jsonb_set, never a whole-row rewrite", () => {
+    const route = readFileSync(join(SRC, "app", "api", "portal-inbox-threads", "route.ts"), "utf8");
+    const settle = route.slice(route.indexOf("async function settleCollapsedSiblingsRead"));
+    const body = settle.slice(0, settle.indexOf("export async function GET"));
+    expect(body).toContain('db.rpc("mark_portal_inbox_thread_read_surgical"');
+    expect(body).not.toContain("row_data: { ...rowData");
+    expect(body).not.toContain("advanceAfterIso");
+    const migration = readFileSync(
+      join(SRC, "..", "supabase", "migrations", "20261017120000_mark_portal_inbox_thread_read_surgical.sql"),
+      "utf8",
+    );
+    // Idempotent, surgical, and it can only ever clear the flag.
+    expect(migration).toContain("create or replace function public.mark_portal_inbox_thread_read_surgical");
+    expect(migration).toContain("jsonb_set(row_data, '{unread}', 'false'::jsonb, true)");
+    expect(migration).toContain("row_data->'unread' = 'true'::jsonb");
+    expect(migration).toContain("revoke all on function");
+    expect(migration).toContain("grant execute on function public.mark_portal_inbox_thread_read_surgical(text,text) to service_role");
+  });
+});
+
+describe("the Edit flyer pop-up", () => {
+  it("is exactly two columns — the editor and the live flyer", () => {
+    const panel = read("components", "portal", "pro-property-promotion-panel.tsx");
+    const modal = panel.slice(panel.indexOf('title="Edit flyer"'));
+    const props = modal.slice(0, modal.indexOf("<PromotionForm"));
+    // A Modal row is rail + form + preview + assistant strip; this one keeps form + preview.
+    expect(props).toContain("contextPanel={null}");
+    expect(props).toContain("assistantStrip={false}");
+    expect(props).toContain("preview={<PromotionFlyerPreview");
+    expect(modal).toContain("singleColumn");
+  });
+
+  it("stacks the editor's fields one per row so none of them is ~200px", () => {
+    const form = read("components", "portal", "promotion-form.tsx");
+    expect(form).toContain('singleColumn ? "grid gap-3" : "grid gap-3 sm:grid-cols-2"');
+    // The span helpers come off with the second column, or every cell keeps a stale span.
+    expect(form).toContain('const wide = singleColumn ? "" : "sm:col-span-2"');
+    expect(form).not.toContain('<div className="sm:col-span-2">');
   });
 });

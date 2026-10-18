@@ -145,6 +145,34 @@ export function rowHasAnySignature(row: Pick<LeasePipelineRow, "managerSignature
   return Boolean(row.managerSignature || row.residentSignature || (row.signatureName && row.signedAtIso));
 }
 
+/**
+ * BOTH parties have signed — the manager plus either the resident's own signature or the
+ * legacy single-signature pair. Lives beside {@link leaseClaimsExecution} (which is true on
+ * ONE signature) so a caller cannot reach for the loose predicate by accident, and so the
+ * client can read it: a row can carry both signatures without `fullySignedAt` (an
+ * offline-signed PDF returned to the manager), and a gate keyed on the stamp alone is the
+ * kind of disagreement between the two signals this module exists to prevent.
+ */
+export function hasBothLeaseSignatures(
+  row: Pick<LeasePipelineRow, "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso">,
+): boolean {
+  const mgr = row.managerSignature as Record<string, unknown> | null | undefined;
+  const res = row.residentSignature as Record<string, unknown> | null | undefined;
+  const legacyName = typeof row.signatureName === "string" ? row.signatureName : null;
+  const legacyAt = typeof row.signedAtIso === "string" ? row.signedAtIso : null;
+  return Boolean(mgr?.name && mgr?.signedAtIso && ((res?.name && res?.signedAtIso) || (legacyName && legacyAt)));
+}
+
+/** Both signatures, or the stamp a fully-signed row carries. The one "both parties are done" read. */
+export function leaseFullyExecuted(
+  row: Pick<
+    LeasePipelineRow,
+    "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso" | "fullySignedAt"
+  >,
+): boolean {
+  return hasBothLeaseSignatures(row) || Boolean(row.fullySignedAt);
+}
+
 /** Manager document-body changes stop when the lease leaves manager review. */
 export function leaseAllowsManagerDocumentEdits(
   row: Pick<LeasePipelineRow, "bucket" | "status" | "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso">,

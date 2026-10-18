@@ -110,7 +110,14 @@ describe("GET /api/admin/health", () => {
   it("does not list email failures, which no table records", async () => {
     asAdmin();
     const body = await (await GET()).json();
-    expect(body.groups.map((g: { id: string }) => g.id)).toEqual(["sms", "webhooks", "disputes", "applications"]);
+    expect(body.groups.map((g: { id: string }) => g.id)).toEqual([
+      "sms",
+      "webhooks",
+      "disputes",
+      "applications",
+      // A resident payment that settled with no manager hold: the one money row that needs a person.
+      "payments",
+    ]);
     expect(db.touched.has("portal_outbound_mail_records")).toBe(false);
   });
 });

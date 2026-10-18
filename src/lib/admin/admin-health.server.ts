@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CLOSED_DISPUTE_STATUSES_FILTER } from "@/lib/admin/admin-dispute-status";
+import { HOUSEHOLD_SOURCE_REVIEW_ACTION } from "@/lib/household-source-review.server";
 
 /**
  * The admin Health page: things that are broken right now, grouped by kind.
@@ -23,7 +24,7 @@ export type AdminHealthRow = {
   accountId: string | null;
 };
 
-export type AdminHealthGroupId = "sms" | "webhooks" | "disputes" | "applications";
+export type AdminHealthGroupId = "sms" | "webhooks" | "disputes" | "applications" | "payments";
 
 export type AdminHealthGroup = {
   id: AdminHealthGroupId;
@@ -77,7 +78,7 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
   const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000).toISOString();
   const stuckBefore = new Date(now.getTime() - STUCK_APPLICATION_DAYS * 86_400_000).toISOString();
 
-  const [smsLogRes, smsAttemptRes, webhookRes, disputeRes, appRes] = await Promise.all([
+  const [smsLogRes, smsAttemptRes, webhookRes, disputeRes, appRes, sourceReviewRes] = await Promise.all([
     db
       .from("sms_delivery_log")
       .select("id, to_phone, status, error_code, manager_user_id, created_at")
@@ -113,6 +114,14 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
       .lt("created_at", stuckBefore)
       .order("created_at", { ascending: true })
       .limit(STUCK_APPLICATION_READ),
+    // A resident payment that settled but whose manager hold refused: the charge is paid
+    // and the money is sitting on the platform with no allocation, so it needs a person.
+    db
+      .from("audit_log")
+      .select("id, landlord_id, input_summary, result_summary, created_at")
+      .eq("action", HOUSEHOLD_SOURCE_REVIEW_ACTION)
+      .order("created_at", { ascending: false })
+      .limit(ROW_CAP),
   ]);
 
   // The attempt rows carry no manager; their outbox row does.
@@ -189,6 +198,19 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
       accountId: strOrNull(r.manager_user_id),
     }));
 
+  const sourceReviewRows = (sourceReviewRes.data ?? []) as Row[];
+  const payments: AdminHealthRow[] = sourceReviewRows.map((r) => {
+    const input = (r.input_summary ?? {}) as Record<string, unknown>;
+    const result = (r.result_summary ?? {}) as Record<string, unknown>;
+    return {
+      id: `source-review-${str(r.id)}`,
+      title: `Paid charge with no manager hold (${str(input.sourceId) || "unknown source"})`,
+      fact: str(result.reason) || "The payment source could not be credited.",
+      at: strOrNull(r.created_at),
+      accountId: strOrNull(r.landlord_id),
+    };
+  });
+
   return {
     groups: [
       { id: "sms", label: "Failed text messages", rows: sms, capped: smsCapped },
@@ -199,6 +221,12 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
         label: "Stuck applications",
         rows: applications,
         capped: stuckRows.length > applications.length || (appRes.data ?? []).length >= STUCK_APPLICATION_READ,
+      },
+      {
+        id: "payments",
+        label: "Payments needing review",
+        rows: payments,
+        capped: payments.length >= ROW_CAP,
       },
     ],
   };

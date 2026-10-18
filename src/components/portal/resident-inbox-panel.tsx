@@ -340,6 +340,11 @@ export const ResidentInboxPanel = forwardRef<
   }, [embeddedInCommunication, reloadScheduledMessages, tabId]);
 
   useEffect(() => {
+    // Not before the session store has published the viewer: a read that starts first is
+    // discarded the moment the viewer lands (it belongs to the previous cache slot), so it
+    // was a whole request per load that could never be used. Waiting also lets this mount
+    // and the Communication shell's own read share one request.
+    if (!session.ready) return;
     persistInboxRef.current = false;
     void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY).then((rows) => {
       if (!inboxMutationInFlight()) {
@@ -350,7 +355,7 @@ export const ResidentInboxPanel = forwardRef<
         persistInboxRef.current = true;
       }
     });
-  }, []);
+  }, [session.ready]);
 
   useEffect(() => {
     const sync = (evt?: Event) => {

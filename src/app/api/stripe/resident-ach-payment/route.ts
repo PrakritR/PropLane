@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { loadResidentManualAchAttemptForPaymentIntent } from "@/lib/resident-checkout-claim.server";
 import { reconcileResidentManualAchPaymentIntent } from "@/lib/stripe-household-charge";
 import { creditVerifiedHouseholdManualSource } from "@/lib/household-captured-source.server";
+import { recordHouseholdSourceReviewNeeded } from "@/lib/household-source-review.server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { assertTestWorkspaceProviderEffectAllowed, TestWorkspaceProviderDisabledError } from "@/lib/test-workspaces/effects.server";
 
@@ -57,8 +58,16 @@ async function answer(paymentIntentId: string, userId: string) {
       // The charge rows are already paid by the reconcile above. Crediting the manager's
       // hold is platform accounting — idempotent, and retried by the webhook — so a refusal
       // there is reported, never turned into "your completed payment did not go through".
-      // Logged rather than swallowed: this is the only place that knows why it declined.
-      console.error("[resident ach verify] credit verified source", e);
+      // The reason is filed against the manager (one row per source, admin Health) so a
+      // missing hold is findable instead of living only in a log line.
+      await recordHouseholdSourceReviewNeeded(db, {
+        ownerManagerUserId: paymentIntent.metadata?.manager_user_id,
+        sourceId: paymentIntent.id,
+        paymentIntentId: paymentIntent.id,
+        chargeIds: attempt.charge_ids,
+        surface: "manual_ach_verify",
+        error: e,
+      });
       sourceReview = true;
     }
   }

@@ -133,17 +133,19 @@ describe("resident saves a merged conversation", () => {
       };
       sibling.updated_at = "2026-10-16T00:00:05.000Z";
     };
-    // The route reads the siblings, then writes each one: land the append in that window.
+    // The route lists the siblings, then flips each one: land the append in that window.
     const db = state.db as { from: (table: string) => unknown };
     const original = db.from.bind(db);
-    let reads = 0;
+    let siblingReads = 0;
     (state.db as { from: (table: string) => unknown }).from = (table: string) => {
       const builder = original(table) as Record<string, unknown> & { select?: (...a: unknown[]) => unknown };
       if (table === "portal_inbox_thread_records") {
         const select = builder.select as (...a: unknown[]) => unknown;
         builder.select = (...args: unknown[]) => {
           const next = select.apply(builder, args);
-          if (String(args[0] ?? "").includes("updated_at") && reads++ === 0) deliverConcurrently();
+          if (String(args[0] ?? "") === "id, row_data, thread_type" && siblingReads++ === 0) {
+            deliverConcurrently();
+          }
           return next;
         };
       }

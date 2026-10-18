@@ -209,9 +209,15 @@ export function PortalAdaptiveActionRow({
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(sync);
       const slot = container.closest("[data-portal-action-slot]");
+      // The record header's own flex child is where the budget comes from, and the row sits
+      // in a content-sized host whose box only moves when the fold already changed. Without
+      // it, a header that resized for any reason other than the window (the detail pane
+      // opening, a longer record title, the workspace switcher appearing) kept a stale fold.
+      const recordHeader = container.closest("[data-portal-record-header-actions]");
       ro.observe(container);
       if (container.parentElement) ro.observe(container.parentElement);
       if (slot instanceof HTMLElement) ro.observe(slot);
+      if (recordHeader instanceof HTMLElement) ro.observe(recordHeader);
     }
     window.addEventListener("resize", sync);
     return () => {

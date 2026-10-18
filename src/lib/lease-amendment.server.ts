@@ -21,6 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { withoutHostBlocks } from "@/lib/channel-calendar/host-block";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
+import { hasBothLeaseSignatures } from "@/lib/lease-execution-evidence";
 
 function asObject(v: unknown): Record<string, unknown> | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
@@ -31,13 +32,7 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export function hasBothLeaseSignatures(row: LeasePipelineRow): boolean {
-  const mgr = row.managerSignature as Record<string, unknown> | null | undefined;
-  const res = row.residentSignature as Record<string, unknown> | null | undefined;
-  const legacyName = typeof row.signatureName === "string" ? row.signatureName : null;
-  const legacyAt = typeof row.signedAtIso === "string" ? row.signedAtIso : null;
-  return Boolean(mgr?.name && mgr?.signedAtIso && ((res?.name && res?.signedAtIso) || (legacyName && legacyAt)));
-}
+export { hasBothLeaseSignatures };
 
 function archiveSignedLeaseSnapshot(leaseRow: LeasePipelineRow): SignedLeaseSnapshot[] {
   if (!hasBothLeaseSignatures(leaseRow)) return leaseRow.signedLeaseSnapshots ?? [];

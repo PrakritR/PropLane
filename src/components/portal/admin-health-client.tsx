@@ -23,6 +23,7 @@ const GROUP_ICON: Record<AdminHealthGroupId, LucideIcon> = {
   webhooks: Webhook,
   disputes: Wallet,
   applications: ClipboardList,
+  payments: Wallet,
 };
 
 /** Tab labels: the group's noun, not a sentence. */
@@ -31,6 +32,7 @@ const GROUP_TAB_LABEL: Record<AdminHealthGroupId, string> = {
   webhooks: "Webhooks",
   disputes: "Disputes",
   applications: "Applications",
+  payments: "Payments",
 };
 
 function groupFromParam(raw: string | null, groups: AdminHealth["groups"]): AdminHealthGroupId {

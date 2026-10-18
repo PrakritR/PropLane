@@ -77,6 +77,7 @@ import {
 } from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
+import { recordHouseholdSourceReviewNeeded } from "@/lib/household-source-review.server";
 import { creditVerifiedHouseholdCheckoutSource, creditVerifiedHouseholdManualSource,
   verifyExistingHistoricalHouseholdHold } from "@/lib/household-captured-source.server";
 import {
@@ -392,7 +393,28 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             }
             await enrichCheckoutLedgerFees(stripe, session);
             if (session.metadata?.source_arbitration_v === "1") {
-              await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
+              try {
+                await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
+              } catch (creditError) {
+                // Still rethrown below, so Stripe keeps retrying — but the retries call the
+                // same function with the same frozen inputs, so a deliberate refusal
+                // outlives them. File it against the manager first (one row per session)
+                // so the paid charge with no hold is findable after the retries stop.
+                await recordHouseholdSourceReviewNeeded(db, {
+                  ownerManagerUserId: session.metadata?.manager_user_id,
+                  sourceId: session.id,
+                  paymentIntentId: typeof session.payment_intent === "string"
+                    ? session.payment_intent
+                    : session.payment_intent?.id ?? null,
+                  chargeIds: (session.metadata?.charge_ids ?? session.metadata?.charge_id ?? "")
+                    .split(",")
+                    .map((id) => id.trim())
+                    .filter(Boolean),
+                  surface: "webhook",
+                  error: creditError,
+                });
+                throw creditError;
+              }
             } else {
               if (session.metadata?.source_arbitration_v) {
                 throw new Error("Unknown household source arbitration version.");
