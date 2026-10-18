@@ -173,7 +173,7 @@ describe("the Service list", () => {
     const asA = await svc.listServiceWorkspaces(client(), ADMIN_A);
     const asB = await svc.listServiceWorkspaces(client(), ADMIN_B);
     expect(asA.ok && asA.payload.workspaces).toEqual([
-      { id, name: "PropLane Seattle", city: "Seattle", isDefault: true, houseCount: 2, workNumber: "+12065550100", workNumberSource: "own", teamCount: 1, viewerRole: "admin", canManage: true },
+      { id, name: "PropLane Seattle", city: "Seattle", ownerOfRecord: null, isDefault: true, houseCount: 2, workNumber: "+12065550100", workNumberSource: "own", teamCount: 1, viewerRole: "admin", canManage: true },
     ]);
     expect(asB.ok && asB.payload.workspaces[0]).toMatchObject({ viewerRole: null, canManage: false });
   });
