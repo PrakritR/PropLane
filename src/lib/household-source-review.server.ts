@@ -23,11 +23,33 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 export const HOUSEHOLD_SOURCE_REVIEW_ACTION = "household_source_review";
 
+/**
+ * Where the refusal was seen. The webhook surfaces matter most: ACH clears days after the
+ * resident left, and off-session autopay rent has no interactive verify path at all, so
+ * those credits are the ones nobody is watching.
+ */
+export type HouseholdSourceReviewSurface =
+  | "checkout_verify"
+  | "manual_ach_verify"
+  | "webhook"
+  | "webhook_manual_ach"
+  | "webhook_autopay";
+
 /** The reason string as stored: one line, bounded, never a stack trace. */
 export const HOUSEHOLD_SOURCE_REVIEW_REASON_MAX_CHARS = 300;
 
 export function householdSourceReviewDedupeKey(sourceId: string): string {
   return `${HOUSEHOLD_SOURCE_REVIEW_ACTION}:${sourceId.trim()}`;
+}
+
+/** The charge ids a household source's metadata names, in the order it names them. */
+export function householdChargeIdsFromMetadata(
+  metadata: { charge_ids?: string | null; charge_id?: string | null } | null | undefined,
+): string[] {
+  return (metadata?.charge_ids || metadata?.charge_id || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
 }
 
 export function householdSourceReviewReason(error: unknown): string {
@@ -53,8 +75,8 @@ export async function recordHouseholdSourceReviewNeeded(
     sourceId: string;
     paymentIntentId?: string | null;
     chargeIds?: readonly string[];
-    /** Which verify path saw it, so staff know where to look. */
-    surface: "checkout_verify" | "manual_ach_verify" | "webhook";
+    /** Which path saw it, so staff know where to look. */
+    surface: HouseholdSourceReviewSurface;
     error: unknown;
   },
 ): Promise<{ recorded: boolean; reason: string }> {
@@ -100,4 +122,32 @@ export async function recordHouseholdSourceReviewNeeded(
 
 function isDuplicateKey(error: { code?: string | null; message?: string | null }): boolean {
   return error.code === "23505" || /duplicate key|already exists/i.test(error.message ?? "");
+}
+
+/**
+ * Run a platform credit and, if it refuses, file the trace before letting the error through.
+ *
+ * Every `creditVerifiedHousehold*Source` call on a non-interactive path goes through this
+ * instead of its own try/catch, so the pairing lives in ONE place and a credit path added
+ * later cannot quietly ship without a trace. The error is rethrown unchanged: the webhook
+ * must still answer 500 so Stripe retries, and the dedupe key makes the extra files during
+ * those retries collapse into the one row.
+ */
+export async function creditOrFileHouseholdSourceReview<T>(
+  db: SupabaseClient,
+  input: {
+    ownerManagerUserId: string | null | undefined;
+    sourceId: string;
+    paymentIntentId?: string | null;
+    chargeIds?: readonly string[];
+    surface: HouseholdSourceReviewSurface;
+  },
+  credit: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await credit();
+  } catch (error) {
+    await recordHouseholdSourceReviewNeeded(db, { ...input, error });
+    throw error;
+  }
 }

@@ -332,6 +332,21 @@ const PORTAL_INBOX_SYNC_TTL_MS = 15_000;
  * forced read still bypasses it.
  */
 const INBOX_THREADS_SHARED_TTL_MS = 2_500;
+
+/**
+ * The active workspace, as a CACHE KEY ONLY — the same pattern `assistantEmailUrl` uses.
+ *
+ * The route resolves the workspace from the request (cookie + membership) and never reads
+ * this, but it lists a different set of conversations per workspace, which is why
+ * `viewerCacheKey` keys on the workspace too. `sharedGet` keys strictly on the URL and is
+ * only reset when the ACCOUNT changes, so without the workspace in the URL a switch inside
+ * the TTL above would be answered from the previous workspace's rows — and then stored
+ * under the new workspace's slot.
+ */
+function workspaceCacheKeyParam(): string {
+  const workspaceId = selectedWorkspaceId()?.trim();
+  return workspaceId ? `&workspaceId=${encodeURIComponent(workspaceId)}` : "";
+}
 let inboxMutationDepth = 0;
 
 /** True while a trash/restore/delete/reply mutation is in flight — blocks stale full replace syncs. */
@@ -499,10 +514,10 @@ export async function syncPersistedInboxFromServerWithStatus(
       // Through `sharedGet`: the readers on one page load each used to ask for themselves.
       // A forced ask still starts a request that begins after the ask; an unforced one may
       // answer from the last few seconds (see INBOX_THREADS_SHARED_TTL_MS).
-      const res = await sharedGet(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, {
-        force,
-        ttlMs: force ? 0 : INBOX_THREADS_SHARED_TTL_MS,
-      });
+      const res = await sharedGet(
+        `/api/portal-inbox-threads?scope=${encodeURIComponent(key)}${workspaceCacheKeyParam()}`,
+        { force, ttlMs: force ? 0 : INBOX_THREADS_SHARED_TTL_MS },
+      );
       // An older viewer may complete after A -> B -> A. Do not let its 401
       // latch the new session or let any of its data touch the new cache slot.
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };

@@ -42,7 +42,10 @@ describe("C8: a list row has no figure of its own beside the sidebar's number", 
 describe("C12: Communication page reads go through sharedGet", () => {
   it("the five routes", () => {
     expect(read("src/lib/manager-sms-conversations-client.ts")).toContain("sharedGet(");
-    expect(read("src/lib/portal-inbox-storage.ts")).toMatch(/sharedGet\(`\/api\/portal-inbox-threads/);
+    // The threads read carries the active workspace as a cache-key-only param, so the URL
+    // no longer sits on the `sharedGet(` line itself.
+    const inboxStorage = read("src/lib/portal-inbox-storage.ts");
+    expect(inboxStorage).toMatch(/sharedGet\(\s*`\/api\/portal-inbox-threads\?scope=\$\{encodeURIComponent\(key\)\}\$\{workspaceCacheKeyParam\(\)\}`/);
     expect(read("src/lib/sms/manager-messaging-number-client.ts")).toContain("sharedGet(MESSAGING_NUMBER_URL)");
     expect(read("src/components/portal/pro-inbox.tsx")).toContain("sharedGet(assistantEmailUrl(");
     expect(read("src/components/portal/pro-work-number-card.tsx")).toContain("sharedGet(assistantEmailUrl(");

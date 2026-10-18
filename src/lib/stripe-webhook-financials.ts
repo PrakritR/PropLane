@@ -20,6 +20,7 @@ import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-releas
 import { settleClearedPlatformOwnerRecovery } from "@/lib/platform-owner-recovery.server";
 import { creditVerifiedHouseholdAutopaySource,
   verifyExistingHistoricalAutopayHold } from "@/lib/household-captured-source.server";
+import { creditOrFileHouseholdSourceReview } from "@/lib/household-source-review.server";
 import { settleReservedPlatformMoneyRefundFromWebhook } from "@/lib/platform-money-refund.server";
 import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { settleVendorRefundFromWebhook } from "@/lib/vendor-banking/central-refund.server";
@@ -654,7 +655,20 @@ export async function handleAutopayPaymentIntentSucceeded(
   const paid = await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, chargeId);
   if (paymentIntent.metadata?.source_arbitration_v === "1") {
     if (!paid.ok) throw new Error("Marked autopay claim did not settle the captured source.");
-    await creditVerifiedHouseholdAutopaySource(db, getStripe(), paymentIntent, chargeId);
+    // Off-session rent: nobody is on a verify page when this runs, so a refusal that
+    // outlives Stripe's retries would otherwise leave a paid charge with no hold and
+    // nothing to find it by. Filed against the manager, then rethrown unchanged.
+    await creditOrFileHouseholdSourceReview(
+      db,
+      {
+        ownerManagerUserId: paymentIntent.metadata?.manager_user_id,
+        sourceId: paymentIntent.id,
+        paymentIntentId: paymentIntent.id,
+        chargeIds: [chargeId],
+        surface: "webhook_autopay",
+      },
+      () => creditVerifiedHouseholdAutopaySource(db, getStripe(), paymentIntent, chargeId),
+    );
     return; // The exact claim SQL already stamped the run succeeded.
   } else {
     if (paymentIntent.metadata?.source_arbitration_v) {

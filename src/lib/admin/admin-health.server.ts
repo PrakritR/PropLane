@@ -116,10 +116,14 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
       .limit(STUCK_APPLICATION_READ),
     // A resident payment that settled but whose manager hold refused: the charge is paid
     // and the money is sitting on the platform with no allocation, so it needs a person.
+    // Windowed like every sibling group — this page is what is broken right now, and an
+    // `audit_log` row is permanent with no acknowledge path, so an unwindowed query would
+    // keep listing reviews staff already handled (and make `capped` meaningless).
     db
       .from("audit_log")
       .select("id, landlord_id, input_summary, result_summary, created_at")
       .eq("action", HOUSEHOLD_SOURCE_REVIEW_ACTION)
+      .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(ROW_CAP),
   ]);

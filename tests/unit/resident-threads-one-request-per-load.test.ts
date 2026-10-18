@@ -89,6 +89,42 @@ describe("the resident thread list on one page load", () => {
     expect(calls.filter((url) => url.startsWith(URL_THREADS))).toHaveLength(2);
   });
 
+  it("never answers one workspace's reader from another workspace's read", async () => {
+    // The route lists a different set of conversations per active workspace (it resolves the
+    // workspace server-side), and `sharedGet` is only reset when the ACCOUNT changes — so the
+    // workspace has to be part of the URL or a switch inside the TTL serves the old rows.
+    const calls: string[] = [];
+    stubFetch(calls);
+    const { MANAGER_INBOX_STORAGE_KEY, syncPersistedInboxFromServerWithStatus } = await import(
+      "@/lib/portal-inbox-storage"
+    );
+    const { setPortalSessionViewer } = await import("@/lib/auth/portal-session-gate");
+    const { setWorkspaceSelection } = await import("@/lib/workspaces/selection");
+    setPortalSessionViewer("manager-1");
+
+    const workspace = (id: string) => ({
+      activeWorkspaceId: id,
+      workspaces: [
+        { id: "ws-a", name: "A", ownerUserId: "manager-1", isDefault: true },
+        { id: "ws-b", name: "B", ownerUserId: "manager-1", isDefault: false },
+      ],
+    });
+
+    setWorkspaceSelection(workspace("ws-a") as never);
+    await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY);
+    setWorkspaceSelection(workspace("ws-b") as never);
+    await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY);
+
+    const threadReads = calls.filter((url) => url.startsWith("/api/portal-inbox-threads"));
+    expect(threadReads).toHaveLength(2);
+    expect(threadReads[0]).toContain("workspaceId=ws-a");
+    expect(threadReads[1]).toContain("workspaceId=ws-b");
+    // ...and the second workspace still shares one request among its own readers.
+    await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY);
+    expect(calls.filter((url) => url.startsWith("/api/portal-inbox-threads"))).toHaveLength(2);
+    setWorkspaceSelection(null);
+  });
+
   it("never answers one account's reader from another account's read", async () => {
     const calls: string[] = [];
     stubFetch(calls);
