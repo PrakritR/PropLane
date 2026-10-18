@@ -1,24 +1,36 @@
 /**
- * A checkout request must never spin forever. `fetchJsonWithTimeout` aborts the
- * request (headers and body) after `timeoutMs` and rejects with a plain,
- * retryable message; the caller shows it next to a Retry button.
+ * A request must never spin forever. `fetchJsonWithTimeout` aborts the request
+ * (headers and body) after `timeoutMs` and rejects with a plain, retryable
+ * message; the caller shows it next to a Retry button.
+ *
+ * `timeoutMessage` is REQUIRED and belongs to the caller, because this message
+ * is rendered verbatim: the route the caller is reading is the only thing that
+ * knows what took too long. There is deliberately no default — a shared one is
+ * how Settings → Add-ons came to tell a manager that a checkout timed out.
  */
-export const CHECKOUT_TIMEOUT_MS = 15_000;
-export const CHECKOUT_TIMEOUT_MESSAGE = "Checkout is taking too long. Check your connection and try again.";
+export const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 
-export class CheckoutTimeoutError extends Error {
-  constructor() {
-    super(CHECKOUT_TIMEOUT_MESSAGE);
-    this.name = "CheckoutTimeoutError";
+export class FetchTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FetchTimeoutError";
   }
 }
 
+export type FetchJsonTimeoutOptions = {
+  /** Shown verbatim by the caller when the request times out. */
+  timeoutMessage: string;
+  timeoutMs?: number;
+};
+
 export async function fetchJsonWithTimeout<T>(
   input: string,
-  init: RequestInit = {},
-  timeoutMs: number = CHECKOUT_TIMEOUT_MS,
+  init: RequestInit,
+  options: FetchJsonTimeoutOptions,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: boolean; status: number; body: T }> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+  const timeoutMessage = options.timeoutMessage;
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -39,7 +51,7 @@ export async function fetchJsonWithTimeout<T>(
       reject(
         callerAborted
           ? (callerSignal?.reason ?? new DOMException("Aborted", "AbortError"))
-          : new CheckoutTimeoutError(),
+          : new FetchTimeoutError(timeoutMessage),
       );
     if (controller.signal.aborted) fail();
     else controller.signal.addEventListener("abort", fail, { once: true });
@@ -56,7 +68,7 @@ export async function fetchJsonWithTimeout<T>(
     return await Promise.race([request, timeout]);
   } catch (e) {
     if (callerAborted) throw callerSignal?.reason ?? e;
-    if (timedOut) throw new CheckoutTimeoutError();
+    if (timedOut) throw new FetchTimeoutError(timeoutMessage);
     throw e;
   } finally {
     clearTimeout(timer);

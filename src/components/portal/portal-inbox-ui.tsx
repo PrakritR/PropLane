@@ -1,5 +1,5 @@
 "use client";
-import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentsHaveFailure } from "@/lib/inbox-attachment-send-gate";
+import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentSendBlockReason } from "@/lib/inbox-attachment-send-gate";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
@@ -1963,8 +1963,12 @@ export function InboxComposer({
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   // A failed upload blocks the send (it used to be dropped silently, so the
   // message left without the file the chip said had failed).
-  const hasFailedAttachment = inboxAttachmentsHaveFailure(attachments);
-  const canSend = !sending && !disabled && !hasFailedAttachment && (value.trim().length > 0 || hasReadyAttachment);
+  // One gate: a failed upload AND an upload still in flight both hold the send, and the
+  // same gate names the reason the button shows for being inert.
+  const attachmentBlockReason = inboxAttachmentSendBlockReason(attachments);
+  const canSend =
+    !sending && !disabled && attachmentBlockReason === null && (value.trim().length > 0 || hasReadyAttachment);
+  const sendLabel = sendAtLabel ? `Send at ${sendAtLabel}` : "Send";
   const resolvedChannel = channelControl ?? null;
   return (
     <div
@@ -2081,8 +2085,8 @@ export function InboxComposer({
           <button
             type="submit"
             disabled={!canSend}
-            aria-label={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
-            title={hasFailedAttachment ? INBOX_ATTACHMENT_FAILED_MESSAGE : sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
+            aria-label={attachmentBlockReason ?? sendLabel}
+            title={attachmentBlockReason ?? sendLabel}
             data-attr={dataAttr ? `${dataAttr}-send` : undefined}
             className={PORTAL_INBOX_COMPOSER_SEND_CLASS}
           >

@@ -7,8 +7,10 @@ import {
 } from "@/lib/portal-inbox-storage";
 import {
   INBOX_ATTACHMENT_FAILED_MESSAGE,
+  inboxAttachmentSendBlockReason,
   inboxAttachmentsAllowSend,
   inboxAttachmentsHaveFailure,
+  INBOX_ATTACHMENT_UPLOADING_MESSAGE,
 } from "@/lib/inbox-attachment-send-gate";
 import { aiDraftFieldsAfterReply } from "@/lib/communication/shared-thread-merge";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
@@ -77,6 +79,15 @@ describe("C6: a failed attachment blocks the send", () => {
     expect(inboxAttachmentsAllowSend([])).toBe(true);
     expect(inboxAttachmentsAllowSend(undefined)).toBe(true);
     expect(inboxAttachmentsAllowSend([{}, {}])).toBe(true);
+  });
+  it("names the reason, so every composer shows the same copy from one gate", () => {
+    expect(inboxAttachmentSendBlockReason([{ error: "Upload failed" }])).toBe(INBOX_ATTACHMENT_FAILED_MESSAGE);
+    expect(inboxAttachmentSendBlockReason([{ uploading: true }])).toBe(INBOX_ATTACHMENT_UPLOADING_MESSAGE);
+    expect(inboxAttachmentSendBlockReason([{ uploading: true }, { error: "Upload failed" }])).toBe(
+      INBOX_ATTACHMENT_FAILED_MESSAGE,
+    );
+    expect(inboxAttachmentSendBlockReason([{}, {}])).toBeNull();
+    expect(inboxAttachmentSendBlockReason(undefined)).toBeNull();
   });
 });
 

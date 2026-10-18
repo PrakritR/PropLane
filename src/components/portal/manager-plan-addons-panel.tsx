@@ -9,11 +9,14 @@ import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
-import { fetchJsonWithTimeout } from "@/lib/comms-billing/checkout-timeout";
+import { fetchJsonWithTimeout } from "@/lib/fetch-json-with-timeout";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { formatAddonPrice, PLAN_ADDON_STOREFRONT_IDS, type PlanAddonId } from "@/lib/plan-addons";
 
 const ENDPOINT = "/api/manager/plan-addons";
+
+/** This panel's own timeout copy — no checkout is involved in saving add-ons. */
+const ADDONS_TIMEOUT_MESSAGE = "Saving add-ons is taking too long. Try again.";
 
 /** The fact that follows the per-unit price on each add-on's row label (PLAN-0920 UI mock). */
 const ADDON_ROW_FACT: Partial<Record<PlanAddonId, string>> = {
@@ -123,12 +126,16 @@ export function ManagerPlanAddonsPanel() {
     setNotice(null);
     setSaveFailed(false);
     try {
-      const { ok, body } = await fetchJsonWithTimeout<AddonsPayload & { error?: string; stripeSynced?: boolean }>(ENDPOINT, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changes }),
-      });
+      const { ok, body } = await fetchJsonWithTimeout<AddonsPayload & { error?: string; stripeSynced?: boolean }>(
+        ENDPOINT,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ changes }),
+        },
+        { timeoutMessage: ADDONS_TIMEOUT_MESSAGE },
+      );
       if (!ok) throw new Error(body.error || "We couldn’t update your add-ons. Nothing changed.");
       if (!mounted.current) return;
       setData(body);

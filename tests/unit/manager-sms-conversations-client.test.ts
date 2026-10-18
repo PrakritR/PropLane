@@ -136,6 +136,33 @@ describe("loadManagerSmsConversationsClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  // A network blip is not an answer: caching the synthetic 503 would replay it for the
+  // full 20s TTL, leaving the inbox empty long after the connection came back.
+  it("never holds a network failure for the TTL — the next unforced read retries", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValueOnce(payload("recovered"));
+    setPortalSessionViewer("viewer-ttl-offline");
+
+    const failed = await loadManagerSmsConversationsClient("viewer-ttl-offline");
+    expect(failed.status).toBe(503);
+
+    const retried = await loadManagerSmsConversationsClient("viewer-ttl-offline");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(retried.json()).resolves.toEqual({ residents: [{ conversationKey: "recovered", messages: [] }] });
+  });
+
+  it("holds the route's own refusal for the TTL — it is an answer, not a blip", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "No work number" }, { status: 409 }));
+    setPortalSessionViewer("viewer-ttl-refused");
+
+    const refused = await loadManagerSmsConversationsClient("viewer-ttl-refused");
+    expect(refused.status).toBe(409);
+    const again = await loadManagerSmsConversationsClient("viewer-ttl-refused");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(again.json()).resolves.toEqual({ error: "No work number" });
+  });
+
   it("caches each cursor separately and invalidates every page for one workspace", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(payload("head"))

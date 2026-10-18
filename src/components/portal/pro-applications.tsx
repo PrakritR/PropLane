@@ -102,6 +102,7 @@ import {
 import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
   inProgressApplicationResumeUrl,
+  applicationListTabForRow,
   applicationStageDisplayLabel,
   countApplicationsByTab,
   INCOMPLETE_APPLICATION_LABEL,
@@ -215,11 +216,11 @@ type ManagerApplicationTabId = ApplicationListTabId;
  * `bucket: "pending"` and reads in Pending with a "Withdrawn" fact on it:
  * Approve is simply not offered on it (`isApprovableApplicationRow`), and an
  * Incomplete draft is the same, with a Remind icon instead.
+ *
+ * Shared with `countApplicationsByTab` so the tab number is the row count.
  */
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
-  if (row.bucket === "rejected") return "rejected";
-  if (row.bucket === "approved") return "approved";
-  return "pending";
+  return applicationListTabForRow(row);
 }
 
 /** One line of plain glyph facts at the top of an application: status, income, home, move-in. */

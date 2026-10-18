@@ -1,7 +1,7 @@
 "use client";
 
 import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
-import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentsHaveFailure } from "@/lib/inbox-attachment-send-gate";
+import { inboxAttachmentSendBlockReason } from "@/lib/inbox-attachment-send-gate";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -1768,12 +1768,9 @@ export const ManagerInbox = forwardRef<
       showToast("Choose PropLane, Email, SMS, or a combination.");
       return;
     }
-    if (replyAttachments.some((a) => a.uploading)) {
-      showToast("Wait for uploads to finish.");
-      return;
-    }
-    if (inboxAttachmentsHaveFailure(replyAttachments)) {
-      showToast(INBOX_ATTACHMENT_FAILED_MESSAGE);
+    const attachmentBlockReason = inboxAttachmentSendBlockReason(replyAttachments);
+    if (attachmentBlockReason) {
+      showToast(attachmentBlockReason);
       return;
     }
 

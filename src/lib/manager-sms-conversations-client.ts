@@ -18,7 +18,7 @@ import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 const SMS_CONVERSATIONS_TTL_MS = 20_000;
 
 type SmsConversationsEntry = {
-  reader: ReturnType<typeof createCoalescedRefresher<SmsResponseSnapshot>>;
+  reader: ReturnType<typeof createCoalescedRefresher<SmsReaderResult>>;
   lastResponse: SmsResponseSnapshot | null;
   fetchedAt: number;
   /** The next run was asked for fresh (`force`): its request must start after that ask. */
@@ -31,6 +31,13 @@ type SmsResponseSnapshot = {
   statusText: string;
   headers: Headers;
 };
+
+/**
+ * A transport failure (`sharedGet` status 0: network down, request timed out) is NOT an answer,
+ * so it is never held for the TTL — the next unforced read retries instead of replaying a blip
+ * for 20s. The route's own refusals (4xx/5xx) are answers and do settle.
+ */
+type SmsReaderResult = { snapshot: SmsResponseSnapshot; cacheable: boolean };
 
 function responseFromSnapshot(snapshot: SmsResponseSnapshot): Response {
   return new Response(snapshot.body.slice(0), {
@@ -106,15 +113,19 @@ export async function loadManagerSmsConversationsClient(
         const force = pending.force;
         pending.force = false;
         const result = await sharedGet(`/api/manager/sms-conversations${query}`, { force, ttlMs: 0 });
-        const status = result.ok ? result.status : result.status >= 200 && result.status <= 599 ? result.status : 503;
+        const transportFailure = !result.ok && (result.status < 200 || result.status > 599);
+        const status = transportFailure ? 503 : result.status;
         // The route's own error payload rides through on a refusal too: a caller that reads
         // `error` off the body gets the real reason instead of an empty object.
         const text = JSON.stringify(result.data ?? (result.ok ? null : {}));
         return {
-          body: new TextEncoder().encode(text).buffer as ArrayBuffer,
-          status,
-          statusText: "",
-          headers: new Headers({ "content-type": "application/json" }),
+          snapshot: {
+            body: new TextEncoder().encode(text).buffer as ArrayBuffer,
+            status,
+            statusText: "",
+            headers: new Headers({ "content-type": "application/json" }),
+          },
+          cacheable: !transportFailure,
         };
       }),
       lastResponse: null,
@@ -127,9 +138,11 @@ export async function loadManagerSmsConversationsClient(
     return responseFromSnapshot(entry.lastResponse);
   }
   if (force) entry.pending.force = true;
-  const snapshot = await entry.reader.run(force);
-  entry.lastResponse = snapshot;
-  entry.fetchedAt = Date.now();
+  const { snapshot, cacheable } = await entry.reader.run(force);
+  if (cacheable) {
+    entry.lastResponse = snapshot;
+    entry.fetchedAt = Date.now();
+  }
   return responseFromSnapshot(snapshot);
 }
 
