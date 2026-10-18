@@ -62,4 +62,12 @@ describe("one-number redaction", () => {
       "For your security, please do not text card or bank numbers. Use your secure payment link instead.",
     );
   });
+
+  it("redacts a dashed social security number and reports it as ssn", () => {
+    const r = redactSensitiveNumbers("my ssn is 123-45-6789 ok");
+    expect(r.text).toBe(`my ssn is ${REDACTION_MARK} ok`);
+    expect(r.kinds).toEqual(["ssn"]);
+    expect(redactSensitiveNumbers("call 206-555-0142").redacted).toBe(false);
+    expect(redactSensitiveNumbers("ref 1123-45-67890").redacted).toBe(false);
+  });
 });
