@@ -120,7 +120,7 @@ async function recordReply(db: SupabaseClient, leadId: string, messageSid: strin
     lead_id: leadId,
     direction: "outbound",
     body,
-    message_sid: `reply:${messageSid}`,
+    message_sid: messageSid ? `reply:${messageSid}` : null,
     media: mediaUrls.length ? { urls: mediaUrls } : null,
   });
 }
