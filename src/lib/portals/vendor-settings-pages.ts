@@ -109,7 +109,7 @@ export const VENDOR_LIST_GEAR_TARGETS = {
   services: "capabilities", // Trades & service area
   payments: "payouts", // Payouts
   reviews: "profile", // Profile
-  communication: "quick-replies", // Quick replies
+  communication: "messaging", // Phone & notifications (Quick replies is a section of it)
 } as const satisfies Record<string, VendorSettingsPageId>;
 
 export type VendorListGearSection = keyof typeof VENDOR_LIST_GEAR_TARGETS;
