@@ -55,7 +55,10 @@ function fixture() {
     let update: Row | null = null;
     let selectedLineIds = false;
     let limitCalled = false;
+    // The line config lists which workspaces hold a number of their own (`.not("workspace_id", "is", null)`).
+    let listsDedicated = false;
     const result = () => {
+      if (table === "manager_sms_numbers" && listsDedicated) return { data: [], error: null };
       if (table === "sms_runtime_config") return { data: mocks.runtimeRow, error: null };
       if (table === "portal_workspaces") return { data: { id: "ws-1", name: "Brooklyn" }, error: null };
       if (table === "manager_sms_numbers") {
@@ -74,7 +77,7 @@ function fixture() {
       eq(column: string, value: unknown) { filters.push((r) => r[column] === value); return q; },
       gt() { return q; }, lt() { return q; }, lte() { return q; },
       in(column: string, values: unknown[]) { if (table === "sms_outbox" && column === "id") selectedLineIds = true; filters.push((r) => values.includes(r[column])); return q; },
-      not() { return q; }, is() { return q; }, order() { return q; },
+      not(column: string) { if (table === "manager_sms_numbers" && column === "workspace_id") listsDedicated = true; return q; }, is() { return q; }, order() { return q; },
       limit() { limitCalled = true; return q; },
       update(payload: Row) { update = payload; return q; },
       insert(payload: Row) {
