@@ -33,7 +33,7 @@ export type GroupTextClass = {
 
 const ADDRESSED = /(?<![a-z0-9])@?prop\s?lane(?![a-z0-9])/i;
 const LEAVE = /^\s*(please\s+)?(leave|exit|quit|remove me from)(\s+(the\s+)?(house\s+)?(group|thread|chat))\s*[.!]?\s*$/i;
-const JOIN = /^\s*(please\s+)?(join|rejoin|add me to)(\s+(the\s+)?(house\s+)?(group|thread|chat))?\s*[.!]?\s*$/i;
+const JOIN = /^\s*(please\s+)?(join|rejoin|add me to)\s+(the\s+)?(house\s+)?(group|thread|chat)\s*[.!]?\s*$/i;
 
 const QUESTION_WORD = /^(what|what's|whats|when|where|who|which|how|is|are|does|do|can|could|anyone know|any idea|do you know)\b/i;
 const HOUSE_TOPIC =
@@ -53,10 +53,16 @@ const GENERAL_RULE = /\b(smok\w*|vap\w*|overnight guests?|guest(s)? (staying|eve
 const COMPLAINT =
   /\b(complain\w*|sick of|fed up|so annoying|annoying|rude|unacceptable|ridiculous|disgusting|can'?t stand|every (single )?(night|day)|again and again|keeps? (leaving|doing|playing)|always (leav\w*|loud|late)|never (clean\w*|wash\w*|take\w*)|not okay|not ok|enough already)\b/i;
 
+/** "leave group" / "join group" as the WHOLE text, in a 1:1 or in the group. */
+export function groupPreferenceCommand(body: string | null | undefined): "leave" | "join" | null {
+  const text = String(body ?? "");
+  return LEAVE.test(text) ? "leave" : JOIN.test(text) ? "join" : null;
+}
+
 export function classifyGroupText(text: string): GroupTextClass {
   const body = String(text ?? "").trim();
   const emergency = classifySharedLineKeyword(body) === "EMERGENCY";
-  const command = LEAVE.test(body) ? "leave" : JOIN.test(body) ? "join" : null;
+  const command = groupPreferenceCommand(body);
   const addressed = ADDRESSED.test(body);
 
   const asksSomething = body.includes("?") || QUESTION_WORD.test(body.replace(/^@?prop\s?lane[,:]?\s*/i, ""));

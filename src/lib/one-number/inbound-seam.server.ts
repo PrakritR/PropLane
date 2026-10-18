@@ -8,6 +8,7 @@ import {
   type SharedLineInbound,
 } from "@/lib/one-number/contracts";
 import { workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { groupPreferenceCommand } from "@/lib/house-groups/ra-policy";
 import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
@@ -74,6 +75,17 @@ async function reply(
  * existing pipeline as the workspace owner; every other outcome is answered here.
  */
 export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInput): Promise<SharedLineSeamResult> {
+  // "leave group" / "join group" (house group chats): answered here, before routing, when the sender is a resident of a chat-enabled house.
+  const groupCommand = groupPreferenceCommand(input.body);
+  if (groupCommand) {
+    try {
+      const { handleGroupPreferenceText } = await import("@/lib/house-groups/ra.server");
+      const handled = await handleGroupPreferenceText(db, { fromPhone: input.fromPhone, command: groupCommand, messageSid: input.messageSid });
+      if (handled.handled) return { kind: "handled", twiml: handled.reply };
+    } catch (error) {
+      console.error("house group preference failed", error instanceof Error ? error.name : "unknown");
+    }
+  }
   const inbound: SharedLineInbound = {
     fromPhone: input.fromPhone,
     phoneKey: input.phoneKey,
