@@ -10,6 +10,7 @@ import {
 } from "@/lib/stripe-household-charge";
 import { loadResidentCheckoutAttemptForSession } from "@/lib/resident-checkout-claim.server";
 import { creditVerifiedHouseholdCheckoutSource } from "@/lib/household-captured-source.server";
+import { recordHouseholdSourceReviewNeeded } from "@/lib/household-source-review.server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 
 export const runtime = "nodejs";
@@ -72,6 +73,8 @@ export async function GET(req: Request) {
 
     const chargeId = attempt.charge_ids[0] ?? null;
     let alreadyPaid = false;
+    /** The platform-side allocation refused; the resident's charge is paid regardless. */
+    let sourceReview = false;
 
     if (paid) {
       const result = await markHouseholdChargePaidFromStripeSession(db, session);
@@ -79,9 +82,27 @@ export async function GET(req: Request) {
         error: "The payment source could not be settled yet." }, { status: 409 });
       try {
         await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
-      } catch {
-        return NextResponse.json({ paid: false, processing: false,
-          error: "The payment source needs review." }, { status: 409 });
+      } catch (e) {
+        // The charge rows are ALREADY paid by the line above, so answering `paid: false`
+        // told the resident their completed payment had not gone through and left it
+        // sitting in Upcoming. Crediting the manager's hold is platform accounting, it is
+        // idempotent, and the `checkout.session.completed` webhook runs the very same
+        // credit — so it is reported, never a refusal of a settled payment. Every refusal
+        // is deliberate and the webhook's retries cannot talk it round, so the reason is
+        // filed durably against the manager (one row per session, admin Health) AND logged
+        // with its stack here, rather than discarded.
+        console.error("[household verify] credit verified source", e);
+        await recordHouseholdSourceReviewNeeded(db, {
+          ownerManagerUserId: session.metadata?.manager_user_id,
+          sourceId: session.id,
+          paymentIntentId: typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id ?? null,
+          chargeIds: attempt.charge_ids,
+          surface: "checkout_verify",
+          error: e,
+        });
+        sourceReview = true;
       }
       alreadyPaid = result.alreadyPaid ?? false;
     } else if (processing) {
@@ -98,6 +119,7 @@ export async function GET(req: Request) {
       paymentStatus: session.payment_status,
       chargeId,
       alreadyPaid,
+      ...(sourceReview ? { sourceReview: true } : {}),
       sessionId: session.id,
     });
   } catch (e) {

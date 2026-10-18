@@ -24,13 +24,15 @@ import {
   residentPaymentMethodsForSurface,
 } from "@/lib/platform/resident-payments";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 function centsFromLabel(label: string): number {
   return Math.round(parseMoneyAmount(label) * 100);
 }
 
+/** The shared money formatter: "$1,400", and cents only when there are any. */
 function formatUsd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatRoomPriceAmount(cents / 100);
 }
 
 type CheckoutState = {

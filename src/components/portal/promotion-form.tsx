@@ -284,12 +284,22 @@ export function PromotionForm({
   listings,
   onSelectProperty,
   hidePropertyPicker = false,
+  hidePreview = false,
+  singleColumn = false,
 }: {
   draft: PromotionDraft;
   setDraft: React.Dispatch<React.SetStateAction<PromotionDraft>>;
   listings: ManagerPromotionPropertyOption[];
   onSelectProperty: (key: string) => void;
   hidePropertyPicker?: boolean;
+  /** The caller draws the live flyer itself (a pop-up's preview column), so the form does not repeat it. */
+  hidePreview?: boolean;
+  /**
+   * One field per row. The editor column of the Edit flyer pop-up already shares its width
+   * with the live flyer beside it, and a second grid column inside it left each field about
+   * 200px — narrower than the values they hold.
+   */
+  singleColumn?: boolean;
 }) {
   const { showToast } = useAppUi();
   const [readingPhotos, setReadingPhotos] = useState(false);
@@ -321,9 +331,11 @@ export function PromotionForm({
     }
   }
 
+  // In one column every cell is already full width, so the span helpers come off with it.
+  const wide = singleColumn ? "" : "sm:col-span-2";
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div className="sm:col-span-2 rounded-xl border border-border bg-card p-3">
+    <div className={singleColumn ? "grid gap-3" : "grid gap-3 sm:grid-cols-2"}>
+      <div className={`${wide} rounded-xl border border-border bg-card p-3`}>
         <PromotionAiDraftPhotoPicker
           images={draft.images}
           readingPhotos={readingPhotos}
@@ -348,7 +360,7 @@ export function PromotionForm({
           placeholder="The Pioneer, Pioneer Square"
         />
       </div>
-      <div className="sm:col-span-2">
+      <div className={wide}>
         <label className="text-xs font-semibold text-muted">Address (shown on flyer)</label>
         <Input
           className="mt-1"
@@ -358,7 +370,7 @@ export function PromotionForm({
         />
       </div>
       {isCustom && !hidePropertyPicker ? (
-        <div className="sm:col-span-2">
+        <div className={wide}>
           <label className="text-xs font-semibold text-muted">Custom property details</label>
           <Textarea
             className="mt-1"
@@ -372,7 +384,7 @@ export function PromotionForm({
           </p>
         </div>
       ) : null}
-      <div className="sm:col-span-2">
+      <div className={wide}>
         <label className="text-xs font-semibold text-muted">Flyer name</label>
         <Input
           className="mt-1"
@@ -381,7 +393,7 @@ export function PromotionForm({
           placeholder="Spring leasing push"
         />
       </div>
-      <div className="sm:col-span-2">
+      <div className={wide}>
         <label className="text-xs font-semibold text-muted">Headline idea</label>
         <Input
           className="mt-1"
@@ -390,7 +402,7 @@ export function PromotionForm({
           placeholder="Modern living in the heart of the city"
         />
       </div>
-      <div className="sm:col-span-2">
+      <div className={wide}>
         <label className="text-xs font-semibold text-muted">Key selling points / amenities (one per line)</label>
         <Textarea
           className="mt-1"
@@ -482,7 +494,7 @@ export function PromotionForm({
           ))}
         </Select>
       </div>
-      <div className="sm:col-span-2">
+      <div className={wide}>
         <label className="text-xs font-semibold text-muted">Flyer size</label>
         <Select
           className="mt-1"
@@ -497,7 +509,7 @@ export function PromotionForm({
           ))}
         </Select>
       </div>
-      <div className="sm:col-span-2">
+      <div className={wide}>
         <label className="text-xs font-semibold text-muted">Flyer template</label>
         <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-5" role="radiogroup" aria-label="Flyer template">
           {PROMOTION_TEMPLATE_OPTIONS.map((t) => {
@@ -524,12 +536,14 @@ export function PromotionForm({
           })}
         </div>
       </div>
-      <div className="sm:col-span-2">
-        <label className="text-xs font-semibold text-muted">Preview</label>
-        <div className="mt-1 flex justify-center">
-          <PromotionFlyerPreview promotion={previewRow} embedded />
+      {hidePreview ? null : (
+        <div className={wide}>
+          <label className="text-xs font-semibold text-muted">Preview</label>
+          <div className="mt-1 flex justify-center">
+            <PromotionFlyerPreview promotion={previewRow} embedded />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

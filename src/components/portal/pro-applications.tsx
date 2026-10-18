@@ -1,6 +1,6 @@
 "use client";
 
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -102,7 +102,9 @@ import {
 import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
   inProgressApplicationResumeUrl,
+  applicationListTabForRow,
   applicationStageDisplayLabel,
+  countApplicationsByTab,
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
@@ -199,9 +201,7 @@ function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFil
 
 /** Tab COUNTS follow the same buckets as the list: Pending · Approved · Declined. */
 function countByBucket(rows: DemoApplicantRow[]) {
-  const c = { pending: 0, approved: 0, rejected: 0 };
-  for (const r of rows) c[r.bucket] += 1;
-  return c;
+  return countApplicationsByTab(rows);
 }
 
 /**
@@ -216,11 +216,11 @@ type ManagerApplicationTabId = ApplicationListTabId;
  * `bucket: "pending"` and reads in Pending with a "Withdrawn" fact on it:
  * Approve is simply not offered on it (`isApprovableApplicationRow`), and an
  * Incomplete draft is the same, with a Remind icon instead.
+ *
+ * Shared with `countApplicationsByTab` so the tab number is the row count.
  */
 function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
-  if (row.bucket === "rejected") return "rejected";
-  if (row.bucket === "approved") return "approved";
-  return "pending";
+  return applicationListTabForRow(row);
 }
 
 /** One line of plain glyph facts at the top of an application: status, income, home, move-in. */
@@ -637,6 +637,11 @@ export function ManagerApplications({
   const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
   /** Icon-only Download/Run/Re-run screening actions, published into the record header while the Screening tab is open (docs/agents/record-page.md § Known gap). */
   const [screeningHeaderActions, setScreeningHeaderActions] = useState<ReactNode>(null);
+  /** Rows the route could not open: the list and every tab count are short by this many, so it says so. */
+  const [skippedRowCount, setSkippedRowCount] = useState(0);
+  const applicationsWorkspaceIdRef = useRef<string | null>(
+    typeof window === "undefined" ? null : selectedWorkspaceId(),
+  );
   useEffect(() => {
     if (!authReady) return;
     let active = true;
@@ -648,6 +653,7 @@ export function ManagerApplications({
       if (!active || version !== readVersion || result.stale) return;
       sync();
       if (result.ok) {
+        setSkippedRowCount(result.skippedCount ?? 0);
         setInitialReadUserId(userId);
         setInitialReadErrorUserId(undefined);
       } else {
@@ -655,9 +661,22 @@ export function ManagerApplications({
       }
     };
     const pull = () => void read(true);
+    // A switch remounts this page at count 0, then an unforced read would
+    // replay the previous workspace's skip count for the whole TTL. Drop the
+    // line immediately and read this workspace. The first id (null → selected)
+    // is not a switch.
+    const onWorkspace = () => {
+      const nextWorkspaceId = selectedWorkspaceId();
+      const previousWorkspaceId = applicationsWorkspaceIdRef.current;
+      applicationsWorkspaceIdRef.current = nextWorkspaceId;
+      if (previousWorkspaceId === null || previousWorkspaceId === nextWorkspaceId) return;
+      setSkippedRowCount(0);
+      void read(true);
+    };
     sync();
     void read(readRetryEpoch > 0);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, sync);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     const onVisible = () => {
       if (document.visibilityState === "visible") pull();
     };
@@ -667,6 +686,7 @@ export function ManagerApplications({
     return () => {
       active = false;
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, sync);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
       window.removeEventListener("focus", pull);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(poll);
@@ -1960,6 +1980,11 @@ export function ManagerApplications({
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
       {checkrScreeningModal}
+        {skippedRowCount > 0 ? (
+          <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending" data-attr="applications-skipped-rows-note">
+            {skippedRowCount === 1 ? "1 application couldn't be loaded." : `${skippedRowCount} applications couldn't be loaded.`}
+          </div>
+        ) : null}
         <PortalRecordListSurface
           loading={rows.length === 0 && (!authReady || (initialReadErrorUserId !== userId && initialReadUserId !== userId))}
           loadError={authReady && rows.length === 0 && initialReadErrorUserId === userId ? "Could not load applications." : undefined}

@@ -64,20 +64,27 @@ describe("marked household verification fallback", () => {
     expect(checkoutCredit).toHaveBeenCalledWith(db, stripe, session);
   });
 
-  it("returns review after paid Checkout stamp when central source credit fails", async () => {
+  it("still reports the settled Checkout when central source credit declines", async () => {
+    // The charge rows are paid by the settlement above and the webhook retries the same
+    // idempotent credit. Answering `paid: false` here told the resident their completed
+    // payment had not gone through and left the charge in Upcoming.
     checkoutCredit.mockRejectedValueOnce(new Error("source needs review"));
     const response = await verifyCheckout(new Request("http://localhost/api/stripe/household-charge-verify?session_id=cs_exact"));
-    expect(response.status).toBe(409);
-    expect((await response.json()).paid).toBe(false);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.paid).toBe(true);
+    expect(body.sourceReview).toBe(true);
   });
 
-  it("reports manual bank payment paid only after central source credit", async () => {
+  it("reports the settled manual bank payment the same way, and still credits it", async () => {
     const request = () => new Request("http://localhost/api/stripe/resident-ach-payment?payment_intent_id=pi_exact");
     expect((await (await verifyManual(request())).json()).paid).toBe(true);
     manualCredit.mockRejectedValueOnce(new Error("source needs review"));
     const response = await verifyManual(request());
-    expect(response.status).toBe(409);
-    expect((await response.json()).paid).toBe(false);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.paid).toBe(true);
+    expect(body.sourceReview).toBe(true);
     expect(manualCredit).toHaveBeenCalledTimes(2);
     expect(manualCredit).toHaveBeenCalledWith(db, stripe, paymentIntent);
   });

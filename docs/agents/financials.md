@@ -17,8 +17,12 @@ read (treated as offline — nothing changes), a read that came back AT its cap 
 `chargesTruncated` / `rentProfilesTruncated`; never infer completeness from the row count, which
 de-duplication and workspace scoping shrink), an incremental `?updatedSince=` delta, and a workspace
 switch (the confirmed sets describe one workspace and are discarded on `WORKSPACE_SELECTION_EVENT`).
-`/api/manager-applications` reports the same thing as `truncated`. Coverage:
-`tests/unit/household-charges-no-resurrect.test.ts`, `tests/unit/manager-applications-no-resurrect.test.ts`.
+`/api/manager-applications` reports the same thing as `truncated`, and a single row it
+could not open costs that row only: it is left out of `rows`, named in `skippedRowIds`
+(ids, never identity), and makes the answer incomplete as well — the Applications list
+says "N applications couldn't be loaded." rather than quietly showing one fewer. Coverage:
+`tests/unit/household-charges-no-resurrect.test.ts`, `tests/unit/manager-applications-no-resurrect.test.ts`,
+`tests/unit/manager-applications-skipped-rows-surfaced.test.ts`.
 
 `unmarkPaid` refuses settled or ambiguous receipts with 409 while there is no accounting-safe reversal; Payments offers no Undo or Move to pending on a recorded charge. Returning a service photo never marks its charge paid. The currently unused short-to-long application-fee projection cancels a clean unpaid obligation without a paid date or provider source, preserves any actual receipt or in-flight source, and does not mint a server waiver audit. A new Checkout cannot begin when a same-manager/property/resident legacy paid fee lacks application identity. The manager application detail receipt is read from the exact application's owned claim, charge and ledger source; a current listing quote never proves payment, and a failed read never appears as “Not received.”
 
@@ -44,8 +48,12 @@ remaining amount.
   Callers: `household-captured-source.server.ts` (card verify, manual ACH,
   autopay, Checkout), `vendor-captured-source.server.ts`, the application-fee
   fulfillment. RPCs: `verify_platform_hold_source`, `credit_verified_platform_hold`,
-  `credit_verified_platform_income_mirror`. A failed source credit is review/409;
-  nothing swallows it and nothing marks a charge paid before it.
+  `credit_verified_platform_income_mirror`. Household settlement attests the exact
+  captured source and settles the claim before the separate platform allocation.
+  Failed settlement stays an error/review response; an allocation refusal after successful
+  settlement keeps interactive verification `paid: true` with `sourceReview: true`
+  and files the refusal for staff (see In-app payouts below). Webhook allocation
+  failures still fail delivery for retry; no path invents a credit.
 - **`classified_held` isolates new money.** A NEW verified source row is
   `platform_payment_holds.status = 'classified_held'` so the legacy
   `status='held'` transfer scanners never see it; old rows keep `held` and their
@@ -234,6 +242,19 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   succeeded funded debt less actual recovery; reserved recovery is a separate
   noncash fact and does not reduce that debt. A pending unreconciled in-app
   payout claim disables another withdrawal.
+- **The credit is the money; paying it out is a later job.** Once a credit RPC has
+  committed, nothing after it may fail the payer's request: every post-credit release goes
+  through `releaseCreditedHoldAfterCommit`
+  (`src/lib/platform-post-credit-release.server.ts`), which never throws — the hold stays
+  `classified_held` for the next pass (`account.updated`, the reconcile cron). A refusal on
+  either side — the allocation itself, or the release — is filed instead as ONE
+  `household_source_review` `audit_log` row per source id, deduped across the verify route,
+  the webhook and every retry (`household-source-review.server.ts`), naming the manager
+  whose hold is missing and the invariant that said no. It is a record, never a credit. Admin
+  Health reads them as the windowed **Payments needing review** group, which distinguishes a
+  paid charge with no hold from a credited hold whose payout refused. Guards:
+  `tests/unit/household-source-review-trace.test.ts` (fails a new direct release call),
+  `tests/unit/household-captured-source-credit-shapes.test.ts`.
 - **Stripe/DB reads and writes** — `src/lib/stripe-payouts.server.ts`:
   `readPayoutSnapshot` (balance, setup state from `account.requirements`,
   schedule, last-50 history, held vs withdrawable); the separate exact-owner

@@ -1,7 +1,7 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
-import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, cloneElement, isValidElement, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { RecordActionItemsContext, RecordActionCloseContext } from "@/components/ui/record-action-context";
 import { RecordActionItems, isRecordActionRowShape, withRecordActionIcon } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
@@ -9,13 +9,16 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { RecordHeaderHostContext, useLgUp } from "@/components/portal/portal-title-actions-slot";
 import {
   computeSharedSlotActionBudget,
   pickAdaptiveActions,
+  recordHeaderInlineCap,
   resolveAdaptiveOptionalFitCount,
   splitAdaptiveActions,
   type PortalAdaptiveAction,
@@ -35,6 +38,23 @@ function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
   const sectionRow = container.closest<HTMLElement>("[data-slot='portal-section-action-row']");
   const slot = container.closest<HTMLElement>("[data-portal-action-slot]");
   const bandRow = sectionRow?.parentElement;
+
+  // A record's detail header hands its actions a CONTENT-SIZED slot, so the row's own
+  // clientWidth is whatever it is already rendering — measure that and a folded row stays
+  // folded forever. The header marks the flex child that really owns the leftover space;
+  // the budget is that width minus the static buttons sitting beside the slot.
+  const recordHeader = container.closest<HTMLElement>("[data-portal-record-header-actions]");
+  if (recordHeader && recordHeader.clientWidth > 0) {
+    const siblingWidths: number[] = [];
+    for (const child of recordHeader.children) {
+      if (child instanceof HTMLElement && !child.contains(container)) {
+        siblingWidths.push(child.offsetWidth);
+      }
+    }
+    const headerGap = parseFloat(getComputedStyle(recordHeader).gap) || gapPx;
+    const budget = computeSharedSlotActionBudget(recordHeader.clientWidth, siblingWidths, headerGap);
+    if (budget > 0) return budget;
+  }
   if (
     slot &&
     slot.clientWidth > 0 &&
@@ -74,6 +94,19 @@ function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
   if (Number.isFinite(minWidth) && minWidth > 0) return minWidth;
 
   return 0;
+}
+
+/**
+ * A header ⋯ item carries its glyph like every other action menu (16px, leading). A plain-text item gets the
+ * icon of the inline action it stands in for; an item that already draws its own child element is left alone.
+ */
+function overflowMenuItem(action: PortalAdaptiveAction): ReactNode {
+  const { node, menuItem } = action;
+  if (!isValidElement<{ icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }> }>(node)) return menuItem;
+  const Icon = node.props.icon;
+  if (!Icon || !isValidElement<{ children?: ReactNode; className?: string }>(menuItem) || menuItem.type !== DropdownMenuItem) return menuItem;
+  if (typeof menuItem.props.children !== "string") return menuItem;
+  return cloneElement(menuItem, undefined, <Icon aria-hidden />, <span className="min-w-0 truncate">{menuItem.props.children}</span>);
 }
 
 /**
@@ -119,11 +152,20 @@ export function PortalAdaptiveActionRow({
   const [measuredFitCount, setOptionalFitCount] = useState(optional.length);
   const inRecordMenu = useContext(RecordActionItemsContext);
   const bulkBarLimit = useContext(BulkBarActionLimitContext);
+  const inRecordHeader = useContext(RecordHeaderHostContext);
+  const lgUp = useLgUp();
   const fixedLimit = inRecordMenu ? actions.length : maxVisible ?? bulkBarLimit;
   const fixed = fixedLimit != null;
+  // A record header still MEASURES; the cap only stops it inlining more icons than a header
+  // should ever carry. Folding is decided by the space the header actually has.
+  const headerCap = fixed ? undefined : recordHeaderInlineCap(actions.length, inRecordHeader, lgUp);
+  const optionalCap =
+    headerCap != null ? Math.max(0, headerCap - (actions.length - optional.length)) : undefined;
   const optionalFitCount = fixed
     ? Math.max(0, fixedLimit - (actions.length - optional.length))
-    : measuredFitCount;
+    : optionalCap != null
+      ? Math.min(measuredFitCount, optionalCap)
+      : measuredFitCount;
   const moreBtnClass = moreButtonClassName ?? DEFAULT_MORE_BTN;
 
   const pinnedCount = pinnedMenuItems.length;
@@ -167,9 +209,15 @@ export function PortalAdaptiveActionRow({
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(sync);
       const slot = container.closest("[data-portal-action-slot]");
+      // The record header's own flex child is where the budget comes from, and the row sits
+      // in a content-sized host whose box only moves when the fold already changed. Without
+      // it, a header that resized for any reason other than the window (the detail pane
+      // opening, a longer record title, the workspace switcher appearing) kept a stale fold.
+      const recordHeader = container.closest("[data-portal-record-header-actions]");
       ro.observe(container);
       if (container.parentElement) ro.observe(container.parentElement);
       if (slot instanceof HTMLElement) ro.observe(slot);
+      if (recordHeader instanceof HTMLElement) ro.observe(recordHeader);
     }
     window.addEventListener("resize", sync);
     return () => {
@@ -229,7 +277,7 @@ export function PortalAdaptiveActionRow({
       <DropdownMenuContent align="end" className="record-action-menu">
         <RecordActionCloseContext.Provider value={() => setMenuOpen(false)}>
         {overflow.map((action) => (
-          <div key={action.id}>{action.menuItem}</div>
+          <div key={action.id}>{overflowMenuItem(action)}</div>
         ))}
         {overflow.length > 0 && pinnedCount > 0 ? <DropdownMenuSeparator /> : null}
         {pinnedMenuItems.map((item, index) => (
@@ -294,6 +342,7 @@ export const PortalAdaptiveHeaderActions = PortalAdaptiveActionRow;
 export type { PortalAdaptiveAction, PortalAdaptiveAction as PortalAdaptiveHeaderAction } from "@/lib/portal-adaptive-actions";
 export {
   computeSharedSlotActionBudget,
+  recordHeaderInlineCap,
   fitOptionalBetweenEdges,
   pickAdaptiveActions,
   pickAdaptiveActions as pickAdaptiveHeaderActions,

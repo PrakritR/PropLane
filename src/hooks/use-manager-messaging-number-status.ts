@@ -12,6 +12,9 @@ import {
 } from "@/lib/sms/manager-messaging-number-client";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 
+/** How long the first failed status fetch waits before its one automatic retry. */
+export const MESSAGING_STATUS_AUTO_RETRY_MS = 1200;
+
 export type ManagerMessagingNumberStatusState = {
   ready: boolean;
   resolved: boolean;
@@ -70,6 +73,23 @@ export function useManagerMessagingNumberStatus(): ManagerMessagingNumberStatusS
     () => undefined,
   );
 
+  const [autoRetried, setAutoRetried] = useState(false);
+  const failed = Boolean(snapshot && !snapshot.ok);
+  useEffect(() => {
+    if (demoActive) return;
+    if (snapshot?.ok) {
+      setAutoRetried(false);
+      return;
+    }
+    if (!failed || autoRetried) return;
+    const timer = window.setTimeout(() => {
+      setAutoRetried(true);
+      resetManagerMessagingNumberStatusClientCache();
+      setAttempt((value) => value + 1);
+    }, MESSAGING_STATUS_AUTO_RETRY_MS);
+    return () => window.clearTimeout(timer);
+  }, [autoRetried, demoActive, failed, snapshot]);
+
   const retry = useCallback(() => {
     resetManagerMessagingNumberStatusClientCache();
     setAttempt((value) => value + 1);
@@ -120,6 +140,18 @@ export function useManagerMessagingNumberStatus(): ManagerMessagingNumberStatusS
   }
 
   if (!snapshot.ok) {
+    // The first failure is retried once on its own before "Messaging status
+    // unavailable" is shown: a status fetch that lost a race with a cold route
+    // or a token refresh succeeds a moment later, and the person never sees it.
+    if (!autoRetried) {
+      return {
+        ready: true,
+        resolved: false,
+        statusError: false,
+        status: null,
+        retry,
+      };
+    }
     return {
       ready: true,
       resolved: true,

@@ -9,10 +9,14 @@ import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
+import { fetchJsonWithTimeout } from "@/lib/fetch-json-with-timeout";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { formatAddonPrice, PLAN_ADDON_STOREFRONT_IDS, type PlanAddonId } from "@/lib/plan-addons";
 
 const ENDPOINT = "/api/manager/plan-addons";
+
+/** This panel's own timeout copy — no checkout is involved in saving add-ons. */
+const ADDONS_TIMEOUT_MESSAGE = "Saving add-ons is taking too long. Try again.";
 
 /** The fact that follows the per-unit price on each add-on's row label (PLAN-0920 UI mock). */
 const ADDON_ROW_FACT: Partial<Record<PlanAddonId, string>> = {
@@ -61,6 +65,7 @@ export function ManagerPlanAddonsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const mounted = useRef(true);
 
@@ -119,26 +124,34 @@ export function ManagerPlanAddonsPanel() {
     setConfirmOpen(false);
     setSaving(true);
     setNotice(null);
+    setSaveFailed(false);
     try {
-      const response = await fetch(ENDPOINT, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changes }),
-      });
-      const body = (await response.json()) as AddonsPayload & { error?: string; stripeSynced?: boolean };
-      if (!response.ok) throw new Error(body.error || "We couldn’t update your add-ons. Nothing changed.");
+      const { ok, body } = await fetchJsonWithTimeout<AddonsPayload & { error?: string; stripeSynced?: boolean }>(
+        ENDPOINT,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ changes }),
+        },
+        { timeoutMessage: ADDONS_TIMEOUT_MESSAGE },
+      );
+      if (!ok) throw new Error(body.error || "We couldn’t update your add-ons. Nothing changed.");
       if (!mounted.current) return;
       setData(body);
       setDraft(quantitiesOf(body.addons));
       setError(null);
+      setSaveFailed(false);
       setNotice(
         body.stripeSynced
           ? "Monthly add-on costs update on your next billing cycle."
           : "Add-ons updated.",
       );
     } catch (e) {
-      if (mounted.current) setNotice(e instanceof Error ? e.message : "We couldn’t update your add-ons. Nothing changed.");
+      if (mounted.current) {
+        setSaveFailed(true);
+        setNotice(e instanceof Error ? e.message : "We couldn’t update your add-ons. Nothing changed.");
+      }
     } finally {
       if (mounted.current) setSaving(false);
     }
@@ -258,9 +271,16 @@ export function ManagerPlanAddonsPanel() {
             </div>
           ) : null}
           {notice ? (
-            <p role="status" className="text-sm text-muted" data-attr="plan-addons-notice">
-              {notice}
-            </p>
+            <div className="flex items-center gap-3">
+              <p role="status" className="text-sm text-muted" data-attr="plan-addons-notice">
+                {notice}
+              </p>
+              {saveFailed ? (
+                <Button variant="outline" onClick={() => save()} loading={saving} data-attr="plan-addons-retry">
+                  Retry
+                </Button>
+              ) : null}
+            </div>
           ) : null}
           {data.canHoldAddons && isNative ? (
             <p className="text-sm text-muted">Add-ons are managed on the web.</p>

@@ -115,7 +115,9 @@ vi.mock("@/lib/lease-pipeline-storage", () => ({
   ],
 }));
 
-vi.mock("@/lib/portal-inbox-storage", () => ({
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+  // The unread count folds rows into conversations through the real storage helpers.
+  ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   syncPersistedInboxFromServer: () => Promise.resolve(),

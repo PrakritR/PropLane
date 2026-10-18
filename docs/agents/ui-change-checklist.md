@@ -116,7 +116,9 @@ row, field, or choice.
   source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
   sentence of grey text. Pop-up shell:
   `tests/unit/popup-shell-no-subtext.test.tsx`. Billing:
-  `tests/unit/pro-plan-no-subtext.test.ts`.
+  `tests/unit/pro-plan-no-subtext.test.ts`. Pop-ups and settings swept Oct 16
+  (Customize, Export my data, task priority as a dropdown, the Notice-required
+  stepper): `tests/unit/ui-sweep-1016-no-subtext.test.ts`.
   Inspections list: `tests/unit/inspections-no-progress-subtext.test.ts`.
   Labels site-wide: `tests/unit/no-optional-label-suffix.test.ts` fails a label
   ending `(optional)` anywhere under `src/components` or `src/app` (a
@@ -144,8 +146,14 @@ Account / Billing / API / Feedback stay unscoped.
 
 One shape for every modal, sheet and confirm: `PortalDialog`
 (`src/components/portal/portal-dialog.tsx`), built over `Modal` — never a raw
-`Modal`/`ui/sheet.tsx`/`VaulBottomSheet` for a new dialog. Desktop: centered,
-560px (`size="wizard"`: 720px). Phone: bottom sheet with a grab handle, full
+`Modal`/`ui/sheet.tsx`/`VaulBottomSheet` for a new dialog. Desktop: centered, and
+the panel **fits its content** up to the approved 920 × 640 window — a pop-up with
+no side rails (`contextPanel` and `preview` both `null`) narrows to 640px, and a long
+body scrolls inside the cap (`MODAL_FIT_PANEL_CLASS` /
+`MODAL_FIT_NO_RAIL_PANEL_CLASS`, `src/components/ui/modal-styles.ts`, which own these
+numbers). A wide multi-step wizard that wants the fixed 920 × 640 frame passes
+`fixedSize`. `PortalDialog`'s legacy `size` prop is ignored — both sizes use this one
+frame. Phone: bottom sheet with a grab handle, full
 height only for a wizard. Header: title, optional back arrow, optional
 step-dot strip — never a sentence under the title (`description` is reserved
 for the dot strip). Footer: exactly one text secondary (left, defaults to

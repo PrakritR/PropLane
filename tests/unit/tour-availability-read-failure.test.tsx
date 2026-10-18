@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * "No tour windows are published for this property yet" is an affirmative claim
+ * "No tour times yet" is an affirmative claim
  * about the PROPERTY. A throttled or failed availability read says nothing about
  * the property at all, and the booking flow used to collapse both into the same
  * empty grid — so a prospect behind a shared NAT that trips the public route's
@@ -62,7 +62,7 @@ const PROPERTY: MockProperty = {
   unitLabel: "Room A",
 };
 
-const EMPTY_STATE = /No tour windows are published/i;
+const EMPTY_STATE = /No tour times yet/i;
 
 /** Every availability fetch in one test, newest response last. */
 function stubAvailability(responses: { ok: boolean; status: number; body: unknown }[]) {
@@ -136,5 +136,37 @@ describe("a failed tour-availability read is never a booking page with zero slot
       expect(screen.getByText(EMPTY_STATE)).toBeTruthy();
     });
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("treats a grid whose every published slot is already past as no tour times yet", async () => {
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: { "2001-01-02:4": [{ id: "m1", name: "Pat", email: "pat@example.com" }] } } }]);
+    await renderAtDateStep();
+
+    await waitFor(() => {
+      expect(screen.getByText(EMPTY_STATE)).toBeTruthy();
+    });
+  });
+
+  it("offers Message the manager next to the empty state only when the listing has a work number", async () => {
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
+    await renderAtDateStep();
+    await waitFor(() => {
+      expect(screen.getByText(EMPTY_STATE)).toBeTruthy();
+    });
+    expect(screen.queryByText("Message the manager")).toBeNull();
+    cleanup();
+
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
+    render(
+      <TourScheduleFlow
+        property={{ ...PROPERTY, contactSmsPhone: "+12065550123" }}
+        returnAfterAuth="/rent"
+        onSuccess={() => {}}
+      />,
+    );
+    fireEvent.click(await screen.findByText(`${PROPERTY.buildingName} · ${PROPERTY.unitLabel}`));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const link = await screen.findByText("Message the manager");
+    expect(link.closest("a")?.getAttribute("href")).toBe("sms:+12065550123");
   });
 });

@@ -307,6 +307,8 @@ type ThreadMessage = {
   at: string;
   outbound?: boolean;
   subject?: string;
+  /** Files that rode with this turn, shown as chips beside the bubble (never pasted into the body as URLs). */
+  attachments?: { url: string; name?: string }[];
   /** The house this turn is about (one conversation can span houses). */
   houseId?: string;
   houseLabel?: string;
@@ -540,6 +542,8 @@ async function deliverResidentPropertyManagerChatMessageOnce(
     propertyTitle: string;
     subject: string;
     message: string;
+    /** Files the sender attached. They ride beside the body as chips; the body never carries their URLs. */
+    attachments?: { url: string; name?: string }[];
     messageIds?: { resident: string; manager: string };
     /** Never overwrites an already-stamped `recordRef` — the ref belongs to whoever first composed from that record. */
     recordRef?: RecordRef;
@@ -567,12 +571,14 @@ async function deliverResidentPropertyManagerChatMessageOnce(
   const residentName = input.residentName.trim() || "You";
   const preview = message.slice(0, 100).replace(/\n/g, " ");
 
+  const attachments = input.attachments?.length ? input.attachments : undefined;
   const outboundTurn: ThreadMessage = {
     id: `out-${Date.now().toString(36)}`,
     from: residentName,
     body: message,
     at: when,
     outbound: true,
+    ...(attachments ? { attachments } : {}),
     houseId: input.propertyId,
     houseLabel: input.propertyTitle,
   };
@@ -638,6 +644,7 @@ async function deliverResidentPropertyManagerChatMessageOnce(
           subject,
           preview,
           body: message,
+          ...(attachments ? { attachments } : {}),
           ...(input.messageIds ? { rootMessageId: input.messageIds.resident } : {}),
           ...(input.messageIds ? { rootMessageSubject: subject } : {}),
           time: when,
@@ -667,6 +674,7 @@ async function deliverResidentPropertyManagerChatMessageOnce(
     topic: subject,
     subject,
     body: message,
+    ...(attachments ? { attachments } : {}),
     messageId: input.messageIds?.manager,
     recordRef: normalizedRecordRef ?? undefined,
   });
@@ -686,6 +694,8 @@ async function appendManagerPropertyLeadInboxMessageOnce(
     topic: string;
     subject: string;
     body: string;
+    /** Files that rode with this turn — chips beside the bubble, never URLs in the body. */
+    attachments?: { url: string; name?: string }[];
     messageId?: string;
     outbound?: boolean;
     counterpartyRole?: "resident" | "applicant" | "prospect";
@@ -741,12 +751,14 @@ async function appendManagerPropertyLeadInboxMessageOnce(
 
   const existing = target.existing;
 
+  const leadAttachments = input.attachments?.length ? input.attachments : undefined;
   const inboundTurn: ThreadMessage = {
     id: `lead-${Date.now().toString(36)}`,
     from: leadFrom,
     body: input.body,
     at: when,
     outbound: input.outbound === true,
+    ...(leadAttachments ? { attachments: leadAttachments } : {}),
     houseId: input.propertyId,
     houseLabel: input.propertyTitle,
   };
@@ -809,6 +821,7 @@ async function appendManagerPropertyLeadInboxMessageOnce(
         subject: threadSubject,
         preview: input.body.slice(0, 100).replace(/\n/g, " "),
         body: input.body,
+        ...(leadAttachments ? { attachments: leadAttachments } : {}),
         ...(input.messageId ? { rootMessageId: input.messageId } : {}),
         ...(input.messageId ? { rootMessageSubject: threadSubject } : {}),
         time: when,

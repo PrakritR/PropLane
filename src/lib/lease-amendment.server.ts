@@ -20,6 +20,8 @@ import type { ManagerListingSubmissionV1, ManagerRoomUnavailableRange } from "@/
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { withoutHostBlocks } from "@/lib/channel-calendar/host-block";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
+import { hasBothLeaseSignatures } from "@/lib/lease-execution-evidence";
 
 function asObject(v: unknown): Record<string, unknown> | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
@@ -30,13 +32,7 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export function hasBothLeaseSignatures(row: LeasePipelineRow): boolean {
-  const mgr = row.managerSignature as Record<string, unknown> | null | undefined;
-  const res = row.residentSignature as Record<string, unknown> | null | undefined;
-  const legacyName = typeof row.signatureName === "string" ? row.signatureName : null;
-  const legacyAt = typeof row.signedAtIso === "string" ? row.signedAtIso : null;
-  return Boolean(mgr?.name && mgr?.signedAtIso && ((res?.name && res?.signedAtIso) || (legacyName && legacyAt)));
-}
+export { hasBothLeaseSignatures };
 
 function archiveSignedLeaseSnapshot(leaseRow: LeasePipelineRow): SignedLeaseSnapshot[] {
   if (!hasBothLeaseSignatures(leaseRow)) return leaseRow.signedLeaseSnapshots ?? [];
@@ -496,7 +492,7 @@ export async function amendLeaseMoveOutDate(
   if (applicationError || !applicationRecord) return { ok: false, error: "The residency could not be loaded. Refresh before changing dates." };
   const { error: commitError } = await db.rpc("commit_room_lease_extension", {
     p_owner: ownerId, p_application_id: applicationRecord.id, p_expected_application: applicationRecord.row_data,
-    p_lease_id: leaseRecord.id, p_expected_lease: leaseRecord.row_data, p_next_lease: stampSmsTestProvenance(updatedRow as unknown as Record<string, unknown>), p_end: newLeaseEnd,
+    p_lease_id: leaseRecord.id, p_expected_lease: leaseRecord.row_data, p_next_lease: stampSmsTestProvenance(stripIdentityFromLeaseRow(updatedRow as unknown as Record<string, unknown>)), p_end: newLeaseEnd,
   });
   if (commitError) return { ok: false, error: commitError.code === "P4001" ? "No bed is available in this room for the requested dates." : "The lease changed or could not be saved. Refresh and retry." };
 
@@ -704,7 +700,7 @@ export async function renewLease(
     resident_email: leaseRow.residentEmail.trim().toLowerCase(),
     property_id: leaseRecord.property_id ?? null,
     status: "manager",
-    row_data: stampSmsTestProvenance(updatedRow as unknown as Record<string, unknown>),
+    row_data: stampSmsTestProvenance(stripIdentityFromLeaseRow(updatedRow as unknown as Record<string, unknown>)),
     updated_at: iso,
   });
   if (upsertError) return { ok: false, error: upsertError.message };

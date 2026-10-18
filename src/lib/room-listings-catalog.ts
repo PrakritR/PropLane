@@ -12,6 +12,7 @@ import {
 } from "@/lib/listings-search";
 import { isRoomChoiceAvailable, LISTING_ROOM_CHOICE_SEP, roomBedAvailability } from "@/lib/rental-application/data";
 import {
+  formatRoomPriceAmount,
   roomHeadlineAmount,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
@@ -364,14 +365,14 @@ function browseRoomEntries(
             ? roomFlexibleSortAmount(r)
             : roomPricesPerResident(r)
               ? (roomHeadlineAmount(r) ?? undefined)
-              : r.monthlyRent,
+              : roomMonthlyEquivalent(r),
         )
         .filter((n): n is number => typeof n === "number" && n > 0);
       const from = rents.length ? Math.min(...rents) : parseMonthlyRent(property.rentLabel) ?? 0;
       const floor: ListingFloorCard = {
         cardKey: `${property.id}-listed-rooms`,
         floorLabel: "Listed rooms",
-        fromPrice: from > 0 ? `$${from}` : property.rentLabel || "—",
+        fromPrice: from > 0 ? formatRoomPriceAmount(from) : property.rentLabel || "—",
         roomCount: submissionRooms.length,
         rooms: [],
       };
@@ -386,7 +387,7 @@ function browseRoomEntries(
             : roomIsDailyPriced(r) || roomIsWeeklyPriced(r) || roomPricesPerResident(r)
               ? roomHeadlinePriceLabel(r)
               : r.monthlyRent > 0
-                ? `$${r.monthlyRent}/mo`
+                ? `${formatRoomPriceAmount(r.monthlyRent)}/mo`
                 : property.rentLabel || "—",
           pricePeriod: roomPricePeriod(r),
           // A flexible room ranks and budget-filters on its advertised minimum, so a
@@ -739,6 +740,15 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
       .filter((r) => r.pricePeriod === card.pricePeriod && typeof r.headlineRent === "number")
       .map((r) => r.headlineRent as number);
     card.rentMaxNumeric = samePeriod.length ? Math.max(...samePeriod) : card.headlineRent;
+    if (card.pricePeriod === "month") {
+      // A monthly headline spans EVERY room's one monthly figure, a daily or weekly room by its monthly
+      // equivalent. Reading only the monthly-priced rooms left the card at "$1,000 – $1,150" while the
+      // listing it opens said "$1,000 – $1,350" (the daily room's 30-day amount).
+      const monthly = rows
+        .map((r) => r.rentNumeric)
+        .filter((n): n is number => typeof n === "number" && Number.isFinite(n) && n > 0);
+      if (monthly.length) card.rentMaxNumeric = Math.max(card.headlineRent ?? 0, ...monthly);
+    }
     const seen = new Set<string>();
     for (const row of rows) {
       for (const slide of row.mediaSlides) {

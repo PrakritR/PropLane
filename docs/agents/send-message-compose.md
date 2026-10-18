@@ -68,6 +68,18 @@ The composer never writes to a thread. It hands the panel a
 the thread only after the send is authorized. A refusal (`false` or a throw)
 keeps the draft, the attachments and the `sendId`, so Retry is idempotent.
 
+**Admin keeps its own component, not its own chrome.** `admin-compose-modal.tsx`
+renders `PortalDialog` with the shared fields (`PortalMessageComposeModalBody`,
+`PortalMessageSubjectField`, `PortalMessageBodyField`,
+`PortalMessageScheduleFields`) and the one footer primary — never a hand-rolled
+`Modal` with its own inputs. What stays admin's own is the audience (everyone /
+all managers / chosen people), because admin messages groups where the manager's
+To field picks individuals.
+
+The "Recipients" line on the left card and in the preview lists the people picked
+AND the addresses or numbers typed in as chips (`composeRecipientSummary`): it may
+never read "Not selected" while the To field is showing a recipient.
+
 ## Listing, application and tour links
 
 The approved studio redesign uses the full-page Home → Recipient → Review

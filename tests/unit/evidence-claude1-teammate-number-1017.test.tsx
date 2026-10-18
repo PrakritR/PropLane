@@ -210,12 +210,12 @@ describe("the work-number box a teammate reads in Communication", () => {
     render(<ManagerWorkNumberCard />);
 
     await waitFor(() => expect(card()).not.toBeNull());
-    expect(screen.getByText("Your work number")).toBeTruthy();
+    expect(screen.getByText("Work number")).toBeTruthy();
     expect(screen.queryByText("Finishing setup")).toBeNull();
 
     writeEvidenceSurface(
       "04-owner-work-number-live",
-      "The owner of the same workspace, for comparison — \"Your work number\", identical readiness.",
+      "The owner of the same workspace, for comparison — \"Work number\", identical readiness.",
     );
   });
 });

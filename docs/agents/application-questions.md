@@ -239,7 +239,10 @@ forms, the manager notice, move-in forms and screening (`consentCredit`) are one
   a live SUBMITTED application for the room is the 409 ("You already applied to this room."), and a live DRAFT for
   it is the row Quick apply **resumes** — its id, not a fresh one. Minting a new id per attempt would stack
   "Incomplete" rows no duplicate guard can see (they all skip drafts by design) and orphan a fee claim, which is
-  keyed on the application id.
+  keyed on the application id. The full wizard holds the same line from the other side: "no in-progress
+  application matches this target" is only believed when the read that says so SUCCEEDED, so its reconcile
+  retries the applications read before it ever mints a fresh id, and a read that never answered leaves the draft
+  alone (`rental-application-wizard.tsx`, `tests/unit/apply-reconcile-read-guard.test.ts`).
 - **`dryRun: true`** writes nothing and says what the primary button should read: Quick apply (`ready`), Continue
   application (`needsWizard` / `needsPayment`) or View application (duplicate). It runs the SAME
   `validateResidentApplicationRowForPersistence` the submit runs, with the sheet's own fields (move-in, consent,

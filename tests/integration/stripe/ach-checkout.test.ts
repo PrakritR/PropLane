@@ -90,8 +90,8 @@ vi.mock("@/lib/stripe-household-charge", () => ({
   HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE: "household_charge",
 }));
 
-// The central source credit is exercised in its own suites; here we only prove
-// that /household-charge-verify refuses to report paid unless it succeeds.
+// The central source credit is exercised in its own suites; here we prove that
+// verification reports a settled payment and files any allocation failure for review.
 vi.mock("@/lib/household-captured-source.server", () => ({
   creditVerifiedHouseholdCheckoutSource: vi.fn().mockResolvedValue(undefined),
 }));
@@ -150,6 +150,7 @@ function residentDb(opts: {
   const order = opts.order ?? [];
   const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const queried: string[] = [];
+  const auditInsert = vi.fn().mockResolvedValue({ error: null });
   const rowFor = (table: string): Row => {
     if (table === "profiles") return { role: opts.profileRole ?? "resident" };
     if (table === "profile_roles") return opts.residentRoleRow ?? null;
@@ -161,6 +162,7 @@ function residentDb(opts: {
   const db = {
     from: vi.fn((table: string) => {
       queried.push(table);
+      if (table === "audit_log") return { insert: auditInsert };
       const chain: Record<string, unknown> = {};
       for (const method of ["select", "eq", "neq", "in", "is", "order", "limit"]) {
         chain[method] = vi.fn().mockReturnValue(chain);
@@ -201,7 +203,7 @@ function residentDb(opts: {
       return { data: null, error: null };
     }),
   };
-  return { db, rpcCalls, queried, order };
+  return { db, rpcCalls, queried, order, auditInsert };
 }
 
 /** A pending $2,500 rent charge on prop_1, created by (and owned by) mgr_1. */
@@ -576,28 +578,43 @@ describe("ACH checkout routes", () => {
       expect(status).toBe(200);
       expect(data.paid).toBe(true);
       expect(data.chargeId).toBe("charge_1");
-      // Paid is reported only after the exact claim settlement AND the central source credit.
+      // Exact claim settlement precedes the separate platform allocation attempt.
       expect(markHouseholdChargePaidFromStripeSession).toHaveBeenCalledWith(expect.anything(), session);
       expect(creditVerifiedHouseholdCheckoutSource).toHaveBeenCalledWith(expect.anything(), stripe, session);
     });
 
-    it("does not report paid when the central source credit fails", async () => {
+    it("reports a settled payment and records review when the central source credit fails", async () => {
       const { attempt, session } = paidCardFixture();
       vi.mocked(getStripe).mockReturnValue({ checkout: { sessions: { retrieve: vi.fn().mockResolvedValue(session) } } } as never);
-      const { db } = residentDb({ attempt });
+      const { db, auditInsert } = residentDb({ attempt });
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
       vi.mocked(creditVerifiedHouseholdCheckoutSource).mockRejectedValueOnce(new Error("source mismatch"));
 
       const res = await householdChargeVerify(verifyRequest());
-      const { status, data } = await parseJsonResponse<{ paid?: boolean }>(res);
-      expect(status).toBe(409);
-      expect(data.paid).toBe(false);
+      const { status, data } = await parseJsonResponse<{ paid?: boolean; sourceReview?: boolean }>(res);
+      expect(status).toBe(200);
+      expect(data).toMatchObject({ paid: true, sourceReview: true });
+      expect(markHouseholdChargePaidFromStripeSession).toHaveBeenCalledWith(db, session);
+      expect(auditInsert).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        actor_user_id: "mgr_1",
+        landlord_id: "mgr_1",
+        action: "household_source_review",
+        input_summary: {
+          sourceId: "cs_ach_done",
+          paymentIntentId: "pi_done",
+          chargeIds: ["charge_1"],
+          surface: "checkout_verify",
+          stage: "credit",
+        },
+        result_summary: { reason: "source mismatch" },
+        dedupe_key: "household_source_review:cs_ach_done",
+      }));
     });
 
     it("does not report paid when the exact claim settlement fails, and never credits", async () => {
       const { attempt, session } = paidCardFixture();
       vi.mocked(getStripe).mockReturnValue({ checkout: { sessions: { retrieve: vi.fn().mockResolvedValue(session) } } } as never);
-      const { db } = residentDb({ attempt });
+      const { db, auditInsert } = residentDb({ attempt });
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
       vi.mocked(markHouseholdChargePaidFromStripeSession).mockResolvedValueOnce({ ok: false } as never);
 
@@ -606,6 +623,7 @@ describe("ACH checkout routes", () => {
       expect(status).toBe(409);
       expect(data.paid).toBe(false);
       expect(creditVerifiedHouseholdCheckoutSource).not.toHaveBeenCalled();
+      expect(auditInsert).not.toHaveBeenCalled();
     });
 
     it("returns 403 for an account without the resident role before reading the provider session", async () => {

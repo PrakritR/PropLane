@@ -1,4 +1,5 @@
 "use client";
+import { publishManagerUnreadConversationCount } from "@/lib/manager-unread-conversation-count";
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -295,7 +296,7 @@ export function usePortalNavCounts(
     };
   }, [kind, userId]);
 
-  return useMemo(() => {
+  const counts = useMemo(() => {
     void tick;
     if (!ready && (kind === "manager" || kind === "pro" || kind === "resident")) {
       return {};
@@ -432,4 +433,14 @@ export function usePortalNavCounts(
 
     return {};
   }, [kind, ready, tick, userId, email, smsUiEnabled, smsConversations, moveInUnread]);
+
+  // Publish the Communication number so the assistant's attention row and the
+  // dashboard show this very count instead of a second one of their own.
+  const communicationCount = counts.communication?.count;
+  useEffect(() => {
+    if ((kind !== "manager" && kind !== "pro") || !userId || communicationCount === undefined) return;
+    publishManagerUnreadConversationCount(`${userId}:${smsWorkspaceId ?? ""}`, communicationCount);
+  }, [kind, userId, smsWorkspaceId, communicationCount]);
+
+  return counts;
 }

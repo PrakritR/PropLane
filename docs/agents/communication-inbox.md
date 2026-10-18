@@ -239,6 +239,30 @@ admin-money-1008 D5): `AdminCommunication` mounts the same
 component and no table exception (`admin-inbox-client.tsx` is gone). See
 "Admin Communication is the manager's inbox over an adapter" below. Invariants:
 
+- **One unread number.** The sidebar's Communication badge, the assistant's
+  "N unread conversations" row and the dashboard count conversations (people
+  folded to one row, texts merged), never stored rows; the sidebar publishes its
+  number (`manager-unread-conversation-count.ts`) and the others read it. A list
+  row shows no per-message figure. The vendor tabs carry counts like the manager's
+  and the resident's. A resident's mark-read lands on the stored owner-less row
+  without claiming it (`portal_inbox_thread_conversation_uidx` is one row per
+  person), and the folded siblings are settled read in the same write.
+- **Reads on the Communication page go through `sharedGet`** (messaging number,
+  work email keyed by workspace, eligible contacts, the thread list, the SMS
+  list); a write drops them (`writeThroughFetch` / `invalidateSharedGets`).
+- **A sent reply is one message.** The composer sends its bubble id
+  (`messageId: reply-…`) and the stored turn takes it; attachments are chips
+  beside the message, and their absolute links are added to the email / SMS copy
+  only. A sent reply removes the AI draft it answered (`aiDraftFieldsAfterReply`);
+  a thread whose last turn is the manager's own is never sent for a draft; a
+  failed attachment blocks the send.
+- **A merged person conversation is titled by the COUNTERPARTY, never the viewer**
+  (`personConversationTitle`, `portal-inbox-storage.ts`): when the earliest turn is
+  the viewer's own outbound notice, the title is whoever wrote an inbound turn, else
+  the other party's own inbox copy, else the address the conversation is with. A line
+  PropLane posted in the Team chat is a notice, so it is neither a right-hand bubble
+  nor a "You:" preview (`inboxTurnDirection`). Coverage:
+  `tests/unit/inbox-ux-sweep-1016.test.ts`.
 - **Manager, resident, vendor AND admin Communication have Active | Archived
   command tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
   chrome: label + count badge + cobalt underline (`DestinationNav
@@ -939,6 +963,14 @@ to leak "On … wrote:" into the bubble. Coverage:
   `[A-Za-z0-9._-]` (Supabase key charset; also blocks `..`, separators, and
   `Content-Disposition` header injection). Ownership checks still read `path[0]`,
   and two-segment legacy paths still resolve.
+- **Who may read the bytes: the uploader (`path[0]`), an admin, the owner or
+  participant of a thread that references the file — and, on the workspace Team
+  chat, any member who may read that chat.** The team row is shared
+  (`owner_user_id` is the workspace owner, `participant_email` is null), so the
+  participant checks admit only the uploader and the owner; a file the thread
+  actually carries in its structured attachment fields (never message text) is
+  served to whoever `assertTeamThreadMember` lets open the chat — the same gate,
+  not a wider one (`userCanAccessInboxAttachment`).
 - **The bucket has a second writer that is not a message attachment.** Inspection
   chat/MMS intake stores private photo sources here as
   `<userId>/inspection-chat/<ownerId|portal>/<sha256>.jpg`; they are never listed

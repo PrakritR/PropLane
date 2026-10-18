@@ -38,6 +38,7 @@ import type { ServiceRequest } from "@/lib/service-requests-storage";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { VendorPayout } from "@/lib/vendor-payouts";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -235,7 +236,7 @@ export async function seedCanonicalDemoPortfolio(
       resident_email: lease.residentEmail?.toLowerCase() ?? null,
       property_id: lease.propertyId ?? null,
       status: lease.status ?? lease.stageLabel ?? null,
-      row_data: { ...lease, managerUserId: ctx.managerUserId },
+      row_data: stripIdentityFromLeaseRow({ ...lease, managerUserId: ctx.managerUserId }),
       updated_at: new Date().toISOString(),
     }));
     if (rows.length === 0) return;

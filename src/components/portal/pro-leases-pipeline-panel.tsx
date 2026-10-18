@@ -1,6 +1,7 @@
 "use client";
 
 import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
+import { formatMoneyAmountsInLabel } from "@/lib/room-pricing";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
@@ -124,7 +125,9 @@ function LeaseFactsLine({ row }: { row: LeasePipelineRow }) {
       ) : null}
       {row.signedRentLabel ? (
         <PortalRowFact icon={Wallet} srLabel="Rent">
-          {row.signedRentLabel}
+          {/* Rows stored before the label was formatted still read "$1000.00 / month"; the
+              formatter is applied where it is DRAWN so old and new rows look the same. */}
+          {formatMoneyAmountsInLabel(row.signedRentLabel)}
         </PortalRowFact>
       ) : null}
       {term ? (

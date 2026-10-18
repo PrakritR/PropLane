@@ -31,7 +31,12 @@ export const SHARED_GET_TIMEOUT_MS = 15_000;
 
 export type SharedGetResult =
   | { ok: true; status: number; data: unknown }
-  | { ok: false; status: number; data: null };
+  /**
+   * A refused read still carries the route's own body when it sent one, so a caller can
+   * report WHY ("this workspace has no work number") instead of a bare status. `null` means
+   * the route answered with no readable body, or the request never completed (status 0).
+   */
+  | { ok: false; status: number; data: unknown };
 
 type Entry = {
   /** Bumped by an invalidate, so a read that began before a write never settles into the cache. */
@@ -47,7 +52,9 @@ function makeRefresher(url: string, entry: () => Entry): CoalescedRefresher<Shar
     const startedGeneration = entry().generation;
     try {
       const res = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" }, SHARED_GET_TIMEOUT_MS);
-      if (!res.ok) return { ok: false, status: res.status, data: null };
+      // A refused read is never cached (only `ok` settles below), so parsing its body costs
+      // one read and keeps the route's own error message reachable by the caller.
+      if (!res.ok) return { ok: false, status: res.status, data: await res.json().catch(() => null) };
       const data = (await res.json().catch(() => null)) as unknown;
       const result: SharedGetResult & { ok: true } = { ok: true, status: res.status, data };
       if (entry().generation === startedGeneration) entry().settled = { at: Date.now(), result };

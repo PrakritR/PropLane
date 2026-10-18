@@ -10,6 +10,7 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 export type LeasePacketApplicationPatch = Partial<
   Pick<
@@ -119,7 +120,7 @@ export async function patchLeasePacketForManagerReview(
       resident_email: updatedRow.residentEmail.trim().toLowerCase() || null,
       property_id: record.property_id ?? updatedRow.propertyId ?? null,
       status: "manager",
-      row_data: stampSmsTestProvenance(updatedRow as unknown as Record<string, unknown>),
+      row_data: stampSmsTestProvenance(stripIdentityFromLeaseRow(updatedRow as unknown as Record<string, unknown>)),
       updated_at: iso,
     },
     { onConflict: "id" },
@@ -196,7 +197,7 @@ export async function patchLeaseDocumentSectionsForManagerReview(
       resident_email: updatedRow.residentEmail.trim().toLowerCase() || null,
       property_id: record.property_id ?? updatedRow.propertyId ?? null,
       status: "manager",
-      row_data: stampSmsTestProvenance(updatedRow as unknown as Record<string, unknown>),
+      row_data: stampSmsTestProvenance(stripIdentityFromLeaseRow(updatedRow as unknown as Record<string, unknown>)),
       updated_at: iso,
     },
     { onConflict: "id" },

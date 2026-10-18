@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { fetchJsonWithTimeout } from "@/lib/fetch-json-with-timeout";
 
 /**
  * Lifted from the old `manager-comms-billing-panel.tsx` so both the Extra
@@ -20,7 +21,11 @@ export type CreditCheckoutState = {
 
 const ENDPOINT = "/api/manager/comms-billing/checkout";
 
+/** This flow's own timeout copy — only the checkout call site says "checkout". */
+export const CHECKOUT_TIMEOUT_MESSAGE = "Checkout is taking too long. Check your connection and try again.";
+
 export function useCreditCheckout() {
+  const lastRequest = useRef<{ creditCents: number; workspaceId: string } | null>(null);
   const operation = useRef<{
     id: string;
     amount: number;
@@ -35,6 +40,7 @@ export function useCreditCheckout() {
 
   const checkout = useCallback(async (creditCents: number, workspaceId: string): Promise<string | null> => {
     setState((s) => ({ ...s, loading: true, error: null }));
+    lastRequest.current = { creditCents, workspaceId };
     if (
       !operation.current ||
       operation.current.amount !== creditCents ||
@@ -43,14 +49,17 @@ export function useCreditCheckout() {
       operation.current = { id: crypto.randomUUID(), amount: creditCents, workspaceId };
     }
     try {
-      const res = await fetch(ENDPOINT, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purchaseId: operation.current.id, creditCents, workspaceId }),
-      });
-      const body = (await res.json()) as { clientSecret?: string; purchaseId?: string; error?: string };
-      if (!res.ok || !body.clientSecret) throw new Error(body.error || "Checkout could not be opened.");
+      const { ok, body } = await fetchJsonWithTimeout<{ clientSecret?: string; purchaseId?: string; error?: string }>(
+        ENDPOINT,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purchaseId: operation.current.id, creditCents, workspaceId }),
+        },
+        { timeoutMessage: CHECKOUT_TIMEOUT_MESSAGE },
+      );
+      if (!ok || !body.clientSecret) throw new Error(body.error || "Checkout could not be opened.");
       setState({ clientSecret: body.clientSecret, loading: false, error: null, purchaseId: body.purchaseId ?? null });
       return body.purchaseId ?? null;
     } catch (e) {
@@ -60,12 +69,19 @@ export function useCreditCheckout() {
     }
   }, []);
 
+  /** Re-run the last request under the same operation id, so a retry never opens a second session. */
+  const retry = useCallback(async (): Promise<string | null> => {
+    const last = lastRequest.current;
+    return last ? checkout(last.creditCents, last.workspaceId) : null;
+  }, [checkout]);
+
   const reset = useCallback(() => {
+    lastRequest.current = null;
     operation.current = null;
     setState({ clientSecret: null, loading: false, error: null, purchaseId: null });
   }, []);
 
-  return { ...state, checkout, reset };
+  return { ...state, checkout, retry, reset };
 }
 
 /**

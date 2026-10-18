@@ -338,6 +338,7 @@ import {
   shortTermStayChargeTitle,
   shortTermStayNightCount,
 } from "@/lib/short-term-stay-pricing";
+import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 const toursSettingsEntry = getSettingsEntryPoint("tours");
 
@@ -362,7 +363,7 @@ function residentRoomRentSuffix(
     const nightly = shortTermNightlyRate(room.shortTermRent);
     return nightly > 0 ? ` · $${nightly % 1 === 0 ? nightly : nightly.toFixed(2)}/night` : "";
   }
-  return room.monthlyRent ? ` · $${room.monthlyRent}/mo` : "";
+  return room.monthlyRent ? ` · ${formatRoomPriceAmount(room.monthlyRent)}/mo` : "";
 }
 
 type ResidentUnifiedServicesBucket = "pending" | "scheduled" | "completed";

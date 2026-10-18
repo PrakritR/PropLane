@@ -9,6 +9,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { MockProperty } from "@/data/types";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { roomMonthlyEquivalentLabel } from "@/lib/room-pricing";
 import {
   appendPartnerInquiryToServer,
   dateHasAvailability,
@@ -53,6 +54,7 @@ import {
 import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applications-storage";
 import { TourApplicationFirstPanel } from "@/components/marketing/tour-application-first-panel";
 import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 type TourStep = 1 | 2 | 3;
 
@@ -94,7 +96,7 @@ type TourRoomOption = {
 /**
  * Why a FAILED availability read can never be rendered as an empty grid.
  *
- * "No tour windows are published for this property yet" is a confident claim
+ * "No tour times yet" is a confident claim
  * about the property, and a prospect who reads it leaves. A throttled read (the
  * public route is IP rate-limited, so a shared NAT can trip it) or a 500 says
  * nothing at all about the property, and collapsing both into `{}` tells that
@@ -131,7 +133,7 @@ function roomOptionsForProperty(p: MockProperty): TourRoomOption[] {
     const rooms = sub.rooms.filter((r) => r.name.trim());
     if (rooms.length > 0) {
       return rooms.map((room) => {
-        const parts = [room.name.trim(), room.floor.trim(), room.monthlyRent > 0 ? `$${room.monthlyRent}/mo` : ""].filter(Boolean);
+        const parts = [room.name.trim(), room.floor.trim(), roomMonthlyEquivalentLabel(room)].filter(Boolean);
         return {
           key: `${p.id}::${room.id}`,
           label: parts.join(" · "),
@@ -149,6 +151,19 @@ function roomOptionsForProperty(p: MockProperty): TourRoomOption[] {
       property: p,
     },
   ];
+}
+
+/**
+ * True when at least one published tour slot is today or later. A grid whose every published slot is already
+ * past looks exactly like one with none: every day disabled, nothing to pick. Both read as "No tour times yet".
+ * Slot keys are `YYYY-MM-DD:slotIndex`, so a string comparison on the date part orders them.
+ */
+export function tourAvailabilityHasUpcoming(availability: ReadonlySet<string>, todayDateStr: string): boolean {
+  for (const key of availability) {
+    const date = key.split(":")[0] ?? "";
+    if (date >= todayDateStr) return true;
+  }
+  return false;
 }
 
 function openSlotIndicesForDateStr(availability: Set<string>, dateStr: string): number[] {
@@ -877,7 +892,11 @@ function Step2({
 }) {
   const daysInMonth = getDaysInMonth(calYear, calMonth);
   const firstDay = getFirstDayOfMonth(calYear, calMonth);
-  const today = new Date();
+  // Slot keys are Pacific wall time, so "today" has to be Pacific too. Read from the
+  // browser's own calendar, a prospect east of Pacific whose local date has already
+  // rolled over is told "No tour times yet" about slots that are still open today, and
+  // the cell holding them is drawn as past.
+  const todayPacific = pacificCalendarDateYmd();
   const selectedDateStr = selectedDay != null ? toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0)) : null;
   const openSlots = selectedDateStr ? openSlotIndicesForDateStr(availability, selectedDateStr) : [];
 
@@ -901,10 +920,22 @@ function Step2({
             Try again
           </button>
         </div>
-      ) : availability.size === 0 ? (
-        <p className="rounded-2xl border px-4 py-3 text-sm portal-banner-pending">
-          No tour windows are published for this property yet. Send a message to PropLane or ask your property manager.
-        </p>
+      ) : !tourAvailabilityHasUpcoming(availability, todayPacific) ? (
+        <div
+          data-attr="tour-no-times-yet"
+          className="flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-pending"
+        >
+          <p className="min-w-0 flex-1 font-semibold">No tour times yet</p>
+          {property.contactSmsPhone?.trim() ? (
+            <a
+              href={`sms:${property.contactSmsPhone.trim()}`}
+              data-attr="tour-message-manager"
+              className="rounded-full border border-current px-4 py-1.5 text-xs font-semibold"
+            >
+              Message the manager
+            </a>
+          ) : null}
+        </div>
       ) : (
         <p className="text-sm text-muted">
           Pick an available date for <span className="font-semibold text-foreground">{property.title}</span>.
@@ -934,7 +965,7 @@ function Step2({
             const day = i + 1;
             const isAvailable = dateHasAvailability(new Date(calYear, calMonth, day, 12, 0, 0, 0), availability);
             const isSelected = selectedDay === day;
-            const isPast = calYear === today.getFullYear() && calMonth === today.getMonth() && day < today.getDate();
+            const isPast = toLocalDateStr(new Date(calYear, calMonth, day, 12, 0, 0, 0)) < todayPacific;
             return (
               <button
                 key={day}

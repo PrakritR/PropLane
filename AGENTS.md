@@ -208,6 +208,12 @@ full URL so scopes never share an answer, invalidated by `invalidateSharedGets`
 after a write. Never add a second bare `fetch` for a route another component
 already reads.
 
+A PUBLIC read whose answer is identical for everyone (the catalog, the room-occupancy
+snapshot) also keeps one in-process snapshot per instance, for a TTL at or under the
+response's own `s-maxage`: `createTtlCache` (`src/lib/server-ttl-cache.ts`), which shares
+one in-flight computation and never caches a failure. Never for anything scoped to a
+viewer, a workspace or a `fresh=1` read.
+
 Never re-upload the local portfolio on page load: the sync replaces the local
 copy with the server's. Local-first property writes go through the outbox
 (`src/lib/property-record-outbox.ts`), which the sync flushes first; an empty

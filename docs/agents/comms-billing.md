@@ -304,7 +304,12 @@ the plan table plus usage. An owner whose wallet cannot be computed shows "comms
 - `PATCH /api/manager/comms-billing`: `{ monthlyBudgetCents }`, alert only. Cannot clear a pause.
 - `POST /api/manager/comms-billing/checkout`: server-validated whole-dollar amount
   ($5–$500) and UUID operation id; owner derives from authenticated manager context.
-  Co-manager access grants no spending authority.
+  Co-manager access grants no spending authority. The client request is bounded —
+  `fetchJsonWithTimeout` aborts after its `timeoutMs` (15s by default) and surfaces the
+  CALLER's own retryable message beside a Retry button (`src/lib/fetch-json-with-timeout.ts`;
+  the checkout wording lives at the checkout call site, `use-credit-checkout.ts`);
+  `useCreditCheckout`'s `retry()` re-sends the SAME amount under the SAME operation id, so a
+  retry can never open a second session.
 - `GET /api/manager/usage-summary`: read-only communication, listing, workspace, work-number
   and co-manager usage for Settings → Billing & plan's Usage section (one summary read,
   `resolveEffectiveManagerSkuTier` drives every cap).

@@ -31,6 +31,23 @@ vi.mock("@/lib/household-captured-source.server", () => ({
   creditVerifiedHouseholdAutopaySource: (...args: unknown[]) => creditVerifiedHouseholdAutopaySource(...args),
 }));
 
+const recordHouseholdSourceReviewNeeded = vi.fn().mockResolvedValue({ recorded: true, reason: "" });
+vi.mock("@/lib/household-source-review.server", () => ({
+  recordHouseholdSourceReviewNeeded: (...args: unknown[]) => recordHouseholdSourceReviewNeeded(...args),
+  creditOrFileHouseholdSourceReview: async (
+    db: unknown,
+    input: Record<string, unknown>,
+    credit: () => Promise<unknown>,
+  ) => {
+    try {
+      return await credit();
+    } catch (error) {
+      await recordHouseholdSourceReviewNeeded(db, { ...input, error });
+      throw error;
+    }
+  },
+}));
+
 const paymentIntentsCreate = vi.fn();
 const paymentMethodsRetrieve = vi.fn();
 vi.mock("@/lib/stripe", () => ({
@@ -514,7 +531,9 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1",
       residentUserId: "res_1", residentEmail: "resident@example.com", managerId: "mgr_1",
       paymentMethodId: "pm_bank_1" });
-    expect(result).toEqual({ ok: false, reason: "Payment outcome needs provider reconciliation." });
+    // Still in reconciliation (claimed, not succeeded) — the webhook proves the terminal
+    // outcome — but the reason names the allocation, not the provider, which succeeded.
+    expect(result).toEqual({ ok: false, reason: "Captured payment needs allocation review." });
     expect(creditVerifiedHouseholdAutopaySource).toHaveBeenCalledOnce();
   });
 
@@ -548,6 +567,42 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
       managerId: "mgr_1", paymentMethodId: "pm_bank_1" });
     expect(result.ok).toBe(false);
     expect(paymentIntentsCreate).not.toHaveBeenCalled();
+  });
+
+  it("files an allocation refusal against the manager instead of blaming the provider", async () => {
+    // The charge is paid and Stripe is done: a refusal from the credit is the ALLOCATION,
+    // and the enclosing catch's "needs provider reconciliation" would send staff to Stripe.
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true, managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: charge(), managerUserId: "mgr_1",
+        propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
+    paymentIntentsCreate.mockResolvedValue({
+      id: "pi_credit_refused",
+      status: "succeeded",
+      metadata: { manager_user_id: "mgr_1" },
+    });
+    creditVerifiedHouseholdAutopaySource.mockRejectedValueOnce(
+      new Error("Autopay source could not be atomically credited."),
+    );
+    const { db } = makeFakeDb({ profiles: { res_1: { stripe_customer_id: "cus_1" } } });
+
+    const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1",
+      residentUserId: "res_1", residentEmail: "resident@example.com",
+      managerId: "mgr_1", paymentMethodId: "pm_bank_1" });
+
+    // The provider succeeded, so the refusal is reported as the allocation it is.
+    expect(result).toEqual({ ok: false, reason: "Captured payment needs allocation review." });
+    expect(recordHouseholdSourceReviewNeeded).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        surface: "autopay_runner",
+        sourceId: "pi_credit_refused",
+        chargeIds: ["hc_1"],
+      }),
+    );
   });
 });
 

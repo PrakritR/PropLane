@@ -67,17 +67,16 @@ describe("an add-on's header, rendered", () => {
       .filter((b) => !b.closest("[inert]"))
       .map((b) => b.getAttribute("aria-label"));
 
-  it("pending: Edit, ⋯ (Decline request), the red trash, then Approve as the one button with a word on it; no Message; the inline price pencil is gone", async () => {
+  it("pending: Edit, the red trash, a red Decline request icon, then Approve as the one button with a word on it; no Message; the inline price pencil is gone", async () => {
     await renderHeader("pending");
-    expect(headerControls()).toEqual(["Edit", "More", "Remove service", "Approve"]);
+    expect(headerControls()).toEqual(["Edit", "Remove service", "Decline request", "Approve"]);
     const primary = document.querySelector('[data-attr="service-request-approve"]')!;
     expect(primary.textContent).toBe("Approve");
     expect(document.querySelector('[data-attr="service-request-edit-charges"]')).toBeNull();
     expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
-    fireEvent.keyDown(document.querySelector('[data-attr="record-header-action-more"]')!, { key: "ArrowDown" });
-    const menu = await screen.findByRole("menu");
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(["Decline request"]);
-    for (const item of menu.querySelectorAll('[role="menuitem"]')) expect(item.className).toMatch(/text-red-600/);
+    // Decline is an icon of its own, never a lone item folded behind ⋯.
+    expect(document.querySelector('[data-attr="record-header-action-more"]')).toBeNull();
+    expect(document.querySelector('[data-attr="service-request-deny"]')!.className).toMatch(/red|danger/);
   });
 
   it("the trash asks before it deletes", async () => {
@@ -86,10 +85,9 @@ describe("an add-on's header, rendered", () => {
     expect(await screen.findByRole("heading", { name: "Delete request" })).toBeInTheDocument();
   });
 
-  it("Decline request in the menu opens the existing reason dialog", async () => {
+  it("the Decline request icon opens the existing reason dialog", async () => {
     await renderHeader("pending");
-    fireEvent.keyDown(document.querySelector('[data-attr="record-header-action-more"]')!, { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Decline request" }));
+    fireEvent.click(document.querySelector('[data-attr="service-request-deny"]')!);
     expect(await screen.findByRole("heading", { name: "Decline request" })).toBeInTheDocument();
     expect(document.querySelector('[data-attr="service-request-deny-reason"]')).not.toBeNull();
   });

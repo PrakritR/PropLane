@@ -225,7 +225,8 @@ describe("a lease document that contradicts its record is not sent silently", ()
     expect(byKey.tenantName?.documentValue).toContain("Shivansh Nikhra");
     expect(byKey.tenantName?.recordValue).toBe("Diego Morales");
     expect(byKey.monthlyRent?.documentValue).toContain("1,450.00");
-    expect(byKey.monthlyRent?.recordValue).toContain("1050.00");
+    // The record's rent is quoted the way the product shows money everywhere else.
+    expect(byKey.monthlyRent?.recordValue).toContain("$1,050");
 
     const result = await sendLeaseToResident(ROW_ID, MANAGER_ID);
 

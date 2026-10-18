@@ -17,6 +17,27 @@ export type PortalAdaptiveAction = {
 /** @deprecated Use {@link PortalAdaptiveAction}. */
 export type PortalAdaptiveHeaderAction = PortalAdaptiveAction;
 
+/** The most actions a record header ever inlines as icons on desktop; the rest fold into ⋯. */
+export const RECORD_HEADER_INLINE_MAX = 5;
+
+/**
+ * The CEILING on inline actions for a record's own detail header on a desktop viewport, or
+ * `undefined` for every other row (a phone, a list band, a bulk bar), which has none.
+ *
+ * It is a cap, never a count: the row still measures the space it actually has and folds
+ * what does not fit. An earlier version returned a FIXED count equal to the action count,
+ * which short-circuited measurement entirely — so a 1-5 action header never folded at any
+ * desktop width and a narrow header squeezed its title instead. The row's own measurement
+ * was unusable then because it read its own folded width back as the space available; the
+ * fix is to measure the header's real free space (see `measureAvailableWidth`), not to stop
+ * measuring.
+ */
+export function recordHeaderInlineCap(actionCount: number, inRecordHeader: boolean, desktop: boolean): number | undefined {
+  if (!inRecordHeader || !desktop) return undefined;
+  if (actionCount <= 0) return undefined;
+  return RECORD_HEADER_INLINE_MAX;
+}
+
 function adaptiveActionTone(action: PortalAdaptiveAction) {
   const props = isValidElement<{ tone?: string; variant?: string; ringPrimary?: boolean }>(action.node) ? action.node.props : undefined;
   return action.tone ?? (props?.ringPrimary ? "primary" : props?.tone ?? props?.variant);

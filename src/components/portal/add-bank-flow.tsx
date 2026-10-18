@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
+import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 import { PayoutBankSheet } from "@/components/portal/payout-bank-sheet";
 import { PayoutVerifySheet, type VerifyStatus } from "@/components/portal/payout-verify-sheet";
 import type { PortalPayoutsPortalKind } from "@/components/portal/portal-payouts-panel";
@@ -12,7 +14,12 @@ export const ADD_BANK_BASES: Record<PortalPayoutsPortalKind, { apiBase: string; 
   vendor: { apiBase: "/api/vendor", connectBase: "/api/vendor/stripe-connect" },
 };
 
-type FlowStep = "checking" | "verify" | "bank" | "blocked";
+type FlowStep = "checking" | "verify" | "bank" | "blocked" | "stripe";
+
+/** Why the flow stopped: only a Stripe-managed account can finish in Stripe. */
+type BlockedKind = "stripe" | "owner" | "unavailable";
+
+export const ADD_BANK_STRIPE_BLOCKED_MESSAGE = "Finish payout setup in Stripe to add a bank account.";
 
 /**
  * The one decision the Add-bank flow makes: a connected account that has not
@@ -54,6 +61,8 @@ export function AddBankFlow({
   const { connectBase } = ADD_BANK_BASES[portal];
   const [step, setStep] = useState<FlowStep>("checking");
   const [blockedMessage, setBlockedMessage] = useState("");
+  const [blockedKind, setBlockedKind] = useState<BlockedKind>("unavailable");
+  const [recheck, setRecheck] = useState(0);
   const runRef = useRef(0);
 
   useEffect(() => {
@@ -69,22 +78,28 @@ export function AddBankFlow({
         } else {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
           setBlockedMessage(body.error ?? "Payout setup is unavailable. Contact support.");
+          setBlockedKind("unavailable");
         }
       } catch {
         setBlockedMessage("Payout setup is unavailable. Try again shortly.");
+        setBlockedKind("unavailable");
       }
       if (runRef.current === run) {
         const next = addBankFlowStart(identity);
-        if (next === "blocked" && identity) setBlockedMessage(identity.canSubmit === false
-          ? "The payout account owner must verify their identity before a bank can be added."
-          : "This payout account needs a Stripe sign-in outside PropLane. Contact support to review payout setup.");
+        if (next === "blocked" && identity) {
+          const ownerMustVerify = identity.canSubmit === false;
+          setBlockedKind(ownerMustVerify ? "owner" : "stripe");
+          setBlockedMessage(ownerMustVerify
+            ? "The payout account owner must verify their identity before a bank can be added."
+            : ADD_BANK_STRIPE_BLOCKED_MESSAGE);
+        }
         setStep(next);
       }
     })();
     return () => {
       runRef.current++;
     };
-  }, [open, connectBase]);
+  }, [open, connectBase, recheck]);
 
   const onVerified = useCallback(async (status: VerifyStatus) => {
     if (status !== "verified" && status !== "pending") return;
@@ -115,15 +130,41 @@ export function AddBankFlow({
         open={open && (step === "checking" || step === "blocked")}
         title="Add a bank account"
         onClose={onClose}
-        panelClassName="max-w-2xl"
+        panelClassName="max-w-md"
         contextPanel={null}
         preview={null}
         assistantStrip={false}
         dataAttr="add-bank-flow"
+        footer={
+          step === "blocked" && blockedKind === "stripe" ? (
+            <ModalFooter>
+              <Button type="button" onClick={() => setStep("stripe")} data-attr="add-bank-continue-stripe">
+                Continue in Stripe
+              </Button>
+            </ModalFooter>
+          ) : undefined
+        }
       >
-        {step === "blocked" ? <p role="alert" className="text-sm text-danger">{blockedMessage}</p> : (
-          <div role="status" aria-label="Loading" className="h-48 w-full animate-pulse rounded-xl bg-accent/40" />
+        {step === "blocked" ? <p role="alert" className="text-sm text-foreground">{blockedMessage}</p> : (
+          <div role="status" aria-label="Loading" className="h-32 w-full animate-pulse rounded-xl bg-accent/40" />
         )}
+      </Modal>
+      <Modal
+        open={open && step === "stripe"}
+        title="Finish payout setup"
+        onClose={onClose}
+        panelClassName="max-w-lg"
+        scrollableContent={false}
+        contextPanel={null}
+        preview={null}
+        assistantStrip={false}
+        dataAttr="add-bank-stripe"
+      >
+        <StripeConnectEmbedded
+          connectBase={connectBase}
+          component="account_onboarding"
+          onExit={() => setRecheck((n) => n + 1)}
+        />
       </Modal>
       <PayoutVerifySheet open={open && step === "verify"} onClose={onClose} connectBase={connectBase} onVerified={(status) => void onVerified(status)} />
       <PayoutBankSheet

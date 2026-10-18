@@ -12,6 +12,7 @@ import { HouseholdChargeRefundReviewError, refundPaidHouseholdCharge,
   resolveHouseholdChargeRefundRail } from "@/lib/household-charge-refund-rail.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 /** Days after resident signature before move-in charges auto-refund if the manager never countersigns. */
 export const UNCOUNTER_SIGN_REFUND_AFTER_DAYS = 45;
@@ -263,7 +264,7 @@ async function voidLeaseRow(db: SupabaseClient, leaseId: string, reason: string)
     {
       id: leaseId,
       manager_user_id: data.manager_user_id,
-      row_data: nextRowData,
+      row_data: stripIdentityFromLeaseRow(nextRowData),
       updated_at: nowIso,
     },
     { onConflict: "id" },

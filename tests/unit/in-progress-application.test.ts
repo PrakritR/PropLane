@@ -4,6 +4,8 @@ import {
   inProgressApplicationResumeUrl,
   buildInProgressApplicationRow,
   applicationStageDisplayLabel,
+  applicationListTabForRow,
+  countApplicationsByTab,
   findInProgressRowForTarget,
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
@@ -200,6 +202,26 @@ describe("in-progress-application", () => {
     const withdrawn = { ...submitted, id: "AXIS-4", withdrawnAt: "2026-07-22T00:00:00.000Z" };
     expect(isSubmittedPendingApplicationRow(submitted)).toBe(true);
     expect(isSubmittedPendingApplicationRow(withdrawn)).toBe(false);
+  });
+
+  it("counts each tab as exactly the rows that tab renders, while the badge stays submitted-only", () => {
+    const base = { name: "A", property: "P", detail: "" };
+    const rows = [
+      { ...base, id: "S1", bucket: "pending" as const, stage: "Submitted" },
+      { ...base, id: "S2", bucket: "pending" as const, stage: "Submitted" },
+      { ...base, id: "D1", bucket: "pending" as const, stage: IN_PROGRESS_APPLICATION_STAGE },
+      { ...base, id: "D2", bucket: "pending" as const, stage: IN_PROGRESS_APPLICATION_STAGE },
+      { ...base, id: "W1", bucket: "pending" as const, stage: "Submitted", withdrawnAt: "2026-07-22T00:00:00.000Z" },
+      { ...base, id: "A1", bucket: "approved" as const, stage: "Approved" },
+      { ...base, id: "R1", bucket: "rejected" as const, stage: "Declined" },
+    ];
+    const counts = countApplicationsByTab(rows);
+    expect(counts).toEqual({ pending: 5, approved: 1, rejected: 1 });
+    for (const tab of ["pending", "approved", "rejected"] as const) {
+      expect(counts[tab]).toBe(rows.filter((row) => applicationListTabForRow(row) === tab).length);
+    }
+    // The sidebar badge answers a different question and still excludes drafts / withdrawn rows.
+    expect(rows.filter(isSubmittedPendingApplicationRow).length).toBe(2);
   });
 
   it("maps in-progress storage stage to Incomplete in the UI", () => {

@@ -111,6 +111,13 @@ export type LeaseJurisdictionTemplateConfig = {
    * jurisdiction without confirming the figure for THAT jurisdiction.
    */
   monthToMonthTerminationNotice?: string;
+  /**
+   * The WHOLE deposit-return paragraph, as one complete sentence (or sentences) owned by this
+   * module: the window, the itemized statement, the forwarding address. The templates render it
+   * verbatim and append nothing, so no document authors a deposit obligation of its own. Unset
+   * falls back to {@link DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW}, which states the duty with no
+   * figure and no citation.
+   */
   depositReturnWindow?: string;
   minimumHeatTemperature?: string;
   /**
@@ -127,6 +134,16 @@ export type LeaseJurisdictionTemplateConfig = {
    */
   renewalOfferParagraph?: string;
 };
+
+/**
+ * The deposit-return paragraph for a jurisdiction with NO verified `depositReturnWindow`.
+ *
+ * It states the duty and nothing else: no number of days, no statute, no citation — the same
+ * rule the numeric terms follow, because a wrong figure on an executed lease is worse than no
+ * figure. Both templates render this (never a sentence of their own) when the config is silent.
+ */
+export const DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW =
+  "Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions within the period and in the manner applicable law requires after Resident vacates and provides a forwarding address.";
 
 /**
  * Statewide Washington. `SEATTLE_LEASE_CONFIG` derives from this, so a statute or term that
@@ -147,7 +164,11 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   defaultNoticeStatuteRef: "RCW 59.12.030",
   earlyTerminationStatuteRef: "RCW 59.18.310",
   monthToMonthTerminationNotice: "at least 20 days before the end of any monthly rental period",
-  depositReturnWindow: "Within 30 days after termination of the tenancy and vacancy of the Premises",
+  // RCW 59.18.280 gives the landlord 30 days after the tenancy ends and the tenant vacates to
+  // return the deposit or deliver a full and specific written statement of the basis for keeping
+  // any of it. https://app.leg.wa.gov/RCW/default.aspx?cite=59.18.280
+  depositReturnWindow:
+    "Within 30 days after termination of the tenancy and vacancy of the Premises, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund.",
   minimumHeatTemperature: "68°F",
   // RCW 59.18.283 requires a landlord to apply a tenant's payment to rent first.
   // https://app.leg.wa.gov/RCW/default.aspx?cite=59.18.283

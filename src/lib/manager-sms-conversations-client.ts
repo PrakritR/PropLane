@@ -2,6 +2,7 @@
 
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
+import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 
 /**
  * `createCoalescedRefresher` only coalesces CONCURRENT calls — it holds no
@@ -17,9 +18,11 @@ import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 const SMS_CONVERSATIONS_TTL_MS = 20_000;
 
 type SmsConversationsEntry = {
-  reader: ReturnType<typeof createCoalescedRefresher<SmsResponseSnapshot>>;
+  reader: ReturnType<typeof createCoalescedRefresher<SmsReaderResult>>;
   lastResponse: SmsResponseSnapshot | null;
   fetchedAt: number;
+  /** The next run was asked for fresh (`force`): its request must start after that ask. */
+  pending: { force: boolean };
 };
 
 type SmsResponseSnapshot = {
@@ -28,6 +31,13 @@ type SmsResponseSnapshot = {
   statusText: string;
   headers: Headers;
 };
+
+/**
+ * A transport failure (`sharedGet` status 0: network down, request timed out) is NOT an answer,
+ * so it is never held for the TTL — the next unforced read retries instead of replaying a blip
+ * for 20s. The route's own refusals (4xx/5xx) are answers and do settle.
+ */
+type SmsReaderResult = { snapshot: SmsResponseSnapshot; cacheable: boolean };
 
 function responseFromSnapshot(snapshot: SmsResponseSnapshot): Response {
   return new Response(snapshot.body.slice(0), {
@@ -49,6 +59,7 @@ export function invalidateManagerSmsConversationsClient(
   viewerId?: string | null,
   workspaceId?: string | null,
 ): void {
+  invalidateSharedGets("/api/manager/sms-conversations");
   const normalized = String(viewerId ?? "").trim();
   const workspace = String(workspaceId ?? "").trim();
   if (normalized && workspace) {
@@ -93,27 +104,45 @@ export async function loadManagerSmsConversationsClient(
   let entry = readers.get(cacheKey);
   if (!entry) {
     const query = cursor ? `?before=${encodeURIComponent(cursor)}` : "";
+    const pending = { force: false };
     entry = {
+      // The nav badge keys its reader on (viewer, workspace) and the Communication page on the
+      // viewer alone, so two readers asked for the SAME url. `sharedGet` is keyed on the url, so
+      // concurrent readers of either key join one request; the TTL stays this module's own.
       reader: createCoalescedRefresher(async () => {
-        const response = await fetch(`/api/manager/sms-conversations${query}`, { credentials: "include", cache: "no-store" });
+        const force = pending.force;
+        pending.force = false;
+        const result = await sharedGet(`/api/manager/sms-conversations${query}`, { force, ttlMs: 0 });
+        const transportFailure = !result.ok && (result.status < 200 || result.status > 599);
+        const status = transportFailure ? 503 : result.status;
+        // The route's own error payload rides through on a refusal too: a caller that reads
+        // `error` off the body gets the real reason instead of an empty object.
+        const text = JSON.stringify(result.data ?? (result.ok ? null : {}));
         return {
-          body: await response.arrayBuffer(),
-          status: response.status,
-          statusText: response.statusText,
-          headers: new Headers(response.headers),
+          snapshot: {
+            body: new TextEncoder().encode(text).buffer as ArrayBuffer,
+            status,
+            statusText: "",
+            headers: new Headers({ "content-type": "application/json" }),
+          },
+          cacheable: !transportFailure,
         };
       }),
       lastResponse: null,
       fetchedAt: 0,
+      pending,
     };
     readers.set(cacheKey, entry);
   }
   if (!force && entry.lastResponse && Date.now() - entry.fetchedAt < SMS_CONVERSATIONS_TTL_MS) {
     return responseFromSnapshot(entry.lastResponse);
   }
-  const snapshot = await entry.reader.run(force);
-  entry.lastResponse = snapshot;
-  entry.fetchedAt = Date.now();
+  if (force) entry.pending.force = true;
+  const { snapshot, cacheable } = await entry.reader.run(force);
+  if (cacheable) {
+    entry.lastResponse = snapshot;
+    entry.fetchedAt = Date.now();
+  }
   return responseFromSnapshot(snapshot);
 }
 

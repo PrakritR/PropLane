@@ -10,10 +10,15 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
-import { Button } from "@/components/ui/button";
-import { Input, Select, Textarea } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import {
+  PortalMessageBodyField,
+  PortalMessageComposeModalBody,
+  PortalMessageScheduleFields,
+  PortalMessageSubjectField,
+  portalMessageFieldLabel,
+} from "@/components/portal/portal-message-compose-fields";
+import { Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { appendInboxMessage, type AdminComposeSendMode } from "@/lib/demo-admin-partner-inbox";
 
@@ -254,132 +259,105 @@ export function AdminComposeModal({
     }
   };
 
+  const recipientSummary =
+    pickPool.filter((person) => selectedIds.has(person.id)).map((person) => person.name).join(", ") ||
+    ADMIN_COMPOSE_MODE_OPTIONS.find((option) => option.value === mode)?.label;
+
+  // Same dialog, same field order and same field chrome as every New message
+  // (see docs/agents/send-message-compose.md). What stays admin's own is the
+  // audience (everyone / all managers / chosen people), because admin messages
+  // groups and the manager To field picks individuals.
   return (
-    <Modal
+    <PortalDialog
       open={open}
       onClose={onClose}
       title={initialSchedule ? "Schedule message" : "New message"}
-      contextPanel={<PopupRecordPreview rows={[{ label: "Audience", value: ADMIN_COMPOSE_MODE_OPTIONS.find(option => option.value === mode)?.label }, { label: "Recipients", value: pickPool.filter(person => selectedIds.has(person.id)).map(person => person.name).join(", ") || ADMIN_COMPOSE_MODE_OPTIONS.find(option => option.value === mode)?.label }]} />}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Audience", value: ADMIN_COMPOSE_MODE_OPTIONS.find((option) => option.value === mode)?.label }, { label: "Recipients", value: recipientSummary }]} />}
       previewLabel="Message preview"
-      preview={<PopupMessagePreview subject={topic} body={body} recipient={pickPool.filter(person => selectedIds.has(person.id)).map(person => person.name).join(", ") || ADMIN_COMPOSE_MODE_OPTIONS.find(option => option.value === mode)?.label} sendAt={sendMode === "schedule" ? sendAtLocal : undefined} />}
-      panelClassName={MODAL_LARGE_PANEL_CLASS}
-      footer={
-        <ModalFooter>
-          <Button type="button" className="rounded-full" onClick={() => submit()} disabled={busy}>
-            {busy ? "Sending…" : sendMode === "schedule" ? "Schedule" : "Send"}
-          </Button>
-        </ModalFooter>
-      }
+      preview={<PopupMessagePreview subject={topic} body={body} recipient={recipientSummary} sendAt={sendMode === "schedule" ? sendAtLocal : undefined} />}
+      secondaryAction={null}
+      primaryAction={{
+        label: sendMode === "schedule" ? "Schedule" : "Send message",
+        onClick: () => submit(),
+        disabled: busy,
+        loading: busy,
+        dataAttr: "admin-compose-send",
+      }}
     >
-      <div className="space-y-3">
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Send to</label>
-            <Select
-              className="mt-1.5"
-              value={mode}
-              onChange={(e) => {
-                const v = e.target.value as AdminComposeSendMode;
-                setMode(v);
-                if (v === "pick_managers") {
-                  const first = recipients.managers[0]?.id;
-                  setSelectedIds(first ? new Set([first]) : new Set());
-                } else if (v === "pick_residents") {
-                  const first = recipients.residents[0]?.id;
-                  setSelectedIds(first ? new Set([first]) : new Set());
-                } else {
-                  setSelectedIds(new Set());
-                }
-              }}
-              aria-label="Recipient type"
-            >
-              {ADMIN_COMPOSE_MODE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          {pickHeading && pickPool.length > 0 ? (
-            <div className="rounded-xl border border-border bg-accent/30 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{pickHeading}</span>
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-primary hover:underline"
-                  onClick={() => setSelectedIds(new Set(pickPool.map((p) => p.id)))}
-                >
-                  Select all
-                </button>
-              </div>
-              <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto pr-1">
-                {pickPool.map((c) => (
-                  <li key={c.id}>
-                    <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-card px-2 py-2 text-sm ring-1 ring-border hover:bg-accent/30">
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 shrink-0 rounded border-border"
-                        checked={selectedIds.has(c.id)}
-                        onChange={() => toggleId(c.id)}
-                      />
-                      <span>
-                        <span className="font-medium text-foreground">{c.name}</span>
-                        <span className="mt-0.5 block text-xs text-muted">{c.email}</span>
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Subject</label>
-            <Input className="mt-1.5" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Subject" />
-          </div>
-
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Message</label>
-            <Textarea
-              className="mt-1.5 min-h-[140px]"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Write your message…"
-            />
-          </div>
-
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">When</label>
-            <div className="mt-1.5 flex gap-2">
-              <button
-                type="button"
-                className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${sendMode === "now" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted"}`}
-                onClick={() => setSendMode("now")}
-                disabled={busy}
-              >
-                Send now
-              </button>
-              <button
-                type="button"
-                className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${sendMode === "schedule" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted"}`}
-                onClick={() => setSendMode("schedule")}
-                disabled={busy}
-              >
-                Schedule for later
-              </button>
-            </div>
-            {sendMode === "schedule" ? (
-              <Input
-                type="datetime-local"
-                className="mt-2"
-                value={sendAtLocal}
-                onChange={(e) => setSendAtLocal(e.target.value)}
-                disabled={busy}
-              />
-            ) : null}
-          </div>
+      <PortalMessageComposeModalBody>
+        <div>
+          <label className={portalMessageFieldLabel()} htmlFor="admin-compose-audience">To</label>
+          <Select
+            id="admin-compose-audience"
+            className="mt-1"
+            value={mode}
+            onChange={(e) => {
+              const v = e.target.value as AdminComposeSendMode;
+              setMode(v);
+              if (v === "pick_managers") {
+                const first = recipients.managers[0]?.id;
+                setSelectedIds(first ? new Set([first]) : new Set());
+              } else if (v === "pick_residents") {
+                const first = recipients.residents[0]?.id;
+                setSelectedIds(first ? new Set([first]) : new Set());
+              } else {
+                setSelectedIds(new Set());
+              }
+            }}
+            aria-label="Recipient type"
+          >
+            {ADMIN_COMPOSE_MODE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
         </div>
-    </Modal>
+
+        {pickHeading && pickPool.length > 0 ? (
+          <div className="rounded-xl border border-border bg-accent/30 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className={portalMessageFieldLabel()}>{pickHeading}</span>
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                onClick={() => setSelectedIds(new Set(pickPool.map((p) => p.id)))}
+              >
+                Select all
+              </button>
+            </div>
+            <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto pr-1">
+              {pickPool.map((c) => (
+                <li key={c.id}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-card px-2 py-2 text-sm ring-1 ring-border hover:bg-accent/30">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                      checked={selectedIds.has(c.id)}
+                      onChange={() => toggleId(c.id)}
+                    />
+                    <span className="min-w-0 truncate" title={c.email}>
+                      <span className="font-medium text-foreground">{c.name}</span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <PortalMessageSubjectField id="admin-compose-subject" value={topic} onChange={setTopic} />
+        <PortalMessageBodyField id="admin-compose-body" value={body} onChange={setBody} />
+        <PortalMessageScheduleFields
+          scheduleLater={sendMode === "schedule"}
+          onScheduleLaterChange={(next) => setSendMode(next ? "schedule" : "now")}
+          sendAt={sendAtLocal}
+          onSendAtChange={setSendAtLocal}
+          disabled={busy}
+          scheduleDataAttr="admin-compose-schedule-later"
+          sendAtDataAttr="admin-compose-schedule-at"
+        />
+      </PortalMessageComposeModalBody>
+    </PortalDialog>
   );
 }
-

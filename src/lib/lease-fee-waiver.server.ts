@@ -10,6 +10,7 @@ import { lookupWaiverCodeForFee, normalizeWaiverCode } from "@/lib/application-f
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { restoreFuturePaymentRemindersForCharge, cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
+import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 
 /**
  * Lease fee waivers - the lease-fee twin of `application-fee-waiver.ts`.
@@ -207,7 +208,7 @@ async function writeLeaseFeeWaiverKey(
     const expectedUpdatedAt = fresh.updated_at ?? null;
     const write = db
       .from(LEASE_TABLE)
-      .update({ row_data: { ...rowData, application: nextApplication }, updated_at: stampedAtIso })
+      .update({ row_data: stripIdentityFromLeaseRow({ ...rowData, application: nextApplication }), updated_at: stampedAtIso })
       .eq("id", leaseId);
     const { data: written, error: writeError } = await (
       expectedUpdatedAt === null ? write.is("updated_at", null) : write.eq("updated_at", expectedUpdatedAt)

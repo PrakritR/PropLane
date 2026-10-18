@@ -68,6 +68,13 @@ For an **application-collected** (new) account, the onboard routes instead
 respond `409 { code: "USE_IN_APP_IDENTITY" }` — the client opens the
 Verify-identity sheet rather than the embedded component.
 
+The **Add a bank account** flow (`add-bank-flow.tsx`) obeys the same rule: an account
+PropLane cannot collect for is a compact state whose action is **Continue in Stripe**,
+mounting that embedded `account_onboarding` in the flow's own modal and re-checking
+readiness when it exits — never a dead end telling the manager to contact support. The
+one state that still has no in-app action is an account whose OWNER must verify their
+own identity first.
+
 `payout_identity_status` (migration `20260920213000_payout_identity_status.sql`)
 is a display-only cache of the identity status per owner, refreshed by the
 `account.updated` webhook (`handleStripeAccountUpdated` in

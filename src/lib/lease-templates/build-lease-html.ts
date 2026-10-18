@@ -36,7 +36,7 @@ import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import { PROPERTY_LEASE_TEMPLATE_PLACEHOLDER, formatLeaseAddressForDisplay } from "@/lib/property-lease-preview";
 import { sharedSpaceAccessNames, sharedSpaceIsEveryone } from "@/lib/listing-shared-space-access";
 import { jointLeasePartiesParagraph } from "@/lib/bundle-group/joint-lease";
-import { leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
+import { DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW, leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { resolveJurisdiction } from "@/lib/lease-jurisdiction";
 import {
   disclosureVerbatimHtmlForSection,
@@ -540,7 +540,6 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
       : "";
   const tenantPhone = dash(a.phone);
   const tenantEmail = dash(a.email);
-  const tenantDob = dash(a.dateOfBirth);
   const employer = dash(a.employer);
   const jobTitle = dash(a.jobTitle);
   const monthlyIncome = dash(a.monthlyIncome);
@@ -1655,7 +1654,6 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       utilitiesEstimateSentence,
       tenantPhone,
       tenantEmail,
-      tenantDob,
       fmtUsd,
       parseAmount,
       escapeHtml,
@@ -1705,7 +1703,7 @@ ${disclosureReviewNotice}
 <h2>${nextSection()}. Parties</h2>
 <table>
   <tr><th width="35%">Landlord / Operator</th><td><strong>${landlordEntity}</strong>${landlordPropertyLine}<br/>Mailing address: ${landlordMailing}<br/>For notices, use PropLane portal messaging or the address above.</td></tr>
-  <tr><th>Resident / Tenant</th><td><strong>${tenantName}</strong><br/>Phone: ${tenantPhone} &nbsp;·&nbsp; Email: ${tenantEmail}<br/>Date of birth: ${tenantDob}</td></tr>
+  <tr><th>Resident / Tenant</th><td><strong>${tenantName}</strong><br/>Phone: ${tenantPhone} &nbsp;·&nbsp; Email: ${tenantEmail}</td></tr>
 </table>
 ${jointPartiesNote ? `<p>${jointPartiesNote}</p>` : ""}
 
@@ -1774,7 +1772,7 @@ ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySi
 <p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>
 <p>The total security deposit is <strong>${secDep}</strong>; the payment summary states the amount due at signing. The deposit shall be held in accordance with ${config.depositStatuteRef} and secures Resident&apos;s full performance under this Agreement. Resident&apos;s liability is not limited to the deposit amount, and the deposit may not be applied toward rent or other charges during the tenancy.</p>
 ${holdingDepositHtml}
-<p>${config.depositReturnWindow ?? "Within the period required by applicable law after termination of the tenancy and vacancy of the Premises"}, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund. Any refund may be issued as a single check payable to all Residents.</p>
+<p>${config.depositReturnWindow ?? DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW} Any refund may be issued as a single check payable to all Residents.</p>
 <p>Deductions from the deposit may include, to the extent permitted by law:</p>
 <ul>
   <li>Unpaid rent, utilities, or other charges.</li>
@@ -1930,7 +1928,6 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
 <table>
   <tr><th>Field</th><th>Information supplied by Resident</th></tr>
   <tr><td>Full legal name</td><td>${tenantName}</td></tr>
-  <tr><td>Date of birth</td><td>${tenantDob}</td></tr>
   <tr><td>Phone</td><td>${tenantPhone}</td></tr>
   <tr><td>Email</td><td>${tenantEmail}</td></tr>
   <tr><td>Employer</td><td>${employer}</td></tr>

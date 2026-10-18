@@ -18,6 +18,7 @@ import {
 } from "@/lib/stripe-household-charge-checkout.server";
 import { residentServiceFeeBreakdown, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
 import { creditVerifiedHouseholdAutopaySource } from "@/lib/household-captured-source.server";
+import { creditOrFileHouseholdSourceReview } from "@/lib/household-source-review.server";
 import { getStripe } from "@/lib/stripe";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import { loadManagerAutomationSettings, DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
@@ -522,7 +523,28 @@ export async function chargeAutopay(
     if (paymentIntent.status === "succeeded") {
       const paid = await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, run.chargeId);
       if (!paid.ok) return { ok: false, reason: "Captured payment needs provider reconciliation." };
-      await creditVerifiedHouseholdAutopaySource(db, stripe, paymentIntent, run.chargeId);
+      // The charge is paid and the provider is done, so a refusal from here on is the
+      // ALLOCATION, not the provider. The shared traced helper files it against the manager
+      // (idempotent with the `payment_intent.succeeded` webhook, which runs the same
+      // credit), and the run still stays in reconciliation — claimed, not succeeded — until
+      // that webhook proves a terminal outcome. Only the reason changes: the enclosing
+      // catch's "provider reconciliation" would send staff to Stripe for a Stripe-side
+      // success.
+      try {
+        await creditOrFileHouseholdSourceReview(
+          db,
+          {
+            ownerManagerUserId: paymentIntent.metadata?.manager_user_id,
+            sourceId: paymentIntent.id,
+            paymentIntentId: paymentIntent.id,
+            chargeIds: [run.chargeId],
+            surface: "autopay_runner",
+          },
+          () => creditVerifiedHouseholdAutopaySource(db, stripe, paymentIntent, run.chargeId),
+        );
+      } catch {
+        return { ok: false, reason: "Captured payment needs allocation review." };
+      }
     }
     return { ok: true, paymentIntentId: paymentIntent.id };
   } catch (e) {

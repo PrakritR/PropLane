@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertTeamThreadMember } from "@/lib/team-comms.server";
+import { parseTeamThreadId } from "@/lib/team-thread-id";
 
 /** Private bucket for portal Communication message attachments. */
 export const INBOX_ATTACHMENTS_BUCKET = "portal-inbox-attachments";
@@ -177,7 +179,50 @@ async function scopeReferencesAttachment(
   return false;
 }
 
-/** Owner, conversation participant (inbox thread row), or admin may read attachment bytes. */
+/**
+ * The workspace Team row is shared: `owner_user_id` is the workspace owner and
+ * `participant_email` is null, so the checks above admit only the uploader and
+ * that owner. A file the thread actually carries (structured attachment fields,
+ * never message text) is readable by anyone `assertTeamThreadMember` lets read
+ * that chat — the same gate as opening the thread.
+ */
+async function teamThreadMemberCanReadAttachment(
+  db: SupabaseClient,
+  userId: string,
+  serveUrl: string,
+): Promise<boolean> {
+  const seen = new Set<string>();
+  for (const filter of attachmentContainmentFilters(serveUrl)) {
+    const { data } = await db
+      .from("portal_inbox_thread_records")
+      .select("id, owner_user_id, row_data")
+      .eq("thread_type", "team")
+      .contains("row_data", filter);
+    for (const row of data ?? []) {
+      const id = String((row as { id?: unknown }).id ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      if (!rowDataReferencesAttachment((row as { row_data?: unknown }).row_data, serveUrl)) continue;
+      const team = parseTeamThreadId(id);
+      if (!team) continue;
+      if (String((row as { owner_user_id?: unknown }).owner_user_id ?? "").trim() !== team.ownerManagerUserId) continue;
+      if (
+        await assertTeamThreadMember(db, {
+          ownerManagerUserId: team.ownerManagerUserId,
+          workspaceId: team.workspaceId,
+          propertyId: team.propertyId,
+          userId,
+          level: "read",
+        })
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Owner, conversation participant, team-chat member, or admin may read attachment bytes. */
 export async function userCanAccessInboxAttachment(
   db: SupabaseClient,
   opts: { userId: string; userEmail: string; path: string; isAdmin: boolean },
@@ -191,6 +236,6 @@ export async function userCanAccessInboxAttachment(
   if (await scopeReferencesAttachment(db, "owner_user_id", userId, serveUrl)) return true;
 
   const email = userEmail.trim().toLowerCase();
-  if (!email) return false;
-  return scopeReferencesAttachment(db, "participant_email", email, serveUrl);
+  if (email && (await scopeReferencesAttachment(db, "participant_email", email, serveUrl))) return true;
+  return teamThreadMemberCanReadAttachment(db, userId, serveUrl);
 }

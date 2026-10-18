@@ -13,6 +13,7 @@ import {
 } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm } from "./state";
+import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
 export type PropertyOption = { id: string; label: string };
 
@@ -29,7 +30,7 @@ export function HomeStep({
 }) {
   const prospect = form.kind === "prospect";
   const roomSuffix = (r: { monthlyRent?: number; shortTermRent?: string | number }) =>
-    derived.isShortTerm ? (r.shortTermRent ? ` · $${r.shortTermRent}/night` : "") : r.monthlyRent ? ` · $${r.monthlyRent}/mo` : "";
+    derived.isShortTerm ? (r.shortTermRent ? ` · $${r.shortTermRent}/night` : "") : r.monthlyRent ? ` · ${formatRoomPriceAmount(r.monthlyRent)}/mo` : "";
   const rentModel = form.bundleId ? "bundle" : derived.rentedByRoom ? "room" : "whole";
   return (
     <StepColumn>

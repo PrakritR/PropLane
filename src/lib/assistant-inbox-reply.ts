@@ -9,6 +9,8 @@ export async function sendPropLaneAssistantInboxMessage(args: {
   /** Counterparty on person threads — assistant threads omit this. */
   toEmails?: string[];
   toUserIds?: string[];
+  /** The id the composer's optimistic bubble already carries: the stored turn takes it. */
+  messageId?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch("/api/portal/send-inbox-message", {
     method: "POST",
@@ -26,6 +28,7 @@ export async function sendPropLaneAssistantInboxMessage(args: {
       toEmails: args.toEmails?.length ? args.toEmails : undefined,
       toUserIds: args.toUserIds?.length ? args.toUserIds : undefined,
       attachmentUrls: args.attachmentUrls?.length ? args.attachmentUrls : undefined,
+      messageId: args.messageId,
     }),
   });
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };

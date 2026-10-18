@@ -99,6 +99,7 @@ type LeasePrimaryHeaderActionsProps = {
 function LeaseHeaderIcon({
   icon,
   label,
+  ariaLabel,
   dataAttr,
   onClick,
   disabled,
@@ -106,6 +107,8 @@ function LeaseHeaderIcon({
 }: {
   icon: LucideIcon;
   label: string;
+  /** Why a disabled action is blocked. The glyph's word stays canonical; this is what the tooltip and screen reader say. */
+  ariaLabel?: string;
   dataAttr?: string;
   onClick?: () => void;
   disabled?: boolean;
@@ -115,6 +118,7 @@ function LeaseHeaderIcon({
     <PortalIconAction
       icon={icon}
       label={label}
+      ariaLabel={ariaLabel}
       tone={tone}
       data-attr={dataAttr}
       disabled={disabled}
@@ -323,12 +327,13 @@ export function LeasePrimaryHeaderActions({
         node: (
           <LeaseHeaderIcon
             icon={FilePlus}
-            label={
-              generateLeaseBusy
-                ? "Generating…"
-                : generateLeaseDisabled && generateLeaseTitle
-                  ? generateLeaseTitle
-                  : "Generate lease"
+            label={generateLeaseBusy ? "Generating…" : "Generate lease"}
+            // A blocked action has to say what is blocking it: the glyph keeps its word, the
+            // accessible name (and the disabled button's native tooltip) carries the reason.
+            ariaLabel={
+              !generateLeaseBusy && generateLeaseDisabled && generateLeaseTitle?.trim()
+                ? `Generate lease — ${generateLeaseTitle.trim()}`
+                : undefined
             }
             disabled={generateLeaseBusy || generateLeaseDisabled}
             onClick={onGenerateLease}

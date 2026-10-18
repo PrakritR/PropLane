@@ -77,6 +77,10 @@ import {
 } from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
+import {
+  creditOrFileHouseholdSourceReview,
+  householdChargeIdsFromMetadata,
+} from "@/lib/household-source-review.server";
 import { creditVerifiedHouseholdCheckoutSource, creditVerifiedHouseholdManualSource,
   verifyExistingHistoricalHouseholdHold } from "@/lib/household-captured-source.server";
 import {
@@ -392,7 +396,23 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             }
             await enrichCheckoutLedgerFees(stripe, session);
             if (session.metadata?.source_arbitration_v === "1") {
-              await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
+              // The refusal is filed and then rethrown: Stripe keeps retrying, but the
+              // retries call the same function with the same frozen inputs, so a deliberate
+              // refusal outlives them and the paid charge with no hold has to be findable
+              // after they stop.
+              await creditOrFileHouseholdSourceReview(
+                db,
+                {
+                  ownerManagerUserId: session.metadata?.manager_user_id,
+                  sourceId: session.id,
+                  paymentIntentId: typeof session.payment_intent === "string"
+                    ? session.payment_intent
+                    : session.payment_intent?.id ?? null,
+                  chargeIds: householdChargeIdsFromMetadata(session.metadata),
+                  surface: "webhook",
+                },
+                () => creditVerifiedHouseholdCheckoutSource(db, stripe, session),
+              );
             } else {
               if (session.metadata?.source_arbitration_v) {
                 throw new Error("Unknown household source arbitration version.");
@@ -797,7 +817,17 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           if (!settled.ok || !settled.paid) {
             throw new Error("Manual ACH processing differs from its frozen claim.");
           }
-          await creditVerifiedHouseholdManualSource(db, stripe, current);
+          await creditOrFileHouseholdSourceReview(
+            db,
+            {
+              ownerManagerUserId: current.metadata?.manager_user_id,
+              sourceId: current.id,
+              paymentIntentId: current.id,
+              chargeIds: householdChargeIdsFromMetadata(current.metadata),
+              surface: "webhook_manual_ach",
+            },
+            () => creditVerifiedHouseholdManualSource(db, stripe, current),
+          );
         }
       }
     }
@@ -810,7 +840,17 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         if (!result.ok || !result.paid) {
           throw new Error("Captured manual ACH did not settle its frozen claim.");
         }
-        await creditVerifiedHouseholdManualSource(db, stripe, paymentIntent);
+        await creditOrFileHouseholdSourceReview(
+          db,
+          {
+            ownerManagerUserId: paymentIntent.metadata?.manager_user_id,
+            sourceId: paymentIntent.id,
+            paymentIntentId: paymentIntent.id,
+            chargeIds: householdChargeIdsFromMetadata(paymentIntent.metadata),
+            surface: "webhook_manual_ach",
+          },
+          () => creditVerifiedHouseholdManualSource(db, stripe, paymentIntent),
+        );
       } else if (paymentIntent.metadata?.source_arbitration_v === "1" &&
           paymentIntent.metadata.purpose === "household_charge") {
         if (paymentIntent.metadata.autopay_run_id) {

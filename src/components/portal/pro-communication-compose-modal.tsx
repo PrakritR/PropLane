@@ -1,5 +1,8 @@
 "use client";
 
+import { composeRecipientSummary } from "@/lib/compose-recipient-summary";
+import { sharedGet } from "@/lib/shared-get-cache";
+import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -379,11 +382,8 @@ export function ManagerCommunicationComposeModal({
     }
     let active = true;
     setDirectoryContacts(localContacts);
-    void fetch("/api/portal/inbox-eligible-contacts?portal=manager", {
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((res) => (res.ok ? res.json() : { contacts: [] }))
+    void sharedGet("/api/portal/inbox-eligible-contacts?portal=manager", { ttlMs: ELIGIBLE_CONTACTS_TTL_MS })
+      .then((res) => (res.ok ? (res.data as { contacts?: InboxScopedContact[] } | null) ?? { contacts: [] } : { contacts: [] }))
       .then((data: { contacts?: InboxScopedContact[] }) => {
         if (!active) return;
         const fromApi = Array.isArray(data.contacts) ? data.contacts : [];
@@ -1224,13 +1224,21 @@ export function ManagerCommunicationComposeModal({
     return viaEmail ? "Send email" : "Send message";
   })();
 
+  // Everyone the message will reach: the people picked from the list AND the
+  // addresses and numbers typed in as chips (they used to leave this card on
+  // "Not selected" while the To field showed them).
+  const recipientSummary = composeRecipientSummary(
+    flatPersonOptions.filter((option) => selectedKeys.includes(option.value as PersonKey)).map((option) => option.label),
+    otherTokens,
+  );
+
   return (
     <PortalDialog
       open={open}
       title="New message"
       previewLabel="Message preview"
-      contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ") || "Not selected" }]} />}
-      preview={<PopupMessagePreview subject={subject} body={body} recipient={flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ")} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
+      contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: recipientSummary || "Not selected" }]} />}
+      preview={<PopupMessagePreview subject={subject} body={body} recipient={recipientSummary} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
       secondaryAction={null}
       onClose={() => {
         sendOperationRef.current = null;

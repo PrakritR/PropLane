@@ -29,6 +29,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
 }));
 
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
 function status(overrides: Partial<ManagerMessagingNumberStatus> = {}): ManagerMessagingNumberStatus {
   return {
@@ -86,6 +87,8 @@ function stubEmail(address: string | null) {
 }
 
 afterEach(() => {
+  // The work email is read through sharedGet; one test's answer must not serve the next.
+  resetSharedGets();
   cleanup();
   vi.unstubAllGlobals();
   statusState.mockReset();
@@ -109,7 +112,7 @@ describe("ManagerWorkNumberCard identity", () => {
     await waitFor(() => {
       expect(screen.getByText("inbox@axis.housing")).toBeTruthy();
     });
-    expect(screen.getByTitle(/Your work number:/)).toBeTruthy();
+    expect(screen.getByTitle(/Work number:/)).toBeTruthy();
     expect(screen.getByTitle(/Work email:/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Tell residents" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Tell residents about this number" })).toBeNull();
@@ -137,7 +140,7 @@ describe("ManagerWorkNumberCard identity", () => {
     await waitFor(() => {
       expect(screen.getByText("Set up work email")).toBeTruthy();
     });
-    expect(screen.getByTitle(/Your work number:/)).toBeTruthy();
+    expect(screen.getByTitle(/Work number:/)).toBeTruthy();
     expect(screen.getByRole("link", { name: /Set up work email/ }).getAttribute("href")).toBe(
       "/portal/profile?tab=messaging",
     );

@@ -39,7 +39,8 @@ describe("scheduled message modal layout", () => {
     const thread = portalSource("admin-thread-pane.tsx");
 
     expect(compose).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
-    expect(compose).toContain("Schedule for later");
+    expect(compose).toContain("PortalMessageScheduleFields");
+    expect(compose).toContain("PortalDialog");
     expect(thread).toContain("useThreadScheduledCards");
     expect(thread).toContain("underHeader={scheduledCards}");
     expect(thread).toContain("InboxComposerScheduleMenu");

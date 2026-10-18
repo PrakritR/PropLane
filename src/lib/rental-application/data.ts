@@ -522,9 +522,9 @@ export function getRoomChoiceLabel(roomChoiceValue: string): string {
     const rent = slotPrice && slotPrice.monthlyRent > 0
       ? `${formatRoomPriceAmount(slotPrice.monthlyRent)}/mo`
       : daily !== undefined
-        ? `$${daily}/day`
+        ? `${formatRoomPriceAmount(daily)}/day`
         : room.monthlyRent > 0
-          ? `$${room.monthlyRent}/mo`
+          ? `${formatRoomPriceAmount(room.monthlyRent)}/mo`
           : "";
     const parts = [
       room.name.trim(),
@@ -611,7 +611,7 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
       );
       return roomRows.map((r) => {
         const daily = roomDailyRentPrice(r);
-        const rent = daily !== undefined ? `$${daily}/day` : r.monthlyRent > 0 ? `$${r.monthlyRent}/mo` : "Rent TBD";
+        const rent = daily !== undefined ? `${formatRoomPriceAmount(daily)}/day` : r.monthlyRent > 0 ? `${formatRoomPriceAmount(r.monthlyRent)}/mo` : "Rent TBD";
         const floor = normFloorLabel(r.floor);
         // Size sits beside the rent so a prospect ranking rooms can see WHY one
         // costs more (AXI-167). Omitted entirely when the manager did not state

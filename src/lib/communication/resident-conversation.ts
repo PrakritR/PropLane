@@ -185,7 +185,9 @@ function withTurns(
   return {
     ...base,
     body: first.body,
-    from: first.from,
+    // Titled by who the resident is talking TO. The resident's own first turn
+    // (their text, drawn outbound) carries their name, never the title.
+    from: first.outbound === true ? (base.counterparty?.name?.trim() || base.from) : first.from,
     rootAt: first.at,
     rootOutbound: first.outbound === true,
     rootChannel: first.channel,

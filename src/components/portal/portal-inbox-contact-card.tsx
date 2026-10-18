@@ -183,18 +183,47 @@ export function PortalInboxContactCard({
               )}
               title={box.note && box.noteTone !== "muted" ? `${box.label}: ${box.value} — ${box.note}` : `${box.label}: ${box.value}`}
             >
-              {/* The actions overlay the box's first line, so the label stops short of them instead of running under them. */}
-              <p
-                className="truncate text-[13px] font-semibold leading-tight text-foreground"
-                style={box.actions?.length ? { paddingRight: `${box.actions.length * 1.625 + 0.25}rem` } : undefined}
-              >
-                {box.label}
-              </p>
+              {/* Label and actions share the first line: the label gives way (ellipsis, full text in the tooltip) rather than running under the buttons or being clipped by padding. */}
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight text-foreground" title={box.label}>
+                  {box.label}
+                </p>
+                {box.actions && box.actions.length > 0 ? (
+                  <span className="-my-0.5 -mr-1 flex shrink-0 items-center gap-0.5">
+                    {box.actions.map((action) =>
+                      action.href ? (
+                        <a
+                          key={action.key}
+                          href={action.href}
+                          className={BOX_ACTION_CLASS}
+                          aria-label={action.label}
+                          title={action.label}
+                          data-attr={action.dataAttr}
+                        >
+                          {action.icon}
+                        </a>
+                      ) : (
+                        <button
+                          key={action.key}
+                          type="button"
+                          className={BOX_ACTION_CLASS}
+                          aria-label={action.label}
+                          title={action.label}
+                          data-attr={action.dataAttr}
+                          onClick={action.onClick}
+                        >
+                          {action.icon}
+                        </button>
+                      ),
+                    )}
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs leading-tight text-muted">
                 {box.leading ? (
                   <span className="flex shrink-0 items-center [&_svg]:size-3.5 [&_svg]:text-muted">{box.leading}</span>
                 ) : null}
-                <span className={cn("tabular-nums", wrapValue ? "min-w-0 [overflow-wrap:anywhere]" : "truncate")}>{box.value}</span>
+                <span className={cn("min-w-0 tabular-nums", wrapValue ? "[overflow-wrap:anywhere]" : "truncate")} title={box.value}>{box.value}</span>
                 {box.note && box.noteTone === "fact" ? (
                   <span className="min-w-0 truncate text-[11px] text-muted">{box.note}</span>
                 ) : null}
@@ -202,36 +231,6 @@ export function PortalInboxContactCard({
               {/* A status gets its own line, so it truncates on its own and never squeezes the address. */}
               {box.note && box.noteTone === "warn" ? (
                 <p className="mt-0.5 truncate text-[11px] leading-tight text-[var(--status-pending-fg)]">{box.note}</p>
-              ) : null}
-              {box.actions && box.actions.length > 0 ? (
-                <span className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-card/90">
-                  {box.actions.map((action) =>
-                    action.href ? (
-                      <a
-                        key={action.key}
-                        href={action.href}
-                        className={BOX_ACTION_CLASS}
-                        aria-label={action.label}
-                        title={action.label}
-                        data-attr={action.dataAttr}
-                      >
-                        {action.icon}
-                      </a>
-                    ) : (
-                      <button
-                        key={action.key}
-                        type="button"
-                        className={BOX_ACTION_CLASS}
-                        aria-label={action.label}
-                        title={action.label}
-                        data-attr={action.dataAttr}
-                        onClick={action.onClick}
-                      >
-                        {action.icon}
-                      </button>
-                    ),
-                  )}
-                </span>
               ) : null}
             </div>
           );

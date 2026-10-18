@@ -332,7 +332,7 @@ export function ManagerExtraUsagePanel({
   const workspaceContext = useWorkspaces();
   const ownedWorkspaces = (workspaceContext?.workspaces ?? []).filter((w) => w.owned);
   const [workspaceOverride, setWorkspaceOverride] = useState<string | null>(null);
-  const { clientSecret, loading, error, checkout, reset } = useCreditCheckout();
+  const { clientSecret, loading, error, checkout, retry, reset } = useCreditCheckout();
   const [amountInput, setAmountInput] = useState(String(COMMS_CREDIT_DEFAULT_CENTS / 100));
   const [amountError, setAmountError] = useState<string | null>(null);
   const [buyOpen, setBuyOpen] = useState(false);
@@ -650,14 +650,18 @@ export function ManagerExtraUsagePanel({
               closeBuy();
             }}
           />
+        ) : error ? (
+          <div className="flex flex-col items-center gap-4 py-6" data-attr="usage-checkout-error">
+            <p role="alert" className="text-center text-sm text-danger">
+              {error}
+            </p>
+            <Button variant="primary" onClick={() => retry()} data-attr="usage-checkout-retry">
+              Retry
+            </Button>
+          </div>
         ) : (
           <p className="py-8 text-center text-sm text-muted">{loading ? "Preparing secure checkout…" : "Starting checkout…"}</p>
         )}
-        {error ? (
-          <p role="alert" className="mt-4 text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
       </Modal>
     </PortalSettingsSection>
   );

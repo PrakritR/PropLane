@@ -1,5 +1,6 @@
 "use client";
 
+import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { consumeVendorComposePrefill } from "@/lib/vendor-compose-prefill";
 import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
@@ -196,8 +197,8 @@ export const VendorInboxPanel = forwardRef<
   useEffect(() => {
     if (isDemoModeActive()) return;
     let active = true;
-    void fetch("/api/portal/inbox-eligible-contacts?portal=vendor", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : { contacts: [] }))
+    void sharedGet("/api/portal/inbox-eligible-contacts?portal=vendor", { ttlMs: ELIGIBLE_CONTACTS_TTL_MS })
+      .then((res) => (res.ok ? (res.data as { contacts?: InboxScopedContact[] } | null) ?? { contacts: [] } : { contacts: [] }))
       .then((data: { contacts?: InboxScopedContact[] }) => {
         if (active) setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
       })

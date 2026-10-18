@@ -103,10 +103,13 @@ describe("A3 · amounts carry thousands separators", () => {
   });
 });
 
-describe("A4 · ?pay= survives the bare /payments redirect", () => {
-  it("carries the pay param and opens the charge record from the panel", () => {
+describe("A4 · the query survives the bare /payments redirect", () => {
+  it("carries the whole query (?pay=, and the Stripe return params) and opens the charge record", () => {
+    // Behaviour: tests/unit/resident-payments-checkout-return-query.test.ts drives the
+    // redirect itself. `?pay=` is no longer an allowlist of one — the Stripe return
+    // (`?ach_checkout=…&session_id=…`) has to arrive at the panel too.
     const render = readFileSync("src/lib/render-portal-section.tsx", "utf8");
-    expect(render).toContain("searchSuffix(undefined, { pay: payParam })");
+    expect(render).toContain("redirect(`${def.basePath}/payments/${bucket}${searchSuffix(carried)}`)");
     const panel = readFileSync("src/components/portal/resident-payments-panel.tsx", "utf8");
     expect(panel).toContain("residentChargeDetailHref(basePath, residentChargeBucket(target), target.id)");
   });

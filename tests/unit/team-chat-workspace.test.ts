@@ -175,6 +175,15 @@ describe("postTeamThreadMessage", () => {
     const result = await post(fake as unknown as SupabaseClient, { workspaceId: null, propertyId: "prop-1" });
     expect(result).toMatchObject({ ok: true, threadId: `team-thread:${OWNER}:prop-1`, workspaceId: null });
   });
+
+  it("stores file chips on the line and keeps the urls out of the body", async () => {
+    const fake = seed();
+    const attachments = [{ url: "/api/portal/inbox-attachments?path=prakrit%2Fphoto.png", name: "photo.png" }];
+    await post(fake as unknown as SupabaseClient, { text: "Here is the photo", attachments });
+    const messages = (fake.tables.portal_inbox_thread_records![0]!.row_data as { messages: Array<Record<string, unknown>> }).messages;
+    expect(messages[0]).toMatchObject({ body: "Here is the photo", attachments });
+    expect(String(messages[0]!.body)).not.toMatch(/Attachments:|inbox-attachments/);
+  });
 });
 
 describe("relayTeamChatMessageToSms", () => {

@@ -26,6 +26,7 @@ import {
   EMPTY_DRAFT,
   PromotionForm,
   draftInputs,
+  draftToPreviewRow,
   draftWithPropertyKey,
   promotionTextIdentityFromDraft,
   CUSTOM_PROPERTY_KEY,
@@ -86,7 +87,7 @@ import {
   makePromotionUploadId,
   type PromotionUploadEntry,
 } from "@/lib/promotion-upload";
-import { downloadPromotionFlyer } from "@/components/portal/promotion-flyer-preview";
+import { PromotionFlyerPreview, downloadPromotionFlyer } from "@/components/portal/promotion-flyer-preview";
 import { PropertyPromotionBuiltinModal } from "@/components/portal/property-promotion-builtin-modal";
 import { PropertyPromotionBuiltinFacts, PropertyPromotionBuiltinRow } from "@/components/portal/property-promotion-builtin-row";
 import {
@@ -1097,7 +1098,13 @@ export function ManagerPropertyPromotionPanel({
         open={showForm}
         title="Edit flyer"
         onClose={closeForm}
-        panelClassName="max-w-2xl"
+        // EXACTLY two columns: the editor and the live flyer. The auto rail and the auto
+        // form snapshot only repeated one field's card on both sides, and the assistant
+        // strip was a third column that squeezed the editor to about 205px.
+        contextPanel={null}
+        assistantStrip={false}
+        preview={<PromotionFlyerPreview promotion={draftToPreviewRow(draft)} embedded />}
+        previewLabel="Preview"
         footer={
           <ModalFooter className="w-full">
             {showForm && editingRowId && editingEntryId ? (
@@ -1130,6 +1137,8 @@ export function ManagerPropertyPromotionPanel({
           listings={listings}
           onSelectProperty={() => {}}
           hidePropertyPicker
+          hidePreview
+          singleColumn
         />
       </Modal>
 

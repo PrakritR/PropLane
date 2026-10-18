@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { aiDraftFieldsAfterReply } from "@/lib/communication/shared-thread-merge";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
@@ -323,6 +324,7 @@ export async function commitInboxThreadReply(
       participant_email: target.participantEmail,
       row_data: {
         ...rowData,
+        ...aiDraftFieldsAfterReply(rowData),
         messages,
         preview: opts.text.slice(0, 100).replace(/\n/g, " "),
         // Advance the thread stamp: the conversation lists order on this field,

@@ -11,6 +11,7 @@ import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-applica
 import {
   APPLICATION_FEE_BASIS_VERSION,
   resolveApplicationFeeItemization,
+  applicationFeeProductDescription,
   resolveApplicationFeeProperty,
   type ApplicationFeeCheckoutFailure,
   type ApplicationFeeCheckoutInput,
@@ -210,7 +211,7 @@ export async function createClaimedApplicationFeeCheckout(
     if (input.residentName) metadata.resident_name = input.residentName.slice(0, 450);
     const params: PersistedParams = {
       mode: "embedded", residentEmail: email, amountCents: applicationFeeCents,
-      productName: "Rental application fee", productDescription: `Listing ${input.propertyId.slice(0, 120)}`,
+      productName: "Rental application fee", productDescription: applicationFeeProductDescription(resolved.value.propertyTitle),
       // Fresh captures settle centrally so owner recovery is reserved before
       // the verified residual reaches an already-ready Connect account.
       metadata, destinationAccountId: null,

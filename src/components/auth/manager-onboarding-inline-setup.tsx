@@ -235,12 +235,16 @@ export function ManagerOnboardingWorkEmailSetup({
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/manager/assistant-email", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "request_address" }),
-      });
+      const res = await writeThroughFetch(
+        "/api/manager/assistant-email",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "request_address" }),
+        },
+        { invalidatePrefix: "/api/manager/assistant-email" },
+      );
       const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & { error?: string };
       if (!res.ok) {
         setError(body.error ?? "Could not set up your work email.");

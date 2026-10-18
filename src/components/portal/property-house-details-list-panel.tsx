@@ -61,7 +61,6 @@ import {
   duplicateRoomEntry,
   duplicateSharedSpaceEntry,
   emptyBathroom,
-  emptyRoom,
   emptySharedSpace,
   isEntireHomeListing,
   isRoomSlotRemovable,
@@ -73,6 +72,7 @@ import {
   propertyAmenitiesSummary,
   propertyFactsSummary,
 } from "@/components/portal/property-house-submission-house-tab";
+import { mergePendingAddSubmission, submissionWithNewRoom } from "@/lib/property-house-add-room";
 import { floorLevelSelectOptions } from "@/data/manager-listing-presets";
 
 type SavePayload = {
@@ -126,6 +126,13 @@ export function PropertyHouseDetailsListPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [target, setTarget] = useState<HouseDetailsEditorTarget | null>(null);
   const [saving, setSaving] = useState(false);
+  // Add room: the form opens on a copy of the listing holding the new blank room. Nothing is
+  // written until the form commits, and only Cancel drops it. The copy is a snapshot, so the
+  // commit three-way merges the form's answer onto the listing as it stands THEN — `base` is the
+  // pre-add listing the form's changes are measured against.
+  const [pendingAdd, setPendingAdd] = useState<
+    { base: ManagerListingSubmissionV1; sub: ManagerListingSubmissionV1; roomId: string } | null
+  >(null);
   const [infoPreview, setInfoPreview] = useState<
     | { kind: "section"; spec: HouseInfoSectionSpec }
     | { kind: "other" }
@@ -186,15 +193,35 @@ export function PropertyHouseDetailsListPanel({
     />
   );
 
-  const saveEditor = (payload: SavePayload) => {
+  /**
+   * Write what the form holds. Every exit the form offers goes through here — Save and both
+   * navigations away — because closing the wizard saves (`docs/agents/property-drafts.md`). A
+   * pending Add room is three-way merged so a sync that landed meanwhile survives.
+   */
+  const commitEditor = (payload: SavePayload): boolean => {
+    const effective: SavePayload = pendingAdd
+      ? { ...payload, sub: mergePendingAddSubmission({ base: pendingAdd.base, latest: sub, edited: payload.sub }) }
+      : payload;
     setSaving(true);
-    const ok = onPersist(payload);
+    const ok = onPersist(effective);
     setSaving(false);
     if (!ok) {
       showToast?.("Could not save.");
-      return;
+      return false;
     }
-    showToast?.("Saved.");
+    showToast?.(pendingAdd ? "Room added." : "Saved.");
+    setPendingAdd(null);
+    return true;
+  };
+
+  const saveEditor = (payload: SavePayload) => {
+    if (!commitEditor(payload)) return;
+    setEditorOpen(false);
+  };
+
+  /** Cancel is the ONE exit that throws the form's work away. */
+  const closeEditor = () => {
+    setPendingAdd(null);
     setEditorOpen(false);
   };
 
@@ -206,10 +233,9 @@ export function PropertyHouseDetailsListPanel({
   };
 
   const addRoom = () => {
-    const rooms = sub.rooms ?? [];
-    const next = emptyRoom(rooms.length);
-    if (!persistSub({ ...sub, rooms: [...rooms, next] }, "Room added.")) return;
-    openEditor({ kind: "room", roomId: next.id });
+    const next = submissionWithNewRoom(sub);
+    setPendingAdd({ base: next.base, sub: next.sub, roomId: next.roomId });
+    openEditor({ kind: "room", roomId: next.roomId });
   };
 
   const addBathroom = () => {
@@ -768,19 +794,21 @@ export function PropertyHouseDetailsListPanel({
       <PropertyHouseDetailsEditorModal
         open={editorOpen}
         target={target}
-        sub={sub}
+        sub={pendingAdd?.sub ?? sub}
         propertyId={propertyId}
         managerUserId={managerUserId}
-        onGoToBathrooms={() => {
+        onGoToBathrooms={(draft) => {
+          if (!commitEditor(draft)) return;
           pickTab("baths");
           setEditorOpen(false);
         }}
-        onOpenLinkedRoom={(roomId) => {
+        onOpenLinkedRoom={(roomId, draft) => {
+          if (!commitEditor(draft)) return;
           openEditor({ kind: "room", roomId });
         }}
         houseInfo={houseInfo}
         managerNotes={managerNotes}
-        onClose={() => setEditorOpen(false)}
+        onClose={closeEditor}
         onSave={saveEditor}
         busy={saving}
       />

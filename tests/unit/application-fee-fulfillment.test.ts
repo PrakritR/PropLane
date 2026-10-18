@@ -22,6 +22,10 @@ vi.mock("@/lib/platform-owner-recovery.server", () => ({
   settleClearedPlatformOwnerRecovery: settleRecovery,
   verifiedCapturedChargeAvailability: sourceAvailability,
 }));
+const recordSourceReview = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/household-source-review.server", () => ({
+  recordHouseholdSourceReviewNeeded: recordSourceReview,
+}));
 
 import { fulfillClaimedApplicationFeePayment } from "@/lib/application-fee-fulfillment.server";
 
@@ -64,6 +68,7 @@ describe("claimed application fee fulfillment", () => {
       applicationFeeId: "fee_exact", applicationFeeCents: 44 });
     releaseSource.mockResolvedValue({ transferred: 0, pending: 1 });
     settleRecovery.mockResolvedValue({ settled: 0, pending: 0 });
+    recordSourceReview.mockResolvedValue({ recorded: true, reason: "" });
     sourceAvailability.mockResolvedValue(null);
     persistedHold = null;
     classifiedHold = false;
@@ -165,6 +170,35 @@ describe("claimed application fee fulfillment", () => {
     expect(syncLedger).toHaveBeenCalledTimes(2);
     expect(syncCharge).toHaveBeenCalledTimes(2);
     expect(creditSource).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the credited fee paid when the payout release refuses, and files the reason", async () => {
+    // The credit has COMMITTED and the hold is proven by the time the release runs. Letting
+    // its fail-closed throw out of here answered the applicant 500 for a captured, credited
+    // fee and skipped the promotion, orphan report and setup email that follow this call.
+    releaseSource.mockRejectedValueOnce(new Error("Saved payout account does not match its owner."));
+
+    const result = await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+
+    expect(result).toMatchObject({ chargeId: "hc_app_paid", alreadyPaid: false });
+    expect(creditSource).toHaveBeenCalledTimes(1);
+    expect(recordSourceReview).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        ownerManagerUserId: "manager-1",
+        sourceId: "cs_paid",
+        paymentIntentId: "pi_paid",
+        chargeIds: ["hc_app_paid"],
+        surface: "hold_release",
+        stage: "release",
+      }),
+    );
+  });
+
+  it("never files a review when the payout goes through", async () => {
+    await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+    expect(releaseSource).toHaveBeenCalledOnce();
+    expect(recordSourceReview).not.toHaveBeenCalled();
   });
 
   it("passes an attested future availability date to a new classified income mirror", async () => {

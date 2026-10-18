@@ -98,8 +98,8 @@ describe("listing multi-room lease basics", () => {
     const property = mockProperty({ id: "entire-home-utilities-sidebar", listingSubmission: sub });
     const rich = listingRichFromManagerSubmission(property, sub);
 
-    expect(rich.startingRentLabel).toBe("$1200/mo");
-    expect(rich.estimatedMonthlyTotalLabel).toBe("$1400/mo");
+    expect(rich.startingRentLabel).toBe("$1,200/mo");
+    expect(rich.estimatedMonthlyTotalLabel).toBe("$1,400/mo");
   });
 
   it("reflects entire-home short-term prices from the fees form in the sidebar", () => {
@@ -264,7 +264,7 @@ describe("listing multi-room lease basics", () => {
     expect(rich.bundleCards).toEqual([]);
     expect(rich.leaseBasics.some((row) => row.id === "lease-multi-room")).toBe(false);
     const entireRow = rich.leaseBasics.find((row) => row.id === "lease-entire-home");
-    expect(entireRow?.price).toBe("$4,500.00/mo");
+    expect(entireRow?.price).toBe("$4,500/mo");
     expect(entireRow?.section).toBe("long-term");
   });
 

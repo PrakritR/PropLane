@@ -6,10 +6,9 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { findPlatformHold, findPlatformHoldByPaymentIntent } from "@/lib/stripe-platform-hold.server";
 import { enrichLedgerPaymentFromStripeCharge } from "@/lib/stripe-ledger-fees";
-import { verifyPlatformHoldSourceRefundHistory,
-  releaseVerifiedPlatformHoldsForOwner, type HeldSourceRow } from "@/lib/platform-hold-release.server";
-import { settleClearedPlatformOwnerRecovery,
-  verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
+import { verifyPlatformHoldSourceRefundHistory, type HeldSourceRow } from "@/lib/platform-hold-release.server";
+import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
+import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-release.server";
 
 type CapturedComponent = {
   source_id: string; kind: HouseholdCharge["kind"];
@@ -353,11 +352,9 @@ export async function creditVerifiedHouseholdCheckoutSource(
     throw new Error("Household source could not be atomically credited.");
   }
   await recordLedgerChargeFacts(db, stripe, charge.id, session.id);
-  await settleClearedPlatformOwnerRecovery(db, stripe, {
-    ownerUserId: manager, holdId: result.hold_id,
-  });
-  await releaseVerifiedPlatformHoldsForOwner(db, {
-    ownerUserId: manager, holdId: result.hold_id, stripe,
+  await releaseCreditedHoldAfterCommit(db, stripe, {
+    ownerUserId: manager, holdId: result.hold_id, sourceId: session.id,
+    paymentIntentId: pi.id, chargeIds: ids,
   });
 }
 
@@ -442,10 +439,8 @@ export async function creditVerifiedHouseholdAutopaySource(
     throw new Error("Autopay source could not be atomically credited.");
   }
   await recordLedgerChargeFacts(db, stripe, charge.id, pi.id);
-  await settleClearedPlatformOwnerRecovery(db, stripe, {
-    ownerUserId: owner, holdId: result.hold_id,
-  });
-  await releaseVerifiedPlatformHoldsForOwner(db, {
-    ownerUserId: owner, holdId: result.hold_id, stripe,
+  await releaseCreditedHoldAfterCommit(db, stripe, {
+    ownerUserId: owner, holdId: result.hold_id, sourceId: pi.id,
+    paymentIntentId: pi.id, chargeIds: [chargeId],
   });
 }

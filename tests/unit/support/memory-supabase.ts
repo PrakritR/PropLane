@@ -261,6 +261,21 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
       row.last_error = null;
       return { data: true, error: null };
     }
+    // Mirrors supabase/migrations/20261017120000: ONE jsonb key, so a turn appended
+    // between the caller's read and this write cannot be rolled back.
+    if (fn === "mark_portal_inbox_thread_read_surgical") {
+      const id = String(args.p_id ?? "");
+      const scope = String(args.p_scope ?? "");
+      if (!id || !scope) return { data: false, error: null };
+      const row = ensure("portal_inbox_thread_records").find(
+        (r) => String(r.id) === id && String(r.scope) === scope,
+      );
+      const rowData = (row?.row_data ?? null) as Record<string, unknown> | null;
+      if (!row || !rowData || rowData.unread !== true) return { data: false, error: null };
+      rowData.unread = false;
+      row.updated_at = new Date(Math.max(Date.now(), Date.parse(String(row.updated_at ?? "")) + 1)).toISOString();
+      return { data: true, error: null };
+    }
     if (fn === "stamp_sms_projection_conversation") {
       const row = ensure("sms_projection_conversations").find((r) => r.id === args.p_conversation_id);
       if (!row) return { data: false, error: null };

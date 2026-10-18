@@ -1,4 +1,5 @@
 "use client";
+import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentSendBlockReason } from "@/lib/inbox-attachment-send-gate";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
@@ -1960,7 +1961,14 @@ export function InboxComposer({
     inputRef.current?.focus();
   }, [focusSignal]);
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
-  const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
+  // A failed upload blocks the send (it used to be dropped silently, so the
+  // message left without the file the chip said had failed).
+  // One gate: a failed upload AND an upload still in flight both hold the send, and the
+  // same gate names the reason the button shows for being inert.
+  const attachmentBlockReason = inboxAttachmentSendBlockReason(attachments);
+  const canSend =
+    !sending && !disabled && attachmentBlockReason === null && (value.trim().length > 0 || hasReadyAttachment);
+  const sendLabel = sendAtLabel ? `Send at ${sendAtLabel}` : "Send";
   const resolvedChannel = channelControl ?? null;
   return (
     <div
@@ -1994,7 +2002,12 @@ export function InboxComposer({
                     <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40 text-[10px] font-semibold text-white">…</span>
                   ) : null}
                   {att.error ? (
-                    <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-rose-600/80 px-1 text-center text-[9px] font-semibold text-white">Failed</span>
+                    <span
+                      className="absolute inset-0 flex items-center justify-center rounded-lg bg-rose-600/80 px-1 text-center text-[9px] font-semibold text-white"
+                      title={INBOX_ATTACHMENT_FAILED_MESSAGE}
+                    >
+                      Failed
+                    </span>
                   ) : null}
                   {onAttachmentRemove ? (
                     <button
@@ -2072,8 +2085,8 @@ export function InboxComposer({
           <button
             type="submit"
             disabled={!canSend}
-            aria-label={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
-            title={sendAtLabel ? `Send at ${sendAtLabel}` : "Send"}
+            aria-label={attachmentBlockReason ?? sendLabel}
+            title={attachmentBlockReason ?? sendLabel}
             data-attr={dataAttr ? `${dataAttr}-send` : undefined}
             className={PORTAL_INBOX_COMPOSER_SEND_CLASS}
           >

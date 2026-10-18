@@ -30,9 +30,13 @@ import {
   type OpenResidentSlot,
   type RoomResidentSlotPlacement,
 } from "@/lib/rental-application/room-occupancy";
-import type { RoomPricingLike, RoomResidentPrice } from "@/lib/room-pricing";
+import { formatRoomPriceAmount, type RoomPricingLike, type RoomResidentPrice } from "@/lib/room-pricing";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/property-pipeline-events";
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
+import {
+  parseSkippedApplicationTargets,
+  type SkippedApplicationTarget,
+} from "@/lib/rental-application/skipped-application-target";
 
 export { MANAGER_APPLICATIONS_EVENT };
 const MANAGER_APPLICATIONS_SESSION_KEY_PREFIX = "axis:manager-applications:v2";
@@ -71,11 +75,36 @@ export type ManagerApplicationsSyncResult = {
   /**
    * The answer was a COMPLETE manager-scope list for the still-selected workspace, so absence
    * from `rows` proves the row is gone. A `?scope=self` slice, an answer the route marked
-   * `truncated`, one sitting at the read cap, or one whose workspace changed mid-flight proves
-   * nothing by absence — a caller that acts on absence (hiding a stay, dropping a cached row)
-   * must not act on those.
+   * `truncated`, one sitting at the read cap, one that omitted rows it could not open
+   * (`skippedRowIds`), or one whose workspace changed mid-flight proves nothing by absence —
+   * a caller that acts on absence (hiding a stay, dropping a cached row, minting a new
+   * application) must not act on those.
    */
   complete?: boolean;
+  /**
+   * How many rows the route could not open and left out of `rows` (its `skippedRowIds`). The list
+   * is short by that many, so every tab count is too — the Applications list says so in one line
+   * rather than quietly showing one fewer application.
+   */
+  skippedCount?: number;
+  /**
+   * Ids the route left out of `rows` because opening the stored record threw. They are not
+   * deletions. Present only when the response named at least one.
+   */
+  skippedRowIds?: string[];
+  /**
+   * House / term / room hints for `skippedRowIds`. No identity fields. A caller that
+   * mints one application (apply reconcile) may ignore a skip whose hint is a different
+   * house; `complete` stays false so this list is still not proof a row was deleted.
+   */
+  skippedRows?: SkippedApplicationTarget[];
+  /**
+   * The server list covered this scope except for rows it skipped opening: not
+   * `?scope=self`, not `truncated`, under the read cap, workspace unchanged.
+   * Combined with `skippedRows`, an apply target can still be proven absent when
+   * every skip is another house.
+   */
+  coveredAsideFromSkips?: boolean;
 };
 let managerApplicationsSyncPromise: Promise<ManagerApplicationsSyncResult> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
@@ -90,6 +119,8 @@ let applicationsReadSucceeded = false;
  * evidence a fresh read gave it instead of silently losing it on a remount.
  */
 let applicationsReadWasComplete = false;
+/** How many rows the last successful read's route left out. Reused answers carry it too. */
+let applicationsReadSkippedCount = 0;
 let applicationsReadScope: "manager" | "self" | null = null;
 let applicationsReadGeneration = 0;
 let applicationWriteGeneration = 0;
@@ -98,6 +129,7 @@ function clearSensitiveApplicationCache() {
   const changed = memoryRows.length > 0;
   applicationsReadSucceeded = false;
   applicationsReadWasComplete = false;
+  applicationsReadSkippedCount = 0;
   applicationsReadScope = null;
   applicationsReadGeneration++;
   memoryRows = [];
@@ -133,8 +165,21 @@ if (typeof window !== "undefined") {
     if (isDemoModeActive()) return;
     const nextWorkspaceId = selectedWorkspaceId();
     if (nextWorkspaceId === confirmedApplicationsWorkspaceId) return;
+    // Null means no confirmed read yet (the selection arriving on first load).
+    // That must not drop the skip count an in-flight read is about to publish.
+    const leavingConfirmedWorkspace = confirmedApplicationsWorkspaceId !== null;
     confirmedApplicationIds = new Set();
     confirmedApplicationsWorkspaceId = null;
+    if (!leavingConfirmedWorkspace) return;
+    // The skip count and the TTL that replays it belong to the workspace we
+    // just left. An unforced read would otherwise report that failure on the
+    // workspace now on screen.
+    applicationsReadSucceeded = false;
+    applicationsReadWasComplete = false;
+    applicationsReadSkippedCount = 0;
+    applicationsReadGeneration++;
+    managerApplicationsSuccessfulServerSyncAt = 0;
+    managerApplicationsSyncPromise = null;
   });
 }
 
@@ -914,7 +959,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
   if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < (opts?.maxAgeMs ?? MANAGER_APPLICATIONS_SYNC_TTL_MS)) {
-    return { rows: readManagerApplicationRows(), ok: true, complete: applicationsReadWasComplete };
+    return { rows: readManagerApplicationRows(), ok: true, complete: applicationsReadWasComplete, skippedCount: applicationsReadSkippedCount };
   }
   const generation = applicationsScopeGeneration;
   const readGeneration = ++applicationsReadGeneration;
@@ -948,14 +993,14 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // that throw never masquerades as a network failure, then retry the GET
       // once immediately (C200): a transient empty response must not fall
       // straight back to a possibly-stale cache with no further attempt.
-      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(res);
+      let body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean; skippedRowIds?: unknown; skippedRows?: unknown }>(res);
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
       if (!body || !Array.isArray(body.rows)) {
         const retryRes = await fetchWithTimeout(url, { credentials: "include" }, MANAGER_APPLICATIONS_FETCH_TIMEOUT_MS).catch(() => null);
         if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
         if (retryRes) {
           notePortalResponse(retryRes.status);
-          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean }>(retryRes);
+          if (retryRes.ok) body = await safeParseJsonBody<{ rows?: DemoApplicantRow[]; truncated?: boolean; skippedRowIds?: unknown; skippedRows?: unknown }>(retryRes);
         }
       }
       if (!isCurrentRead()) return { rows: [], ok: false, stale: true };
@@ -972,9 +1017,17 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // server marks `truncated` — it builds the list from several capped queries and then
       // de-duplicates and workspace-filters them, so a partial answer can be well under the
       // cap. The length check stays as the floor for a server that predates the flag.
+      // A 200 that names `skippedRowIds` omitted those rows because opening them threw. That
+      // is not a deletion, and the rest of the list is not a complete catalog either: one
+      // unopened row is enough that absence no longer proves a row is gone.
       // Absence also only proves a deletion WITHIN one scope: the list is narrowed to the
       // active workspace, so the confirmed set must have been gathered under the same
       // workspace this answer describes, and that workspace must still be the selected one.
+      const skippedRowIds = Array.isArray(body.skippedRowIds)
+        ? body.skippedRowIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : [];
+      const skippedRows = parseSkippedApplicationTargets(body.skippedRows);
+      const skippedCount = skippedRowIds.length;
       const serverIds = new Set(body.rows.map((row) => normalizeApplicationRow(row).id));
       const workspaceStillActive = readWorkspaceId === selectedWorkspaceId();
       // Only a manager-scope read can confirm that a row exists for the LIST. A
@@ -983,6 +1036,15 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // next manager sync treat it as deleted and drop it from the store.
       const confirmable = !opts?.selfScope && workspaceStillActive;
       const listIsComplete =
+        !opts?.selfScope
+        && body.truncated !== true
+        && skippedRowIds.length === 0
+        && body.rows.length < MANAGER_APPLICATIONS_READ_CAP
+        && workspaceStillActive;
+      // Skips alone do not make the rest of the list a partial catalog. Apply
+      // reconcile uses this to tell "another house failed to open" from "this
+      // target's draft may have been cut off".
+      const coveredAsideFromSkips =
         !opts?.selfScope
         && body.truncated !== true
         && body.rows.length < MANAGER_APPLICATIONS_READ_CAP
@@ -1001,10 +1063,19 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       persistManagerApplicationsToSession(rows, managerUserId);
       applicationsReadSucceeded = true;
       applicationsReadWasComplete = listIsComplete;
+      applicationsReadSkippedCount = skippedCount;
       managerApplicationsLastSyncedAt = Date.now();
       managerApplicationsSuccessfulServerSyncAt = managerApplicationsLastSyncedAt;
       if (changed) emit();
-      return { rows, ok: true, complete: listIsComplete };
+      return {
+        rows,
+        ok: true,
+        complete: listIsComplete,
+        skippedCount,
+        coveredAsideFromSkips,
+        ...(skippedRowIds.length > 0 ? { skippedRowIds } : {}),
+        ...(skippedRows.length > 0 ? { skippedRows } : {}),
+      };
     })().catch(() =>
       isCurrentRead()
         ? (applicationsReadSucceeded = false, managerApplicationsSuccessfulServerSyncAt = 0, { rows: readManagerApplicationRows(), ok: false })
@@ -1203,7 +1274,8 @@ export function signedRentLabelForRow(
   row: Pick<DemoApplicantRow, "signedMonthlyRent" | "application">,
 ): string | null {
   if (!Number.isFinite(row.signedMonthlyRent ?? NaN) || (row.signedMonthlyRent ?? 0) <= 0) return null;
-  const amount = `$${Number(row.signedMonthlyRent).toFixed(2)}`;
+  // Through the shared money formatter: "$1,050", and cents only when the rent has any.
+  const amount = formatRoomPriceAmount(Number(row.signedMonthlyRent));
   if (row.application?.rentalType === "short_term") return amount;
   return `${amount} / month`;
 }

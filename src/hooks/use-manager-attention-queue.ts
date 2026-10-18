@@ -1,5 +1,6 @@
 "use client";
 
+import { managerUnreadConversationCount, subscribeManagerUnreadConversationCount } from "@/lib/manager-unread-conversation-count";
 import { useEffect, useMemo, useState } from "react";
 
 import { readPortfolioSnapshot } from "@/components/portal/pro-dashboard-portfolio";
@@ -22,13 +23,14 @@ import { propertyListHref } from "@/lib/portal-detail-routes";
 import {
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
-  countUnopenedPersistedInbox,
+  loadPersistedInbox,
 } from "@/lib/portal-inbox-storage";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import {
   WORKSPACE_SELECTION_EVENT,
+  activeWorkspaceIdentity,
   workspaceContainsProperty,
   workspacePropertyIdFromRow,
 } from "@/lib/workspaces/selection";
@@ -88,7 +90,9 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
     const bump = () => setTick((n) => n + 1);
     const events = [...storeEvents(), WORKSPACE_SELECTION_EVENT];
     for (const name of events) window.addEventListener(name, bump);
+    const unsubscribeUnreadCount = subscribeManagerUnreadConversationCount(bump);
     return () => {
+      unsubscribeUnreadCount();
       for (const name of events) window.removeEventListener(name, bump);
     };
   }, []);
@@ -150,7 +154,15 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
       messagingSettingsHref: safe(() => MANAGER_MESSAGING_SETTINGS_HREF, `${basePath}/settings/messaging`),
       draftPropertyCount: safe(() => readPortfolioSnapshot(userId).draftCount, 0),
       draftsHref: safe(() => propertyListHref(basePath, "drafts"), `${basePath}/properties/drafts`),
-      unreadConversationCount: safe(() => countUnopenedPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []), 0),
+      unreadConversationCount: safe(
+        () =>
+          managerUnreadConversationCount(
+            `${userId}:${activeWorkspaceIdentity()?.id ?? ""}`,
+            loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []),
+            userId,
+          ),
+        0,
+      ),
     }).slice(0, MANAGER_ATTENTION_MAX_ROWS);
   }, [basePath, messagingNeedsSetup, ready, tick, userId]);
 

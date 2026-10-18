@@ -3,7 +3,7 @@ import { Bath, BedDouble, CalendarDays, DollarSign, PawPrint } from "lucide-reac
 import type { MockProperty } from "@/data/types";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 import { classifyRoomOpening, earliestRoomOpening } from "@/lib/room-availability-style";
-import { formatRoomPriceAmount } from "@/lib/room-pricing";
+import { formatMoneyAmountsInLabel } from "@/lib/room-pricing";
 import type { ListingBathroomRow, ListingSharedRow } from "@/data/listing-rich-content";
 
 /**
@@ -20,10 +20,7 @@ export function isListingPlaceholderSharedSpace(row: Pick<ListingSharedRow, "id"
 
 /** "$1050–$1300/mo" → "$1,050–$1,300/mo": every dollar amount in a label, through the one money formatter. */
 export function formatMoneyInLabel(label: string): string {
-  return label.replace(/\$(\d[\d,]*(?:\.\d+)?)/g, (_m, num: string) => {
-    const n = Number(num.replace(/,/g, ""));
-    return Number.isFinite(n) ? formatRoomPriceAmount(n) : `$${num}`;
-  });
+  return formatMoneyAmountsInLabel(label);
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { leaseUtilityKindLabel } from "@/lib/lease-utilities";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import type { LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
+import { DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { paymentAtSigningIncludedLabels } from "@/lib/rental-application/listing-fees-display";
 import { isIntraMonthStay } from "@/lib/short-term-stay-pricing";
 
@@ -99,30 +99,37 @@ export type CompactRoomLeaseInput = {
   utilitiesEstimateSentence?: string;
   tenantPhone?: string;
   tenantEmail?: string;
-  tenantDob?: string;
   fmtUsd: (n: number) => string;
   parseAmount: (s: string | undefined | null) => number | null;
   escapeHtml: (s: string) => string;
   isMonthToMonthLease: boolean;
 };
 
-function compactPremisesAccessParagraph(
+/** "2nd floor" stays "2nd floor"; "2nd" and "Main floor" read the same way: the word "floor" is added once. */
+function compactFloorPhrase(floor: string): string {
+  const bare = floor.trim().replace(/\s*floor\.?$/i, "").trim();
+  return bare ? `${bare} floor` : floor.trim();
+}
+
+export function compactPremisesAccessParagraph(
   room: { floor?: string } | undefined,
   bathroomArrangement: string,
   escapeHtml: (s: string) => string,
 ): string {
   const floor = room?.floor?.trim();
   const floorClause = floor
-    ? `exclusive use of their room on ${escapeHtml(floor)} floor`
+    ? `exclusive use of their room on the ${escapeHtml(compactFloorPhrase(floor))}`
     : "exclusive use of their private room";
-  let bathroomClause = "shared use of bathroom facilities on the property";
-  const bath = bathroomArrangement.trim();
+  // The arrangement text is a free-form fact ("shared with Room 2 (shared), Room 3."), so it gets its own
+  // sentence, never a comma splice into the sentence about the common areas.
+  const bath = bathroomArrangement.trim().replace(/[.\s]+$/, "");
+  let bathroomSentence = "Resident shall have shared use of bathroom facilities on the property.";
   if (bath.includes("assigned to this room")) {
-    bathroomClause = "use only the bathroom assigned to their room";
+    bathroomSentence = "Resident shall use only the bathroom assigned to their room.";
   } else if (bath) {
-    bathroomClause = `bathroom access as follows: ${escapeHtml(bath)}`;
+    bathroomSentence = `Bathroom access: ${escapeHtml(bath)}.`;
   }
-  return `Resident shall have ${floorClause}, ${bathroomClause}, and shared, non-exclusive use of the kitchen, living areas, laundry facilities, hallways, and other designated common areas together with other residents.`;
+  return `Resident shall have ${floorClause}. ${bathroomSentence} Resident shall also have shared, non-exclusive use of the kitchen, living areas, laundry facilities, hallways, and other designated common areas together with other residents.`;
 }
 
 function compactPaymentInstruction(paymentMethod: string): string {
@@ -631,11 +638,10 @@ ${disclosureReviewNotice}
 <h2>1. Parties and Premises</h2>
 <p>This Residential Room Lease Agreement is entered into between <strong>${landlordEntity}</strong> (&ldquo;Landlord&rdquo;) and <strong>${tenantName}</strong> (&ldquo;Resident&rdquo;).</p>
 ${
-  !input.propertyTemplatePreview && (input.tenantPhone || input.tenantEmail || input.tenantDob)
+  !input.propertyTemplatePreview && (input.tenantPhone || input.tenantEmail)
     ? `<p>Resident contact: ${[
         input.tenantPhone ? `Phone ${input.tenantPhone}` : "",
         input.tenantEmail ? `Email ${input.tenantEmail}` : "",
-        input.tenantDob ? `Date of birth: ${input.tenantDob}` : "",
       ]
         .filter(Boolean)
         .join(" · ")}</p>`
@@ -678,7 +684,7 @@ ${input.holdingDepositHtml ?? ""}
   <li>Lost or damaged furnishings</li>
   <li>Other charges permitted by Washington law</li>
 </ul>
-<p>${input.config.depositReturnWindow ?? "Any refundable balance shall be returned in accordance with Washington law after Resident vacates and provides a forwarding address."}</p>
+<p>${input.config.depositReturnWindow ?? DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW}</p>
 <p>The security deposit may not be used as the final month&apos;s rent.</p>
 
 <h2>6. Utilities</h2>

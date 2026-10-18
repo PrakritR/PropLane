@@ -253,7 +253,39 @@ export function roomHeadlineAmount(room: RoomPricingLike | null | undefined): nu
  * amounts always show cents ("$39.50") so a $39.50/day room never renders "$39.5".
  */
 export function formatRoomPriceAmount(amount: number): string {
-  return Number.isInteger(amount) ? `$${amount.toLocaleString("en-US")}` : `$${amount.toFixed(2)}`;
+  if (Number.isInteger(amount)) return `$${amount.toLocaleString("en-US")}`;
+  // 1000.5 -> "$1,000.50": a fractional amount keeps its thousands separator and always shows two decimals.
+  return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Every dollar amount inside a free-text label through {@link formatRoomPriceAmount}:
+ * "$1050–$1300/mo" becomes "$1,050–$1,300/mo", "Rent: $1000.00/mo" becomes "Rent: $1,000/mo".
+ * Whole-dollar amounts drop their cents; fractional ones keep two.
+ */
+export function formatMoneyAmountsInLabel(label: string): string {
+  return label.replace(/\$(\d[\d,]*(?:\.\d+)?)/g, (_match, num: string) => {
+    // A comma right after an amount ("Deposit $500, rent $1200") is the sentence's punctuation,
+    // not a thousands separator: it is handed back after the figure instead of being swallowed.
+    const trailingCommas = /,+$/.exec(num)?.[0] ?? "";
+    const digits = trailingCommas ? num.slice(0, -trailingCommas.length) : num;
+    const n = Number(digits.replace(/,/g, ""));
+    // "$1000.00" is a whole-dollar amount: round to cents first so it drops its ".00".
+    const figure = Number.isFinite(n) ? formatRoomPriceAmount(Number(n.toFixed(2))) : `$${digits}`;
+    return `${figure}${trailingCommas}`;
+  });
+}
+
+/**
+ * The ONE monthly figure for a room, formatted: "$1,350/mo". A daily room reads its 30-day amount and a
+ * weekly room its 52/12-week amount (the same number the listing header, the browse card and the lease
+ * basics use), never the stored `monthlyRent` a daily room keeps only as a legacy field. A room priced per
+ * resident prints "from $800/mo". `fallback` when nothing is priced.
+ */
+export function roomMonthlyEquivalentLabel(room: RoomPricingLike | null | undefined, fallback = ""): string {
+  const amount = roomMonthlyEquivalent(room);
+  if (!(amount > 0)) return fallback;
+  return `${roomHeadlinePriceIsFrom(room) ? "from " : ""}${formatRoomPriceAmount(amount)}/mo`;
 }
 
 /**

@@ -28,7 +28,9 @@ import {
   workspaceWorkNumber,
   type ManagerMessagingLineBlock,
 } from "@/lib/sms/manager-messaging-number";
-import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { sharedGet } from "@/lib/shared-get-cache";
+import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
 
 /**
  * One plain line about whether the LINE can actually send right now, or "" when
@@ -78,10 +80,10 @@ function useManagerWorkEmail(): { email: string | null; ready: boolean } {
     const load = () => {
       const thisEpoch = ++epoch;
       setReady(false);
-      void fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" })
+      void sharedGet(assistantEmailUrl(selectedWorkspaceId()))
         .then(async (res) => {
           if (!res.ok) return null;
-          const data: unknown = await res.json();
+          const data: unknown = res.data;
           if (!isManagerAssistantEmailStatus(data)) return null;
           return managerWorkEmailInUse(data);
         })
@@ -170,7 +172,10 @@ export function ManagerWorkNumberCard() {
   const coManager = status?.workspaceRole === "co_manager";
   const workspace = status?.workspaceNumber ?? null;
   const phone = workspaceWorkNumber(status);
-  const numberLabel = coManager ? "Workspace number" : "Your work number";
+  // "Work number", not "Your work number": the box is half of a two-column grid in the
+  // inbox rail, and with a retry action sharing the label line the longer wording was
+  // clipped to "Your work nu…". It also reads as a pair with "Work email" beside it.
+  const numberLabel = coManager ? "Workspace number" : "Work number";
   const emailLabel = coManager ? "Workspace email" : "Work email";
   const owner = workspace?.ownerName?.trim() || "your workspace owner";
 

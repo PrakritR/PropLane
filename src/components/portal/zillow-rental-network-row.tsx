@@ -185,9 +185,10 @@ export function SendListingLinkRow({
   dataAttr?: string;
 }) {
   return (
-    <div className={`send30-linkrow flex items-center gap-4 ${url ? "" : "opacity-60"}`} data-attr={dataAttr}>
+    <div className={`send30-linkrow flex min-w-0 items-center gap-2 ${url ? "" : "opacity-60"}`} data-attr={dataAttr}>
       <input
-        className="min-w-0 flex-1 rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-xs text-foreground"
+        className="min-w-0 flex-1 truncate text-ellipsis whitespace-nowrap rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-xs text-foreground"
+        title={url || undefined}
         aria-label={label}
         readOnly
         value={url || "Select a listing to generate a link."}

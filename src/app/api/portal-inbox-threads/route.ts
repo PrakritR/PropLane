@@ -162,13 +162,71 @@ async function collapsedSiblingMessageIds(
     ),
   ].slice(0, 50);
   if (ids.length === 0) return [];
-  const { data } = await db
+  const { data, error } = await db
     .from("portal_inbox_thread_records")
     .select("row_data")
     .in("id", ids)
     .eq("scope", scopeKey);
+  // A refused read suppresses nothing (the append goes through), so it is not fatal here — but it
+  // is the reason a duplicated turn would show up, so it is never silent.
+  if (error) console.error("collapsedSiblingMessageIds sibling read failed", error);
   return (Array.isArray(data) ? data : []).flatMap((sibling) =>
     storedThreadMessageIds((sibling as { row_data?: unknown }).row_data),
+  );
+}
+
+/**
+ * A person conversation the list folded from several stored rows is read as one
+ * row: the write above lands on the canonical row only, so the folded siblings
+ * the SAME caller can see would otherwise stay unread and bring the badge back
+ * on the next load. Only ever flips `unread` off, only on rows the caller's
+ * own scope returns.
+ *
+ * The flip is a surgical `jsonb_set` in the database
+ * (`mark_portal_inbox_thread_read_surgical`), the same shape
+ * `mark_portal_inbox_source_read` uses for the manager scope. `row_data` is one jsonb
+ * column: reading it here and writing the whole object back would drop a turn an inbound
+ * email/SMS delivery appended in between — exactly the history the canonical row's own
+ * write goes through `mergeInboxThreadRowData` to protect. Touching the single key cannot
+ * clobber that turn at all, so there is no snapshot to lose and no retry to run.
+ */
+async function settleCollapsedSiblingsRead(
+  db: SupabaseClient,
+  user: InboxScopeUser,
+  scopeKey: string,
+  canonicalId: string,
+  row: PersistedInboxThread,
+): Promise<void> {
+  const ids = [
+    ...new Set(
+      (Array.isArray(row.sourceThreadIds) ? row.sourceThreadIds : [])
+        .map((value) => String(value).trim())
+        .filter((value) => value && value !== canonicalId),
+    ),
+  ].slice(0, 50);
+  if (ids.length === 0) return;
+  let query = db
+    .from("portal_inbox_thread_records")
+    .select("id, row_data, thread_type")
+    .in("id", ids)
+    .eq("scope", scopeKey);
+  query = applyPortalInboxThreadScope(query, user, []) as typeof query;
+  const { data, error: readError } = await query;
+  // A refused read looks exactly like "no siblings": say so, or folded rows stay unread with
+  // nothing anywhere to explain why the badge came back.
+  if (readError) {
+    console.error("settleCollapsedSiblingsRead sibling read failed", readError);
+    return;
+  }
+  const unreadIds = (Array.isArray(data) ? data : [])
+    .filter((sibling) => (sibling as { row_data?: Record<string, unknown> | null }).row_data?.unread === true)
+    .map((sibling) => String((sibling as { id: string }).id));
+  // Bounded at the 50 ids above, and each flip is independent — one round trip of latency, not 50.
+  await Promise.all(
+    unreadIds.map(async (id) => {
+      const { error } = await db.rpc("mark_portal_inbox_thread_read_surgical", { p_id: id, p_scope: scopeKey });
+      if (error) console.error("settleCollapsedSiblingsRead failed", error);
+    }),
   );
 }
 
@@ -773,7 +831,12 @@ export async function POST(req: Request) {
           row_data?: unknown;
         };
         // Ownership, recipient, scope and type are the stored row's, never the body's.
-        record.owner_user_id = prior.owner_user_id ?? record.owner_user_id;
+        // An owner-less row (a manager's notice to a not-yet-signed-up address,
+        // matched by participant email) STAYS owner-less: handing it to the
+        // caller put a second row on the person's (owner, workspace, scope,
+        // key) and the write died on portal_inbox_thread_conversation_uidx,
+        // so a resident's mark-read never landed.
+        record.owner_user_id = prior.owner_user_id ?? null;
         record.participant_email = prior.participant_email ?? null;
         record.scope = prior.scope ?? record.scope;
         record.thread_type = (existing[0] as { thread_type?: string | null }).thread_type ?? null;
@@ -805,6 +868,9 @@ export async function POST(req: Request) {
 
       const { error } = await ctx.db.from("portal_inbox_thread_records").upsert(record, { onConflict: "id" });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (recordExists && scopeKey !== MANAGER_INBOX_SCOPE && normalized.unread === false) {
+        await settleCollapsedSiblingsRead(ctx.db, ctx.user, scopeKey, id, normalized);
+      }
     }
 
     return NextResponse.json({ ok: true });

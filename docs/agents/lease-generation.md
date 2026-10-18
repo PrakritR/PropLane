@@ -1784,7 +1784,8 @@ without the city-ordinance clause. Every statute reference carried over is alrea
 Three figures used to be hardcoded in the long-form body with Washington values, so every
 California lease printed a WA notice period, a WA deposit-return window, and a WA minimum
 heat temperature. They are now OPTIONAL config fields
-(`monthToMonthTerminationNotice`, `depositReturnWindow`, `minimumHeatTemperature`),
+(`monthToMonthTerminationNotice`, `depositReturnWindow`, `minimumHeatTemperature`; the
+deposit one is the whole paragraph, not a fragment the template completes),
 populated for Washington and Seattle from the values that were already in the repo and
 deliberately UNSET for California and San Francisco, where they fall back to language that
 asserts no figure at all ("as required by applicable law").
@@ -2244,7 +2245,17 @@ converted into a recurring monthly surcharge or made a platform default. It also
 includes the missing trust-account/name-and-address notice and shared-space
 cleaning responsibilities. Addendum A no longer treats a missing report as proof
 of undamaged condition or a lease signature as certification of a blank checklist.
-The completed checklist requires both parties' signatures and dates.
+The completed checklist requires both parties' signatures and dates, and Addendum A
+**keeps its handwritten signature and date lines in both templates**: the lease body is
+signed electronically, but the condition report is a printable the parties fill in by hand
+on move-in day, so the addendum has to give them somewhere to sign (captain, Oct 17).
+The deposit-return paragraph is one complete sentence owned by the JURISDICTION module —
+`depositReturnWindow` now carries the window, the itemized statement and the forwarding
+address together, and a jurisdiction with no verified window renders
+`DEPOSIT_RETURN_WITHOUT_VERIFIED_WINDOW` (the duty with no figure and no citation).
+Neither template appends a sentence of its own. The compact document's premises paragraph
+says the floor once ("on the 2nd floor", not "2nd floor floor") and gives the bathroom
+arrangement its own sentence. Guard: `tests/unit/lease-compact-wording.test.ts`.
 
 Verified primary sources for the added Washington text:
 - [RCW 59.18.270 — deposit custody and notice](https://app.leg.wa.gov/rcw/default.aspx?cite=59.18.270)
@@ -2396,3 +2407,15 @@ An accepted lease transition and its action-event delivery intents are persisted
   `persistManagerListingSubmissionOnServer` for every mode but `draft`); the server refuses an empty
   `allowedLeaseTerms` on a non-draft write, which is why Edit / Preview on such a row used to end in
   "Could not save application settings.".
+
+## A lease never carries applicant identity (Oct 2026)
+
+`row_data.application` on a lease is a copy of the application answers and must
+not hold `ssn`, `dateOfBirth`, `driversLicense` or `_applicantIdentity` (the
+application row keeps them sealed). `stripIdentityFromLeaseRow` /
+`stripApplicantIdentityFromLeaseApplication` (`src/lib/lease-application-identity.ts`)
+run in `normalizeLeasePipelineRow`, at the `POST /api/portal-lease-pipeline` write
+boundary (`buildUpsert`), on every GET, and in every server writer. The lease
+templates print no "Date of birth". Executed `generatedHtml` is never rewritten
+(signature hash). Guard: `tests/unit/lease-identity-write-guard.test.ts`.
+Cleanup of stored rows: `20261016100000_strip_lease_application_identity.sql`.
