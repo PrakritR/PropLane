@@ -37,7 +37,7 @@ function OwnerViewMock() {
       <div className="space-y-1">
         <MockRow name="Kitchen sink" title="Kitchen sink is leaking" sub="Plumber booked for Thursday morning" right={<MockChip tone="warn">Scheduled</MockChip>} />
         <MockRow name="Rent" title="Room 2 rent" sub="Paid through PropLane" right={<MockChip tone="good">Paid</MockChip>} />
-        <MockRow name="Lease" title="Room 3 lease" sub="Waiting on the new resident's signature" right={<MockChip tone="info">Assigned</MockChip>} />
+        <MockRow name="Back gate" title="Back gate latch is loose" sub="Sent to a vendor, waiting on a quote" right={<MockChip tone="info">Assigned</MockChip>} />
       </div>
       <div className="mt-3">
         <MockDraft label="PropLane drafted an update for you">

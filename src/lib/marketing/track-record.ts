@@ -36,11 +36,11 @@ export const PENDING_METRICS: readonly TrackRecordMetric[] = [
 ];
 
 /** The metrics to draw: the captain's stated numbers, then any pending one he has since filled in. */
-export function trackRecordMetrics(): TrackRecordMetric[] {
+export function trackRecordMetrics(pending: readonly TrackRecordMetric[] = PENDING_METRICS): TrackRecordMetric[] {
   const stated: TrackRecordMetric[] = [
     { id: "homes", value: String(TRACK_RECORD.homes), label: "homes we run ourselves in Seattle" },
     { id: "occupied", value: `${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal}`, label: "rooms occupied" },
     { id: "profit", value: TRACK_RECORD.profit, label: "from running these homes" },
   ];
-  return [...stated, ...PENDING_METRICS.filter((m) => m.value.trim() !== "")];
+  return [...stated, ...pending.filter((m) => m.value.trim() !== "")];
 }
