@@ -96,12 +96,21 @@ through it or through the workspace-keyed helpers in
   is checked against the owner's seat. The viewer-allowlist gate is
   deliberately not re-applied to a teammate — readiness already applies the
   owner's. Gating a teammate on their own (absent) number, seat or wallet is
-  what reported the workspace's live line as "Finishing setup" (Oct 15). The
-  owner's readiness is only half of it: both flags ALSO require the viewer's
-  own Communication (`inbox`) grant at **edit** level, read with the same
-  `resolveSmsScopeManagerIds(db, actorUserId, "edit")` the send path uses, so a
-  read-only teammate is never offered a Text channel for a send
-  `manager-sms-send.server.ts` would answer 403. Fail closed on any error.
+  what reported the workspace's live line as "Finishing setup" (Oct 15).
+  **Two fields, two questions.** `lineReady` is the LINE's own answer (owner's
+  number, owner's seat, workspace wallet, deployment send switch) and is
+  identical for everyone looking at that workspace — everything that describes
+  the line reads it: the work-number card's caption
+  (`workNumberReadinessCaption`), the Automation SMS hint, the resident-welcome
+  reachability line. `canSend` is the VIEWER's answer: `lineReady` plus, for a
+  teammate, their own Communication (`inbox`) grant at **edit** level, read with
+  the same `resolveSmsScopeManagerIds(db, actorUserId, "edit")` the send path
+  uses, so a read-only teammate is never offered a Text channel for a send
+  `manager-sms-send.server.ts` would answer 403. Fail closed on any error, and
+  never fold the viewer's grant back into `lineReady` or `sendingAvailable` —
+  that is exactly how a live workspace number came to read "Finishing setup".
+  The grant read is skipped when the deployment cannot send and otherwise runs
+  alongside the readiness chain, not after it.
 - **The setup nag is OWNER-ONLY.** The "Phone number not set up · Set up
   messaging" banner (`messaging-setup-banner.tsx`), the dashboard CTA and the
   attention-queue item are suppressed for `workspaceRole === "co_manager"`
@@ -114,7 +123,8 @@ through it or through the workspace-keyed helpers in
   retired row is not the workspace's line. Coverage:
   `tests/unit/workspace-work-number.test.ts`,
   `tests/unit/manager-messaging-setup-banner.test.tsx`,
-  `tests/unit/manager-messaging-number-teammate-can-send.test.ts`.
+  `tests/unit/manager-messaging-number-teammate-can-send.test.ts`,
+  `tests/unit/work-number-readiness-caption.test.ts`.
 - **Inbound** follows the number: `resolveOwnedWorkNumber` returns the row's
   `workspaceId`, and `resolveWorkspaceOwnerForWorkNumber(db, owner, { workspaceId })`
   answers with that workspace's owner before resident identity, leasing and

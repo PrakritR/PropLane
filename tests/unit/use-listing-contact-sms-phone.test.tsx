@@ -49,9 +49,18 @@ describe("useListingContactSmsPhone", () => {
   });
 
   it("uses the active workspace number when the channel can send", async () => {
+    // A shared workspace's line lives on `workspaceNumber`, and the role is
+    // what says so — `workspaceWorkNumber` reads the two together.
     stubFetch((url) =>
       url.startsWith("/api/manager/messaging-number")
-        ? { ok: true, json: async () => ({ canSend: true, workspaceNumber: { phoneNumber: MANAGER_PHONE } }) }
+        ? {
+            ok: true,
+            json: async () => ({
+              canSend: true,
+              workspaceRole: "co_manager",
+              workspaceNumber: { phoneNumber: MANAGER_PHONE },
+            }),
+          }
         : emptyCatalog,
     );
 

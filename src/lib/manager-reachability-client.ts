@@ -27,7 +27,7 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
     ]);
     const numberBody = numberRes.ok
       ? (numberRes.data as {
-          canSend?: boolean;
+          lineReady?: boolean;
           workspaceRole?: string | null;
           number?: { phoneNumber?: string | null };
           workspaceNumber?: { phoneNumber?: string | null } | null;
@@ -41,7 +41,7 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
       : null;
 
     const phoneE164 =
-      numberBody?.canSend && workspaceWorkNumber(numberBody)
+      numberBody?.lineReady && workspaceWorkNumber(numberBody)
         ? workspaceWorkNumber(numberBody)
         : null;
 

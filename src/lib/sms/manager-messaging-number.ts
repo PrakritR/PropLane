@@ -100,6 +100,22 @@ export type ManagerMessagingNumberStatus = {
    * there is one read and one source for what Settings renders.
    */
   requestedAtSignup: boolean;
+  /**
+   * Whether the WORKSPACE's line itself can send right now: the owner's number
+   * and allowlist seat, the workspace wallet, and this deployment's send
+   * switch. Deliberately independent of who is looking - a teammate with
+   * read-only Communication still reads a live line as live, so the work-number
+   * card never reports a sendable number as "Finishing setup". Anything that
+   * describes the LINE reads this; only the viewer's own send affordance reads
+   * `canSend`.
+   */
+  lineReady: boolean;
+  /**
+   * Whether THIS VIEWER may text from that line: `lineReady` plus, for a
+   * teammate, their own Communication (`inbox`) grant at edit level - the gate
+   * `manager-sms-send.server.ts` applies, so the Text channel is never offered
+   * for a send that would come back 403.
+   */
   canSend: boolean;
   personalPhone: {
     phone: string | null;
