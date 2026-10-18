@@ -162,7 +162,7 @@ export async function createNumberSubscriptionCheckout(
     if (error) throw new NumberBillingError("unavailable", 503, "Checkout could not be started. Try again.");
   }
 
-  const fallback = `/${input.role}`;
+  const fallback = input.role === "manager" ? "/portal/profile" : `/${input.role}`;
   const path = safeNumberReturnPath(input.returnPath, fallback);
   const metadata = {
     purpose: NUMBER_SUBSCRIPTION_PURPOSE,

@@ -49,7 +49,7 @@ see [financials.md](financials.md) § PropLane service fee). Two meters stay sep
 
 Details and the routing rules: [sms-system.md](sms-system.md) § Vendor work number.
 
-## PropLane Number (Oct 8): $5/month for a vendor or resident
+## PropLane Number (Oct 8): $5/month for a vendor or resident (and, Oct 18, a Free manager: see one-number.md § Number model)
 
 Accounts stay free. A vendor or resident who wants their own number subscribes to **PropLane
 Number**: $5.00/month (Stripe Price lookup key `proplane_number_monthly`, created lazily and

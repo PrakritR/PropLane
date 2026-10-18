@@ -42,21 +42,22 @@ function rowsFor(definition: typeof adminPortal) {
 }
 
 describe("admin sidebar rows", () => {
-  it("lists seven rows for the operator, in order, with no section reachable twice", () => {
-    const rows = rowsFor(operator).filter((r) => r.section !== "profile");
+  it("lists eight rows for the operator, Settings first, in order, with no section reachable twice", () => {
+    const rows = rowsFor(operator);
     expect(rows.map((r) => r.label)).toEqual([
+      "Settings",
       "Dashboard",
       "Communication",
+      "Properties",
       "Accounts",
       "Money",
-      "Properties",
       "Support",
       "Growth",
     ]);
     const reach = rows.flatMap((r) => r.groupSections ?? [r.section]);
     expect(new Set(reach).size).toBe(reach.length);
     expect([...reach].sort()).toEqual(
-      operator.sections.map((s) => s.section).filter((s) => s !== "profile").sort(),
+      operator.sections.map((s) => s.section).sort(),
     );
   });
 
@@ -76,7 +77,9 @@ describe("admin sidebar rows", () => {
   it.each([
     ["axis-users", "axis-users"],
     ["subscribers", "axis-users"],
-    ["unassigned-leads", "axis-users"],
+    ["unassigned-leads", "properties"],
+    ["service", "properties"],
+    ["proplane-line", "properties"],
     ["test-accounts", "axis-users"],
     ["payments", "payments"],
     ["promo-codes", "payments"],
@@ -100,11 +103,10 @@ describe("admin sidebar rows", () => {
 
   it("drops the operator-only Test accounts tab from the Accounts row for everyone else", () => {
     const accounts = rowsFor(nonOperator).find((r) => r.label === "Accounts");
-    expect(accounts?.groupSections).toEqual(["axis-users", "subscribers", "unassigned-leads"]);
+    expect(accounts?.groupSections).toEqual(["axis-users", "subscribers"]);
     expect(rowsFor(operator).find((r) => r.label === "Accounts")?.groupSections).toEqual([
       "axis-users",
       "subscribers",
-      "unassigned-leads",
       "test-accounts",
     ]);
   });
@@ -119,7 +121,7 @@ describe("admin sidebar rows", () => {
     // native bottom bar) stays the group's first section; only the link moves.
     expect(row?.section).toBe(adminNavRowSection("subscribers"));
     expect(row?.href).toBe("/admin/subscribers");
-    expect(row?.groupSections).toEqual(["subscribers", "unassigned-leads", "test-accounts"]);
+    expect(row?.groupSections).toEqual(["subscribers", "test-accounts"]);
   });
 
   it("puts the Meetings count on the Support row", () => {
@@ -142,8 +144,8 @@ describe("adminSectionTabsFor", () => {
     expect(adminSectionTabsFor("health", all)).toMatchObject({ groupId: "support", label: "Support" });
   });
 
-  it("returns nothing for Dashboard, Communication, Properties and Growth", () => {
-    for (const section of ["dashboard", "communication", "properties", "growth", "profile"]) {
+  it("returns nothing for Dashboard, Communication and Growth", () => {
+    for (const section of ["dashboard", "communication", "growth", "profile"]) {
       expect(adminSectionTabsFor(section, all)).toBeNull();
       expect(adminTabGroupIdFor(section)).toBeNull();
     }
@@ -151,7 +153,7 @@ describe("adminSectionTabsFor", () => {
 
   it("omits an unavailable (operator-only) tab", () => {
     const withoutOperator = all.filter((s) => s !== "test-accounts");
-    expect(adminSectionTabsFor("axis-users", withoutOperator)?.sections).toEqual(["axis-users", "subscribers", "unassigned-leads"]);
+    expect(adminSectionTabsFor("axis-users", withoutOperator)?.sections).toEqual(["axis-users", "subscribers"]);
   });
 
   it("covers every group member in the registry", () => {
@@ -164,19 +166,26 @@ describe("adminSectionTabsFor", () => {
 describe("AdminSectionTabs strip", () => {
   const labels = () => screen.queryAllByRole("link").map((a) => a.textContent);
 
-  it("renders Accounts · Subscribers · Unassigned leads · Test accounts for the operator, as links, with the page's tab active", () => {
+  it("renders Accounts · Subscribers · Test accounts for the operator, as links, with the page's tab active", () => {
     state.pathname = "/admin/subscribers";
     render(<AdminSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads", "Test accounts"]);
+    expect(labels()).toEqual(["Accounts", "Subscribers", "Test accounts"]);
     expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Accounts" }).getAttribute("href")).toBe("/admin/axis-users");
     expect(screen.getByRole("link", { name: "Test accounts" }).getAttribute("href")).toBe("/admin/test-accounts");
   });
 
+  it("renders Properties · Service · PropLane line · Unassigned leads as one strip with the page's tab active", () => {
+    state.pathname = "/admin/proplane-line";
+    render(<AdminSectionTabs definition={operator} />);
+    expect(labels()).toEqual(["Properties", "Service", "PropLane line", "Unassigned leads"]);
+    expect(screen.getByRole("link", { name: "PropLane line" }).getAttribute("aria-current")).toBeTruthy();
+  });
+
   it("omits Test accounts for a non-operator", () => {
     state.pathname = "/admin/axis-users";
     render(<AdminSectionTabs definition={nonOperator} />);
-    expect(labels()).toEqual(["Accounts", "Subscribers", "Unassigned leads"]);
+    expect(labels()).toEqual(["Accounts", "Subscribers"]);
   });
 
   it("renders Payments · Promo codes · Finances on a Money page", () => {
@@ -195,7 +204,7 @@ describe("AdminSectionTabs strip", () => {
     expect(screen.getByRole("link", { name: "Feedback" }).textContent).toBe("Feedback");
   });
 
-  it.each(["dashboard", "communication", "properties", "growth", "profile"])(
+  it.each(["dashboard", "communication", "growth", "profile"])(
     "renders nothing on /admin/%s",
     (section) => {
       state.pathname = `/admin/${section}`;

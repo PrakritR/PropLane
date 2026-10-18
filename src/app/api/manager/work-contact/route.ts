@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 
 /** Public work channels for a manager the caller already has an accepted relationship with. */
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   // The shared workspace's work identity belongs to its owner, regardless of which teammate is reading.
   const owner = String(link.inviter_user_id);
   const [phone, email] = await Promise.all([
-    resolveActiveManagerSendNumber(auth.db, owner, link.workspace_id).catch(() => null),
+    resolveWorkspaceDisplayNumber(auth.db, owner, link.workspace_id).catch(() => null),
     resolveActiveManagerWorkEmail(auth.db, owner, link.workspace_id).catch(() => null),
   ]);
   return NextResponse.json({ phone, email }, { headers: { "Cache-Control": "private, no-store" } });

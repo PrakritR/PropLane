@@ -19,7 +19,7 @@ vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typ
 import { POST } from "@/app/api/twilio/conversations/route";
 import { verifyConversationsWebhook } from "@/lib/house-groups/webhook.server";
 import { handleSharedLineInbound } from "@/lib/one-number/inbound-seam.server";
-import { announceToHouseChatTool } from "@/lib/tools/domains/house-groups";
+import { announceToHouseTool } from "@/lib/tools/domains/announce";
 import { CO_MANAGER_SCOPED_TOOLS, COMMUNICATION_SENDING_TOOLS } from "@/lib/tools/manager-co-manager-tool-scope";
 
 const URL_ = "https://app.example.test/api/twilio/conversations";
@@ -115,80 +115,13 @@ describe("leave / join group in a 1:1 text", () => {
   });
 });
 
-describe("announce_to_house_chat", () => {
-  const groupFor = (id: string, property: string, ws = WS) => ({ id, workspace_id: ws, property_id: property, conversation_sid: `CH${id}`, status: "active", member_hash: id });
-  const world = (extra: Record<string, never[] | Record<string, unknown>[]> = {}) =>
-    fakeDb({
-      manager_property_records: [
-        { id: HOUSE, workspace_id: WS, manager_user_id: OWNER, row_data: { buildingName: "5259 Brooklyn" } },
-        { id: "prop-2", workspace_id: WS, manager_user_id: OWNER, row_data: { buildingName: "5257 Brooklyn" } },
-        { id: "prop-x", workspace_id: "ws-2", manager_user_id: "owner-2", row_data: { buildingName: "Elsewhere" } },
-      ],
-      house_group_conversations: [groupFor("g1", HOUSE), groupFor("g2", "prop-2"), groupFor("gx", "prop-x", "ws-2")],
-      house_group_members: [{ id: "m", group_id: "g1", phone_key: "2065550101", phone_e164: "+12065550101", left_at: null }],
-      ...extra,
-    } as never);
-  const ctx = (db: unknown) =>
-    ({
-      db,
-      landlordId: OWNER,
-      userId: OWNER,
-      workspace: { id: WS, name: "Seattle Homes", isDefault: true, narrowing: false, propertyIds: [HOUSE, "prop-2"] },
-    }) as never;
-
-  beforeEach(() => {
-    posts.postToHouseGroup.mockReset().mockResolvedValue({ ok: true, messageSid: "IM1" });
-  });
-
-  it("asks which house when several are on chat and none was named", async () => {
-    const w = world();
-    await expect(announceToHouseChatTool.preview(ctx(w.db), { message: "Water off Tuesday 9-12" })).rejects.toThrow(
-      "Which house: 5257 Brooklyn, or 5259 Brooklyn? Or say all.",
-    );
-    expect(posts.postToHouseGroup).not.toHaveBeenCalled();
-  });
-
-  it("posts to the chosen house only, through the YES-gated handler", async () => {
-    const w = world();
-    const preview = await announceToHouseChatTool.preview(ctx(w.db), { message: "Water off Tuesday 9-12", propertyIds: [HOUSE] });
-    expect(preview).toMatchObject({ kind: "announce_to_house_chat", fields: [{ label: "House chat", value: "5259 Brooklyn (1)" }, { label: "Message", value: "Water off Tuesday 9-12" }] });
-    const result = await announceToHouseChatTool.handler(ctx(w.db), { message: "Water off Tuesday 9-12", propertyIds: [HOUSE] });
-    expect(posts.postToHouseGroup).toHaveBeenCalledTimes(1);
-    expect(posts.postToHouseGroup).toHaveBeenCalledWith(
-      w.db,
-      expect.objectContaining({ workspaceId: WS, propertyId: HOUSE, kind: "announcement", text: "Water off Tuesday 9-12" }),
-      expect.anything(),
-    );
-    expect(result).toEqual({ reply: "Posted to 5259 Brooklyn." });
-  });
-
-  it("'all' posts to every house of this workspace, never another workspace's", async () => {
-    const w = world();
-    await announceToHouseChatTool.handler(ctx(w.db), { message: "Cleaning day Saturday", allHouses: true });
-    const houses = posts.postToHouseGroup.mock.calls.map((c) => (c[1] as { propertyId: string }).propertyId).sort();
-    expect(houses).toEqual([HOUSE, "prop-2"]);
-  });
-
-  it("refuses a house outside the workspace and reports a house held back", async () => {
-    const w = world();
-    await expect(announceToHouseChatTool.preview(ctx(w.db), { message: "Hi", propertyIds: ["prop-x"] })).rejects.toThrow("None of those houses");
-    posts.postToHouseGroup.mockResolvedValueOnce({ ok: false, reason: "quiet_hours" });
-    const result = (await announceToHouseChatTool.handler(ctx(w.db), { message: "Hi", propertyIds: [HOUSE] })) as { reply: string };
-    expect(result.reply).toContain("between 10 pm and 8 am");
-  });
-
-  it("says so when no house has a chat, and is off while the switch is off", async () => {
-    const empty = fakeDb();
-    await expect(announceToHouseChatTool.preview(ctx(empty.db), { message: "Hi", allHouses: true })).rejects.toThrow("No house has a group chat yet");
-    const off = world({ house_group_settings: [{ workspace_id: WS, enabled: false, max_posts_per_day: 4 }] });
-    await expect(announceToHouseChatTool.preview(ctx(off.db), { message: "Hi", allHouses: true })).rejects.toThrow("No house has a group chat yet");
-  });
-
+describe("announce_to_house (the one manager announce tool)", () => {
   it("is a manager SMS tool behind the confirm gate and never reaches a delegated co-manager", () => {
-    expect(announceToHouseChatTool.kind).toBe("write");
-    // Not on the delegated allow-list (a co-manager cannot post to residents' chat), and gated as a Communication send.
-    expect(CO_MANAGER_SCOPED_TOOLS.has("announce_to_house_chat")).toBe(false);
-    expect(COMMUNICATION_SENDING_TOOLS.has("announce_to_house_chat")).toBe(true);
+    expect(announceToHouseTool.kind).toBe("write");
+    expect(CO_MANAGER_SCOPED_TOOLS.has("announce_to_house")).toBe(false);
+    expect(COMMUNICATION_SENDING_TOOLS.has("announce_to_house")).toBe(true);
+    // The duplicate house-chat-only tool is gone: one tool posts to groups and falls back to one on one.
+    expect(COMMUNICATION_SENDING_TOOLS.has("announce_to_house_chat")).toBe(false);
   });
 });
 

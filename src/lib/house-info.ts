@@ -30,7 +30,7 @@ export type HouseInfoSectionId =
  * `timeRange` owns TWO stored keys (`key` and `pairKey`) and renders as one
  * labelled pair — quiet hours is a range, not two unrelated times.
  */
-export type HouseInfoFieldKind = "text" | "textarea" | "time" | "timeRange" | "select" | "url";
+export type HouseInfoFieldKind = "text" | "textarea" | "time" | "timeRange" | "select" | "url" | "count";
 
 export type HouseInfoField = {
   key: string;
@@ -49,6 +49,20 @@ export type HouseInfoField = {
   options?: readonly string[];
   /** Resident read view offers a Copy button and a monospace value. */
   copyable?: boolean;
+  /**
+   * A SECRET: a door or gate code, the Wi-Fi password, the alarm. Only a verified current resident of
+   * the house may be told (the move-in lock still applies), and no automated group post, template
+   * preview for a group, public page or printable ever carries one (`houseInfoSecretValues`).
+   */
+  secret?: boolean;
+  /**
+   * A manager-side setting that rides the house record: never drawn to a resident, never printed on
+   * a public page or door card (`houseInfoRenderSections`, `buildHousePublicPage` both skip it).
+   */
+  internal?: boolean;
+  /** `count` only: the stepper's bounds. */
+  min?: number;
+  max?: number;
 };
 
 export type HouseInfoSectionSpec = {
@@ -77,9 +91,10 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
         placeholder: "001000",
         hint: "Residents get a copy button for this.",
         copyable: true,
+        secret: true,
       },
-      { key: "gateCode", label: "Gate or building code", kind: "text", placeholder: "#4821 then the call button", copyable: true },
-      { key: "keyPickup", label: "Lockbox / key pickup", kind: "text", placeholder: "Lockbox left of the door — same code" },
+      { key: "gateCode", label: "Gate or building code", kind: "text", placeholder: "#4821 then the call button", copyable: true, secret: true },
+      { key: "keyPickup", label: "Lockbox / key pickup", kind: "text", placeholder: "Lockbox left of the door — same code", secret: true },
       { key: "parking", label: "Parking", kind: "text", placeholder: "Street parking, no permit needed" },
       {
         key: "notes",
@@ -94,7 +109,7 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
     label: "Wi-Fi",
     fields: [
       { key: "network", label: "Network name", kind: "text", placeholder: "4709A", copyable: true },
-      { key: "password", label: "Password", kind: "text", placeholder: "a password residents can copy", copyable: true },
+      { key: "password", label: "Password", kind: "text", placeholder: "a password residents can copy", copyable: true, secret: true },
       { key: "notes", label: "Notes", kind: "text", placeholder: "Guest network, printer name, mesh point in the hallway…" },
     ],
   },
@@ -105,6 +120,12 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
       {
         key: "day",
         label: "Trash day",
+        kind: "select",
+        options: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      },
+      {
+        key: "recycling",
+        label: "Recycling day",
         kind: "select",
         options: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
       },
@@ -175,6 +196,14 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
         placeholder: "Do not leave belongings in common areas for more than 24 hours.",
       },
       { key: "other", label: "Other rules", kind: "textarea", placeholder: "Anything not covered above." },
+      {
+        key: "escalateAfter",
+        label: "Escalate after complaints in 30 days",
+        kind: "count",
+        min: 1,
+        max: 10,
+        internal: true,
+      },
     ],
   },
   {
@@ -188,6 +217,7 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
         placeholder: "https://chat.whatsapp.com/…",
         hint: "Residents see a “Join the house chat” link, not a raw URL.",
       },
+      { key: "manager", label: "Manager contact", kind: "text", placeholder: "Text PropLane, or call (206) 555-0142" },
       { key: "emergency", label: "Emergency / after hours", kind: "text", placeholder: "(206) 555-0142" },
       { key: "onSite", label: "On-site contact", kind: "text", placeholder: "Marisol, unit 1 — knocks OK before 9pm" },
     ],
@@ -213,7 +243,7 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
     optional: true,
     fields: [
       { key: "shutoffs", label: "Water / gas / breaker shutoff", kind: "text", placeholder: "Breaker panel in the hall closet" },
-      { key: "alarm", label: "Alarm", kind: "text", placeholder: "Keypad by the front door", copyable: true },
+      { key: "alarm", label: "Alarm", kind: "text", placeholder: "Keypad by the front door", copyable: true, secret: true },
       { key: "extinguisher", label: "Extinguisher & first aid", kind: "text", placeholder: "Under the kitchen sink" },
     ],
   },
@@ -251,7 +281,15 @@ function normalizeSection(raw: unknown, spec: HouseInfoSectionSpec): HouseInfoSe
   for (const field of spec.fields) {
     for (const key of fieldKeys(field)) {
       const value = asTrimmedString(source[key]);
-      if (value) out[key] = value;
+      if (!value) continue;
+      if (field.kind === "count") {
+        // A count is a whole number inside the stepper's bounds, or nothing: never "lots".
+        const n = Number(value);
+        if (!Number.isInteger(n)) continue;
+        out[key] = String(Math.min(field.max ?? 99, Math.max(field.min ?? 0, n)));
+        continue;
+      }
+      out[key] = value;
     }
   }
   return out;
@@ -373,6 +411,8 @@ export function houseInfoRenderSections(info: HouseInfoV1 | null | undefined): H
   for (const spec of HOUSE_INFO_SECTIONS) {
     const rows: HouseInfoRow[] = [];
     for (const field of spec.fields) {
+      // Manager-side settings (escalation threshold) are not house details a resident reads.
+      if (field.internal) continue;
       if (field.pairKey) {
         const from = getHouseInfoValue(info, spec.id, field.key);
         const to = getHouseInfoValue(info, spec.id, field.pairKey);
@@ -391,6 +431,64 @@ export function houseInfoRenderSections(info: HouseInfoV1 | null | undefined): H
     if (rows.length > 0) out.push({ id: spec.id, label: spec.label, rows });
   }
   return out;
+}
+
+/**
+ * Every SECRET value on the house (door and gate codes, lockbox, Wi-Fi password, alarm). A group
+ * post, a public model and a prospect or pre-assignment vendor text are checked against this list
+ * before they leave: `containsHouseSecret`.
+ */
+export function houseInfoSecretValues(info: HouseInfoV1 | null | undefined): string[] {
+  if (!info) return [];
+  const out: string[] = [];
+  for (const spec of HOUSE_INFO_SECTIONS) {
+    for (const field of spec.fields) {
+      if (!field.secret) continue;
+      const value = getHouseInfoValue(info, spec.id, field.key).trim();
+      if (value) out.push(value);
+    }
+  }
+  return out;
+}
+
+function squashForSecretMatch(value: string): string {
+  return value.toLowerCase().replace(/[\s\-_.]+/g, "");
+}
+
+/**
+ * Does `text` carry any secret of this house? Case and spacing blind ("0 0 1 0 0 0" and "001000" are
+ * the same code), and a secret shorter than four characters is matched only as a whole token so a
+ * two-digit code does not flag every number.
+ */
+export function containsHouseSecret(text: string, info: HouseInfoV1 | null | undefined): boolean {
+  const haystack = squashForSecretMatch(text);
+  if (!haystack) return false;
+  for (const secret of houseInfoSecretValues(info)) {
+    const needle = squashForSecretMatch(secret);
+    if (!needle) continue;
+    if (needle.length < 4) {
+      const token = new RegExp(`(^|[^a-z0-9])${secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`, "i");
+      if (token.test(text)) return true;
+      continue;
+    }
+    if (haystack.includes(needle)) return true;
+  }
+  return false;
+}
+
+/** The manager's complaint threshold for this house (1-10), or null when none is set. */
+export function houseInfoEscalateAfter(info: HouseInfoV1 | null | undefined): number | null {
+  if (!info) return null;
+  const n = Number(getHouseInfoValue(info, "rules", "escalateAfter"));
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/** The quiet-hour window as stored ("22:00" to "08:00"), or null unless both ends are set. */
+export function houseInfoQuietWindow(info: HouseInfoV1 | null | undefined): { from: string; to: string } | null {
+  if (!info) return null;
+  const from = getHouseInfoValue(info, "rules", "quietFrom");
+  const to = getHouseInfoValue(info, "rules", "quietTo");
+  return from && to ? { from, to } : null;
 }
 
 /** One-line row summary for list rows (not “N of M filled”). */

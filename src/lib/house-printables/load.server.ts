@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
+import { resolveSharedLineNumberFor } from "@/lib/one-number/display-number.server";
 import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
@@ -11,6 +12,8 @@ import { getAcceptedCoManagerInviterIds } from "@/lib/sms/manager-workspace-role
 export type HouseRecord = {
   propertyId: string;
   ownerUserId: string;
+  /** The workspace that holds the house; decides which number the printable shows. */
+  workspaceId?: string | null;
   submission: ManagerListingSubmissionV1;
   updatedAt: string | null;
 };
@@ -29,7 +32,7 @@ export async function loadHouseRecord(db: SupabaseClient, propertyId: string): P
   if (!id) return null;
   const { data, error } = await db
     .from("manager_property_records")
-    .select("id, manager_user_id, row_data, property_data, updated_at")
+    .select("id, manager_user_id, workspace_id, row_data, property_data, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (error || !data) return null;
@@ -39,6 +42,7 @@ export async function loadHouseRecord(db: SupabaseClient, propertyId: string): P
   return {
     propertyId: String(data.id),
     ownerUserId: String(data.manager_user_id ?? ""),
+    workspaceId: typeof data.workspace_id === "string" && data.workspace_id.trim() ? data.workspace_id.trim() : null,
     submission: normalizeManagerListingSubmissionV1(raw as unknown as ManagerListingSubmissionV1),
     updatedAt: typeof data.updated_at === "string" ? data.updated_at : null,
   };
@@ -56,9 +60,18 @@ export async function managerMayPrintHouse(
   return inviters.includes(ownerUserId);
 }
 
-/** The owner's Twilio work number for a "Text us" button, or null for no button. */
-export async function loadHouseOwnerSmsPhone(db: SupabaseClient, ownerUserId: string): Promise<string | null> {
+/**
+ * The number a house's printable and public page say to text, or null for no button: the PropLane line
+ * while the house's workspace is on it (number model, Oct 18), else the owner's Twilio work number.
+ */
+export async function loadHouseOwnerSmsPhone(
+  db: SupabaseClient,
+  ownerUserId: string,
+  workspaceId?: string | null,
+): Promise<string | null> {
   if (!ownerUserId) return null;
+  const onLine = await resolveSharedLineNumberFor(db, ownerUserId, workspaceId ?? null);
+  if (onLine) return onLine;
   const { data } = await db
     .from("profiles")
     .select("phone, phone_verified_at, sms_from_number")

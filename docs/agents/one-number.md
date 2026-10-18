@@ -3,6 +3,71 @@
 Spec: [`one-number-spec.md`](one-number-spec.md). Shared types: `src/lib/one-number/contracts.ts`.
 Each workstream owns one heading below.
 
+## Number model (Oct 18 decision)
+
+Captain, verbatim: "have a set work number for anyone who signs up; for pro and business can get personalized
+work number for their workspace; keep overall service PropLane separate." (W16)
+
+- **Everyone texts on the set PropLane line** (`sms_runtime_config.shared_number_e164`, `line_mode = shared`).
+- **A Pro or Business workspace MAY take a personalized number** (the existing per-workspace provisioning).
+  Both run side by side. PropLane's own managed service (W15) has no exemption: it uses the same default line and only gets a personalized number on a paying plan (lead correction, Oct 18).
+- **Dedicated = a working number AND a paid entitlement** (captain addendum, Oct 18: current accounts move to this model too; free
+  has only the default PropLane line). A workspace is dedicated only when it holds a `manager_sms_numbers` home row that is live
+  (`active`, has a phone, registration approved: `managerCanSendFromOwnNumber`) and not released (or a `workspace_work_numbers`
+  link to one) AND the number's owner pays for a personalized number: a Pro / Business plan (`getEffectiveManagerSkuTier`, a live
+  signup trial does not count) or an active standalone **PropLane Number** subscription (`numberServiceEntitled`: active | past_due).
+  `managerPersonalNumberEntitlement` is the one answer. A number with no entitlement, a lapsed add-on, a number still provisioning
+  or awaiting registration, a failed or released one: the workspace stays on the PropLane line. Nobody pays today, so in shared
+  mode every existing workspace lands on the shared line. `loadSharedLineConfig` puts dedicated workspaces in
+  `dedicatedWorkspaceIds` (read only while the mode is `shared`; an unreadable number table or entitlement = fail closed to
+  `per_workspace`). `workspaceOnSharedLine` is false for them, `workspaceHasDedicatedNumber` true. That one decision drives
+  everything below. `per_workspace` mode is untouched.
+- **Free can buy the number alone.** The PropLane Number subscription ($5/month, `number_subscriptions`, `docs/agents/comms-billing.md`
+  § PropLane Number) now also takes `owner_role = 'manager'` (migration `20261018250000_number_subscription_manager_role.sql`, applied
+  to dev). `POST /api/number-subscription/checkout {role:"manager"}` (refused 409 `not_available` unless a manager number can be
+  provisioned: runtime not paused and `SMS_PROVISIONING_ENABLED`). The subscription is per user and carries exactly ONE number
+  account-wide (`provisionNumberForWorkspace` budget); Pro / Business include one per owned workspace. Every other Pro feature stays
+  locked. The status route reports `sharedLine.addOn = { available, active }`; Settings "Get your own number" runs the request flow
+  when the plan or an active add-on covers it, else sends a Free manager to the add-on checkout and returns to Settings.
+- **Vendors and residents keep their own subscription** (own number, own channel). Their number is never the shared one, so the
+  shared-line seam (`isSharedLineNumber(toPhone)`) never engages on it; `ingestVendorWorkIdentitySms` / `ingestResidentAgentNumberSms`
+  keep their inbound path, and the shared line still reaches them as an ordinary vendor / resident of a workspace.
+- **Existing numbers.** Nothing is released in code. Once shared mode is on, an existing workspace number that nobody pays for is no
+  longer used to send or to answer (the workspace is not dedicated). The production cutover runbook (later, human-run) forwards and
+  auto-replies those numbers for 60 days and then releases them.
+
+Files and invariants:
+
+1. **Router** (`router.server.ts`, `inbound-seam.server.ts`, `dedicated-redirect.server.ts`): candidates in a dedicated
+   workspace are not routed on the shared line. All matches dedicated: the text is answered once on the webhook TwiML
+   ("<house or workspace> texts from (XXX) XXX-XXXX. Please text that number.", the candidate's OWN number, one GSM-7
+   segment), no agent runs, no lead is made, and the text plus the reply are logged to that workspace's thread
+   (`messageSid`, `redirect:<sid>`). Mixed: the dedicated ones drop out and the rest route as usual. An
+   EMERGENCY word still gets the safety text and an urgent team alert. If the workspace's number cannot be named the
+   text falls to the existing no-owner log. A lead whose picked room belongs to a dedicated workspace is redirected the same way.
+2. **Outbound.** A dedicated workspace never sends from the shared number: `sendSharedLineMessage` refuses it
+   (`not_shared_mode`); `evaluateWorkspaceSendReadiness` resolves its own line even when it is not the owner's
+   default workspace (`dedicatedWorkspaceId`, shared mode only); `resolveConversationSendLine` ignores the shared-line
+   hint for a house in a dedicated workspace; `sendWorkspacePhoneText` (link and code texts) pins the workspace. Vendor dispatch, alerts and
+   lead assignment already branch on `workspaceOnSharedLine`.
+3. **Entitlement** (`personal-number.ts`, `personal-number-entitlement.server.ts`): `POST /api/manager/messaging-number` `request_number` and
+   `provisionNumberForWorkspace` allow Pro / Business (plan read through `resolveEffectiveManagerSkuTier`) or an active PropLane Number
+   subscription; PropLane's managed service has no exemption. A Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
+   PropLane line."), provisioning code `not_entitled`. Plan words never appear in the refusal.
+4. **Settings > Communication > Channels** (`pro-messaging-settings-panel.tsx`): `status.sharedLine = { number, onSharedLine }`
+   (null in `per_workspace`, so nothing changes there). A workspace on the line shows a "PropLane line" row (number, Copy,
+   no remove); with `canRequest` it also shows "Get your own number" (existing request modal). A workspace with its own
+   number shows it as today. `workNumberStatusWord({ sharedLine: true })` = "PropLane line". `lineReady` / `canSend` for a
+   workspace on the line come from the send path's own shared-line decision.
+5. **Where a number is shown.** Server: `resolveWorkspaceDisplayNumber` (own sendable number, else the line while the workspace
+   is on it) feeds the public catalog CTA phone, the single-listing lead route (`resolveSharedLineNumberFor`), listing-channel posts, the resident
+   welcome reachability line, resident manager contact, work contact, and house printables (`loadHouseOwnerSmsPhone` takes the
+   house's workspace). Client: `workspaceWorkNumber(status)` falls back to `sharedLine.number`, which every compose hint,
+   setup banner and reachability caller already reads. Entry codes (door card code, Text code row, their routes) do not exist for
+   a dedicated workspace (404 / null): its flyers carry its own number.
+
+Tests: `tests/unit/one-number-{config,shared-config,dedicated-routing,dedicated-outbound,personal-number,personal-number-entitlement,personal-number-route,personal-number-coexist,display-number,channels-shared-line}.test.ts(x)`.
+
 ## W1 - Shared-line router, keywords, HUMAN pause, shadow mode
 
 Flag: `sms_runtime_config.line_mode` (`per_workspace` default | `shadow` | `shared`). In `per_workspace` the
@@ -51,7 +116,7 @@ Files (`src/lib/one-number/` unless noted):
 - `lead-qualifying.ts` (pure) - the five questions in fixed order (budget; move-in date + lease length; area or commute; bath + furnished; household size), deterministic extractors, `touchesProtectedTopic` / `withoutProtectedClauses`, `sanitizeModelFields` / `mergeModelFields`, `toGsm7`.
 - `lead-match.ts` (pure) - `matchRooms` over `getCrawlPublicListings()` (the hourly `publicListingProjection` catalog, all workspaces) through `filterRoomListings`; `buildOfferText`; `parseOfferPick`.
 - `lead-extract.server.ts` - Claude Haiku (`TIER_MODELS.simple`) through `completeAgentModel`, extraction only, off under `NODE_ENV=test` and without `ANTHROPIC_API_KEY`.
-- `lead-redact.ts` - local redaction call site (card / bank / SSN numbers never stored). Swap its body for `redactSensitiveNumbers` (`redact.ts`, transport workstream) when the branches meet.
+- (deleted by the lane) `lead-redact.ts` - local redaction call site (card / bank / SSN numbers never stored). Swap its body for `redactSensitiveNumbers` (`redact.ts`, transport workstream) when the branches meet.
 - `unassigned-leads.server.ts` - `handleUnassignedLeadInbound` (signature unchanged; optional third `LeadDeps` argument for tests), `assignLeadToHouse`, `closeLead`, `listOpenLeads`.
 - `lead-followups.server.ts` + `lead-send.server.ts` + cron `/api/cron/unassigned-lead-followups` (hourly at :15, `vercel.json`).
 - Admin queue: `src/components/portal/admin-unassigned-leads-panel.tsx`, section `unassigned-leads` in the Accounts tab group (`/admin/unassigned-leads`), routes `GET /api/admin/unassigned-leads`, `PATCH /api/admin/unassigned-leads/[id]` (`{action: "assign", propertyId}` | `{action: "close"}`), guard `admin-leads-guard.server.ts` (`isAdminUser`).
@@ -349,6 +414,74 @@ with the secure-link notice in every agent deliverer (`redactedInboundReplyOverr
 leasing and vendor agent reply deliverers and in `sendSharedLineMessage`. Text that is already
 GSM-7 is returned unchanged.
 
+## W11 - Preset auto-sends (Automations), house facts, escalations inbox
+
+Spec: `texting-plan-1018` "Preset auto-sends", "Resident fast path" (house facts) and "New data". Migration
+`20261018200000_automations.sql` (dev applied, ledger row recorded): `workspace_automation_settings` (workspace, preset,
+mode `auto|draft|off`, optional wording), `workspace_automation_runs` (the ledger; `unique (workspace_id, idempotency_key)` is the
+idempotency, `held` = a draft waiting), and `sms_escalated_questions` gains `source` (`agent|ra|unanswered`), `excerpt`,
+`resolved_by`. Both new tables are RLS-on, service role only, classified in `account-purge-manifest.ts`. Every read treats 42P01 /
+42703 / PGRST205 as "nothing there".
+
+**Presets** (`src/lib/automations/presets.ts`, pure). Ten from the spec table plus `arrival_guide` and `checkout_reminder`, which
+claude-2's check-in/out times work fires through `fireAutomation` (below); they draw in Settings only once their id is added to
+`EXTERNAL_PRESETS_LIVE`. Two engines: `existing` presets (`rent_due_3d`, `rent_late_3d`, `maintenance_booked`, `move_out`) gate a
+message the product already sends, `off` stops it (payment-reminder cron via `presetForScheduledPaymentKind`, `workOrderEvent` for the
+resident's visit notice, `sweepTenancyReminders` for the move-out checklist; all through `loadOffPresetResolver`, which fails OPEN) and
+nothing else about today's behaviour moves; `automation` presets are the new texts. New presets default `draft`; `announcement` defaults
+`auto` (the manager already said send). Rent late stays 1:1; a group preset never offers a name, room, amount, pay link or secret
+(`GROUP_FORBIDDEN_VARIABLES`, enforced by `validateTemplate`).
+
+**Flag safety.** The sweep serves a workspace only when it has picked a mode for at least one preset (`loadOptedInWorkspaces`) or is on
+the shared line; a workspace that never opens Automations keeps today's behaviour. The first pick opts it in and every other new preset
+then runs at its default (draft).
+
+**The spine.** `sweep.server.ts` (`sweepAutomations`) rides the existing 5-minute `/api/cron/dispatch-reminders` tick: no new cron.
+`moments.ts` is the pure date logic (3 days before move-in, lease signed in the last 7 days, move-in / rent due / move-out today,
+pickup the evening before, monthly cleaning on the 1st, nothing before 9 am or after 9 pm Pacific or inside the house's own quiet
+window); `sources.server.ts` loads signed leases (`portal_lease_pipeline_records`), their houses, rent charges due today and services
+scheduled in the last day (`action_events`). `fire.server.ts` `fireAutomation(db, { workspaceId, ownerUserId, preset, idempotencyKey,
+vars, target })` is the one door: off -> nothing recorded; draft -> held (a pending `sms_ai_reply_drafts` row in the resident's
+thread, `topic = automation:<preset>`, plus the run row; a group draft is the run row alone, listed under Settings > Automations);
+auto -> sent. A quiet-hours / budget / rate-limit refusal releases the claim so a later tick retries; opt-out, no consent and no group
+are recorded as `skipped`. 1:1 goes through `sendResidentAutomationText` (`sendSharedLineMessage` on the shared line, else the work
+number with scoped automated consent). Group posts go through `postToHouseGroup` (`src/lib/house-groups/post.server.ts`; W10 owns the
+body, the stub answers `not_enabled`) after `houseGroupReady` (`ready.server.ts`, reads `house_group_conversations`, false until W10's
+table exists). A group-only preset with no group is silent (no draft); `announcement` and house-wide `maintenance_booked` fall back to
+one text per resident (never a name, amount or secret either way). `approveHeldRun` re-checks a held group text against who lives
+there NOW; `reconcileHeldRuns` follows a draft the manager handled from the thread.
+
+**Templates** (`templates.ts`). `{variable}` from a fixed list, filled from data only (never an AI-written amount); a sentence whose
+variable is empty is dropped whole; GSM-7. `groupTextViolations` refuses money, any resident's first name and any house secret in
+the RENDERED group text (templates, announcements alike).
+
+**House facts** (`src/lib/house-info.ts`, additive). New fields: recycling day, manager contact, `rules.escalateAfter` (complaint
+threshold, a `count` stepper). `HouseInfoField.secret` marks door code, gate code, lockbox, Wi-Fi password and alarm
+(`houseInfoSecretValues`, `containsHouseSecret`); `.internal` marks the threshold (never drawn to a resident or printed). Recycling day
+is resident-only: `TRASH_PUBLIC_KEYS` no longer lists it, so the public page and printables are unchanged (C2-RE12). Secrets reach only a
+verified current resident past the move-in lock (W6 lookup scope, `loadMoveInDetailsLock` in the move-in text), never a prospect, a
+vendor, the public listing or a group post.
+
+**Announce.** `announce.server.ts` `announceToHouses` (houses re-derived from the actor's workspace; a co-manager only their own);
+route `POST /api/portal/automations/announce`; manager chat/SMS tool `announce_to_house` (confirm gate; with several houses and none
+named the preview refuses with "Which house: A, B, or all?"; registered in `COMMUNICATION_SENDING_TOOLS` and the MCP exclusion list).
+UI: megaphone icon in Settings > Communication > Automations opens the pop-up.
+
+**Settings UI.** `automations-settings.tsx` (`AutomationsSection`, mounted after "Answers for all houses"): held drafts first (Send /
+Dismiss icon actions), then one row per preset (glyph for 1:1 or group, mode dropdown, "Edit text" in the row menu for presets that own
+their wording). `AutomationTextModal`: plain "Insert" dropdown (no chips), live preview from one real resident. Routes under
+`/api/portal/automations` (`GET`, `PUT` owner only, `preview`, `runs/[id]`, `announce`).
+
+**Escalations inbox.** `escalations.server.ts` (`listEscalations`, `resolveEscalation`, `recordEscalationItem`, `recordHouseComplaint`),
+route `GET|PATCH /api/portal/one-number/escalations`, page `/portal/communication/escalations`
+(`manager-escalations-inbox.tsx`, `PortalRecordListSurface`, Open | Resolved, reached by the triangle icon in the Communication header,
+`manager-escalations-action.tsx`). Phones leave the server as the last four digits. W10's RA calls `recordEscalationItem` (source `ra`)
+and `recordHouseComplaint` (logged quietly; the complaint that reaches the house's threshold files ONE open "repeated complaints"
+item with the excerpt; no punishment by AI).
+
+Tests: `tests/unit/automations-{presets,templates,moments,house-facts,fire,sweep,store,escalations,routes,announce-tool,door-code-reach,service-visit-gate}.test.ts`,
+`tests/unit/automations-settings.test.tsx`, helper `tests/helpers/automations-fake-db.ts`.
+
 ## W10 - House group chats with an AI RA (Twilio Conversations group MMS)
 
 Spec: [`texting-plan-1018`](../../../.cockpit/briefs/texting-plan-1018.md) § House group chats, § Preset auto-sends, § Risks. Migration `20261018190000_house_groups.sql` (dev applied, ledger row
@@ -369,7 +502,7 @@ Files (`src/lib/house-groups/`):
 - `members.ts` (pure) - `selectGroupMembers`, `memberHash`, `diffMembers`. `residents.server.ts` - `candidatesFromStays` (pure) over the Bookings occupancy snapshot (`occupancySnapshotForManager`): a stay with a `resident` payload (executed lease or approved hold) lasting 30+ days or open-ended is long-term; a guest-portal short stay has no resident payload and is never a member.
 - `ra-policy.ts` (pure) - `classifyGroupText`, `planGroupReply`, `planDueCheck`, `groupPreferenceCommand`. `facts.ts` (pure) - `composeFactReply`. `copy.ts` - every line the RA says. `time.ts` - Pacific quiet hours.
 - `store.server.ts` (all table access), `conversations-gateway.server.ts` (the only Twilio Conversations calls), `post.server.ts`, `manager.server.ts`, `ra.server.ts`, `announce.server.ts`, `consent.server.ts`, `webhook.server.ts`.
-- Tool `announce_to_house_chat` (`src/lib/tools/domains/house-groups.ts`), routes `GET|POST /api/portal/house-groups`, `GET|POST /api/resident/house-chat`, `POST /api/twilio/conversations`, crons `/api/cron/house-group-sync` (daily 17:10 UTC) and `/api/cron/house-group-sweep` (every 5 minutes).
+- Manager tool `announce_to_house` (`src/lib/tools/domains/announce.ts`, the ONE announce tool: posts to each house group, one on one when a house has no group), routes `GET|POST /api/portal/house-groups`, `GET|POST /api/resident/house-chat`, `POST /api/twilio/conversations`, crons `/api/cron/house-group-sync` (daily 17:10 UTC) and `/api/cron/house-group-sweep` (every 5 minutes).
 - UI: `PropertyHouseChatList` rows in House details (status, one row per member by first name + room, Announce and Update members icon actions, Turn on/off in the row menu, over-nine and not-joined warning rows); an optional checkbox on the resident's lease signing window.
 
 Invariants:
@@ -380,7 +513,7 @@ Invariants:
 4. **Answers come from approved facts only** (`lookupPropertyKnowledge` with a resident scope for that house): first name and room only, never another resident's details, never an amount. A door code, lockbox, gate/alarm code, Wi-Fi password or anything in an access section is NEVER posted in the group: the thread gets the open part plus "I'm texting you that privately." and the asker gets the secret 1:1. Money, legal, safety and fair-housing questions are acknowledged, texted to the asker and escalated. No approved answer: "Let me check with your landlord and get back to you." plus a team alert.
 5. **Consent.** Housemates see each other's number and PropLane reads the thread, so a resident is added only with a recorded yes: the optional checkbox on the resident's lease signing window (`lease_signature`, saved by the server against the signed-in account's verified phone), or the text "join group" (`sms_join`). A resident who lives in a chat-enabled house without consent is offered it once, privately (`house-group-offer:<workspace>:<phone>`). "leave group" (1:1 or in the group) sets `opted_out_of_group`, confirms privately, and the next sync removes them; "join group" reverses it. Both are handled before routing in `handleSharedLineInbound`.
 6. **Webhook.** `POST /api/twilio/conversations` verifies `X-Twilio-Signature` against the exact registered URL (403 on mismatch; no signature = 403 on Vercel/production), acknowledges at once, and works in `after()`. Dedupe is the unique (group, MessageSid) index; PropLane's own posts (`Author = proplane`) are ignored.
-7. **Manager.** The owner turns house chat on per workspace; managers never join the thread. "announce: water off Tuesday 9-12" -> `announce_to_house_chat` (write tool behind the YES gate; with several houses on chat and none named it refuses with "Which house: A, B, or C? Or say all."; ids are re-checked against the workspace; delegated co-managers do not get it). The House chat section posts to its own house.
+7. **Manager.** The owner turns house chat on per workspace; managers never join the thread. "announce: water off Tuesday 9-12" -> `announce_to_house` (write tool behind the YES gate; with several houses and none named it refuses with "Which house: A, B, or all?"; groups first, one on one when a house has no group; ids are re-checked against the workspace; delegated co-managers do not get it). The House chat section posts to its own house.
 
 Tests: `tests/unit/house-groups-{members,ra-policy,post,sync,ra-handler,routes}.test.ts`, helpers `tests/helpers/house-group-fake-db.ts`, `tests/helpers/house-group-fixtures.ts`. Twilio is mocked; a live group proof needs the shared number.
 
@@ -529,3 +662,133 @@ Invariants:
 5. **Waitlist / invite** (flag on only): a new landlord is admitted while finished text-setups < cap; otherwise the link is marked `waitlisted_at` (still unspent, re-checked on the next visit; an unreadable count fails closed). A manager's `invite <phone>` mints a link with `invited_by_workspace_id` that skips the cap (5 a day per workspace, sent through `sendSharedLineMessage`). An existing manager is never waitlisted.
 
 Tests: `tests/unit/one-number-{onboarding-roles,demo-script,demo-run,unknown-sender,finish-setup,onboarding-seam,setup-routes}.test.ts`.
+
+## W18 - Migration scripts, verification, cutover runbook, simulated texting E2E, load test
+
+No migration, no flag, no runtime code: this workstream adds human-run scripts, a runbook and tests. Runbook (the
+exact production sequence, guards, rollbacks and the migration list): [`one-number-runbook.md`](one-number-runbook.md).
+
+Scripts (`scripts/one-number/`, Node `.mjs`, npm aliases `one-number:*`; each prints the exact Supabase project ref first):
+
+- `lib/target.mjs` + `lib/runtime.mjs` - the guards. `--target dev|staging|production` is required; the ref in the env must be the one that target owns; staging and production need `--confirm-ref` even to read; a staging write needs `--reason`; a **production write needs `--confirm-ref`, `--reason` (10+ chars) and `--backup` of a complete, same-project, under-2-hour-old file from `backup.mjs`**. `--rollback` and `--undo` are writes. Dry run is the default. Refusals exit 2, failed checks 1.
+- `backup.mjs` - read-only export to `~/.cockpit/backups/` (mode 0600): `sms_runtime_config`, `platform_service_settings`, the service owner's workspaces, number tables, contacts, aliases, conversation ids and keys, `sms_consent`, consent event ids, and the ids of every row whose `workspace_id` is NULL.
+- `backfill.mjs` - idempotent: `sms_phone_contacts` (E.164, a user only when exactly one verified profile holds the phone), `sms_projection_aliases` for legacy keys (a merged conversation aliases its survivor), `workspace_id` on turns / outbox / receipts / manager messages / inbound log / manager contacts (conversation, then work line, then the owner's default workspace; NULLs only; only a workspace the row's own owner holds), and scoped-only consent revokes copied onto the shared Messaging Service. Writes a journal; `--undo <journal>` takes back exactly that. `sms_projection_conversations.workspace_id` is stamped only with `--stamp-conversations` (readers use it for placement).
+- `verify.mjs` - the spec's queries; `--save-baseline` before, `--baseline` after: counts, stamps, opt-outs, aliases, isolation, contacts. Exit 1 on any failure. Keys that resolved to nothing before are a note, not a failure.
+- `create-service-workspace.mjs` - against W15's contract (`platform_service_settings`, `create_portal_service_workspace`); refuses when that migration is absent; seeds the service owner only from an admin account when the singleton is empty; idempotent by name; moves no property.
+- `cutover.mjs` - `--mode shadow|shared`, `--pilot`, `--rollback`, `--notify-moved`. Validates E.164 and the service SID, asks Twilio read-only (GET `.../Services/{sid}/PhoneNumbers`) that the number is attached, sets exactly four `sms_runtime_config` columns. `--notify-moved` queues one `sms_moved_notices` row per phone (daytime Pacific, staggered, never to opted-out phones, idempotent); `/api/cron/moved-notices` sends them from the shared number as platform sends at PropLane's cost.
+- `shadow-report.mjs` - agreement of `sms_line_shadow_decisions` with the real owner; exit 1 until enough samples and 98% agreement.
+- `list-migrations.mjs` - the one-number migration files in order.
+
+Simulated texting (no Twilio; the transport and the team alert are the only stand-ins), `npm run test:one-number-e2e`, `tests/integration/one-number-e2e/`:
+
+- `routing-and-safety` - resident in A + vendor in B: the question, the remembered answer, house and role-word switching, HUMAN pausing both and a manager resuming one, gas smell, a manager's own words, a stranger with and without a code, Twilio retries, config fail-closed.
+- `prospect-journey` - stranger -> role question -> five qualifiers -> rooms from every team -> a pick -> that one team owns the thread with the history and a `new_lead` alert -> the next text reaches them. Fair-housing question changes nothing. A Twilio retry of the first text (and of a later answer) gets the same reply and moves nothing twice.
+- `resident-rent-link` - `send_my_link` rent -> code to the bound phone only -> five-try lockout, 15 tries an hour, 30-minute session, forwarded link, expiry, replacement.
+- `vendor-dispatch-chain` - lockout filed -> manager Y -> vendor 1 NO -> vendor 2 YES with a time -> Scheduled -> DONE -> resident YES -> completed; price over the cap; other team's manager and vendor ignored; opted-out vendor skipped; gas smell never dispatched.
+- `manager-ops` - "who hasn't paid" scoped to the team and to a one-house teammate; broadcast previewed, sent only on YES, once, never to another team.
+- `leak-photo-to-ticket` - MMS routed, stored privately under the owner, the repair request carries the photo and links it; another team's photo from the same phone is never attached.
+- `stop-start` - the real webhook route: STOP is global and never reaches the router; START; a delayed old START cannot reopen; YES is an answer unless the phone is opted out; HELP. The control function was also run against dev in a rolled-back transaction.
+
+Load, `npm run test:one-number-load` (`ONE_NUMBER_LOAD_COUNT`, default 5,000; `ONE_NUMBER_LOAD_REPORT=<file>` writes the numbers): residents, vendors, managers, two-team people and strangers, bursts and Twilio redeliveries, in waves of 64 through the real seam, router, session store, burst debounce and bubble delivery. Asserts routing against an independent oracle, no dropped text (each reaches exactly one reply), no duplicate reply (a burst gets one; a redelivery is answered from the receipt claim), HUMAN / emergency once each, no send from a workspace the recipient does not belong to. The debounce RPCs run on `tests/helpers/debounce-sql-port.ts`, checked against recorded output of the real SQL (`tests/unit/one-number-debounce-sql-parity.test.ts`). Timings are of the code path on an in-memory database (about 0.3 ms p50 / 0.7 ms p95 sequential service time, about 13 / 21 ms p50 / p95 per text with 64 in flight, about 5,000 texts a second on a loaded laptop); they say nothing about Postgres or network time.
+
+Tests: `tests/unit/one-number-migration-{guards,backup,backfill,verify,cutover,service,runbook}.test.ts` (shared fixtures `one-number-migration-fixtures.ts`, fake `tests/helpers/migration-fake-db.ts`); the runbook test fails when a `20261018*` migration is on disk and not in the runbook, or when the runbook uses a flag a script does not accept.
+
+Findings, not fixed here: the staging rehearsal needs a staging service-role key that was not available.
+
+### Fixes (on/fixes)
+
+- **Turn replay.** `handleUnknownSenderInbound` is idempotent per `MessageSid`: the whole turn (reply, bubbles, photo, assigned workspace) is recorded in `sms_onboarding_replies` and returned unchanged on a retry, so onboarding state, leads and setup links never advance twice (`onboarding/turn-replay.server.ts`). Rows are pruned after an hour (a reply can carry a live setup link). Table missing = no recording, old behaviour.
+- **Old numbers after the switch.** `old-number.server.ts` + the seam in `api/twilio/inbound/route.ts`: in `shared` mode a text to an old work number whose workspace is on the shared line (`isOldNumberOnSharedLine`, i.e. `workspaceOnSharedLine`; dedicated workspaces excluded) is routed as a shared-line text (`toPhone` becomes the shared number; if the seam takes nothing it reverts to the old number) and its sender gets "We've moved to (XXX) XXX-XXXX. Save this number." once per 30 days (`sendMovedAutoReply`; marker `sms_moved_notices`, one row per phone, claimed before the send and released on failure; table missing = no reply, text still routed).
+- **Who pays.** The auto-reply and the one-time cutover notices are platform sends: `sendPlatformLeadText` (`inboundReply` skips quiet hours for the reply), purpose `platform_lead`, from the shared number, no workspace wallet or credit hold. Cutover notices queue in `sms_moved_notices` (`status = queued`, `available_at` in Pacific daytime) and `runMovedNoticeQueue` sends them (cron `/api/cron/moved-notices`, every 5 minutes, claims each row before sending, puts it back on a provider failure).
+- Migration `20261018290000_one_number_fixes` (applied to dev); both tables RLS on, service role only; classified in `account-purge-manifest.ts` (`sms_moved_notices` cascades with its workspace; replies are pruned and carry no account column, so neither is in `DELETE_ORDER`).
+- Tests: `tests/unit/one-number-old-number.test.ts`, `tests/unit/one-number-old-number-route.test.ts`, the retry cases in `tests/integration/one-number-e2e/prospect-journey.test.ts`, `tests/unit/one-number-migration-cutover.test.ts`.
+
+## W15 - PropLane Service workspaces (admin Service tab)
+
+Admin > Accounts > **Service** lists PropLane's own managed-property workspaces (one per city). They are
+ordinary `portal_workspaces`, so everything the manager portal does works for managed properties with no
+new code path. Migration `20261018260000_admin_service_workspaces.sql` (additive; applied to dev).
+
+**Ownership model.** One designated *service owner* account owns every service workspace
+(`portal_workspaces.is_service = true`, plus a free-text `city`). Other admin operators are **members with
+the Admin role** (an accepted `account_link_invites` row pinned to the workspace, `team_role='admin'`,
+`house_scope='all'`) - "add other people to the admin team" = add them to the service workspaces.
+- Source of truth: `platform_service_settings` (singleton, service_role only). The DB trigger needs it to
+  exempt the owner from the 10-workspace ceiling. `PROPLANE_SERVICE_OWNER_USER_ID` only **seeds** the row,
+  once, and only for an existing account holding the admin role; a stored row always wins over the env.
+  No row and no valid env = not configured: the tab says so, `+` is disabled, create returns 409.
+- `src/lib/service/service-owner.server.ts`: `resolveServiceOwner` (seeds), `isPlatformServiceOwner`
+  (read-only, fail-closed; 42P01/42703/PGRST204/205 = no owner), `loadServiceWorkspace` (the one test every
+  route runs on a body id: must be `is_service` AND owned by the stored owner, else 404).
+- `create_portal_service_workspace(owner, name, city)`: service_role only, refuses any owner that is not the
+  stored service owner (42501), makes the first the owner's default (no stray "My workspace").
+
+**Routes** (`POST|GET /api/admin/service-workspaces`, every verb starts with `requireAdminRoute()`):
+`create` (owned by the service owner, the creating operator is seated as Admin; the workspace is deleted if
+that seating fails), `rename`, `open`, `team`, `team-add`, `team-remove`. Logic is in
+`src/lib/service/service-workspaces.server.ts`; each action re-derives what the operator IS inside the
+workspace (`actorWorkspaceStanding`): Open needs an accepted membership (or ownership), rename / team
+need the workspace "members" right (owner or Admin). A non-member admin sees the row but cannot act.
+`team-add` only accepts a target that itself holds the admin role (re-checked server-side); `team-remove`
+cancels only that workspace's own row (`canActOnMember`). **Open** sets the same `proplane-workspace`
+cookie the manager portal's switcher sets (`POST /api/workspaces` select) and lands on
+`/portal/properties`, so the viewer reads only that workspace's houses.
+
+**Service number: there is none of its own.** Service workspaces use the same default PropLane line as every
+other workspace (captain, Oct 18). Nothing is provisioned, reserved or exempted for them: no route action, no
+entitlement bypass, no budget exemption (`tests/unit/admin-service-guards.test.ts` fails if `src/lib/service/`
+touches provisioning, or if the sms entitlement/provisioning modules mention the service owner). A workspace
+gets its own number only the normal way (W16: paid Pro/Business specialized number). The Service list shows
+the number the workspace actually texts from (`workNumber` + `workNumberSource`): its own live number if it
+holds one, else the shared PropLane line when `sms_runtime_config` puts the workspace on it
+(`workspaceOnSharedLine`), else "No number".
+
+**Invariants.** No manager route gains an admin branch (`tests/unit/admin-service-guards.test.ts` pins the
+set of manager-side files that use an admin gate, and forbids any of them importing `@/lib/service/`). The
+admin ROLE is still not the all-owners read. Purge: `platform_service_settings` is classified in
+`account-purge-manifest.ts` (deleting the owner clears it, so the exemption fails closed).
+
+**Admin navigation: two halves** (Settings is untouched, in the account menu). `ADMIN_SECTION_TABS` /
+`ADMIN_GROUPS` in `src/lib/portals/nav-groups.ts` are the one source:
+- **Property management** (headed sidebar group, one row keyed on `properties`): tabs Properties (existing
+  all-owners oversight) · Service · PropLane line · Unassigned leads (moved here from Accounts).
+- **Software** (headed group, two rows): Accounts (Accounts · Subscribers · Test accounts) and Money
+  (Payments · Promo codes · Finances), regrouped, not rebuilt. Support and Growth follow, unheaded.
+Every section id and route is unchanged (`/admin/unassigned-leads` etc.); the row key `properties` is kept so
+the native bottom bar (`NATIVE_BOTTOM_NAV_ADMIN_PRIMARY`) still resolves.
+
+**The PropLane line** (`/admin/proplane-line`, `src/lib/service/proplane-line.server.ts`, route
+`/api/admin/proplane-line`): the shared number on the website is the admin account's number
+(`sms_runtime_config.shared_number_e164`, mode `line_mode`, `shared_pilot_workspace_ids`). The panel shows number,
+mode (Per workspace / Shadow / Shared; status Off / Shadow / Live) and the workspaces on it; **Change** needs a
+reason. `PATCH` is `requireAdminRoute`, validates the mode, the E.164 number (shared needs one) and that every
+workspace id exists, refuses a no-op (409), and writes the `audit_log` row (`admin_proplane_line_change`, before /
+after / reason) **before** applying - no audit row, no change; the row is stamped `applied: true|false` after.
+It never touches Twilio and no sms module is imported (guard test). Existing manager workspaces, their numbers
+and ownership are untouched.
+
+**One workspace per owner client, per city** (migration `20261018260100_service_owner_of_record.sql`, applied to
+dev). The Service list is sectioned by city (`groupServiceByCity`: Seattle first, the rest alphabetical, no city
+last; matched ignoring case). A workspace carries `city` and an optional `owner_of_record_name` typed on `+`
+(the client, before they have an account on the team). The **Team** pop-up has an **Invite owner** section:
+`team-invite` takes a PropLane ID and writes a **pending** `account_link_invites` row (Admin role, `house_scope
+all`, this workspace only - full access to it once accepted in their own portal, through the existing accept
+flow); the invitee must already be a property-portal account (the same rule as every co-manager invite) and
+their own accounts and workspaces are untouched. `account_link_invites.is_owner_of_record` flags THE membership
+that is the owner of record for payouts and finances (W17); it grants nothing by itself, and a partial unique
+index allows one live row per workspace (the server checks first and returns 409). A pending invitee shows by
+the invite-time name snapshot, never their live profile or email. `team-owner-of-record` sets / clears the flag;
+`team-remove` also withdraws a pending invite. The list shows the owner of record by name (the accepted flagged
+member's profile name, else the typed client name). Money / finances are W17: `serviceWorkspaceFinancesHref`
+(`src/lib/service/service-links.ts`) returns `null` and the row menu draws a Finances button only when it
+returns an href.
+
+**Service owner must be a property-portal manager too.** The co-manager sweeper
+(`purgeOrphanedCoManagerLinks`, run when an admin loads the portal) deletes every `account_link_invites` row whose
+inviter is not a manager/owner account, which silently stripped every operator from every service workspace when the
+owner held only the admin role. `resolveServiceOwner` therefore returns "not configured" (create / list) for an
+owner without that role, and refuses to seed one.
+
+**Not done / notes.** The service owner still needs a plan for *inviting non-admin teammates by role* through
+the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
+admins directly and links to the portal for role invites.

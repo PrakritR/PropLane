@@ -76,11 +76,12 @@ const PRO_GROUPS: NavGroupConfig[] = [
  * stands for several sections; every other entry is a section id on its own.
  */
 export const ADMIN_NAV_ROW_ORDER = [
+  "profile",
   "dashboard",
   "communication",
+  "property",
   "accounts",
   "money",
-  "properties",
   "support",
   "growth",
 ] as const;
@@ -98,7 +99,10 @@ export type AdminSectionTabGroup = { label: string; sections: readonly string[] 
  * sections actually present.
  */
 export const ADMIN_SECTION_TABS: Record<string, AdminSectionTabGroup> = {
-  accounts: { label: "Accounts", sections: ["axis-users", "subscribers", "unassigned-leads", "test-accounts"] },
+  // The "Property management" half (one-number W15): PropLane's own managed portfolio. The row stays keyed on
+  // `properties`, the key the native bottom bar and every older link already use.
+  property: { label: "Properties", sections: ["properties", "service", "proplane-line", "unassigned-leads"] },
+  accounts: { label: "Accounts", sections: ["axis-users", "subscribers", "test-accounts"] },
   money: { label: "Money", sections: ["payments", "promo-codes", "finances"] },
   support: { label: "Support", sections: ["bugs-feedback", "events", "health"] },
 };
@@ -211,16 +215,26 @@ export function mergeAdminGroupCounts<C extends { count: number; tone: "muted" |
   return merged;
 }
 
+const adminRowSections = (...ids: (typeof ADMIN_NAV_ROW_ORDER)[number][]) =>
+  ids.flatMap((id) => ADMIN_SECTION_TABS[id]?.sections ?? [id]);
+
+/**
+ * Two headed halves (one-number W15): "Property management" is PropLane's own managed portfolio (the service
+ * workspaces per city, the PropLane line, the unassigned leads, the all-owners Properties oversight) and
+ * "Software" is the subscriptions PropLane sells (Accounts, Subscribers, Payments, Promo codes, Finances).
+ * Admin Settings is the very first row, then Dashboard and Communication, then the two halves, with Support and Growth below. Members of a folded group are listed
+ * inline after their row key so this config buckets BOTH shapes: the sidebar's folded rows
+ * (`collapseAdminNavItems`, keyed on the group's first section) and the unfolded sections the command palette
+ * jumps to. Settings (`profile`) is also still in the account menu, unchanged.
+ */
 const ADMIN_GROUPS: NavGroupConfig[] = [
-  {
-    // One unheaded group in row order. Members of a folded group are listed
-    // inline after their row key so this config buckets BOTH shapes: the
-    // sidebar's folded rows (`collapseAdminNavItems`, keyed on the group's
-    // first section) and the unfolded sections the command palette jumps to.
-    id: "home",
-    label: null,
-    sections: ADMIN_NAV_ROW_ORDER.flatMap((id) => ADMIN_SECTION_TABS[id]?.sections ?? [id]),
-  },
+  // Admin Settings (`profile`) is the FIRST sidebar row (captain, Oct 18) and the `/admin` landing. Assigning it to a
+  // group is what puts it in the sidebar at all: `SIDEBAR_EXCLUDED_SECTIONS` only applies to unassigned sections.
+  { id: "settings", label: null, sections: ["profile"] },
+  { id: "home", label: null, sections: adminRowSections("dashboard", "communication") },
+  { id: "property-management", label: "Property management", sections: adminRowSections("property") },
+  { id: "software", label: "Software", sections: adminRowSections("accounts", "money") },
+  { id: "platform", label: null, sections: adminRowSections("support", "growth") },
 ];
 
 // `move-in` is the resident's "My home" row (label "My home"). Its group carries no heading of its own:

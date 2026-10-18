@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PortalTableExpandChevron } from "@/components/portal/portal-data-table";
-import { FactRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { CountStepper, FactRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   HOUSE_INFO_SECTIONS,
   getHouseInfoValue,
@@ -125,6 +125,49 @@ function FieldControl({
           value={to}
           onChange={(e) => onChange(pairKey, e.target.value)}
         />
+      </div>
+    );
+  }
+
+  if (field.kind === "count") {
+    const min = field.min ?? 1;
+    const max = field.max ?? 10;
+    const current = Number(value);
+    // Unset reads "Off" with a tap-to-start; the stepper then owns the number.
+    if (!Number.isInteger(current) || current < min) {
+      return (
+        <Select
+          aria-label={field.label}
+          value=""
+          onChange={(e) => e.target.value && onChange(field.key, e.target.value)}
+        >
+          <option value="">Not set</option>
+          {Array.from({ length: max - min + 1 }, (_, i) => String(min + i)).map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </Select>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2">
+        <CountStepper
+          compact
+          value={current}
+          min={min}
+          max={max}
+          label={field.label}
+          dataAttr={`house-info-${field.key}`}
+          onChange={(next) => onChange(field.key, String(next))}
+        />
+        <button
+          type="button"
+          className="text-xs font-semibold text-muted hover:text-foreground"
+          onClick={() => onChange(field.key, "")}
+        >
+          Clear
+        </button>
       </div>
     );
   }

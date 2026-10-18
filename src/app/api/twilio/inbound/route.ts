@@ -22,6 +22,7 @@ import { ingestResidentAgentNumberSms } from "@/lib/resident-agent-number/inboun
 import { isSharedLineNumber, loadSharedLineConfig } from "@/lib/one-number/config.server";
 import { endDemoForPhone } from "@/lib/one-number/demo/store.server";
 import { handleSharedLineInbound } from "@/lib/one-number/inbound-seam.server";
+import { isOldNumberOnSharedLine, sendMovedAutoReply } from "@/lib/one-number/old-number.server";
 import { recordShadowDecision } from "@/lib/one-number/shadow.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 
@@ -86,7 +87,8 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   }
 
   const fromPhone = String(params.From ?? "").trim();
-  const toPhone = String(params.To ?? "").trim();
+  // `let`: a text to an old work number that has moved to the shared line continues as a shared-line text.
+  let toPhone = String(params.To ?? "").trim();
   // A texted card or bank number is replaced with [redacted] before anything
   // stores or reads the body: the receipt, the projection, the inbound log and
   // the agent all see the redacted text.
@@ -174,12 +176,24 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   // workspace here, before any agent runs. A routed text then continues below exactly as a work-number
   // text would, as that workspace's owner. Only live in `shared` mode; every other mode skips this.
   let sharedLine = false;
+  // An OLD per-workspace number whose workspace now answers on the shared line (not a dedicated one):
+  // the sender is told once per 30 days where we moved (PropLane's cost), and the text goes through the
+  // shared-line router below as if it had arrived there, so nothing is lost. Dedicated workspaces and
+  // every other mode skip this.
+  const oldNumberMoved = Boolean(messageSid) && isOldNumberOnSharedLine(lineConfig, toPhone, resolvedNumber);
+  const oldNumberTo = toPhone;
+  if (oldNumberMoved && lineConfig.sharedNumber) toPhone = lineConfig.sharedNumber;
   if (lineConfig.mode === "shared" && messageSid && isSharedLineNumber(lineConfig, toPhone)) {
     const sharedKey = normalizeConsentPhone(fromPhone);
     if (sharedKey) {
       const limit = await rateLimit(`twilio-shared-line:${fromPhone}`, 20, 60_000);
       if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
       if (!limit.ok) return twimlOk();
+      if (oldNumberMoved && resolvedNumber?.workspaceId) {
+        await sendMovedAutoReply(db, {
+          config: lineConfig, phoneKey: sharedKey, fromPhone, workspaceId: resolvedNumber.workspaceId, messageSid: messageSid!,
+        }).catch((error) => console.error("moved-number reply failed", messageSid, error instanceof Error ? error.name : "unknown"));
+      }
       try {
         const seam = await handleSharedLineInbound(db, {
           config: lineConfig,
@@ -200,6 +214,8 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
       }
     }
   }
+  // The shared line took nothing from an old-number text: it continues on the old number exactly as before.
+  if (oldNumberMoved && !sharedLine) toPhone = oldNumberTo;
   mark("shared-line");
 
   // Vendor identities are resolved before manager-only work-number ownership.

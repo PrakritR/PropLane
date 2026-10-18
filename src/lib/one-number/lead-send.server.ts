@@ -13,21 +13,20 @@ export type PlatformLeadSendResult =
 /**
  * A text from PropLane itself on the shared number, to a lead that has no team yet (the quiet-lead
  * nudges). There is no workspace to bill or sign off for, so this is not `sendSharedLineMessage`.
- * It uses the consolidated `sendSms` transport (purpose `platform_lead`), which requires
- * the configured shared number and preserves opt-out, recipient shielding and test capture.
- * No workspace is billed. Scheduled nudges keep automated quiet hours; an explicitly
- * requested, consented homepage demo link is an immediate transactional reply.
+ * It uses the consolidated sendSms transport with the configured shared number, opt-out
+ * ledger, recipient shield and test capture. No workspace is billed. Scheduled outreach
+ * keeps automated quiet hours; requested links and replies to inbound texts are transactional.
  */
 export async function sendPlatformLeadText(
   db: SupabaseClient,
-  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; purpose?: "requested_demo_link" },
+  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; purpose?: "requested_demo_link"; inboundReply?: boolean },
 ): Promise<PlatformLeadSendResult> {
   const config = await loadSharedLineConfig(db);
   if (config.mode !== "shared") return { ok: false, reason: "not_shared_mode" };
   if (!config.sharedNumber) return { ok: false, reason: "no_shared_number" };
   const to = normalizeE164(input.to);
   if (!to) return { ok: false, reason: "invalid_to" };
-  const sendClass = input.purpose === "requested_demo_link" ? "transactional" : "automated";
+  const sendClass = input.inboundReply || input.purpose === "requested_demo_link" ? "transactional" : "automated";
   if (quietHoursBlocks(sendClass, input.now ?? new Date())) return { ok: false, reason: "quiet_hours" };
   const result = await sendSms(to, input.body, config.sharedNumber, {
     purpose: "platform_lead",

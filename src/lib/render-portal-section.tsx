@@ -306,7 +306,7 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminUnassignedLeadsPanel, AdminPromoCodesPanel,
+    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
     AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentTourPanel, ResidentLeasePanel,
@@ -788,6 +788,16 @@ export async function renderPortalSectionWith(
     return <AdminUnassignedLeadsPanel />;
   }
 
+  if (kind === "admin" && section === "service") {
+    if (tabParts?.length) notFound();
+    return <AdminServicePanel />;
+  }
+
+  if (kind === "admin" && section === "proplane-line") {
+    if (tabParts?.length) notFound();
+    return <AdminProplaneLinePanel />;
+  }
+
   if (kind === "admin" && section === "payments") {
     // A payment's record page is `/admin/payments/<row id>` (one segment, decoded here).
     if ((tabParts?.length ?? 0) > 1) notFound();
@@ -1010,6 +1020,12 @@ export async function renderPortalSectionWith(
       }
 
       const channel = tabParts[0]!;
+      // The escalations inbox lives under Communication (one-number W11).
+      if (channel === "escalations") {
+        if (tabParts.length > 1) notFound();
+        const { ManagerEscalationsInbox } = await import("@/components/portal/manager-escalations-inbox");
+        return subscriptionGated(<ManagerEscalationsInbox />, kind, "communication", managerOwnerSubscriptionTier);
+      }
       if (channel === "unread") {
         const threadPart = tabParts[1];
         redirect(

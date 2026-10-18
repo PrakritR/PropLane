@@ -67,6 +67,8 @@ export async function sendWorkspacePhoneText(
 
   const sent = await sendFromManagerWorkNumber({
     managerUserId: ownerUserId,
+    // The workspace the code is about: a workspace with its own number texts from it.
+    workspaceId: input.workspaceId,
     to,
     text: input.body,
     sendClass: "transactional",

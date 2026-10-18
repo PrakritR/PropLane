@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfig, workspaceHasDedicatedNumber } from "@/lib/one-number/config.server";
 import { setEntryCodeActive } from "@/lib/one-number/entry-codes.server";
 import { resolveListingChannelContext } from "@/lib/listing-channels/route-context.server";
 import { entryCodeErrorMessage, presentEntryCode } from "@/lib/one-number/entry-codes-api.server";
@@ -28,7 +28,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ code:
   const ctx = await resolveListingChannelContext(request, typeof body.workspaceId === "string" ? body.workspaceId : null).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const config = await loadSharedLineConfig(ctx.db);
-  if (config.mode === "per_workspace" || !config.sharedNumber) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  if (config.mode === "per_workspace" || !config.sharedNumber || workspaceHasDedicatedNumber(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
   const result = await setEntryCodeActive(ctx.db, { workspaceId: ctx.workspace.id, code, active: body.active, allowedPropertyIds: ctx.workspace.propertyIds });
   if (!result.ok) {

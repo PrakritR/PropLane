@@ -20,9 +20,18 @@ export type NumberAvailability =
 
 export async function getNumberAvailability(
   db: SupabaseClient,
-  role: "vendor" | "resident",
+  role: "vendor" | "resident" | "manager",
   deps: { provider?: Pick<VendorWorkIdentityProvider, "smsConfigured"> } = {},
 ): Promise<NumberAvailability> {
+  if (role === "manager") {
+    // A manager's personalized number is provisioned through the per-workspace path (the manager SMS
+    // runtime kill switch and real provisioning), not the vendor work-identity provider.
+    const { normalizeSmsRuntimeMode } = await import("@/lib/sms/number-registration-policy");
+    const { data: runtimeRow, error: runtimeError } = await db.from("sms_runtime_config").select("mode").eq("singleton", true).maybeSingle();
+    if (runtimeError) return { available: false, reason: "unreadable" };
+    if (normalizeSmsRuntimeMode((runtimeRow as { mode?: string } | null)?.mode) === "paused") return { available: false, reason: "provider_disabled" };
+    return isProvisioningEnabled(process.env) ? { available: true } : { available: false, reason: "provider_unconfigured" };
+  }
   const { data, error } = await db
     .from("vendor_work_identity_runtime")
     .select("enabled,max_active_identities")

@@ -17,6 +17,7 @@ import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
 import { loadSharedLineSession, pauseThreadAi, saveSharedLineRoute } from "@/lib/one-number/session.server";
+import { answerFromDedicatedWorkspace } from "@/lib/one-number/dedicated-redirect.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
@@ -106,8 +107,28 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   };
   const keyword = classifySharedLineKeyword(input.body);
   const session = await loadSharedLineSession(db, input.phoneKey);
-  let routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: keyword === "HUMAN" });
+  const dedicatedWorkspaceIds = input.config.dedicatedWorkspaceIds;
+  let routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: keyword === "HUMAN", dedicatedWorkspaceIds });
   let decision = routed.decision;
+
+  // Number model: someone whose only ties are workspaces with a number of their own is told, once,
+  // to text that number. Nothing is routed, no agent runs, no lead is made.
+  if (routed.dedicatedRedirect) {
+    const candidate = routed.dedicatedRedirect;
+    const redirect = await answerFromDedicatedWorkspace(db, {
+      candidate, fromPhone: input.fromPhone, body: input.body, messageSid: input.messageSid, sharedNumber: input.config.sharedNumber,
+    });
+    if (!redirect) return { kind: "none" };
+    if (keyword === "EMERGENCY" && candidate.role !== "manager") {
+      await settle("alert", alertWorkspaceTeam(db, {
+        workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, kind: "emergency", urgent: true,
+        text: peopleText(input.fromPhone, `Emergency word in a text (${candidate.label}) sent to the PropLane line`), propertyId: candidate.propertyId,
+        idempotencyKey: `emergency:${input.messageSid}:${candidate.workspaceId}`,
+      }));
+      return { kind: "handled", twiml: `${EMERGENCY_SAFETY_REPLY} ${redirect}` };
+    }
+    return { kind: "handled", twiml: redirect };
+  }
 
   // A pilot only answers for its workspaces: anyone else on the shared line is not served yet.
   if (decision.kind === "routed" && !workspaceOnSharedLine(input.config, decision.workspaceId)) {

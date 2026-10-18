@@ -59,9 +59,8 @@ function AdminTabStrip({ items, activeId, label }: { items: DestinationNavItem[]
 }
 
 /**
- * Properties-style underline tab strip for a grouped admin row (Accounts, Money,
- * Support). Every tab is a real link to its own section; nothing renders for
- * Dashboard, Communication, Properties or Growth. The tab list comes from the
+ * Properties-style underline tab strip for a grouped admin row (Property management, Accounts, Money,
+ * Support). Every tab is a real link to its own section;  * Dashboard, Communication, Properties or Growth. The tab list comes from the
  * definition the layout passes, so the operator-only Test accounts tab is absent
  * for everyone else.
  */

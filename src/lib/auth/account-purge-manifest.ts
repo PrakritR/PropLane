@@ -63,6 +63,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 4,
     manager: { ids: ["owner_user_id"] },
   },
+  {
+    // The singleton naming PropLane's service owner (admin Service tab). Deleting that account
+    // clears it, so the cap exemption and the Service tab fail closed until a new owner is set.
+    table: "platform_service_settings",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
   // ---------------------------------------------------------------- phase 1: child rows
   {
     // Extra people (a name, a phone, an email) who get the workspace's manager notices. Owned by the
@@ -1402,6 +1409,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_line_thread_state: "Per phone + workspace AI pause state; cascades with the workspace.",
   sms_demo_sessions: "Sandbox demo conversation keyed on a phone or browser session; no account column, never a real row.",
   sms_onboarding_state: "Role and house hints of an unknown texter keyed on a phone; carries no account column.",
+  sms_onboarding_replies: "Replay record of an unknown texter's turn keyed on a message sid; pruned after an hour; no account column.",
+  sms_moved_notices: "Once-per-30-days moved-number marker keyed on a phone; cascades with the workspace.",
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
   sms_media_files: "MMS file index keyed on message sid and phone; no account column.",
@@ -1415,6 +1424,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_escalated_questions: "Workspace escalated questions awaiting a manager answer; cascade with the workspace.",
   sms_ai_reply_drafts: "Workspace AI reply drafts held for a manager; cascade with the workspace.",
   sms_knowledge_digests: "Workspace weekly knowledge digest bookkeeping; cascade with the workspace.",
+  workspace_automation_settings: "Workspace preset auto-send modes and wording; cascade with the workspace.",
+  workspace_automation_runs: "Workspace preset auto-send run ledger and held drafts; cascade with the workspace.",
   sms_reply_debounce:
     "Transient reply-burst bookkeeping keyed on an opaque owner:role:phone scope; texts are dropped as soon as the reply is durable and no account column exists.",
   rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",
