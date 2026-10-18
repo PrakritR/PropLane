@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineConfig, SharedLineMode } from "@/lib/one-number/contracts";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { managerCanSendFromOwnNumber, normalizeProvisionState, normalizeRegistrationState } from "@/lib/sms/number-registration-policy";
 
 /** The state every caller gets when the line is off or unreadable: today's per-workspace numbers. */
 export const PER_WORKSPACE_CONFIG: SharedLineConfig = {
@@ -53,11 +54,20 @@ export async function loadSharedLineConfig(db: SupabaseClient): Promise<SharedLi
   }
 }
 
-function usableProvision(row: Record<string, unknown>, now: number): boolean {
-  const state = String(row.provision_state ?? "");
-  if (state === "active" || state === "provisioning") return true;
-  const grace = typeof row.grace_expires_at === "string" ? Date.parse(row.grace_expires_at) : NaN;
-  return Number.isFinite(grace) && grace > now;
+/**
+ * A number that can carry a workspace's traffic: live, with a phone number and an approved registration
+ * (`managerCanSendFromOwnNumber`, the same test the send path and the "show the number" resolver use).
+ * A number still being provisioned, awaiting registration, failed or released does NOT take a workspace
+ * off the PropLane line: until the personal number works, the workspace keeps texting on the line.
+ */
+function usableNumber(row: Record<string, unknown>): boolean {
+  if (row.released_at) return false;
+  return managerCanSendFromOwnNumber({
+    provisionState: normalizeProvisionState(typeof row.provision_state === "string" ? row.provision_state : null),
+    phoneNumber: typeof row.phone_number === "string" ? row.phone_number : null,
+    registrationState: normalizeRegistrationState(typeof row.registration_state === "string" ? row.registration_state : null),
+    registrationRef: typeof row.registration_ref === "string" ? row.registration_ref : null,
+  });
 }
 
 /**
@@ -67,11 +77,10 @@ function usableProvision(row: Record<string, unknown>, now: number): boolean {
 async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] | null> {
   const numbers = await db
     .from("manager_sms_numbers")
-    .select("id, workspace_id, provision_state, grace_expires_at")
+    .select("id, workspace_id, phone_number, provision_state, registration_state, registration_ref, released_at")
     .not("workspace_id", "is", null);
   if (numbers.error) return isMissingSchemaError(numbers.error) ? [] : null;
-  const now = Date.now();
-  const usable = (numbers.data ?? []).filter((row) => usableProvision(row as Record<string, unknown>, now));
+  const usable = (Array.isArray(numbers.data) ? numbers.data : []).filter((row) => usableNumber(row as Record<string, unknown>));
   const ids = new Set(usable.map((row) => String((row as { workspace_id?: unknown }).workspace_id ?? "").trim()).filter(Boolean));
   const usableNumberIds = usable.map((row) => String((row as { id?: unknown }).id ?? "")).filter(Boolean);
   if (usableNumberIds.length > 0) {

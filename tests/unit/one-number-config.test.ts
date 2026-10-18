@@ -25,28 +25,32 @@ describe("loadSharedLineConfig", () => {
     });
   });
 
-  it("lists workspaces that hold a usable number of their own: home workspace and linked ones", async () => {
-    const future = new Date(Date.now() + 86_400_000).toISOString();
-    const past = new Date(Date.now() - 86_400_000).toISOString();
+  it("lists workspaces that hold a number that can carry traffic: home workspace and linked ones", async () => {
+    const live = { provision_state: "active", registration_state: "approved", released_at: null };
     const { db } = fakeSharedLineDb({
       sms_runtime_config: [row()],
       manager_sms_numbers: [
-        { id: "n1", workspace_id: "ws-pro", provision_state: "active", grace_expires_at: null },
-        { id: "n2", workspace_id: "ws-grace", provision_state: "released", grace_expires_at: future },
-        { id: "n3", workspace_id: "ws-gone", provision_state: "released", grace_expires_at: past },
-        { id: "n4", workspace_id: "ws-prov", provision_state: "provisioning", grace_expires_at: null },
+        { id: "n1", workspace_id: "ws-pro", phone_number: "+12065550111", ...live },
+        { id: "n2", workspace_id: "ws-setting-up", phone_number: "+12065550112", provision_state: "provisioning", registration_state: "pending", released_at: null },
+        { id: "n3", workspace_id: "ws-unregistered", phone_number: "+12065550113", provision_state: "active", registration_state: "pending", released_at: null },
+        { id: "n4", workspace_id: "ws-released", phone_number: "+12065550114", ...live, released_at: "2026-10-01T00:00:00Z", provision_state: "released" },
+        { id: "n5", workspace_id: "ws-no-phone", phone_number: null, ...live },
       ],
       workspace_work_numbers: [
         { number_id: "n1", workspace_id: "ws-linked" },
-        { number_id: "n3", workspace_id: "ws-linked-gone" },
+        { number_id: "n2", workspace_id: "ws-linked-setting-up" },
       ],
     });
     const config = await loadSharedLineConfig(db);
-    expect([...(config.dedicatedWorkspaceIds ?? [])].sort()).toEqual(["ws-grace", "ws-linked", "ws-pro", "ws-prov"]);
+    expect([...(config.dedicatedWorkspaceIds ?? [])].sort()).toEqual(["ws-linked", "ws-pro"]);
     expect(workspaceHasDedicatedNumber(config, "ws-pro")).toBe(true);
-    expect(workspaceHasDedicatedNumber(config, "ws-gone")).toBe(false);
+    expect(workspaceHasDedicatedNumber(config, "ws-setting-up")).toBe(false);
     expect(workspaceOnSharedLine(config, "ws-pro")).toBe(false);
     expect(workspaceOnSharedLine(config, "ws-linked")).toBe(false);
+    // Until the personal number works, the workspace keeps texting on the PropLane line.
+    expect(workspaceOnSharedLine(config, "ws-setting-up")).toBe(true);
+    expect(workspaceOnSharedLine(config, "ws-unregistered")).toBe(true);
+    expect(workspaceOnSharedLine(config, "ws-released")).toBe(true);
     expect(workspaceOnSharedLine(config, "ws-free")).toBe(true);
   });
 

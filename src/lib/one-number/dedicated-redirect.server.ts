@@ -8,8 +8,8 @@ import { normalizeE164, formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { resolveWorkspaceStatusLine } from "@/lib/sms/manager-workspace-role.server";
 
 /**
- * Number model (captain, Oct 18): a workspace that holds a personalized number (Pro / Business, or
- * PropLane's own managed service) texts from it, never from the shared PropLane line. A person
+ * Number model (captain, Oct 18): a workspace that holds a personalized number (a paying Pro /
+ * Business workspace) texts from it, never from the shared PropLane line. A person
  * whose ONLY ties are to such workspaces who texts the shared line is told, once, where to text.
  */
 

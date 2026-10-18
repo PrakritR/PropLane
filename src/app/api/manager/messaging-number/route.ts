@@ -17,7 +17,7 @@ import {
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
-import { isPlatformServiceOwner, PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
+import { PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
 import { resolveWorkspaceStatusLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -322,8 +322,7 @@ async function buildStatus(
     viewerMayText = true;
   }
   const canSend = lineReady && viewerMayText;
-  // PropLane's own managed-service account always may hold a number of its own.
-  const canRequestBilling = entitlementCanBeReconciled || isPlatformServiceOwner(userId);
+  const canRequestBilling = entitlementCanBeReconciled;
 
   // One work number per workspace: a co-manager reads the owner's line and
   // never gets a Request button. Their own legacy row (bought before numbers
@@ -573,12 +572,9 @@ export async function POST(req: Request) {
 
   // Reconcile at the explicit-request boundary, not on GET. Status checks stay
   // read-only and billing/provider work happens only after a manager asks.
-  // PropLane's own managed-service workspaces (owned by the platform service account) are always
-  // allowed a number of their own; every other workspace needs a paid Pro or Business plan, and a
-  // Free workspace simply texts from the PropLane line.
-  const entitlement = isPlatformServiceOwner(actor.userId)
-    ? ({ eligible: true, tier: "business", source: "none" } as const)
-    : await reconcileManagerSmsEntitlement(actor.db, actor.userId);
+  // Only a paid Pro or Business workspace may take a personalized number; a Free workspace simply
+  // texts from the PropLane line.
+  const entitlement = await reconcileManagerSmsEntitlement(actor.db, actor.userId);
   if (!entitlement.eligible) {
     if (entitlement.reason === "free") {
       return NextResponse.json(PERSONAL_NUMBER_FREE_REFUSAL, { status: 403, headers: { "Cache-Control": "private, no-store" } });

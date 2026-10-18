@@ -10,11 +10,12 @@ work number for their workspace; keep overall service PropLane separate." (W16)
 
 - **Everyone texts on the set PropLane line** (`sms_runtime_config.shared_number_e164`, `line_mode = shared`).
 - **A Pro or Business workspace MAY take a personalized number** (the existing per-workspace provisioning).
-  Both run side by side. PropLane's own managed service (workspaces owned by the platform service account,
-  `PROPLANE_SERVICE_OWNER_USER_ID`, W15) always may, on any plan, and keeps its own number apart from the shared line.
-- **Dedicated = a workspace holding a usable number of its own** (`manager_sms_numbers` home row in state
-  `active` / `provisioning` / inside grace, or a `workspace_work_numbers` link to one). `loadSharedLineConfig`
-  puts them in `dedicatedWorkspaceIds` (read only while the mode is `shared`; unreadable = fail closed to
+  Both run side by side. PropLane's own managed service (W15) has no exemption: it uses the same default line and only gets a personalized number on a paying plan (lead correction, Oct 18).
+- **Dedicated = a workspace holding a number of its own that can carry traffic**: a `manager_sms_numbers` home row that is
+  live (`active`, has a phone, registration approved: `managerCanSendFromOwnNumber`) and not released, or a
+  `workspace_work_numbers` link to one. A number still provisioning, awaiting registration, failed or released does NOT take
+  the workspace off the PropLane line; it keeps texting there until the personal number works. `loadSharedLineConfig`
+  puts dedicated workspaces in `dedicatedWorkspaceIds` (read only while the mode is `shared`; unreadable = fail closed to
   `per_workspace`). `workspaceOnSharedLine` is false for them, `workspaceHasDedicatedNumber` true. That one
   decision drives everything below. `per_workspace` mode is untouched.
 
@@ -33,8 +34,7 @@ Files and invariants:
    hint for a house in a dedicated workspace; `sendWorkspacePhoneText` (link and code texts) pins the workspace. Vendor dispatch, alerts and
    lead assignment already branch on `workspaceOnSharedLine`.
 3. **Entitlement** (`personal-number.ts`): `POST /api/manager/messaging-number` `request_number` and
-   `provisionNumberForWorkspace` allow Pro / Business (plan read through `resolveEffectiveManagerSkuTier` only) and the
-   platform service owner; a Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
+   `provisionNumberForWorkspace` allow Pro / Business only (plan read through `resolveEffectiveManagerSkuTier`); a Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
    PropLane line."), provisioning code `not_entitled`. Plan words never appear in the refusal.
 4. **Settings > Communication > Channels** (`pro-messaging-settings-panel.tsx`): `status.sharedLine = { number, onSharedLine }`
    (null in `per_workspace`, so nothing changes there). A workspace on the line shows a "PropLane line" row (number, Copy,

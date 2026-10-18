@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaceById } from "@/lib/workspaces/active.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
-import { isPlatformServiceOwner, PERSONAL_NUMBER_FREE_REFUSAL, planMayHavePersonalNumber } from "@/lib/one-number/personal-number";
+import { PERSONAL_NUMBER_FREE_REFUSAL, planMayHavePersonalNumber } from "@/lib/one-number/personal-number";
 import { loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import {
   provisionManagerNumber,
@@ -276,41 +276,38 @@ export async function provisionNumberForWorkspace(
     };
   }
 
-  // PropLane's own managed-service workspaces (owned by the platform service account) may always
-  // hold a number of their own, whatever plan the account carries. Everyone else: Pro or Business
-  // only (a Free workspace texts from the PropLane line), inside the account-wide budget.
-  if (!isPlatformServiceOwner(actor)) {
-    // Account-wide budget: included (one per owned workspace on a paid plan)
-    // plus the extra_work_number add-on quantity, compared against every home
-    // number the account already holds across all of its own workspaces.
-    const [tierResult, addons, { data: ownedWorkspaces }, { data: homeNumbers }] = await Promise.all([
-      getEffectiveManagerSkuTier(actor),
-      loadManagerPlanAddonQuantities(db, actor),
-      db.from("portal_workspaces").select("id").eq("owner_user_id", actor),
-      db.from("manager_sms_numbers").select("id").eq("manager_user_id", actor).is("released_at", null),
-    ]);
-    if (!tierResult.ok) {
-      return { ok: false, error: "Could not verify your plan.", state: "failed", code: "budget_exceeded" };
-    }
-    if (!planMayHavePersonalNumber(tierResult.tier)) {
-      return { ok: false, error: PERSONAL_NUMBER_FREE_REFUSAL.error, state: "failed", code: "not_entitled" };
-    }
-    if (!addons.ok) {
-      return { ok: false, error: "Could not verify your add-ons.", state: "failed", code: "budget_exceeded" };
-    }
-    const ownedCount = (ownedWorkspaces ?? []).length;
-    const included = includedNumbersPerOwnedWorkspace(tierResult.tier) * ownedCount;
-    const extra = Math.max(0, addons.quantities.extra_work_number ?? 0);
-    const budget = included + extra;
-    const held = (homeNumbers ?? []).length;
-    if (held >= budget) {
-      return {
-        ok: false,
-        error: "You're at your included work numbers. Add an extra work number in Billing & plan to buy another.",
-        state: "failed",
-        code: "budget_exceeded",
-      };
-    }
+  // Pro or Business only: a Free workspace texts from the PropLane line. There is no exemption for
+  // PropLane's own managed service. Then the account-wide budget.
+  // Account-wide budget: included (one per owned workspace on a paid plan)
+  // plus the extra_work_number add-on quantity, compared against every home
+  // number the account already holds across all of its own workspaces.
+  const [tierResult, addons, { data: ownedWorkspaces }, { data: homeNumbers }] = await Promise.all([
+    getEffectiveManagerSkuTier(actor),
+    loadManagerPlanAddonQuantities(db, actor),
+    db.from("portal_workspaces").select("id").eq("owner_user_id", actor),
+    db.from("manager_sms_numbers").select("id").eq("manager_user_id", actor).is("released_at", null),
+  ]);
+  if (!tierResult.ok) {
+    return { ok: false, error: "Could not verify your plan.", state: "failed", code: "budget_exceeded" };
+  }
+  if (!planMayHavePersonalNumber(tierResult.tier)) {
+    return { ok: false, error: PERSONAL_NUMBER_FREE_REFUSAL.error, state: "failed", code: "not_entitled" };
+  }
+  if (!addons.ok) {
+    return { ok: false, error: "Could not verify your add-ons.", state: "failed", code: "budget_exceeded" };
+  }
+  const ownedCount = (ownedWorkspaces ?? []).length;
+  const included = includedNumbersPerOwnedWorkspace(tierResult.tier) * ownedCount;
+  const extra = Math.max(0, addons.quantities.extra_work_number ?? 0);
+  const budget = included + extra;
+  const held = (homeNumbers ?? []).length;
+  if (held >= budget) {
+    return {
+      ok: false,
+      error: "You're at your included work numbers. Add an extra work number in Billing & plan to buy another.",
+      state: "failed",
+      code: "budget_exceeded",
+    };
   }
 
   const result = await provisionManagerNumber(db, actor, {

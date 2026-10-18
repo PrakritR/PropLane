@@ -99,7 +99,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
   // Any trouble reading the line config reads as `per_workspace`, so this block
   // is inert until the rollout switch is deliberately flipped.
   const sharedConfig = await loadSharedLineConfig(db);
-  // A workspace with a number of its own (Pro / Business, or PropLane's managed service) sends from
+  // A workspace with a number of its own (a paying Pro / Business workspace) sends from
   // THAT number, even when it is not the owner's default workspace. Only ever set while the line is
   // shared, so per_workspace resolves the line exactly as before.
   let dedicatedWorkspaceId: string | null = null;

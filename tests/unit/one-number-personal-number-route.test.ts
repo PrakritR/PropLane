@@ -85,13 +85,12 @@ describe("request_number by plan", () => {
     expect(mocks.provision).toHaveBeenCalledWith(expect.anything(), MANAGER, expect.objectContaining({ workspaceId: "ws-1" }));
   });
 
-  it("always lets PropLane's managed-service account request one, with no plan read at all", async () => {
+  it("has no exemption for PropLane's managed-service account: Free stays on the PropLane line", async () => {
     process.env.PROPLANE_SERVICE_OWNER_USER_ID = MANAGER;
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
     const response = await post();
-    expect(response.status).toBe(200);
-    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
-    expect(mocks.provision).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(403);
+    expect(mocks.provision).not.toHaveBeenCalled();
   });
 
   it("a provisioning-level refusal for a plan is a 403, not a gateway error", async () => {
@@ -112,7 +111,7 @@ describe("status: the PropLane line", () => {
     mocks.requireManagerRouteUser.mockResolvedValue({
       userId: MANAGER,
       db: dbFor("shared", {
-        manager_sms_numbers: [{ id: "n1", manager_user_id: MANAGER, workspace_id: "ws-1", phone_number: "+12065550001", provision_state: "active", released_at: null }],
+        manager_sms_numbers: [{ id: "n1", manager_user_id: MANAGER, workspace_id: "ws-1", phone_number: "+12065550001", provision_state: "active", registration_state: "approved", released_at: null }],
         workspace_work_numbers: [{ workspace_id: "ws-1", number_id: "n1", is_primary: true }],
       }),
     });
@@ -124,13 +123,6 @@ describe("status: the PropLane line", () => {
     mocks.requireManagerRouteUser.mockResolvedValue({ db: dbFor("per_workspace"), userId: MANAGER });
     const body = await (await GET(new Request("http://localhost"))).json();
     expect(body.sharedLine).toBeNull();
-  });
-
-  it("the managed-service account can always request, even on a Free entitlement", async () => {
-    process.env.PROPLANE_SERVICE_OWNER_USER_ID = MANAGER;
-    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
-    const body = await (await GET(new Request("http://localhost"))).json();
-    expect(body.canRequest).toBe(true);
   });
 
   it("a Free account cannot request", async () => {
