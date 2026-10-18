@@ -71,6 +71,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/unassigned-lead-followups",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/sms-inbound-recovery",
       "schedule": "* * * * *"
     },

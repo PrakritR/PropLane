@@ -11,6 +11,7 @@ import { AdminFinancesPanel } from "@/components/portal/admin-finances-panel";
 import { AdminPaymentsPanel } from "@/components/portal/admin-payments-panel";
 import { AdminPromoCodesPanel } from "@/components/portal/admin-promo-codes-panel";
 import { AdminSubscribersPanel } from "@/components/portal/admin-subscribers-panel";
+import { AdminUnassignedLeadsPanel } from "@/components/portal/admin-unassigned-leads-panel";
 import { AdminProfileSection } from "@/components/portal/admin-profile-section";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
@@ -32,6 +33,7 @@ const panels: PortalPanels = {
   AdminPaymentsPanel,
   AdminPromoCodesPanel,
   AdminSubscribersPanel,
+  AdminUnassignedLeadsPanel,
   GrowthAdminClient,
   AdminProfileSection,
   AdminPropertiesClient,

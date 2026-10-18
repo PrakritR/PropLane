@@ -48,6 +48,7 @@ describe("admin nav groups", () => {
       "communication",
       "axis-users",
       "subscribers",
+      "unassigned-leads",
       "test-accounts",
       "payments",
       "promo-codes",

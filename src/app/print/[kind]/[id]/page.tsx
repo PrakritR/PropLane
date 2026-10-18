@@ -12,6 +12,7 @@ import { loadHouseOwnerSmsPhone, loadHouseRecord, managerMayPrintHouse } from "@
 import { buildHousePublicUrl, ensureHousePublicLink } from "@/lib/house-printables/public-link.server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { loadDoorCardTextCode } from "@/lib/one-number/entry-codes.server";
 import { PrintButton } from "./print-button";
 
 /**
@@ -130,7 +131,9 @@ export default async function HousePrintPage({
     const shortUrl = url.replace(/^https?:\/\//, "");
 
     if (kind === "door-card") {
-      const card = buildHouseDoorCard(house.submission, { url, smsPhone });
+      const textCode = await loadDoorCardTextCode(ctx.db, { propertyId: house.propertyId, ownerUserId: house.ownerUserId });
+      const card = buildHouseDoorCard(house.submission, { url, smsPhone, textCode });
+      const textQr = card.textCode ? await qrSvg(card.textCode.smsLink) : null;
       title = `Door card · ${card.name}`;
       body = (
         <article className={`${SHEET} print-sheet-card`} data-attr="print-door-card">
@@ -144,6 +147,12 @@ export default async function HousePrintPage({
               <p className="mt-2 break-all font-mono text-[12px] text-black/55">{shortUrl}</p>
             </div>
           </div>
+          {card.textCode && textQr ? (
+            <div className="mb-5 flex items-center gap-4 rounded-2xl border border-black/15 p-3" data-attr="print-door-card-text-code">
+              <div className="print-qr w-[76px] shrink-0" dangerouslySetInnerHTML={{ __html: textQr }} />
+              <p className="text-[17px] font-bold leading-snug">{card.textCode.callToAction} to find a room.</p>
+            </div>
+          ) : null}
           <footer className="flex items-end justify-between text-[13px] text-black/70">
             <p>{smsLabel ? <>Need help? Text <b className="font-semibold text-black">{smsLabel}</b></> : "Need help? Scan the code."}</p>
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-black/45">PropLane</p>

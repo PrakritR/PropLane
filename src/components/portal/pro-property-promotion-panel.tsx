@@ -16,6 +16,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { listingChannelsOrdered } from "@/lib/listing-channels/registry";
 import { PropertyListingSitesPanel } from "@/components/portal/listing-sites-panel";
+import { PropertyTextCodeRow } from "@/components/portal/property-text-code-row";
 import { resolveZillowSyndicationStatus } from "@/lib/listing-syndication/zillow-syndication-status";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -987,6 +988,7 @@ export function ManagerPropertyPromotionPanel({
             }}
           />
         ) : null}
+        {promoTab !== "sites" && propertyId ? <PropertyTextCodeRow propertyId={propertyId} /> : null}
         {promoTab !== "sites"
           ? visibleBuiltins.map((def) => {
               const enabled = builtinEnabled(promotionBuiltins, def.key);
