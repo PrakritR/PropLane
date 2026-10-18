@@ -1,166 +1,157 @@
 /**
- * Management-fee math for owner-managed houses. Pure, integer cents, no I/O.
+ * PropLane's cut of a managed workspace's rent. Pure, integer cents, no I/O.
  *
- * The fee is the destination charge's `application_fee_amount` (docs/agents/owner-management.md). Every
- * function here is deterministic so a retried checkout, a webhook replay and the monthly statement all
- * arrive at the same cents.
+ * Captain: "say rent is $1000, can set payment to property owner to be 90% of rent and proplane take 10%". The
+ * policy stores the owner's share in basis points; PropLane's fee is the rest, ROUNDED DOWN, and the owner gets the
+ * remainder. The month's cumulative figure is what is floored, so partial payments sum to exactly one floor.
  */
 
 import { createHash } from "node:crypto";
 
-export type OwnerFeeModel = "percent_of_collected" | "flat_monthly";
+export type FeeAppliesTo = "rent" | "all";
 
-export type OwnerAgreementTerms = {
-  feeModel: OwnerFeeModel;
-  /** Hundredths of a percent of collected rent (800 = 8%). Used by `percent_of_collected`. */
-  feeBps: number;
-  /** Flat monthly fee in cents. Used by `flat_monthly`. */
-  feeFlatCents: number;
-  /** Hundredths of a percent of a lease's first routed payment, once per lease. 0 = none. */
+export type ManagedFeeTerms = {
+  /** The owner's share of distributable rent in basis points (9000 = 90%). PropLane keeps `10000 - ownerShareBps`. */
+  ownerShareBps: number;
+  appliesTo: FeeAppliesTo;
+  /** Basis points of a lease's first routed payment, once per resident per policy. 0 = none. */
   leasingFeeBps: number;
   /** Monthly floor in cents (never more than what was collected). 0 = none. */
   minFeeCents: number;
-  /** Repairs above this need the owner's yes; at or below are auto-approved. */
-  repairApprovalThresholdCents: number;
-  /** Advisory reserve the owner should set aside (PropLane never holds it). */
+  /** Advisory reserve the owner leaves in the account before withdrawing. */
   reserveTargetCents: number;
+  /** Vendor bills above this need the owner's yes; at or below post automatically. */
+  repairApprovalThresholdCents: number;
 };
 
-/** Charge kinds whose rent is routed to the owner. Everything else keeps the workspace flow. */
-export const OWNER_ROUTED_RENT_KINDS = [
-  "rent",
-  "first_month_rent",
-  "prorated_rent",
-  "prorated_last_month_rent",
-] as const;
-
-/** The routed kinds a leasing fee may be taken from (the first payment of a new lease). */
-export const OWNER_LEASING_FEE_KINDS = ["first_month_rent", "prorated_rent"] as const;
-
-export const OWNER_FEE_LIMITS = {
-  maxFeeBps: 3000,
-  maxFlatCents: 500_000,
+export const MANAGED_FEE_LIMITS = {
+  minOwnerShareBps: 5000,
+  maxOwnerShareBps: 10_000,
   maxLeasingBps: 10_000,
   maxMinFeeCents: 500_000,
-  maxThresholdCents: 5_000_000,
   maxReserveCents: 100_000_000,
-  /** Expense recoup never takes more than this share of one payment's principal. */
-  recoupMaxShareBps: 5000,
+  maxThresholdCents: 5_000_000,
 } as const;
 
-export function isOwnerRoutedRentKind(kind: string): boolean {
-  return (OWNER_ROUTED_RENT_KINDS as readonly string[]).includes(kind);
+/** Charge kinds that count as rent for `appliesTo = "rent"`. */
+export const RENT_KINDS = ["rent", "first_month_rent", "prorated_rent", "prorated_last_month_rent"] as const;
+/** The routed kinds a leasing fee may be taken from (the first payment of a new lease). */
+export const LEASING_FEE_KINDS = ["first_month_rent", "prorated_rent"] as const;
+/** Kinds that are tenant deposits: held in `tenant_deposit_liability`, never split, never withdrawable. */
+export const DEPOSIT_KINDS = ["security_deposit", "holding_deposit"] as const;
+
+export function isRentKind(kind: string): boolean {
+  return (RENT_KINDS as readonly string[]).includes(kind);
+}
+export function isLeasingFeeKind(kind: string): boolean {
+  return (LEASING_FEE_KINDS as readonly string[]).includes(kind);
+}
+export function isDepositKind(kind: string): boolean {
+  return (DEPOSIT_KINDS as readonly string[]).includes(kind);
 }
 
-export function isOwnerLeasingFeeKind(kind: string): boolean {
-  return (OWNER_LEASING_FEE_KINDS as readonly string[]).includes(kind);
+/** Does the management fee apply to a charge of this kind under this policy? Deposits never carry a fee. */
+export function feeAppliesToKind(terms: Pick<ManagedFeeTerms, "appliesTo">, kind: string): boolean {
+  if (isDepositKind(kind)) return false;
+  return terms.appliesTo === "all" ? true : isRentKind(kind);
 }
 
-function exactNonNegative(value: number): boolean {
+function nonNegativeInt(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
+}
+
+/** PropLane's share in basis points. */
+export function feeBpsOf(terms: Pick<ManagedFeeTerms, "ownerShareBps">): number {
+  return 10_000 - terms.ownerShareBps;
 }
 
 /** Round-half-up integer division of non-negative integers. */
 export function roundHalfUpDiv(numerator: number, denominator: number): number {
-  if (!exactNonNegative(numerator) || !Number.isSafeInteger(denominator) || denominator <= 0) {
+  if (!nonNegativeInt(numerator) || !Number.isSafeInteger(denominator) || denominator <= 0) {
     throw new Error("Fee math needs non-negative integer cents.");
   }
-  // numerator is at most ~1e11 (cents * 1e4), well inside 2^53.
   return Math.floor((numerator * 2 + denominator) / (denominator * 2));
 }
 
-/** Validate agreement terms; returns the first problem or null. */
-export function validateOwnerAgreementTerms(terms: OwnerAgreementTerms): string | null {
-  const L = OWNER_FEE_LIMITS;
-  if (terms.feeModel !== "percent_of_collected" && terms.feeModel !== "flat_monthly") return "Pick a fee model.";
-  if (!exactNonNegative(terms.feeBps) || terms.feeBps > L.maxFeeBps) return "The percentage fee must be between 0% and 30%.";
-  if (!exactNonNegative(terms.feeFlatCents) || terms.feeFlatCents > L.maxFlatCents) return "The monthly fee must be between $0 and $5,000.";
-  if (terms.feeModel === "percent_of_collected" && terms.feeBps <= 0) return "Enter the percentage fee.";
-  if (terms.feeModel === "flat_monthly" && terms.feeFlatCents <= 0) return "Enter the monthly fee.";
-  if (!exactNonNegative(terms.leasingFeeBps) || terms.leasingFeeBps > L.maxLeasingBps) return "The leasing fee must be between 0% and 100%.";
-  if (!exactNonNegative(terms.minFeeCents) || terms.minFeeCents > L.maxMinFeeCents) return "The minimum fee must be between $0 and $5,000.";
-  if (!exactNonNegative(terms.repairApprovalThresholdCents) || terms.repairApprovalThresholdCents > L.maxThresholdCents) {
+/** Floor division of non-negative integers (the fee rounds down). */
+export function floorDiv(numerator: number, denominator: number): number {
+  if (!nonNegativeInt(numerator) || !Number.isSafeInteger(denominator) || denominator <= 0) {
+    throw new Error("Fee math needs non-negative integer cents.");
+  }
+  return Math.floor(numerator / denominator);
+}
+
+/** Validate policy terms; returns the first problem or null. */
+export function validateManagedFeeTerms(terms: ManagedFeeTerms): string | null {
+  const L = MANAGED_FEE_LIMITS;
+  if (!Number.isSafeInteger(terms.ownerShareBps) || terms.ownerShareBps < L.minOwnerShareBps || terms.ownerShareBps > L.maxOwnerShareBps) {
+    return "The owner's share must be between 50% and 100%.";
+  }
+  if (terms.appliesTo !== "rent" && terms.appliesTo !== "all") return "Choose what the fee applies to.";
+  if (!nonNegativeInt(terms.leasingFeeBps) || terms.leasingFeeBps > L.maxLeasingBps) return "The leasing fee must be between 0% and 100%.";
+  if (!nonNegativeInt(terms.minFeeCents) || terms.minFeeCents > L.maxMinFeeCents) return "The monthly minimum must be between $0 and $5,000.";
+  if (!nonNegativeInt(terms.reserveTargetCents) || terms.reserveTargetCents > L.maxReserveCents) return "The reserve target is out of range.";
+  if (!nonNegativeInt(terms.repairApprovalThresholdCents) || terms.repairApprovalThresholdCents > L.maxThresholdCents) {
     return "The repair approval amount must be between $0 and $50,000.";
   }
-  if (!exactNonNegative(terms.reserveTargetCents) || terms.reserveTargetCents > L.maxReserveCents) return "The reserve target is out of range.";
   return null;
 }
 
-/** What the monthly fee should total once `cumPrincipal` has been collected in the month. */
-export function targetMonthlyFeeCents(terms: OwnerAgreementTerms, cumPrincipal: number): number {
-  if (!exactNonNegative(cumPrincipal)) throw new Error("Collected rent must be non-negative cents.");
-  if (cumPrincipal === 0) return 0;
-  const base =
-    terms.feeModel === "flat_monthly"
-      ? Math.min(terms.feeFlatCents, cumPrincipal)
-      : roundHalfUpDiv(cumPrincipal * terms.feeBps, 10_000);
-  const floor = Math.min(terms.minFeeCents, cumPrincipal);
-  return Math.min(Math.max(base, floor), cumPrincipal);
+/** What the month's monthly fee should total once `cumBase` of fee-applicable rent has been distributed. */
+export function targetMonthlyFeeCents(terms: ManagedFeeTerms, cumBase: number): number {
+  if (!nonNegativeInt(cumBase)) throw new Error("Collected rent must be non-negative cents.");
+  if (cumBase === 0) return 0;
+  const percent = floorDiv(cumBase * feeBpsOf(terms), 10_000);
+  const floor = Math.min(terms.minFeeCents, cumBase);
+  return Math.min(Math.max(percent, floor), cumBase);
 }
 
-/**
- * The most the month's cumulative fee may ever be for `cumPrincipal` collected (monthly part only, plus
- * `leasingCents` actually taken). The reservation RPC enforces the same bound in SQL, so a caller bug
- * cannot take more than the agreement allows.
- */
-export function maxCumulativeFeeCents(terms: OwnerAgreementTerms, cumPrincipal: number, leasingCents: number): number {
-  const monthly = targetMonthlyFeeCents(terms, cumPrincipal);
-  return Math.min(cumPrincipal, monthly + Math.max(0, leasingCents));
-}
-
-export type ManagementFeeInput = {
-  terms: OwnerAgreementTerms;
-  /** Routed principal already collected (settled or reserved), net of refunds, this Pacific month. */
-  cumPrincipalBefore: number;
-  /** Monthly fee already taken (settled or reserved), net of fee refunds, this Pacific month. Leasing excluded. */
+export type CartFeeInput = {
+  terms: ManagedFeeTerms;
+  /** Fee-applicable distributable already collected this Pacific month, net of refunds. */
+  cumBaseBefore: number;
+  /** Monthly fee already taken this Pacific month (leasing excluded), net of fee refunds. */
   monthlyFeeTakenBefore: number;
-  /** This cart's routed principal. */
-  principal: number;
-  /** Part of `principal` that is the first payment of a new lease (leasing-fee kinds). 0 when none or already charged. */
-  leasingPrincipal: number;
+  /** This cart's fee-applicable distributable. */
+  applicableBase: number;
+  /** Part of `applicableBase` that is a lease's first payment and has not carried a leasing fee. */
+  leasingBase: number;
 };
 
-export type ManagementFee = {
-  monthlyFeeCents: number;
-  leasingFeeCents: number;
-  totalCents: number;
-};
+export type CartFee = { monthlyFeeCents: number; leasingFeeCents: number; totalCents: number };
 
-export function computeManagementFee(input: ManagementFeeInput): ManagementFee {
-  const { terms, cumPrincipalBefore, monthlyFeeTakenBefore, principal, leasingPrincipal } = input;
-  if (![cumPrincipalBefore, monthlyFeeTakenBefore, principal, leasingPrincipal].every(exactNonNegative)) {
+export function computeCartFee(input: CartFeeInput): CartFee {
+  const { terms, cumBaseBefore, monthlyFeeTakenBefore, applicableBase, leasingBase } = input;
+  if (![cumBaseBefore, monthlyFeeTakenBefore, applicableBase, leasingBase].every(nonNegativeInt)) {
     throw new Error("Fee math needs non-negative integer cents.");
   }
-  if (principal <= 0) return { monthlyFeeCents: 0, leasingFeeCents: 0, totalCents: 0 };
-  if (leasingPrincipal > principal) throw new Error("Leasing principal cannot exceed the payment.");
-  const cumAfter = cumPrincipalBefore + principal;
-  const rawMonthly = targetMonthlyFeeCents(terms, cumAfter) - monthlyFeeTakenBefore;
-  const monthly = Math.min(Math.max(rawMonthly, 0), principal);
-  const leasingRaw = leasingPrincipal > 0 && terms.leasingFeeBps > 0 ? roundHalfUpDiv(leasingPrincipal * terms.leasingFeeBps, 10_000) : 0;
-  // The owner always nets something: the whole fee can never reach the payment.
-  const leasing = Math.min(leasingRaw, Math.max(principal - monthly - 1, 0));
-  const total = monthly + leasing;
-  return { monthlyFeeCents: monthly, leasingFeeCents: leasing, totalCents: total };
+  if (applicableBase === 0) return { monthlyFeeCents: 0, leasingFeeCents: 0, totalCents: 0 };
+  if (leasingBase > applicableBase) throw new Error("Leasing base cannot exceed the fee-applicable amount.");
+  const raw = targetMonthlyFeeCents(terms, cumBaseBefore + applicableBase) - monthlyFeeTakenBefore;
+  const monthly = Math.min(Math.max(raw, 0), applicableBase);
+  const leasingRaw = leasingBase > 0 && terms.leasingFeeBps > 0 ? floorDiv(leasingBase * terms.leasingFeeBps, 10_000) : 0;
+  const leasing = Math.min(leasingRaw, applicableBase - monthly);
+  return { monthlyFeeCents: monthly, leasingFeeCents: leasing, totalCents: monthly + leasing };
 }
 
 /**
- * Spread a cart's fee over its charges (largest remainder, ties by id) so each allocation row carries
- * an exact share and the shares sum to the fee.
+ * Spread a total over parts proportionally to their weight, rounding down and giving the remainder to the largest
+ * remainders (ties by id), so shares always sum exactly to `total`.
  */
-export function allocateFeeAcrossCharges(
-  parts: ReadonlyArray<{ id: string; principalCents: number }>,
-  totalFeeCents: number,
-): Array<{ id: string; feeCents: number }> {
+export function spreadByWeight(
+  parts: ReadonlyArray<{ id: string; weight: number }>,
+  total: number,
+): Array<{ id: string; cents: number }> {
   const sorted = [...parts].sort((a, b) => a.id.localeCompare(b.id));
-  const principal = sorted.reduce((sum, p) => sum + p.principalCents, 0);
-  if (sorted.length === 0 || principal <= 0 || !exactNonNegative(totalFeeCents) || totalFeeCents > principal) {
-    throw new Error("Cannot spread this fee over the cart.");
-  }
+  const weight = sorted.reduce((sum, p) => sum + p.weight, 0);
+  if (!nonNegativeInt(total)) throw new Error("Cannot spread a negative amount.");
+  if (total === 0) return sorted.map((p) => ({ id: p.id, cents: 0 }));
+  if (sorted.length === 0 || weight <= 0 || total > weight) throw new Error("Cannot spread this amount over the cart.");
   const shares = sorted.map((p) => ({
-    base: Math.floor((totalFeeCents * p.principalCents) / principal),
-    remainder: (totalFeeCents * p.principalCents) % principal,
+    base: Math.floor((total * p.weight) / weight),
+    remainder: (total * p.weight) % weight,
   }));
-  let residue = totalFeeCents - shares.reduce((sum, s) => sum + s.base, 0);
+  let residue = total - shares.reduce((sum, s) => sum + s.base, 0);
   const rank = sorted
     .map((_, index) => index)
     .sort((a, b) => shares[b]!.remainder - shares[a]!.remainder || sorted[a]!.id.localeCompare(sorted[b]!.id));
@@ -168,53 +159,77 @@ export function allocateFeeAcrossCharges(
     if (residue-- <= 0) break;
     shares[index]!.base += 1;
   }
-  return sorted.map((p, index) => ({ id: p.id, feeCents: shares[index]!.base }));
+  return sorted.map((p, index) => ({ id: p.id, cents: shares[index]!.base }));
+}
+
+export type CartComponent = {
+  id: string;
+  kind: string;
+  liabilityClass: "income" | "deposit";
+  principalCents: number;
+  /** What the owner's side can distribute: principal less any processing fee the owner bears. */
+  distributableCents: number;
+  residentEmail: string;
+};
+
+export type SplitComponent = CartComponent & {
+  feeApplies: boolean;
+  feeCents: number;
+  leasingCents: number;
+  ownerCents: number;
+  depositCents: number;
+  ownerBornCents: number;
+};
+
+/** Split a cart's components into owner / fee / deposit. Deterministic and exact. */
+export function splitManagedCart(
+  terms: ManagedFeeTerms,
+  components: readonly CartComponent[],
+  cart: CartFee,
+  leasingEligibleIds: ReadonlySet<string>,
+): SplitComponent[] {
+  const applicable = components.filter((c) => c.liabilityClass === "income" && feeAppliesToKind(terms, c.kind));
+  const monthly = new Map(spreadByWeight(applicable.map((c) => ({ id: c.id, weight: c.distributableCents })), cart.monthlyFeeCents).map((p) => [p.id, p.cents]));
+  const leasingParts = applicable.filter((c) => leasingEligibleIds.has(c.id));
+  if (cart.leasingFeeCents > 0 && leasingParts.length === 0) throw new Error("A leasing fee has no first-payment charge.");
+  const leasing = new Map(
+    spreadByWeight(leasingParts.map((c) => ({ id: c.id, weight: c.distributableCents })), cart.leasingFeeCents).map((p) => [p.id, p.cents]),
+  );
+  return [...components].sort((a, b) => a.id.localeCompare(b.id)).map((c) => {
+    const feeApplies = c.liabilityClass === "income" && feeAppliesToKind(terms, c.kind);
+    const fee = feeApplies ? (monthly.get(c.id) ?? 0) : 0;
+    const lease = feeApplies ? (leasing.get(c.id) ?? 0) : 0;
+    const isDeposit = c.liabilityClass === "deposit";
+    const owner = isDeposit ? 0 : c.distributableCents - fee - lease;
+    if (owner < 0) throw new Error("A fee cannot exceed the amount distributed.");
+    return {
+      ...c, feeApplies, feeCents: fee, leasingCents: lease, ownerCents: owner,
+      depositCents: isDeposit ? c.distributableCents : 0, ownerBornCents: c.principalCents - c.distributableCents,
+    };
+  });
 }
 
 /**
- * Stripe refunds a PROPORTIONAL share of the application fee when `refund_application_fee` is set
- * (a full refund returns the whole fee). We mirror that so the books predict Stripe's own number; the
- * refund event's actual application-fee refund is what gets stored, this is the cross-check.
+ * The reversal of a refund of `amount` principal on a payment, pro rata over what is still outstanding. A refund of
+ * everything that remains reverses everything that remains exactly. Mirrors `apply_managed_refund` in SQL.
  */
-export function feeRefundCents(feeCents: number, principalCents: number, refundCents: number): number {
-  if (![feeCents, principalCents, refundCents].every(exactNonNegative) || principalCents <= 0) {
-    throw new Error("Fee refund needs non-negative integer cents.");
+export function refundSplit(input: {
+  amountCents: number;
+  remainingPrincipalCents: number;
+  remainingFeeCents: number;
+  remainingOwnerCents: number;
+  remainingBorneCents: number;
+}): { feeCents: number; borneCents: number; ownerCents: number } {
+  const { amountCents: r, remainingPrincipalCents: rp } = input;
+  if (![r, rp, input.remainingFeeCents, input.remainingOwnerCents, input.remainingBorneCents].every(nonNegativeInt) || r <= 0 || r > rp) {
+    throw new Error("A refund cannot exceed what remains of the payment.");
   }
-  if (refundCents > principalCents) throw new Error("A refund cannot exceed the payment.");
-  if (refundCents === principalCents) return feeCents;
-  return roundHalfUpDiv(feeCents * refundCents, principalCents);
-}
-
-/** How much of a payment may go to expense recoup: bounded by outstanding and by the owner-share cap. */
-export function computeExpenseRecoupCents(input: {
-  outstandingApprovedCents: number;
-  principal: number;
-  managementFeeCents: number;
-  ownerBornProcessingCents: number;
-}): number {
-  const { outstandingApprovedCents, principal, managementFeeCents, ownerBornProcessingCents } = input;
-  if (![outstandingApprovedCents, principal, managementFeeCents, ownerBornProcessingCents].every(exactNonNegative)) {
-    throw new Error("Recoup math needs non-negative integer cents.");
-  }
-  const cap = Math.floor((principal * OWNER_FEE_LIMITS.recoupMaxShareBps) / 10_000);
-  const room = Math.max(principal - managementFeeCents - ownerBornProcessingCents - 1, 0);
-  return Math.max(0, Math.min(outstandingApprovedCents, cap, room));
-}
-
-export type OwnerNetBreakdown = {
-  principalCents: number;
-  managementFeeCents: number;
-  ownerBornProcessingCents: number;
-  expenseRecoupCents: number;
-  ownerNetCents: number;
-};
-
-export function ownerNetBreakdown(input: Omit<OwnerNetBreakdown, "ownerNetCents">): OwnerNetBreakdown {
-  const net = input.principalCents - input.managementFeeCents - input.ownerBornProcessingCents - input.expenseRecoupCents;
-  if (![input.principalCents, input.managementFeeCents, input.ownerBornProcessingCents, input.expenseRecoupCents].every(exactNonNegative) || net <= 0) {
-    throw new Error("The owner's share must stay positive.");
-  }
-  return { ...input, ownerNetCents: net };
+  if (r === rp) return { feeCents: input.remainingFeeCents, borneCents: input.remainingBorneCents, ownerCents: input.remainingOwnerCents };
+  const fee = roundHalfUpDiv(input.remainingFeeCents * r, rp);
+  const borne = roundHalfUpDiv(input.remainingBorneCents * r, rp);
+  const owner = r - fee - borne;
+  if (owner < 0 || owner > input.remainingOwnerCents) throw new Error("Refund split is out of range.");
+  return { feeCents: fee, borneCents: borne, ownerCents: owner };
 }
 
 /** The Pacific calendar month `YYYY-MM` of an instant (the same month every money view uses). */
@@ -235,45 +250,58 @@ export function previousMonthKey(key: string): string {
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
-/**
- * Canonical text of the terms an owner signs, and its hash. Changing a fee term changes the hash. The repair
- * approval amount and reserve target are the owner's own preferences, not fee terms, so they are outside it
- * (the owner may move them after signing; the migration trigger leaves them editable).
- */
-export function canonicalAgreementTerms(input: {
-  propertyId: string;
-  ownerUserId: string;
-  terms: OwnerAgreementTerms;
-  startsOn: string;
-  endsOn: string | null;
-}): string {
+/** First instant (UTC ISO) of a Pacific month. */
+export function pacificMonthStartIso(key: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(key);
+  if (!match) throw new Error("Invalid month.");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  // Probe both Pacific offsets (PST -8, PDT -7); the right one formats back to day 1 hour 0 in Pacific.
+  for (const offset of [8, 7]) {
+    const candidate = new Date(Date.UTC(year, month - 1, 1, offset, 0, 0));
+    const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", day: "numeric", hour: "numeric", hour12: false, month: "2-digit", year: "numeric" }).formatToParts(candidate);
+    const day = fmt.find((p) => p.type === "day")?.value;
+    const hour = Number(fmt.find((p) => p.type === "hour")?.value) % 24;
+    if (day === "1" && hour === 0) return candidate.toISOString();
+  }
+  throw new Error("Could not resolve the Pacific month start.");
+}
+
+export function nextMonthKey(key: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(key);
+  if (!match) throw new Error("Invalid month.");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
+/** Canonical text of the terms an owner accepts, and its hash. A fee term change changes the hash. */
+export function canonicalPolicyTerms(input: { workspaceId: string; ownerUserId: string; terms: ManagedFeeTerms; effectiveFrom: string }): string {
   const t = input.terms;
   return JSON.stringify({
-    v: 1,
-    propertyId: input.propertyId,
+    v: 2,
+    workspaceId: input.workspaceId,
     ownerUserId: input.ownerUserId,
-    feeModel: t.feeModel,
-    feeBps: t.feeBps,
-    feeFlatCents: t.feeFlatCents,
+    ownerShareBps: t.ownerShareBps,
+    appliesTo: t.appliesTo,
     leasingFeeBps: t.leasingFeeBps,
     minFeeCents: t.minFeeCents,
-    startsOn: input.startsOn,
-    endsOn: input.endsOn,
+    effectiveFrom: input.effectiveFrom,
   });
 }
 
-export function agreementTermsSha256(canonical: string): string {
+export function policyTermsSha256(canonical: string): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 /** Plain-English fee line used in texts and the owner portal. No subtext, no emoji. */
-export function describeOwnerFee(terms: OwnerAgreementTerms): string {
-  const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+export function describeManagedFee(terms: ManagedFeeTerms): string {
   const pct = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2)}%`;
-  const core = terms.feeModel === "flat_monthly" ? `${money(terms.feeFlatCents)} a month` : `${pct(terms.feeBps)} of rent collected`;
+  const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+  const core = `You receive ${pct(terms.ownerShareBps)}, PropLane keeps ${pct(feeBpsOf(terms))} of ${terms.appliesTo === "rent" ? "rent" : "everything collected"}`;
   const extras = [
-    terms.leasingFeeBps > 0 ? `${pct(terms.leasingFeeBps)} leasing fee` : "",
+    terms.leasingFeeBps > 0 ? `${pct(terms.leasingFeeBps)} leasing fee on a first month` : "",
     terms.minFeeCents > 0 ? `${money(terms.minFeeCents)} monthly minimum` : "",
   ].filter(Boolean);
-  return extras.length ? `${core}, ${extras.join(", ")}` : core;
+  return extras.length ? `${core}, plus ${extras.join(", ")}` : core;
 }
