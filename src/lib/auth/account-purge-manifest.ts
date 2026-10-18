@@ -1381,6 +1381,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   phone_bound_links: "Phone-bound signed links; keyed on a phone, cascade with the workspace.",
   phone_bound_link_sessions: "Verified link sessions; cascade with the link.",
   phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",
+  phone_auth_operation_locks: "Transient service-only phone authentication leases, expire after five minutes and pruned on the next claim.",
   property_knowledge_entries: "Workspace knowledge base; cascades with the workspace.",
   sms_topic_reply_modes: "Workspace auto-reply settings; cascade with the workspace.",
   sms_ai_reply_outcomes: "Workspace reply-quality counters; cascade with the workspace.",

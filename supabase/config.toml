@@ -190,7 +190,9 @@ max_frequency = "5s"
 # applied by this file. Authentication > Hooks > Send SMS: choose HTTPS and set
 # https://<app-host>/api/auth/hooks/send-sms. Store the generated v1,whsec_ secret
 # in the app's SUPABASE_SEND_SMS_HOOK_SECRET; never put its value in git.
-# Enable the Phone provider, use 6-digit OTPs, 600-second expiry, and configure
+# Enable the Phone provider but keep phone sign-ups disabled: new accounts go
+# through our verified application flow, not public GoTrue sign-up. Use
+# 6-digit OTPs, 600-second expiry, and configure
 # the Auth SMS rate limit to 3 per hour before enabling the hook-backed flow.
 # Without hosted setup, the app uses its own hashed phone_otp_challenges flow.
 # The hook sends through our platform Twilio verification transport; shared
