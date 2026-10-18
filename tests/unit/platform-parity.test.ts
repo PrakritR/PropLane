@@ -19,6 +19,7 @@ import {
   RESIDENT_PORTAL_SMOKE_PATHS,
   RESIDENT_RENDERED_SECTION_IDS,
 } from "@/lib/portals/resident-sections";
+import { collapseNavItems } from "@/lib/portals/nav-groups";
 import { vendorPortal, VENDOR_PORTAL_SMOKE_PATHS } from "@/lib/portals/vendor";
 import { proPortal, MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 import { adminPortal, ADMIN_PORTAL_SMOKE_PATHS } from "@/lib/portals/admin";
@@ -108,9 +109,16 @@ describe("platform parity (web + native WebView)", () => {
   });
 
   it("pre-approval resident bottom bar uses tour, application, dashboard, and communication", () => {
-    const items = RESIDENT_PRE_APPLICATION_PORTAL_SECTIONS.map((section) => ({ section: section.section }));
+    // The sidebar hands the bar folded rows: Tour and Application are one Applying row (key `applications`),
+    // so they share a slot and the bar is Applying, Dashboard, Communication.
+    const items = collapseNavItems(
+      "resident",
+      RESIDENT_PRE_APPLICATION_PORTAL_SECTIONS.map((section) => ({ section: section.section, label: section.label })),
+    );
     const split = splitNativeBottomNavItems(items, "resident", "pre_approval");
-    expect(split.primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_PRE_APPLICATION_PRIMARY]);
+    expect(split.primary.map((item) => item.section)).toEqual(["applications", "dashboard", "communication"]);
+    const reached = new Set(split.primary.flatMap((item) => item.groupSections ?? [item.section]));
+    for (const section of NATIVE_BOTTOM_NAV_RESIDENT_PRE_APPLICATION_PRIMARY) expect(reached.has(section)).toBe(true);
     // Resident catalog omits Settings from bar+More; avatar menu remains the path.
     expect(split.overflow.map((item) => item.section)).not.toContain("profile");
   });

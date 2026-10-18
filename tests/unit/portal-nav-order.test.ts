@@ -47,21 +47,23 @@ describe("portal nav order contracts", () => {
   it("admin native order matches web registry with settings last", () => {
     const items = adminPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "admin").map((item) => item.section);
-    expect(ordered).toEqual(sectionIds(adminPortal.sections));
+    // Settings is the FIRST row of the admin sidebar registry; the native bar still pins it last.
+    expect(ordered).toEqual([...sectionIds(adminPortal.sections).filter((id) => id !== "profile"), "profile"]);
     expect(ordered.at(-1)).toBe("profile");
   });
 
   it("resident limited native order follows the cross-stage mobile order", () => {
     const items = RESIDENT_LIMITED_PORTAL_SECTIONS.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "resident").map((item) => item.section);
+    // Row order of the sidebar (Home, Communication, My home, Applying, Money), each row's tabs after it.
     expect(ordered).toEqual([
+      "dashboard",
+      "communication",
+      "lease",
+      "forms",
       "tour",
       "applications",
-      "dashboard",
-      "lease",
       "payments",
-      "communication",
-      "forms",
       "documents",
     ]);
     expect(ordered.at(-1)).toBe("documents");
@@ -71,16 +73,16 @@ describe("portal nav order contracts", () => {
     const items = RESIDENT_APPROVED_PORTAL_SECTIONS.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "resident").map((item) => item.section);
     expect(ordered).toEqual([
+      "dashboard",
+      "communication",
+      // My home folds Inspections (`move-in`), Lease, Forms and Services; Inspections is a tab, not a row.
+      "move-in",
+      "lease",
+      "forms",
+      "services",
       "tour",
       "applications",
-      "dashboard",
-      "lease",
-      "services",
       "payments",
-      "communication",
-      // Forms is its own section; Inspections is a tab of My home (C1-R5) — no row of its own.
-      "forms",
-      "move-in",
       "documents",
     ]);
   });
@@ -182,9 +184,20 @@ describe("pro portal documents section", () => {
     expect(sections).toContain("financials");
   });
 
-  it("documents tabs are applications, leases, and other", () => {
+  it("documents tabs are the three the strip draws, then every other routable tab", () => {
     const documents = proPortal.sections.find((s) => s.section === "documents");
-    expect(documents?.tabs.map((t) => t.id)).toEqual(["applications", "leases", "other"]);
+    expect(documents?.tabs.map((t) => t.id)).toEqual([
+      "applications",
+      "leases",
+      "other",
+      "library",
+      "templates",
+      "income-documents",
+      "expense-documents",
+      "occupancy",
+      "1099",
+      "tax-summary",
+    ]);
   });
 
   it("finances tabs are overview, activity and reports in nav", () => {
