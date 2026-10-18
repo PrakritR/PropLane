@@ -25,7 +25,12 @@ const SERVER_A = row({ id: "PROPLANE-SERVERA" });
 const SERVER_B = row({ id: "PROPLANE-SERVERB", name: "Sam Lee" });
 const DRAFT = row({ id: "PROPLANE-DRAFT1", stage: "In progress" });
 
-let replies: Array<{ rows?: DemoApplicantRow[]; ok?: boolean }>;
+let replies: Array<{
+  rows?: DemoApplicantRow[];
+  ok?: boolean;
+  skippedRowIds?: string[];
+  skippedRows?: unknown[];
+}>;
 let posts: Array<Record<string, unknown>>;
 
 function stubBrowser() {
@@ -55,7 +60,11 @@ function stubBrowser() {
       return Promise.resolve({
         ok: reply.ok ?? true,
         status: reply.ok === false ? 500 : 200,
-        json: async () => ({ rows: reply.rows ?? [] }),
+        json: async () => ({
+          rows: reply.rows ?? [],
+          ...(reply.skippedRowIds ? { skippedRowIds: reply.skippedRowIds } : {}),
+          ...(reply.skippedRows ? { skippedRows: reply.skippedRows } : {}),
+        }),
       });
     }),
   );
@@ -109,6 +118,30 @@ describe("manager applications never resurrect a server-side delete", () => {
 
     expect(result.ok).toBe(false);
     expect(ids(store.readManagerApplicationRows())).toEqual(["PROPLANE-SERVERA", "PROPLANE-SERVERB"]);
+  });
+
+  it("a row the server skipped opening is not a deletion, and the list is not complete", async () => {
+    const store = await loadStore();
+    const serverC = row({ id: "PROPLANE-SERVERC", name: "Alex Kim" });
+    replies.push({ rows: [SERVER_A, SERVER_B, serverC] });
+    await store.syncManagerApplicationsFromServerWithStatus({ force: true, managerUserId: "mgr-1" });
+
+    // B threw while opening and was omitted from a short 200. C is a real delete in the same
+    // answer. Neither absence is proof: the skipped row may be a live draft, and the catalog
+    // is no longer complete, so a previously confirmed id stays in the cache.
+    replies.push({
+      rows: [SERVER_A],
+      skippedRowIds: ["PROPLANE-SERVERB"],
+      skippedRows: [{ id: "PROPLANE-SERVERB", propertyId: "house-b", applicationRead: true }],
+    });
+    const second = await store.syncManagerApplicationsFromServerWithStatus({ force: true, managerUserId: "mgr-1" });
+
+    expect(second.ok).toBe(true);
+    expect(second.complete).toBe(false);
+    expect(second.coveredAsideFromSkips).toBe(true);
+    expect(second.skippedRowIds).toEqual(["PROPLANE-SERVERB"]);
+    expect(second.skippedRows).toEqual([{ id: "PROPLANE-SERVERB", propertyId: "house-b", applicationRead: true }]);
+    expect(ids(store.readManagerApplicationRows())).toEqual(["PROPLANE-SERVERA", "PROPLANE-SERVERB", "PROPLANE-SERVERC"]);
   });
 
   it("a read at the row cap may be truncated, so absence does not delete", async () => {

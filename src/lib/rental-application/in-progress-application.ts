@@ -23,6 +23,7 @@ import {
 } from "@/lib/rental-application/drafts";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { residentTermOfRentalType } from "@/lib/resident-term-split";
+import type { SkippedApplicationTarget } from "@/lib/rental-application/skipped-application-target";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { RENTAL_WIZARD_STEP_SCHEMA } from "@/lib/rental-application/wizard-step-schema";
 
@@ -111,6 +112,88 @@ export function targetMatchesApplication(target: ApplicationRequestTarget, candi
   const candidateRoom = candidateRoomChoice ? parseRoomChoiceValue(candidateRoomChoice).listingRoomId : undefined;
   if (!candidateRoom) return true; // candidate hasn't committed to a room either — compatible.
   return candidateRoom === targetRoom;
+}
+
+function knownStayType(value: string | undefined): RentalWizardFormState["rentalType"] | undefined {
+  if (value === "standard" || value === "short_term" || value === "airbnb") return value;
+  return undefined;
+}
+
+/**
+ * A skipped row might be this apply target, so its absence is not proof the
+ * target is fresh. A different house is not this target. A hint with no house,
+ * or a same-house row whose term/room could not be read, might be.
+ */
+export function skippedApplicationCouldBeTarget(
+  skipped: SkippedApplicationTarget,
+  target: ApplicationRequestTarget | null,
+): boolean {
+  if (!target?.propertyId.trim()) return true;
+  const propertyId = skipped.propertyId?.trim() ?? "";
+  if (!propertyId) return true;
+  if (propertyId !== target.propertyId.trim()) return false;
+  if (!skipped.applicationRead) return true;
+  const rentalType = knownStayType(skipped.rentalType);
+  if (target.rentalType && !rentalType) return true;
+  return targetMatchesApplication(target, {
+    propertyId,
+    application: {
+      propertyId,
+      rentalType,
+      roomChoice1: skipped.roomChoice1,
+      bundleId: skipped.bundleId,
+    },
+  });
+}
+
+/**
+ * True when a 200 that skipped rows might have omitted THIS target. An
+ * unrelated skipped id does not. A skipped id with no hint might. The saved
+ * axis id, when the caller has one, is this target even if its hint names
+ * another house.
+ */
+export function skippedCatalogHidesApplicationTarget(input: {
+  skippedRowIds?: readonly string[] | null;
+  skippedRows?: readonly SkippedApplicationTarget[] | null;
+  savedAxisId?: string | null;
+  target: ApplicationRequestTarget | null;
+}): boolean {
+  const ids = (input.skippedRowIds ?? []).map((id) => id.trim()).filter(Boolean);
+  const rows = input.skippedRows ?? [];
+  if (ids.length === 0 && rows.length === 0) return false;
+  const saved = input.savedAxisId?.trim();
+  if (saved && (ids.includes(saved) || rows.some((row) => row.id === saved))) return true;
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const hintedIds = ids.length > 0 ? ids : rows.map((row) => row.id);
+  return hintedIds.some((id) => {
+    const row = byId.get(id);
+    if (!row) return true;
+    return skippedApplicationCouldBeTarget(row, input.target);
+  });
+}
+
+/**
+ * The read proved this target has no in-progress draft. A complete catalog
+ * does. So does a catalog whose only gaps are skipped rows for other houses.
+ * Truncation, the read cap, a workspace change, or a skip that might be this
+ * target does not.
+ */
+export function applicationReadProvesTargetAbsent(input: {
+  complete?: boolean;
+  coveredAsideFromSkips?: boolean;
+  skippedRowIds?: readonly string[] | null;
+  skippedRows?: readonly SkippedApplicationTarget[] | null;
+  target: ApplicationRequestTarget | null;
+}): boolean {
+  if (input.complete === true) return true;
+  if (input.coveredAsideFromSkips !== true) return false;
+  const hasSkips = (input.skippedRowIds?.length ?? 0) > 0 || (input.skippedRows?.length ?? 0) > 0;
+  if (!hasSkips) return false;
+  return !skippedCatalogHidesApplicationTarget({
+    skippedRowIds: input.skippedRowIds,
+    skippedRows: input.skippedRows,
+    target: input.target,
+  });
 }
 
 /**

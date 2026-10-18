@@ -38,6 +38,10 @@ import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import {
+  skippedApplicationTargetFromRecord,
+  type SkippedApplicationTarget,
+} from "@/lib/rental-application/skipped-application-target";
 import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
 import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboarding.server";
 import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
@@ -998,6 +1002,7 @@ export async function GET(req: Request) {
     const byId = new Map<string, DemoApplicantRow>();
     const recordEmailByRowId = new Map<string, string>();
     const skippedRowIds: string[] = [];
+    const skippedRows: SkippedApplicationTarget[] = [];
     const normalizedRows = await timer.timed("normalize", () => Promise.all((data ?? []).map(async (record) => {
       if (!record.row_data) return null;
       const recordEmail =
@@ -1014,6 +1019,7 @@ export async function GET(req: Request) {
         opened = openApplicantRow(storedRow, record.id, undefined, { soft: true });
       } catch (error) {
         skippedRowIds.push(record.id);
+        skippedRows.push(skippedApplicationTargetFromRecord(record));
         bestEffortFailed("applicant row skipped", { application: record.id })(error);
         return null;
       }
@@ -1064,7 +1070,7 @@ export async function GET(req: Request) {
       console.warn(JSON.stringify({ route: "manager-applications", phases: { ...timer.phases, total }, rows: scopedRows.length }));
     }
     return NextResponse.json(
-      { rows: scopedRows, truncated, ...(skippedRowIds.length > 0 ? { skippedRowIds } : {}) },
+      { rows: scopedRows, truncated, ...(skippedRowIds.length > 0 ? { skippedRowIds, skippedRows } : {}) },
       { headers: { "Cache-Control": "private, no-store", "Server-Timing": serverTimingHeader(timer.phases, total) } },
     );
   } catch (e) {
