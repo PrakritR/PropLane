@@ -100,7 +100,7 @@ export const lookupPropertyKnowledgeResidentTool = defineTool<z.infer<typeof res
 const saveInput = z
   .object({
     entryId: z.string().uuid().describe("The suggested answer to save."),
-    scope: z.enum(["house", "team"]).default("house").describe("house = this house only, team = every house."),
+    scope: z.enum(["house", "team"]).optional().describe("house (default) = this house only, team = every house."),
   })
   .strict();
 
@@ -126,7 +126,7 @@ export const saveKnowledgeAnswerTool = defineWriteTool<z.infer<typeof saveInput>
       fields: [
         { label: "Question", value: entry.question },
         { label: "Answer", value: entry.answer },
-        { label: "Applies to", value: input.scope === "team" ? "All houses" : "This house" },
+        { label: "Applies to", value: (input.scope ?? "house") === "team" ? "All houses" : "This house" },
       ],
     };
   },
@@ -134,11 +134,12 @@ export const saveKnowledgeAnswerTool = defineWriteTool<z.infer<typeof saveInput>
     const scoped = await managerWorkspace(ctx);
     if (!scoped.ok) return { reply: "I could not save that just now." };
     const { scope } = scoped;
+    const applies = input.scope ?? "house";
     const entry = await getEntry(ctx.db, scope.workspaceId, input.entryId);
     if (!entry) return { reply: "That answer is no longer available." };
     // A co-manager assigned to some houses may save for those houses, never team-wide.
     if (ctx.managerSmsAccess?.mode === "delegated") {
-      if (input.scope === "team" || !entry.propertyId || !scope.allowedPropertyIds?.includes(entry.propertyId)) {
+      if (applies === "team" || !entry.propertyId || !scope.allowedPropertyIds?.includes(entry.propertyId)) {
         return { reply: "You can only save answers for the houses assigned to you." };
       }
     } else if (entry.propertyId && scope.allowedPropertyIds && !scope.allowedPropertyIds.includes(entry.propertyId)) {
@@ -149,7 +150,7 @@ export const saveKnowledgeAnswerTool = defineWriteTool<z.infer<typeof saveInput>
       ownerUserId: scope.ownerUserId,
       entryId: input.entryId,
       actorUserId: ctx.userId,
-      scope: input.scope,
+      scope: applies,
     });
     if (!approved.ok) {
       return {
@@ -164,7 +165,7 @@ export const saveKnowledgeAnswerTool = defineWriteTool<z.infer<typeof saveInput>
     await writeAuditLog(ctx, {
       action: "knowledge_answer_saved",
       toolName: SAVE_KNOWLEDGE_TOOL,
-      inputSummary: { entryId: input.entryId, scope: input.scope },
+      inputSummary: { entryId: input.entryId, scope: applies },
       resultSummary: { workspaceId: scope.workspaceId },
       dedupeKey: `${SAVE_KNOWLEDGE_TOOL}:${scope.workspaceId}:${input.entryId}`,
     });
