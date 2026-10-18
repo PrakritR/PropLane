@@ -34,7 +34,7 @@ const APPROVED_APP = {
   row_data: { bucket: "approved", name: "Prior Guest", application: { phone: "2065551111" } },
 };
 
-function mockSupabase() {
+function mockSupabase(options: { shared?: boolean; profile?: Record<string, unknown> } = {}) {
   const captured: { upsert: UpsertPayload | null } = { upsert: null };
   const appLookup = {
     select: () => ({
@@ -42,14 +42,16 @@ function mockSupabase() {
     }),
   };
   const profiles = {
-    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: options.profile ?? null }) }) }),
     upsert: async (payload: UpsertPayload) => {
       captured.upsert = payload;
       return { error: null };
     },
   };
   const client = {
-    from: (table: string) => (table === "manager_application_records" ? appLookup : profiles),
+    from: (table: string) => table === "sms_runtime_config"
+      ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: options.shared ? { line_mode: "shared", shared_number_e164: "+12065550999" } : null }) }) }) }
+      : (table === "manager_application_records" ? appLookup : profiles),
     auth: {
       admin: {
         getUserById: async () => ({ data: { user: { user_metadata: {} } } }),
@@ -61,6 +63,25 @@ function mockSupabase() {
 }
 
 describe("provisionResidentAccountByEmail default-deny", () => {
+  it("cannot overwrite a shared-line verified identity during resident setup", async () => {
+    const { client, captured } = mockSupabase({ shared: true, profile: { phone: "+12065550100", phone_verified_at: "2026-10-18" } });
+    const result = await provisionResidentAccountByEmail(client as never, {
+      userId: "user-1", email: "guest@example.com", phone: "+12065550101", emailProven: false,
+    });
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(captured.upsert).toBeNull();
+  });
+
+  it("keeps a shared-line verified phone intact when resident setup supplies the same digits", async () => {
+    const { client, captured } = mockSupabase({ shared: true, profile: { phone: "+12065550100", phone_verified_at: "2026-10-18" } });
+    const result = await provisionResidentAccountByEmail(client as never, {
+      userId: "user-1", email: "guest@example.com", phone: "(206) 555-0100", emailProven: false,
+    });
+    expect(result.ok).toBe(true);
+    expect(captured.upsert?.phone).toBe("+12065550100");
+    expect(captured.upsert).not.toHaveProperty("phone_verified_at");
+  });
+
   it("inheritFromApplication:false inherits NOTHING even with an approved application on file", async () => {
     const { client, captured } = mockSupabase();
     const result = await provisionResidentAccountByEmail(client as never, {

@@ -20,6 +20,7 @@ import { isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert"
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
 import { inboxThreadMessages, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { createConversationFakeDb, type FakeDb } from "../helpers/conversation-fake-db";
+import { loadVendorSmsConversations } from "@/lib/communication/vendor-conversations.server";
 
 /**
  * C1-R4: a resident's Communication includes the texts between their VERIFIED
@@ -134,6 +135,62 @@ function withConversation(over: Record<string, unknown> = {}, turns: Record<stri
     sms_projection_turns: turns.map((t) => turn(String(row.id), t)),
   };
 }
+
+describe("shared-line history in the resident and vendor inbox", () => {
+  function sharedHistory(over: Record<string, unknown> = {}, mode = "shared") {
+    return seededDb({
+      sms_runtime_config: [{ singleton: true, line_mode: mode, shared_number_e164: "+12065550999", shared_pilot_workspace_ids: [] }],
+      ...withConversation({ work_line_id: null, workspace_id: W1, owner_manager_user_id: M1, counterparty_phone: PHONE, ...over }, [
+        { workspace_id: W1, body: "Our shared-line conversation" },
+        { workspace_id: W2, body: "Other workspace - must not leak" },
+      ]),
+    });
+  }
+
+  it("uses a shared projection's owned workspace and only that workspace's turns", async () => {
+    const result = await loadResidentSmsConversations(sharedHistory(), R);
+    expect(result.conversations).toHaveLength(1);
+    expect(result.conversations[0].workspaceId).toBe(W1);
+    expect(result.conversations[0].turns.map((entry) => entry.body)).toEqual(["Our shared-line conversation"]);
+  });
+
+  it("exposes the same shared-number history to its verified vendor", async () => {
+    const result = await loadVendorSmsConversations(sharedHistory({ counterparty_role: "vendor" }), R);
+    expect(result.conversations).toHaveLength(1);
+    expect(result.conversations[0].turns.map((entry) => entry.body)).toEqual(["Our shared-line conversation"]);
+  });
+
+  it.each([
+    { workspace_id: W2 },
+    { workspace_id: "missing" },
+    { counterparty_user_id: OTHER },
+    { counterparty_phone: "+12065550998", counterparty_user_id: R },
+  ])("refuses an unowned workspace or identity mismatch %j", async (over) => {
+    expect((await loadResidentSmsConversations(sharedHistory(over), R)).conversations).toEqual([]);
+  });
+
+  it.each(["per_workspace", "shadow"])("does not adopt a stamped-only conversation in %s mode", async (mode) => {
+    expect((await loadResidentSmsConversations(sharedHistory({}, mode), R)).conversations).toEqual([]);
+  });
+
+  it("requires the phone even for an account-linked shared projection", async () => {
+    const db = sharedHistory({ counterparty_user_id: R });
+    db.tables.profiles.find((row) => row.id === R)!.phone_verified_at = null;
+    expect((await loadResidentSmsConversations(db, R)).conversations).toEqual([]);
+  });
+
+  it("refuses an ambiguous verified phone", async () => {
+    const db = sharedHistory();
+    db.tables.profiles.push({ id: OTHER, phone: PHONE, phone_verified_at: "2026-10-01" });
+    expect((await loadResidentSmsConversations(db, R)).conversations).toEqual([]);
+  });
+
+  it("does not let a stamp replace an existing work line's workspace", async () => {
+    const db = sharedHistory({ work_line_id: LINE2, workspace_id: W1 });
+    const result = await loadResidentSmsConversations(db, R);
+    expect(result.conversations[0]?.workspaceId).toBe(W2);
+  });
+});
 
 describe("decideResidentSmsLink - which text conversations are a resident's", () => {
   const base = { residentId: R, verifiedPhone: PHONE, phoneVerifierIds: [R] };

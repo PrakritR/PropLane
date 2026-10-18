@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getUserOrRejection } from "@/lib/auth/session-rejection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { legacyPhoneWriteDecision, PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
 
@@ -85,12 +87,17 @@ export async function PATCH(req: Request) {
     // `user` server-side, and every write below is pinned to `user.id`. The
     // caller cannot name the row or the columns.
     const db = createSupabaseServiceRoleClient();
-    const nextPhone = phoneRaw.length ? phoneRaw : null;
-    const { data: currentProfile } = await db
+    const shared = (await loadSharedLineConfig(db)).mode === "shared";
+    const { data: currentProfile, error: profileReadError } = await db
       .from("profiles")
-      .select("phone")
+      .select(shared ? "phone, phone_verified_at" : "phone")
       .eq("id", user.id)
       .maybeSingle();
+    if (shared && profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
+    const decision = legacyPhoneWriteDecision(currentProfile,
+      shared && body.phone === undefined ? currentProfile?.phone ?? null : phoneRaw || null, shared);
+    if (decision.blocked) return NextResponse.json({ error: VERIFIED_PHONE_CHANGE_MESSAGE, redirectTo: PHONE_VERIFICATION_PATH }, { status: 409 });
+    const nextPhone = decision.phone;
     const phoneChanged = String(currentProfile?.phone ?? "") !== String(nextPhone ?? "");
 
     const updatedAt = new Date().toISOString();
