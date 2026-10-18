@@ -1010,6 +1010,12 @@ export async function renderPortalSectionWith(
       }
 
       const channel = tabParts[0]!;
+      // The escalations inbox lives under Communication (one-number W11).
+      if (channel === "escalations") {
+        if (tabParts.length > 1) notFound();
+        const { ManagerEscalationsInbox } = await import("@/components/portal/manager-escalations-inbox");
+        return subscriptionGated(<ManagerEscalationsInbox />, kind, "communication", managerOwnerSubscriptionTier);
+      }
       if (channel === "unread") {
         const threadPart = tabParts[1];
         redirect(
