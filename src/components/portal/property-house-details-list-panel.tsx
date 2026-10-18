@@ -127,9 +127,9 @@ export function PropertyHouseDetailsListPanel({
   const [target, setTarget] = useState<HouseDetailsEditorTarget | null>(null);
   const [saving, setSaving] = useState(false);
   // Add room: the form opens on a copy of the listing holding the new blank room. Nothing is
-  // written until Save; closing the form drops it. The copy is a snapshot, so Save three-way
-  // merges the form's answer onto the listing as it stands THEN — `base` is the pre-add listing
-  // the form's changes are measured against.
+  // written until the form commits, and only Cancel drops it. The copy is a snapshot, so the
+  // commit three-way merges the form's answer onto the listing as it stands THEN — `base` is the
+  // pre-add listing the form's changes are measured against.
   const [pendingAdd, setPendingAdd] = useState<
     { base: ManagerListingSubmissionV1; sub: ManagerListingSubmissionV1; roomId: string } | null
   >(null);
@@ -193,7 +193,12 @@ export function PropertyHouseDetailsListPanel({
     />
   );
 
-  const saveEditor = (payload: SavePayload) => {
+  /**
+   * Write what the form holds. Every exit the form offers goes through here — Save and both
+   * navigations away — because closing the wizard saves (`docs/agents/property-drafts.md`). A
+   * pending Add room is three-way merged so a sync that landed meanwhile survives.
+   */
+  const commitEditor = (payload: SavePayload): boolean => {
     const effective: SavePayload = pendingAdd
       ? { ...payload, sub: mergePendingAddSubmission({ base: pendingAdd.base, latest: sub, edited: payload.sub }) }
       : payload;
@@ -202,13 +207,19 @@ export function PropertyHouseDetailsListPanel({
     setSaving(false);
     if (!ok) {
       showToast?.("Could not save.");
-      return;
+      return false;
     }
     showToast?.(pendingAdd ? "Room added." : "Saved.");
     setPendingAdd(null);
+    return true;
+  };
+
+  const saveEditor = (payload: SavePayload) => {
+    if (!commitEditor(payload)) return;
     setEditorOpen(false);
   };
 
+  /** Cancel is the ONE exit that throws the form's work away. */
   const closeEditor = () => {
     setPendingAdd(null);
     setEditorOpen(false);
@@ -786,14 +797,13 @@ export function PropertyHouseDetailsListPanel({
         sub={pendingAdd?.sub ?? sub}
         propertyId={propertyId}
         managerUserId={managerUserId}
-        onGoToBathrooms={() => {
+        onGoToBathrooms={(draft) => {
+          if (!commitEditor(draft)) return;
           pickTab("baths");
-          closeEditor();
+          setEditorOpen(false);
         }}
-        onOpenLinkedRoom={(roomId) => {
-          // Navigating away from an unsaved new room drops it: saving the room we land on must
-          // not also persist a blank "Room N" nobody filled in.
-          if (pendingAdd && pendingAdd.roomId !== roomId) setPendingAdd(null);
+        onOpenLinkedRoom={(roomId, draft) => {
+          if (!commitEditor(draft)) return;
           openEditor({ kind: "room", roomId });
         }}
         houseInfo={houseInfo}

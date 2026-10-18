@@ -2,9 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { PropertyHouseDetailsListPanel } from "@/components/portal/property-house-details-list-panel";
-import { createDefaultListingSubmission, emptyBathroom, emptySharedSpace } from "@/lib/manager-listing-submission";
+import {
+  createDefaultListingSubmission,
+  emptyBathroom,
+  emptySharedSpace,
+  type ManagerListingSubmissionV1,
+} from "@/lib/manager-listing-submission";
 import { normalizeHouseInfo } from "@/lib/house-info";
 import { resolveHouseDetailsTab } from "@/lib/property-house-details-tab";
+import { ADD_BATHROOM_VALUE } from "@/lib/listing-room-editor/bathroom-link";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/properties/all/p1", useRouter: () => ({ push: () => {} }) }));
 
@@ -160,5 +166,111 @@ describe("PropertyHouseDetailsListPanel", () => {
     );
     expect(ids.indexOf("edit")).toBeGreaterThanOrEqual(0);
     expect(ids.indexOf("edit")).toBeLessThan(ids.indexOf("duplicate"));
+  });
+});
+
+/**
+ * "Closing the wizard saves" (`docs/agents/property-drafts.md`). Add room holds the new room in an
+ * unsaved snapshot, so every exit the form offers except Cancel has to write it first — otherwise
+ * reaching for "+ Add bathroom" from inside the new-room form threw the room away.
+ */
+describe("the new-room form saves on its way out", () => {
+  function renderNoBathrooms(onPersist: (payload: { sub: ManagerListingSubmissionV1 }) => boolean) {
+    const sub = createDefaultListingSubmission();
+    sub.rooms = [{ ...sub.rooms[0]!, id: "room-a", name: "Room A" }];
+    sub.bathrooms = [];
+    return render(
+      <PropertyHouseDetailsListPanel
+        propertyId="p1"
+        sub={sub}
+        houseInfo={normalizeHouseInfo(undefined)}
+        managerNotes=""
+        managerUserId="mgr-1"
+        onPersist={onPersist as never}
+      />,
+    );
+  }
+
+  // The editor is a portal, so its nodes hang off document.body rather than the panel's container.
+  const addRoomNamed = (name: string) => {
+    fireEvent.click(screen.getByRole("button", { name: "Add room" }));
+    fireEvent.change(screen.getByLabelText("Room name"), { target: { value: name } });
+  };
+  const roomEditor = () => document.querySelector('[data-attr="property-house-details-room-editor"]');
+  const addBathroomFirst = () => document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')!;
+
+  it("persists the room when + Add bathroom navigates away", () => {
+    const onPersist = vi.fn(() => true);
+    renderNoBathrooms(onPersist);
+    addRoomNamed("Attic");
+
+    // With no bathrooms yet, the bare "+ Add bathroom" button is the only bathroom control.
+    fireEvent.click(addBathroomFirst());
+
+    expect(onPersist).toHaveBeenCalledTimes(1);
+    const saved = onPersist.mock.calls[0]![0] as unknown as { sub: ManagerListingSubmissionV1 };
+    expect(saved.sub.rooms.map((room) => room.name)).toEqual(["Room A", "Attic"]);
+    // ...and it lands on the Bathrooms tab with the form closed.
+    expect(roomEditor()).toBeNull();
+    expect(window.localStorage.getItem("property-house-details-tab:p1")).toBe("baths");
+  });
+
+  it("carries a bathroom minted in the same click that navigates away", () => {
+    const onPersist = vi.fn(() => true);
+    const sub = createDefaultListingSubmission();
+    sub.rooms = [{ ...sub.rooms[0]!, id: "room-a", name: "Room A" }];
+    sub.bathrooms = [{ ...emptyBathroom(0), id: "bath-1", name: "Bath 1" }];
+    render(
+      <PropertyHouseDetailsListPanel
+        propertyId="p1"
+        sub={sub}
+        houseInfo={normalizeHouseInfo(undefined)}
+        managerNotes=""
+        managerUserId="mgr-1"
+        onPersist={onPersist as never}
+      />,
+    );
+    addRoomNamed("Attic");
+
+    // With a bathroom already on the house, the dropdown carries the "+ Add bathroom" option: it
+    // mints the row into the draft and navigates in the SAME handler.
+    const dropdown = screen.getByRole("button", { name: "Bathroom for Attic" });
+    fireEvent.click(dropdown);
+    const option = document
+      .getElementById(dropdown.getAttribute("aria-controls")!)!
+      .querySelector(`[data-field-select-option-value="${ADD_BATHROOM_VALUE}"]`)!;
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+
+    expect(onPersist).toHaveBeenCalledTimes(1);
+    const saved = onPersist.mock.calls[0]![0] as unknown as { sub: ManagerListingSubmissionV1 };
+    expect(saved.sub.rooms.map((room) => room.name)).toEqual(["Room A", "Attic"]);
+    // The bathroom the pick minted into the draft reaches the write: the navigation reads what
+    // that same handler produced, not the render's stale copy.
+    const atticId = saved.sub.rooms.find((room) => room.name === "Attic")!.id;
+    expect(saved.sub.bathrooms.length).toBeGreaterThan(1);
+    expect(saved.sub.bathrooms.some((bath) => (bath.assignedRoomIds ?? []).includes(atticId))).toBe(true);
+  });
+
+  it("Cancel is the one exit that discards the new room", () => {
+    const onPersist = vi.fn(() => true);
+    renderNoBathrooms(onPersist);
+    addRoomNamed("Attic");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onPersist).not.toHaveBeenCalled();
+    expect(roomEditor()).toBeNull();
+  });
+
+  it("keeps the form open when the write is refused", () => {
+    const onPersist = vi.fn(() => false);
+    renderNoBathrooms(onPersist);
+    addRoomNamed("Attic");
+
+    fireEvent.click(addBathroomFirst());
+
+    expect(onPersist).toHaveBeenCalledTimes(1);
+    expect(roomEditor()).toBeTruthy();
   });
 });

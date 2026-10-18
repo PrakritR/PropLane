@@ -67,14 +67,26 @@ describe("the merged-conversation read settle never swallows its own read error"
 });
 
 describe("Add room never overwrites a sync, and never drops the form's own work", () => {
-  it("three-way merges the form's answer on Save and drops the room when navigating away", () => {
+  it("three-way merges the form's answer, and every exit but Cancel commits it", () => {
     const panel = read("src", "components", "portal", "property-house-details-list-panel.tsx");
     expect(panel).toContain(
       "mergePendingAddSubmission({ base: pendingAdd.base, latest: sub, edited: payload.sub })",
     );
-    const linked = panel.slice(panel.indexOf("onOpenLinkedRoom={(roomId) => {"));
-    expect(linked.slice(0, linked.indexOf("}}"))).toContain(
-      "if (pendingAdd && pendingAdd.roomId !== roomId) setPendingAdd(null)",
-    );
+    // One commit path; Save and both navigations away go through it, Cancel does not.
+    expect(panel.match(/commitEditor\(/g)?.length).toBe(3);
+    for (const exit of ["onGoToBathrooms={(draft) => {", "onOpenLinkedRoom={(roomId, draft) => {"]) {
+      const block = panel.slice(panel.indexOf(exit));
+      expect(block.slice(0, block.indexOf("}}")), exit).toContain("if (!commitEditor(draft)) return;");
+    }
+    const close = panel.slice(panel.indexOf("const closeEditor = () => {"));
+    expect(close.slice(0, close.indexOf("};"))).not.toContain("commitEditor");
+  });
+
+  it("drives the scalar skip and the row merge from one list of id-keyed keys", () => {
+    const merge = read("src", "lib", "property-house-add-room.ts");
+    expect(merge.match(/"rooms", "bathrooms", "sharedSpaces", "bundles", "customFees"/g)?.length).toBe(1);
+    expect(merge).toContain("const ID_LIST_KEY_SET = new Set<string>(ID_LIST_KEYS)");
+    expect(merge).toContain("for (const key of ID_LIST_KEYS) {");
+    expect(merge).toContain("if (ID_LIST_KEY_SET.has(key)) continue;");
   });
 });

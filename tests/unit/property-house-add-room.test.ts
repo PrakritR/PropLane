@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergePendingAddSubmission, submissionWithNewRoom } from "@/lib/property-house-add-room";
+import { ID_LIST_KEYS, mergePendingAddSubmission, submissionWithNewRoom } from "@/lib/property-house-add-room";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
 describe("submissionWithNewRoom", () => {
@@ -118,5 +118,44 @@ describe("mergePendingAddSubmission", () => {
     const merged = mergePendingAddSubmission({ base, latest: empty, edited });
     expect(merged.rooms?.map((room) => room.id)).toEqual([roomId]);
     expect(merged.bathrooms?.map((bath) => bath.id)).toEqual(["bath-new"]);
+  });
+});
+
+describe("every id-keyed list is merged, not just rooms and bathrooms", () => {
+  const listing = {
+    rooms: [{ id: "room-a", name: "Room 1" }],
+    bathrooms: [],
+    sharedSpaces: [{ id: "space-1", name: "Kitchen" }],
+    bundles: [{ id: "bundle-1", label: "Pair" }],
+    customFees: [{ id: "fee-1", label: "Parking" }],
+  } as unknown as ManagerListingSubmissionV1;
+
+  it("names the submission's id-keyed arrays in one place", () => {
+    expect([...ID_LIST_KEYS]).toEqual(["rooms", "bathrooms", "sharedSpaces", "bundles", "customFees"]);
+  });
+
+  it.each(ID_LIST_KEYS.filter((key) => key !== "rooms"))("carries the form's change to %s", (key) => {
+    const { base, sub: snapshot } = submissionWithNewRoom(listing);
+    const rows = (snapshot as unknown as Record<string, { id: string }[]>)[key] ?? [];
+    const edited = {
+      ...snapshot,
+      [key]: [...rows, { id: `${key}-minted`, name: "Minted", label: "Minted" }],
+    } as unknown as ManagerListingSubmissionV1;
+
+    const merged = mergePendingAddSubmission({ base, latest: listing, edited });
+    const out = (merged as unknown as Record<string, { id: string }[]>)[key] ?? [];
+    expect(out.map((row) => row.id)).toContain(`${key}-minted`);
+    expect(out).toHaveLength(rows.length + 1);
+  });
+
+  it("keeps a sync's change to a list the form never touched", () => {
+    const { base, sub: snapshot } = submissionWithNewRoom(listing);
+    const latest = {
+      ...listing,
+      bundles: [{ id: "bundle-1", label: "Repriced by the sync" }],
+    } as unknown as ManagerListingSubmissionV1;
+
+    const merged = mergePendingAddSubmission({ base, latest, edited: snapshot });
+    expect(merged.bundles?.[0]).toMatchObject({ label: "Repriced by the sync" });
   });
 });

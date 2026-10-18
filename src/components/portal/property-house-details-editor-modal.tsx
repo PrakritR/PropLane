@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,17 @@ import {
   PropertySubmissionFactsEditor,
 } from "@/components/portal/property-house-submission-house-tab";
 
+/**
+ * What the form holds right now. Every exit the form offers hands this up: Save, and the two
+ * navigations away (Add bathroom, a linked room) — closing the wizard saves
+ * (`docs/agents/property-drafts.md`), so only Cancel drops it.
+ */
+export type HouseDetailsEditorDraft = {
+  sub: ManagerListingSubmissionV1;
+  houseInfo: HouseInfoV1;
+  managerNotes: string;
+};
+
 export type HouseDetailsEditorTarget =
   | { kind: "room"; roomId: string }
   | { kind: "bath"; bathId: string }
@@ -71,25 +82,36 @@ export function PropertyHouseDetailsEditorModal({
   houseInfo: HouseInfoV1;
   managerNotes: string;
   onClose: () => void;
-  onGoToBathrooms?: () => void;
-  onOpenLinkedRoom?: (roomId: string) => void;
-  onSave: (next: {
-    sub: ManagerListingSubmissionV1;
-    houseInfo: HouseInfoV1;
-    managerNotes: string;
-  }) => void;
+  onGoToBathrooms?: (draft: HouseDetailsEditorDraft) => void;
+  onOpenLinkedRoom?: (roomId: string, draft: HouseDetailsEditorDraft) => void;
+  onSave: (next: HouseDetailsEditorDraft) => void;
   busy?: boolean;
 }) {
-  const [draftSub, setDraftSub] = useState(sub);
+  const [draftSub, setDraftSubState] = useState(sub);
   const [draftInfo, setDraftInfo] = useState(houseInfo);
   const [draftNotes, setDraftNotes] = useState(managerNotes);
+  /**
+   * The draft, readable synchronously. A field can mint a row and navigate away in the SAME
+   * handler (the bathroom dropdown's "+ Add bathroom": `addBathroomForRoom` then
+   * `onGoToBathrooms`), and the navigation has to hand up what that write produced, not the
+   * `draftSub` the current render closed over.
+   */
+  const draftSubRef = useRef(sub);
+  const setDraftSub = useCallback(
+    (next: ManagerListingSubmissionV1 | ((prev: ManagerListingSubmissionV1) => ManagerListingSubmissionV1)) => {
+      const value = typeof next === "function" ? next(draftSubRef.current) : next;
+      draftSubRef.current = value;
+      setDraftSubState(value);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!open) return;
     setDraftSub(sub);
     setDraftInfo(houseInfo);
     setDraftNotes(managerNotes);
-  }, [open, sub, houseInfo, managerNotes]);
+  }, [open, sub, houseInfo, managerNotes, setDraftSub]);
 
   const wholePlace = isEntireHomeListing(draftSub);
   const rooms = draftSub.rooms ?? [];
@@ -113,6 +135,12 @@ export function PropertyHouseDetailsEditorModal({
   }, [target, room, bath, space]);
 
   if (!target) return null;
+
+  const draft = (): HouseDetailsEditorDraft => ({
+    sub: draftSubRef.current,
+    houseInfo: draftInfo,
+    managerNotes: draftNotes,
+  });
 
   const patchRoom = (roomId: string, patch: Partial<ManagerRoomSubmission>) => {
     setDraftSub((prev) => ({
@@ -176,7 +204,7 @@ export function PropertyHouseDetailsEditorModal({
             className="ml-auto rounded-full"
             disabled={busy}
             data-attr="property-house-details-save"
-            onClick={() => onSave({ sub: draftSub, houseInfo: draftInfo, managerNotes: draftNotes })}
+            onClick={() => onSave(draft())}
           >
             {busy ? "Saving…" : "Save"}
           </Button>
@@ -200,7 +228,7 @@ export function PropertyHouseDetailsEditorModal({
             who={roomLabel(room, rooms.indexOf(room))}
             wholePlace={wholePlace}
             onPatchBathrooms={(bathrooms) => setDraftSub((prev) => ({ ...prev, bathrooms }))}
-            onGoToBathrooms={() => onGoToBathrooms?.()}
+            onGoToBathrooms={() => onGoToBathrooms?.(draft())}
             onRoom={(p) => patchRoom(room.id, p)}
             storiesId={draftSub.listingStoriesId}
             sameAsOptions={sameAsRoomOptions(room)}
@@ -241,7 +269,7 @@ export function PropertyHouseDetailsEditorModal({
             }}
             onChange={(p) => patchBath(bath.id, p)}
             onPatchSubmission={(next) => setDraftSub(next)}
-            onOpenRoom={onOpenLinkedRoom}
+            onOpenRoom={onOpenLinkedRoom ? (roomId) => onOpenLinkedRoom(roomId, draft()) : undefined}
           />
         </div>
       ) : null}
