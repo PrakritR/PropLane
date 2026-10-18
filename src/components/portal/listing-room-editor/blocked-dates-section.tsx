@@ -9,16 +9,24 @@ import {
   ROOM_DATE_BLOCKS_CHANGED,
   saveRoomDateBlock,
 } from "@/lib/channel-calendar/room-date-blocks";
-import type { RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
+import { isImportedChannelBlock, type RoomDateBlock } from "@/lib/channel-calendar/property-bookings";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 
+/**
+ * Only rooms this editor can close: a block with nobody on it that no channel owns.
+ * A named booking and an imported Airbnb / Booking stay share the same `hold` status
+ * and are edited from Bookings, where the guest's name, email and phone travel with
+ * the row - saving one from this list would re-file it as a closed room and lose them.
+ */
 function managerBlocksForRoom(blocks: RoomDateBlock[], propertyId: string, roomId: string): RoomDateBlock[] {
   return blocks.filter(
     (b) =>
       b.propertyId === propertyId &&
       b.roomId === roomId &&
       b.bookingStatus === "hold" &&
-      !b.isBookingResidency,
+      !b.isBookingResidency &&
+      !b.residentName?.trim() &&
+      !isImportedChannelBlock(b),
   );
 }
 
@@ -113,6 +121,8 @@ export function BlockedDatesSection({
         openEnded: false,
         reason: row.reason,
         bookingStatus: "hold",
+        // This list closes a room; it has no guest to name.
+        blockKind: "closed",
       });
       setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, id: saved.id } : r)));
     } catch (e) {

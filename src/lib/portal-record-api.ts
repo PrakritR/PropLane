@@ -96,6 +96,15 @@ type RecordConfig = {
     existing: Record<string, unknown> | null;
     db: SupabaseClient;
   }) => void | Promise<void>;
+  /**
+   * Best-effort side effect after a successful delete. Receives the rows as they were read BEFORE the
+   * delete; a throw is logged and never fails the request.
+   */
+  afterDelete?: (args: {
+    records: Record<string, unknown>[];
+    user: RecordUser;
+    db: SupabaseClient;
+  }) => void | Promise<void>;
   /** Optional table-specific transaction boundary for rows whose JSON payload
    * is shared by several managers. `handled` skips the ordinary upsert. */
   atomicWrite?: (args: {
@@ -248,6 +257,13 @@ export function createJsonRecordRoute(config: RecordConfig) {
           }
           if (deleted === 0) {
             return NextResponse.json({ error: "Record not found." }, { status: 404 });
+          }
+          if (config.afterDelete) {
+            try {
+              await config.afterDelete({ records: targets, user: ctx.user, db: ctx.db });
+            } catch (e) {
+              console.warn(`[portal-record-api] afterDelete hook failed for ${config.table}`, e);
+            }
           }
           return NextResponse.json({ ok: true, deleted });
         }

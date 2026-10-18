@@ -16,11 +16,12 @@ export function bookingRateLabel(entry: PropertyBookingEntry): string {
 export function bookingStatusLabel(entry: PropertyBookingEntry, today = dateKey(new Date())): string {
   if (entry.bookingStatus === "cancelled") return "Cancelled";
   if (!entry.openEnded && entry.end < today) return "Checked out";
-  // An approved resident who has moved in is living there, not holding the room.
-  if (entry.source === "hold" && entry.applicationId && entry.start <= today) return "In-house";
+  // An approved resident (a `hold` entry from an application) is never a pending hold: In-house once
+  // the dates have started, Confirmed before. Needs no applicationId, so a calendar-only viewer reads it too.
+  if (entry.source === "hold") return entry.start <= today ? "In-house" : "Confirmed";
   // A live block with nobody attached is dates the manager closed: "Blocked", the word its calendar bar uses.
   if (entry.source === "block" && entry.bookingStatus !== "confirmed" && isReservedBlock(entry)) return "Blocked";
-  if (entry.source === "hold" || (entry.source === "block" && entry.bookingStatus !== "confirmed")) return "Hold";
+  if (entry.source === "block" && entry.bookingStatus !== "confirmed") return "Hold";
   if (entry.start <= today) return "In-house";
   return "Confirmed";
 }

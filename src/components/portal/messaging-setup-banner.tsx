@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 
 /**
@@ -77,7 +77,9 @@ export function ManagerMessagingSetupBanner() {
   if (!onCommunication && !onMessagingSettings) return null;
 
   if (!resolved || statusError || !status) return null;
-  if (status.number?.phoneNumber) return null;
+  // Owner-only nag: a teammate cannot set a number up, so they never see it.
+  if (status.workspaceRole === "co_manager") return null;
+  if (workspaceWorkNumber(status)) return null;
   if (status.planTier === "free") return null;
   if (dismissed !== false) return null;
 

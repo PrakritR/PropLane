@@ -26,7 +26,8 @@ describe("bookings calendar views", () => {
   it("excludes holds from heat occupancy without counting overlap twice", () => {
     const capacities = { bedsTotal: () => 1, roomCapacity: () => 1 };
     const days = ["2026-09-29", "2026-09-30", "2026-10-01"];
-    expect(calendarOccupancy([stay({ source: "hold" })], days, "p", capacities)).toBe(0);
+    expect(calendarOccupancy([stay({ source: "block", residentName: "Guest", bookingStatus: "hold" })], days, "p", capacities)).toBe(0);
+    expect(calendarOccupancy([stay({ source: "hold" })], days, "p", capacities)).toBe(67);
     expect(calendarOccupancy([stay(), stay()], days, "p", capacities)).toBe(67);
     expect(calendarOccupancy([stay({ source: "block", residentName: "Guest", statusLabel: "Confirmed" })], days, "p", capacities)).toBe(67);
   });
@@ -46,9 +47,28 @@ describe("bookings calendar views", () => {
     expect(bookingCheckout(open)).toBeNull(); expect(occupancyCell([open], "2027-01-01").active).toHaveLength(1);
   });
   it("status colors reflect dates and preserve channels", () => {
-    expect(calendarStatus(stay({ source: "hold" }), "2026-09-29")).toBe("Hold");
     expect(calendarStatus(stay(), "2026-09-29")).toBe("In-house");
     expect(calendarStatus(stay(), "2026-10-01")).toBe("Checked out");
     expect(calendarStatus(stay({ source: "airbnb" }), "2026-09-29")).toBe("Airbnb");
+  });
+  it("a resident reads In-house / Confirmed / Checked out from their dates, never Hold", () => {
+    const resident = stay({ source: "hold", applicationId: "app-1", statusLabel: "Approved · lease pending" });
+    expect(calendarStatus(resident, "2026-09-29")).toBe("In-house");
+    expect(calendarStatus(resident, "2026-09-28")).toBe("In-house");
+    expect(calendarStatus(resident, "2026-09-27")).toBe("Confirmed");
+    expect(calendarStatus(resident, "2026-10-01")).toBe("Checked out");
+    expect(calendarStatus(stay({ source: "hold", openEnded: true }), "2027-01-01")).toBe("In-house");
+    expect(calendarStatus(stay({ source: "hold" }), "2026-09-29")).toBe("In-house"); // no applicationId needed
+  });
+  it("only a pending, unconfirmed hold stays Hold", () => {
+    expect(calendarStatus(stay({ source: "block", residentName: "Dee", bookingStatus: "hold" }), "2026-09-29")).toBe("Hold");
+    expect(calendarStatus(stay({ source: "block", residentName: "Dee" }), "2026-09-27")).toBe("Hold");
+    expect(calendarStatus(stay({ source: "block", residentName: "Dee", bookingStatus: "confirmed" }), "2026-09-27")).toBe("Confirmed");
+    expect(calendarStatus(stay({ source: "block", bookingStatus: "hold" }), "2026-09-29")).toBe("Blocked");
+  });
+  it("counts an in-house resident as occupied and a pending hold as not", () => {
+    const capacities = { bedsTotal: () => 1, roomCapacity: () => 1 };
+    expect(calendarOccupancySummary([stay({ source: "hold" })], ["2026-09-29"], ["p"], capacities).peak).toBe(1);
+    expect(calendarOccupancySummary([stay({ source: "block", residentName: "Dee", bookingStatus: "hold" })], ["2026-09-29"], ["p"], capacities).peak).toBe(0);
   });
 });

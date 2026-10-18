@@ -8,7 +8,7 @@ import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel
 import { addDaysToDateKey, bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
 import type { OccupancyDayLookup } from "@/lib/channel-calendar/bookings-occupancy";
 import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room-counts";
-import { BOOKING_CALENDAR_VIEWS, bookingActiveOn, bookingCheckout, bookingLanes, calendarOccupancy, calendarOccupancySummary, calendarRange, calendarStatus, calendarStatusClass, occupancyCell, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
+import { BOOKING_CALENDAR_VIEWS, bookingActiveOn, bookingCheckout, bookingLanes, calendarOccupancy, calendarOccupancySummary, calendarRange, calendarStatus, calendarStatusClass, isResidentStay, occupancyCell, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { dateKey } from "@/lib/room-availability-calendar";
 import { occupancyStayKind, type OccupancyCapacities } from "@/lib/occupancy/snapshot";
@@ -121,7 +121,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
   const entries = useMemo(() => props.entries.filter(entry => entry.bookingStatus !== "cancelled" && entry.statusLabel?.toLowerCase() !== "cancelled"), [props.entries]);
   const scope = `proplane:bookings-calendar:${props.preferenceKey ?? "workspace"}`;
   const savedView = useSyncExternalStore(subscribe, () => { try { const saved = localStorage.getItem(scope); if (BOOKING_CALENDAR_VIEWS.includes(saved as BookingCalendarView)) return saved as BookingCalendarView; } catch {} return window.innerWidth < 640 ? "week" : "month"; }, () => "month" as BookingCalendarView);
-  const guests = useMemo(() => entries.filter(entry => entry.bookingStatus === "confirmed" || ["lease", "guest"].includes(occupancyStayKind(entry))), [entries]);
+  const guests = useMemo(() => entries.filter(entry => isResidentStay(entry) || entry.bookingStatus === "confirmed" || ["lease", "guest"].includes(occupancyStayKind(entry))), [entries]);
   const [chosenView, setChosenView] = useState<{ scope: string; view: BookingCalendarView } | null>(null);
   const view = chosenView?.scope === scope ? chosenView.view : savedView;
   const [anchor, setAnchor] = useState(() => dateKey(today));

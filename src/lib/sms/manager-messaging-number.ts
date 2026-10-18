@@ -6,6 +6,33 @@ export type ManagerMessagingRuntimeMode =
 
 export type ManagerMessagingWorkspaceRole = "primary" | "co_manager";
 
+/**
+ * Why the WORKSPACE's line cannot send, when `lineReady` is false. Resolved
+ * where the facts are (the status route), because a teammate has no `number`
+ * row of their own to read one from - and without it every blocker collapsed
+ * into "Finishing setup", which told a teammate looking at a live, registered,
+ * carrier-approved line to go and finish setup that is already done.
+ *
+ * - `deployment` - this deployment's texting switch or runtime mode, which
+ *   nobody in the product can flip.
+ * - `billing` - the workspace wallet that would pay (paused, out of credit,
+ *   unreadable plan).
+ * - `paused` - a line that IS provisioned, registered and carrier-approved,
+ *   held on the provider side: quarantined, inside or past a reconciliation
+ *   grace window, or attached to the wrong Messaging Service. Nothing is
+ *   unfinished, so it must not borrow the setup sentence.
+ * - `setup` - the line genuinely is not provisioned/registered/attached yet,
+ *   or the workspace has none. The ONLY state that says "Finishing setup".
+ * - `unavailable` - the control plane could not be read, so we fail closed
+ *   without claiming a reason.
+ */
+export type ManagerMessagingLineBlock =
+  | "deployment"
+  | "billing"
+  | "paused"
+  | "setup"
+  | "unavailable";
+
 export type ManagerMessagingEntitlement =
   | { eligible: true; tier: "free" | "pro" | "business"; source: "stripe" | "apple" | "none" }
   | {
@@ -55,7 +82,9 @@ export type ManagerMessagingNumberStatus = {
    * number or plan. A registered, active number still sends nothing when the
    * texting runtime is off, and reporting that as carrier "approval in
    * progress" points the manager at Twilio for a switch only an operator here
-   * can flip.
+   * can flip. In a workspace the viewer does not own this reads the OWNER's
+   * runtime access — the line is theirs, so a teammate's own (absent) pilot
+   * seat never reports the workspace's live number as unsendable.
    */
   sendingAvailable: boolean;
   planTier: ManagerMessagingPlanTier;
@@ -98,6 +127,28 @@ export type ManagerMessagingNumberStatus = {
    * there is one read and one source for what Settings renders.
    */
   requestedAtSignup: boolean;
+  /**
+   * Whether the WORKSPACE's line itself can send right now: the owner's number
+   * and allowlist seat, the workspace wallet, and this deployment's send
+   * switch. Deliberately independent of who is looking - a teammate with
+   * read-only Communication still reads a live line as live, so the work-number
+   * card never reports a sendable number as "Finishing setup". Anything that
+   * describes the LINE reads this; only the viewer's own send affordance reads
+   * `canSend`.
+   */
+  lineReady: boolean;
+  /**
+   * Why `lineReady` is false, as one non-sensitive word. Absent/null when the
+   * line is ready. Every reader that WORDS the line's state reads this rather
+   * than guessing from `lineReady` alone.
+   */
+  lineBlocked?: ManagerMessagingLineBlock | null;
+  /**
+   * Whether THIS VIEWER may text from that line: `lineReady` plus, for a
+   * teammate, their own Communication (`inbox`) grant at edit level - the gate
+   * `manager-sms-send.server.ts` applies, so the Text channel is never offered
+   * for a send that would come back 403.
+   */
   canSend: boolean;
   personalPhone: {
     phone: string | null;
@@ -177,4 +228,49 @@ export function formatManagerMessagingPhone(
     return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
   }
   return phone;
+}
+
+/**
+ * A line that EXISTS but is still waiting on carrier registration - the one
+ * state where "SMS is waiting on carrier approval" is a true reason and there
+ * is nothing left for the manager to finish. Every other reason a line cannot
+ * send (the workspace wallet, the deployment's send switch, a quarantine) must
+ * not borrow that sentence, and a teammate reading a workspace line they are
+ * simply not allowed to use must not borrow it either: they have no `number`
+ * row, so this is false for them.
+ */
+export function workNumberAwaitingCarrier(
+  status: { number?: ManagerMessagingNumber | null } | null | undefined,
+): boolean {
+  const number = status?.number;
+  if (!number || !number.phoneNumber) return false;
+  if (number.state !== "active" && number.state !== "provisioning") return false;
+  return number.registrationState !== "approved" || number.carrierRegistrationState !== "registered";
+}
+
+/** Just the fields of the status that say which line a workspace texts from. */
+export type WorkspaceWorkNumberSource = {
+  workspaceRole?: ManagerMessagingWorkspaceRole | string | null;
+  number?: { phoneNumber?: string | null } | null;
+  workspaceNumber?: { phoneNumber?: string | null } | null;
+};
+
+/**
+ * The one answer to "does this workspace have a work number": a teammate
+ * (`co_manager`) reads the owner's line from `workspaceNumber`, an owner reads
+ * their own `number`. Trimmed, or null when there is none - a teammate's own
+ * legacy row is never the workspace's number.
+ */
+export function workspaceWorkNumber(
+  status: WorkspaceWorkNumberSource | null | undefined,
+): string | null {
+  if (!status) return null;
+  const raw =
+    status.workspaceRole === "co_manager"
+      ? status.workspaceNumber?.phoneNumber
+      : status.number?.phoneNumber;
+  // A number stored as a JSON number (old rows) is still the workspace's line.
+  const value =
+    typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
+  return value || null;
 }

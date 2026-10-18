@@ -18,8 +18,11 @@ import {
   portalMessageSelectionFromDeliverVia,
   type ManagerDeliverViaKind,
 } from "@/lib/manager-communication-deliver-via";
-import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
-import { trimmedText } from "@/lib/trimmed-text";
+import {
+  workNumberAwaitingCarrier,
+  workspaceWorkNumber,
+  type ManagerMessagingNumberStatus,
+} from "@/lib/sms/manager-messaging-number";
 import {
   defaultPortalMessageScheduleAt,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
@@ -123,7 +126,13 @@ export function PortalNotificationPreviewModal({
   emailAvailable?: boolean;
   smsAvailable?: boolean;
   /** Charge-scoped sender capability, resolved for the selected workspace. */
-  smsSetupOverride?: { phone: string | null; canSend: boolean };
+  /**
+   * `canSend` is this viewer's own send permission (it gates the Text option);
+   * `lineReady` describes the LINE and is what the work-number hint explains.
+   * A caller with only one answer (a reminder capability) may pass `canSend`
+   * alone and both read it.
+   */
+  smsSetupOverride?: { phone: string | null; canSend: boolean; lineReady?: boolean; awaitingCarrier?: boolean };
   channelStatus?: ReactNode;
   defaultViaEmail?: boolean;
   defaultViaSms?: boolean;
@@ -173,7 +182,12 @@ export function PortalNotificationPreviewModal({
   const [draftBody, setDraftBody] = useState(body);
   const [draftAssignee, setDraftAssignee] = useState<WorkAssignee | null>(null);
   const { channelsFor } = useManagerCommunicationDeliverVia();
-  const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(
+  const [smsSetup, setSmsSetup] = useState<{
+    phone: string | null;
+    canSend: boolean;
+    lineReady?: boolean;
+    awaitingCarrier?: boolean;
+  } | null>(
     null,
   );
 
@@ -230,8 +244,10 @@ export function PortalNotificationPreviewModal({
       .then((status) => {
         if (!active || !status) return;
         setSmsSetup({
-          phone: trimmedText(status.number?.phoneNumber) || null,
+          phone: workspaceWorkNumber(status),
           canSend: status.canSend,
+          lineReady: status.lineReady,
+          awaitingCarrier: workNumberAwaitingCarrier(status),
         });
       })
       .catch(() => {
@@ -416,7 +432,8 @@ export function PortalNotificationPreviewModal({
         <ManagerSmsWorkNumberHint
           show={Boolean(showChannelPicker && !skipMessage && viaSms)}
           phone={effectiveSmsSetup?.phone ?? null}
-          canSend={effectiveSmsSetup?.canSend === true}
+          lineReady={(effectiveSmsSetup?.lineReady ?? effectiveSmsSetup?.canSend) === true}
+          awaitingCarrier={effectiveSmsSetup?.awaitingCarrier === true}
         />
 
         {showChannelPicker && !skipMessage && !channelsOk ? (

@@ -15,6 +15,7 @@ import { addDaysToDateKey, describeBookingConflict } from "@/lib/channel-calenda
 import { bookingCancelLabel, bookingRoomRate, canCancelBooking, canDeleteReservation, isReservedBlock } from "@/lib/channel-calendar/booking-presentation";
 import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { ROOM_DATE_BLOCKS_CHANGED } from "@/lib/channel-calendar/room-date-blocks";
+import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
 import { getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -77,6 +78,8 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const [rate, setRate] = useState(initialRateText);
   const [basis, setBasis] = useState(entry.rateBasis ?? initialRate.basis);
   const [notes, setNotes] = useState(entry.reason ?? "");
+  // Dates with nobody attached are a closed room until a guest is named; every booking has a name.
+  const [reservedName, setReservedName] = useState("");
   const [details, setDetails] = useState(entry.stayDetails ?? {});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -85,7 +88,21 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   // A named hold keeps its name: clearing it would silently turn the hold into a reservation.
   // An invited resident (isBookingResidency) is keyed on this email: editing it would detach their account, so the identity stays read-only.
   const guestLocked = locked || entry.isBookingResidency === true;
-  const guestValid = reservation || locked || guestName.trim().length > 0;
+  // A save that leaves the stored name, kind and reason exactly as they are is a pure date edit:
+  // the route (`sameRoomBlockNameShape`) and the `update_room_block` tool (`nameShapeUnchanged`)
+  // both exempt it, so a reserved block written before this rule (no reason stored) keeps its dates
+  // editable here too. Stamping `blockKind` onto an untouched label would make the save new content
+  // the server then arbitrates, so an untouched label keeps whatever kind the row was stored with.
+  const reservedLabel = reservedName.trim();
+  const reservedShapeUnchanged = roomBlockNameShapeUnchanged(
+    { residentName: entry.residentName, blockKind: entry.blockKind, reason: entry.reason },
+    { residentName: reservedLabel, blockKind: entry.blockKind, reason: notes },
+  );
+  const reservedKind = reservedLabel ? undefined : reservedShapeUnchanged ? entry.blockKind : ROOM_BLOCK_KIND_CLOSED;
+  const reservationError = reservedShapeUnchanged
+    ? null
+    : roomDateBlockNameError({ residentName: reservedLabel, blockKind: reservedKind, reason: notes });
+  const guestValid = reservation ? reservationError === null : locked || guestName.trim().length > 0;
   const pool = entries.filter((candidate) => candidate !== entry && (!entry.blockId || candidate.blockId !== entry.blockId));
   const conflictsForRoom = (id: string) => valid ? bookingConflictsFor(pool, { propertyId, roomId: id, start: checkIn, end: openEnded ? "9999-12-30" : lastNightBeforeCheckout(checkOut) }) : [];
   const rooms = bookingRoomChoices(getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }), conflictsForRoom);
@@ -112,7 +129,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     finally { setBusy(false); }
   };
   const rateValid = rate === "" || (Number.isFinite(Number(rate)) && Number(rate) >= 0);
-  const dirty = guestName !== initialName || guestEmail !== (entry.residentEmail ?? "") || guestPhone !== (entry.residentPhone ?? "") || propertyId !== entry.propertyId || roomId !== entry.roomId || openEnded !== Boolean(entry.openEnded) || checkIn !== entry.start || checkOut !== initialCheckOut || status !== initialStatus || rate !== initialRateText || basis !== (entry.rateBasis ?? initialRate.basis) || notes !== (entry.reason ?? "") || JSON.stringify(details) !== JSON.stringify(entry.stayDetails ?? {});
+  const dirty = guestName !== initialName || guestEmail !== (entry.residentEmail ?? "") || guestPhone !== (entry.residentPhone ?? "") || propertyId !== entry.propertyId || roomId !== entry.roomId || openEnded !== Boolean(entry.openEnded) || checkIn !== entry.start || checkOut !== initialCheckOut || status !== initialStatus || rate !== initialRateText || basis !== (entry.rateBasis ?? initialRate.basis) || notes !== (entry.reason ?? "") || reservedName !== "" || JSON.stringify(details) !== JSON.stringify(entry.stayDetails ?? {});
   const save = async () => {
     if (lockedDetails) { onClose(); return; }
     if (metaRef && onSaveStayMeta) {
@@ -131,7 +148,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     setBusy(true); setError("");
     try {
       await onSave(reservation
-        ? { id: entry.blockId, openEnded, propertyId, roomId, checkIn, checkOut, residentName: "", residentEmail: "", reason: notes, bookingStatus: entry.bookingStatus ?? "confirmed", rate: entry.rate, rateBasis: entry.rateBasis, stayDetails: entry.stayDetails }
+        ? { id: entry.blockId, openEnded, propertyId, roomId, checkIn, checkOut, residentName: reservedLabel, residentEmail: "", reason: notes, ...(reservedKind ? { blockKind: reservedKind } : {}), bookingStatus: entry.bookingStatus ?? "confirmed", rate: entry.rate, rateBasis: entry.rateBasis, stayDetails: entry.stayDetails }
         : { id: entry.blockId, isBookingResidency: entry.isBookingResidency, openEnded, propertyId, roomId, checkIn, checkOut, residentName: guestName.trim(), residentEmail: guestEmail.trim(), residentPhone: guestPhone, reason: notes, bookingStatus: status as "hold" | "confirmed", rate: rate === "" ? undefined : Number(rate), rateBasis: basis, stayDetails: details });
       onClose();
     }
@@ -195,7 +212,9 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
       {conflicts.length && !locked ? <p className="text-sm text-danger sm:col-span-2" role="alert" data-bk-alert>{describeBookingConflict(conflicts[0], conflicts[0].roomLabel)}</p> : null}
     </EditSection>
     {reservation ? <EditSection id="label" label="Label">
-      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Label</span><Input disabled={busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Guest name</span><Input disabled={busy} maxLength={120} value={reservedName} onChange={(event) => setReservedName(event.target.value)} /></label>
+      <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>{reservedLabel ? "Notes" : "Reason"}</span><Input disabled={busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+      {reservationError ? <p className="text-sm text-danger sm:col-span-2" role="alert" data-bk-alert>{reservationError}</p> : null}
     </EditSection> : <>
       <EditSection id="rate" label="Rate">
         <label><span className={MODAL_FIELD_LABEL_CLASS}>Rate / {rateUnit}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>

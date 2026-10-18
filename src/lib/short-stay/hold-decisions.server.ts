@@ -18,6 +18,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { renderOwnerBookingEmail, sendOwnerBookingEmail } from "@/lib/channel-booking-events.server";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
@@ -258,4 +259,23 @@ export async function emitShortStayTeamNotice(
     templateContext: { propertyTitle: labels.propertyLabel, roomLabel: labels.roomLabel, stayLabel, url },
     recipients: [{ audience: "manager", userId: ownerId, rendered: { subject: headline, text: `${line}\n\n${url}`, smsText: `${line}\n${url}` } }],
   }).catch(() => undefined);
+  // A confirmed short stay IS a booking, so the owner is mailed whatever their alert destination says -
+  // the same always-email a booking typed in PropLane or read off a channel feed gets, on the same
+  // idempotency key as the notice above, so a destination of email sends exactly one mail.
+  if (event !== "short_stay_confirmed") return;
+  const guests = Number(row.guests) || 0;
+  await sendOwnerBookingEmail(db, {
+    ownerUserId: ownerId,
+    propertyId,
+    eventId: `${event}:${blockId}`,
+    bookingKey: `block:${blockId}`,
+    ...renderOwnerBookingEmail({
+      created: true,
+      propertyLabel: labels.propertyLabel,
+      roomLabel: labels.roomLabel,
+      guest: guestName,
+      stayLabel: guests ? `${stayLabel} · ${guests} ${guests === 1 ? "guest" : "guests"}` : stayLabel,
+      sourceLabel: "PropLane · guest booking",
+    }),
+  });
 }

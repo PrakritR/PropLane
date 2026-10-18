@@ -23,20 +23,50 @@ import {
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import {
+  MANAGER_MESSAGING_SETTINGS_HREF,
+  workspaceWorkNumber,
+  type ManagerMessagingLineBlock,
+} from "@/lib/sms/manager-messaging-number";
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
 
-/** One plain line about whether the number can actually send right now. */
+/**
+ * One plain line about whether the LINE can actually send right now, or "" when
+ * it can. It reads `lineReady`, never the viewer's own `canSend`: a teammate
+ * with read-only Communication is looking at the same live workspace number the
+ * owner is, and reporting it as "Finishing setup" sends them hunting for a
+ * control that is not theirs and does not exist.
+ *
+ * The WORDING is `lineBlocked`, the status route's own reason. Who is looking
+ * is deliberately not an input: a caption that claims setup is unfinished over
+ * a live, carrier-approved number is wrong whoever reads it, so "Finishing
+ * setup" is reserved for a line that genuinely is not provisioned yet - a live
+ * number held by a provider quarantine or grace window reads "Texting paused"
+ * - and the teammate gets the same honest sentence the owner does.
+ */
 export function workNumberReadinessCaption(args: {
-  canSend: boolean;
+  lineReady: boolean;
   sendingAvailable: boolean;
-  carrierRegistered: boolean;
+  lineBlocked?: ManagerMessagingLineBlock | null;
 }): string {
+  if (args.lineReady && args.sendingAvailable) return "";
   if (!args.sendingAvailable) return "Texting is off for this deployment";
-  if (!args.canSend) return "Finishing setup";
-  return "";
+  switch (args.lineBlocked) {
+    case "deployment":
+      return "Texting is off for this deployment";
+    case "billing":
+      return "Texting is paused for billing";
+    case "paused":
+      return "Texting paused";
+    case "unavailable":
+      return "Texting is unavailable right now";
+    // An older payload carries no reason at all; the number exists and the
+    // deployment can send, so the remaining blocker really is its setup.
+    default:
+      return "Finishing setup";
+  }
 }
 
 function useManagerWorkEmail(): { email: string | null; ready: boolean } {
@@ -141,8 +171,7 @@ export function ManagerWorkNumberCard() {
 
   const coManager = status?.workspaceRole === "co_manager";
   const workspace = status?.workspaceNumber ?? null;
-  const phone =
-    (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
+  const phone = workspaceWorkNumber(status);
   // "Work number", not "Your work number": the box is half of a two-column grid in the
   // inbox rail, and with a retry action sharing the label line the longer wording was
   // clipped to "Your work nu…". It also reads as a pair with "Work email" beside it.
@@ -177,17 +206,12 @@ export function ManagerWorkNumberCard() {
     }
     if (phone) {
       const formatted = formatSmsPhoneLabel(phone) || phone;
-      const sendReady = Boolean(status.canSend) && Boolean(status.sendingAvailable);
-      const readiness = workNumberReadinessCaption({
-        canSend: Boolean(status.canSend),
-        sendingAvailable: Boolean(status.sendingAvailable),
-        carrierRegistered: status.number?.carrierRegistrationState === "registered",
-      });
-      const statusLine = sendReady
-        ? undefined
-        : coManager
-          ? "Finishing setup"
-          : readiness || undefined;
+      const statusLine =
+        workNumberReadinessCaption({
+          lineReady: Boolean(status.lineReady),
+          sendingAvailable: Boolean(status.sendingAvailable),
+          lineBlocked: status.lineBlocked ?? null,
+        }) || undefined;
       return (
         <PortalInboxContactCard
           padded={false}

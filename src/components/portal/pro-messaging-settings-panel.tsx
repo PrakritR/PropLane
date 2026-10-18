@@ -37,6 +37,8 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import {
   formatManagerMessagingPhone,
+  workNumberAwaitingCarrier,
+  workspaceWorkNumber,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 import { workNumberStatusWord, type WorkNumberStatusInput } from "@/lib/sms/work-number-status";
@@ -311,10 +313,10 @@ export function ManagerMessagingSettingsPanel() {
 
   const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
   const announceSmsBlocked = announceChannels.viaSms && !status?.canSend;
-  const statusPhoneNumber =
-    typeof status?.number?.phoneNumber === "string"
-      ? status.number.phoneNumber.trim()
-      : "";
+  // `workspaceWorkNumber` is the one answer to "does this workspace have a
+  // work number", for an owner and a teammate alike - never `status.number`
+  // read straight, which is a teammate's own retired line.
+  const statusPhoneNumber = workspaceWorkNumber(status) ?? "";
   const announceResidents = announceOpen
     ? approvedResidentsForWorkNumberAnnounce(userId)
     : [];
@@ -513,9 +515,9 @@ export function ManagerMessagingSettingsPanel() {
   // own (bought before numbers were workspace-owned) is named so they know it
   // is being retired, but it is never the number this panel leads with.
   if (isCoManager) {
-    const workspacePhone = status.workspaceNumber?.phoneNumber?.trim() || "";
+    const workspacePhone = workspaceWorkNumber(status) ?? "";
     return <PortalSettingsSection title="Work identity"><PortalSettingsGroup>
-      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.canSend ? "Ready" : "Not ready"}` : "Not set up"}>
+      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.lineReady ? "Ready" : "Not ready"}` : "Not set up"}>
         <PortalSettingsField label="Workspace number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up"} />
         <PortalSettingsField label="Managed by" value={status.workspaceNumber?.ownerName || "Workspace owner"} />
         {workspacePhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone)}>Copy number</Button> : null}
@@ -739,12 +741,18 @@ export function ManagerMessagingSettingsPanel() {
           dataAttr="messaging-announce-body"
         />
         {announceChannels.viaSms && phoneNumber ? (
-          <ManagerSmsWorkNumberHint show phone={phoneNumber} canSend={status?.canSend === true} />
+          <ManagerSmsWorkNumberHint
+            show
+            phone={phoneNumber}
+            lineReady={status?.lineReady === true}
+            awaitingCarrier={workNumberAwaitingCarrier(status)}
+          />
         ) : announceSmsBlocked ? (
           <ManagerSmsWorkNumberHint
             show
             phone={phoneNumber}
-            canSend={false}
+            lineReady={false}
+            awaitingCarrier={workNumberAwaitingCarrier(status)}
           />
         ) : null}
       </PortalMessageComposeModalBody>

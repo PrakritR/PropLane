@@ -7,6 +7,7 @@ import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server
 import {
   managerCarrierRegistrationNeedsAttention,
   managerMessagingSenderPoolDiagnostic,
+  type ManagerMessagingLineBlock,
   type ManagerMessagingNumberStatus,
   type ManagerMessagingPlanTier,
   type ManagerMessagingRuntimeMode,
@@ -15,7 +16,7 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
+import { resolveWorkspaceStatusLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import {
@@ -27,7 +28,7 @@ import {
 import {
   effectiveRegistrationState,
   isProvisioningEnabled,
-  managerSmsNumberIsSendable,
+  evaluateManagerSmsNumberSendability,
   normalizeProvisionState,
   normalizeRegistrationState,
   normalizeSmsNumberAttachmentState,
@@ -37,6 +38,11 @@ import {
 import {
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
+import {
+  evaluateWorkspaceSendReadiness,
+  lineBlockForSendReadinessReason,
+} from "@/lib/sms/workspace-send-readiness.server";
+import { resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 
 export const runtime = "nodejs";
 
@@ -140,6 +146,12 @@ async function buildStatus(
     : [];
   const managerIsAllowlisted = allowlist.includes(userId);
   const modeAllowsManager = smsRuntimeAllowsManager(mode, managerIsAllowlisted);
+  // Texting from a shared workspace runs on the OWNER's access: their line,
+  // their allowlist seat. Gating a teammate on their own (absent) seat is what
+  // reported the workspace's live number as still "Finishing setup".
+  const sendModeAllowed = pureCoManager
+    ? smsRuntimeAllowsManager(mode, allowlist.includes(workspace.ownerUserId))
+    : modeAllowsManager;
 
   const rawNumber = numberResult.error ? null : numberResult.data;
   const normalizedNumber = rawNumber
@@ -200,13 +212,86 @@ async function buildStatus(
     entitlement.eligible ||
     entitlement.reason === "plan_unreadable" ||
     entitlement.reason === "legacy_unknown";
-  const strictNumberReady = managerSmsNumberIsSendable(normalizedNumber, {
+  const numberSendability = evaluateManagerSmsNumberSendability(normalizedNumber, {
     runtimeMode: mode,
     managerIsAllowlisted,
   });
+  const strictNumberReady = numberSendability.sendable;
 
-  const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
-  const commsBillingAllowed = billing.allowed;
+  // A teammate sends from the OWNER's line, so the LINE's readiness is the send
+  // path's own decision for this workspace and its owner - not the viewer's
+  // (empty) number or the viewer's wallet. Any error fails closed.
+  //
+  // This stays free of anything about who is looking: it is what the
+  // work-number card reports, and folding the viewer's grant in here is what
+  // described a live workspace line as "Finishing setup".
+  let lineReady: boolean;
+  // Why not, when not: the one word a UI may print about the line. A teammate
+  // has no `number` row of their own, so without this every blocker read as
+  // "Finishing setup" over a live, carrier-approved workspace number.
+  let lineBlocked: ManagerMessagingLineBlock | null = null;
+  // Whether the VIEWER may text from that line. The send path also demands
+  // their own Communication (inbox) grant at EDIT level
+  // (`manager-sms-send.server.ts`), so a read-only teammate must never be
+  // offered a Text channel for a send that would come back 403.
+  let viewerMayText: boolean;
+  // The row readiness actually resolved, when it got that far: the line a send
+  // would leave on, so the number shown and the number used are one read.
+  let sendLine: { phoneNumber: string | null; provisionState: string | null } | null = null;
+  if (pureCoManager) {
+    // With the deployment's texting runtime off the answer is already no, so
+    // the whole readiness chain (number + workspace + wallet) and the viewer's
+    // grant read are both skipped.
+    if (!sendEnvEnabled) {
+      lineReady = false;
+      lineBlocked = "deployment";
+      viewerMayText = false;
+    } else {
+      const [readiness, mayText] = await Promise.all([
+        evaluateWorkspaceSendReadiness({
+          db,
+          ownerUserId: workspace.ownerUserId,
+          workspaceId: workspace.id,
+          requiredCents: 3,
+          runtime: runtimeResult,
+        }).then(
+          (value) => value,
+          () => null,
+        ),
+        resolveSmsScopeManagerIds(db, userId, "edit")
+          .then((ids) => ids.includes(String(workspace.ownerUserId ?? "").trim()))
+          .catch(() => false),
+      ]);
+      lineReady = readiness?.canSend === true;
+      lineBlocked = lineReady
+        ? null
+        : lineBlockForSendReadinessReason(readiness && !readiness.canSend ? readiness.reason : null);
+      viewerMayText = mayText;
+      if (readiness?.canSend)
+        sendLine = {
+          phoneNumber: readiness.numberRow.phone_number,
+          provisionState: readiness.numberRow.provision_state,
+        };
+    }
+  } else {
+    const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
+    lineReady = billing.allowed && sendEnvEnabled && modeAllowsManager && strictNumberReady;
+    // The order `evaluateWorkspaceSendReadiness` refuses in - the deployment's
+    // switch, then the line's own sendability (which covers the runtime mode
+    // and the allowlist seat), then the wallet that pays - worded through the
+    // same map a teammate's reason goes through, so an owner and a teammate
+    // read the identical line state identically.
+    lineBlocked = lineReady
+      ? null
+      : !sendEnvEnabled
+        ? "deployment"
+        : lineBlockForSendReadinessReason(
+            numberSendability.reason ??
+              (billing.allowed ? null : `comms_billing_${billing.reason}`),
+          );
+    viewerMayText = true;
+  }
+  const canSend = lineReady && viewerMayText;
   const canRequestBilling = entitlementCanBeReconciled;
 
   // One work number per workspace: a co-manager reads the owner's line and
@@ -216,14 +301,25 @@ async function buildStatus(
   let workspaceNumber: ManagerMessagingNumberStatus["workspaceNumber"] = null;
   if (pureCoManager) {
     const shared = all?.numbers.find((n) => n.workspaceId === workspace.id);
-    if (shared) {
-      workspaceNumber = {
-        phoneNumber:
-          normalizeProvisionState(shared.provisionState) === "active" ? shared.phoneNumber : null,
-        ownerUserId: shared.ownerUserId,
-        ownerName: shared.ownerName,
-      };
+    let line = sendLine;
+    if (!line?.phoneNumber && shared && normalizeProvisionState(shared.provisionState) === "active")
+      line = { phoneNumber: shared.phoneNumber, provisionState: shared.provisionState };
+    // `resolveWorkspaceWorkNumbers` only sees a workspace's HOME row. A line
+    // the workspace holds by sharing, or the owner's legacy unplaced row, is
+    // what a send would really leave on — read it the same way "can send"
+    // does, so a sendable workspace is never shown "No work number yet".
+    if (!line?.phoneNumber) {
+      const resolved = await resolveWorkspaceStatusLine(db, workspace.ownerUserId, workspace.id).catch(
+        () => null,
+      );
+      if (resolved && normalizeProvisionState(resolved.provisionState) === "active")
+        line = resolved;
     }
+    workspaceNumber = {
+      phoneNumber: line?.phoneNumber ?? null,
+      ownerUserId: shared?.ownerUserId ?? workspace.ownerUserId,
+      ownerName: shared?.ownerName ?? null,
+    };
   }
 
   return {
@@ -242,24 +338,22 @@ async function buildStatus(
       numbers: n.owned ? heldByWorkspace.get(n.workspaceId) ?? [] : undefined,
     })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
-    sendingAvailable: sendEnvEnabled && modeAllowsManager,
+    sendingAvailable: sendEnvEnabled && sendModeAllowed,
     planTier,
     entitlement,
     number,
     // A missing/stale entitlement row must not deadlock a genuinely paid
     // manager: POST performs the authoritative Stripe/Apple reconciliation.
     requestedAtSignup: automationSettings?.workNumberRequestedAtSignup === true,
+    lineReady,
+    lineBlocked,
     canRequest:
       !pureCoManager &&
       canRequestBilling &&
       provisioningEnvEnabled &&
       modeAllowsManager &&
       requestableState,
-    canSend:
-      commsBillingAllowed &&
-      sendEnvEnabled &&
-      modeAllowsManager &&
-      strictNumberReady,
+    canSend,
     personalPhone: {
       phone:
         typeof profileResult.data?.phone === "string"
@@ -302,6 +396,8 @@ function publicStatus(
       : null,
     requestedAtSignup: status.requestedAtSignup,
     canRequest: status.canRequest,
+    lineReady: status.lineReady,
+    lineBlocked: status.lineBlocked ?? null,
     canSend: status.canSend,
     personalPhone: status.personalPhone,
   };

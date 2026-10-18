@@ -84,10 +84,14 @@ prints — **Hold · Confirmed · In-house · Checked out · Cancelled**, plus
 **Blocked** for a live block with nobody attached (§ Blocks) — and
 `calendarStatus` (`bookings-calendar-view.ts`) the one a calendar cell colours,
 which says the same **Blocked** and names the channel for an imported stay. Both
-derive from the entry's own dates against today: an approved applicant whose
-dates have started is **In-house**, not holding the room. A list row maps that
-one word back to **Hold** (`bookingRowStatusFact`), because the row's source
-fact already says Block. The label is a plain fact on a
+derive from the entry's own dates against today: an approved applicant (a `hold`
+entry) is never a pending hold — **In-house** once their dates have started,
+**Confirmed** before them, and neither needs an `applicationId`, so a
+calendar-only teammate reads the same word. **Hold** is left for a native block
+still waiting to be confirmed. A list row prints that
+same word (`bookingStatusLabel` again) — a closed room reads **Blocked** on the row
+too, because the row's Source fact renders for channel imports only and so
+cannot tell a closed room from a guest's pending Hold. The label is a plain fact on a
 row, never a pill (AGENTS.md § Portal UI system) — and Confirmed says nothing at
 all, because it is the default.
 
@@ -101,8 +105,9 @@ edit it here. Either kind of dates-only row (the manager's own block, a channel'
 tile and is offered no Message, because there is nobody to message. A channel
 "Reserved" is a real guest stay, never an availability block.
 
-Occupancy figures on Calendar (`calendarOccupancySummary`) exclude unconfirmed
-holds from the picture without touching capacity arbitration, and read through
+Occupancy figures on Calendar (`calendarOccupancySummary`) count every resident
+stay — In-house or still Confirmed (`isResidentStay`) — and exclude only an
+unconfirmed hold, without touching capacity arbitration, and read through
 `occupancyForDay`; bed totals come from `bookingOccupancyCapacities`
 (`bookings-room-counts.ts`), the one bridge between the client listing store and
 the framework-free occupancy math — Σ `occupancyCapacity`, never `rooms.length`.
@@ -129,7 +134,7 @@ notes-and-money popup (§ Airbnb money), never the Add/Edit sheet.
 ## Blocks: Unblock and Delete (Oct 14 2026)
 
 **Unblock = cancel (undoable, frees nights everywhere); Delete = hard delete, native blocks only; imported bars are tombstoned, never deleted.**
-`bookingRemovalActions` (`booking-presentation.ts`) is the one gate the calendar bar's popover and the record page's header read: a live native block (source `block`, has `blockId`, not cancelled, not ended) offers Unblock (`BookingsCancelDialog`, with Undo) and Delete (`BookingsDeleteBlockDialog`, a danger confirm, then `deleteRoomDateBlock`); a cancelled or ended native block offers Delete only; an imported Airbnb / Booking.com bar offers "Unblock in PropLane" on the bar and "Remove from PropLane" on the record (`BookingsRemoveStayDialog`, a restorable tombstone) and no Delete; a resident stay (lease, application) offers neither. The record header is icon actions only (Message, Edit, Unblock, Delete, Open resident, plus **Open in Airbnb** on an imported Airbnb reservation whose code the sync could parse — `airbnbOpenUrlForEntry`, `reservation-code.ts`, which rebuilds the link from the code and never from the feed's own URL; the Guest card's Reservation row prints the bare code and carries no link of its own); there is no ⋯ menu. A live block with nobody attached reads **Blocked** (`bookingStatusLabel`), **Cancelled** only after Unblock; a list row keeps saying Hold (§ Status). No new route: the server refuses cancelling an ended block (409) but lets a cancelled or ended block be deleted, and ownership stays `managerCanWriteCalendarForProperty`. All three are also hidden from a teammate below Calendar `edit` on that house, and while the session is still resolving — `canRemoveBookingEntry` (`manager-portfolio-access.ts`) is the client's read of the same grant the server enforces, so nothing is offered that the write would refuse (coverage: `tests/unit/bookings-removal-permission.test.tsx`). A `room_date_block` row whose `row_data.bookingStatus` is `cancelled` is read as cancelled by the client (`normalizeBlock`) and the occupancy snapshot, as the export feed and capacity already did. Coverage: `tests/unit/bookings-block-actions.test.tsx`.
+`bookingRemovalActions` (`booking-presentation.ts`) is the one gate the calendar bar's popover and the record page's header read: a live native block (source `block`, has `blockId`, not cancelled, not ended) offers Unblock (`BookingsCancelDialog`, with Undo) and Delete (`BookingsDeleteBlockDialog`, a danger confirm, then `deleteRoomDateBlock`); a cancelled or ended native block offers Delete only; an imported Airbnb / Booking.com bar offers "Unblock in PropLane" on the bar and "Remove from PropLane" on the record (`BookingsRemoveStayDialog`, a restorable tombstone) and no Delete; a resident stay (lease, application) offers neither. The record header is icon actions only (Message, Edit, Unblock, Delete, Open resident, plus **Open in Airbnb** on an imported Airbnb reservation whose code the sync could parse — `airbnbOpenUrlForEntry`, `reservation-code.ts`, which rebuilds the link from the code and never from the feed's own URL; the Guest card's Reservation row prints the bare code and carries no link of its own); there is no ⋯ menu. A live block with nobody attached reads **Blocked** (`bookingStatusLabel`), **Cancelled** only after Unblock; a list row says the same Blocked (§ Status). No new route: the server refuses cancelling an ended block (409) but lets a cancelled or ended block be deleted, and ownership stays `managerCanWriteCalendarForProperty`. All three are also hidden from a teammate below Calendar `edit` on that house, and while the session is still resolving — `canRemoveBookingEntry` (`manager-portfolio-access.ts`) is the client's read of the same grant the server enforces, so nothing is offered that the write would refuse (coverage: `tests/unit/bookings-removal-permission.test.tsx`). A `room_date_block` row whose `row_data.bookingStatus` is `cancelled` is read as cancelled by the client (`normalizeBlock`) and the occupancy snapshot, as the export feed and capacity already did. Coverage: `tests/unit/bookings-block-actions.test.tsx`.
 
 Bookings' own removal surfaces go through ONE router (`deleteOrCancel`): the list row, the Add/Edit sheet's footer (`onDelete`), the day pop-up's row and the Add/Edit sheet's own hold list (`onRemoveBooking`) all hand it the whole entry and all gate on `canRemoveBooking` first, so `bookingCancelLabel` always names what actually happens, none of them hard-deletes a named hold, and none removes anything without a confirm. The one exception is Quick book from an application, which renders no removal dialogs: it still passes the legacy `onDeleteBlock` (delete by id, no confirm) and is deliberately left as it was. The router itself: a marked reservation (a block with nobody attached) goes to `BookingsDeleteBlockDialog` and is deleted outright at any date, a past one included (`canDeleteReservation`, a hard delete through `deleteRoomDateBlock`, and there is no Undo — that delete cannot be reversed), and a block held for a named person goes to `BookingsCancelDialog` and is cancelled until its last night (`canCancelBooking`, soft cancel, undoable). The bar popover's Unblock / Delete (above) are the calendar's doors to the same dialogs, so the popover has no second delete entry. The popover is non-modal (`DropdownMenu modal={false}`, `backdrop={false}`) so opening a dialog from it never inherits a body pointer lock.
 
@@ -149,6 +154,9 @@ Bookings' own removal surfaces go through ONE router (`deleteOrCancel`): the lis
   never double-sends.
 - `update_room_block` (assistant-only, not on MCP) edits a hold's dates, guest, phone and notes with the same
   overlap rule as `block_room_dates`; the three booking reads accept Calendar at notification or edit.
+- A booking typed in PropLane itself raises its own `booking_created` / `booking_cancelled`, and EVERY
+  booking also emails the workspace owner whatever their alert destination says — § Every booking has a
+  name, and the owner is emailed for every booking.
 
 ## Airbnb money (names, payouts)
 
@@ -239,3 +247,40 @@ passes the same flag.
 PropLane exports its residents, holds and blocks to Airbnb as unavailable, and Airbnb's feed returns them as host blocks ("Airbnb (Not available)"); `withoutEchoedHostBlocks` (`host-block.ts`, applied once in `use-manager-booking-entries.ts`) drops any host block covered by the union of that room's own stays and keeps only the uncovered remainder of a partly covered one, while reservations always draw and the raw `imported_ranges` stay untouched. It is literally the same subtraction occupancy runs on `echoable` spans — both call `coveringIntervals` + `uncovered` from `room-occupancy-rule.ts`, so a covered echo adds no blocked nights and a remainder does; there is no second copy to drift. A remainder carries `channelRangeStart`/`channelRangeEnd` (the raw imported range's dates), because a host block's identity is its UID plus those dates and Remove stay / Undo (and Block notes) would otherwise 404 on the trimmed ones. One uncovered day sitting exactly on a local stay's check-out is the channel re-exporting that exclusive check-out, not a free night, so it never draws - wherever in the block it falls, between two back-to-back residents as much as at the very end. Channel booking alerts already skip host blocks. Coverage:
 `tests/unit/bookings-echo-blocks.test.ts`,
 `tests/unit/evidence-bookings-notes-echo-1013.test.tsx`.
+
+## Every booking has a name, and the owner is emailed for every booking
+
+- A `room_date_block` is a named reservation (`residentName`) or a room the manager CLOSED:
+  `blockKind: "closed"` plus a non-empty `reason`. One validator, `roomDateBlockNameError`
+  (`room-block-name-rule.ts`), is shared by the Add/Edit sheets, `saveRoomDateBlock`, the
+  `/api/portal-schedule-records` route (400) and the `block_room_dates` / `update_room_block` tools.
+  A cancelled block and a delete are never refused; rows saved before the field existed still render.
+  A reason of "Airbnb" or "Booking" is the import marker and is never a valid Closed reason.
+- Every booking (channel stay from a sync, or a native one: created, cancelled, deleted) emails the
+  workspace owner's login address from the work email, whatever their alert destination says
+  (`sendOwnerBookingEmail` in `channel-booking-events.server.ts`). It is idempotent on the bus
+  notice's own key `action-event:<eventId>:manager`, so a repeat sync, or a manager whose destination
+  is email, gets one mail. Native events are `booking_created` / `booking_cancelled` (event id
+  `native:<blockId>:<event>`); a closed room is not a booking and announces nothing. Giving a closed
+  room or an unnamed block a guest's name IS a new booking and announces one (the event id makes a
+  second announcement of the same block a no-op). A guest's confirmed short stay gets the same owner
+  mail, raised once from `emitShortStayTeamNotice`'s `short_stay_confirmed`, which covers both the
+  instant confirm and the host's Approve. The guest a channel event names is `bookingEntryGuestLabel`
+  over the feed range — the same label the sync files the reservation's resident under ("Airbnb guest ·
+  HM…" when the code is all the feed gave), never a bare "Booked (Airbnb)" the Bookings list disagrees with.
+- The listing room editor's "Blocked dates" list is manager-closed rooms only: a named booking and
+  an imported channel stay share the `hold` status, so it filters them out (`managerBlocksForRoom`) -
+  saving one from that list would re-file it as a Closed room and drop the guest's name, email and phone.
+- The name rule arbitrates NEW content only: a save that leaves the stored row's name, kind and
+  reason exactly as they are passes (`roomBlockNameShapeUnchanged`, the one definition behind the
+  route's `sameRoomBlockNameShape`, the `update_room_block` tool and the Edit sheet), so putting
+  back what was just cancelled, and editing the dates of a row written before the rule existed,
+  always work. The Edit sheet keeps the stored `blockKind` on an untouched label for that reason —
+  stamping `closed` onto a pure date edit is new content the route would then refuse.
+- One reservation draws ONCE in the calendar grid and in the Bookings list: both read
+  `calendarEntries` (`withoutChannelStaysCoveredByResidents`), which drops the channel bar a synced
+  Airbnb resident stands in for. `entries` stays whole for the record page, the day page, "Open in
+  Airbnb", payouts and the export feed.
+- A sync never writes over a name a person put on an Airbnb resident. `channel_stay_details.guest_name`
+  wins; failing that a stored name the sync did not invent (anything but "Airbnb guest · HM…" or a
+  generic feed summary) is kept, so a rename in Residents survives the next sync.

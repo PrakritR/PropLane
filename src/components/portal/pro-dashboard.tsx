@@ -32,7 +32,7 @@ import {
   type DashboardPeriodKind,
 } from "@/lib/dashboard-kpis";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import { loadInspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionResidency } from "@/lib/inspections/model";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -559,7 +559,8 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     messaging.resolved &&
     !messaging.statusError &&
     !!messaging.status &&
-    !messaging.status.number?.phoneNumber &&
+    messaging.status.workspaceRole !== "co_manager" &&
+    !workspaceWorkNumber(messaging.status) &&
     messaging.status.planTier !== "free";
 
   // Soft CTA only — never bounce the manager onto Drafts or open the wizard.

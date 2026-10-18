@@ -107,6 +107,9 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // ---- Channel bookings (any linked channel calendar: Airbnb / Booking.com / Vrbo / Other calendar) ----
   { domain: "channel_booking", event: "channel_booking_created", area: "tours", label: "New channel booking", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   { domain: "channel_booking", event: "channel_booking_cancelled", area: "tours", label: "Channel booking cancelled", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
+  // Bookings made in PropLane itself (the owner also gets an email for each, whatever this switch or their alert destination says).
+  { domain: "channel_booking", event: "booking_created", area: "tours", label: "New PropLane booking", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
+  { domain: "channel_booking", event: "booking_cancelled", area: "tours", label: "PropLane booking cancelled", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
   { domain: "inspection", event: "submitted", area: "inspections", label: "Resident submitted their photos", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
   { domain: "inspection", event: "reopened", area: "inspections", label: "Report reopened for the resident", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },

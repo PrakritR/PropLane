@@ -20,13 +20,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { track } from "@/lib/analytics/posthog";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { channelRangeKey } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
 import { bookingRecordUrl, channelStayBookingKey } from "@/lib/channel-calendar/booking-record-link";
+import { lastNightBeforeCheckout } from "@/lib/channel-calendar/property-bookings";
 import type { ChannelCalendarImportedRange, ChannelCalendarProvider } from "@/lib/channel-calendar/types";
+import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
+import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
+import { bookingRecordHref } from "@/lib/portal-detail-routes";
 
 export type ChannelBookingEvent = "channel_booking_created" | "channel_booking_cancelled";
+/** A booking made in PropLane itself (Add booking / Mark reserved / the assistant), not read from a channel feed. */
+export type NativeBookingEvent = "booking_created" | "booking_cancelled";
 
 const DAY_MS = 86_400_000;
 
@@ -71,6 +77,58 @@ export function renderChannelBookingEvent(
   return { subject: lead, text, smsText: text };
 }
 
+/** The owner's email copy: house, room, guest, dates, source. The link is appended by `sendManagerNoticeEmail`. */
+export function renderOwnerBookingEmail(input: {
+  created: boolean;
+  propertyLabel?: string;
+  roomLabel?: string;
+  guest: string;
+  stayLabel: string;
+  sourceLabel: string;
+}): { subject: string; text: string } {
+  const house = input.propertyLabel?.trim() || "your property";
+  const room = input.roomLabel?.trim() || "Whole home";
+  const subject = `${input.created ? "New booking" : "Booking cancelled"} · ${house} · ${room}`;
+  const text = [
+    input.created ? "A booking was added." : "A booking was cancelled.",
+    `House: ${house}`,
+    `Room: ${room}`,
+    `Guest: ${input.guest.trim() || "Not named"}`,
+    `Dates: ${input.stayLabel}`,
+    `Source: ${input.sourceLabel}`,
+  ].join("\n");
+  return { subject, text };
+}
+
+/**
+ * Every booking emails the workspace owner at their login address, from the work
+ * email, whatever their notification destination says (the bus notice above is
+ * the one that obeys it). Idempotent on the SAME key the bus notice uses for its
+ * own email (`action-event:<eventId>:manager`): a destination of email sends once
+ * through whichever path gets there first, and a second sync of the same booking
+ * sends nothing. Never throws; a mail that cannot go out must not fail the write
+ * or the sync that raised the event.
+ */
+export async function sendOwnerBookingEmail(
+  db: SupabaseClient,
+  input: { ownerUserId: string; propertyId: string; eventId: string; subject: string; text: string; bookingKey: string },
+): Promise<void> {
+  try {
+    const workspace = await resolveManagerAssistantWorkspace(db, input.ownerUserId, { propertyId: input.propertyId }).catch(() => null);
+    await sendManagerNoticeEmail(db, {
+      recipientUserId: input.ownerUserId,
+      ownerUserId: input.ownerUserId,
+      workspaceId: workspace?.workspaceId || null,
+      subject: input.subject,
+      text: input.text,
+      url: bookingRecordHref("/portal", input.bookingKey),
+      idempotencyKey: `action-event:${input.eventId}:manager`,
+    });
+  } catch (error) {
+    console.warn("[booking-email] owner email failed", { message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 export async function emitChannelBookingEvent(
   db: SupabaseClient,
   input: {
@@ -93,8 +151,20 @@ export async function emitChannelBookingEvent(
   const rendered = renderChannelBookingEvent(input.event, { ...input, start: input.range.start, end: input.range.end, reservationCode: input.range.reservationCode });
   const url = channelBookingRecordUrl(input);
   const stay = channelBookingStay(input.range.start, input.range.end);
-  await emitActionEvent(db, {
-    eventId: `${input.connectionId}:${channelRangeKey(input.range)}:${input.range.start}:${input.range.end}:${input.event}`,
+  const eventId = `${input.connectionId}:${channelRangeKey(input.range)}:${input.range.start}:${input.range.end}:${input.event}`;
+  // The same name the sync files the reservation's resident under: a real name when the feed or the
+  // stay carries one, else "Airbnb guest · HM..." from the confirmation code, so the notice and the
+  // owner's mail never call a guest something the Bookings list does not.
+  const guestLabel = bookingEntryGuestLabel({
+    summary: input.range.summary,
+    source: input.provider,
+    channelLabel: input.channelLabel,
+    reservationCode: input.range.reservationCode,
+  });
+  let busError: unknown = null;
+  try {
+    await emitActionEvent(db, {
+    eventId,
     domain: "channel_booking",
     event: input.event,
     managerUserId: input.managerUserId,
@@ -111,14 +181,138 @@ export async function emitChannelBookingEvent(
       start: input.range.start,
       end: input.range.end,
       nights: stay.nights,
-      // Whatever the channel exposes ("Reserved" when it hides the guest); no contact data is in the feed.
-      guestLabel: bookingGuestLabel(input.range.summary, input.provider, input.channelLabel),
+      // What the stay is called everywhere else; no contact data is in the feed.
+      guestLabel,
     },
     templateContext: { propertyTitle: input.propertyLabel ?? "", roomLabel: input.roomLabel ?? "", stayLabel: stay.label, url },
     recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } }],
+    });
+  } catch (error) {
+    busError = error;
+  }
+  // The owner's email does not depend on the bus notice or their alert destination.
+  const email = renderOwnerBookingEmail({
+    created: input.event === "channel_booking_created",
+    propertyLabel: input.propertyLabel,
+    roomLabel: input.roomLabel,
+    guest: guestLabel,
+    stayLabel: stay.label,
+    sourceLabel: channelCalendarProviderLabel(input.provider, input.channelLabel),
   });
+  await sendOwnerBookingEmail(db, {
+    ownerUserId: input.managerUserId,
+    propertyId: input.propertyId,
+    eventId,
+    ...email,
+    bookingKey: channelStayBookingKey({ provider: input.provider, propertyId: input.propertyId, roomId: input.roomId, ...input.range }),
+  });
+  if (busError) throw busError;
   track("channel_booking_alert", input.managerUserId, {
     provider: input.provider,
     kind: input.event === "channel_booking_created" ? "created" : "cancelled",
   });
+}
+
+function cleanText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** House and room names for the notice; ids stand in when the property record cannot be read. */
+async function nativeBookingLabels(db: SupabaseClient, propertyId: string, roomId: string): Promise<{ propertyLabel: string; roomLabel: string }> {
+  try {
+    const { data } = await db.from("manager_property_records").select("property_data").eq("id", propertyId).maybeSingle();
+    const property = (data?.property_data ?? null) as { title?: unknown; buildingName?: unknown; listingSubmission?: { rooms?: Array<{ id?: unknown; name?: unknown }> } } | null;
+    const propertyLabel = cleanText(property?.buildingName) || cleanText(property?.title) || propertyId;
+    if (!roomId) return { propertyLabel, roomLabel: "Whole home" };
+    const room = property?.listingSubmission?.rooms?.find((item) => cleanText(item.id) === roomId);
+    return { propertyLabel, roomLabel: cleanText(room?.name) || roomId };
+  } catch {
+    return { propertyLabel: propertyId, roomLabel: roomId || "Whole home" };
+  }
+}
+
+export function renderNativeBookingEvent(
+  event: NativeBookingEvent,
+  facts: { propertyLabel?: string; roomLabel?: string; guestName?: string; checkIn: string; checkOut: string; openEnded?: boolean },
+): { subject: string; text: string; smsText: string; stayLabel: string } {
+  const stayLabel = facts.openEnded
+    ? `${monthDay(facts.checkIn)} – open-ended`
+    : channelBookingStay(facts.checkIn, lastNightBeforeCheckout(facts.checkOut)).label;
+  const lead = event === "booking_created" ? "New PropLane booking" : "PropLane booking cancelled";
+  const place = [facts.propertyLabel?.trim(), facts.roomLabel?.trim()].filter(Boolean);
+  const text = [lead, ...place, facts.guestName?.trim() || "", stayLabel].filter(Boolean).join(" · ");
+  return { subject: lead, text, smsText: text, stayLabel };
+}
+
+/**
+ * A booking made in PropLane (a named reservation; a closed room is not a booking) is created or
+ * cancelled/deleted. Same two legs as a channel stay: the bus notice (obeys the manager's alert
+ * destination) and the owner's email (always). Idempotent on the block id + event, so a delete
+ * after a cancel, or a retried request, announces nothing twice. Best-effort for the caller.
+ */
+export async function emitNativeBookingEvent(
+  db: SupabaseClient,
+  input: {
+    event: NativeBookingEvent;
+    blockId: string;
+    /** The house owner: the workspace whose notice and mailbox this is. */
+    managerUserId: string;
+    propertyId: string;
+    roomId: string;
+    guestName: string;
+    checkIn: string;
+    checkOut: string;
+    openEnded?: boolean;
+    propertyLabel?: string;
+    roomLabel?: string;
+  },
+): Promise<void> {
+  const [{ data: manager }, labels] = await Promise.all([
+    db.from("profiles").select("email, full_name").eq("id", input.managerUserId).maybeSingle(),
+    input.propertyLabel && input.roomLabel ? Promise.resolve({ propertyLabel: input.propertyLabel, roomLabel: input.roomLabel }) : nativeBookingLabels(db, input.propertyId, input.roomId),
+  ]);
+  const senderEmail = String(manager?.email ?? "").trim().toLowerCase();
+  if (!senderEmail) return;
+  const rendered = renderNativeBookingEvent(input.event, { ...labels, guestName: input.guestName, checkIn: input.checkIn, checkOut: input.checkOut, openEnded: input.openEnded });
+  const bookingKey = `block:${input.blockId}`;
+  const url = bookingRecordUrl(resolveEmailLinkBaseUrl(), bookingKey);
+  const eventId = `native:${input.blockId}:${input.event}`;
+  let busError: unknown = null;
+  try {
+    await emitActionEvent(db, {
+      eventId,
+      domain: "channel_booking",
+      event: input.event,
+      managerUserId: input.managerUserId,
+      entityId: input.blockId,
+      category: "tours",
+      senderUserId: input.managerUserId,
+      senderEmail,
+      senderName: String(manager?.full_name ?? "").trim() || undefined,
+      payload: {
+        propertyId: input.propertyId,
+        roomId: input.roomId,
+        blockId: input.blockId,
+        provider: "proplane",
+        start: input.checkIn,
+        end: input.checkOut,
+        guestLabel: input.guestName,
+      },
+      templateContext: { propertyTitle: labels.propertyLabel, roomLabel: labels.roomLabel, stayLabel: rendered.stayLabel, url },
+      recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { subject: rendered.subject, text: `${rendered.text}\n\n${url}`, smsText: rendered.smsText } }],
+    });
+  } catch (error) {
+    busError = error;
+  }
+  const email = renderOwnerBookingEmail({
+    created: input.event === "booking_created",
+    propertyLabel: labels.propertyLabel,
+    roomLabel: labels.roomLabel,
+    guest: input.guestName,
+    stayLabel: rendered.stayLabel,
+    sourceLabel: "PropLane",
+  });
+  await sendOwnerBookingEmail(db, { ownerUserId: input.managerUserId, propertyId: input.propertyId, eventId, ...email, bookingKey });
+  if (busError) throw busError;
+  track("channel_booking_alert", input.managerUserId, { provider: "proplane", kind: input.event === "booking_created" ? "created" : "cancelled" });
 }

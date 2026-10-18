@@ -133,7 +133,9 @@ Airbnb has no public write API, so the two directions are not equally fast:
 - **Mark reserved.** Clicking an empty room-day (today or later) on the Bookings calendar
   opens `BookingsBlockDatesModal` with `mode="reserve"`: house, room and night
   prefilled, titled "Mark reserved", one **Save**. A room linked to Airbnb adds the fact
-  row "Airbnb · Updates when Airbnb next checks PropLane" (`airbnbLinkForRoom`).
+  row "Airbnb · Updates when Airbnb next checks PropLane" (`airbnbLinkForRoom`). The Save needs a
+  guest (picked or new) or **Closed (no guest)** with a reason — [`bookings.md`](bookings.md)
+  § Every booking has a name.
 - **Unblock / Delete.** Taking a block back off the calendar — who may, what each
   action does and where it is offered — is owned by
   [`bookings.md`](bookings.md) § Blocks. What matters to the channel: both free the
@@ -155,8 +157,11 @@ Airbnb has no public write API, so the two directions are not equally fast:
   by [`bookings.md`](bookings.md) § Booking alerts and reminders. The diff is what decides
   there is anything to alert about: never on a connection's first sync (the baseline),
   never for a host block, never for a stay that already ended, and idempotent on
-  connection + stay (`eventId`), so a re-run does not notify twice. The payload keeps only
-  what the feed exposes — no guest name, and "Reserved" when Airbnb hides it.
+  connection + stay (`eventId`), so a re-run does not notify twice. The payload carries no contact
+  data; its `guestLabel` is the one label every Bookings surface uses for that stay
+  (`bookingEntryGuestLabel` — "Airbnb guest · HM…" when the code is all the feed gave), never a bare
+  "Reserved". Each booking also emails the workspace owner, and the sync files a resident for every
+  reservation: [`bookings.md`](bookings.md) § Every booking has a name.
 - **Who booked.** The feed never carries the guest's name, so a stay is identified from
   three things. Two are read off the event DESCRIPTION
   (`parseReservationDescription`, `reservation-details.ts`): the **reservation code**

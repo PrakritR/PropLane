@@ -49,6 +49,7 @@ const DEMO_MESSAGING_NUMBER_STATUS: ManagerMessagingNumberStatus = {
   },
   canRequest: false,
   requestedAtSignup: true,
+  lineReady: true,
   canSend: true,
   personalPhone: { phone: null, verifiedAt: null, forwardInbound: false },
 };

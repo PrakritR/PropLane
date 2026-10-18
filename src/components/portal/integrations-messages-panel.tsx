@@ -8,6 +8,7 @@ import { IntegrationRow } from "@/components/portal/integration-row";
 import { PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
+import { workspaceWorkNumber, type ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import { isManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
 type Channel = { value: string | null; loaded: boolean };
@@ -51,8 +52,7 @@ export function ManagerMessageChannelsPanel({ onManage }: { onManage?: () => voi
         read(`/api/manager/assistant-email${query}`),
       ]);
       if (controller.signal.aborted) return;
-      const phone = (numberBody as { number?: { phoneNumber?: unknown } } | null)?.number?.phoneNumber;
-      setNumber({ value: typeof phone === "string" && phone.trim() ? phone.trim() : null, loaded: true });
+      setNumber({ value: workspaceWorkNumber(numberBody as ManagerMessagingNumberStatus | null), loaded: true });
       const address = isManagerAssistantEmailStatus(emailBody) && emailBody.canUse ? emailBody.address?.trim() || null : null;
       setEmail({ value: address, loaded: true });
     })();

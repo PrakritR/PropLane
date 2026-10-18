@@ -85,7 +85,68 @@ through it or through the workspace-keyed helpers in
   `workspaceNumber` with `ownerName`; `canRequest` is false and `POST` is a
   403 `workspace_not_owned`. A co-manager never gets a line in a workspace
   they do not own, and never sees a line from a workspace they were not
-  granted.
+  granted. `workspaceNumber` is resolved the way a send resolves it
+  (`resolveWorkspaceStatusLine`, the status-screen twin of
+  `resolveOwnerSendNumberRow`), so a line the workspace holds by sharing or an
+  owner's legacy unplaced row shows instead of "No work number yet" —
+  `resolveWorkspaceWorkNumbers` alone only matches HOME rows. `lineReady` and
+  `sendingAvailable` for a teammate read the OWNER's access, not the viewer's:
+  `lineReady` is `sendEnvEnabled && evaluateWorkspaceSendReadiness` for that
+  workspace + owner (fail closed on any error), and the runtime/allowlist gate
+  is checked against the owner's seat. The viewer-allowlist gate is
+  deliberately not re-applied to a teammate — readiness already applies the
+  owner's. Gating a teammate on their own (absent) number, seat or wallet is
+  what reported the workspace's live line as "Finishing setup" (Oct 15).
+  **Two fields, two questions.** `lineReady` is the LINE's own answer (owner's
+  number, owner's seat, workspace wallet, deployment send switch) and is
+  identical for everyone looking at that workspace — everything that describes
+  the line reads it: the work-number card's caption
+  (`workNumberReadinessCaption`), `ManagerSmsWorkNumberHint` on every compose
+  surface, the resident-welcome reachability line, the listing CTA phone, and
+  the Workspace number row's Ready / Not ready. Only `workNumberAwaitingCarrier`
+  (a real `number` row short of registration) may name the carrier as the
+  reason; every other refusal gets neutral copy. **The WORDING of a blocked
+  line is `lineBlocked`**, the status's own reason - `deployment` (this
+  deployment's switch or runtime mode), `billing` (the workspace wallet),
+  `setup` (the line genuinely is not provisioned yet) or `unavailable` (the
+  control plane could not be read). A teammate has no `number` row to derive
+  one from, so without it every blocker collapsed into "Finishing setup" over a
+  live, carrier-approved line; "Finishing setup" is now reserved for
+  `setup`, and the teammate reads the same sentence the owner does
+  (`workNumberReadinessCaption` takes no role). A fifth word, `paused`
+  ("Texting paused"), covers a line that IS provisioned and registered but is
+  held on the provider side - quarantined, inside or past a reconciliation
+  grace window, or attached to the wrong Messaging Service. **Both branches
+  word the block through the one map** `lineBlockForSendReadinessReason`, over
+  the reasons in the order `evaluateWorkspaceSendReadiness` refuses in (the
+  send env, then the number's own sendability, then the wallet), so an owner
+  and a teammate never describe the same line differently. Coverage:
+  `tests/unit/line-block-for-send-readiness-reason.test.ts`. `canSend` is the VIEWER's
+  answer, and it gates every surface that offers a send — the inbox Text
+  channel, the notification compose channel picker, and the vendor record's
+  "Reach them by": `lineReady` plus, for a
+  teammate, their own Communication (`inbox`) grant at **edit** level, read with
+  the same `resolveSmsScopeManagerIds(db, actorUserId, "edit")` the send path
+  uses, so a read-only teammate is never offered a Text channel for a send
+  `manager-sms-send.server.ts` would answer 403. Fail closed on any error, and
+  never fold the viewer's grant back into `lineReady` or `sendingAvailable` —
+  that is exactly how a live workspace number came to read "Finishing setup".
+  The grant read is skipped when the deployment cannot send and otherwise runs
+  alongside the readiness chain, not after it.
+- **The setup nag is OWNER-ONLY.** The "Phone number not set up · Set up
+  messaging" banner (`messaging-setup-banner.tsx`), the dashboard CTA and the
+  attention-queue item are suppressed for `workspaceRole === "co_manager"`
+  even when the workspace has no number — a teammate cannot provision one.
+  Every reader that asks "does this workspace have a work number" goes through
+  the one helper `workspaceWorkNumber(status)`
+  (`src/lib/sms/manager-messaging-number.ts`): a teammate reads
+  `workspaceNumber`, an owner reads their own `number`. Never read
+  `status.number.phoneNumber` directly in a new reader — a teammate's own
+  retired row is not the workspace's line. Coverage:
+  `tests/unit/workspace-work-number.test.ts`,
+  `tests/unit/manager-messaging-setup-banner.test.tsx`,
+  `tests/unit/manager-messaging-number-teammate-can-send.test.ts`,
+  `tests/unit/work-number-readiness-caption.test.ts`.
 - **Inbound** follows the number: `resolveOwnedWorkNumber` returns the row's
   `workspaceId`, and `resolveWorkspaceOwnerForWorkNumber(db, owner, { workspaceId })`
   answers with that workspace's owner before resident identity, leasing and
@@ -95,8 +156,16 @@ through it or through the workspace-keyed helpers in
   rows only).
 - **Outbound** goes out from the line of the workspace the message is about:
   `resolveOwnerSendNumberRow` picks the house's workspace line, else (no house,
-  or an unplaced one) the owner's DEFAULT workspace's line
-  (`owner-sms-dispatcher.server.ts`). **No cross-workspace fallback** (Oct 12):
+  or an unplaced one) the owner's DEFAULT workspace's line. That resolution
+  plus its sendability, provider identity and workspace-wallet gate is ONE
+  read-only decision, `evaluateWorkspaceSendReadiness`
+  (`src/lib/sms/workspace-send-readiness.server.ts`) — it never reserves
+  credit. `loadSendPolicy` in `owner-sms-dispatcher.server.ts` calls it at the
+  send boundary and the messaging-number status route calls it so a teammate's
+  "can send" is exactly what a real send would decide; do not re-implement any
+  part of that chain in a third place. Pass `workspaceId` for a status check
+  (it wins over a house and resolves exactly like one). **No cross-workspace
+  fallback** (Oct 12):
   there is no "the owner has just one line, use it" and no default-workspace
   guess for a house placed in another workspace. A workspace with no number of
   its own (home row, or one it holds via `workspace_work_numbers`) gets the
@@ -1327,9 +1396,11 @@ never defaulting — the stored property JSON's own `contactSmsPhone` is
 manager-editable and is deliberately ignored), `/api/manager/phone` returns it
 as `listingCtaPhone` for manager-side previews, and the browser's
 `listingCtaSmsPhone` only normalizes/rejects. The browser must NEVER substitute
-a number of its own. In the manager's OWN preview of the listing
-(`managerPreviewChrome`) a missing work number also raises a "Set up messaging"
-banner, which a prospect never sees. Note `managerContactSmsPhoneForPublicCta`
+a number of its own. The listing preview carries no messaging banner: the
+"Set up messaging" notice lives in the portal layout
+(`ManagerMessagingSetupBanner`), is owner-only, and renders only on
+Communication and the messaging settings tab.
+Note `managerContactSmsPhoneForPublicCta`
 still collapses everything onto the Claw line under the shared-line bridge — it
 backs the SEND transport (`proplane-sms-transport.server.ts`) and work-number
 UI, not CTAs. Coverage:

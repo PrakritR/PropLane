@@ -32,6 +32,7 @@ import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   MANAGER_MESSAGING_SETTINGS_HREF,
   formatManagerMessagingPhone,
+  workspaceWorkNumber,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 import { trimmedText } from "@/lib/trimmed-text";
@@ -122,19 +123,19 @@ export function ManagerNotificationRoutingSetting() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const workNumberAssigned = Boolean(trimmedText(numberStatus?.number?.phoneNumber));
+  const workNumberAssigned = Boolean(workspaceWorkNumber(numberStatus));
   const textConnectionReady = Boolean(
-    numberStatus?.canSend &&
+    numberStatus?.lineReady &&
       workNumberAssigned &&
       trimmedText(numberStatus.personalPhone?.phone) &&
       numberStatus.personalPhone.forwardInbound,
   );
   const statusCopy = useMemo(() => {
     if (textConnectionReady) {
-      return `Alerts can be sent from ${formatManagerMessagingPhone(numberStatus?.number?.phoneNumber)} to ${formatManagerMessagingPhone(numberStatus?.personalPhone.phone)}.`;
+      return `Alerts can be sent from ${formatManagerMessagingPhone(workspaceWorkNumber(numberStatus))} to ${formatManagerMessagingPhone(numberStatus?.personalPhone.phone)}.`;
     }
     if (workNumberAssigned) {
-      return `Alerts can be sent from ${formatManagerMessagingPhone(numberStatus?.number?.phoneNumber)}.`;
+      return `Alerts can be sent from ${formatManagerMessagingPhone(workspaceWorkNumber(numberStatus))}.`;
     }
     return "PropLane Assistant will keep receiving alerts until your personal phone and work number are ready.";
   }, [numberStatus, textConnectionReady, workNumberAssigned]);

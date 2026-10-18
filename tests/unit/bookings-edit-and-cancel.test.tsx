@@ -5,6 +5,7 @@ import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
+import { ROOM_BLOCK_REASON_REQUIRED } from "@/lib/channel-calendar/room-block-name-rule";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 const entry: PropertyBookingEntry = { source: "block", propertyId: "house", propertyLabel: "House", roomId: "room", roomLabel: "Room", summary: "Guest", residentName: "Guest", residentEmail: "guest@example.test", residentPhone: "+12065550199", isBookingResidency: true, blockId: "block-1", start: "2099-01-01", end: "2099-01-05", rate: 45, rateBasis: "daily", bookingStatus: "confirmed", reason: "A note", stayDetails: { linen: "Delivered", baggage: "Yes" } };
 afterEach(cleanup);
@@ -110,6 +111,46 @@ describe("booking edit and undo", () => {
     expect(onSave.mock.calls[0][0]).toMatchObject({ id: "block-2", bookingStatus: "cancelled" });
     expect(onSave.mock.calls[1][0]).toMatchObject({ id: "block-2", bookingStatus: "hold" });
   });
+  // Every booking has a name and a closed room has a reason, but the rule arbitrates NEW content
+  // only: the route (`sameRoomBlockNameShape`) and the `update_room_block` tool
+  // (`nameShapeUnchanged`) both exempt a save that leaves the stored name, kind and reason as they
+  // are. The sheet has to agree, or a reserved block written before the rule (no reason stored)
+  // can never have its dates changed again.
+  const legacyReserved: PropertyBookingEntry = { source: "block", propertyId: "house", propertyLabel: "House", roomId: "room", roomLabel: "Room", summary: "Blocked", blockId: "block-3", start: "2099-03-01", end: "2099-03-04", bookingStatus: "confirmed", reason: "" };
+  const dateInputs = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[type="date"]'));
+
+  it("a reserved block stored with no reason keeps its dates editable, and the save leaves its shape alone", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AppUiProvider><BookingsEditSheet entry={legacyReserved} entries={[legacyReserved]} onClose={() => {}} onSave={onSave} /></AppUiProvider>);
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(dateInputs()[0], { target: { value: "2099-03-02" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ id: "block-3", checkIn: "2099-03-02", residentName: "", reason: "" });
+    // Stamping `blockKind` would make this new content the route then arbitrates - and refuses.
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty("blockKind");
+  });
+
+  it("but editing the label of a reasonless reservation is new content: the reason is required, and said out loud", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AppUiProvider><BookingsEditSheet entry={{ ...legacyReserved, reason: "Painting" }} entries={[]} onClose={() => {}} onSave={onSave} /></AppUiProvider>);
+    fireEvent.change(screen.getByDisplayValue("Painting"), { target: { value: "" } });
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("alert").textContent).toBe(ROOM_BLOCK_REASON_REQUIRED);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("naming the guest on a reserved block drops the closed kind and needs no reason", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AppUiProvider><BookingsEditSheet entry={{ ...legacyReserved, blockKind: "closed", reason: "Painting" }} entries={[]} onClose={() => {}} onSave={onSave} /></AppUiProvider>);
+    fireEvent.change(screen.getByLabelText("Guest name"), { target: { value: "Maya Chen" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ residentName: "Maya Chen" });
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty("blockKind");
+  });
+
   it("a room_date_block row whose own bookingStatus is cancelled is read as cancelled (calendar, feed and capacity agree)", async () => {
     const row = { propertyId: "house", roomId: "room", checkIn: "2099-02-01", checkOut: "2099-02-04", reason: "Closed" };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rows: [

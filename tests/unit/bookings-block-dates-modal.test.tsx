@@ -110,25 +110,46 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(group.lastElementChild).toBe(button);
   });
 
-  it("saves with no one by default, and with the picked resident's name and email", async () => {
+  it("will not save until a resident is picked or the room is closed with a reason, then saves the picked resident's name and email", async () => {
     const { view, onSave } = open();
     goToReview();
-    fireEvent.click(attr(view, "bookings-block-dates-save")!);
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]![0]).toMatchObject({ residentName: "", residentEmail: "" });
+    expect((attr(view, "bookings-block-dates-save") as HTMLButtonElement).disabled).toBe(true);
 
     goToProperty();
     const select = attr(view, "bookings-block-resident")!;
     expect(optionLabels(select)).toEqual([
-      "No one",
+      "Select resident",
       "Maya Zuneh · Room 3 · 4709A 8th Ave NE",
       "+ New resident…",
+      "Closed (no guest)",
     ]);
     pick(select, "email:maya@example.com");
     goToReview();
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
-    expect(onSave.mock.calls[1]![0]).toMatchObject({ residentName: "Maya Zuneh", residentEmail: "maya@example.com" });
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ residentName: "Maya Zuneh", residentEmail: "maya@example.com" });
+    expect(onSave.mock.calls[0]![0]).not.toHaveProperty("blockKind");
+  });
+
+  it("Closed (no guest) needs a reason, refuses the import markers, and saves blockKind closed with no name", async () => {
+    const { view, onSave } = open();
+    goToProperty();
+    pick(attr(view, "bookings-block-resident")!, "__closed__");
+    const reason = attr(view, "bookings-block-closed-reason")!;
+    goToReview();
+    expect((attr(view, "bookings-block-dates-save") as HTMLButtonElement).disabled).toBe(true);
+
+    goToProperty();
+    fireEvent.change(reason, { target: { value: "Airbnb" } });
+    goToReview();
+    expect((attr(view, "bookings-block-dates-save") as HTMLButtonElement).disabled).toBe(true);
+
+    goToProperty();
+    fireEvent.change(reason, { target: { value: "Painting" } });
+    goToReview();
+    fireEvent.click(attr(view, "bookings-block-dates-save")!);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ residentName: "", residentEmail: "", reason: "Painting", blockKind: "closed" });
   });
 
   it("+ New resident reveals inline fields, needs a name, and saves the typed person", async () => {
@@ -156,7 +177,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     goToProperty();
     fireEvent.click(attr(view, "bookings-block-resident-new")!);
     fireEvent.click(attr(view, "bookings-block-resident-pick-list")!);
-    expect(attr(view, "bookings-block-resident")!.textContent).toContain("No one");
+    expect(attr(view, "bookings-block-resident")!.textContent).toContain("Select resident");
   });
 
   it("labels the form Property, Move in, and Move out under Add booking", () => {
@@ -324,9 +345,9 @@ describe("BookingsBlockDatesModal — Quick book prefill", () => {
     expect(await saveDraft(view, onSave)).toMatchObject({ residentName: "Maya Zuneh", residentEmail: "maya@example.com" });
   });
 
-  it("keeps the day-after check-out and no resident when the new props are absent", async () => {
-    const { view, onSave } = openPrefilled({});
-    expect(await saveDraft(view, onSave)).toMatchObject({ checkOut: "2026-11-02", reason: "Reserved", residentName: "", residentEmail: "" });
+  it("keeps the day-after check-out when no check-out or reason is passed", async () => {
+    const { view, onSave } = openPrefilled({ initialResident: { name: "Maya", email: "MAYA@example.com" } });
+    expect(await saveDraft(view, onSave)).toMatchObject({ checkOut: "2026-11-02", reason: "", residentName: "Maya Zuneh" });
   });
 
   it("will not save while the Bookings reads are still out — the collision check is the empty list", async () => {

@@ -2,7 +2,7 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ManagerReachabilityLines } from "@/lib/manager-reachability-for-resident";
-import { formatManagerMessagingPhone } from "@/lib/sms/manager-messaging-number";
+import { formatManagerMessagingPhone, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { trimmedText } from "@/lib/trimmed-text";
 
@@ -27,8 +27,10 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
     ]);
     const numberBody = numberRes.ok
       ? (numberRes.data as {
-          canSend?: boolean;
+          lineReady?: boolean;
+          workspaceRole?: string | null;
           number?: { phoneNumber?: string | null };
+          workspaceNumber?: { phoneNumber?: string | null } | null;
         } | null)
       : null;
     const emailBody = emailRes.ok
@@ -39,8 +41,8 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
       : null;
 
     const phoneE164 =
-      numberBody?.canSend && trimmedText(numberBody.number?.phoneNumber)
-        ? trimmedText(numberBody.number?.phoneNumber)
+      numberBody?.lineReady && workspaceWorkNumber(numberBody)
+        ? workspaceWorkNumber(numberBody)
         : null;
 
     return {
