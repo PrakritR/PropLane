@@ -19,7 +19,7 @@ describe("settings rail", () => {
     expect(VENDOR_SETTINGS_RAIL.map((g) => g.label)).toEqual(["Profile", "Business", "Money", "Communication"]);
     const labels = (group: string) => VENDOR_SETTINGS_RAIL.find((g) => g.label === group)!.pages.map((p) => p.label);
     expect(labels("Profile")).toEqual(expect.arrayContaining(["Profile", "Login & security"]));
-    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "AI info", "Integrations"]));
+    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "Answers", "Integrations"]));
     expect(labels("Money")).toEqual(["Payouts", "Invoicing"]);
     expect(labels("Communication")).toEqual(["Phone & notifications", "Quick replies", "Work number & email"]);
   });

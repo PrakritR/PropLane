@@ -228,7 +228,7 @@ export function PortalCommandPalette({
           </div>
 
           <div ref={listRef} id="portal-palette-list" role="listbox" className="max-h-[min(60vh,440px)] overflow-y-auto pb-1.5">
-            <p className={groupLabel}>Assistant</p>
+            <p className={groupLabel}>Ask</p>
             {renderRow(rows[0]!, 0)}
 
             {jump.length ? (

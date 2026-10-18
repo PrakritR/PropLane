@@ -79,7 +79,7 @@ describe("portal mobile shell conventions", () => {
     expect(GLOBALS_CSS).toContain("width: 1.375rem");
   });
 
-  it("keeps the phone assistant entry in the top bar (no floating button) and desktop's in Ask PropLane, not the bottom nav", () => {
+  it("keeps the phone assistant entry in the top bar (no floating button) and desktop's in Search, not the bottom nav", () => {
     const AXIS_ASSISTANT_SOURCE = readFileSync(
       join(process.cwd(), "src/components/portal/axis-assistant.tsx"),
       "utf8",
@@ -92,7 +92,7 @@ describe("portal mobile shell conventions", () => {
     expect(AXIS_ASSISTANT_SOURCE).not.toContain("axis-assistant-fab");
     expect(MOBILE_NAV_SOURCE).toContain('data-attr="portal-mobile-assistant"');
     expect(GLOBALS_CSS).not.toContain(".axis-assistant-fab");
-    expect(PORTAL_TOP_BAR_SOURCE).toContain("Ask PropLane");
+    expect(PORTAL_TOP_BAR_SOURCE).toContain("Search");
     expect(PORTAL_TOP_BAR_SOURCE).toContain("hidden");
     expect(PORTAL_TOP_BAR_SOURCE).toContain("lg:flex");
     expect(GLOBALS_CSS).not.toContain(".axis-assistant-nav-btn");

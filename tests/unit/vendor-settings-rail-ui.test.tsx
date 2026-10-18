@@ -64,7 +64,7 @@ describe("vendor settings rail", () => {
     const rail = document.querySelector('nav[aria-label="Settings sections"]')!.textContent!;
     for (const label of [
       "Profile", "Login & security",
-      "Business", "Business details", "Trades & service area", "AI info",
+      "Business", "Business details", "Trades & service area", "Answers",
       "Money", "Payouts", "Invoicing",
       "Communication", "Phone & notifications", "Quick replies",
     ]) {
