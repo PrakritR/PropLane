@@ -34,8 +34,6 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
       { id: "profile", label: "Profile" },
       { id: "security", label: "Login & security" },
       { id: "preferences", label: "Preferences" },
-      { id: "feedback", label: "Feedback" },
-      { id: "account", label: "Account" },
     ],
   },
   {
@@ -58,8 +56,6 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
     label: "Communication",
     pages: [
       { id: "messaging", label: "Phone & notifications" },
-      { id: "quick-replies", label: "Quick replies" },
-      { id: "work-number-email", label: "Work number & email" },
     ],
   },
 ] as const;
@@ -67,7 +63,10 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
 /**
  * Old `?tab=` ids that must keep resolving after the regroup — Work contact &
  * email folded into Business details, Notifications into Phone & notifications,
- * Workspace access (removed earlier) onto Business details.
+ * Workspace access (removed earlier) onto Business details. Portal simplification (Oct 18, fourteen pages
+ * down to ten): Quick replies and Work number & email are sections of Phone & notifications, Account is a
+ * section of Login & security, and Feedback is the Help & feedback panel in the account menu, so its old
+ * link lands on Profile.
  */
 export const VENDOR_SETTINGS_TAB_ALIASES: Record<string, VendorSettingsPageId> = {
   work: "business",
@@ -77,6 +76,10 @@ export const VENDOR_SETTINGS_TAB_ALIASES: Record<string, VendorSettingsPageId> =
   workspaces: "business",
   "workspace-access": "business",
   notifications: "messaging",
+  "quick-replies": "messaging",
+  "work-number-email": "messaging",
+  account: "security",
+  feedback: "profile",
 };
 
 /**

@@ -391,9 +391,11 @@ export function ResidentLifecycleWorkspace({
                 {isCollapsed
                   ? null
                   : group.tabs.map((tab) => {
-                      const badge = badges?.[tab.id];
-                      const alert = ALERT_COUNTS.has(tab.id) && Boolean(badge);
-                      const isActive = active === tab.id;
+                      // A folded row (Leasing, My home, Money...) is active on any of its tabs and carries their counts.
+                      const members = tab.members?.length ? tab.members : [tab.id];
+                      const badge = members.reduce((sum, id) => sum + (badges?.[id] ?? 0), 0) || undefined;
+                      const alert = members.some((id) => ALERT_COUNTS.has(id) && Boolean(badges?.[id]));
+                      const isActive = members.includes(active);
                       const subOpen = Boolean(tab.subItems?.length) && (subOpened[tab.id] ?? isActive);
                       return (
                         <div key={tab.id} className="pls-item-wrap">
