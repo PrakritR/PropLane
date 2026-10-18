@@ -41,6 +41,7 @@ function seed(extra: Record<string, Record<string, unknown>[]> = {}) {
     account_link_invites: [],
     manager_property_records: [],
     manager_sms_numbers: [],
+    sms_runtime_config: [],
     ...extra,
   });
 }
@@ -150,9 +151,29 @@ describe("the Service list", () => {
     const asA = await svc.listServiceWorkspaces(client(), ADMIN_A);
     const asB = await svc.listServiceWorkspaces(client(), ADMIN_B);
     expect(asA.ok && asA.payload.workspaces).toEqual([
-      { id, name: "PropLane Seattle", city: "Seattle", isDefault: true, houseCount: 2, workNumber: "+12065550100", numberState: "provisioned", teamCount: 1, viewerRole: "admin", canManage: true },
+      { id, name: "PropLane Seattle", city: "Seattle", isDefault: true, houseCount: 2, workNumber: "+12065550100", workNumberSource: "own", teamCount: 1, viewerRole: "admin", canManage: true },
     ]);
     expect(asB.ok && asB.payload.workspaces[0]).toMatchObject({ viewerRole: null, canManage: false });
+  });
+
+  it("shows the number the workspace actually texts from: the shared PropLane line by default, its own only if it holds one, and never provisions", async () => {
+    const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: null })) as { id: string };
+    const list = async () => {
+      const r = await svc.listServiceWorkspaces(client(), ADMIN_A);
+      return r.ok ? r.payload.workspaces[0]!.workNumber + "|" + r.payload.workspaces[0]!.workNumberSource : "fail";
+    };
+    // per_workspace (default / unreadable config): nothing to show.
+    expect(await list()).toBe("null|null");
+    // The shared line is on for this workspace: the default PropLane number.
+    db.tables.sms_runtime_config = [{ singleton: true, line_mode: "shared", shared_number_e164: "+12065550111", shared_pilot_workspace_ids: [] }];
+    expect(await list()).toBe("+12065550111|shared");
+    // A paid specialized number of its own wins.
+    db.tables.manager_sms_numbers.push({ workspace_id: created.id, phone_number: "+12065550199", provision_state: "provisioned", released_at: null });
+    expect(await list()).toBe("+12065550199|own");
+    // A released one is not the workspace's number.
+    db.tables.manager_sms_numbers[0]!.released_at = "2026-10-01";
+    expect(await list()).toBe("+12065550111|shared");
+    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["create_portal_service_workspace"]);
   });
 
   it("reports unconfigured instead of an error when there is no service owner", async () => {

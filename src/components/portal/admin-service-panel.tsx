@@ -29,7 +29,7 @@ export type ServiceRow = {
   isDefault: boolean;
   houseCount: number;
   workNumber: string | null;
-  numberState: string | null;
+  workNumberSource: "own" | "shared" | null;
   teamCount: number;
   viewerRole: string | null;
   canManage: boolean;
@@ -80,12 +80,10 @@ export function AdminServicePanel() {
   const [addOpen, setAddOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
-  const [numberOpen, setNumberOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [cityDraft, setCityDraft] = useState("");
-  const [areaCode, setAreaCode] = useState("");
   const [team, setTeam] = useState<TeamState | null>(null);
   const [candidateId, setCandidateId] = useState("");
 
@@ -209,27 +207,6 @@ export function AdminServicePanel() {
     }
   };
 
-  const requestNumber = async () => {
-    if (!selected) return;
-    setBusy(true);
-    setFormError(null);
-    try {
-      const { ok, json } = await post<{ workNumber?: string | null }>({ action: "number", id: selected.id, ...(areaCode ? { areaCode } : {}) });
-      if (!ok) {
-        setFormError(json.error ?? "Could not set up the number.");
-        return;
-      }
-      setNumberOpen(false);
-      setAreaCode("");
-      showToast(json.workNumber ? `Work number ${json.workNumber} is ready.` : "Number requested.");
-      reload();
-    } catch {
-      setFormError("Could not set up the number.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const bulkActions = selected && selected.viewerRole ? (
     <>
       <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-service-open" disabled={busy} onClick={() => void open(selected)}>
@@ -255,17 +232,6 @@ export function AdminServicePanel() {
           >
             Team
           </Button>
-          {!selected.workNumber ? (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="admin-service-number"
-              onClick={() => { setFormError(null); setAreaCode(""); setNumberOpen(true); }}
-            >
-              Set up number
-            </Button>
-          ) : null}
         </>
       ) : null}
     </>
@@ -400,25 +366,6 @@ export function AdminServicePanel() {
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
       </Modal>
 
-      <Modal
-        open={numberOpen}
-        title="Set up work number"
-        onClose={() => setNumberOpen(false)}
-        dataAttr="admin-service-number-modal"
-        footer={
-          <ModalFooter>
-            <Button type="button" disabled={busy || (areaCode !== "" && !/^\d{3}$/.test(areaCode))} data-attr="admin-service-number-save" onClick={() => void requestNumber()}>
-              Get number
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <label className="block text-[13px] font-semibold text-foreground">
-          <span className="mb-1 block">Area code</span>
-          <Input value={areaCode} onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" maxLength={3} placeholder="206" data-attr="admin-service-number-area" />
-        </label>
-        {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
-      </Modal>
     </ManagerPortalPageShell>
   );
 }

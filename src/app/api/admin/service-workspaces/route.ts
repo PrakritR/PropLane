@@ -12,7 +12,6 @@ import {
   renameServiceWorkspace,
   type ServiceFailure,
 } from "@/lib/service/service-workspaces.server";
-import { requestServiceWorkspaceNumber } from "@/lib/service/service-number.server";
 
 export const runtime = "nodejs";
 
@@ -71,11 +70,6 @@ export async function POST(request: Request) {
         maxAge: 60 * 60 * 24 * 365,
       });
       return response;
-    }
-    case "number": {
-      const result = await requestServiceWorkspaceNumber(db, admin.userId, { id, areaCode: body.areaCode });
-      if (!result.ok) return failure(result);
-      return NextResponse.json({ ok: true, workNumber: result.workNumber, state: result.state }, { headers: NO_STORE });
     }
     case "team": {
       const result = await listServiceTeam(db, admin.userId, id);

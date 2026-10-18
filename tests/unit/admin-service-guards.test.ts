@@ -84,6 +84,16 @@ describe("no admin branch inside the manager side", () => {
     expect(hits).toEqual([]);
   });
 
+  it("provisions, reserves and exempts no number for service workspaces", () => {
+    const files = walk("src/lib/service").concat(walk("src/app/api/admin/service-workspaces"), ["src/components/portal/admin-service-panel.tsx"]);
+    for (const f of files) {
+      expect(read(f), f).not.toMatch(/provisionManagerNumber|provisionNumberForWorkspace|ensureManagerNumberRecord|reconcileManagerSmsEntitlement/);
+    }
+    for (const f of ["src/lib/sms/work-numbers.server.ts", "src/lib/sms/manager-sms-entitlement.server.ts", "src/lib/sms/manager-number-provisioning.server.ts"]) {
+      expect(read(f), f).not.toMatch(/isPlatformServiceOwner|@\/lib\/service\//);
+    }
+  });
+
   it("the Service routes and panels sit behind the admin gate", () => {
     expect(read("src/app/api/admin/service-workspaces/route.ts")).toMatch(/requireAdminRoute\(\)/);
     const verbs = read("src/app/api/admin/service-workspaces/route.ts").match(/export async function (GET|POST)/g) ?? [];

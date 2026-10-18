@@ -6,6 +6,7 @@ import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { actorWorkspaceStanding, workspaceAdminCount } from "@/lib/workspaces/membership.server";
 import { canActOnMember } from "@/lib/workspaces/membership";
 import { cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
 
 /**
@@ -34,8 +35,9 @@ export type ServiceWorkspaceListRow = {
   city: string | null;
   isDefault: boolean;
   houseCount: number;
+  /** The number this workspace actually texts from: its own paid number if it has one, else the shared PropLane line it is on, else none. */
   workNumber: string | null;
-  numberState: string | null;
+  workNumberSource: "own" | "shared" | null;
   teamCount: number;
   /** What the viewing operator is in this workspace; null = not a member (cannot open it). */
   viewerRole: string | null;
@@ -47,6 +49,23 @@ export type ServiceListPayload = {
   ownerUserId: string | null;
   workspaces: ServiceWorkspaceListRow[];
 };
+
+/**
+ * No number is provisioned, reserved or exempted for a service workspace: it texts from the same default PropLane
+ * line as everyone else, or from its own number only if that was paid for the normal way (Pro/Business).
+ */
+function resolveTextingNumber(
+  own: Record<string, unknown> | undefined,
+  sharedLine: Awaited<ReturnType<typeof loadSharedLineConfig>>,
+  workspaceId: string,
+): { workNumber: string | null; workNumberSource: "own" | "shared" | null } {
+  const ownNumber = typeof own?.phone_number === "string" && own.phone_number.trim() ? own.phone_number.trim() : null;
+  if (ownNumber) return { workNumber: ownNumber, workNumberSource: "own" };
+  if (workspaceOnSharedLine(sharedLine, workspaceId) && sharedLine.sharedNumber) {
+    return { workNumber: sharedLine.sharedNumber, workNumberSource: "shared" };
+  }
+  return { workNumber: null, workNumberSource: null };
+}
 
 export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: string): Promise<ServiceResult<{ payload: ServiceListPayload }>> {
   const owner = await resolveServiceOwner(db);
@@ -65,7 +84,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return { ok: true, payload: { configured: true, ownerUserId: owner.ownerUserId, workspaces: [] } };
 
-  const [houses, numbers, links] = await Promise.all([
+  const [houses, numbers, links, sharedLine] = await Promise.all([
     db.from("manager_property_records").select("id, workspace_id").eq("manager_user_id", owner.ownerUserId).in("workspace_id", ids),
     db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at").in("workspace_id", ids),
     db
@@ -74,6 +93,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       .eq("inviter_user_id", owner.ownerUserId)
       .in("workspace_id", ids)
       .in("status", ["accepted", "pending"]),
+    loadSharedLineConfig(db),
   ]);
   if (houses.error || numbers.error || links.error) return fail(503, "Could not load service workspaces. Please retry.");
 
@@ -89,8 +109,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       city: row.city?.trim() || null,
       isDefault: row.is_default,
       houseCount: ((houses.data ?? []) as Record<string, unknown>[]).filter((h) => h.workspace_id === row.id).length,
-      workNumber: (live?.phone_number as string | null | undefined) ?? null,
-      numberState: live ? String(live.provision_state ?? "") || null : null,
+      ...resolveTextingNumber(live, sharedLine, row.id),
       teamCount: members.filter((l) => l.status === "accepted").length,
       viewerRole: myRole,
       canManage: myRole === "owner" || myRole === "admin" || myRole === "full",

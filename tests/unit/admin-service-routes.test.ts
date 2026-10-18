@@ -26,8 +26,6 @@ vi.mock("@/lib/auth/admin-role", () => ({
 vi.mock("@/lib/manager-access-server", () => ({
   ensureProfileProplaneId: async (_db: unknown, id: string) => ({ ok: true, proplaneId: `AX-${id.slice(0, 4)}`, fullName: "N", email: "e@x.com", role: "admin" }),
 }));
-const requestNumber = vi.fn();
-vi.mock("@/lib/service/service-number.server", () => ({ requestServiceWorkspaceNumber: (...a: unknown[]) => requestNumber(...a) }));
 
 const route = await import("@/app/api/admin/service-workspaces/route");
 
@@ -52,7 +50,6 @@ const ACTIONS: Array<Record<string, unknown>> = [
   { action: "create", name: "PropLane Seattle", city: "Seattle" },
   { action: "rename", id: "x", name: "n" },
   { action: "open", id: "x" },
-  { action: "number", id: "x" },
   { action: "team", id: "x" },
   { action: "team-add", id: "x", userId: ADMIN_B },
   { action: "team-remove", id: "x", linkId: "y" },
@@ -74,7 +71,6 @@ describe("the admin gate", () => {
     expect(db.rpcCalls).toHaveLength(0);
     expect(db.tables.portal_workspaces).toHaveLength(0);
     expect(db.tables.account_link_invites).toHaveLength(0);
-    expect(requestNumber).not.toHaveBeenCalled();
   });
 
   it("rejects a non-object body and an unknown action", async () => {

@@ -383,24 +383,23 @@ the Admin role** (an accepted `account_link_invites` row pinned to the workspace
 
 **Routes** (`POST|GET /api/admin/service-workspaces`, every verb starts with `requireAdminRoute()`):
 `create` (owned by the service owner, the creating operator is seated as Admin; the workspace is deleted if
-that seating fails), `rename`, `open`, `number`, `team`, `team-add`, `team-remove`. Logic is in
+that seating fails), `rename`, `open`, `team`, `team-add`, `team-remove`. Logic is in
 `src/lib/service/service-workspaces.server.ts`; each action re-derives what the operator IS inside the
-workspace (`actorWorkspaceStanding`): Open needs an accepted membership (or ownership), rename / team /
-number need the workspace "members" right (owner or Admin). A non-member admin sees the row but cannot act.
+workspace (`actorWorkspaceStanding`): Open needs an accepted membership (or ownership), rename / team
+need the workspace "members" right (owner or Admin). A non-member admin sees the row but cannot act.
 `team-add` only accepts a target that itself holds the admin role (re-checked server-side); `team-remove`
 cancels only that workspace's own row (`canActOnMember`). **Open** sets the same `proplane-workspace`
 cookie the manager portal's switcher sets (`POST /api/workspaces` select) and lands on
 `/portal/properties`, so the viewer reads only that workspace's houses.
 
-**Service number.** Each service workspace may buy its own work number through the existing
-`provisionNumberForWorkspace` (one per workspace, separate from the shared PropLane line). The service
-owner is entitled regardless of plan (`serviceOwnerEntitlement` in `manager-sms-entitlement.server.ts`, used
-by both `reconcileManagerSmsEntitlement` and the dispatch-time `getStoredManagerSmsEntitlement`) and
-exempt from the per-plan number budget; the admin `number` action replaces the manager route's "only the
-owner buys" refusal with "the operator must run this workspace". W16 (personalized numbers gated to
-Pro/Business) must keep `isPlatformServiceOwner` as an allow.
-`requestServiceWorkspaceNumber` in `service-number.server.ts` repeats the manager route's runtime kill
-switches (`SMS_PROVISIONING_ENABLED`, `sms_runtime_config.mode`, allowlist keyed on the owner).
+**Service number: there is none of its own.** Service workspaces use the same default PropLane line as every
+other workspace (captain, Oct 18). Nothing is provisioned, reserved or exempted for them: no route action, no
+entitlement bypass, no budget exemption (`tests/unit/admin-service-guards.test.ts` fails if `src/lib/service/`
+touches provisioning, or if the sms entitlement/provisioning modules mention the service owner). A workspace
+gets its own number only the normal way (W16: paid Pro/Business specialized number). The Service list shows
+the number the workspace actually texts from (`workNumber` + `workNumberSource`): its own live number if it
+holds one, else the shared PropLane line when `sms_runtime_config` puts the workspace on it
+(`workspaceOnSharedLine`), else "No number".
 
 **Invariants.** No manager route gains an admin branch (`tests/unit/admin-service-guards.test.ts` pins the
 set of manager-side files that use an admin gate, and forbids any of them importing `@/lib/service/`). The
@@ -409,5 +408,4 @@ admin ROLE is still not the all-owners read. Purge: `platform_service_settings` 
 
 **Not done / notes.** The service owner still needs a plan for *inviting non-admin teammates by role* through
 the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
-admins directly and links to the portal for role invites. Sending from the service number is billed by the
-workspace-owner comms credit like any workspace.
+admins directly and links to the portal for role invites.
