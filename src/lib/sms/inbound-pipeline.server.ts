@@ -56,6 +56,7 @@ import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.serve
 import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { loadThreadPause } from "@/lib/one-number/session.server";
+import { gateAiReply } from "@/lib/one-number/knowledge/reply-modes.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
@@ -1046,7 +1047,21 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       inboundText: `${photoPrefix}${body}`,
       inboundMessageSid: messageSid,
     });
-    if (turn) {
+    // One-number reply modes: in a workspace that picked a mode for this topic, a `draft` reply is
+    // held for the manager instead of texted. No mode picked = the reply goes out exactly as before.
+    const residentHeld = turn
+      ? (
+          await gateAiReply(db, {
+            workspaceId: workspaceId ?? null,
+            ownerUserId: managerId,
+            role: "resident",
+            phone: fromPhone,
+            inboundText: body,
+            replyText: stripLongDashes(turn.reply),
+          })
+        ).held
+      : false;
+    if (turn && !residentHeld) {
       const prepared = await prepareInboundReply(db, {
         messageSid,
         workerId: inboundWorkerId,
@@ -1144,7 +1159,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         idempotencyKey: `inbound-sms:${messageSid}`,
         sms: false,
       });
-      if (turn?.reply?.trim()) {
+      if (turn?.reply?.trim() && !residentHeld) {
         await fanOutWorkspaceNotice(db, {
           ownerUserId: managerId,
           workspaceId: workspaceId ?? null,
@@ -1156,7 +1171,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         });
       }
     }
-    if (turn) return twimlOk();
+    if (turn && !residentHeld) return twimlOk();
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
       return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
     }

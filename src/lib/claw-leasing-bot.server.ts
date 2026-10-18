@@ -511,7 +511,7 @@ export type HandleClawInboundResult = {
   outboxId?: string;
   durablyAccepted?: boolean;
   suppressed?: boolean;
-  completedWithoutReply?: "quiet_handoff";
+  completedWithoutReply?: "quiet_handoff" | "held_as_draft";
   shadowInput?: ProspectShadowBurst;
   /** Durably recorded but not queued (QStash unavailable): the caller runs it. */
   inlineBurst?: InlineProspectBurst;
@@ -1295,6 +1295,21 @@ export async function handleClawLeasingInbound(args: {
         return { ok: true, intent, replied: false, suppressed: true };
       }
       if (agent?.reply) {
+        // One-number reply modes: a `draft` topic holds the reply for the manager's composer. No mode
+        // picked for the workspace = the reply goes out exactly as before.
+        const { gateAiReply } = await import("@/lib/one-number/knowledge/reply-modes.server");
+        const { workspaceForWorkNumber } = await import("@/lib/one-number/knowledge/scope.server");
+        const gate = await gateAiReply(db, {
+          workspaceId: await workspaceForWorkNumber(db, landlordId, workNumber),
+          ownerUserId: landlordId,
+          role: "prospect",
+          phone: from,
+          inboundText: text,
+          replyText: agent.reply,
+        });
+        if (gate.held) {
+          return { ok: true, intent, replied: false, completedWithoutReply: "held_as_draft" };
+        }
         const prepared = args.onPreparedReply
           ? await args.onPreparedReply({
               routeKind: "leasing_agent",

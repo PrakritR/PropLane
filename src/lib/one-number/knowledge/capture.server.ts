@@ -92,6 +92,7 @@ export async function captureFromManagerSend(
       .eq("owner_user_id", args.ownerUserId)
       .eq("phone_key", phoneKey)
       .eq("status", "pending")
+      .eq("mode", "draft")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

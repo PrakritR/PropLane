@@ -234,3 +234,30 @@ export async function defaultWorkspaceIdFor(db: SupabaseClient, ownerUserId: str
   const all = await ownerWorkspaces(db, ownerUserId);
   return all.find((w) => w.isDefault)?.id ?? (all.length === 1 ? all[0]!.id : null);
 }
+
+/**
+ * The workspace a work number answers for: the number's home workspace, else the owner's only or
+ * default workspace. Used where a reply path knows the line but not the workspace.
+ */
+export async function workspaceForWorkNumber(
+  db: SupabaseClient,
+  ownerUserId: string,
+  workNumber: string | null | undefined,
+): Promise<string | null> {
+  const number = workNumber?.trim();
+  if (number) {
+    try {
+      const { data } = await db
+        .from("manager_sms_numbers")
+        .select("workspace_id")
+        .eq("manager_user_id", ownerUserId)
+        .eq("phone_number", number)
+        .maybeSingle();
+      const id = (data as { workspace_id?: string | null } | null)?.workspace_id;
+      if (id) return String(id);
+    } catch {
+      /* fall through to the owner's default */
+    }
+  }
+  return defaultWorkspaceIdFor(db, ownerUserId);
+}
