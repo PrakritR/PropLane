@@ -16,6 +16,8 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { isPlatformServiceOwner, PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
 import { resolveWorkspaceStatusLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -88,6 +90,7 @@ async function buildStatus(
     profileResult,
     automationSettings,
     all,
+    lineConfig,
   ] = await Promise.all([
     db
       .from("sms_runtime_config")
@@ -116,6 +119,8 @@ async function buildStatus(
       .maybeSingle(),
     loadManagerAutomationSettings(db, userId).catch(() => null),
     resolveWorkspaceWorkNumbers(db, userId).catch(() => null),
+    // Fails closed to per_workspace: then `sharedLine` stays null and nothing in Settings changes.
+    loadSharedLineConfig(db).catch(() => null),
   ]);
   // Full per-workspace number lists (up to 2, sharing included) for the
   // grouped Settings → Communication → Work numbers view. Only fetched for
@@ -292,7 +297,8 @@ async function buildStatus(
     viewerMayText = true;
   }
   const canSend = lineReady && viewerMayText;
-  const canRequestBilling = entitlementCanBeReconciled;
+  // PropLane's own managed-service account always may hold a number of its own.
+  const canRequestBilling = entitlementCanBeReconciled || isPlatformServiceOwner(userId);
 
   // One work number per workspace: a co-manager reads the owner's line and
   // never gets a Request button. Their own legacy row (bought before numbers
@@ -322,8 +328,16 @@ async function buildStatus(
     };
   }
 
+  // The set PropLane line, while it is live: which number every workspace texts from by default, and
+  // whether THIS workspace is on it (a workspace with a number of its own is not).
+  const sharedLine: ManagerMessagingNumberStatus["sharedLine"] =
+    lineConfig && lineConfig.mode === "shared" && lineConfig.sharedNumber
+      ? { number: lineConfig.sharedNumber, onSharedLine: workspaceOnSharedLine(lineConfig, workspace.id) }
+      : null;
+
   return {
     mode,
+    sharedLine,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
     workspaceNumber,
     workspace: { id: workspace.id, name: workspace.name, owned: workspace.owned, isDefault: workspace.isDefault },
@@ -378,6 +392,7 @@ function publicStatus(
 ): ManagerMessagingNumberStatus {
   return {
     mode: status.mode,
+    sharedLine: status.sharedLine ?? null,
     workspaceRole: status.workspaceRole,
     workspaceNumber: status.workspaceNumber ?? null,
     workspace: status.workspace ?? null,
@@ -418,6 +433,7 @@ const PUBLIC_PROVISIONING_ERROR_PATTERNS: RegExp[] = [
   /^This workspace already has its own number\. Share a number in from another workspace instead of buying a second one\.$/,
   /^You're at your included work numbers\. Add an extra work number in Billing & plan to buy another\.$/,
   /^You cannot request a number for that workspace\.$/,
+  /^This workspace texts from the PropLane line\.$/,
 ];
 
 function publicProvisioningError(error: string): string {
@@ -539,11 +555,16 @@ export async function POST(req: Request) {
 
   // Reconcile at the explicit-request boundary, not on GET. Status checks stay
   // read-only and billing/provider work happens only after a manager asks.
-  const entitlement = await reconcileManagerSmsEntitlement(
-    actor.db,
-    actor.userId,
-  );
+  // PropLane's own managed-service workspaces (owned by the platform service account) are always
+  // allowed a number of their own; every other workspace needs a paid Pro or Business plan, and a
+  // Free workspace simply texts from the PropLane line.
+  const entitlement = isPlatformServiceOwner(actor.userId)
+    ? ({ eligible: true, tier: "business", source: "none" } as const)
+    : await reconcileManagerSmsEntitlement(actor.db, actor.userId);
   if (!entitlement.eligible) {
+    if (entitlement.reason === "free") {
+      return NextResponse.json(PERSONAL_NUMBER_FREE_REFUSAL, { status: 403, headers: { "Cache-Control": "private, no-store" } });
+    }
     // A trial is a definite, not a transient, refusal — a work number is a paid
     // feature and this account is not paying yet (`refuseTrialForNumber`
     // already collapsed an eligible trial to `reason: "trialing"` above). Give
@@ -606,7 +627,7 @@ export async function POST(req: Request) {
         ...next,
         error: publicProvisioningError(result.error),
       },
-      { status: result.state === "pending_registration" ? 503 : 502 },
+      { status: "code" in result && result.code === "not_entitled" ? 403 : result.state === "pending_registration" ? 503 : 502 },
     );
   }
 

@@ -75,6 +75,12 @@ export type ManagerMessagingPlanTier = "free" | "paid" | "unknown";
 
 export type ManagerMessagingNumberStatus = {
   mode: ManagerMessagingRuntimeMode;
+  /**
+   * The set PropLane line, present only while the shared line is live. `onSharedLine` is whether
+   * THIS workspace texts from it (false once the workspace holds a number of its own). Null =
+   * per_workspace: Settings draws exactly what it always has.
+   */
+  sharedLine?: { number: string; onSharedLine: boolean } | null;
   workspaceRole: ManagerMessagingWorkspaceRole;
   provisioningAvailable: boolean;
   /**
