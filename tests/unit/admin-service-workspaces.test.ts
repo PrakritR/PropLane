@@ -10,6 +10,9 @@ const ADMIN_A = "22222222-2222-4222-8222-222222222222";
 const ADMIN_B = "33333333-3333-4333-8333-333333333333";
 const MANAGER = "44444444-4444-4444-8444-444444444444";
 const OUTSIDER = "55555555-5555-4555-8555-555555555555";
+const CLIENT = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+const CLIENT2 = "aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa";
+const RESIDENT = "aaaaaaaa-3333-4333-8333-aaaaaaaaaaaa";
 
 let admins = new Set<string>();
 vi.mock("@/lib/auth/admin-role", () => ({
@@ -36,8 +39,13 @@ function seed(extra: Record<string, Record<string, unknown>[]> = {}) {
   admins = new Set([OWNER, ADMIN_A, ADMIN_B]);
   db = makeServiceFakeDb({
     platform_service_settings: [{ singleton: true, owner_user_id: OWNER }],
-    profile_roles: [{ user_id: OWNER, role: "manager" }],
-    profiles: [OWNER, ADMIN_A, ADMIN_B, MANAGER, OUTSIDER].map((id) => ({ id, full_name: `Name ${id.slice(0, 4)}`, email: `${id.slice(0, 4)}@example.com` })),
+    profile_roles: [OWNER, CLIENT, CLIENT2].map((user_id) => ({ user_id, role: "manager" })).concat([{ user_id: RESIDENT, role: "resident" }]),
+    profiles: [OWNER, ADMIN_A, ADMIN_B, MANAGER, OUTSIDER, CLIENT, CLIENT2, RESIDENT].map((id) => ({
+      id,
+      full_name: `Name ${id.slice(0, 4)}`,
+      email: `${id.slice(0, 4)}@example.com`,
+      manager_id: `AX-${id.slice(0, 4).toUpperCase()}`,
+    })),
     portal_workspaces: [],
     account_link_invites: [],
     manager_property_records: [],
@@ -297,5 +305,95 @@ describe("renaming and the team", () => {
     expect(db.tables.account_link_invites.find((l) => l.id === added.linkId)!.status).toBe("cancelled");
     expect(db.tables.account_link_invites.find((l) => l.id === "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")!.status).toBe("accepted");
     expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_B, id)).toMatchObject({ ok: false, status: 403 });
+  });
+});
+
+describe("one workspace per owner client (per city, owner of record, invite)", () => {
+  async function made(city: string | null = "Seattle", ownerOfRecord: unknown = "Maple Holdings") {
+    return ((await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city, ownerOfRecord })) as { id: string }).id;
+  }
+
+  it("stores the client's name typed on +, shows it as the owner of record, and refuses an unusable one", async () => {
+    const id = await made();
+    expect(db.tables.portal_workspaces[0]).toMatchObject({ id, owner_of_record_name: "Maple Holdings", city: "Seattle" });
+    const list = await svc.listServiceWorkspaces(client(), ADMIN_A);
+    expect(list.ok && list.payload.workspaces[0]!.ownerOfRecord).toEqual({ name: "Maple Holdings", linked: false });
+    expect(await svc.createServiceWorkspace(client(), ADMIN_A, { name: "X", city: null, ownerOfRecord: "n".repeat(81) })).toMatchObject({ ok: false, status: 400 });
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id, name: "PropLane Seattle", city: "Seattle", ownerOfRecord: "Birch LLC" })).toEqual({ ok: true });
+    expect(db.tables.portal_workspaces[0]!.owner_of_record_name).toBe("Birch LLC");
+    // Omitting it on rename leaves it alone.
+    await svc.renameServiceWorkspace(client(), ADMIN_A, { id, name: "PropLane Seattle 2", city: "Seattle" });
+    expect(db.tables.portal_workspaces[0]!.owner_of_record_name).toBe("Birch LLC");
+  });
+
+  it("invites the property owner by PropLane ID as a PENDING Admin member flagged owner of record", async () => {
+    const id = await made();
+    const res = await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true });
+    expect(res.ok).toBe(true);
+    expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({
+      inviter_user_id: OWNER,
+      workspace_id: id,
+      team_role: "admin",
+      house_scope: "all",
+      status: "pending",
+      is_owner_of_record: true,
+    });
+    // Nothing of the client's own accounts or workspaces is touched.
+    expect(db.tables.portal_workspaces).toHaveLength(1);
+    expect(db.tables.profile_roles).toHaveLength(4);
+  });
+
+  it("shows a pending invitee by the invite-time name snapshot only, with no email", async () => {
+    const id = await made();
+    await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true });
+    const team = await svc.listServiceTeam(client(), ADMIN_A, id);
+    const row = team.ok ? team.members.find((m) => m.userId === CLIENT)! : null;
+    expect(row).toMatchObject({ status: "pending", email: "", ownerOfRecord: true, role: "admin" });
+    expect(team.ok && team.candidates.map((c) => c.userId)).not.toContain(CLIENT);
+  });
+
+  it("an accepted owner of record is the workspace's owner of record in the list, by name", async () => {
+    const id = await made();
+    await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true });
+    db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)!.status = "accepted";
+    const list = await svc.listServiceWorkspaces(client(), ADMIN_A);
+    expect(list.ok && list.payload.workspaces[0]!.ownerOfRecord).toEqual({ name: "Name aaaa", linked: true });
+    // The accepted client opens it in the normal portal like any Admin member.
+    expect(await svc.authorizeOpenServiceWorkspace(client(), CLIENT, id)).toEqual({ ok: true, id });
+  });
+
+  it("allows only one owner of record per workspace, on invite and on flag", async () => {
+    const id = await made();
+    await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })).toMatchObject({ ok: false, status: 409 });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true })).toMatchObject({ ok: false, status: 409 });
+    // A second client person, flagged: refused while the first holds it; allowed after it is cleared.
+    db.tables.profiles.find((p) => p.id === CLIENT2)!.manager_id = "AX-CLNT2";
+    const link2 = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-CLNT2" })) as { linkId: string };
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: link2.linkId, value: true })).toMatchObject({ ok: false, status: 409 });
+    const first = db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)!;
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: String(first.id), value: false })).toEqual({ ok: true });
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: link2.linkId, value: true })).toEqual({ ok: true });
+    expect(db.tables.account_link_invites.find((l) => l.id === link2.linkId)!.is_owner_of_record).toBe(true);
+  });
+
+  it("refuses an unknown ID, an account with no property portal, the owner, a duplicate, a non-member operator and a viewer", async () => {
+    const id = await made();
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-NOPE" })).toMatchObject({ ok: false, status: 404 });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "" })).toMatchObject({ ok: false, status: 400 });
+    db.tables.profiles.find((p) => p.id === RESIDENT)!.manager_id = "AX-RES";
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-RES" })).toMatchObject({ ok: false, status: 400 });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-1111" })).toMatchObject({ ok: false, status: 409 });
+    expect(await svc.inviteServiceClient(client(), ADMIN_B, { id, proplaneId: "AX-AAAA" })).toMatchObject({ ok: false, status: 403 });
+    db.tables.account_link_invites.push({ id: "viewer-link", inviter_user_id: OWNER, invitee_user_id: ADMIN_B, workspace_id: id, team_role: "viewer", status: "accepted" });
+    expect(await svc.inviteServiceClient(client(), ADMIN_B, { id, proplaneId: "AX-AAAA" })).toMatchObject({ ok: false, status: 403 });
+    expect(db.tables.account_link_invites.filter((l) => l.status === "pending")).toHaveLength(0);
+  });
+
+  it("withdraws a pending invite", async () => {
+    const id = await made();
+    const sent = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })) as { linkId: string };
+    expect(await svc.removeServiceTeamMember(client(), ADMIN_A, { id, linkId: sent.linkId })).toEqual({ ok: true });
+    expect(db.tables.account_link_invites.find((l) => l.id === sent.linkId)!.status).toBe("cancelled");
   });
 });

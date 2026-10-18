@@ -69,15 +69,19 @@ export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
 
 /** Service workspaces grouped per city: Seattle first, the rest alphabetical, workspaces with no city last. */
 export function groupServiceByCity(rows: ServiceRow[]): { city: string | null; rows: ServiceRow[] }[] {
-  const map = new Map<string, ServiceRow[]>();
+  // One group per city, matched ignoring case and spacing; the first spelling seen is the heading.
+  const map = new Map<string, { city: string; rows: ServiceRow[] }>();
   for (const row of rows) {
-    const key = row.city?.trim() ?? "";
-    map.set(key, [...(map.get(key) ?? []), row]);
+    const display = row.city?.trim().replace(/\s+/g, " ") ?? "";
+    const key = display.toLowerCase();
+    const group = map.get(key);
+    if (group) group.rows.push(row);
+    else map.set(key, { city: display, rows: [row] });
   }
-  const rank = (city: string) => (!city ? 2 : city.toLowerCase() === "seattle" ? 0 : 1);
+  const rank = (key: string) => (!key ? 2 : key === "seattle" ? 0 : 1);
   return [...map.entries()]
     .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
-    .map(([city, list]) => ({ city: city || null, rows: list }));
+    .map(([, group]) => ({ city: group.city || null, rows: group.rows }));
 }
 
 async function post<T extends Record<string, unknown>>(body: Record<string, unknown>): Promise<{ ok: boolean; json: T & { error?: string }; res: Response }> {
