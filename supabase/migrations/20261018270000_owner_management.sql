@@ -762,6 +762,42 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------------------------------
+-- Platform views for the admin Property management half and the daily reconciliation.
+-- ---------------------------------------------------------------------------------------------
+create or replace function public.platform_ledger_totals()
+returns table (account text, total bigint, matured bigint)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select l.account,
+         coalesce(sum(l.amount_cents), 0)::bigint,
+         coalesce(sum(l.amount_cents) filter (where l.available_on is null or l.available_on <= now()), 0)::bigint
+    from public.party_ledger_lines l
+   group by l.account;
+$$;
+
+create or replace function public.platform_fee_revenue_by_month()
+returns table (workspace_id uuid, month_key text, revenue_cents bigint)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select l.workspace_id,
+         to_char(j.posted_at at time zone 'America/Los_Angeles', 'YYYY-MM'),
+         coalesce(-sum(l.amount_cents), 0)::bigint
+    from public.party_ledger_lines l
+    join public.party_ledger_journals j on j.id = l.journal_id
+   where l.account = 'proplane_fee_revenue'
+   group by l.workspace_id, to_char(j.posted_at at time zone 'America/Los_Angeles', 'YYYY-MM');
+$$;
+
+-- Unbalanced journals (should be none: a deferred trigger enforces it); a standing check for the daily reconciliation.
+create or replace function public.party_ledger_unbalanced_journals()
+returns table (journal_id uuid, total bigint)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select l.journal_id, sum(l.amount_cents)::bigint
+    from public.party_ledger_lines l
+   group by l.journal_id
+  having sum(l.amount_cents) <> 0
+   limit 50;
+$$;
+
 do $$
 declare f text;
 begin
@@ -776,7 +812,10 @@ begin
     'complete_party_withdrawal(uuid, text, text, text)',
     'fail_party_withdrawal(uuid, text)',
     'mark_party_withdrawal_unknown(uuid)',
-    'activate_managed_policy(uuid, text, text, text, jsonb, text)'
+    'activate_managed_policy(uuid, text, text, text, jsonb, text)',
+    'platform_ledger_totals()',
+    'platform_fee_revenue_by_month()',
+    'party_ledger_unbalanced_journals()'
   ] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
