@@ -1066,31 +1066,28 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["owner_user_id"] },
   },
   {
-    // Owner management (W17): the agreement is void without either party; money rows keep the books.
-    table: "owner_management_agreements",
+    // Owner management (W17 v2): a fee policy is void without its owner of record or its workspace; the money rows keep the books.
+    table: "managed_workspace_fee_policies",
     phase: 2,
-    manager: { ids: ["manager_user_id", "owner_user_id"] },
+    manager: { ids: ["owner_user_id"] },
   },
   {
-    table: "owner_fee_reservations",
+    // Per-payment split rows: PropLane's and the manager's financial history. A deleted owner is detached, not deleted.
+    table: "managed_rent_allocations",
     phase: 1,
-    manager: { ids: ["manager_user_id"] },
-  },
-  {
-    // Per-payment split rows: the manager's financial history. A deleted owner is detached, not deleted.
-    table: "owner_rent_allocations",
-    phase: 1,
-    manager: { ids: ["manager_user_id"], detachIds: ["owner_user_id"] },
+    manager: { detachIds: ["owner_user_id"] },
+    // A deleted resident's address goes; the split of the payment they made stays (financial history).
+    resident: { detachEmails: ["resident_email"] },
   },
   {
     table: "owner_expenses",
     phase: 1,
-    manager: { ids: ["manager_user_id"], detachIds: ["owner_user_id"] },
+    manager: { detachIds: ["owner_user_id"] },
   },
   {
     table: "owner_statements",
     phase: 1,
-    manager: { ids: ["manager_user_id"], detachIds: ["owner_user_id"] },
+    manager: { detachIds: ["owner_user_id"] },
   },
   {
     // One-number entry codes ("Text BROOKLYN5"): the workspace owner's own rows.
@@ -1432,7 +1429,10 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
   sms_media_files: "MMS file index keyed on message sid and phone; no account column.",
-  owner_allocation_events: "Refund/dispute/reversal log of an owner rent allocation; cascades with the allocation, no account column.",
+  party_ledger_journals: "Append-only PropLane-held money ledger (owner / vendor payable, fee revenue). Parties are text keys ('owner:<id>', 'vendor:<id>'), never a deletable column; the journal is financial history and is kept (a deleted workspace detaches itself).",
+  party_ledger_lines: "Lines of party_ledger_journals (cascade from the journal); party keys are text, kept as financial history.",
+  party_withdrawals: "Owner / vendor withdrawal records keyed on a text party key; money history kept after the account is gone.",
+  owner_ledger_flags: "Daily reconciliation flags; carry no account column.",
   phone_bound_links: "Phone-bound signed links; keyed on a phone, cascade with the workspace.",
   phone_bound_link_sessions: "Verified link sessions; cascade with the link.",
   phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",

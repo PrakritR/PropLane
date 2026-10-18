@@ -126,10 +126,22 @@ drop trigger if exists party_ledger_lines_append_only on public.party_ledger_lin
 create trigger party_ledger_lines_append_only
   before update or delete on public.party_ledger_lines
   for each row execute function public.party_ledger_append_only();
+-- The one permitted change to a posted journal: a deleted workspace detaches itself (the foreign key's `on delete set null`),
+-- so deleting a workspace never fails and its money history survives with no workspace.
+create or replace function public.party_ledger_journals_guard()
+returns trigger language plpgsql as $$
+begin
+  if tg_op = 'UPDATE' and old.workspace_id is not null and new.workspace_id is null
+     and (to_jsonb(new) - 'workspace_id') = (to_jsonb(old) - 'workspace_id') then
+    return new;
+  end if;
+  raise exception 'The party ledger is append-only.';
+end;
+$$;
 drop trigger if exists party_ledger_journals_append_only on public.party_ledger_journals;
 create trigger party_ledger_journals_append_only
   before update on public.party_ledger_journals
-  for each row execute function public.party_ledger_append_only();
+  for each row execute function public.party_ledger_journals_guard();
 
 -- Every journal sums to zero, checked at commit.
 create or replace function public.party_ledger_zero_sum()

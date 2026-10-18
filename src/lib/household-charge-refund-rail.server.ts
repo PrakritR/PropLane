@@ -94,8 +94,7 @@ export async function resolveHouseholdChargeRefundRail(
     .from("managed_rent_allocations")
     .select("id, charge_id, stripe_charge_id, principal_cents, refunded_principal_cents")
     .eq("stripe_charge_id", input.stripeChargeId)
-    .eq("charge_id", input.chargeId)
-    .limit(2);
+    .limit(50);
   if (managedError && String(managedError.code) !== "42P01" && String(managedError.code) !== "PGRST205") {
     throw new Error("Could not resolve the payment's recipient allocation.");
   }

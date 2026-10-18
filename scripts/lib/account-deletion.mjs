@@ -298,6 +298,11 @@ export const DELETE_ORDER = [
   "vendor_dispatch_runs",
   "vendor_dispatch_rules",
   "vendor_dispatch_handle_counters",
+  // Owner management (docs/agents/owner-management.md): the owner-side rows; the party ledger itself is retained financial history.
+  "owner_expenses",
+  "owner_statements",
+  "managed_rent_allocations",
+  "managed_workspace_fee_policies",
   "mcp_oauth_authorization_codes",
   "mcp_oauth_tokens",
   "sales_migration_records",

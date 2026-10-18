@@ -349,11 +349,14 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   } catch {
     messagesOn = false;
   }
+  // Finances shows in the owner shell only for an owner-only account; anyone else reaches it by its URL or the manager nav.
   let financesOn = false;
-  try {
-    financesOn = (await listManagedWorkspacesForOwner(db, uid)).length > 0;
-  } catch {
-    financesOn = false;
+  if (hasActiveOwner || ownerOnly) {
+    try {
+      financesOn = (await listManagedWorkspacesForOwner(db, uid)).length > 0;
+    } catch {
+      financesOn = false;
+    }
   }
   return { hasOwnerAccess: hasActiveOwner, ownerOnly, messagesOn, financesOn };
 }
