@@ -42,10 +42,45 @@ export async function loadSharedLineConfig(db: SupabaseClient): Promise<SharedLi
     const pilot = Array.isArray(row.shared_pilot_workspace_ids)
       ? row.shared_pilot_workspace_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
       : [];
-    return { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot };
+    const dedicated = await loadDedicatedWorkspaceIds(db);
+    // Unknown which workspaces hold their own number: stay on today's per-workspace lines.
+    if (dedicated === null) return PER_WORKSPACE_CONFIG;
+    return { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot, dedicatedWorkspaceIds: dedicated };
   } catch {
     return PER_WORKSPACE_CONFIG;
   }
+}
+
+function usableProvision(row: Record<string, unknown>, now: number): boolean {
+  const state = String(row.provision_state ?? "");
+  if (state === "active" || state === "provisioning") return true;
+  const grace = typeof row.grace_expires_at === "string" ? Date.parse(row.grace_expires_at) : NaN;
+  return Number.isFinite(grace) && grace > now;
+}
+
+/**
+ * Workspaces holding a usable work number of their own: the number's home workspace, plus any
+ * workspace linked to it through `workspace_work_numbers`. Null when it cannot be read.
+ */
+async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] | null> {
+  const numbers = await db
+    .from("manager_sms_numbers")
+    .select("id, workspace_id, provision_state, grace_expires_at")
+    .not("workspace_id", "is", null);
+  if (numbers.error) return isMissingSchemaError(numbers.error) ? [] : null;
+  const now = Date.now();
+  const usable = (numbers.data ?? []).filter((row) => usableProvision(row as Record<string, unknown>, now));
+  const ids = new Set(usable.map((row) => String((row as { workspace_id?: unknown }).workspace_id ?? "").trim()).filter(Boolean));
+  const usableNumberIds = usable.map((row) => String((row as { id?: unknown }).id ?? "")).filter(Boolean);
+  if (usableNumberIds.length > 0) {
+    const links = await db.from("workspace_work_numbers").select("workspace_id").in("number_id", usableNumberIds);
+    if (links.error && !isMissingSchemaError(links.error)) return null;
+    for (const link of links.data ?? []) {
+      const id = String((link as { workspace_id?: unknown }).workspace_id ?? "").trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
 }
 
 /** Is `toPhone` (any format) the PropLane shared number? Always false in per_workspace mode. */
@@ -55,10 +90,20 @@ export function isSharedLineNumber(config: SharedLineConfig, toPhone: string | n
   return Boolean(to) && to === config.sharedNumber;
 }
 
-/** Does this workspace answer on the shared line? Mode shared, and (no pilot list, or it is on the list). */
+/**
+ * Does this workspace answer on the shared line? Mode shared, the workspace holds no number of its
+ * own, and (no pilot list, or it is on the list).
+ */
 export function workspaceOnSharedLine(config: SharedLineConfig, workspaceId: string | null | undefined): boolean {
   if (config.mode !== "shared" || !config.sharedNumber) return false;
   const id = String(workspaceId ?? "").trim();
   if (!id) return false;
+  if (config.dedicatedWorkspaceIds?.includes(id)) return false;
   return config.pilotWorkspaceIds.length === 0 || config.pilotWorkspaceIds.includes(id);
+}
+
+/** Does this workspace text from a number of its own (Pro / Business personalized line, or the PropLane service line)? */
+export function workspaceHasDedicatedNumber(config: SharedLineConfig, workspaceId: string | null | undefined): boolean {
+  const id = String(workspaceId ?? "").trim();
+  return Boolean(id) && Boolean(config.dedicatedWorkspaceIds?.includes(id));
 }
