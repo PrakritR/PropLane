@@ -24,7 +24,7 @@ describe("one-number segment guard", () => {
   });
 
   it("turns a UCS-2 reply into a single GSM-7 segment", () => {
-    const raw = "Your tour is booked 😊 — see you at 10am “door code 1234”";
+    const raw = "Your tour is booked 😊 — see you at 10am at 5259 Brooklyn “door code 1234”. Reply YES to confirm.";
     expect(smsSegmentCount(raw)).toBeGreaterThan(1);
     const clean = toGsm7(raw);
     expect(isGsm7(clean)).toBe(true);
