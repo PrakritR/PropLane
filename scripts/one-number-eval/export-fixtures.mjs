@@ -42,16 +42,17 @@ function roleForKind(kind) {
 }
 
 function parseArgs(argv) {
-  const out = { limit: 60, out: null };
+  const out = { limit: 60, out: null, knowledgeOnly: false };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--limit") out.limit = Number(argv[++i]) || out.limit;
     else if (argv[i] === "--out") out.out = argv[++i];
+    else if (argv[i] === "--knowledge-only") out.knowledgeOnly = true;
   }
   return out;
 }
 
 async function main() {
-  const { limit, out } = parseArgs(process.argv.slice(2));
+  const { limit, out, knowledgeOnly } = parseArgs(process.argv.slice(2));
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   assertDevOnly(url);
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -60,7 +61,7 @@ async function main() {
 
   const cases = [];
 
-  const { data: sessions } = await db
+  const { data: sessions } = knowledgeOnly ? { data: [] } : await db
     .from("agent_sessions")
     .select("id, kind, user_id, updated_at")
     .or("kind.like.leasing_sms%,kind.like.resident_sms%,kind.like.manager_sms%,kind.like.vendor%")
@@ -98,7 +99,7 @@ async function main() {
     });
   }
 
-  const { data: log } = await db.from("inbound_sms_log").select("body").order("created_at", { ascending: false }).limit(limit);
+  const { data: log } = knowledgeOnly ? { data: [] } : await db.from("inbound_sms_log").select("body").order("created_at", { ascending: false }).limit(limit);
   const seen = new Set();
   for (const row of log ?? []) {
     const text = redactText(String(row.body ?? ""), new Map());
@@ -118,9 +119,12 @@ async function main() {
   }
 
   const clean = cases.filter((c) => !c.turns.some(looksLikePii));
-  const dir = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "exported");
+  const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+  const dir = join(fixturesDir, "exported");
   mkdirSync(dir, { recursive: true });
-  const file = out ?? join(dir, `export-${new Date().toISOString().slice(0, 10)}.json`);
+  // --knowledge-only writes the committed-after-review file the runner loads with the others:
+  // every approved entry as one case, so a corrected answer cannot silently regress.
+  const file = out ?? (knowledgeOnly ? join(fixturesDir, "knowledge.json") : join(dir, `export-${new Date().toISOString().slice(0, 10)}.json`));
   writeFileSync(file, `${JSON.stringify(clean, null, 2)}\n`);
   console.log(JSON.stringify({ file, exported: clean.length, droppedForPii: cases.length - clean.length }));
 }
