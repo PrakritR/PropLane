@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@/components/portal/assistant-shared", () => ({
-  AxisAssistantSparkleIcon: () => <svg aria-hidden="true" />,
+  AxisAssistantChatIcon: () => <svg aria-hidden="true" />,
 }));
 
 vi.mock("@/lib/axis-assistant/assistant-conversation-context", () => ({

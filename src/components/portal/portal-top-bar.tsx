@@ -1,7 +1,7 @@
 "use client";
 
 import type { ManagerPortalNavTier } from "@/lib/manager-access";
-import { PanelLeft, PanelRight, Sparkles } from "lucide-react";
+import { PanelLeft, PanelRight, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   PortalCommandPalette,
@@ -19,7 +19,7 @@ import {
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import type { ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 
-/** "Ask PropLane or search <this>" for the portals that have no workspace to name. */
+/** "Search <this>" for the portals that have no workspace to name. */
 function portalDisplayName(kind: PortalKind): string {
   switch (kind) {
     case "resident":
@@ -158,13 +158,13 @@ export function PortalTopBar({
         type="button"
         onClick={() => setPaletteOpen(true)}
         data-attr="portal-ask-proplane"
-        aria-label="Ask PropLane or search"
+        aria-label={`Search ${searchTarget}`}
         aria-haspopup="dialog"
         aria-keyshortcuts="Meta+K Control+K"
         className="mx-auto my-auto flex h-7 min-h-0 min-w-0 flex-[0_1_560px] cursor-pointer items-center gap-2 rounded-[7px] border border-white/[0.12] bg-white/10 px-2.5 text-[13px] text-inherit outline-none transition hover:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/50"
       >
-        <Sparkles className="size-3.5 shrink-0 text-[#8fb0ff]" strokeWidth={1.75} aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-left">Ask PropLane or search {searchTarget}</span>
+        <Search className="size-3.5 shrink-0 text-[#8fb0ff]" strokeWidth={1.75} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-left">Search</span>
         <kbd className="ml-auto shrink-0 rounded-[4px] border border-white/20 px-[5px] text-[11px] font-normal leading-4 opacity-80">
           ⌘K
         </kbd>

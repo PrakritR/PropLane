@@ -2,10 +2,10 @@
 
 /**
  * The portal command palette (approved shell redesign, opened from the top
- * strip's "Ask PropLane or search ..." bar or with Cmd/Ctrl+K).
+ * strip's "Search" bar or with Cmd/Ctrl+K).
  *
  * Three groups, in this order:
- *   ASK      the first option is always "Ask PropLane: <query>" and opens the
+ *   ASK      the first option is always "Assistant: <query>" and opens the
  *            portal's own assistant (the caller wires it to the same launcher
  *            the strip uses, so a resident gets the resident assistant, a
  *            vendor the vendor one, a manager the manager one);
@@ -19,7 +19,7 @@
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, Sparkles, MessageSquarePlus, type LucideIcon } from "lucide-react";
+import { MessageCircle, Plus, Search, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import type { PortalJumpItem } from "@/components/portal/use-portal-jump-items";
@@ -93,7 +93,7 @@ export function PortalCommandPalette({
   const rows = useMemo<Row[]>(() => {
     const trimmed = query.trim();
     return [
-      { kind: "ask", key: "ask", label: trimmed ? `Ask PropLane: ${trimmed}` : "Ask PropLane" },
+      { kind: "ask", key: "ask", label: trimmed ? `Assistant: ${trimmed}` : "Assistant" },
       ...jump.map((item): Row => ({ kind: "jump", key: `jump-${item.section}`, item })),
       ...acts.map((action): Row => ({ kind: "action", key: `action-${action.id}`, action })),
     ];
@@ -158,7 +158,7 @@ export function PortalCommandPalette({
     if (row.kind === "ask") {
       return (
         <div key={row.key} {...common}>
-          <Sparkles className="size-4 shrink-0 text-[#2863f0]" strokeWidth={1.75} aria-hidden />
+          <MessageCircle className="size-4 shrink-0 text-[#2863f0]" strokeWidth={1.75} aria-hidden />
           <span className="min-w-0 flex-1 truncate">{row.label}</span>
           <span className="shrink-0 text-[12px] text-[#9ba1ac]" aria-hidden>
             ↵
@@ -205,9 +205,9 @@ export function PortalCommandPalette({
           className="fixed left-1/2 top-[72px] z-[10081] w-[600px] max-w-[calc(100%-40px)] -translate-x-1/2 overflow-hidden rounded-xl border border-[rgba(17,24,39,0.13)] bg-white text-[#15171c] shadow-[0_24px_60px_-12px_rgba(16,24,40,0.4)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
           data-attr="portal-command-palette"
         >
-          <Dialog.Title className="sr-only">Ask PropLane or search</Dialog.Title>
+          <Dialog.Title className="sr-only">Search</Dialog.Title>
           <div className="flex items-center gap-2.5 border-b border-[rgba(17,24,39,0.085)] px-4 py-3.5">
-            <Sparkles className="size-4 shrink-0 text-[#2863f0]" strokeWidth={1.75} aria-hidden />
+            <Search className="size-4 shrink-0 text-[#2863f0]" strokeWidth={1.75} aria-hidden />
             <input
               ref={inputRef}
               value={query}
@@ -216,19 +216,19 @@ export function PortalCommandPalette({
                 setSelected(0);
               }}
               onKeyDown={onKeyDown}
-              placeholder="Ask PropLane or search..."
+              placeholder="Search"
               role="combobox"
               aria-expanded
               aria-controls="portal-palette-list"
               aria-activedescendant={`portal-palette-row-${selected}`}
-              aria-label="Ask PropLane or search"
+              aria-label="Search"
               data-attr="portal-palette-input"
               className="min-w-0 flex-1 border-0 bg-transparent text-[16px] text-[#15171c] outline-none placeholder:text-[#9ba1ac]"
             />
           </div>
 
           <div ref={listRef} id="portal-palette-list" role="listbox" className="max-h-[min(60vh,440px)] overflow-y-auto pb-1.5">
-            <p className={groupLabel}>Ask</p>
+            <p className={groupLabel}>Assistant</p>
             {renderRow(rows[0]!, 0)}
 
             {jump.length ? (
