@@ -89,9 +89,9 @@ through it or through the workspace-keyed helpers in
   (`resolveWorkspaceStatusLine`, the status-screen twin of
   `resolveOwnerSendNumberRow`), so a line the workspace holds by sharing or an
   owner's legacy unplaced row shows instead of "No work number yet" —
-  `resolveWorkspaceWorkNumbers` alone only matches HOME rows. `canSend` and
+  `resolveWorkspaceWorkNumbers` alone only matches HOME rows. `lineReady` and
   `sendingAvailable` for a teammate read the OWNER's access, not the viewer's:
-  `canSend` is `sendEnvEnabled && evaluateWorkspaceSendReadiness` for that
+  `lineReady` is `sendEnvEnabled && evaluateWorkspaceSendReadiness` for that
   workspace + owner (fail closed on any error), and the runtime/allowlist gate
   is checked against the owner's seat. The viewer-allowlist gate is
   deliberately not re-applied to a teammate — readiness already applies the

@@ -1,3 +1,4 @@
+import { appendFileSync, mkdirSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
@@ -164,7 +165,35 @@ function twoWorkspaceTeammateDb(placedIn: string) {
 async function statusFor(db: ReturnType<typeof teammateDb>, workspaceId: string = SHARED_WS) {
   mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
   mocks.cookies["proplane-workspace"] = workspaceId;
-  return (await GET(new Request("http://localhost"))).json();
+  const body = await (await GET(new Request("http://localhost"))).json();
+  recordStatusEvidence(body);
+  return body;
+}
+
+/**
+ * With EVIDENCE_DIR set, keep the payload `/api/manager/messaging-number`
+ * really answers a teammate with - the fields the Communication header and the
+ * compose surfaces read - as a reviewer-readable transcript.
+ */
+function recordStatusEvidence(body: Record<string, unknown>) {
+  const out = process.env.EVIDENCE_DIR ?? "";
+  if (!out) return;
+  mkdirSync(out, { recursive: true });
+  const shown = {
+    workspaceRole: body.workspaceRole,
+    workspace: (body.workspace as { id?: string } | null)?.id ?? null,
+    workspaceNumber: (body.workspaceNumber as { phoneNumber?: string | null } | null)?.phoneNumber ?? null,
+    number: (body.number as { phoneNumber?: string | null } | null)?.phoneNumber ?? null,
+    sendingAvailable: body.sendingAvailable,
+    lineReady: body.lineReady,
+    canSend: body.canSend,
+    canRequest: body.canRequest,
+  };
+  appendFileSync(
+    `${out}/teammate-messaging-number-api.txt`,
+    `GET /api/manager/messaging-number — ${expect.getState().currentTestName}\n  ${JSON.stringify(shown)}\n\n`,
+    "utf8",
+  );
 }
 
 beforeEach(() => {
