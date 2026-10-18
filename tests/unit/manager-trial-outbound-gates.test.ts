@@ -60,6 +60,9 @@ describe("assistant tools that message people", () => {
         "send_message",
         "send_rent_reminder",
         "send_work_order_reminder",
+        // Dispatch texts vendors on the manager's behalf.
+        "approve_vendor_dispatch",
+        "dispatch_vendor",
         // Welcome / invite mail the manager asks the assistant to send.
         "send_resident_welcome",
         "invite_vendor",
