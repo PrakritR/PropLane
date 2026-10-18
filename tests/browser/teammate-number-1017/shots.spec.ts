@@ -2,15 +2,17 @@
  * Reviewer-visible visual evidence for comanager-number-1015 (2026-10-17): the
  * teammate's view of the WORKSPACE's work number.
  *
- * `tests/unit/evidence-claude1-teammate-number-1017.test.tsx` and
- * `tests/unit/evidence-claude1-teammate-vendor-text-1017.test.tsx` render the REAL components in
+ * `tests/unit/evidence-claude1-teammate-number-1017.test.tsx`,
+ * `tests/unit/evidence-claude1-teammate-vendor-text-1017.test.tsx` and
+ * `tests/unit/evidence-claude1-teammate-settings-row-1017.test.tsx` render the REAL components in
  * jsdom and dump each surface's markup when `EVIDENCE_DIR` is set. That markup is only a DOM dump
  * until it is painted: this spec compiles the REAL Tailwind build from `src/app/globals.css`,
  * drops it beside the dumps as `app.css` (the stylesheet each dump already links) and screenshots
  * every surface in Chromium at desktop width.
  *
  *   EVIDENCE_DIR=<dir> npx vitest run tests/unit/evidence-claude1-teammate-number-1017.test.tsx \
- *     tests/unit/evidence-claude1-teammate-vendor-text-1017.test.tsx
+ *     tests/unit/evidence-claude1-teammate-vendor-text-1017.test.tsx \
+ *     tests/unit/evidence-claude1-teammate-settings-row-1017.test.tsx
  *   EVIDENCE_DIR=<dir> npx playwright test --config tests/browser/teammate-number-1017.config.ts
  */
 import { expect, test } from "@playwright/test";
@@ -31,6 +33,8 @@ const SURFACES = [
   "07-compose-sms-hint-states",
   "08-vendor-record-teammate-text",
   "09-vendor-record-readonly-teammate-email",
+  "10-teammate-settings-work-identity-ready",
+  "11-teammate-settings-work-identity-not-ready",
 ];
 
 test("every teammate work-number surface is painted with the real Tailwind build", async ({ page }) => {
