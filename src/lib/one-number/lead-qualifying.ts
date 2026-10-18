@@ -465,3 +465,57 @@ export function toGsm7(text: string): string {
     .replace(/[ ]{2,}/g, " ")
     .trim();
 }
+
+// ---------------------------------------------------------------------------
+// Model output (fallback extractor)
+// ---------------------------------------------------------------------------
+
+const STEP_FIELDS: Record<LeadStep, (keyof LeadProfile)[]> = {
+  budget: ["budgetMax"],
+  move_in: ["moveInDate", "leaseMonths"],
+  area: ["area"],
+  room: ["bathroom", "furnished"],
+  household: ["household"],
+};
+
+/**
+ * Whatever the model returned, reduced to fields that are well-formed, in range and free of protected topics.
+ * Anything else is dropped; the model can never put a value into the profile that a deterministic extractor
+ * would have refused.
+ */
+export function sanitizeModelFields(raw: unknown, now: Date): Partial<LeadProfile> {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  const out: Partial<LeadProfile> = {};
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN);
+  const budget = num(r.budgetMax);
+  if (budget >= 200 && budget <= 20000) out.budgetMax = Math.round(budget);
+  if (typeof r.moveInDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.moveInDate)) {
+    const t = Date.parse(`${r.moveInDate}T00:00:00Z`);
+    const today = Date.parse(`${pacificToday(now)}T00:00:00Z`);
+    if (Number.isFinite(t) && t >= today - 7 * 86400000 && t <= today + 800 * 86400000) out.moveInDate = r.moveInDate;
+  }
+  const lease = num(r.leaseMonths);
+  if (lease >= 0 && lease <= 36) out.leaseMonths = Math.round(lease);
+  if (typeof r.area === "string") {
+    const area = r.area.replace(/\s+/g, " ").trim().slice(0, 60);
+    if (area.length >= 2 && /[a-z]{2,}/i.test(area) && !touchesProtectedTopic(area)) out.area = area;
+  }
+  if (r.bathroom === "private" || r.bathroom === "shared" || r.bathroom === "any") out.bathroom = r.bathroom;
+  if (r.furnished === "yes" || r.furnished === "no" || r.furnished === "any") out.furnished = r.furnished;
+  const household = num(r.household);
+  if (household >= 1 && household <= 12) out.household = Math.round(household);
+  return out;
+}
+
+/** Merge model fields into a profile: the asked step's fields always, any other field only when still unknown. */
+export function mergeModelFields(profile: LeadProfile, fields: Partial<LeadProfile>, asked: LeadStep | "pick" | "refine" | null | undefined): LeadProfile {
+  const next: LeadProfile = { ...profile };
+  const own = asked && asked !== "pick" && asked !== "refine" ? STEP_FIELDS[asked] : [];
+  for (const [key, value] of Object.entries(fields) as [keyof LeadProfile, unknown][]) {
+    if (value === undefined) continue;
+    if (own.includes(key) || next[key] === undefined) (next as Record<string, unknown>)[key] = value;
+  }
+  if (fields.moveInDate !== undefined && next.moveInAsap === undefined) next.moveInAsap = false;
+  return next;
+}
