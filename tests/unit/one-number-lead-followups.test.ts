@@ -137,9 +137,10 @@ describe("the sweep", () => {
 
   it("an opted-out or failed send takes its flag back, so nothing is recorded as sent", async () => {
     const fake = db([{ id: "lead-09", quietMs: 30 * HOUR }]);
-    const { send, deps } = harness({ send: vi.fn(async () => ({ ok: false as const, reason: "opted_out" as const })) as FollowUpDeps["send"] });
+    const refused = vi.fn(async () => ({ ok: false as const, reason: "opted_out" as const }));
+    const { deps } = harness({ send: refused as unknown as FollowUpDeps["send"] });
     expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ nudged24: 0 });
-    expect(send).not.toHaveBeenCalled();
+    expect(refused).toHaveBeenCalledTimes(1);
     expect(fake.rows.sms_unassigned_leads![0]!.profile).toEqual({ stage: "qualifying", asked: "budget" });
     expect(fake.rows.sms_unassigned_lead_turns ?? []).toEqual([]);
   });

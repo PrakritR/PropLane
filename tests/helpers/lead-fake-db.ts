@@ -81,7 +81,8 @@ export function leadFakeDb(
           });
         }
         const total = out.length;
-        out = out.slice(from, from + limit);
+        // Reads return copies, like a real database: a row read before a write does not change under the reader.
+        out = out.slice(from, from + limit).map((r) => ({ ...r }));
         return { data: out, error: null, ...(wantCount ? { count: total } : {}) };
       };
 

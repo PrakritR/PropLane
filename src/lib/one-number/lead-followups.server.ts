@@ -111,7 +111,9 @@ export async function runLeadFollowUps(db: SupabaseClient, depsIn: FollowUpDeps 
       const rows = matchRooms(catalog, profile, pacificToday(now()));
       if (rows.length === 0) continue;
       const offers = rows.map((row, i) => offerFromRow(row, i + 1));
-      const next: LeadProfile = { ...profile, stage: "offered", asked: "pick", offers, newMatchTexted: now().toISOString() };
+      const at = now().toISOString();
+      // The new-match text is this lead's follow-up: it counts as the 24h nudge so the sweep never stacks a second text on it.
+      const next: LeadProfile = { ...profile, stage: "offered", asked: "pick", offers, newMatchTexted: at, nudged24: profile.nudged24 ?? at };
       if (!(await claim(next))) continue;
       const photo = firstOfferPhoto(rows);
       const body = toGsm7(`A room that fits just opened.\n${buildOfferText(offers, (depsIn.origin ?? resolveEmailLinkBaseUrl)())}`);
