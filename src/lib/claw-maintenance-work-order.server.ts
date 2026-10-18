@@ -175,6 +175,12 @@ export async function createWorkOrderFromResidentSms(args: {
   skipIntentCheck?: boolean;
   /** Explicit form fields; each one set here overrides the text inference. */
   details?: ResidentMaintenanceDetails;
+  /**
+   * The request came over SMS: photos this resident texted in the last half
+   * hour (private `sms-media`, unlinked) go on the work order and are linked to
+   * it. Also implied by a non-empty `residentPhone`.
+   */
+  attachRecentSmsPhotos?: boolean;
 }): Promise<CreateWorkOrderFromResidentSmsResult> {
   const managerUserId = args.managerUserId.trim();
   const residentEmail = args.residentEmail.trim().toLowerCase();
@@ -227,6 +233,34 @@ export async function createWorkOrderFromResidentSms(args: {
     residentEmail,
     residentUserId: args.residentUserId,
   });
+
+  // Photos texted to the shared/work number just before this request ride on it
+  // (MMS from the resident -> the record it creates).
+  let claimedSmsMedia: import("@/lib/one-number/inbound-media.server").SmsMediaFileRow[] = [];
+  if (args.attachRecentSmsPhotos === true || args.residentPhone.trim()) {
+    try {
+      // Imported lazily: it pulls the MMS download + image stack, which only SMS filings need.
+      const { recentUnlinkedSmsMedia, smsMediaDataUrls } = await import("@/lib/one-number/inbound-media.server");
+      let phone = args.residentPhone.trim();
+      if (!phone && args.residentUserId) {
+        const { data: profile } = await db.from("profiles").select("phone").eq("id", args.residentUserId).maybeSingle();
+        phone = String(profile?.phone ?? "").trim();
+      }
+      if (phone && photoDataUrls.length < 6) {
+        claimedSmsMedia = await recentUnlinkedSmsMedia(db, {
+          ownerUserId: managerUserId,
+          senderPhone: phone,
+          limit: 6 - photoDataUrls.length,
+        });
+        if (claimedSmsMedia.length > 0) {
+          const extra = await smsMediaDataUrls(db, claimedSmsMedia);
+          photoDataUrls.push(...extra);
+        }
+      }
+    } catch {
+      claimedSmsMedia = [];
+    }
+  }
 
   const id = `REQ-SMS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const draftRow: DemoManagerWorkOrderRow = {
@@ -291,6 +325,10 @@ export async function createWorkOrderFromResidentSms(args: {
 
   const persistedRow = (persisted?.row_data ?? row) as DemoManagerWorkOrderRow;
   const reference = persistedRow.reference?.trim() || undefined;
+  if (claimedSmsMedia.length > 0) {
+    const { linkClaimedMedia } = await import("@/lib/one-number/inbound-media.server");
+    await linkClaimedMedia(db, { ids: claimedSmsMedia.map((file) => file.id), linkedType: "work_order", linkedId: id });
+  }
 
   // Never throws — errors are logged and swallowed inside.
   if (autoTimeOutcome.kind === "booked") {
@@ -325,6 +363,16 @@ export async function createWorkOrderFromResidentSms(args: {
           : { audience: "resident" as const, email: residentEmail },
       ],
     }).catch(() => undefined);
+    if (priority === "Emergency") {
+      const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+      await alertPhonesOf(db, {
+        ownerUserId: managerUserId,
+        kind: "emergency_maintenance",
+        entityId: id,
+        propertyId: ctx.assignedPropertyId ?? ctx.propertyId ?? null,
+        text: `Emergency service at ${ctx.propertyName || "a house"}: ${title}.`,
+      });
+    }
   }
 
   await prepareDispatch(db, id).catch(() => undefined);

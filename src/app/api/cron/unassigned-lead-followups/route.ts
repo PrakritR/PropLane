@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runLeadFollowUps } from "@/lib/one-number/lead-followups.server";
+import { runProspectRoomMatches } from "@/lib/one-number/prospect-room-matches.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -12,8 +13,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   try {
-    const summary = await runLeadFollowUps(createSupabaseServiceRoleClient());
-    return NextResponse.json({ ok: true, ...summary });
+    const db = createSupabaseServiceRoleClient();
+    const summary = await runLeadFollowUps(db);
+    // A team's past prospect is texted once when a new room of that team's fits what they asked for.
+    const rooms = await runProspectRoomMatches(db).catch(() => null);
+    return NextResponse.json({ ok: true, ...summary, ...(rooms ? { roomMatches: rooms } : {}) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Lead follow-ups failed." }, { status: 503 });
   }

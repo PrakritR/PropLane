@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fakeSharedLineDb } from "../helpers/shared-line-fake-db";
 
 const unassigned = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => ({ leadId: "never", reply: null, assignedWorkspaceId: null })));
-vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: unassigned }));
+vi.mock("@/lib/one-number/onboarding/unknown-sender.server", () => ({ handleUnknownSenderInbound: unassigned }));
 
 import { recordShadowDecision, shadowAgreement } from "@/lib/one-number/shadow.server";
 

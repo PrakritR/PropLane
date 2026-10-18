@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
+import { syncHouseGroupForProperty } from "@/lib/house-groups/manager.server";
 import {
   amendLeaseMoveOutDate,
   checkMoveOutAvailabilityForLease,
@@ -101,6 +102,13 @@ export async function POST(req: NextRequest) {
       waiveEarlyMoveOutFee: body.waiveEarlyMoveOutFee === true,
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    // An early move-out can change who is in the house group: re-sync it now (no-op when house chat is off).
+    const movedOutProperty = String(leaseRecord.property_id ?? "").trim();
+    if (result.direction === "decrease" && movedOutProperty) {
+      after(async () => {
+        await syncHouseGroupForProperty(db, movedOutProperty);
+      });
+    }
     return NextResponse.json({
       ok: true,
       newLeaseEnd: result.newLeaseEnd,

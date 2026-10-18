@@ -1,6 +1,8 @@
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { toGsm7 } from "@/lib/one-number/segments";
+import { redactedInboundReplyOverride } from "@/lib/one-number/redact-reply.server";
 import { reserveCommsCredit, resolveWorkspaceIdForWorkOrder } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
@@ -22,7 +24,8 @@ import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 import { buildVendorAgentContext } from "@/lib/tools/context";
 import { vendorWorkOrderAgentRegistry } from "@/lib/tools";
-import { vendorSendMyLinkTool, withSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
+import { vendorSendMyLinkTool, withSharedLineTools } from "@/lib/tools/domains/one-number-links";
+import { vendorSetUpPayoutsTool } from "@/lib/tools/domains/manager-ops";
 import { ESCALATE_TOOL_NAME } from "@/lib/tools/domains/vendor-work-order";
 import { isPhoneOptedOut, optedOutFromTimestamps } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/twilio";
@@ -287,6 +290,13 @@ async function vendorSmsState(db: Db, session: VendorAgentSessionRow): Promise<{
   return { optedOut, consentAt: (data?.sms_consent_at as string | null) ?? null };
 }
 
+function vendorFeel(
+  options: { workspaceId?: string | null; bubbles?: boolean } | undefined,
+  inboundText: string,
+) {
+  return { workspaceId: options?.workspaceId, bubbles: options?.bubbles, inboundText };
+}
+
 /** Send the agent's reply out over every channel the session has. Not a model tool.
  * The SMS leg only fires when the vendor is replying to their own text (inherently
  * responsive) or has granted SMS consent — never as an unsolicited push. */
@@ -297,6 +307,8 @@ export async function deliverVendorAgentReply(
   inboundChannel?: "sms" | "inbox",
   dedupeKey?: string,
   inboundMessageSid?: string,
+  /** Delivery feel (shared line): split the SMS leg into bubbles when the workspace opted in. */
+  feel?: { workspaceId?: string | null; bubbles?: boolean; inboundText?: string | null },
 ): Promise<void> {
   if (session.inbox_thread_id) {
     await appendToInboxThread(db, session.inbox_thread_id, { from: "PropLane Assistant", body: text }, { unread: true });
@@ -310,11 +322,21 @@ export async function deliverVendorAgentReply(
     evidence: inboundChannel === "sms" && inboundMessageSid ? { inboundMessageSid } : { consentAt: consentAt! },
   });
   if (!consent.allowed) return;
-  const delivered = await enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
-    recipientPhone: session.vendor_phone_e164, recipientUserId: session.vendor_user_id,
-    body: text, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
-    dedupeKey,
-  }, db);
+  // Segment guard: a curly quote or emoji would bill this reply as UCS-2. A
+  // reply to a text that carried a card/bank number is the secure-link notice.
+  const smsText = toGsm7((await redactedInboundReplyOverride(inboundMessageSid)) ?? text);
+  const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
+  const delivered = await deliverAgentReply({
+    workspaceId: feel?.workspaceId,
+    bubbles: feel?.bubbles,
+    text: smsText,
+    inboundText: feel?.inboundText,
+    send: (bubble, index) => enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
+      recipientPhone: session.vendor_phone_e164!, recipientUserId: session.vendor_user_id,
+      body: bubble, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
+      dedupeKey: bubbleDedupeKey(dedupeKey ?? null, index) ?? undefined,
+    }, db),
+  });
   if (!delivered.ok) throw new Error("Vendor reply delivery could not be queued.");
 
 }
@@ -350,7 +372,7 @@ export async function runVendorAgentSessionTurn(
   session: VendorAgentSessionRow,
   inboundText: string,
   channel: "sms" | "inbox",
-  options?: { inboundMessageSid?: string; precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null },
+  options?: { inboundMessageSid?: string; precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null; workspaceId?: string | null; bubbles?: boolean },
 ): Promise<string | null> {
   const text = inboundText.trim().slice(0, 2000);
   if (!text) return null;
@@ -389,7 +411,7 @@ export async function runVendorAgentSessionTurn(
     if (!credit.allowed) return null;
     if (credit.duplicate) {
       const reply = await readCommsTurnResult<string>(db, session.landlord_id, creditKey, INTERRUPTED_COMMS_REPLY);
-      if (reply) await deliverVendorAgentReply(db, session, reply, channel, creditKey, options?.inboundMessageSid);
+      if (reply) await deliverVendorAgentReply(db, session, reply, channel, creditKey, options?.inboundMessageSid, vendorFeel(options, text));
       return reply;
     }
   }
@@ -427,7 +449,7 @@ export async function runVendorAgentSessionTurn(
       tools: 0,
     });
     if (channel === "sms") await completeCommsTurn(db, session.landlord_id, creditKey, precomputedReply);
-    await deliverVendorAgentReply(db, session, precomputedReply, channel, creditKey, options?.inboundMessageSid);
+    await deliverVendorAgentReply(db, session, precomputedReply, channel, creditKey, options?.inboundMessageSid, vendorFeel(options, text));
     return precomputedReply;
   }
 
@@ -457,8 +479,10 @@ export async function runVendorAgentSessionTurn(
     ? workOrderReferencePromptContext({ kind: "resolved", candidates: [options.reference], message: null })
     : null;
   const system = [VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT, referenceContext].filter(Boolean).join("\n\n");
-  // "job link" exists only while the line is shared (one-number build).
-  const turnRegistry = channel === "sms" ? await withSendMyLinkTool(db, vendorWorkOrderAgentRegistry, vendorSendMyLinkTool) : vendorWorkOrderAgentRegistry;
+  // "job link" and "set up payouts" exist only while the line is shared (one-number build).
+  const turnRegistry = channel === "sms"
+    ? await withSharedLineTools(db, vendorWorkOrderAgentRegistry, [vendorSendMyLinkTool, vendorSetUpPayoutsTool])
+    : vendorWorkOrderAgentRegistry;
   const result = await traceAgentTurn(
     vendorWorkOrderTraceActor(session, channel),
     history as { role: string; content: string }[],
@@ -500,7 +524,7 @@ export async function runVendorAgentSessionTurn(
   });
 
   if (channel === "sms") await completeCommsTurn(db, session.landlord_id, creditKey, result.reply);
-  await deliverVendorAgentReply(db, session, result.reply, channel, creditKey, options?.inboundMessageSid);
+  await deliverVendorAgentReply(db, session, result.reply, channel, creditKey, options?.inboundMessageSid, vendorFeel(options, text));
   return result.reply;
 }
 

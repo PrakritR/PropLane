@@ -14,7 +14,11 @@ const PATHS = [
   "/about",
   "/features",
   "/pricing",
+  "/pricing/service",
   "/why-proplane",
+  "/why-proplane/track-record",
+  "/why-proplane/how-we-manage",
+  "/why-proplane/software",
   "/contact",
   "/book-a-demo",
   "/reviews",
@@ -40,7 +44,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     url: path ? `${BASE}${path}` : `${BASE}/`,
     lastModified,
     changeFrequency: path === "" || path === "/pricing" ? "weekly" : "monthly",
-    priority: path === "" ? 1 : path === "/pricing" || path === "/about" ? 0.9 : 0.6,
+    priority: path === "" ? 1 : path === "/pricing" || path === "/pricing/service" || path === "/about" ? 0.9 : 0.6,
   }));
   // A post's own date may be ahead of today (the publish calendar is staggered); a `lastmod` in the future is
   // distrusted by crawlers, so the stamp is never later than now.

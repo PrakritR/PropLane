@@ -67,6 +67,8 @@ describe("assistant tools that message people", () => {
         "send_resident_welcome",
         "invite_vendor",
         "share_property_link",
+        // A broadcast texts every resident of a house on the manager's behalf.
+        "broadcast_to_residents",
       ].sort(),
     );
   });

@@ -2,8 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerMessagingLineBlock } from "@/lib/sms/manager-messaging-number";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
 import { WORKSPACE_NO_WORK_NUMBER_CODE } from "@/lib/sms/workspace-no-work-number";
-import { evaluateManagerSmsNumberSendability } from "@/lib/sms/number-registration-policy";
+import {
+  evaluateManagerSmsNumberSendability,
+  normalizeSmsRuntimeMode,
+  smsRuntimeAllowsManager,
+} from "@/lib/sms/number-registration-policy";
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { resolveSendWorkspaceId } from "@/lib/one-number/shared-line-number.server";
 
 export type SendNumberRow = {
   manager_user_id: string;
@@ -43,7 +49,16 @@ export type WorkspaceSendReadiness =
       numberRow: SendNumberRow;
       /** The workspace that holds the sending line - its wallet pays. */
       workspaceId: string | null;
+      /** The service the consent ledger is scoped to. */
       messagingServiceSid: string;
+      /**
+       * Set only while the workspace sends from the ONE shared number (line_mode
+       * `shared`). `numberRow` is then a description of that line, not a
+       * `manager_sms_numbers` row, and `providerMessagingServiceSid` is the
+       * service the provider call goes out through.
+       */
+      viaSharedLine?: true;
+      providerMessagingServiceSid?: string;
     }
   | { canSend: false; reason: string };
 
@@ -68,11 +83,39 @@ export async function evaluateWorkspaceSendReadiness(input: {
   requiredCents: number;
   /** An `sms_runtime_config` row the caller already read, to save a round trip. */
   runtime?: RuntimeConfigResult | null;
+  /**
+   * The workspace stamped on a queued message. Read ONLY by the shared-line
+   * branch (line_mode `shared`); under `per_workspace` it changes nothing.
+   */
+  sharedLineWorkspaceId?: string | null;
   now?: Date;
 }): Promise<WorkspaceSendReadiness> {
   const { db, requiredCents } = input;
   const ownerId = input.ownerUserId.trim();
   const now = input.now ?? new Date();
+
+  // One number for everyone: when the line is `shared` and this workspace is in
+  // the pilot, the text leaves from the shared number instead of a work number.
+  // Any trouble reading the line config reads as `per_workspace`, so this block
+  // is inert until the rollout switch is deliberately flipped.
+  const sharedConfig = await loadSharedLineConfig(db);
+  if (sharedConfig.mode === "shared") {
+    const sharedWorkspaceId = await resolveSendWorkspaceId(db, ownerId, {
+      workspaceId: input.sharedLineWorkspaceId ?? input.workspaceId ?? null,
+      propertyId: input.propertyId ?? null,
+    });
+    if (workspaceOnSharedLine(sharedConfig, sharedWorkspaceId)) {
+      return evaluateSharedLineReadiness({
+        db,
+        ownerId,
+        workspaceId: sharedWorkspaceId as string,
+        sharedNumber: sharedConfig.sharedNumber as string,
+        providerServiceSid: sharedConfig.messagingServiceSid,
+        requiredCents,
+        runtime: input.runtime ?? null,
+      });
+    }
+  }
 
   const runtimeRead: Promise<RuntimeConfigResult> = input.runtime
     ? Promise.resolve(input.runtime)
@@ -142,6 +185,70 @@ export async function evaluateWorkspaceSendReadiness(input: {
   if (!billing.allowed) return { canSend: false, reason: `comms_billing_${billing.reason}` };
 
   return { canSend: true, numberRow, workspaceId: sendWorkspaceId, messagingServiceSid: expectedServiceSid };
+}
+
+/**
+ * Readiness for a send on the shared line: the runtime kill switch and rollout
+ * allowlist still apply, the consent ledger stays scoped to the deployment's
+ * messaging service, and the workspace's own wallet still pays. There is no
+ * per-workspace number row to check; the shared number is attached and
+ * registered once, on the platform.
+ */
+async function evaluateSharedLineReadiness(input: {
+  db: SupabaseClient;
+  ownerId: string;
+  workspaceId: string;
+  sharedNumber: string;
+  providerServiceSid: string | null;
+  requiredCents: number;
+  runtime: RuntimeConfigResult | null;
+}): Promise<WorkspaceSendReadiness> {
+  const { db, ownerId, workspaceId, sharedNumber } = input;
+  const { data: runtime, error: runtimeError } = input.runtime
+    ? input.runtime
+    : ((await db
+        .from("sms_runtime_config")
+        .select("mode, pilot_manager_user_ids")
+        .eq("singleton", true)
+        .maybeSingle()) as unknown as RuntimeConfigResult);
+  if (runtimeError || !runtime) return { canSend: false, reason: "control_plane_unreadable" };
+  const mode = normalizeSmsRuntimeMode(String((runtime as RuntimeRow).mode ?? ""));
+  if (mode === "paused") return { canSend: false, reason: "runtime_paused" };
+  const allowlisted = ((runtime as RuntimeRow).pilot_manager_user_ids ?? []).includes(ownerId);
+  if (!smsRuntimeAllowsManager(mode, allowlisted)) return { canSend: false, reason: "manager_not_allowlisted" };
+
+  const consentServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  const providerServiceSid = input.providerServiceSid || consentServiceSid;
+  if (!consentServiceSid || !providerServiceSid) return { canSend: false, reason: "provider_identity_mismatch" };
+
+  const billing = await evaluateManagerCommsBillingGate(db, ownerId, input.requiredCents, workspaceId);
+  if (!billing.allowed) return { canSend: false, reason: `comms_billing_${billing.reason}` };
+
+  const numberRow: SendNumberRow = {
+    manager_user_id: ownerId,
+    workspace_id: workspaceId,
+    phone_number: sharedNumber,
+    phone_number_sid: null,
+    messaging_service_sid: consentServiceSid,
+    campaign_sid: process.env.TWILIO_CAMPAIGN_SID?.trim() || null,
+    provision_state: "active",
+    registration_state: "approved",
+    registration_ref: null,
+    attachment_state: "attached",
+    number_registration_state: "registered",
+    grace_started_at: null,
+    grace_expires_at: null,
+    quarantined_at: null,
+    quarantine_reason: null,
+  };
+  return {
+    canSend: true,
+    numberRow,
+    workspaceId,
+    messagingServiceSid: consentServiceSid,
+    viaSharedLine: true,
+    providerMessagingServiceSid: providerServiceSid,
+  };
 }
 
 /**

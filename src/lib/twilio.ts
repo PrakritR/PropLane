@@ -5,6 +5,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { isConfiguredSharedNumber } from "@/lib/one-number/shared-line-number.server";
 
 /**
  * Back-compat re-export for the server-side callers that already import it from here.
@@ -30,8 +31,19 @@ export async function sendSms(
     skipOptOutCheck?: boolean;
     mediaUrls?: string[];
     creditReservationKey?: string;
-    purpose?: "phone_verification";
-    /** Platform auth can select its shared-line service; null sends directly from its number. */
+    /**
+     * `phone_verification`: the authenticated OTP route. `platform_lead`: a text from PropLane
+     * itself on the shared number to a lead that has no workspace yet (no wallet to hold credit
+     * from); it is valid ONLY from the configured shared number and keeps the shield, the
+     * opt-out ledger and test capture above.
+     */
+    purpose?: "phone_verification" | "platform_lead";
+    /**
+     * Provider Messaging Service for this call: the dispatcher sets it when the
+     * text leaves from the shared PropLane number, and platform auth sets its
+     * shared-line service. Omitted = the deployment's TWILIO_MESSAGING_SERVICE_SID;
+     * null = send directly from `fromNumber` with no service.
+     */
     messagingServiceSid?: string | null;
     /** Trusted actor identity for delayed/provider calls outside SMS ALS. */
     actorUserId?: string;
@@ -86,14 +98,24 @@ export async function sendSms(
   // Manager-funded SMS has one dispatcher. Legacy/shared-number transports
   // cannot bypass its number registration, owner authorization, or prepaid hold.
   // The authenticated, rate-limited phone verification route is the sole exemption.
-  if (opts?.purpose !== "phone_verification") {
+  if (opts?.purpose === "platform_lead") {
+    const db = createSupabaseServiceRoleClient();
+    if (!(await isConfiguredSharedNumber(db, fromNorm))) {
+      return { sent: false, providerAttempted: false, error: "Use the work-number dispatcher to send messages." };
+    }
+  } else if (opts?.purpose !== "phone_verification") {
     if (!opts?.creditReservationKey) return { sent: false, providerAttempted: false, error: "Use the work-number dispatcher to send messages." };
     const db = createSupabaseServiceRoleClient();
     const { data: number, error: numberError } = await db.from("manager_sms_numbers").select("manager_user_id")
       .eq("phone_number", fromNorm).neq("provision_state", "released").maybeSingle();
     const { data: hold, error: creditError } = await db.from("manager_comms_usage_events")
       .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", opts.creditReservationKey).maybeSingle();
-    if (numberError || creditError || !number || !hold || hold.manager_user_id !== number.manager_user_id || hold.meter !== "sms_outbound_segment"
+    // The one shared PropLane number is configured on the platform, not owned by
+    // a manager row: it is a valid `from` only when it IS the configured shared
+    // number, and then the reserved hold alone proves whose wallet pays.
+    const sharedFrom = !number && !numberError && await isConfiguredSharedNumber(db, fromNorm);
+    const holdOwner = sharedFrom ? hold?.manager_user_id : number?.manager_user_id;
+    if (numberError || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
       || hold.credit_state !== "reserved" || Number(hold.quantity) !== estimateSmsSegments(body).segmentCount) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }

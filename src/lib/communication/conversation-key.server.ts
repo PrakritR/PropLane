@@ -379,7 +379,12 @@ export async function workspaceIdForWorkLine(db: Db, workLineId: string | null |
   if (!id) return null;
   try {
     const { data } = await db.from("manager_sms_numbers").select("workspace_id").eq("id", id).maybeSingle();
-    return clean(data?.workspace_id) || null;
+    const fromNumber = clean(data?.workspace_id);
+    if (fromNumber) return fromNumber;
+    if (data) return null;
+    // The shared PropLane number has no number row: its synthetic work line id IS the workspace id.
+    const { data: workspace } = await db.from("portal_workspaces").select("id").eq("id", id).maybeSingle();
+    return clean(workspace?.id) || null;
   } catch {
     return null;
   }

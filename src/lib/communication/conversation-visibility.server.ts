@@ -88,6 +88,12 @@ export type VisibilityInput = {
    */
   workspaceId?: string | null;
   /**
+   * One-number: the workspace a conversation on the SHARED PropLane number belongs to (its
+   * synthetic work line id). There is no work line to place it by, so it is placed by this
+   * alone: visible in that workspace, in no other, house-less or not. Null for everything else.
+   */
+  sharedLineWorkspaceId?: string | null;
+  /**
    * The work lines this conversation went through — the number texted or the
    * address written to. Places a house-less thread in the workspace that holds
    * that line. Optional: a caller that cannot say passes nothing and the
@@ -170,6 +176,13 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   // A conversation stamped with a workspace belongs to that workspace alone.
   const stampedWorkspaceId = clean(input.workspaceId);
   if (stampedWorkspaceId && scope.activeWorkspaceId && stampedWorkspaceId !== scope.activeWorkspaceId) return false;
+
+  const sharedWorkspaceId = clean(input.sharedLineWorkspaceId);
+  if (sharedWorkspaceId) {
+    if (scope.activeWorkspaceId && scope.activeWorkspaceId !== sharedWorkspaceId) return false;
+    // Your own shared-line conversation needs no house tag to be seen in its workspace.
+    if (!ownerId || ownerId === scope.viewerId) return true;
+  }
 
   const inWorkspace = (houseId: string) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(houseId);
 

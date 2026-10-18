@@ -1072,10 +1072,29 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["owner_user_id"] },
   },
   {
+    // Texted vendor intake and "finish setup" links: the login that finished them owns the row.
+    table: "sms_vendor_leads",
+    phase: 1,
+    manager: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+  },
+  {
+    table: "sms_setup_links",
+    phase: 1,
+    manager: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+  },
+  {
     // Shared-line shadow log: what the router would have decided vs the real owner.
     table: "sms_line_shadow_decisions",
     phase: 1,
     manager: { ids: ["actual_owner_user_id"] },
+  },
+  {
+    // A deleted resident's seat in a house group goes with the account; the row names a phone and a first name.
+    table: "house_group_members",
+    phase: 1,
+    resident: { ids: ["resident_user_id"] },
   },
   {
     // Global contact keyed on the phone; the login link is detached, the phone row stays.
@@ -1374,9 +1393,15 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_provider_events: "Raw provider webhook log; carries no account column.",
   sms_segment_usage: "Aggregate billing counters; carries no account column.",
   sms_line_sessions: "Shared-line router state keyed on a phone; carries no account column.",
+  house_group_settings: "Workspace house-chat switch and daily post cap; cascades with the workspace.",
+  house_group_conversations: "One Twilio Conversation per house member list; cascades with the workspace and the house.",
+  house_group_preferences: "House-chat consent and opt-out keyed on workspace + phone; cascades with the workspace.",
+  house_group_messages: "Redacted house-chat log (dedupe, daily post count, RA state); cascades with the group.",
   vendor_dispatch_rule_vendors: "Ordered vendor chain of a dispatch rule; cascades with the rule and the vendor row.",
   vendor_dispatch_attempts: "Offers inside one dispatch run; cascade with the run.",
   sms_line_thread_state: "Per phone + workspace AI pause state; cascades with the workspace.",
+  sms_demo_sessions: "Sandbox demo conversation keyed on a phone or browser session; no account column, never a real row.",
+  sms_onboarding_state: "Role and house hints of an unknown texter keyed on a phone; carries no account column.",
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
   sms_media_files: "MMS file index keyed on message sid and phone; no account column.",
@@ -1390,6 +1415,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_escalated_questions: "Workspace escalated questions awaiting a manager answer; cascade with the workspace.",
   sms_ai_reply_drafts: "Workspace AI reply drafts held for a manager; cascade with the workspace.",
   sms_knowledge_digests: "Workspace weekly knowledge digest bookkeeping; cascade with the workspace.",
+  sms_reply_debounce:
+    "Transient reply-burst bookkeeping keyed on an opaque owner:role:phone scope; texts are dropped as soon as the reply is durable and no account column exists.",
   rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",
   tour_inquiry_claims:
     "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",

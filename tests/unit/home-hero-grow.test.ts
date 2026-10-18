@@ -55,7 +55,7 @@ describe("text-first homepage composition", () => {
     expect(sections).toEqual(["how-it-works", "for-managers", "pricing"]);
     expect(home.match(/<section\b/g)).toHaveLength(3);
     expect(home).toMatch(/import\s*\{\s*PricingCards\s*\}\s*from\s*"@\/components\/marketing\/site\/pricing-cards"/);
-    expect(home).toContain("<PricingCards />");
+    expect(home).toContain('<PricingCards variant="overview" />');
     expect(home.indexOf("<TextingHomeHero")).toBeLessThan(home.indexOf('id="how-it-works"'));
     expect(home).toContain('<TextingHomeLazy kind="dashboard"');
     expect(home).not.toMatch(/ResidentLifecyclePrototypes|resident-lifecycle-prototypes/);

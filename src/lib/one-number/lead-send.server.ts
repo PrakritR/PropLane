@@ -3,9 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadSharedLineConfig } from "@/lib/one-number/config.server";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { quietHoursBlocks } from "@/lib/sms/number-registration-policy";
-import { createTwilioRestClient } from "@/lib/twilio-client.server";
+import { sendSms } from "@/lib/twilio";
 
 export type PlatformLeadSendResult =
   | { ok: true; sid: string }
@@ -14,10 +13,10 @@ export type PlatformLeadSendResult =
 /**
  * A text from PropLane itself on the shared number, to a lead that has no team yet (the quiet-lead
  * nudges). There is no workspace to bill or sign off for, so this is not `sendSharedLineMessage`.
- * It keeps every gate a send has: shared mode only, the opt-out ledger, quiet hours (automated
- * class), and the real-customer shield outside production. Scheduled nudges stay automated.
- * Only an explicitly requested, consented homepage demo link is transactional:
- * it answers a live request rather than starting an unsolicited conversation.
+ * It uses the consolidated `sendSms` transport (purpose `platform_lead`), which requires
+ * the configured shared number and preserves opt-out, recipient shielding and test capture.
+ * No workspace is billed. Scheduled nudges keep automated quiet hours; an explicitly
+ * requested, consented homepage demo link is an immediate transactional reply.
  */
 export async function sendPlatformLeadText(
   db: SupabaseClient,
@@ -30,25 +29,16 @@ export async function sendPlatformLeadText(
   if (!to) return { ok: false, reason: "invalid_to" };
   const sendClass = input.purpose === "requested_demo_link" ? "transactional" : "automated";
   if (quietHoursBlocks(sendClass, input.now ?? new Date())) return { ok: false, reason: "quiet_hours" };
-  if (await isPhoneOptedOut(db, to).catch(() => false)) return { ok: false, reason: "opted_out" };
-  const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
-  if (await isShieldedRecipient({ phone: to })) return { ok: false, reason: "shielded" };
-  const client = createTwilioRestClient();
-  if (!client) return { ok: false, reason: "provider_error" };
-  const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
-  try {
-    const message = await client.messages.create({
-      to,
-      body: input.body,
-      ...(config.messagingServiceSid ? { messagingServiceSid: config.messagingServiceSid } : { from: config.sharedNumber }),
-      ...(input.mediaUrls?.length ? { mediaUrl: input.mediaUrls.slice(0, 1) } : {}),
-      ...(statusCallback ? { statusCallback } : {}),
-    });
-    return { ok: true, sid: message.sid };
-  } catch (error) {
-    // Twilio's client already cancels requests at its 30-second timeout. A
-    // lost response can follow acceptance, so never retry or call that unsent.
-    const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
-    return { ok: false, reason: status >= 400 && status < 500 ? "provider_error" : "delivery_unknown" };
-  }
+  const result = await sendSms(to, input.body, config.sharedNumber, {
+    purpose: "platform_lead",
+    messagingServiceSid: config.messagingServiceSid,
+    ...(input.mediaUrls?.length ? { mediaUrls: input.mediaUrls.slice(0, 1) } : {}),
+  }).catch(() => ({ sent: false as const, error: "provider_error", providerAttempted: false, sid: undefined }));
+  if (result.sent && result.sid) return { ok: true, sid: result.sid };
+  if (result.error === "recipient_opted_out") return { ok: false, reason: "opted_out" };
+  if (result.error === "protected_account_shielded") return { ok: false, reason: "shielded" };
+  // sendSms catches provider exceptions but intentionally exposes no HTTP status.
+  // Once attempted, a lost response may follow acceptance: never retry or claim unsent.
+  if (result.providerAttempted || result.sent) return { ok: false, reason: "delivery_unknown" };
+  return { ok: false, reason: "provider_error" };
 }

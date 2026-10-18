@@ -31,6 +31,8 @@ import { loadConversationHouses } from "@/lib/sms/conversation-houses.server";
 import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 import { projectManagerSmsEvent } from "@/lib/sms/project-manager-sms-event.server";
+import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
+import { loadSmsMediaForMessages } from "@/lib/one-number/sms-media-index.server";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
 
@@ -345,6 +347,8 @@ export async function logManagerSmsMessage(
     counterpartyRole?: SmsCounterpartyRole;
     /** A dispatcher-validated existing identity takes precedence over rebuilding from a later profile link. */
     conversationKey?: string | null;
+    /** The workspace this message belongs to; stamped on the row and used to place a shared-line thread. */
+    workspaceId?: string | null;
   },
 ): Promise<boolean> {
   const managerUserId = args.managerUserId.trim();
@@ -401,7 +405,8 @@ export async function logManagerSmsMessage(
   }
 
   if (!alreadyLogged) {
-    const { error } = await db.from("manager_sms_messages").insert(row);
+    const { error } = await withWorkspaceStamp(args.workspaceId, (stamp) =>
+      db.from("manager_sms_messages").insert({ ...stamp, ...row }));
     if (error) {
       // Unique SID race: the winner's original transport row remains the
       // evidence, while this call still repairs the idempotent projection.
@@ -435,6 +440,7 @@ export async function logManagerSmsMessage(
     counterpartyUserId: residentUserId,
     counterpartyPhone: residentPhone,
     workPhone: args.direction === "inbound" ? toPhone : row.from_phone,
+    workspaceId: args.workspaceId ?? null,
     legacyConversationKey: conversationKey,
     messageSid: row.message_sid,
     direction: args.direction,
@@ -1159,6 +1165,20 @@ export async function fetchManagerSmsConversations(
     const bLast = b.messages[b.messages.length - 1]?.createdAt ?? "";
     return bLast.localeCompare(aLast);
   });
+
+  // Inbound MMS photos ride on their bubbles (private bucket, signed per view).
+  const mediaBySid = await loadSmsMediaForMessages(
+    db,
+    visibleConversations.flatMap((conversation) => conversation.messages.map((message) => message.messageSid)),
+  );
+  if (mediaBySid.size > 0) {
+    for (const conversation of visibleConversations) {
+      for (const message of conversation.messages) {
+        const media = message.messageSid ? mediaBySid.get(message.messageSid) : undefined;
+        if (media?.length) message.media = media;
+      }
+    }
+  }
 
   return {
     workNumber,

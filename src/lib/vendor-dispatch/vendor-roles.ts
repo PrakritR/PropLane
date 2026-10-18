@@ -77,7 +77,7 @@ export function normalizeIsoDate(value: unknown): string | undefined {
  * value instead of leaving it behind.
  */
 export function normalizeVendorDispatchFields(row: Record<string, unknown>): {
-  [K in keyof Required<VendorDispatchFields>]: VendorDispatchFields[K] | undefined;
+  [K in keyof Required<VendorDispatchFields>]: Required<VendorDispatchFields>[K] | undefined;
 } {
   const trades = Array.isArray(row.dispatchTrades)
     ? [...new Set(row.dispatchTrades.filter(isVendorTrade))].slice(0, VENDOR_TRADES.length)

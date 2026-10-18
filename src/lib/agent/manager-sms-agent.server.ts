@@ -106,6 +106,8 @@ export async function runManagerSmsAgentTurn(
     inboundMessageSid?: string | null;
     onInboundPersisted?: () => Promise<boolean>;
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null };
+    /** Instant "On it" for a confirmed slow action (dispatch, screening, payments). */
+    onSlowWork?: (toolName: string) => Promise<void>;
   },
 ): Promise<ManagerSmsTurn | null> {
   const access = args.ctx.managerSmsAccess;
@@ -129,6 +131,7 @@ export async function runManagerSmsAgentTurn(
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
     onInboundPersisted: args.onInboundPersisted,
+    onSlowWork: args.onSlowWork,
     workspaceId: args.ctx.workspace?.id ?? null,
     testActor: args.testActor ? { ...args.testActor, mode: "manager" } : undefined,
     precomputedReply:
@@ -184,29 +187,48 @@ export async function deliverManagerSmsReply(args: {
   inboundMessageSid?: string | null;
   traceId?: string | null;
   actorUserId?: string;
+  /** Delivery feel (shared line): the workspace names the bubble setting; `bubbles` skips the lookup. */
+  workspaceId?: string | null;
+  bubbles?: boolean;
+  inboundText?: string | null;
+  /** Extra idempotency suffix for a second message answering the same inbound (the work ack). */
+  dedupeSuffix?: string;
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
   const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
   const { buildConversationKey } = await import("@/lib/sms-conversation-identity");
+  const { toGsm7 } = await import("@/lib/one-number/segments");
+  const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
+  const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
   const actorUserId = (args.actorUserId ?? args.managerUserId).trim() || args.managerUserId;
-  return sendFromManagerWorkNumber({
-    managerUserId: args.managerUserId,
-    to: args.toPhone,
-    text: args.text,
-    fromNumber: args.workNumber,
-    source: "automated",
-    counterpartyRole: "manager",
-    conversationKey: buildConversationKey({
-      ownerManagerUserId: args.managerUserId,
-      role: "manager",
-      counterpartyUserId: actorUserId,
-      counterpartyPhone: args.toPhone,
-    }),
-    dedupeKey: args.inboundMessageSid?.trim()
-      ? `inbound_reply_${args.inboundMessageSid.trim()}`
-      : null,
-    purpose: "manager_conversation",
-    actorUserId,
-    traceId: args.traceId,
-    skipLog: true,
+  // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
+  const text = toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text);
+  const baseKey = args.inboundMessageSid?.trim()
+    ? `inbound_reply_${args.inboundMessageSid.trim()}${args.dedupeSuffix ?? ""}`
+    : null;
+  return deliverAgentReply({
+    workspaceId: args.workspaceId,
+    bubbles: args.bubbles,
+    text,
+    inboundText: args.inboundText,
+    send: (bubble, index) =>
+      sendFromManagerWorkNumber({
+        managerUserId: args.managerUserId,
+        to: args.toPhone,
+        text: bubble,
+        fromNumber: args.workNumber,
+        source: "automated",
+        counterpartyRole: "manager",
+        conversationKey: buildConversationKey({
+          ownerManagerUserId: args.managerUserId,
+          role: "manager",
+          counterpartyUserId: actorUserId,
+          counterpartyPhone: args.toPhone,
+        }),
+        dedupeKey: bubbleDedupeKey(baseKey, index),
+        purpose: "manager_conversation",
+        actorUserId,
+        traceId: args.traceId,
+        skipLog: true,
+      }),
   });
 }

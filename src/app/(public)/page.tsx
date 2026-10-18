@@ -149,7 +149,7 @@ export default function HomePage() {
         <h2 className="texting-section-title" id="home-pricing-title">
           Your software. Or your whole team.
         </h2>
-        <PricingCards />
+        <PricingCards variant="overview" />
       </section>
     </div>
   );

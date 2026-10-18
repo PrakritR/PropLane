@@ -98,6 +98,21 @@ export async function withSendMyLinkTool<Ctx>(
   return next;
 }
 
+/** Several shared-line tools at once (one `sms_runtime_config` read); same flag rule as `withSendMyLinkTool`. */
+export async function withSharedLineTools<Ctx>(
+  db: SupabaseClient,
+  registry: ToolRegistry<Ctx>,
+  tools: ReadonlyArray<ToolDefinition<any, any, Ctx>>, // eslint-disable-line @typescript-eslint/no-explicit-any
+): Promise<ToolRegistry<Ctx>> {
+  const missing = tools.filter((tool) => !registry.has(tool.name));
+  if (missing.length === 0) return registry;
+  const config = await loadSharedLineConfig(db);
+  if (config.mode !== "shared") return registry;
+  const next: ToolRegistry<Ctx> = new Map(registry);
+  for (const tool of missing) next.set(tool.name, tool);
+  return next;
+}
+
 const DESCRIPTION_TAIL =
   " Put the returned url in your reply, once, on its own line. If requiresCode is true, add one short line that a code will be texted to this number when they open it. The link only works for this number. Never type a URL from memory.";
 

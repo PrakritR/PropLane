@@ -1,4 +1,5 @@
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
+import { toGsm7 } from "@/lib/one-number/segments";
 import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
@@ -863,25 +864,45 @@ export async function deliverLeasingSmsReply(args: {
   traceId?: string | null;
   prospectBurst?: { burstId: string; revision: number; workerId: string; candidateContext?: unknown; candidateShadowSnapshot?: unknown };
   prospectTourBookingConfirmationId?: string | null;
+  /** Delivery feel (shared line): the workspace names the bubble setting. */
+  workspaceId?: string | null;
+  bubbles?: boolean;
+  inboundText?: string | null;
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
-  const result = await sendFromManagerWorkNumber({
-    managerUserId: args.landlordId,
-    to: args.toPhone,
-    text: args.text,
-    fromNumber: args.workNumber,
-    source: "automated",
-    counterpartyRole: "prospect",
-    conversationKey: buildConversationKey({
-      ownerManagerUserId: args.landlordId,
-      role: "prospect",
-      counterpartyPhone: args.toPhone,
-    }),
-    dedupeKey: args.inboundMessageSid?.trim() ? `inbound_reply_${args.inboundMessageSid.trim()}` : null,
-    purpose: "manager_conversation",
-    actorUserId: args.landlordId,
-    traceId: args.traceId,
-    prospectBurst: args.prospectBurst,
-    prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
+  const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
+  const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
+  // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
+  const text = toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text);
+  const baseKey = args.inboundMessageSid?.trim() ? `inbound_reply_${args.inboundMessageSid.trim()}` : null;
+  const result = await deliverAgentReply({
+    workspaceId: args.workspaceId,
+    // A booking confirmation is exact-once and revision-fenced: it is never split.
+    bubbles: args.prospectTourBookingConfirmationId ? false : args.bubbles,
+    text,
+    inboundText: args.inboundText,
+    send: (bubble, index) =>
+      sendFromManagerWorkNumber({
+        managerUserId: args.landlordId,
+        to: args.toPhone,
+        text: bubble,
+        fromNumber: args.workNumber,
+        source: "automated",
+        counterpartyRole: "prospect",
+        conversationKey: buildConversationKey({
+          ownerManagerUserId: args.landlordId,
+          role: "prospect",
+          counterpartyPhone: args.toPhone,
+        }),
+        dedupeKey: bubbleDedupeKey(baseKey, index),
+        purpose: "manager_conversation",
+        actorUserId: args.landlordId,
+        traceId: args.traceId,
+        // The durable burst fence and the booking confirmation belong to the FIRST bubble only;
+        // the follow-up bubbles are ordinary replies in the same conversation.
+        ...(index === 0
+          ? { prospectBurst: args.prospectBurst, prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId }
+          : {}),
+      }),
   });
   // The thread shows the reply that was sent, so the inbox never also drafts
   // for a text this agent already answered (one responder per inbound).
