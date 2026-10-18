@@ -58,6 +58,7 @@ export async function sendSharedLineMessage(
     workspaceId: send.workspaceId,
     to: send.toPhone,
     text,
+    ...(send.mediaUrls?.length ? { mediaUrls: send.mediaUrls } : {}),
     source: "work_number",
     sendClass: "transactional",
     counterpartyRole: COUNTERPARTY_FOR_ROLE[send.role],
