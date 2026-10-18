@@ -18,7 +18,7 @@ vi.mock("@/lib/one-number/team-alerts.server", () => ({
   }),
 }));
 const unassigned = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => ({ leadId: "lead-1" as string | null, reply: "Welcome! Budget?" as string | null, assignedWorkspaceId: null as string | null })));
-vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: unassigned }));
+vi.mock("@/lib/one-number/onboarding/unknown-sender.server", () => ({ handleUnknownSenderInbound: unassigned }));
 
 import { handleSharedLineInbound, HUMAN_ACK_REPLY } from "@/lib/one-number/inbound-seam.server";
 import { loadThreadPause } from "@/lib/one-number/session.server";
