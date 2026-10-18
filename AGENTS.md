@@ -520,8 +520,10 @@ sources before touching either.
 
 One `Button`: `src/components/ui/button.tsx`. No `size` prop. `danger` is
 text-only red. The Button owns loading - return the promise from `onClick`
-(`() => save()`, never `() => void save()`). Resident Payments is Charges-only
-at `/resident/payments`. `/demo` has its own prop list - forward `tabId` /
+(`() => save()`, never `() => void save()`). Resident Payments is Charges-only;
+its bucket rides in the path and the panel's props, not a sub-tab -
+[`resident-payments.md`](docs/agents/resident-payments.md) § Resident Payments
+section owns that routing. `/demo` has its own prop list - forward `tabId` /
 `basePath` or the demo ignores the tab.
 
 # Multi-agent collaboration (every host)

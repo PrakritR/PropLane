@@ -18,10 +18,14 @@ read (treated as offline — nothing changes), a read that came back AT its cap 
 de-duplication and workspace scoping shrink), an incremental `?updatedSince=` delta, and a workspace
 switch (the confirmed sets describe one workspace and are discarded on `WORKSPACE_SELECTION_EVENT`).
 `/api/manager-applications` reports the same thing as `truncated`, and a single row it
-could not open costs that row only: it is left out of `rows`, named in `skippedRowIds`
-(ids, never identity), and makes the answer incomplete as well — the Applications list
-says "N applications couldn't be loaded." rather than quietly showing one fewer. Coverage:
-`tests/unit/household-charges-no-resurrect.test.ts`, `tests/unit/manager-applications-no-resurrect.test.ts`,
+could not open costs that row only: it is left out of `rows`, named in `skippedRowIds`,
+hinted in `skippedRows` (house / term / room off the stored record, never identity), and
+makes the answer incomplete as well — the Applications list says "N applications couldn't
+be loaded." rather than quietly showing one fewer. Those hints are what lets a caller that
+must decide whether one row exists rule out a skip for a different house
+([`application-questions.md`](application-questions.md) § Quick apply (resident, saved
+answers)); `complete` still stays false, so absence is never proof a row was deleted.
+Coverage: `tests/unit/household-charges-no-resurrect.test.ts`, `tests/unit/manager-applications-no-resurrect.test.ts`,
 `tests/unit/manager-applications-skipped-rows-surfaced.test.ts`.
 
 `unmarkPaid` refuses settled or ambiguous receipts with 409 while there is no accounting-safe reversal; Payments offers no Undo or Move to pending on a recorded charge. Returning a service photo never marks its charge paid. The currently unused short-to-long application-fee projection cancels a clean unpaid obligation without a paid date or provider source, preserves any actual receipt or in-flight source, and does not mint a server waiver audit. A new Checkout cannot begin when a same-manager/property/resident legacy paid fee lacks application identity. The manager application detail receipt is read from the exact application's owned claim, charge and ledger source; a current listing quote never proves payment, and a failed read never appears as “Not received.”

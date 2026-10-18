@@ -242,7 +242,13 @@ forms, the manager notice, move-in forms and screening (`consentCredit`) are one
   keyed on the application id. The full wizard holds the same line from the other side: "no in-progress
   application matches this target" is only believed when the read that says so SUCCEEDED, so its reconcile
   retries the applications read before it ever mints a fresh id, and a read that never answered leaves the draft
-  alone (`rental-application-wizard.tsx`, `tests/unit/apply-reconcile-read-guard.test.ts`).
+  alone (`rental-application-wizard.tsx`, `tests/unit/apply-reconcile-read-guard.test.ts`). A read that
+  succeeded but SKIPPED rows is judged per skip, not as a whole: `applicationReadProvesTargetAbsent` /
+  `skippedCatalogHidesApplicationTarget` (`src/lib/rental-application/in-progress-application.ts`) believe
+  absence when every skip's `skippedRows` hint names another house, term or room, and refuse it for a skip
+  with no hint, a skip that could be this target, or the saved axis id itself — so one unreadable row in
+  another house no longer blocks the apply link, and a skip that might BE the draft still does
+  (`tests/unit/skipped-application-target.test.ts`).
 - **`dryRun: true`** writes nothing and says what the primary button should read: Quick apply (`ready`), Continue
   application (`needsWizard` / `needsPayment`) or View application (duplicate). It runs the SAME
   `validateResidentApplicationRowForPersistence` the submit runs, with the sheet's own fields (move-in, consent,
