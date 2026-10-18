@@ -146,6 +146,8 @@ export async function recordEscalationItem(
     excerpt?: string;
     /** Already handled (a complaint logged below the threshold). */
     resolved?: boolean;
+    /** When it happened. Defaults to now. */
+    at?: Date;
   },
 ): Promise<string | null> {
   try {
@@ -165,7 +167,8 @@ export async function recordEscalationItem(
       question,
       source: input.source,
       excerpt,
-      ...(input.resolved ? { resolved_at: new Date().toISOString() } : {}),
+      escalated_at: (input.at ?? new Date()).toISOString(),
+      ...(input.resolved ? { resolved_at: (input.at ?? new Date()).toISOString() } : {}),
     });
     return error ? null : id;
   } catch {
@@ -203,6 +206,7 @@ export async function recordHouseComplaint(
     topic: "complaint",
     question: input.text,
     resolved: true,
+    at: input.now,
   });
   if (!logged) return { logged: false, count: 0, threshold, escalated: false };
 
@@ -237,6 +241,7 @@ export async function recordHouseComplaint(
     topic: "repeated_complaints",
     question: `${total} complaints in ${COMPLAINT_WINDOW_DAYS} days at this house`,
     excerpt: input.text,
+    at: input.now,
   });
   return { logged: true, count: total, threshold, escalated: Boolean(filed) };
 }
