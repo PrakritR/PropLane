@@ -80,4 +80,13 @@ describe("sendPlatformLeadText", () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
+  it("answers an inbound message overnight without changing the automated default", async () => {
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hello", now: NIGHT, inboundReply: true }))
+      .toEqual({ ok: true, sid: "SM1" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Nudge", now: NIGHT }))
+      .toEqual({ ok: false, reason: "quiet_hours" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+  });
+
 });

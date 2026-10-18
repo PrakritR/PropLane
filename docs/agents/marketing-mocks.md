@@ -3,6 +3,30 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+## Public homepage: one scroll story (captain, 2026-10-18)
+
+The public front is one page: cover → `#how` → `#dashboard` → `#service` →
+`#pricing` → `#contact`. `HomeScrollStage` uses native scroll and midpoint
+sentinels; rail links scroll to scenes, with no wheel interception. Reduced
+motion and no JavaScript show every scene as ordinary stacked content.
+
+`HomeNumberStage` reuses the real message-thread component and shared sample
+scripts. Its owner scene reads the aggregate `owner-statement` fixture, never
+resident details. Network captions describe the shipped public-listing router,
+approved vendor jobs, and keeping the PropLane number when moving homes; they
+make no claims about sharing a private workspace thread.
+
+`HomeDashboardStage` mounts the real manager panels only near the active story
+step. Initial HTML and reduced motion retain fixture-backed record snapshots.
+The sample approval is local only; no panel fetches live data or persists a write.
+The phone notification and paid state use the same sample workspace and ledger
+row. All operating claims outside the sample panels derive from `TRACK_RECORD`.
+
+The cover reads the cached shared-line config supplied by the public layout.
+When unavailable, it shows Start free and no invented number. Marketing route
+redirects, sitemap and crawl links share `src/lib/seo/marketing-routes.ts`.
+The older reusable lifecycle engine below remains available to other surfaces.
+
 ## The home page's product rows reuse REAL portal components, statically
 
 Captain 2026-09-26: "remove live demo no need" — `src/components/marketing/

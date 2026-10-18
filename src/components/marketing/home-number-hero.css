@@ -1,0 +1,230 @@
+.home-number-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+  width: min(1280px, 100% - 48px);
+  min-height: calc(100svh - 72px);
+  margin-inline: auto;
+  padding: 48px 0 72px;
+  color: #17181a;
+  text-align: center;
+}
+.home-number-hero h1 {
+  font-family:
+    var(--font-home-headline), var(--font-home-display), var(--font-brand-sans),
+    sans-serif;
+  font-size: clamp(64px, 8.4vw, 128px);
+  line-height: 0.94;
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  margin: 0;
+  max-width: 100%;
+}
+.home-number-hero h1 > span {
+  display: block;
+}
+.home-number-hero h1 > span:last-child {
+  white-space: nowrap;
+}
+.home-big-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family:
+    var(--font-home-headline), var(--font-home-display), var(--font-brand-sans),
+    sans-serif;
+  font-size: clamp(44px, 6.6vw, 96px);
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  color: #1769bd;
+  text-decoration: none;
+}
+.home-big-number:hover .home-big-number-value {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 8px;
+}
+.home-big-number:focus-visible,
+.home-number-start:focus-visible,
+.home-number-qr:focus-visible {
+  outline: 3px solid #1769bd;
+  outline-offset: 6px;
+}
+.home-big-number-glyph {
+  display: none;
+}
+.home-number-hero .home-big-number {
+  flex-direction: column;
+  gap: 16px;
+}
+.home-big-number-label {
+  font-size: 32px;
+  letter-spacing: -0.03em;
+}
+.home-number-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  padding: 16px 40px;
+  border-radius: 36px;
+  background: #1769bd;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.public-simple-footer {
+  background: #fbfaf9 !important;
+  border-top: 1px solid #dfe6ef;
+  padding: 24px;
+}
+.public-simple-footer-inner {
+  max-width: 1280px;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+}
+.public-simple-footer a {
+  min-height: 48px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  color: #17181a;
+  text-decoration: none;
+}
+.public-simple-footer a:focus-visible {
+  outline: 3px solid #1769bd;
+  outline-offset: 3px;
+}
+.public-simple-footer nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 24px;
+  flex: 1;
+  min-width: 0;
+}
+.public-simple-footer-compact {
+  padding-block: 12px;
+}
+@media (max-width: 1023px) {
+  .home-number-hero {
+    width: calc(100% - 32px);
+    min-height: calc(100svh - 64px);
+    gap: 40px;
+    padding: 40px 0 64px;
+  }
+  .home-number-hero h1 {
+    font-size: clamp(60px, 10vw, 96px);
+  }
+  .home-number-hero h1 > span:last-child {
+    white-space: normal;
+  }
+}
+@media (max-width: 639px) {
+  .home-number-hero h1 {
+    font-size: clamp(56px, 15.5vw, 72px);
+  }
+  .home-number-hero .home-big-number {
+    justify-content: center;
+    width: 100%;
+    max-width: 400px;
+    min-height: 104px;
+    padding: 16px 12px;
+    gap: 12px;
+    border-radius: 32px;
+    background: #1769bd;
+    color: #fff;
+    font-size: clamp(30px, 9.2vw, 40px);
+  }
+  .home-number-hero .home-big-number-label {
+    font-size: 23px;
+  }
+  .home-number-start {
+    width: 100%;
+    max-width: 400px;
+  }
+  .public-simple-footer {
+    padding: 24px 16px;
+  }
+  .public-simple-footer-inner {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .public-simple-footer nav {
+    grid-column: 1/-1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 20px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.home-number-hero) {
+    scroll-behavior: smooth;
+  }
+}
+:is(#how, #service, #pricing, #contact) {
+  scroll-margin-top: 80px;
+}
+/* Craft pass: the number carries the cover; the headline leaves it room. */
+.home-number-hero h1 {
+  font-size: clamp(40px, 5.2vw, 76px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.home-number-hero .home-big-number {
+  font-size: clamp(52px, 8.4vw, 120px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+@media (max-width: 639px) {
+  .home-number-hero h1 {
+    font-size: clamp(40px, 11vw, 48px);
+  }
+  .home-number-hero .home-big-number {
+    font-size: clamp(38px, 12vw, 52px);
+    padding-inline: 8px;
+  }
+}
+.public-simple-footer-inner {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
+  max-width: 1320px;
+}
+.public-simple-footer nav {
+  display: contents;
+}
+.public-simple-footer-inner > a {
+  border-top: 1px solid #d4dbe1;
+  padding-top: 16px;
+  align-self: stretch;
+}
+.public-simple-footer nav > a {
+  border-top: 1px solid #d4dbe1;
+  padding-top: 16px;
+  justify-content: center;
+}
+@media (max-width: 767px) {
+  .public-simple-footer-inner {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .public-simple-footer nav > a {
+    justify-content: flex-start;
+  }
+  .public-simple-footer-inner > a {
+    min-height: 64px;
+  }
+}

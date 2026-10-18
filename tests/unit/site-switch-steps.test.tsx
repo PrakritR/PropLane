@@ -42,12 +42,10 @@ describe("SiteSwitchSteps", () => {
     expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
-  it("is imported and rendered by the home page", () => {
+  it("stays reusable without adding an import section to the single-page story", () => {
     const page = read("../../src/app/(public)/page.tsx");
-    expect(page).toContain(
-      'import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";',
-    );
-    expect(page).toContain("<SiteSwitchSteps />");
+    expect(page).not.toContain("<SiteSwitchSteps />");
+    expect(page).toContain("<HomeDashboardStage />");
   });
 });
 

@@ -6,7 +6,7 @@ import { TextLinkForm } from "@/components/marketing/text-link-form";
 const fetchMock = vi.fn();
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const submit = () => fireEvent.submit(screen.getByRole("form", { name: "Text me a demo link" }));
+const submit = () => fireEvent.submit(screen.getByRole("form", { name: "Text me a link" }));
 
 describe("text demo link form", () => {
   it("reads phone and explicit consent from the form and announces confirmed sending", async () => {
@@ -42,7 +42,7 @@ describe("text demo link form", () => {
     fetchMock.mockRejectedValue(new DOMException("Timed out", "TimeoutError"));
     render(<TextLinkForm />);
     submit();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Delivery isn't confirmed. Check your phone or open the demo.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Delivery isn't confirmed. Check your phone or view the dashboard.");
   });
 
   it("preserves the provider's uncertain-delivery result", async () => {

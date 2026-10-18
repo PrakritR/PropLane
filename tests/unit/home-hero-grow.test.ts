@@ -45,40 +45,30 @@ describe("retained lifecycle demo grows on scroll", () => {
 });
 
 
-// The public homepage now uses a light text-first hero; the lifecycle demo above remains reusable.
-describe("text-first homepage composition", () => {
+// The full-viewport cover and two scroll stories precede service, pricing and contact.
+describe("single-page homepage composition", () => {
   const home = read("src/app/(public)/page.tsx");
-  const homeCss = read("src/components/marketing/texting-home.css");
-  it("has exactly four sections: hero, people, managed service, and shared pricing cards", () => {
-    expect(home.match(/<TextingHomeHero\b/g)).toHaveLength(1);
-    const sections = [...home.matchAll(/<section\s+id="([^"]+)"/g)].map((match) => match[1]);
-    expect(sections).toEqual(["how-it-works", "for-managers", "pricing"]);
-    expect(home.match(/<section\b/g)).toHaveLength(3);
-    expect(home).toMatch(/import\s*\{\s*PricingCards\s*\}\s*from\s*"@\/components\/marketing\/site\/pricing-cards"/);
+  it("uses the approved section order and one shared pricing source", () => {
+    const order = ["<TextingHomeHero", "<HomeNumberStage", "<HomeDashboardStage", 'id="service"', 'id="pricing"', 'id="contact"'];
+    const positions = order.map((item) => home.indexOf(item));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(home).toContain('<PricingCards variant="overview" />');
-    expect(home.indexOf("<TextingHomeHero")).toBeLessThan(home.indexOf('id="how-it-works"'));
-    expect(home).toContain('<TextingHomeLazy kind="dashboard"');
-    expect(home.indexOf('<TextingHomeLazy kind="dashboard"')).toBeLessThan(home.indexOf('id="how-it-works"'));
-    expect(home).not.toContain('You stay in control.');
-    expect(home).not.toContain('kind="draft"');
-    expect(home).toContain('<ResidentLifecycleAtmosphere variant="page" staticBelow={640} />');
-    expect(home).not.toMatch(/ResidentLifecyclePrototypes|resident-lifecycle-prototypes/);
-    expect(homeCss).toMatch(/@media\s*\(max-width:\s*639px\)[\s\S]*\.texting-dashboard\s*\{\s*display:\s*none/);
+    expect(home).toContain('<ManagedServiceForm');
+    expect(home).not.toMatch(/TextingHomeLazy|texting-roles|texting-eyebrow|You stay in control/);
   });
-  it("uses the approved headline for the hero and search metadata", () => {
+  it("uses the approved headline for the cover and metadata", () => {
     expect(HOME_HEADLINE).toBe("Your AI Property Manager");
     expect(home).toContain("title: HOME_HEADLINE");
-    expect(read("src/components/marketing/texting-home-hero.tsx")).toMatch(/<h1[^>]*>\{HOME_HEADLINE\}<\/h1>/);
+    expect(read("src/components/marketing/texting-home-hero.tsx")).toContain("aria-label={HOME_HEADLINE}");
   });
-  it("keeps the founders' proof to the three captain-provided facts", () => {
-    const proof = home.match(/<dl\s[^>]*className="texting-track-record"[\s\S]*?<\/dl>/)?.[0];
-    expect(proof).toBeDefined();
-    expect([...proof!.matchAll(/<dd>([^<]+)<\/dd>/g)].map((match) => match[1])).toEqual([
-      "3 Seattle homes", "Room rentals + Airbnb", "six-figure profit",
-    ]);
-    expect(home).toContain('href="/service"');
+  it("derives every operating figure from the captain's track-record source", () => {
+    for (const field of ["homes", "roomsOccupied", "roomsTotal", "profit"]) expect(home).toContain(`TRACK_RECORD.${field}`);
+    expect(home).toContain('href="/#contact"');
+    expect(home).not.toMatch(/TRACK_RECORD_HOMES|5257|5259|4709/);
   });
-  it("disables sample bubble and typing animations for reduced motion", () => {
-    expect(homeCss).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\.texting-bubble,\s*\.texting-tour-card,\s*\.texting-typing i\s*\{\s*animation:\s*none/);
+  it("retains the wave background without a competing ambient animation", () => {
+    expect(home).toContain('<ResidentLifecycleAtmosphere variant="page" staticBelow={10000} />');
+    expect(read("src/components/marketing/home-scroll-stage.css")).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   });
 });

@@ -8,7 +8,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 const HOUR = 60 * 60 * 1000;
-const UNAVAILABLE = "We couldn't send the text. Open the demo here instead.";
+const UNAVAILABLE = "We couldn't send the text. View the dashboard here instead.";
 
 function respond(body: object, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       ["text-demo:global", 50],
     ] as const) {
       const allowed = await rateLimit(key, limit, HOUR);
-      if (!allowed.ok) return respond({ error: allowed.unavailable ? UNAVAILABLE : "Please try again later, or open the demo here." }, allowed.unavailable ? 503 : 429);
+      if (!allowed.ok) return respond({ error: allowed.unavailable ? UNAVAILABLE : "Please try again later, or view the dashboard here." }, allowed.unavailable ? 503 : 429);
     }
     const db = createSupabaseServiceRoleClient();
     // The existing platform sender retains its own consent gate. This read also
@@ -61,10 +61,10 @@ export async function POST(request: Request) {
     const result = await sendPlatformLeadText(db, {
       to: phone,
       purpose: "requested_demo_link",
-      body: `PropLane: Your demo is ready: ${PRODUCTION_APP_ORIGIN}/?demo=open Reply DEMO to try it by text. Reply STOP to opt out.`,
+      body: `PropLane: Here is your link: ${PRODUCTION_APP_ORIGIN}/#dashboard Reply STOP to opt out.`,
     });
     if (!result.ok) return result.reason === "delivery_unknown"
-      ? respond({ error: "Delivery isn't confirmed. Check your phone or open the demo.", deliveryUnknown: true }, 503)
+      ? respond({ error: "Delivery isn't confirmed. Check your phone or view the dashboard.", deliveryUnknown: true }, 503)
       : respond({ error: UNAVAILABLE }, 503);
     return respond({ ok: true });
   } catch {

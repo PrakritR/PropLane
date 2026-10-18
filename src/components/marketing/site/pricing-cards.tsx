@@ -5,7 +5,7 @@ import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { formatUsdFromCents } from "@/lib/comms-billing/rates";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
-import { MANAGED_INCLUDES, MANAGED_PRICE_HEADLINE, MANAGED_PRICE_NOTE, MANAGED_SERVICE_HREF, MANAGED_STEPS } from "@/lib/marketing/managed-service";
+import { MANAGED_CONTACT_HREF, MANAGED_INCLUDES, MANAGED_PRICE_HEADLINE, MANAGED_PRICE_NOTE, MANAGED_SERVICE_HREF, MANAGED_STEPS } from "@/lib/marketing/managed-service";
 import { Check, Dash } from "@/components/marketing/site/pricing-compare-data";
 import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY } from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
@@ -96,12 +96,12 @@ export function PlanCard({ tier, annual, compact = false }: { tier: ManagerPlanT
   const headline = tier.id === "free" ? formatRateCardUsd(RATE_CARD.free.floorMonthlyCents) : price.headline;
   const period = tier.id === "free" ? null : annual ? "/yr" : "/mo";
   if (compact) return (
-    <article className="pl-pricing-card pl-pricing-compact" aria-label={tier.label} data-attr={`pricing-plan-${tier.id}`}>
+    <article className={cn("pl-pricing-card pl-pricing-compact", featured && "pl-pricing-featured")} aria-label={tier.label} data-attr={`pricing-plan-${tier.id}`}>
       <h3>{tier.label}</h3>
       <p className="pl-pricing-price"><strong>{headline}</strong>{period && <span>{period}</span>}</p>
       <p className="pl-pricing-billing">{tier.id === "free" ? "No card required" : annual ? "Billed yearly" : "Billed monthly"}</p>
       <ul className="pl-pricing-short-list">
-        {includes.items.filter((item) => item.included).slice(0, 2).map((item) => <li key={item.text}>{item.text}</li>)}
+        {includes.items.filter((item) => item.included).slice(0, 3).map((item) => <li key={item.text}>{item.text}</li>)}
       </ul>
       <Link href={cta.href} data-attr={`pricing-plan-${tier.id}-cta`} className="pl-pricing-cta">{cta.label}</Link>
     </article>
@@ -111,15 +111,10 @@ export function PlanCard({ tier, annual, compact = false }: { tier: ManagerPlanT
       aria-label={tier.label}
       className={cn(
         "pricing-card relative flex flex-col rounded-3xl border bg-card p-6 sm:p-7",
-        featured ? "pricing-card-featured border-primary/50 pt-12 sm:pt-14" : "border-border",
+        featured ? "pricing-card-featured border-foreground border-2" : "border-border",
       )}
       data-attr={`pricing-plan-${tier.id}`}
     >
-      {featured ? (
-        <span className="absolute inset-x-0 top-0 rounded-t-[23px] bg-primary py-2 text-center text-[11.5px] font-bold uppercase tracking-[0.1em] text-white">
-          Most popular
-        </span>
-      ) : null}
       <h3 className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">{tier.label}</h3>
       <p className="mt-2 min-h-[40px] text-[14px] leading-snug text-muted">{TIER_TAGLINE[tier.id]}</p>
       <p className="mt-5 flex items-end gap-1.5">
@@ -179,7 +174,7 @@ export function ServicePricingCard({
         </p>
         <p className="mt-1.5 text-[12.5px] text-muted">{MANAGED_PRICE_NOTE}</p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr={`${attrPrefix}-talk`} className={SITE_BTN_PRIMARY}>
+          <Link href={MANAGED_CONTACT_HREF} data-attr={`${attrPrefix}-talk`} className={SITE_BTN_PRIMARY}>
             Talk to us
           </Link>
           <Link href={MANAGED_SERVICE_HREF} data-attr={`${attrPrefix}-details`} className={SITE_BTN_SECONDARY}>
@@ -222,14 +217,13 @@ export function ServicePricingCard({
 function ManagedPlanCard({ compact }: { compact: boolean }) {
   return (
     <article className={cn("pl-pricing-card pl-pricing-managed", compact && "pl-pricing-compact")} aria-label="We manage it for you" data-attr="pricing-plan-managed">
-      <span className="pl-pricing-service-label">Managed service</span>
       <h3>We manage it for you</h3>
       <p className="pl-pricing-price"><strong>{MANAGED_PRICE_HEADLINE}</strong></p>
       {!compact && <p className="pl-pricing-billing">{MANAGED_PRICE_NOTE}</p>}
       <ul className="pl-pricing-short-list">
-        {(compact ? MANAGED_INCLUDES.slice(0, 2) : MANAGED_INCLUDES).map((item) => <li key={item.id}>{item.title}</li>)}
+        {(compact ? MANAGED_INCLUDES.slice(0, 3) : MANAGED_INCLUDES).map((item) => <li key={item.id}>{item.title}</li>)}
       </ul>
-      <Link href={`${MANAGED_SERVICE_HREF}#talk`} prefetch={false} className="pl-pricing-cta" data-attr="pricing-plan-managed-cta">Talk to us</Link>
+      <Link href={MANAGED_CONTACT_HREF} prefetch={false} className="pl-pricing-cta" data-attr="pricing-plan-managed-cta">Talk to us</Link>
     </article>
   );
 }
@@ -241,7 +235,7 @@ export function PricingCards({ annual = false, variant = "full" }: {
 }) {
   const compact = variant === "overview";
   return (
-    <div className={cn("pl-pricing-options", compact && "pl-pricing-overview")} role="region" aria-label="Pricing options; swipe to compare all four plans" tabIndex={0} data-attr="pricing-plan-stack">
+    <div className={cn("pl-pricing-options", compact && "pl-pricing-overview")} role="region" aria-label="Pricing options" data-attr="pricing-plan-stack">
       {MANAGER_PLAN_TIERS.map((tier) => <PlanCard key={tier.id} tier={tier} annual={annual} compact={compact} />)}
       <ManagedPlanCard compact={compact} />
     </div>

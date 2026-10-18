@@ -2,100 +2,130 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AxisLogoLink } from "@/components/brand/axis-logo";
 import { Button } from "@/components/ui/button";
 import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
-import { HomeNavDropdown } from "@/components/layout/home-nav-dropdown";
-import { PUBLIC_PRICING_LINKS, PUBLIC_WHY_LINKS } from "@/components/layout/public-navbar-links";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import styles from "@/components/layout/home-navbar.module.css";
 
 const HomeMobileMenu = dynamic(() => import("@/components/layout/home-mobile-menu"), { ssr: false });
 export type HomeTextingConfig = PublicTextingConfig;
 
-/** Home's public header makes no session/profile requests and loads its sheet on demand. */
 export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
+  const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [heroPassed, setHeroPassed] = useState(false);
+  const [closeVisible, setCloseVisible] = useState(false);
+  const [activeSection, setActiveSection] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
-  const configured = Boolean(texting.phone && texting.smsHref);
-  const mobileHref = configured ? texting.smsHref! : GET_STARTED_HREF;
-  const desktopHref = configured ? "#text-proplane" : GET_STARTED_HREF;
+  const phone = formatPublicPhone(texting.phone);
+  const configured = Boolean(phone && texting.smsHref);
+  const textHref = configured ? texting.smsHref! : GET_STARTED_HREF;
 
   useEffect(() => {
     let frame = 0;
     const update = () => {
       frame = 0;
       setScrolled(window.scrollY > 48);
-      if (!("IntersectionObserver" in window)) {
+      if (typeof window.IntersectionObserver !== "function") {
         const hero = document.getElementById("home-hero");
+        const close = (document.getElementById("contact") ?? document.getElementById("home-close"))?.getBoundingClientRect();
         setHeroPassed(Boolean(hero && hero.getBoundingClientRect().bottom <= 0));
+        setCloseVisible(Boolean(close && close.top < window.innerHeight && close.bottom > 0));
       }
     };
-    const scroll = () => { if (!frame) frame = window.requestAnimationFrame(update); };
+    const scroll = () => { if (!frame) frame = requestAnimationFrame(update); };
     scroll();
     window.addEventListener("scroll", scroll, { passive: true });
-    return () => { window.removeEventListener("scroll", scroll); window.cancelAnimationFrame(frame); };
-  }, []);
+    return () => { window.removeEventListener("scroll", scroll); cancelAnimationFrame(frame); };
+  }, [pathname]);
 
   useEffect(() => {
-    if (!("IntersectionObserver" in window)) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry) setHeroPassed(!entry.isIntersecting && entry.boundingClientRect.bottom <= 0);
+    if (pathname !== "/" || typeof window.IntersectionObserver !== "function") return;
+    const observed = new Set<Element>();
+    const visibleCloses = new Set<Element>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target.id === "home-hero") {
+          setHeroPassed(!entry.isIntersecting && entry.boundingClientRect.bottom <= 0);
+          if (entry.isIntersecting) setActiveSection("");
+        }
+        if (entry.target.id === "home-close" || entry.target.id === "contact") {
+          if (entry.isIntersecting) visibleCloses.add(entry.target); else visibleCloses.delete(entry.target);
+          setCloseVisible(visibleCloses.size > 0);
+        }
+      }
     }, { threshold: 0 });
     const attach = () => {
-      const hero = document.getElementById("home-hero");
-      if (!hero) return false;
-      observer.observe(hero);
-      return true;
+      for (const id of ["home-hero", "contact", "home-close"]) {
+        const element = document.getElementById(id);
+        if (element && !observed.has(element)) { observer.observe(element); observed.add(element); }
+      }
+      return observed.size >= 2;
     };
-    // A streamed page may arrive after its layout has hydrated.
     const pending = new MutationObserver(() => { if (attach()) pending.disconnect(); });
     if (!attach()) pending.observe(document.body, { subtree: true, childList: true });
     return () => { observer.disconnect(); pending.disconnect(); };
-  }, []);
+  }, [pathname]);
 
-  return (
-    <>
-      <header id="axis-public-navbar" className={styles.header} data-scrolled={scrolled}>
-        <div className={styles.bar}>
-          <div className={styles.brand}><AxisLogoLink href="/" size="compact" /></div>
-          <nav aria-label="Main navigation" className={styles.desktopLinks}>
-            <a href="#how-it-works">How it works</a>
-            <HomeNavDropdown title="Why PropLane" links={PUBLIC_WHY_LINKS} />
-            <HomeNavDropdown title="Pricing" links={PUBLIC_PRICING_LINKS} />
-            <Link href="/service" prefetch={false}>Service</Link>
-          </nav>
-          <div className={styles.desktopActions}>
-            <Link href="/auth/sign-in" prefetch={false} className={styles.signIn} data-attr="home-nav-sign-in">Sign in</Link>
-            <Button asChild className={styles.textAction}>
-              <a href={desktopHref} data-attr="home-nav-text-desktop">{configured ? "Text PropLane" : "Start free"}</a>
-            </Button>
-          </div>
-          <div className={styles.mobileActions}>
-            <Button asChild className={styles.textAction}>
-              <a href={mobileHref} data-attr="home-nav-text-mobile">{configured ? "Text us" : "Start free"}</a>
-            </Button>
-            <Button ref={menuTrigger} type="button" variant="ghost" className={styles.menuButton}
-              aria-label="Open menu" aria-haspopup="dialog" aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(true)} data-attr="home-nav-menu">
-              <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-                <path d="M4 7h16M4 12h16M4 17h16" />
-              </svg>
-            </Button>
-          </div>
+  useEffect(() => {
+    if (pathname !== "/" || typeof window.IntersectionObserver !== "function") return;
+    const observed = new Set<Element>();
+    // IntersectionObserver resolves percentage margins against width, even vertically.
+    // Keep the reading band at 20–35% of viewport height on every aspect ratio.
+    const createObserver = () => new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) setActiveSection(entry.target.id === "dashboard" ? "how" : entry.target.id);
+      }
+    }, { rootMargin: `-${Math.round(window.innerHeight * .2)}px 0px -${Math.round(window.innerHeight * .65)}px 0px`, threshold: 0 });
+    let observer = createObserver();
+    const resize = () => {
+      observer.disconnect();
+      observer = createObserver();
+      for (const node of observed) observer.observe(node);
+    };
+    const attach = () => {
+      for (const id of ["how", "dashboard", "service", "pricing", "contact"]) {
+        const node = document.getElementById(id);
+        if (node && !observed.has(node)) { observer.observe(node); observed.add(node); }
+      }
+      return observed.size === 5;
+    };
+    const pending = new MutationObserver(() => { if (attach()) pending.disconnect(); });
+    if (!attach()) pending.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", resize, { passive: true });
+    return () => { observer.disconnect(); pending.disconnect(); window.removeEventListener("resize", resize); };
+  }, [pathname]);
+
+  const onHome = pathname === "/";
+  const textLabel = configured ? (onHome && heroPassed ? phone : "Text us") : "Start free";
+  return <>
+    <div className={styles.spacer} aria-hidden="true" />
+    <header id="axis-public-navbar" className={styles.header} data-scrolled={scrolled}>
+      <div className={styles.bar}>
+        <div className={styles.brand}><AxisLogoLink href="/" size="compact" /></div>
+        <nav aria-label="Main navigation" className={styles.desktopLinks}>
+          {[["how", "How it works"], ["service", "Service"], ["pricing", "Pricing"], ["contact", "Contact"]].map(([id, label]) => <Link key={id} href={`/#${id}`} prefetch={false} aria-current={pathname === "/" && activeSection === id ? "location" : undefined}>{label}</Link>)}
+        </nav>
+        <div className={styles.desktopActions}>
+          <a href={textHref} className={styles.textAction} data-attr="home-nav-text-desktop">{textLabel}</a>
+          <Link href="/auth/sign-in" prefetch={false} className={styles.portal} data-attr="home-nav-portal">Portal</Link>
         </div>
-      </header>
-      {menuOpen ? <HomeMobileMenu onClose={() => setMenuOpen(false)} restoreFocus={() => menuTrigger.current?.focus()} /> : null}
-      {heroPassed && !menuOpen ? (
-        <div className={styles.stickyCta} data-attr="home-sticky-text-bar">
-          <Button asChild className={styles.stickyAction}>
-            <a href={mobileHref} data-attr="home-sticky-text">{configured ? "Text PropLane" : "Start free"}</a>
+        <div className={styles.mobileActions}>
+          <a href={textHref} className={styles.textAction} data-attr="home-nav-text-mobile">{textLabel}</a>
+          <Button ref={menuTrigger} type="button" variant="ghost" className={styles.menuButton} aria-label="Open menu" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} data-attr="home-nav-menu">
+            <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M4 8h16M4 16h16" /></svg>
           </Button>
         </div>
-      ) : null}
-    </>
-  );
+      </div>
+    </header>
+    {menuOpen && <HomeMobileMenu textHref={textHref} phone={configured ? phone : null} onClose={() => setMenuOpen(false)} restoreFocus={() => menuTrigger.current?.focus()} />}
+    {onHome && heroPassed && !closeVisible && !menuOpen && <div className={styles.stickyCta} data-attr="home-sticky-text-bar">
+      <a href={textHref} className={styles.stickyAction} data-attr="home-sticky-text">{configured ? `Text ${phone}` : "Start free"}</a>
+    </div>}
+  </>;
 }

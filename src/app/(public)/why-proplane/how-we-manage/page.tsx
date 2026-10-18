@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { MANAGED_SERVICE_HREF } from "@/lib/marketing/managed-service";
+import { MANAGED_CONTACT_HREF, MANAGED_SERVICE_HREF } from "@/lib/marketing/managed-service";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import { ManagedHowItWorks, ManagedIncludesGrid } from "@/components/marketing/site/managed-service-sections";
 import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY, SiteEyebrow, SiteHeading, SitePageHero, SiteSection } from "@/components/marketing/site/primitives";
@@ -9,6 +9,7 @@ import { WhySubnav } from "@/components/marketing/site/why-subnav";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/#service" },
   title: "How we manage",
   description:
     "How PropLane Managed runs a home: leasing and tenant placement, rent collection, maintenance with vendors, short-term and room rentals, a 24/7 texting line and owner reporting.",
@@ -53,7 +54,7 @@ export default function HowWeManagePage() {
           <div className="flex flex-col items-center gap-6">
             <WhySubnav active="how-we-manage" />
             <div className="flex flex-wrap items-center justify-center gap-3.5">
-              <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr="how-talk" className={SITE_BTN_PRIMARY}>
+              <Link href={MANAGED_CONTACT_HREF} data-attr="how-talk" className={SITE_BTN_PRIMARY}>
                 Talk to us
               </Link>
               <Link href={MANAGED_SERVICE_HREF} data-attr="how-service" className={SITE_BTN_SECONDARY}>
@@ -88,9 +89,9 @@ export default function HowWeManagePage() {
         title="Tell us about your home."
         primaryAttr="how-closing-talk"
         secondaryAttr="how-closing-track-record"
-        primaryHref={`${MANAGED_SERVICE_HREF}#talk`}
+        primaryHref={MANAGED_CONTACT_HREF}
         primaryLabel="Talk to us"
-        secondaryHref="/why-proplane/track-record"
+        secondaryHref="/#service"
         secondaryLabel="Our track record"
       />
     </SitePage>

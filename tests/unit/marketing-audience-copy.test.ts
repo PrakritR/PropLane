@@ -30,9 +30,8 @@ describe("PRP-125: marketing copy addresses managers AND landlords", () => {
     expect(partner).toContain("Built for how managers and landlords actually work");
   });
 
-  it("names both on the why-PropLane role card", () => {
+  it("keeps the former Why page on the single-page service section", () => {
     const why = read("src/app/(public)/why-proplane/page.tsx");
-    expect(why).toContain('title: "Managers & landlords"');
-    expect(why).toContain('cta: "For managers & landlords"');
+    expect(why).toContain('permanentRedirect("/#service")');
   });
 });

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MARKETING_REDIRECTS } from "@/lib/seo/marketing-routes";
 import { GET as getLlms } from "@/app/llms.txt/route";
 import sitemap from "@/app/sitemap";
 import { MANAGED_FAQ, MANAGED_INCLUDES, MANAGED_PRICE_HEADLINE, MANAGED_SERVICE_TOPIC } from "@/lib/marketing/managed-service";
@@ -80,8 +81,8 @@ describe("managed service never invents a price or a metric", () => {
     expect(MANAGED_INCLUDES.map((i) => i.id)).toEqual(["leasing", "rent", "maintenance", "stays", "line", "reporting"]);
   });
 
-  it("Why PropLane says six-figure profit exactly", () => {
-    expect(read("src/app/(public)/why-proplane/page.tsx")).toContain("six-figure profit");
+  it("the retained operating facts say six-figure profit exactly", () => {
+    expect(TRACK_RECORD.profit.toLowerCase()).toBe("six-figure profit");
   });
 });
 
@@ -140,19 +141,19 @@ function existsRoute(rel: string): boolean {
 describe("crawl surfaces include the managed service", () => {
   it("llms.txt links the service page and the track record", async () => {
     const body = await getLlms().text();
-    expect(body).toContain("/pricing/service");
-    expect(body).toContain("/why-proplane/track-record");
+    expect(body).toContain("/#service");
+    expect(body).toContain(`${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal}`);
     expect(body).toContain("PropLane Managed");
   });
 
-  it("the sitemap lists the service and the Why PropLane tabs", async () => {
+  it("the sitemap lists home as the canonical service page", async () => {
     const urls = (await sitemap()).map((e) => e.url);
-    for (const p of ["/pricing/service", "/why-proplane/track-record", "/why-proplane/how-we-manage", "/why-proplane/software"]) {
-      expect(urls).toContain(`https://proplane.ai${p}`);
-    }
+    expect(urls).toContain("https://proplane.ai/");
+    expect(urls).not.toContain("https://proplane.ai/pricing/service");
+    expect(urls).not.toContain("https://proplane.ai/why-proplane");
   });
 
-  it("/service redirects to the service page", () => {
-    expect(read("next.config.ts")).toContain('source: "/service", destination: "/pricing/service"');
+  it("/service redirects to the home service section", () => {
+    expect(MARKETING_REDIRECTS).toContainEqual({ source: "/service", destination: "/#service", statusCode: 308 });
   });
 });

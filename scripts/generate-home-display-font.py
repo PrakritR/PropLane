@@ -26,7 +26,8 @@ critical = TTFont(fonts / "BricolageGrotesque-home.woff2", recalcTimestamp=False
 options = subset.Options()
 options.layout_features = ["*"]
 subsetter = subset.Subsetter(options=options)
-subsetter.populate(text=headline)
+critical_text = headline + "0123456789()+- Text us"
+subsetter.populate(text=critical_text)
 subsetter.subset(critical)
-assert set(map(ord, headline)) <= set(critical.getBestCmap())
+assert set(map(ord, critical_text)) <= set(critical.getBestCmap())
 critical.save(fonts / "BricolageGrotesque-headline.woff2")

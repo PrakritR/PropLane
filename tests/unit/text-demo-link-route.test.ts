@@ -32,7 +32,7 @@ describe("public text demo link", () => {
       ["text-demo:global", 50, 3_600_000],
     ]);
     expect(mocks.send).toHaveBeenCalledWith(mocks.db, {
-      to: "+12065550123", purpose: "requested_demo_link", body: "PropLane: Your demo is ready: https://proplane.ai/?demo=open Reply DEMO to try it by text. Reply STOP to opt out.",
+      to: "+12065550123", purpose: "requested_demo_link", body: "PropLane: Here is your link: https://proplane.ai/#dashboard Reply STOP to opt out.",
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
@@ -79,13 +79,13 @@ describe("public text demo link", () => {
     mocks.send.mockResolvedValue({ ok: false, reason });
     const response = await POST(request());
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "We couldn't send the text. Open the demo here instead." });
+    expect(await response.json()).toEqual({ error: "We couldn't send the text. View the dashboard here instead." });
   });
 
   it("preserves uncertainty when the provider response was lost", async () => {
     mocks.send.mockResolvedValue({ ok: false, reason: "delivery_unknown" });
     const response = await POST(request());
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "Delivery isn't confirmed. Check your phone or open the demo.", deliveryUnknown: true });
+    expect(await response.json()).toEqual({ error: "Delivery isn't confirmed. Check your phone or view the dashboard.", deliveryUnknown: true });
   });
 });

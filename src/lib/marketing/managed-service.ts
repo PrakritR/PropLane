@@ -8,7 +8,8 @@
  * when one exists it goes in `MANAGED_PRICE_HEADLINE` / `MANAGED_PRICE_NOTE`.
  */
 
-export const MANAGED_SERVICE_HREF = "/pricing/service";
+export const MANAGED_SERVICE_HREF = "/#service";
+export const MANAGED_CONTACT_HREF = "/#contact";
 export const MANAGED_SERVICE_NAME = "PropLane Managed";
 /** The Contact route topic this offering files under (see `TOPICS` in the contact page). */
 export const MANAGED_SERVICE_TOPIC = "Property management services";

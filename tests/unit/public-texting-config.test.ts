@@ -19,11 +19,11 @@ vi.mock("@/lib/server-ttl-cache", async (original) => ({
 beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); mocks.client = null; });
 
 describe("public texting configuration", () => {
-  it("builds a real SMS destination with the exact demo message", () => {
+  it("builds a real SMS destination with the plain greeting", () => {
     const config = publicTextingConfig("+12065550123");
     expect(config.phone).toBe("+12065550123");
     expect(config.smsHref).toBe(`sms:+12065550123?&body=${encodeURIComponent(SMS_DEMO_BODY)}`);
-    expect(new URLSearchParams(config.smsHref!.split("?")[1]).get("body")).toBe("Hi PropLane, show me the demo");
+    expect(new URLSearchParams(config.smsHref!.split("?")[1]).get("body")).toBe("Hi PropLane");
   });
 
   it.each([null, undefined, "", "bad"])("never invents a destination for %s", (value) => {

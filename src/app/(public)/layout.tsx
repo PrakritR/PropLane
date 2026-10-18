@@ -10,10 +10,13 @@ import { siteDisplayFont } from "@/components/marketing/fonts/site-display-font"
 import { homeDisplayFont, homeHeadlineFont } from "@/components/marketing/fonts/home-display-font";
 import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
-import QRCode from "qrcode";
 // Keep home styles/fonts in the layout's first flush. Page-level stylesheet
 // suspension otherwise exposes the short loading shell and shifts the footer.
 import "@/components/marketing/texting-home.css";
+import "@/components/marketing/home-scroll-stage.css";
+import "@/components/marketing/home-dashboard-stage.css";
+import "@/components/marketing/home-number-hero.css";
+import "@/components/marketing/resident-lifecycle-phone.css";
 import "@/components/marketing/resident-lifecycle-atmosphere.css";
 import "@/components/marketing/site/pricing-cards.css";
 
@@ -31,15 +34,8 @@ export default async function PublicLayout({
   children: React.ReactNode;
 }) {
   const texting = await getPublicTextingConfig();
-  const qrDataUrl = texting.smsHref
-    ? await QRCode.toDataURL(texting.smsHref, {
-        width: 208,
-        margin: 1,
-        color: { dark: "#143a66", light: "#ffffff" },
-      })
-    : null;
   return (
-    <PublicTextingProvider value={{ ...texting, qrDataUrl }}>
+    <PublicTextingProvider value={texting}>
       <div className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable} ${homeDisplayFont.variable} ${homeHeadlineFont.variable}`}>
         <PublicLightThemeLock />
         <HideOnNative>

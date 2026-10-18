@@ -2,156 +2,138 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeNavbar } from "@/components/layout/home-navbar";
-import { PublicFooterRoute } from "@/components/layout/public-footer-route";
-import { PublicFooter } from "@/components/layout/public-footer";
 import { PublicNavbar } from "@/components/layout/public-navbar";
+import { publicTextingConfig } from "@/lib/marketing/public-texting";
 
-const { route } = vi.hoisted(() => ({ route: { pathname: "/" } }));
+const route = vi.hoisted(() => ({ pathname: "/" }));
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
-vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => { throw new Error("Home must not initialize auth"); } }));
-let intersection: IntersectionObserverCallback;
+vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => { throw new Error("Public navigation must not initialize auth"); } }));
+let observers: { callback: IntersectionObserverCallback; options?: IntersectionObserverInit }[] = [];
 const observe = vi.fn();
 const disconnect = vi.fn();
-const texting = { phone: "+12025550123", smsHref: "sms:+12025550123?body=Hi%20PropLane%2C%20show%20me%20the%20demo" };
+const texting = publicTextingConfig("+12025550123");
+const desktopPaths = ["/#how", "/#service", "/#pricing", "/#contact"];
 
 beforeEach(() => {
   route.pathname = "/";
+  observers = [];
   observe.mockClear(); disconnect.mockClear();
   vi.stubGlobal("IntersectionObserver", class {
-    constructor(callback: IntersectionObserverCallback) { intersection = callback; }
-    observe = observe;
-    disconnect = disconnect;
+    constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) { observers.push({ callback, options }); }
+    observe = observe; disconnect = disconnect;
   });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const update = (id: string, isIntersecting: boolean, bottom: number) => act(() => {
+  observers.find((observer) => !observer.options?.rootMargin)!.callback([{ target: document.getElementById(id), isIntersecting, boundingClientRect: { bottom } } as IntersectionObserverEntry], {} as IntersectionObserver);
+});
 
-describe("lightweight homepage chrome", () => {
-  it("uses the lightweight home bar through the public wrapper without initializing auth", () => {
+describe("simple public navigation", () => {
+  it("uses four direct links, then Text us and Portal at the far right without auth or menus", () => {
     render(<PublicNavbar texting={texting} />);
-    expect(screen.getByRole("link", { name: "Text us" })).toHaveAttribute("href", texting.smsHref);
-    expect(screen.queryByRole("button", { name: /resources/i })).not.toBeInTheDocument();
-  });
-
-  it("links phone visitors to the configured number and desktop visitors to the hero text panel", () => {
-    render(<HomeNavbar texting={texting} />);
-    expect(screen.getByRole("link", { name: "Text us" })).toHaveAttribute("href", texting.smsHref);
-    expect(screen.getByRole("link", { name: "Text PropLane" })).toHaveAttribute("href", "#text-proplane");
-    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/auth/sign-in");
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
-    expect([...nav.querySelectorAll(":scope > a")].map((link) => link.getAttribute("href"))).toEqual(["#how-it-works", "/service"]);
-    expect(screen.queryByRole("button", { name: /search/i })).not.toBeInTheDocument();
+    expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(desktopPaths);
+    const text = document.querySelector('[data-attr="home-nav-text-desktop"]')!;
+    expect(text).toHaveAttribute("href", texting.smsHref);
+    expect(text).toHaveTextContent("Text us");
+    expect(text.nextElementSibling).toHaveTextContent("Portal");
+    expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
+    expect(screen.queryByRole("button", { name: /search|pricing|why proplane|product|resources/i })).not.toBeInTheDocument();
+    expect(document.querySelector("details")).toBeNull();
   });
 
-  it("opens Pricing and Why PropLane menus with every requested destination", () => {
-    render(<HomeNavbar texting={texting} />);
-    const nav = screen.getByRole("navigation", { name: "Main navigation" });
-    const pricing = within(nav).getByText("Pricing", { selector: "summary" });
-    fireEvent.click(pricing);
-    expect(within(nav).getByRole("link", { name: "Software" })).toHaveAttribute("href", "/pricing");
-    expect(within(nav).getByRole("link", { name: "Managed service" })).toHaveAttribute("href", "/pricing/service");
-    fireEvent.click(within(nav).getByText("Why PropLane", { selector: "summary" }));
-    for (const [name, href] of [["Overview", "/why-proplane"], ["Our track record", "/why-proplane/track-record"], ["How we manage", "/why-proplane/how-we-manage"], ["The software", "/why-proplane/software"]]) {
-      expect(within(nav).getByRole("link", { name })).toHaveAttribute("href", href);
-    }
-    expect(pricing.closest("details")?.nextElementSibling).toHaveAttribute("href", "/service");
+  it("uses the same simple bar and real pricing route on other public pages", () => {
+    route.pathname = "/why-proplane";
+    render(<PublicNavbar texting={texting} />);
+    expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/#pricing");
+    expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
+    expect(screen.queryByRole("button", { name: /resources|product/i })).not.toBeInTheDocument();
   });
 
-  it("closes an open home dropdown on Escape or an outside pointer and restores keyboard focus", () => {
-    render(<HomeNavbar texting={texting} />);
-    const summary = screen.getByText("Pricing", { selector: "summary" });
-    const disclosure = summary.closest("details")!;
-    fireEvent.click(summary);
-    expect(disclosure).toHaveAttribute("open");
-    const software = screen.getByRole("link", { name: "Software" });
-    software.focus();
-    fireEvent.keyDown(software, { key: "Escape" });
-    expect(disclosure).not.toHaveAttribute("open");
-    expect(summary).toHaveFocus();
-    fireEvent.click(summary);
-    fireEvent.pointerDown(document.body);
-    expect(disclosure).not.toHaveAttribute("open");
-  });
-
-  it("shows all Why PropLane destinations inside the phone sheet", async () => {
-    render(<HomeNavbar texting={texting} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
-    const sheet = await screen.findByRole("dialog", { name: "PropLane" }, { timeout: 5000 });
-    fireEvent.click(within(sheet).getByText("Why PropLane", { selector: "summary" }));
-    for (const [name, href] of [["Overview", "/why-proplane"], ["Our track record", "/why-proplane/track-record"], ["How we manage", "/why-proplane/how-we-manage"], ["The software", "/why-proplane/software"]]) {
-      expect(within(sheet).getByRole("link", { name })).toHaveAttribute("href", href);
-    }
-    fireEvent.click(within(sheet).getByRole("link", { name: "Overview" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-
-  it("uses Start free and a real signup link when the public number is unavailable", () => {
+  it("offers Start free when no shared number is configured", () => {
     render(<HomeNavbar texting={{ phone: null, smsHref: null }} />);
-    expect(screen.queryByRole("link", { name: /Text/ })).not.toBeInTheDocument();
     for (const link of screen.getAllByRole("link", { name: "Start free" })) expect(link).toHaveAttribute("href", "/auth/create-account");
+    expect(document.querySelector('a[href^="sms:"]')).toBeNull();
   });
 
-  it("shows the bottom CTA only once the hero has passed above the viewport", () => {
-    render(<><section id="home-hero">Hero</section><HomeNavbar texting={texting} /></>);
+  it("shows the number after the hero and hides the sticky bar while the close is in view", () => {
+    render(<><section id="home-hero" /><section id="home-close" /><HomeNavbar texting={texting} /></>);
     expect(observe).toHaveBeenCalledWith(document.getElementById("home-hero"));
-    const update = (isIntersecting: boolean, bottom: number) => act(() => {
-      intersection([{ isIntersecting, boundingClientRect: { bottom } } as IntersectionObserverEntry], {} as IntersectionObserver);
-    });
-    update(false, 900);
+    expect(observe).toHaveBeenCalledWith(document.getElementById("home-close"));
+    update("home-hero", false, 900);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
-    update(true, 500);
+    update("home-hero", false, -1);
+    expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveTextContent("Text (202) 555-0123");
+    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("(202) 555-0123");
+    update("home-close", true, 700);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
-    update(false, -1);
+    update("home-close", false, 900);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("href", texting.smsHref);
-    update(true, 200);
+    update("home-hero", true, 500);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
   });
 
-  it("attaches the observer when a streamed hero appears later", async () => {
+  it("observes streamed hero and close elements when they arrive", async () => {
     const view = render(<HomeNavbar texting={texting} />);
     expect(observe).not.toHaveBeenCalled();
-    view.rerender(<><HomeNavbar texting={texting} /><section id="home-hero">Late hero</section></>);
+    view.rerender(<><HomeNavbar texting={texting} /><section id="home-hero" /><section id="home-close" /></>);
     await waitFor(() => expect(observe).toHaveBeenCalledWith(document.getElementById("home-hero")));
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledTimes(2);
   });
 
-  it("opens an accessible full-height navigation sheet and closes after choosing a section", async () => {
-    render(<HomeNavbar texting={texting} />);
-    const trigger = screen.getByRole("button", { name: "Open menu" });
-    fireEvent.click(trigger);
+  it("opens the section anchors and Blog in the phone sheet, hides the sticky bar, and closes after navigation", async () => {
+    render(<><section id="home-hero" /><section id="home-close" /><HomeNavbar texting={texting} /></>);
+    update("home-hero", false, -1);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     const sheet = await screen.findByRole("dialog", { name: "PropLane" }, { timeout: 5000 });
-    expect([...within(sheet).getByRole("navigation").querySelectorAll(":scope > a")].map((link) => link.getAttribute("href"))).toEqual(["#how-it-works", "/service", "/auth/sign-in"]);
-    fireEvent.click(within(sheet).getByText("Pricing", { selector: "summary" }));
-    expect(within(sheet).getByRole("link", { name: "Software" })).toHaveAttribute("href", "/pricing");
-    expect(within(sheet).getByRole("link", { name: "Managed service" })).toHaveAttribute("href", "/pricing/service");
-    fireEvent.click(within(sheet).getByRole("link", { name: "Managed service" }));
+    expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
+    expect(within(within(sheet).getByRole("navigation")).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([...desktopPaths, "/blog", "/auth/sign-in"]);
+    expect(within(sheet).getByRole("link", { name: "Text (202) 555-0123" })).toHaveAttribute("href", texting.smsHref);
+    fireEvent.click(within(sheet).getByRole("link", { name: "Pricing" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("gives every home footer anchor a minimum touch width", () => {
-    const { container } = render(<PublicFooter />);
-    const footer = container.querySelector("[data-home-footer]");
-    expect(footer).toHaveClass("[&_a]:min-w-11");
-    expect(screen.getByRole("link", { name: "Terms" })).toHaveClass("min-h-12");
+  it("highlights the current section as the reader scrolls in either direction", () => {
+    render(<><section id="home-hero" /><section id="how" /><section id="dashboard" /><section id="service" /><section id="pricing" /><section id="contact" /><HomeNavbar texting={texting} /></>);
+    const activeObserver = observers.find((observer) => observer.options?.rootMargin)!;
+    const active = (id: string) => act(() => activeObserver.callback([{ target: document.getElementById(id), isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+    active("pricing");
+    expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("aria-current", "location");
+    active("dashboard");
+    expect(screen.getByRole("link", { name: "How it works" })).toHaveAttribute("aria-current", "location");
+    active("how");
+    expect(screen.getByRole("link", { name: "How it works" })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("link", { name: "Pricing" })).not.toHaveAttribute("aria-current");
+    update("home-hero", true, 700);
+    expect(screen.getByRole("link", { name: "How it works" })).not.toHaveAttribute("aria-current");
   });
 
-  it("retains the full footer for other public pages", () => {
-    const view = render(<PublicFooterRoute home={<span>Compact home footer</span>}><span>Full public footer</span></PublicFooterRoute>);
-    expect(screen.getByText("Compact home footer")).toBeInTheDocument();
-    expect(screen.queryByText("Full public footer")).not.toBeInTheDocument();
-    route.pathname = "/features";
-    view.rerender(<PublicFooterRoute home={<span>Compact home footer</span>}><span>Full public footer</span></PublicFooterRoute>);
-    expect(screen.getByText("Full public footer")).toBeInTheDocument();
-    expect(screen.queryByText("Compact home footer")).not.toBeInTheDocument();
+  it("sizes the active band from viewport height and reobserves sections on resize", () => {
+    vi.stubGlobal("innerHeight", 800);
+    vi.stubGlobal("innerWidth", 1920);
+    const view = render(<><section id="how" /><section id="dashboard" /><HomeNavbar texting={texting} /></>);
+    expect(observers.at(-1)?.options?.rootMargin).toBe("-160px 0px -520px 0px");
+    observe.mockClear();
+    vi.stubGlobal("innerHeight", 600);
+    fireEvent(window, new Event("resize"));
+    expect(observers.at(-1)?.options?.rootMargin).toBe("-120px 0px -390px 0px");
+    expect(observe).toHaveBeenCalledWith(document.getElementById("how"));
+    expect(observe).toHaveBeenCalledWith(document.getElementById("dashboard"));
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    view.unmount();
+    const observerCount = observers.length;
+    fireEvent(window, new Event("resize"));
+    expect(observers).toHaveLength(observerCount);
   });
 
-  it("closes the menu with Escape and restores focus to its trigger", async () => {
+  it("closes the phone sheet with Escape and restores trigger focus", async () => {
     render(<HomeNavbar texting={texting} />);
     const trigger = screen.getByRole("button", { name: "Open menu" });
-    trigger.focus();
-    fireEvent.click(trigger);
+    trigger.focus(); fireEvent.click(trigger);
     const sheet = await screen.findByRole("dialog", { name: "PropLane" }, { timeout: 5000 });
     fireEvent.keyDown(sheet, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

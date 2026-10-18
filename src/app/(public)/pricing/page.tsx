@@ -7,7 +7,7 @@ import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { MANAGED_SERVICE_HREF } from "@/lib/marketing/managed-service";
+import { MANAGED_CONTACT_HREF } from "@/lib/marketing/managed-service";
 import { TrackOnMount } from "@/components/analytics/track-on-mount";
 import { SiteFaq,type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Pricing",
+  alternates: { canonical: "/#pricing" },
   description: `PropLane pricing: free for ${RATE_CARD.free.includedDoors} residents, then Pro at ${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo (${RATE_CARD.pro.includedDoors} residents included) or Business at ${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo (${RATE_CARD.business.includedDoors} residents included). 14-day trial, no card required. Or let us run your home for you with PropLane Managed.`,
 };
 
@@ -188,7 +189,7 @@ function MobileStickyCta() {
       data-attr="pricing-sticky-cta"
     >
       <p className="flex-1 text-[12.5px] text-muted">Let PropLane manage your home.</p>
-      <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
+      <Link href={MANAGED_CONTACT_HREF} data-attr="pricing-sticky-cta-link" className={cn(SITE_BTN_PRIMARY, "shrink-0")}>
         Talk to us
       </Link>
     </div>
@@ -239,7 +240,7 @@ export default async function PricingPage({
         }
         actions={
           <div className="flex flex-col items-center gap-4">
-            <Link href={`${MANAGED_SERVICE_HREF}#talk`} className={SITE_BTN_PRIMARY} data-attr="pricing-hero-talk">Talk to us</Link>
+            <Link href={MANAGED_CONTACT_HREF} className={SITE_BTN_PRIMARY} data-attr="pricing-hero-talk">Talk to us</Link>
             <BillingToggle annual={annual} />
           </div>
         }
