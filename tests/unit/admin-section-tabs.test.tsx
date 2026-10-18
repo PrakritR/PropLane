@@ -76,6 +76,7 @@ describe("admin sidebar rows", () => {
   it.each([
     ["axis-users", "axis-users"],
     ["subscribers", "axis-users"],
+    ["unassigned-leads", "axis-users"],
     ["test-accounts", "axis-users"],
     ["payments", "payments"],
     ["promo-codes", "payments"],
@@ -99,10 +100,11 @@ describe("admin sidebar rows", () => {
 
   it("drops the operator-only Test accounts tab from the Accounts row for everyone else", () => {
     const accounts = rowsFor(nonOperator).find((r) => r.label === "Accounts");
-    expect(accounts?.groupSections).toEqual(["axis-users", "subscribers"]);
+    expect(accounts?.groupSections).toEqual(["axis-users", "subscribers", "unassigned-leads"]);
     expect(rowsFor(operator).find((r) => r.label === "Accounts")?.groupSections).toEqual([
       "axis-users",
       "subscribers",
+      "unassigned-leads",
       "test-accounts",
     ]);
   });
@@ -117,7 +119,7 @@ describe("admin sidebar rows", () => {
     // native bottom bar) stays the group's first section; only the link moves.
     expect(row?.section).toBe(adminNavRowSection("subscribers"));
     expect(row?.href).toBe("/admin/subscribers");
-    expect(row?.groupSections).toEqual(["subscribers", "test-accounts"]);
+    expect(row?.groupSections).toEqual(["subscribers", "unassigned-leads", "test-accounts"]);
   });
 
   it("puts the Meetings count on the Support row", () => {
@@ -149,7 +151,7 @@ describe("adminSectionTabsFor", () => {
 
   it("omits an unavailable (operator-only) tab", () => {
     const withoutOperator = all.filter((s) => s !== "test-accounts");
-    expect(adminSectionTabsFor("axis-users", withoutOperator)?.sections).toEqual(["axis-users", "subscribers"]);
+    expect(adminSectionTabsFor("axis-users", withoutOperator)?.sections).toEqual(["axis-users", "subscribers", "unassigned-leads"]);
   });
 
   it("covers every group member in the registry", () => {
