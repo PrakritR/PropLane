@@ -86,15 +86,29 @@ function xmlText(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** Empty TwiML — replies are sent asynchronously via the Messaging API. An optional https `mediaUrl` rides the reply as `<Media>`. */
-export function twimlOk(reply?: string, mediaUrl?: string | null): NextResponse {
-  const escaped = reply ? xmlText(reply) : "";
-  const media = escaped ? twimlMediaUrl(mediaUrl) : null;
-  const message = !escaped ? "" : media
-    ? `<Message><Body>${escaped}</Body><Media>${xmlText(media)}</Media></Message>`
-    : `<Message>${escaped}</Message>`;
+/** One TwiML message: plain text, or text with its own https photo. */
+export type TwimlBubble = string | { body: string; mediaUrl?: string | null };
+
+/**
+ * Empty TwiML — replies are sent asynchronously via the Messaging API. A reply is one text or a list of bubbles
+ * (one `<Message>` each, in order); a bubble may carry an https `mediaUrl` that rides it as `<Media>`. For a
+ * single-string reply the second argument is that one message's photo.
+ */
+export function twimlOk(reply?: string | TwimlBubble[], mediaUrl?: string | null): NextResponse {
+  const list: TwimlBubble[] = Array.isArray(reply) ? reply : reply ? [mediaUrl ? { body: reply, mediaUrl } : reply] : [];
+  const messages = list
+    .map((bubble) => (typeof bubble === "string" ? { body: bubble, mediaUrl: null } : { body: bubble.body, mediaUrl: bubble.mediaUrl ?? null }))
+    .filter((bubble) => bubble.body.length > 0)
+    .map((bubble) => {
+      const escaped = xmlText(bubble.body);
+      const media = twimlMediaUrl(bubble.mediaUrl);
+      return media
+        ? `<Message><Body>${escaped}</Body><Media>${xmlText(media)}</Media></Message>`
+        : `<Message>${escaped}</Message>`;
+    })
+    .join("");
   return new NextResponse(
-    `<?xml version="1.0" encoding="UTF-8"?><Response>${message}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${messages}</Response>`,
     {
       status: 200,
       headers: { "Content-Type": "text/xml" },

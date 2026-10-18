@@ -20,6 +20,7 @@ import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.
 import { resolveVendorNumberSenderPhone } from "@/lib/vendor-work-identity.server";
 import { ingestResidentAgentNumberSms } from "@/lib/resident-agent-number/inbound.server";
 import { isSharedLineNumber, loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { endDemoForPhone } from "@/lib/one-number/demo/store.server";
 import { handleSharedLineInbound } from "@/lib/one-number/inbound-seam.server";
 import { recordShadowDecision } from "@/lib/one-number/shadow.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
@@ -164,6 +165,8 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
       // Non-2xx asks Twilio to retry; the RPC is atomic and MessageSid-unique.
       return NextResponse.json({ error: "Control receipt unavailable." }, { status: 503 });
     }
+    // STOP ends a sandbox demo on this phone (best effort; the opt-out above is the record).
+    if (controlKeyword === "STOP") await endDemoForPhone(db, phoneKey);
     return twimlOk();
   }
 
@@ -186,7 +189,7 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
           mediaCount: Number(params.NumMedia) || 0,
           phoneKey: sharedKey,
         });
-        if (seam.kind === "handled") return twimlOk(seam.twiml ?? undefined, seam.mediaUrl);
+        if (seam.kind === "handled") return twimlOk(seam.bubbles ?? seam.twiml ?? undefined, seam.mediaUrl);
         if (seam.kind === "continue") {
           ownedNumber = { ...seam.owned };
           sharedLine = true;

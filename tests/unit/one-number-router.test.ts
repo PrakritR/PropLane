@@ -5,7 +5,7 @@ import { fakeSharedLineDb, type FakeRow } from "../helpers/shared-line-fake-db";
 const handleUnassigned = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => ({ leadId: "lead-1" as string | null, reply: "Hi! What is your budget?" as string | null, assignedWorkspaceId: null as string | null })),
 );
-vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: handleUnassigned }));
+vi.mock("@/lib/one-number/onboarding/unknown-sender.server", () => ({ handleUnknownSenderInbound: handleUnassigned }));
 
 import {
   buildDisambiguationQuestion,

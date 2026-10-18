@@ -22,4 +22,11 @@ describe("twimlOk media", () => {
     expect(await twimlOk(undefined, "https://cdn.example.com/r.jpg").text()).not.toContain("<Media>");
     expect(twimlMediaUrl(null)).toBeNull();
   });
+
+  it("draws a list of bubbles, one <Message> each, with media only on the bubble that carries it", async () => {
+    const xml = await twimlOk(["One", { body: "Two & three", mediaUrl: "https://cdn.example.com/a.jpg" }, { body: "Four", mediaUrl: "http://x.test/a.jpg" }, ""]).text();
+    expect(xml).toBe(
+      '<?xml version="1.0" encoding="UTF-8"?><Response><Message>One</Message><Message><Body>Two &amp; three</Body><Media>https://cdn.example.com/a.jpg</Media></Message><Message>Four</Message></Response>',
+    );
+  });
 });
