@@ -37,7 +37,7 @@ describe("Swiss number story", () => {
     const html = renderToStaticMarkup(stage());
     expect(html.match(/class="home-stage-scene"/g)).toHaveLength(5);
     for (const id of ["prospects", "residents", "vendors", "owners", "homes"]) expect(html).toContain(`id="how-${id}"`);
-    expect(html).toContain("How it works");
+    expect(html).toContain("The number");
     expect(html).toContain("October rent is due Oct 1");
     expect(html).toContain("Owner share");
     for (const home of PROPERTY_ROWS.slice(0, 3)) expect(html).toContain(home.title);

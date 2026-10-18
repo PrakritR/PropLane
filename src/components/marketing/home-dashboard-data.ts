@@ -35,3 +35,11 @@ export function homeDashboardRows(tab: HomeDashboardTab) {
 export function homeRentPaid() {
   return worldFor(residentStory("pay")).payments.find((row) => row.resident === RESIDENT_NAME && row.bucket === "paid")!;
 }
+
+export const HOME_DASHBOARD_PORTALS = [
+  { id: "manager", label: "Manager", caption: "Your properties, people and payments." },
+  { id: "resident", label: "Resident", caption: "Your home, lease and payments." },
+  { id: "vendor", label: "Vendor", caption: "Your services and upcoming jobs." },
+  { id: "owner", label: "Owner", caption: "The statements shared with you." },
+] as const;
+export type HomeDashboardPortal = (typeof HOME_DASHBOARD_PORTALS)[number]["id"];

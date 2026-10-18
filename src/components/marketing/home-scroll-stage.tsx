@@ -35,6 +35,7 @@ export function HomeScrollStage({
   sectionNumber,
   sectionLabel,
   sectionNote,
+  enhanceOnMobile = true,
 }: {
   id: string;
   title: ReactNode;
@@ -45,6 +46,8 @@ export function HomeScrollStage({
   sectionNumber?: string;
   sectionLabel?: string;
   sectionNote?: string;
+  /** Long real portal panels can remain stacked at phone widths. */
+  enhanceOnMobile?: boolean;
 }) {
   const root = useRef<HTMLElement>(null);
   const rail = useRef<HTMLElement>(null);
@@ -55,9 +58,11 @@ export function HomeScrollStage({
   useEffect(() => {
     if (!window.IntersectionObserver || !root.current) return;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setEnhanced(!motion.matches);
+    const desktop = enhanceOnMobile ? null : window.matchMedia("(min-width: 861px)");
+    const update = () => setEnhanced(!motion.matches && (!desktop || desktop.matches));
     update();
     motion.addEventListener("change", update);
+    desktop?.addEventListener("change", update);
     const proximity = new IntersectionObserver(
       ([entry]) => {
         setNear(entry.isIntersecting);
@@ -67,9 +72,10 @@ export function HomeScrollStage({
     proximity.observe(root.current);
     return () => {
       motion.removeEventListener("change", update);
+      desktop?.removeEventListener("change", update);
       proximity.disconnect();
     };
-  }, []);
+  }, [enhanceOnMobile]);
   useEffect(() => {
     if (!enhanced) return;
     let observer: IntersectionObserver;

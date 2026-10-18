@@ -56,7 +56,7 @@ const DOCS: Entry[] = [
 
 const PRODUCT: Entry[] = [
   { title: "Home", path: "/", note: "What PropLane does, from first tour to fixed faucet." },
-  { title: "How it works", path: "/#how", note: "One PropLane number for renters, residents, vendors and accepted workspace members." },
+  { title: "How it works", path: "/#how", note: "One PropLane number for prospects, residents, vendors and accepted workspace members." },
   { title: "Why PropLane", path: "/#service", note: "PropLane's founders manage Airbnb and room-rental homes in Seattle themselves, which produced six-figure profit; PropLane is the system they built to run them." },
   { title: "Our track record", path: "/#service", note: `The ${TRACK_RECORD.homes} Seattle homes PropLane runs itself: ${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied, and an operation that produced six-figure profit.` },
   { title: "How we manage", path: "/#service", note: "How PropLane Managed runs a home: leasing, rent, maintenance, short-term and room rentals, a 24/7 texting line and owner reporting." },

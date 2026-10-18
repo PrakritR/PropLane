@@ -19,7 +19,6 @@ export type HomeTextingConfig = PublicTextingConfig;
 
 export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   const pathname = usePathname();
-  const [scrolled, setScrolled] = useState(false);
   const [heroPassed, setHeroPassed] = useState(false);
   const [activeSection, setActiveSection] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -29,10 +28,10 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   const textHref = configured ? texting.smsHref! : GET_STARTED_HREF;
 
   useEffect(() => {
+    if (typeof window.IntersectionObserver === "function") return;
     let frame = 0;
     const update = () => {
       frame = 0;
-      setScrolled(window.scrollY > 48);
       if (typeof window.IntersectionObserver !== "function") {
         const hero = document.getElementById("home-hero");
         setHeroPassed(
@@ -140,19 +139,11 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   }, [pathname]);
 
   const onHome = pathname === "/";
-  const textLabel = configured
-    ? onHome && heroPassed
-      ? phone
-      : "Text us"
-    : "Start free";
+  const textLabel = configured ? phone : "Start free";
   return (
     <>
       <div className={styles.spacer} aria-hidden="true" />
-      <header
-        id="axis-public-navbar"
-        className={styles.header}
-        data-scrolled={scrolled}
-      >
+      <header id="axis-public-navbar" className={styles.header}>
         <div className={styles.bar}>
           <Link href="/" className={styles.brand} aria-label="PropLane home">
             <ProPlaneMarkIcon />
@@ -235,17 +226,8 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
             data-attr="home-sticky-text"
             aria-label={configured ? `Text ${phone}` : "Start free"}
           >
-            <span>
-              {configured ? (
-                <>
-                  <small>Text us</small>
-                  {phone}
-                </>
-              ) : (
-                "Start free"
-              )}
-            </span>
-            <ArrowRight aria-hidden="true" size={26} />
+            <span>{configured ? `Text ${phone}` : "Start free"}</span>
+            <ArrowRight aria-hidden="true" size={22} />
           </a>
         </div>
       )}

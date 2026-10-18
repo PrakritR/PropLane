@@ -1,13 +1,11 @@
 import Link from "next/link";
 import {
   MANAGER_PLAN_TIERS,
+  managerPlanFeatureSummary,
   type ManagerPlanTierDefinition,
   type PlanTierId,
 } from "@/data/manager-plan-tiers";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
-import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
-import { formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import {
   MANAGED_CONTACT_HREF,
@@ -47,72 +45,17 @@ const TIER_TAGLINE: Record<PlanTierId, string> = {
   business: "Pro at portfolio scale, with a team.",
 };
 
-/**
- * What each card lists. "Everything in X, plus" — a tier repeats nothing the
- * one before it already said, so the difference between two plans is the
- * whole list, not a diff a buyer has to run in their head. Door counts and
- * per-door overage come from `RATE_CARD` — the one enforced source of truth
- * (see its doc comment) — never the legacy, informational-only
- * `FREE_MAX_PROPERTIES`/`PRO_MAX_PROPERTIES`/`BUSINESS_MAX_PROPERTIES`
- * constants in `manager-access.ts`, which that file's own comment says not to
- * read as an enforced limit. Co-managers are unlimited on Pro and Business
- * (`manager-plan-tiers.ts`'s "unlimited co-managers" copy); only Free's door
- * cap is a hard limit. Credit comes from `allowances`, never retyped.
- */
-export function tierIncludes(id: PlanTierId): {
-  heading: string;
-  items: { text: string; included: boolean }[];
-} {
-  const credit = (t: PlanTierId) =>
-    formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS[t]!);
-  const perDoor = (t: "pro" | "business") =>
-    formatRateCardUsd(RATE_CARD[t].perExtraDoorMonthlyCents ?? 0);
-  if (id === "free") {
-    return {
-      heading: "What's included",
-      items: [
-        { text: `${RATE_CARD.free.includedDoors} residents`, included: true },
-        { text: "Applications & tour scheduling", included: true },
-        { text: "Rent collection & charges", included: true },
-        { text: "In-app inbox & email", included: true },
-        { text: "Work number, texting & calls", included: false },
-        { text: "Residents, leases & services", included: false },
-        { text: "Co-managers", included: false },
-      ],
-    };
-  }
-  if (id === "pro") {
-    return {
-      heading: "Everything in Free, plus",
-      items: [
-        {
-          text: `${RATE_CARD.pro.includedDoors} residents included, then ${perDoor("pro")}/resident`,
-          included: true,
-        },
-        { text: "Residents, leases & services", included: true },
-        { text: "AI drafts in Communication", included: true },
-        { text: "Unlimited co-managers", included: true },
-        { text: "1 work number — texting & calls", included: true },
-        { text: `${credit("pro")}/mo communication credit`, included: true },
-        { text: "Manager may cover processing fees", included: true },
-      ],
-    };
-  }
+/** All feature copy comes from the canonical advertised plan definitions. */
+export function tierIncludes(id: PlanTierId) {
+  const tier = MANAGER_PLAN_TIERS.find((plan) => plan.id === id)!;
   return {
-    heading: "Everything in Pro, plus",
-    items: [
-      {
-        text: `${RATE_CARD.business.includedDoors} residents included, then ${perDoor("business")}/resident`,
-        included: true,
-      },
-      { text: "Unlimited co-managers, per-module access", included: true },
-      {
-        text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`,
-        included: true,
-      },
-      { text: `${credit("business")}/mo communication credit`, included: true },
-      { text: "Priority admin support", included: true },
-    ],
+    heading:
+      id === "free"
+        ? "What’s included"
+        : id === "pro"
+          ? "Everything in Free, plus"
+          : "Everything in Pro, plus",
+    items: tier.features,
   };
 }
 
@@ -150,6 +93,15 @@ export function PlanCard({
           ).padStart(2, "0")}
         </span>
         <h3>{tier.label}</h3>
+        <p className="pl-pricing-includes-heading">{includes.heading}</p>
+        <ul className="pl-pricing-short-list">
+          {managerPlanFeatureSummary(tier).map((item) => (
+            <li key={item.text}>
+              <Check />
+              <span>{item.text}</span>
+            </li>
+          ))}
+        </ul>
         <p className="pl-pricing-price">
           <strong>{headline}</strong>
           {period && <span>{period}</span>}
@@ -351,14 +303,18 @@ function ManagedPlanCard({ compact }: { compact: boolean }) {
       <p className="pl-pricing-price">
         <strong>{MANAGED_PRICE_HEADLINE}</strong>
       </p>
-      {!compact && <p className="pl-pricing-billing">{MANAGED_PRICE_NOTE}</p>}
-      {!compact && (
-        <ul className="pl-pricing-short-list">
-          {MANAGED_INCLUDES.map((item) => (
-            <li key={item.id}>{item.title}</li>
-          ))}
-        </ul>
-      )}
+      <p className="pl-pricing-billing">
+        {compact ? "Quoted for your home" : MANAGED_PRICE_NOTE}
+      </p>
+      <p className="pl-pricing-includes-heading">Our team takes care of</p>
+      <ul className="pl-pricing-short-list">
+        {MANAGED_INCLUDES.map((item) => (
+          <li key={item.id}>
+            <Check />
+            <span>{item.title}</span>
+          </li>
+        ))}
+      </ul>
       <Link
         href={MANAGED_CONTACT_HREF}
         prefetch={false}

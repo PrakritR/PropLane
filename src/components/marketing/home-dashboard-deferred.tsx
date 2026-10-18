@@ -1,30 +1,19 @@
 "use client";
 
-import { Component, lazy, Suspense, useState, type ReactNode } from "react";
-import { useHomeStageVisibility } from "./home-scroll-stage";
-import type { HomeDashboardTab } from "./home-dashboard-data";
+import { Component, lazy, Suspense, type ReactNode } from "react";
+import { useHomeDashboardVisibility } from "./home-dashboard-tour";
+import type { HomeDashboardPortal } from "./home-dashboard-data";
 
 const Panel = lazy(() => import("./home-dashboard-panel"));
-
 class PanelBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
 
-export function HomeDashboardDeferred({ tab, fallback }: { tab: HomeDashboardTab; fallback: ReactNode }) {
-  const { active, near, enhanced } = useHomeStageVisibility();
-  const [approved, setApproved] = useState(false);
-  return (
-    <div className="home-dashboard-frame" data-home-dashboard-tab={tab}>
-      {near && active && enhanced ? (
-        <PanelBoundary fallback={fallback}>
-          <Suspense fallback={fallback}>
-            <Panel tab={tab} animate={enhanced} approved={approved} onApprove={() => setApproved(true)} />
-            <div className="sr-only">{fallback}</div>
-          </Suspense>
-        </PanelBoundary>
-      ) : fallback}
-    </div>
-  );
+export function HomeDashboardDeferred({ portal, fallback }: { portal: HomeDashboardPortal; fallback: ReactNode }) {
+  const { active, near } = useHomeDashboardVisibility();
+  return <div className="home-dashboard-frame" data-home-dashboard-portal={portal}>
+    {near && active ? <PanelBoundary fallback={fallback}><Suspense fallback={fallback}><Panel portal={portal} /><div className="sr-only">{fallback}</div></Suspense></PanelBoundary> : fallback}
+  </div>;
 }

@@ -18,7 +18,7 @@ async function readPublicTextingConfig(): Promise<PublicTextingConfig> {
     .from("sms_runtime_config")
     .select("line_mode,shared_number_e164")
     .eq("singleton", true)
-    .abortSignal(AbortSignal.timeout(800))
+    .abortSignal(AbortSignal.timeout(5_000))
     .maybeSingle();
   if (error) throw new Error("Public texting configuration unavailable.");
   // Shadow is the captain-approved public launch mode; transport routing remains unchanged.

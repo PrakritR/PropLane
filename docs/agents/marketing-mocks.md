@@ -5,10 +5,14 @@ authoritative copy. Read it before changing code in this area.
 
 ## Public homepage: one scroll story (captain, 2026-10-18)
 
-The public front is one page: cover → `#how` → `#dashboard` → `#service` →
-`#pricing` → `#contact`. `HomeScrollStage` uses native scroll and midpoint
-sentinels; rail links scroll to scenes, with no wheel interception. Reduced
-motion and no JavaScript show every scene as ordinary stacked content.
+The public front is one page with four distinct stories: the number (cover +
+`#how`), the software (`#dashboard`), the managed service (`#service`), and
+software plans (`#pricing`), followed by the contact form. The cover says
+“Your Housing Assistant”. The top bar links to How it works, Service, Pricing
+and Contact, with the configured number and Portal at the right. Phones get
+an accessible menu and a sticky text action after the cover. There is no QR. `HomeScrollStage` uses native scroll and midpoint sentinels; rail links
+scroll to scenes, with no wheel interception. Reduced motion and no JavaScript
+keep the conversations readable.
 
 `HomeNumberStage` reuses the real message-thread component and shared sample
 scripts. Its owner scene reads the aggregate `owner-statement` fixture, never
@@ -16,23 +20,28 @@ resident details. Network captions describe the shipped public-listing router,
 approved vendor jobs, and keeping the PropLane number when moving homes; they
 make no claims about sharing a private workspace thread.
 
-`HomeDashboardStage` renders one dashboard from real `KpiCard`, `AttentionPanel`
-and `UpcomingPanel` components using the shared sample world. Desktop native
-scroll highlights All, Rentals, Services and Payments; the last beat shows the
-same ledger row as the rent receipt. Phone, reduced-motion and no-JavaScript
-views show the complete dashboard without pinning. Preview controls are inert;
-no sample panel fetches live data or persists a write.
+`HomeDashboardStage` presents the real Manager, Resident, Vendor and Owner UI
+with sample data in one shared frame. Desktop scrolling and the portal switch
+select the same view; mobile uses the switch without pinning. No-JavaScript
+views preserve all portal examples. Preview controls never fetch live data or
+persist a write. Owner examples contain only the permitted aggregate reports.
 
-The approved Swiss cover uses self-hosted Inter Tight, paper, hairline rules and
-one blue (`#2F5FD0`). It reads the cached shared-line config supplied by the
-public layout, including the captain-approved `shadow` mode; this does not
-change SMS transport routing. The server generates a QR for that exact SMS
-link. When unavailable, the cover shows Start free and no invented number.
+The cover uses self-hosted Inter Tight and one blue (`#2F5FD0`), with the original
+`ResidentLifecycleAtmosphere` waves, blue gradients and dots behind the page.
+`HomeHousingScene` is inline architectural line art connecting homes with message
+threads below the real number. Its subtle message motion stops under reduced
+motion; the atmosphere draws statically on phones. Whitespace and subtle
+product-frame shadows keep the four sections distinct. It reads the cached shared
+line supplied by the layout, including the captain-approved `shadow` mode;
+this does not change SMS transport routing. When unavailable, the cover shows
+Start free and no invented number.
 The five texting beats are Prospects, Residents, Vendors, Owners and Every home.
 Each phone uses only its own beat's messages, not a cumulative prospect thread.
 The rail and visible scene share one scroll index in both directions.
-All operating claims and the 28-cell occupancy diagram derive from
-`TRACK_RECORD`. Pricing comes from the rate card. The compact contact form
+All operating claims derive from `TRACK_RECORD`. Pricing comes from the rate
+card, and each software card selects five to seven included lines from
+`MANAGER_PLAN_TIERS` via `managerPlanFeatureSummary`. Service inclusions come
+from `MANAGED_INCLUDES`. The compact contact form
 requires an email because the existing contact route does, and preserves its
 inputs after a failed send. Marketing redirects, sitemap and crawl links share
 `src/lib/seo/marketing-routes.ts`.
@@ -267,10 +276,10 @@ internal-inconsistency failure as a Pending tab showing an `Approved` badge.
 
 The Swiss page above supersedes the earlier text-first prototypes. The shared
 `PricingCards` component shows Free, Pro, Business and “We manage it for you.”
-Its compact overview is a hairline comparison: four desktop columns and stacked
-phone cards. Software amounts come from the rate card; the service is Custom.
+Its compact overview is four aligned desktop cards and stacked phone cards. Software amounts come from the rate card; the service is Custom.
 Both offerings use the same configured PropLane line. The public layout supplies
-that snapshot and its QR to the synchronous homepage, avoiding a loading-shell
-layout shift. The homepage preloads a Latin subset of Inter Tight (OFL license
-beside the font). Older Bricolage assets and their generator remain for reusable
+that snapshot to the synchronous homepage, avoiding a loading-shell
+layout shift. The homepage preloads a small Inter Tight cover subset (OFL license beside
+the font); regenerate it with `scripts/generate-home-swiss-cover.py` when the
+headline changes. Older Bricolage assets and their generator remain for reusable
 lifecycle artwork; they are no longer preloaded by the public layout.

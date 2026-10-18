@@ -8,6 +8,10 @@ import {
 } from "@/components/marketing/site/pricing-cards";
 import PricingPage from "@/app/(public)/pricing/page";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
+import {
+  MANAGER_PLAN_TIERS,
+  managerPlanFeatureSummary,
+} from "@/data/manager-plan-tiers";
 import { MANAGED_INCLUDES } from "@/lib/marketing/managed-service";
 
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
@@ -80,8 +84,38 @@ describe("all four pricing options", () => {
     render(<PricingCards variant="overview" />);
     for (const article of screen.getAllByRole("article")) {
       expect(article).toHaveClass("pl-pricing-compact");
-      expect(within(article).queryAllByRole("listitem")).toHaveLength(0);
+      const items = within(article).getAllByRole("listitem");
+      expect(items.length).toBeGreaterThanOrEqual(5);
+      expect(items.length).toBeLessThanOrEqual(7);
     }
+  });
+
+  it("takes each software inclusion from the shared plan definition and enforced rate card", () => {
+    render(<PricingCards variant="overview" />);
+    for (const tier of MANAGER_PLAN_TIERS) {
+      const card = screen.getByRole("article", { name: tier.label });
+      expect(
+        within(card)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(managerPlanFeatureSummary(tier).map((feature) => feature.text));
+      expect(tier.features[0].text).toContain(
+        String(RATE_CARD[tier.id].includedDoors),
+      );
+    }
+    expect(
+      within(screen.getByRole("article", { name: "Business" })).getByText(
+        "Everything in Pro, plus",
+      ),
+    ).toBeVisible();
+    const managed = screen.getByRole("article", {
+      name: "We manage it for you",
+    });
+    expect(
+      within(managed)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(MANAGED_INCLUDES.map((item) => item.title));
   });
 
   it("shows all four options for an old service-tab URL and preserves billing and comparison", async () => {

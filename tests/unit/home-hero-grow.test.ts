@@ -86,7 +86,7 @@ describe("single-page homepage composition", () => {
     );
   });
   it("uses the approved headline for the cover and metadata", () => {
-    expect(HOME_HEADLINE).toBe("Your AI Property Manager");
+    expect(HOME_HEADLINE).toBe("Your Housing Assistant");
     expect(home).toContain("title: HOME_HEADLINE");
     expect(read("src/components/marketing/texting-home-hero.tsx")).toContain(
       "aria-label={HOME_HEADLINE}",
@@ -97,9 +97,9 @@ describe("single-page homepage composition", () => {
       expect(home).toContain(`TRACK_RECORD.${field}`);
     expect(home).not.toMatch(/TRACK_RECORD_HOMES|5257|5259|4709/);
   });
-  it("uses the approved Swiss surface without a competing ambient animation", () => {
-    expect(home).toContain('className="texting-home home-swiss"');
-    expect(home).not.toContain("ResidentLifecycleAtmosphere");
+  it("restores the production page atmosphere with static motion on phones", () => {
+    expect(home).toContain('className="texting-home home-swiss home-wavy"');
+    expect(home).toContain('<ResidentLifecycleAtmosphere variant="page" staticBelow={861} />');
     expect(read("src/components/marketing/home-scroll-stage.css")).toMatch(
       /@media\s*\(prefers-reduced-motion:\s*reduce\)/,
     );

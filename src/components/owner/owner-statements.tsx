@@ -28,6 +28,19 @@ export function OwnerStatementsPage() {
     if (propertyId) q.set("propertyId", propertyId);
     window.location.assign(`/api/owner/statements/pdf?${q.toString()}`);
   };
+  const status = loading && !data ? <OwnerLoading /> : error ? <OwnerError message="Couldn't load your statements." onRetry={reload} /> : undefined;
+  return <OwnerStatementsView data={data} tabs={tabs} propertyId={propertyId} onPropertyChange={setPropertyId} onDownload={download} status={status} />;
+}
+
+/** The same statements screen with explicit data, also used by the read-only marketing sample. */
+export function OwnerStatementsView({ data, tabs, propertyId, onPropertyChange, onDownload, status }: {
+  data: OwnerStatements | null;
+  tabs: OwnerStatementHouse[];
+  propertyId: string;
+  onPropertyChange(value: string): void;
+  onDownload(month: string): void;
+  status?: import("react").ReactNode;
+}) {
   return (
     <div data-attr="owner-statements">
       <OwnerPageTitle>Statements</OwnerPageTitle>
@@ -38,7 +51,7 @@ export function OwnerStatementsPage() {
               type="button"
               role="tab"
               aria-selected={propertyId === ""}
-              onClick={() => setPropertyId("")}
+              onClick={() => onPropertyChange("")}
               className={cn("rounded-md px-2 py-1 text-sm font-semibold", propertyId === "" ? "bg-accent text-foreground" : "text-muted")}
             >
               All houses
@@ -49,7 +62,7 @@ export function OwnerStatementsPage() {
                 type="button"
                 role="tab"
                 aria-selected={propertyId === p.propertyId}
-                onClick={() => setPropertyId(p.propertyId)}
+                onClick={() => onPropertyChange(p.propertyId)}
                 className={cn("rounded-md px-2 py-1 text-sm font-semibold", propertyId === p.propertyId ? "bg-accent text-foreground" : "text-muted")}
               >
                 {p.label}
@@ -58,11 +71,7 @@ export function OwnerStatementsPage() {
           </span>
         </OwnerBand>
       ) : null}
-      {loading && !data ? (
-        <OwnerLoading />
-      ) : error ? (
-        <OwnerError message="Couldn't load your statements." onRetry={reload} />
-      ) : !data || data.rows.length === 0 ? (
+      {status ?? (!data || data.rows.length === 0 ? (
         <OwnerEmpty title="No statements yet" />
       ) : (
         <PortalRecordListSurface dataAttr="owner-statements-list">
@@ -82,13 +91,13 @@ export function OwnerStatementsPage() {
                 </span>
               }
               figure={formatOwnerUsd(row.distributionCents)}
-              onOpen={() => download(row.month)}
-              actions={<PortalIconAction icon={Download} label="Download" data-attr={`owner-statement-download-${row.month}`} onClick={() => download(row.month)} />}
+              onOpen={() => onDownload(row.month)}
+              actions={<PortalIconAction icon={Download} label="Download" data-attr={`owner-statement-download-${row.month}`} onClick={() => onDownload(row.month)} />}
               dataAttr={`owner-statement-row-${row.month}`}
             />
           ))}
         </PortalRecordListSurface>
-      )}
+      ))}
     </div>
   );
 }

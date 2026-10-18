@@ -33,22 +33,22 @@ export const MANAGED_INCLUDES: readonly ManagedInclude[] = [
   },
   {
     id: "maintenance",
-    title: "Maintenance and vendors",
+    title: "Maintenance with vetted vendors",
     copy: "A repair request is routed to a vendor, quoted, scheduled and closed out. You are asked only when it needs an owner's approval.",
   },
   {
     id: "stays",
-    title: "Short-term and room rentals",
+    title: "Room rentals and short stays",
     copy: "Airbnb-style stays and by-the-room leases, the way we run our own homes, with the calendars kept in sync.",
   },
   {
     id: "line",
-    title: "A 24/7 texting line",
+    title: "The PropLane line",
     copy: "Residents, vendors and prospects text one number. PropLane's assistant answers the routine questions and brings a person in for the rest.",
   },
   {
     id: "reporting",
-    title: "Owner reporting",
+    title: "Owner statements and payouts",
     copy: "What came in, what went out and what is open, from the same books we use to run the home.",
   },
 ] as const;

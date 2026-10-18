@@ -6,15 +6,23 @@
 
 import { commsAllowanceFeatureText } from "@/lib/comms-billing/allowances";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
-import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
+import {
+  RATE_CARD,
+  annualDiscountPercent,
+  formatRateCardUsd,
+} from "@/lib/billing/rate-card";
 
 const BUSINESS_WORKSPACES = WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces;
 
 const PRO_MONTHLY_USD = formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents);
 const PRO_ANNUAL_USD = formatRateCardUsd(RATE_CARD.pro.floorAnnualCents);
 const PRO_ANNUAL_DISCOUNT = annualDiscountPercent("pro");
-const BUSINESS_MONTHLY_USD = formatRateCardUsd(RATE_CARD.business.floorMonthlyCents);
-const BUSINESS_ANNUAL_USD = formatRateCardUsd(RATE_CARD.business.floorAnnualCents);
+const BUSINESS_MONTHLY_USD = formatRateCardUsd(
+  RATE_CARD.business.floorMonthlyCents,
+);
+const BUSINESS_ANNUAL_USD = formatRateCardUsd(
+  RATE_CARD.business.floorAnnualCents,
+);
 const BUSINESS_ANNUAL_DISCOUNT = annualDiscountPercent("business");
 
 export type PlanTierId = "free" | "pro" | "business";
@@ -45,15 +53,18 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
     monthly: {
       headline: "Free",
       period: null,
-      sub: "Run applications and tours, collect payments, with the in-app inbox and email. Up to 20 residents.",
+      sub: `Run applications and tours, collect payments, with the in-app inbox and email. Up to ${RATE_CARD.free.includedDoors} residents.`,
     },
     annual: {
       headline: "Free",
       period: null,
-      sub: "Run applications and tours, collect payments, with the in-app inbox and email. Up to 20 residents.",
+      sub: `Run applications and tours, collect payments, with the in-app inbox and email. Up to ${RATE_CARD.free.includedDoors} residents.`,
     },
     features: [
-      { text: "Up to 20 residents", included: true },
+      {
+        text: `Up to ${RATE_CARD.free.includedDoors} residents`,
+        included: true,
+      },
       { text: "Applications & tour scheduling", included: true },
       { text: "Payment collection & charges", included: true },
       { text: "Residents, leases & services", included: false },
@@ -61,7 +72,10 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "Work number, texting & calls — on Pro", included: false },
       { text: "1 workspace", included: true },
       { text: commsAllowanceFeatureText("free"), included: false },
-      { text: "Processing fees separate; account approval required for coverage", included: true },
+      {
+        text: "Processing fees separate; account approval required for coverage",
+        included: true,
+      },
       { text: "Priority admin support", included: false },
     ],
   },
@@ -79,7 +93,10 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       sub: `Everything in Free, plus residents, lease generation, services, inbox, and unlimited co-managers (~${PRO_ANNUAL_DISCOUNT}% off annual).`,
     },
     features: [
-      { text: "Up to 100 residents", included: true },
+      {
+        text: `${RATE_CARD.pro.includedDoors} residents included, then ${formatRateCardUsd(RATE_CARD.pro.perExtraDoorMonthlyCents ?? 0)}/resident`,
+        included: true,
+      },
       { text: "Applications & tour scheduling", included: true },
       { text: "Payment collection & charges", included: true },
       { text: "Residents, leases & services", included: true },
@@ -87,7 +104,10 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "1 work number + 1 work email per workspace", included: true },
       { text: "1 workspace · extras $15/mo", included: true },
       { text: commsAllowanceFeatureText("pro"), included: true },
-      { text: "Processing fees separate; account approval required for coverage", included: true },
+      {
+        text: "Processing fees separate; account approval required for coverage",
+        included: true,
+      },
       { text: "Priority admin support", included: false },
     ],
   },
@@ -105,16 +125,37 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       sub: `Everything in Pro at portfolio scale: more residents, more included workspaces, and priority support (~${BUSINESS_ANNUAL_DISCOUNT}% off annual).`,
     },
     features: [
-      { text: "Up to 500 residents", included: true },
+      {
+        text: `${RATE_CARD.business.includedDoors} residents included, then ${formatRateCardUsd(RATE_CARD.business.perExtraDoorMonthlyCents ?? 0)}/resident`,
+        included: true,
+      },
       { text: "Applications & tour scheduling", included: true },
       { text: "Payment collection & charges", included: true },
       { text: "Residents, leases & services", included: true },
       { text: "Inbox & unlimited co-managers", included: true },
       { text: "1 work number + 1 work email per workspace", included: true },
-      { text: `${BUSINESS_WORKSPACES} workspaces included · extras $30/mo`, included: true },
+      {
+        text: `${BUSINESS_WORKSPACES} workspaces included · extras $30/mo`,
+        included: true,
+      },
       { text: commsAllowanceFeatureText("business"), included: true },
-      { text: "Processing fees separate; account approval required for coverage", included: true },
+      {
+        text: "Processing fees separate; account approval required for coverage",
+        included: true,
+      },
       { text: "Priority admin support", included: true },
     ],
   },
 ];
+
+/** Public card selection from the same advertised features used in Billing & plan. */
+export function managerPlanFeatureSummary(tier: ManagerPlanTierDefinition) {
+  const indexes: Record<PlanTierId, readonly number[]> = {
+    free: [0, 1, 2, 4, 6, 8],
+    pro: [0, 3, 4, 5, 6, 7, 8],
+    business: [0, 3, 4, 5, 6, 7, 9],
+  };
+  return indexes[tier.id]
+    .map((index) => tier.features[index])
+    .filter((feature) => feature?.included);
+}

@@ -33,13 +33,13 @@ const update = (id: string, isIntersecting: boolean, bottom: number) => act(() =
 });
 
 describe("simple public navigation", () => {
-  it("uses four direct links, then Text us and Portal at the far right without auth or menus", () => {
+  it("uses four direct links, then the configured number and Portal at the far right without auth or menus", () => {
     render(<PublicNavbar texting={texting} />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(desktopPaths);
     const text = document.querySelector('[data-attr="home-nav-text-desktop"]')!;
     expect(text).toHaveAttribute("href", texting.smsHref);
-    expect(text).toHaveTextContent("Text us");
+    expect(text).toHaveTextContent("(202) 555-0123");
     expect(text.nextElementSibling).toHaveTextContent("Portal");
     expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /search|pricing|why proplane|product|resources/i })).not.toBeInTheDocument();
@@ -47,7 +47,7 @@ describe("simple public navigation", () => {
   });
 
   it("uses the same simple bar and real pricing route on other public pages", () => {
-    route.pathname = "/why-proplane";
+    route.pathname = "/blog";
     render(<PublicNavbar texting={texting} />);
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/#pricing");
     expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");

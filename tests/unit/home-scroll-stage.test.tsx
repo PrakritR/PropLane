@@ -128,6 +128,24 @@ describe("homepage native scroll stages", () => {
     expect(Observer.instances).toHaveLength(1);
   });
 
+  it("can stack real panels on phones and restore the native stage at desktop widths", () => {
+    let desktop = false;
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      get matches() { return query === "(min-width: 861px)" && desktop; },
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    }));
+    const { container } = render(<HomeScrollStage id="dashboard" title="The software" steps={steps} enhanceOnMobile={false} />);
+    expect(container.querySelector("section")).toHaveAttribute("data-enhanced", "false");
+    expect(screen.getAllByRole("button")).toHaveLength(3);
+    act(() => { desktop = true; listeners.forEach((listener) => listener()); });
+    expect(container.querySelector("section")).toHaveAttribute("data-enhanced", "true");
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    act(() => { desktop = false; listeners.forEach((listener) => listener()); });
+    expect(screen.getAllByRole("button")).toHaveLength(3);
+    expect(container.querySelector("[inert]")).toBeNull();
+  });
+
   it("recomputes the activation band on resize and cleans observers and listeners", () => {
     const { unmount } = render(stage());
     const old = stepObserver();

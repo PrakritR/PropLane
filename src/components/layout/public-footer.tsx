@@ -5,7 +5,7 @@ import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 
-/** The approved Swiss footer uses the same public line as the cover. */
+/** A quiet public footer with the same configured number and a way into the portal. */
 export function PublicFooter({
   compact = false,
   texting,
@@ -19,7 +19,7 @@ export function PublicFooter({
     ["/privacy", "Privacy"],
     ["/tos", "Terms"],
     [iosAppDownloadUrl(), "App Store"],
-    ["/auth/sign-in", "Sign in"],
+    ["/auth/sign-in", "Portal"],
     ["/#contact", "Contact"],
   ];
   return (

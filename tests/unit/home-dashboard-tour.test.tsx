@@ -5,7 +5,7 @@ import { HomeDashboardTour } from "@/components/marketing/home-dashboard-tour";
 
 let desktop = true;
 let reduced = false;
-let top = 64;
+let top = 0;
 const listeners = new Set<() => void>();
 const frames = new Map<number, FrameRequestCallback>();
 let frameId = 0;
@@ -13,12 +13,13 @@ let observerCallback: IntersectionObserverCallback;
 const disconnect = vi.fn();
 const scrollTo = vi.fn();
 const cancel = vi.fn((id: number) => frames.delete(id));
-const tour = () => <HomeDashboardTour><div data-testid="dashboard-content">Real dashboard stays mounted</div></HomeDashboardTour>;
+const portals = ["manager", "resident", "vendor", "owner"] as const;
+const tour = () => <HomeDashboardTour steps={portals.map((id) => ({ id, label: id, caption: id + " workspace", content: <div data-testid={id + "-content"}>{id} real content</div> }))} />;
 function flush() { act(() => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback(0)); }); }
 function near(value = true) { act(() => observerCallback([{ isIntersecting: value } as IntersectionObserverEntry], {} as IntersectionObserver)); }
 
 beforeEach(() => {
-  desktop = true; reduced = false; top = 64; frameId = 0;
+  desktop = true; reduced = false; top = 0; frameId = 0;
   frames.clear(); listeners.clear(); disconnect.mockClear(); scrollTo.mockClear(); cancel.mockClear();
   vi.stubGlobal("innerHeight", 900);
   vi.stubGlobal("scrollY", 200);
@@ -35,74 +36,53 @@ beforeEach(() => {
     observe() {}
     disconnect = disconnect;
   });
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({ top, height: 4036, bottom: top + 4036, left: 0, right: 1440, width: 1440, x: 0, y: top, toJSON: () => ({}) }));
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({ top, height: 4100, bottom: top + 4100, left: 0, right: 1440, width: 1440, x: 0, y: top, toJSON: () => ({}) }));
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-describe("Swiss dashboard scroll presentation", () => {
-  it("highlights four beats bidirectionally without remounting the dashboard", () => {
-    const { container } = render(tour());
-    const content = screen.getByTestId("dashboard-content");
-    near();
-    expect(container.querySelector("section")).toHaveAttribute("data-beat", "all");
-    for (const [position, beat] of [[-800, "rentals"], [-1600, "services"], [-2500, "payments"], [64, "all"]] as const) {
-      top = position;
-      fireEvent.scroll(window); flush();
-      expect(container.querySelector("section")).toHaveAttribute("data-beat", beat);
-      expect(screen.getByTestId("dashboard-content")).toBe(content);
-    }
-    expect(screen.getAllByRole("button")).toHaveLength(4);
-  });
-
-  it("uses native page scrolling for the highlight controls", () => {
+describe("software role switch", () => {
+  it("syncs four portals bidirectionally with desktop scrolling", () => {
     render(tour()); near();
-    fireEvent.click(screen.getByRole("button", { name: "Services" }));
+    for (const [position, role] of [[0, "manager"], [-810, "resident"], [-1610, "vendor"], [-2500, "owner"], [0, "manager"]] as const) {
+      top = position; fireEvent.scroll(window); flush();
+      expect(screen.getByRole("tab", { name: role })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+      expect(screen.getByRole("tabpanel")).toHaveTextContent(role + " real content");
+    }
+  });
+  it("uses native page scroll for desktop tab changes", () => {
+    render(tour()); near();
+    fireEvent.click(screen.getByRole("tab", { name: "vendor" }));
     expect(scrollTo).toHaveBeenCalledWith({ top: 1801, behavior: "smooth" });
   });
-
-  it("keeps phone and reduced-motion presentations static with all content", () => {
-    desktop = false;
+  it.each(["phone", "reduced motion"])("keeps all role tabs functional in one frame with %s", (mode) => {
+    desktop = mode !== "phone"; reduced = mode === "reduced motion";
     const { container } = render(tour()); near();
     expect(container.querySelector("section")).toHaveAttribute("data-enhanced", "false");
-    expect(screen.queryByRole("navigation")).toBeNull();
-    expect(screen.getByTestId("dashboard-content")).toBeInTheDocument();
-    act(() => { desktop = true; reduced = true; listeners.forEach((fn) => fn()); });
-    expect(container.querySelector("section")).toHaveAttribute("data-enhanced", "false");
-    expect(frames.size).toBe(0);
+    fireEvent.click(screen.getByRole("tab", { name: "owner" }));
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("owner real content");
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(container.querySelector("#software-panel-manager")).toHaveAttribute("inert");
+    expect(scrollTo).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("tab", { name: "owner" }), { key: "Home" });
+    expect(screen.getByRole("tab", { name: "manager" })).toHaveFocus();
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("manager real content");
   });
-
-  it("starts static if observers are unavailable", () => {
+  it("has working tabs without IntersectionObserver support", () => {
     vi.stubGlobal("IntersectionObserver", undefined);
-    const { container } = render(tour());
-    expect(container.querySelector("section")).toHaveAttribute("data-enhanced", "false");
-    expect(screen.getByTestId("dashboard-content")).toBeInTheDocument();
+    render(tour());
+    fireEvent.click(screen.getByRole("tab", { name: "resident" }));
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("resident real content");
   });
-
-  it("coalesces scroll frames only near the viewport and cleans pending work", () => {
-    const { container, unmount } = render(tour());
-    fireEvent.scroll(window);
-    expect(frames.size).toBe(0);
-    top = 829; near();
-    const windowWrap = container.querySelector<HTMLElement>(".home-dashboard-window-wrap")!;
-    expect(windowWrap.style.getPropertyValue("--dashboard-scale")).toBe("0.9");
-    fireEvent.scroll(window); fireEvent.scroll(window);
+  it("coalesces scroll work near the viewport and cleans pending frames", () => {
+    const { unmount } = render(tour());
+    fireEvent.scroll(window); expect(frames.size).toBe(0);
+    near(); fireEvent.scroll(window); fireEvent.scroll(window);
     expect(frames.size).toBe(1);
-    near(false);
-    expect(cancel).toHaveBeenCalled();
-    expect(windowWrap.style.getPropertyValue("--dashboard-scale")).toBe("");
-    near();
-    fireEvent.scroll(window);
-    unmount();
+    near(false); expect(cancel).toHaveBeenCalled();
+    near(); fireEvent.scroll(window); unmount();
     expect(frames.size).toBe(0);
     expect(listeners.size).toBe(0);
     expect(disconnect).toHaveBeenCalledOnce();
-  });
-
-  it("removes transforms and highlight controls on motion preference changes", () => {
-    const { container } = render(tour()); near();
-    act(() => { reduced = true; listeners.forEach((fn) => fn()); });
-    expect(container.querySelector("section")).toHaveAttribute("data-enhanced", "false");
-    expect(container.querySelector<HTMLElement>(".home-dashboard-window-wrap")!.style.length).toBe(0);
-    expect(screen.queryByRole("button")).toBeNull();
   });
 });

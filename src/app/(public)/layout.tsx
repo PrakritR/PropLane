@@ -11,7 +11,6 @@ import {
   homeSwissFont,
   homeSwissCoverFont,
 } from "@/components/marketing/fonts/home-swiss-font";
-import { getPublicTextingQrDataUrl } from "@/lib/marketing/public-texting-qr.server";
 import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 // Keep home styles/fonts in the layout's first flush. Page-level stylesheet
@@ -42,9 +41,8 @@ export default async function PublicLayout({
   children: React.ReactNode;
 }) {
   const texting = await getPublicTextingConfig();
-  const qrDataUrl = await getPublicTextingQrDataUrl(texting.smsHref);
   return (
-    <PublicTextingProvider value={{ ...texting, qrDataUrl }}>
+    <PublicTextingProvider value={texting}>
       <div
         className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable} ${homeSwissFont.variable} ${homeSwissCoverFont.variable}`}
       >

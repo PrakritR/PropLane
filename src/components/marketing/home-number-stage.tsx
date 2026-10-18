@@ -48,7 +48,7 @@ function NetworkScene() {
           </g>
           {homes.map((home, index) => (
             <g key={home.id} className="swiss-network-home">
-              <rect x={12 + index * 138} y="22" width="120" height="64" />
+              <rect x={12 + index * 138} y="22" width="120" height="64" rx="10" />
               <text x={24 + index * 138} y="60">
                 {home.title}
               </text>
@@ -56,7 +56,7 @@ function NetworkScene() {
           ))}
           {roles.map((role, index) => (
             <g key={role} className="swiss-network-person">
-              <rect x={8 + index * 104} y="436" width="92" height="96" />
+              <rect x={8 + index * 104} y="436" width="92" height="96" rx="10" />
               <text x={18 + index * 104} y="460">
                 {role}
               </text>
@@ -112,7 +112,7 @@ export function HomeNumberStage() {
         </>
       }
       sectionNumber="01"
-      sectionLabel="How it works"
+      sectionLabel="The number"
       sectionNote="One number connects every home"
       className="home-number-stage"
       travel={500}

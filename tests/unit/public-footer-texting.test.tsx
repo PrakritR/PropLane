@@ -6,8 +6,8 @@ import { publicTextingConfig } from "@/lib/marketing/public-texting";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 afterEach(cleanup);
 
-describe("Swiss public footer", () => {
-  it("uses real destinations for all six prototype links", () => {
+describe("quiet public footer", () => {
+  it("uses real destinations and keeps a Portal entry in the footer", () => {
     render(<PublicFooter />);
     const nav = screen.getByRole("navigation", { name: "Footer navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
@@ -15,6 +15,7 @@ describe("Swiss public footer", () => {
     ]);
     expect(screen.getByRole("link", { name: "App Store" })).toHaveAttribute("data-attr", "footer-app-store");
     expect(screen.queryByText("Reviews")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
   });
 
   it("uses the configured shared SMS line, never a separate support number", () => {

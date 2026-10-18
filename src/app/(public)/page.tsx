@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { TextingHomeHero } from "@/components/marketing/texting-home-hero";
 import { HomeNumberStage } from "@/components/marketing/home-number-stage";
+import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { HomeDashboardStage } from "@/components/marketing/home-dashboard-stage";
 import { BigNumber } from "@/components/marketing/big-number";
 import { PricingCards } from "@/components/marketing/site/pricing-cards";
@@ -26,15 +27,18 @@ export const metadata: Metadata = {
 // the complete cover and section heights are present in the first response.
 export default function HomePage() {
   return (
-    <div className="texting-home home-swiss">
+    <div className="texting-home home-swiss home-wavy">
+      <ResidentLifecycleAtmosphere variant="page" staticBelow={861} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: jsonLdString(homeJsonLd(llmsOrigin(), iosAppDownloadUrl())),
         }}
       />
-      <TextingHomeHero />
-      <HomeNumberStage />
+      <section id="number" aria-label="The number">
+        <TextingHomeHero />
+        <HomeNumberStage />
+      </section>
       <div className="home-editorial">
         <HomeDashboardStage />
         <section
@@ -71,30 +75,6 @@ export default function HomePage() {
                 {TRACK_RECORD.roomsTotal} rooms occupied — at a{" "}
                 {TRACK_RECORD.profit.toLowerCase()}.
               </p>
-              <div className="swiss-room-plan">
-                <div
-                  className="swiss-rooms"
-                  role="img"
-                  aria-label={`${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied`}
-                >
-                  {Array.from(
-                    { length: TRACK_RECORD.roomsTotal },
-                    (_, index) => (
-                      <span
-                        key={index}
-                        data-occupied={index < TRACK_RECORD.roomsOccupied}
-                      />
-                    ),
-                  )}
-                </div>
-                <div className="swiss-room-legend">
-                  <strong>
-                    {TRACK_RECORD.roomsOccupied} of {TRACK_RECORD.roomsTotal}{" "}
-                    rooms occupied
-                  </strong>
-                  <span>Filled = occupied</span>
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -104,7 +84,7 @@ export default function HomePage() {
           aria-labelledby="home-pricing-title"
         >
           <h2 className="swiss-section-label" id="home-pricing-title">
-            <span>04</span>Pricing
+            <span>04</span>Software plans
           </h2>
           <PricingCards variant="overview" />
         </section>

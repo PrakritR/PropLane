@@ -12,7 +12,7 @@ import { PublicTextingProvider } from "@/components/marketing/public-texting-con
 const config = publicTextingConfig("+12025550123");
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-describe("Swiss number cover", () => {
+describe("housing texting cover", () => {
   it("server-renders the configured number from the layout snapshot without a fetch", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const html = renderToString(<PublicTextingProvider value={config}><TextingHomeHero /></PublicTextingProvider>);
@@ -21,11 +21,13 @@ describe("Swiss number cover", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("shows the huge headline, configured number and four numbered role columns", () => {
+  it("shows the headline, number, decorative housing scene and role strip", () => {
     const { container } = render(<TextingHomeHero config={config} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(HOME_HEADLINE);
-    expect(screen.getByRole("link", { name: "Text (202) 555-0123" })).toHaveAttribute("href", config.smsHref);
+    expect(screen.getByRole("link", { name: "Text us (202) 555-0123" })).toHaveAttribute("href", config.smsHref);
     expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(container.querySelector(".home-housing-scene")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(4);
     for (const role of ["Prospects", "Residents", "Vendors", "Owners"]) expect(screen.getByText(role)).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
@@ -37,17 +39,11 @@ describe("Swiss number cover", () => {
   });
 
 
-  it("renders the layout's real QR for the same SMS destination", () => {
-    const qrDataUrl = "data:image/png;base64,encoded-qr";
-    render(<PublicTextingProvider value={{ ...config, qrDataUrl }}><TextingHomeHero /></PublicTextingProvider>);
-    expect(screen.getByRole("img", { name: "QR code to text PropLane" })).toHaveAttribute("src", qrDataUrl);
-    expect(screen.getByRole("link", { name: "Scan to text PropLane" })).toHaveAttribute("href", config.smsHref);
-  });
-
-  it("does not reuse a snapshot QR for an overridden or missing configuration", () => {
-    render(<PublicTextingProvider value={{ ...config, qrDataUrl: "data:image/png;base64,encoded-qr" }}><TextingHomeHero config={{ phone: null, smsHref: null }} /></PublicTextingProvider>);
+  it("does not render a QR even if an older layout snapshot still carries one", () => {
+    const legacySnapshot = { ...config, qrDataUrl: "data:image/png;base64,old-qr" };
+    render(<PublicTextingProvider value={legacySnapshot}><TextingHomeHero /></PublicTextingProvider>);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Start free" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: /scan/i })).not.toBeInTheDocument();
   });
 
   it("falls back to Start free without inventing a phone when config is missing", () => {
