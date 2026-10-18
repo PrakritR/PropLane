@@ -193,6 +193,25 @@ export const sendMessageToManagerTool = defineWriteTool({
     }
 
     await updateAuditResult(ctx, dedupeKey, { recipientCount: result.recipientCount });
+    // One-number learning loop: a resident's question to the team over SMS is remembered so the
+    // manager's answer can be captured. The phone is the resident's own verified profile phone.
+    if (ctx.channel === "sms" && resolved.targets.length === 1) {
+      try {
+        const { data: profile } = await ctx.db.from("profiles").select("phone").eq("id", ctx.userId).maybeSingle();
+        const phone = String((profile as { phone?: string | null } | null)?.phone ?? "");
+        if (phone) {
+          const { recordEscalatedQuestion } = await import("@/lib/one-number/knowledge/capture.server");
+          await recordEscalatedQuestion(ctx.db, {
+            ownerUserId: resolved.targets[0]!.id,
+            phone,
+            role: "resident",
+            question: body,
+          });
+        }
+      } catch {
+        /* the learning loop never blocks a message */
+      }
+    }
     return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => t.name).join(", ")}.`, resultSummary: { recipientCount: result.recipientCount } };
   },
 });

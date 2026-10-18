@@ -142,7 +142,7 @@ export async function runProspectSmsBurstJob(
     await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
     return NextResponse.json({ error: result.error ?? "Burst delivery failed." }, { status: 503 });
   }
-  if (result.suppressed || result.completedWithoutReply === "quiet_handoff") {
+  if (result.suppressed || result.completedWithoutReply === "quiet_handoff" || result.completedWithoutReply === "held_as_draft") {
     const completed = await completeProspectSmsBurst(db, {
       burstId, revision, workerId: claim.workerId, status: "suppressed",
     });
@@ -150,7 +150,7 @@ export async function runProspectSmsBurstJob(
       ? NextResponse.json({
           ok: true,
           replied: false,
-          ...(result.suppressed ? { suppressed: true } : { completedWithoutReply: "quiet_handoff" }),
+          ...(result.suppressed ? { suppressed: true } : { completedWithoutReply: result.completedWithoutReply }),
         })
       : NextResponse.json({ ok: true, stale: true });
   }

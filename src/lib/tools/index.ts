@@ -143,6 +143,7 @@ import {
   listMyJobsWithThisManagerTool,
 } from "./domains/vendor-work-order";
 import { getPropertyLinksTool, getVendorSmsLinksTool } from "./domains/portal-links";
+import { lookupPropertyKnowledgeTool, saveKnowledgeAnswerTool } from "./domains/knowledge";
 import { portfolioImportStatusTool } from "./domains/portfolio-import";
 import {
   buildProspectLinksTool,
@@ -157,6 +158,8 @@ import {
 } from "./domains/leasing-sms";
 
 export const agentRegistry = buildRegistry([
+  // One-number knowledge: read what the team approved, and save a suggested answer (YES-gated).
+  lookupPropertyKnowledgeTool, saveKnowledgeAnswerTool,
   suggestStatementMatchesTool,
   previewUtilityAllocationTool, allocateUtilityBillTool, reviewInspectionDepositTool, disposeInspectionDepositTool,
   ...managerInspectionTools,
@@ -363,6 +366,7 @@ export function buildManagerSmsRegistry(
  * manager tool.
  */
 export const vendorWorkOrderAgentRegistry = buildRegistry([
+  lookupPropertyKnowledgeTool,
   getSmsJobDetailsTool,
   getJobAccessInfoTool,
   listMyJobsWithThisManagerTool,
@@ -377,6 +381,7 @@ export const vendorWorkOrderAgentRegistry = buildRegistry([
  * Separate registry so it never sees financials, residents, or vendor tools.
  */
 export const leasingSmsAgentRegistry = buildRegistry([
+  lookupPropertyKnowledgeTool,
   listLiveListingsTool,
   getListingDetailsTool,
   checkRoomAvailabilityTool,

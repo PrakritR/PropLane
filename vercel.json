@@ -79,6 +79,14 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/one-number-reply-modes",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/cron/one-number-knowledge-digest",
+      "schedule": "0 16 * * 1"
+    },
+    {
       "path": "/api/cron/manager-attention-digest",
       "schedule": "0 14 * * *"
     },

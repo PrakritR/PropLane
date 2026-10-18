@@ -283,6 +283,14 @@ export const DELETE_ORDER = [
   "sms_manager_entitlements",
   "prospect_sms_bursts",
   "sms_outbox",
+  // One-number shared line (docs/agents/one-number.md).
+  "sms_entry_codes",
+  "sms_line_shadow_decisions",
+  "sms_phone_contacts",
+  // Vendor dispatch: runs before the rules they name; counters last.
+  "vendor_dispatch_runs",
+  "vendor_dispatch_rules",
+  "vendor_dispatch_handle_counters",
   "mcp_oauth_authorization_codes",
   "mcp_oauth_tokens",
   "sales_migration_records",

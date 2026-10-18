@@ -11,6 +11,7 @@ import {
 import { normalizeE164 } from "@/lib/phone-e164";
 import { applicationBucket, applicationRowLinksResident, isApprovedApplicationRow } from "@/lib/resident-manager-scope";
 import { profilePhoneVariants } from "@/lib/sms-consent";
+import { listResidentBindingManagerIds } from "@/lib/auth/resident-workspace-binding";
 
 /**
  * Every lookup answers one question for ONE phone: "which workspaces know this
@@ -206,13 +207,8 @@ export async function findResidentCandidates(db: SupabaseClient, phone: string):
       )
     : [];
   const placements = applicationPlacements(apps.filter((a) => applicationRowLinksResident(a.row_data) && isApprovedApplicationRow(a)));
-  const bindings = await rows(
-    db.from("resident_workspace_bindings").select("manager_user_id").eq("resident_user_id", profile.id).limit(10),
-  );
-  for (const binding of bindings) {
-    const managerUserId = str(binding.manager_user_id);
-    if (managerUserId) placements.push({ managerUserId, propertyId: "" });
-  }
+  const boundManagerIds = await listResidentBindingManagerIds(db, String(profile.id)).catch(() => [] as string[]);
+  for (const managerUserId of boundManagerIds) placements.push({ managerUserId, propertyId: "" });
   return candidatesForPlacements(db, placements, "resident");
 }
 

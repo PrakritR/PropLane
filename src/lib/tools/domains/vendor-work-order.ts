@@ -205,6 +205,28 @@ export const escalateToManagerTool = defineWriteTool({
       notify: settings.notify,
     });
     await ctx.db.from("agent_sessions").update({ status: "escalated", updated_at: new Date().toISOString() }).eq("id", scope.sessionId);
+    // One-number learning loop: remember the question so the manager's answer can be captured.
+    try {
+      const { data: vendorSession } = await ctx.db
+        .from("agent_sessions")
+        .select("vendor_phone_e164")
+        .eq("id", scope.sessionId)
+        .eq("landlord_id", ctx.landlordId)
+        .maybeSingle();
+      const vendorPhone = String((vendorSession as { vendor_phone_e164?: string | null } | null)?.vendor_phone_e164 ?? "");
+      if (vendorPhone) {
+        const { recordEscalatedQuestion } = await import("@/lib/one-number/knowledge/capture.server");
+        await recordEscalatedQuestion(ctx.db, {
+          ownerUserId: ctx.landlordId,
+          phone: vendorPhone,
+          role: "vendor",
+          question: input.summary,
+          propertyId: String(row.assignedPropertyId || row.propertyId || "") || null,
+        });
+      }
+    } catch {
+      /* the learning loop never blocks an escalation */
+    }
     track("vendor_agent_escalated", ctx.landlordId, { work_order_id: scope.workOrderId, urgency: input.urgency });
     return { ok: true, message: "The manager has been notified and will follow up." };
   },

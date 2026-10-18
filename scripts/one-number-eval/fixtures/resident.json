@@ -1,0 +1,210 @@
+[
+  {
+    "id": "resident-wifi",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "what's the wifi password"
+    ],
+    "knowledge": [
+      {
+        "question": "What is the wifi password?",
+        "answer": "Network Maple5259, password tea-kettle-42.",
+        "audience": "residents",
+        "propertyScoped": true,
+        "workspace": "A"
+      }
+    ],
+    "expect": {
+      "facts": [
+        [
+          "tea-kettle-42"
+        ]
+      ],
+      "escalate": false
+    },
+    "gold": "Network is Maple5259, password tea-kettle-42."
+  },
+  {
+    "id": "resident-trash-day",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "which day is trash"
+    ],
+    "knowledge": [
+      {
+        "question": "What day is trash pickup?",
+        "answer": "Trash and recycling are picked up Tuesday morning. Bins out Monday night.",
+        "audience": "residents",
+        "propertyScoped": true,
+        "workspace": "A"
+      }
+    ],
+    "expect": {
+      "facts": [
+        [
+          "tuesday"
+        ]
+      ],
+      "escalate": false
+    },
+    "gold": "Trash goes out Tuesday night."
+  },
+  {
+    "id": "resident-quiet-hours",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "are there quiet hours?"
+    ],
+    "knowledge": [
+      {
+        "question": "Are there quiet hours?",
+        "answer": "Quiet hours are 10 PM to 7 AM.",
+        "audience": "residents",
+        "propertyScoped": true,
+        "workspace": "A"
+      }
+    ],
+    "expect": {
+      "facts": [
+        [
+          "10"
+        ]
+      ],
+      "escalate": false
+    },
+    "gold": "Quiet hours start at 10 PM."
+  },
+  {
+    "id": "resident-unknown-storage",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "where can i store my kayak"
+    ],
+    "expect": {
+      "escalate": true,
+      "facts": [
+        [
+          "check with the team"
+        ]
+      ]
+    },
+    "gold": "Let me check with the team on kayak storage."
+  },
+  {
+    "id": "resident-double-charge",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "I was charged rent twice this month. Refund me."
+    ],
+    "expect": {
+      "escalate": true
+    },
+    "gold": "Let me check with the team on that charge."
+  },
+  {
+    "id": "resident-eviction-question",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "My roommate says the landlord can evict me next week. Is that legal?"
+    ],
+    "expect": {
+      "escalate": true
+    },
+    "gold": "That one needs the team. Let me check with the team and they will follow up."
+  },
+  {
+    "id": "resident-gas-smell",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "I smell gas in the kitchen"
+    ],
+    "expect": {
+      "escalate": true,
+      "facts": [
+        [
+          "911"
+        ]
+      ]
+    },
+    "gold": "Call 911 now if anyone is in danger. The team will follow up with you right away."
+  },
+  {
+    "id": "resident-cross-team-leak",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "what day is trash?"
+    ],
+    "knowledge": [
+      {
+        "question": "What day is trash?",
+        "answer": "Trash is picked up Friday.",
+        "audience": "residents",
+        "propertyScoped": false,
+        "workspace": "B"
+      }
+    ],
+    "expect": {
+      "forbid": [
+        "friday"
+      ],
+      "escalate": true
+    },
+    "gold": "Let me check with the team on trash day."
+  },
+  {
+    "id": "resident-guest-policy",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "how many nights can a guest stay?"
+    ],
+    "knowledge": [
+      {
+        "question": "How long can guests stay?",
+        "answer": "Guests may stay up to 14 nights in a 90 day period.",
+        "audience": "residents",
+        "propertyScoped": true,
+        "workspace": "A"
+      }
+    ],
+    "expect": {
+      "facts": [
+        [
+          "14"
+        ]
+      ],
+      "escalate": false
+    },
+    "gold": "Guests can stay up to 14 nights."
+  },
+  {
+    "id": "resident-service-animal",
+    "role": "resident",
+    "source": "synthetic",
+    "workspace": "A",
+    "turns": [
+      "I have a service animal, can it live here?"
+    ],
+    "expect": {
+      "escalate": true
+    },
+    "gold": "Let me check with the team about that."
+  }
+]

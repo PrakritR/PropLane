@@ -18,6 +18,8 @@
     "typecheck": "next typegen && tsc --noEmit -p .",
     "gate:prompt": "node scripts/gate-prompt.mjs",
     "test:unit": "vitest run tests/unit",
+    "eval:one-number": "node scripts/one-number-eval/run.mjs",
+    "eval:one-number:export": "node --env-file=.env.local scripts/one-number-eval/export-fixtures.mjs",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test tests/e2e/ladder-smoke.spec.ts tests/e2e/public-home.spec.ts tests/e2e/public-tours.spec.ts --no-deps --global-timeout=840000",

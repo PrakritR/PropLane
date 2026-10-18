@@ -47,6 +47,7 @@ import {
   type HouseInfoSectionSpec,
   type HouseInfoV1,
 } from "@/lib/house-info";
+import { PropertyKnowledgeList } from "@/components/portal/property-knowledge-list";
 import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { bathAccessOf, bathFactLabel, roomBathroomState, usersOfBath } from "@/lib/listing-room-editor/bathroom-link";
@@ -748,6 +749,7 @@ export function PropertyHouseDetailsListPanel({
                 }
               />
             ) : null}
+            {propertyId && !isDemoModeActive() ? <PropertyKnowledgeList propertyId={propertyId} showToast={showToast} /> : null}
           </>
         ) : null}
       </PortalRecordListSurface>

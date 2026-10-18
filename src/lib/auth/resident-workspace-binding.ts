@@ -51,6 +51,18 @@ export async function residentBoundToManager(db: SupabaseClient, residentUserId:
   return (data ?? []).length > 0;
 }
 
+/** Managers this resident's own session bound the account to (newest first is not guaranteed). Empty on a missing table. */
+export async function listResidentBindingManagerIds(db: SupabaseClient, residentUserId: string, limit = 10): Promise<string[]> {
+  const { data, error } = await db
+    .from(TABLE)
+    .select("manager_user_id")
+    .eq("resident_user_id", clean(residentUserId))
+    .limit(limit);
+  if (error?.code === "42P01" || error?.code === "PGRST205") return [];
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => String((row as { manager_user_id?: unknown }).manager_user_id ?? "").trim()).filter(Boolean);
+}
+
 /** The manager's relationship ended; drop the proof so it cannot outlive it. */
 export async function clearResidentWorkspaceBinding(db: SupabaseClient, residentUserId: string, managerUserId: string): Promise<void> {
   const { error } = await db

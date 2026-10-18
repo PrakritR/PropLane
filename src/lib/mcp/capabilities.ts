@@ -85,7 +85,9 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
  * Direct bearer calls have no assistant-turn budget for metered Brave searches, and the hold editor
  * (`update_room_block`) is assistant-only for now: the MCP / REST surface is deliberately unchanged.
  */
-export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set(["get_property_location_research", "update_room_block"]);
+// The knowledge pair reads and approves team-only answers and house details; they stay on the in-product
+// assistants and are not offered to API keys.
+export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set(["lookup_property_knowledge", "save_knowledge_answer", "get_property_location_research", "update_room_block"]);
 
 export const API_KEY_TOOL_NAMES = new Set(
   API_KEY_PRODUCT_AREAS.flatMap((area) => [...area.readTools, ...area.writeTools]),
