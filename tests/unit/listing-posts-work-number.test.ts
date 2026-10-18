@@ -118,7 +118,7 @@ describe("flyer and promotion contact line", () => {
 describe("the queue resolves contact from the workspace only", () => {
   it("never reads profiles.phone or the stored blob for a post", () => {
     const source = readFileSync(path.join(process.cwd(), "src/lib/listing-channels/sync.server.ts"), "utf8");
-    expect(source).toContain("resolveActiveManagerSendNumber");
+    expect(source).toContain("resolveWorkspaceDisplayNumber");
     expect(source).toContain("resolveActiveManagerWorkEmail");
     expect(source).not.toMatch(/profiles?\.phone|managerPhone|\.from\("profiles"\)/);
     expect(source).toContain('reasons.push("no_work_number")');
