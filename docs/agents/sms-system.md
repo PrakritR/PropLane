@@ -3,6 +3,18 @@
 
 # SMS / phone system (Twilio)
 
+## Runtime model policy
+
+All six SMS identities (manager, resident workspace, prospect, vendor service,
+resident personal number and vendor number) use `smsTaskModel` in
+`src/lib/agent/runtime-model.ts`. `AXIS_AI_LUNA_ENABLED=true` forces Luna even
+with legacy model pins. `false` restores legacy; unset respects the independent
+`AXIS_SMS_AGENT_LUNA_ENABLED` / `AXIS_SMS_AGENT_LUNA_ROLLOUT_PERCENT` rollout.
+The selected provider's credential is required only for inference, after
+confirmation/precomputed branches. Model-loop budgets are 40 seconds for SMS
+and 15 seconds for voice text, with 8,000 output tokens. Speech stays specialized.
+Selection changes no registry, authorization, credit or transport boundary.
+
 ## Links first
 
 Every agent on the work number sends the PropLane page that answers the

@@ -284,4 +284,23 @@ describe("runVendorNumberAiReply", () => {
     expect(turnArgs.ctx).toMatchObject({ kind: "vendor_number_ai", vendorUserId: "vendor-1", senderPhone: SENDER });
     expect(turnArgs.messages).toEqual([{ role: "user", content: "what are your hours?" }]);
   });
+  it("runs Luna with only an OpenAI key and preserves the vendor-number registry", async () => {
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "true");
+    vi.stubEnv("OPENAI_API_KEY", "openai-test");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    mocks.traceAgentTurn.mockImplementation(async (_actor, _messages, runTurn: (o?: unknown) => Promise<unknown>) => runTurn(undefined));
+    mocks.runAgentTurn.mockResolvedValue({ reply: "We open at 8." });
+    expect(await run(seed(), undefined)).toBe("replied");
+    expect(mocks.traceAgentTurn).toHaveBeenCalledTimes(1);
+    const [actor, , , opts] = mocks.traceAgentTurn.mock.calls[0]!;
+    expect(actor).toMatchObject({ userId: "vendor-1" });
+    expect(opts).toMatchObject({ name: "vendor-number-ai-turn", promptMeta: { promptId: "vendor-number-ai" } });
+    const turnArgs = mocks.runAgentTurn.mock.calls[0]![0];
+    expect(turnArgs.model).toMatchObject({ model: "gpt-6-luna", provider: "openai" });
+    expect(turnArgs.registry).toBe(vendorNumberAiRegistry);
+    expect(turnArgs.readOnly).toBe(true);
+    expect(turnArgs.allowWriteTools).toEqual(["handoff_to_vendor"]);
+    expect(turnArgs.ctx).toMatchObject({ kind: "vendor_number_ai", vendorUserId: "vendor-1", senderPhone: SENDER });
+    expect(turnArgs.messages).toEqual([{ role: "user", content: "what are your hours?" }]);
+  });
 });

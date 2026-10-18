@@ -149,6 +149,22 @@ afterEach(() => {
 });
 
 describe("prospect SMS runtime incident boundary", () => {
+  it("runs the real prospect loop on Luna with only an OpenAI credential", async () => {
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "true");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "openai-test");
+    mocks.completions.push(text("Please select the home you mean."));
+    const turn = await runLeasingSmsAgentTurn(dbFixture({}), {
+      landlordId: "manager-jain", prospectPhoneE164: "+15550001111",
+      inboundText: "Which homes can I tour?", crossCatalog: true,
+      inboundMessageSid: "luna-runtime", prospectBurst: burst(),
+    });
+    expect(turn?.reply).toBe("Please select the home you mean.");
+    expect(mocks.provider).toHaveBeenCalledWith(expect.objectContaining({
+      selection: expect.objectContaining({ model: "gpt-6-luna", provider: "openai", timeoutMs: expect.any(Number) }),
+    }));
+  });
+
   it("keeps successful listing facts property-bound and leaves absent or unsupported evidence unproven", () => {
     const evidence = projectProspectShadowPrimaryEvidence([
       { name: "get_listing_details", arguments: { propertyId: "jain" }, output: { found: true, listing: { propertyId: "jain", title: "Jain Home", rentLabel: "$1,200" } } },

@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const create = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { create }; } }));
-vi.mock("@/lib/agent/model", () => ({ TIER_MODELS: { standard: "test-model" } }));
+vi.mock("@/lib/agent/model", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/agent/model")>(),
+  TIER_MODELS: { standard: "test-model" },
+}));
 
 import { buildEngageList } from "@/lib/growth/engage/build.server";
 

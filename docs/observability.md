@@ -276,3 +276,14 @@ project for any harness that must emit traces.
 - **A new agent surface?** Pass `onTraceId` through, return `traceId`, stamp
   `resolvePromptMeta(...)`, and persist `proposalTraceId` on pending actions —
   or that surface silently loses ratings and approval scores.
+
+## Luna production policy evidence
+
+The all-surface master switch is `AXIS_AI_LUNA_ENABLED`. Record the returned
+provider/model, raw/cache/reasoning usage and per-call latency. Cache reads,
+cache writes and ordinary input have separate rates; output usage already
+includes reasoning and must not be billed twice. Unknown usage stays unknown.
+The hosted judge uses the stable evaluator/rule v2 API via
+`scripts/lib/langfuse-luna-setup.mjs`, an OpenAI Responses connection and exact
+`gpt-6-luna`. Repoint the existing rule without deleting history; synthetic
+verification explicitly labels its fixture as having no provider call.

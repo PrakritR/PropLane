@@ -1,3 +1,4 @@
+import { smsTaskModel } from "@/lib/agent/runtime-model";
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -16,7 +17,6 @@ import { normalizeRecordRef } from "@/lib/portals/record-kinds";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runAgentTurn } from "@/lib/agent/loop";
-import { TIER_MODELS } from "@/lib/agent/model";
 import { VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
@@ -466,7 +466,7 @@ export async function runVendorAgentSessionTurn(
         messages: history,
         observer,
         system,
-        model: { model: TIER_MODELS.standard, tier: "standard" },
+        model: smsTaskModel(session.landlord_id, channel),
         readOnly: true,
         allowWriteTools: [ESCALATE_TOOL_NAME],
       }),

@@ -15,13 +15,15 @@ import "server-only";
  * - "Market Rent", "Asking", "Deposit" and "Balance" columns never become a
  *   room's rent. Rent is the amount the tenant pays each month.
  * - Totals / subtotal / blank rows are not properties.
- * - Under NODE_ENV=test or without an API key this throws rather than
+ * - Under NODE_ENV=test or without the selected provider's key this throws rather than
  *   inventing a portfolio.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MODELS } from "@/lib/agent/model";
+import type Anthropic from "@anthropic-ai/sdk";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
+import type { AnthropicToolSchema } from "@/lib/tools/registry";
 import { renderSourceForModel, type PropertyImportSource } from "@/lib/property-import/read-file.server";
 import {
   PROPERTY_IMPORT_MAX_PROPERTIES,
@@ -252,7 +254,11 @@ export async function understandPropertyImport(input: {
   /** The manager's own note about the file ("each tab is one house"). */
   hint?: string | null;
 }): Promise<PropertyImportUnderstanding> {
-  if (process.env.NODE_ENV === "test" || !process.env.ANTHROPIC_API_KEY?.trim()) {
+  const selection = selectLunaTaskModel(
+    { model: TIER_MODELS.complex, tier: "complex", provider: "anthropic", route: "anthropic", maxOutputTokens: 16_000, timeoutMs: 90_000 },
+    { reasoningEffort: "high", maxOutputTokens: 16_000, timeoutMs: 90_000 },
+  );
+  if (process.env.NODE_ENV === "test" || !hasAgentModelCredential(selection)) {
     throw new PropertyImportUnderstandError("unavailable", "Reading spreadsheets is not available in this environment.");
   }
   if (input.source.rowsRead === 0) {
@@ -279,48 +285,45 @@ export async function understandPropertyImport(input: {
       input.actor,
       [{ role: "user", content: userPrompt }],
       async (observer) => {
-        const client = new Anthropic();
-        const model = TIER_MODELS.complex;
-        const startedAt = Date.now();
+        const model = selection.model;
         observer?.onStart?.({
           system: SYSTEM_PROMPT,
           toolsAvailable: [TOOL_NAME],
           model,
           tier: "complex",
-          provider: "anthropic",
-          route: "anthropic",
+          provider: selection.provider,
+          route: selection.route,
         });
-        const response = await client.messages.create({
-          model,
-          max_tokens: 16_000,
+        const response = await completeAgentModel({
+          selection,
           system: SYSTEM_PROMPT,
-          tools: [TOOL_SCHEMA],
-          tool_choice: { type: "tool", name: TOOL_NAME },
+          tools: [TOOL_SCHEMA] as unknown as AnthropicToolSchema[],
+          toolChoice: { type: "tool", name: TOOL_NAME },
           messages: [{ role: "user", content: userPrompt }],
         });
-        const call = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === TOOL_NAME);
-        const usage = {
-          inputTokens: response.usage?.input_tokens ?? 0,
-          outputTokens: response.usage?.output_tokens ?? 0,
-        };
+        const toolCalls = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+        const call = toolCalls.length === 1 && toolCalls[0]?.name === TOOL_NAME ? toolCalls[0] : null;
+        const usage = response.usage;
         observer?.onLlmCall?.({
           iteration: 0,
-          model,
+          model: response.responseModel ?? model,
           usage,
-          stopReason: response.stop_reason ?? null,
+          stopReason: response.stopReason,
           toolsChosen: call ? [TOOL_NAME] : [],
-          provider: "anthropic",
-          route: "anthropic",
-          latencyMs: Date.now() - startedAt,
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
           input: [{ role: "user", content: userPrompt }],
           assistantContent: response.content,
         });
         return {
           reply: call ? JSON.stringify(call.input) : "",
           toolTrace: [{ tool: TOOL_NAME, ok: Boolean(call) }],
-          model,
+          model: response.responseModel ?? model,
           tier: "complex" as const,
           usage,
+          provider: response.provider,
+          route: selection.route,
           payload: call?.input ?? null,
         };
       },

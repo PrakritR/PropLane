@@ -1,7 +1,9 @@
 import "server-only";
 
-import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MODELS } from "@/lib/agent/model";
+import type Anthropic from "@anthropic-ai/sdk";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
+import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { growthDb, must, type GrowthDb } from "../db.server";
 import { parseJsonLoose } from "../draft-parse";
 import { fetchRedditThreads } from "./reddit.server";
@@ -93,7 +95,7 @@ export function draftBudgetSpent(budget: DraftBudget, nowMs: number = Date.now()
 }
 
 /**
- * One Claude call for up to BATCH candidates. A truncated or unparseable reply
+ * One model call for up to BATCH candidates. A truncated or unparseable reply
  * is retried with a shorter instruction while the build's single retry is
  * unspent. Never throws: an undraftable batch is left out of the day's list.
  */
@@ -101,37 +103,82 @@ export function draftBudgetSpent(budget: DraftBudget, nowMs: number = Date.now()
 const DRAFT_TIMEOUT_MS = 90_000;
 
 export async function draftBatch(cands: EngageCandidate[], budget: DraftBudget = draftBudget()): Promise<Map<string, Drafted>> {
-  if (cands.length === 0 || !process.env.ANTHROPIC_API_KEY?.trim()) return new Map();
-  const client = new Anthropic();
+  if (cands.length === 0) return new Map();
+  const legacySelection = {
+    model: TIER_MODELS.standard,
+    tier: "standard" as const,
+    provider: "anthropic" as const,
+    route: "anthropic" as const,
+    maxOutputTokens: DRAFT_MAX_TOKENS,
+    timeoutMs: DRAFT_TIMEOUT_MS,
+  };
+  const initialTimeoutMs = Math.min(DRAFT_TIMEOUT_MS, Math.max(250, ENGAGE_DRAFT_BUDGET_MS - (Date.now() - budget.startedAtMs)));
+  const initialSelection = selectLunaTaskModel(legacySelection, { maxOutputTokens: DRAFT_MAX_TOKENS, timeoutMs: initialTimeoutMs });
+  if (!hasAgentModelCredential(initialSelection)) return new Map();
   const content = cands.map((c, i) => `Candidate ${i + 1} (key: ${c.key})\n${c.context}`).join("\n\n---\n\n");
 
   const attempt = async (extra: string | null): Promise<Map<string, Drafted>> => {
-    const response = await client.messages.create(
-      {
-        model: TIER_MODELS.standard,
-        max_tokens: DRAFT_MAX_TOKENS,
-        system: extra ? `${SYSTEM_PROMPT}\n${extra}` : SYSTEM_PROMPT,
-        messages: [{ role: "user", content }],
+    const remainingMs = ENGAGE_DRAFT_BUDGET_MS - (Date.now() - budget.startedAtMs);
+    if (remainingMs <= 0) throw new Error("shared drafting deadline elapsed");
+    const selection = selectLunaTaskModel(legacySelection, {
+      maxOutputTokens: DRAFT_MAX_TOKENS,
+      timeoutMs: Math.min(DRAFT_TIMEOUT_MS, remainingMs),
+    });
+    const system = extra ? `${SYSTEM_PROMPT}\n${extra}` : SYSTEM_PROMPT;
+    const result = await traceAgentTurn(
+      { userId: "system:growth", metadata: { role: "system", surface: "growth-engage", task: "draft-batch" } },
+      [{ role: "user", content }],
+      async (observer) => {
+        observer?.onStart?.({
+          system,
+          toolsAvailable: [],
+          model: selection.model,
+          tier: selection.tier,
+          provider: selection.provider,
+          route: selection.route,
+          reasoningEffort: selection.reasoningEffort,
+        });
+        const response = await completeAgentModel({ selection, system, tools: [], messages: [{ role: "user", content }] });
+        const text = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+        observer?.onLlmCall?.({
+          iteration: 0,
+          model: response.responseModel ?? selection.model,
+          usage: response.usage,
+          stopReason: response.stopReason,
+          toolsChosen: [],
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
+          input: [{ role: "user", content }],
+          assistantContent: response.content,
+        });
+        if (response.stopReason === "max_tokens") throw new Error("reply hit the token cap");
+        const parsed = parseJsonLoose(text) as { items?: { key?: unknown; why?: unknown; draft?: unknown }[] };
+        const out = new Map<string, Drafted>();
+        for (const it of Array.isArray(parsed.items) ? parsed.items : []) {
+          if (typeof it.key !== "string" || typeof it.why !== "string" || typeof it.draft !== "string") continue;
+          const why = it.why.trim().slice(0, 90);
+          const draft = it.draft.trim();
+          if (why && draft) out.set(it.key, { why, draft });
+        }
+        if (out.size === 0) throw new Error("no usable entries in the reply");
+        return {
+          reply: text,
+          toolTrace: [],
+          model: response.responseModel ?? selection.model,
+          tier: selection.tier,
+          usage: response.usage,
+          provider: response.provider,
+          route: selection.route,
+          payload: out,
+        };
       },
-      // The SDK default is 10 minutes, past this cron's own 300 s: one hung call
-      // would lose the whole build instead of spending the drafting budget.
-      { timeout: DRAFT_TIMEOUT_MS },
+      { name: "growth-engage-draft-batch", emitTurnSummary: false },
     );
-    if (response.stop_reason === "max_tokens") throw new Error("reply hit the token cap");
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    const parsed = parseJsonLoose(text) as { items?: { key?: unknown; why?: unknown; draft?: unknown }[] };
-    const out = new Map<string, Drafted>();
-    for (const it of Array.isArray(parsed.items) ? parsed.items : []) {
-      if (typeof it.key !== "string" || typeof it.why !== "string" || typeof it.draft !== "string") continue;
-      const why = it.why.trim().slice(0, 90);
-      const draft = it.draft.trim();
-      if (why && draft) out.set(it.key, { why, draft });
-    }
-    if (out.size === 0) throw new Error("no usable entries in the reply");
-    return out;
+    return result.payload as Map<string, Drafted>;
   };
 
   try {
