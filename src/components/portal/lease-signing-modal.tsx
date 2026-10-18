@@ -11,6 +11,7 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { rasterizeLeasePdfPages, type RasterPage } from "@/lib/pdf-page-raster.client";
 import { leaseDocumentFieldLabel, type LeaseDocumentField } from "@/lib/lease-document-library";
+import { HOUSE_CHAT_CONSENT_WORDING } from "@/lib/house-groups/consent";
 import { cn } from "@/lib/utils";
 
 const FIELD_TONE: Record<LeaseDocumentField["role"], string> = {
@@ -125,6 +126,7 @@ export function LeaseSigningModal({
   onSign,
   onClose,
   error,
+  offerHouseChat = false,
 }: {
   row: LeasePipelineRow;
   signerName: string;
@@ -139,7 +141,14 @@ export function LeaseSigningModal({
    * than only as a toast the resident may have missed.
    */
   error?: string | null;
+  /**
+   * A resident signing: offer the optional house group text checkbox (when the team has house chat on).
+   * Never a condition of signing. The choice is saved by the server against the signed-in account.
+   */
+  offerHouseChat?: boolean;
 }) {
+  const [houseChatAvailable, setHouseChatAvailable] = useState(false);
+  const [joinHouseChat, setJoinHouseChat] = useState(false);
   const [sigName, setSigName] = useState(signerName);
   const [agreed, setAgreed] = useState(false);
   const [signed, setSigned] = useState(false);
@@ -167,6 +176,23 @@ export function LeaseSigningModal({
     return () => window.removeEventListener(DEMO_LEASE_SIGN_PREPARE_EVENT, onPrepare as EventListener);
   }, []);
 
+  useEffect(() => {
+    if (!offerHouseChat) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/resident/house-chat");
+        const json = res.ok ? ((await res.json()) as { available?: boolean }) : null;
+        if (!cancelled) setHouseChatAvailable(json?.available === true);
+      } catch {
+        if (!cancelled) setHouseChatAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [offerHouseChat]);
+
   const now = useMemo(() => formatPacificDateTime(new Date()), []);
 
   const canSign = sigName.trim().length >= 2 && agreed;
@@ -177,6 +203,14 @@ export function LeaseSigningModal({
     const ok = await Promise.resolve(onSign(sigName.trim(), LEASE_ESIGN_CONSENT_VERSION));
     setSubmitting(false);
     if (!ok) return;
+    if (houseChatAvailable && joinHouseChat) {
+      // Best effort, after the signature is safe: the signature never waits on the house chat.
+      void fetch("/api/resident/house-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ consent: true }),
+      }).catch(() => undefined);
+    }
     setSigned(true);
     window.setTimeout(() => onClose(), 700);
   };
@@ -261,6 +295,20 @@ export function LeaseSigningModal({
             />
             <span>{LEASE_ESIGN_CONSENT_TEXT}</span>
           </label>
+
+          {offerHouseChat && houseChatAvailable ? (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4 text-sm text-muted shadow-sm">
+              <input
+                type="checkbox"
+                checked={joinHouseChat}
+                onChange={(e) => setJoinHouseChat(e.target.checked)}
+                disabled={submitting}
+                data-attr="lease-sign-house-chat"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary"
+              />
+              <span>{HOUSE_CHAT_CONSENT_WORDING}</span>
+            </label>
+          ) : null}
         </div>
       )}
     </Modal>
