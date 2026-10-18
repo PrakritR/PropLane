@@ -289,6 +289,13 @@ async function vendorSmsState(db: Db, session: VendorAgentSessionRow): Promise<{
   return { optedOut, consentAt: (data?.sms_consent_at as string | null) ?? null };
 }
 
+function vendorFeel(
+  options: { workspaceId?: string | null; bubbles?: boolean } | undefined,
+  inboundText: string,
+) {
+  return { workspaceId: options?.workspaceId, bubbles: options?.bubbles, inboundText };
+}
+
 /** Send the agent's reply out over every channel the session has. Not a model tool.
  * The SMS leg only fires when the vendor is replying to their own text (inherently
  * responsive) or has granted SMS consent — never as an unsolicited push. */
@@ -299,6 +306,8 @@ export async function deliverVendorAgentReply(
   inboundChannel?: "sms" | "inbox",
   dedupeKey?: string,
   inboundMessageSid?: string,
+  /** Delivery feel (shared line): split the SMS leg into bubbles when the workspace opted in. */
+  feel?: { workspaceId?: string | null; bubbles?: boolean; inboundText?: string | null },
 ): Promise<void> {
   if (session.inbox_thread_id) {
     await appendToInboxThread(db, session.inbox_thread_id, { from: "PropLane Assistant", body: text }, { unread: true });
@@ -312,13 +321,21 @@ export async function deliverVendorAgentReply(
     evidence: inboundChannel === "sms" && inboundMessageSid ? { inboundMessageSid } : { consentAt: consentAt! },
   });
   if (!consent.allowed) return;
-  const delivered = await enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
-    recipientPhone: session.vendor_phone_e164, recipientUserId: session.vendor_user_id,
-    // Segment guard: a curly quote or emoji would bill this reply as UCS-2. A
-    // reply to a text that carried a card/bank number is the secure-link notice.
-    body: toGsm7((await redactedInboundReplyOverride(inboundMessageSid)) ?? text), sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
-    dedupeKey,
-  }, db);
+  // Segment guard: a curly quote or emoji would bill this reply as UCS-2. A
+  // reply to a text that carried a card/bank number is the secure-link notice.
+  const smsText = toGsm7((await redactedInboundReplyOverride(inboundMessageSid)) ?? text);
+  const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
+  const delivered = await deliverAgentReply({
+    workspaceId: feel?.workspaceId,
+    bubbles: feel?.bubbles,
+    text: smsText,
+    inboundText: feel?.inboundText,
+    send: (bubble, index) => enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
+      recipientPhone: session.vendor_phone_e164!, recipientUserId: session.vendor_user_id,
+      body: bubble, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
+      dedupeKey: bubbleDedupeKey(dedupeKey ?? null, index) ?? undefined,
+    }, db),
+  });
   if (!delivered.ok) throw new Error("Vendor reply delivery could not be queued.");
 
 }
@@ -354,7 +371,7 @@ export async function runVendorAgentSessionTurn(
   session: VendorAgentSessionRow,
   inboundText: string,
   channel: "sms" | "inbox",
-  options?: { inboundMessageSid?: string; precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null },
+  options?: { inboundMessageSid?: string; precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null; workspaceId?: string | null; bubbles?: boolean },
 ): Promise<string | null> {
   const text = inboundText.trim().slice(0, 2000);
   if (!text) return null;
@@ -393,7 +410,7 @@ export async function runVendorAgentSessionTurn(
     if (!credit.allowed) return null;
     if (credit.duplicate) {
       const reply = await readCommsTurnResult<string>(db, session.landlord_id, creditKey, INTERRUPTED_COMMS_REPLY);
-      if (reply) await deliverVendorAgentReply(db, session, reply, channel, creditKey, options?.inboundMessageSid);
+      if (reply) await deliverVendorAgentReply(db, session, reply, channel, creditKey, options?.inboundMessageSid, vendorFeel(options, text));
       return reply;
     }
   }
@@ -431,7 +448,7 @@ export async function runVendorAgentSessionTurn(
       tools: 0,
     });
     if (channel === "sms") await completeCommsTurn(db, session.landlord_id, creditKey, precomputedReply);
-    await deliverVendorAgentReply(db, session, precomputedReply, channel, creditKey, options?.inboundMessageSid);
+    await deliverVendorAgentReply(db, session, precomputedReply, channel, creditKey, options?.inboundMessageSid, vendorFeel(options, text));
     return precomputedReply;
   }
 
@@ -504,7 +521,7 @@ export async function runVendorAgentSessionTurn(
   });
 
   if (channel === "sms") await completeCommsTurn(db, session.landlord_id, creditKey, result.reply);
-  await deliverVendorAgentReply(db, session, result.reply, channel, creditKey, options?.inboundMessageSid);
+  await deliverVendorAgentReply(db, session, result.reply, channel, creditKey, options?.inboundMessageSid, vendorFeel(options, text));
   return result.reply;
 }
 
