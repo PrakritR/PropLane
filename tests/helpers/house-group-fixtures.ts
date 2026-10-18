@@ -58,7 +58,7 @@ export function fakeGateway(opts: { fail?: keyof ConversationsGateway } = {}): F
 }
 
 export function resident(n: number, over: Partial<ResidentCandidate> = {}): ResidentCandidate {
-  const key = `20655510${String(n).padStart(2, "0")}`;
+  const key = `20655501${String(n).padStart(2, "0")}`;
   return {
     phoneKey: key,
     phoneE164: `+1${key}`,

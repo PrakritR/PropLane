@@ -95,6 +95,8 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "list_vendor_dispatches",
   "approve_vendor_dispatch",
   "dispatch_vendor",
+  // House chat posts to residents' shared thread: managers only, behind the in-product YES gate.
+  "announce_to_house_chat",
   "update_room_block",
 ]);
 
