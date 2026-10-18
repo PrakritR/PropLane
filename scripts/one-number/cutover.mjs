@@ -127,8 +127,8 @@ export async function run(argv, deps = {}) {
   if (!MODES.includes(mode)) throw new UsageError("--mode shadow|shared is required (or --rollback).");
   const number = normalizeE164(flags["shared-number"] ?? current.shared_number_e164);
   const sid = String(flags["service-sid"] ?? current.shared_messaging_service_sid ?? "").trim();
-  if (mode === "shared" && !number) throw new UsageError("--shared-number +1XXXXXXXXXX (E.164) is required for shared mode.");
   if (flags["shared-number"] && !number) throw new UsageError(`"${flags["shared-number"]}" is not a valid phone number.`);
+  if (mode === "shared" && !number) throw new UsageError("--shared-number +1XXXXXXXXXX (E.164) is required for shared mode.");
   if (mode === "shared" && !SERVICE_SID.test(sid)) throw new UsageError("--service-sid MG... (the shared Messaging Service) is required for shared mode.");
   if (sid && !SERVICE_SID.test(sid)) throw new UsageError(`"${sid}" is not a Messaging Service SID.`);
   const pilot = flags.pilot ? flags.pilot.split(",").map((s) => s.trim()).filter(Boolean) : (current.shared_pilot_workspace_ids ?? []);
