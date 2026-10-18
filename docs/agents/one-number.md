@@ -425,6 +425,28 @@ after / reason) **before** applying - no audit row, no change; the row is stampe
 It never touches Twilio and no sms module is imported (guard test). Existing manager workspaces, their numbers
 and ownership are untouched.
 
+**One workspace per owner client, per city** (migration `20261018260100_service_owner_of_record.sql`, applied to
+dev). The Service list is sectioned by city (`groupServiceByCity`: Seattle first, the rest alphabetical, no city
+last; matched ignoring case). A workspace carries `city` and an optional `owner_of_record_name` typed on `+`
+(the client, before they have an account on the team). The **Team** pop-up has an **Invite owner** section:
+`team-invite` takes a PropLane ID and writes a **pending** `account_link_invites` row (Admin role, `house_scope
+all`, this workspace only - full access to it once accepted in their own portal, through the existing accept
+flow); the invitee must already be a property-portal account (the same rule as every co-manager invite) and
+their own accounts and workspaces are untouched. `account_link_invites.is_owner_of_record` flags THE membership
+that is the owner of record for payouts and finances (W17); it grants nothing by itself, and a partial unique
+index allows one live row per workspace (the server checks first and returns 409). A pending invitee shows by
+the invite-time name snapshot, never their live profile or email. `team-owner-of-record` sets / clears the flag;
+`team-remove` also withdraws a pending invite. The list shows the owner of record by name (the accepted flagged
+member's profile name, else the typed client name). Money / finances are W17: `serviceWorkspaceFinancesHref`
+(`src/lib/service/service-links.ts`) returns `null` and the row menu draws a Finances button only when it
+returns an href.
+
+**Service owner must be a property-portal manager too.** The co-manager sweeper
+(`purgeOrphanedCoManagerLinks`, run when an admin loads the portal) deletes every `account_link_invites` row whose
+inviter is not a manager/owner account, which silently stripped every operator from every service workspace when the
+owner held only the admin role. `resolveServiceOwner` therefore returns "not configured" (create / list) for an
+owner without that role, and refuses to seed one.
+
 **Not done / notes.** The service owner still needs a plan for *inviting non-admin teammates by role* through
 the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
 admins directly and links to the portal for role invites.
