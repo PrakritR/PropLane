@@ -43,10 +43,14 @@ import {
   nudgeManagerOnWorkOrderTool,
 } from "./domains/resident/work-order-lifecycle";
 
+import { lookupPropertyKnowledgeResidentTool } from "./domains/knowledge";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ResidentTool = ToolDefinition<any, any, ResidentAgentContext>;
 
 const ALL_RESIDENT_TOOLS: ResidentTool[] = [
+  // One-number knowledge: only what the team approved for residents (and house details once unlocked).
+  lookupPropertyKnowledgeResidentTool,
   // Link-first: the portal page for whatever the resident wants to do. Pure
   // URLs, no data, so it is on every phase and every tier.
   getResidentLinksTool,
@@ -124,6 +128,7 @@ const PORTAL_ONLY_TOOLS = new Set([setAutopayTool.name]);
 
 /** Tools available while the resident is still in the application phase. */
 const APPLICATION_PHASE_TOOLS = new Set([
+  "lookup_property_knowledge",
   "get_resident_links",
   "get_my_application_status",
   "research_my_property_location",
