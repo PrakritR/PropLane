@@ -92,15 +92,18 @@ export async function resolveHouseholdChargeRefundRail(
   // reverse) and let the party ledger reverse the owner's share. A read that fails is a failure, never a fall-through.
   const { data: managedRows, error: managedError } = await db
     .from("managed_rent_allocations")
-    .select("id, principal_cents, refunded_principal_cents")
+    .select("id, charge_id, stripe_charge_id, principal_cents, refunded_principal_cents")
     .eq("stripe_charge_id", input.stripeChargeId)
     .eq("charge_id", input.chargeId)
     .limit(2);
   if (managedError && String(managedError.code) !== "42P01" && String(managedError.code) !== "PGRST205") {
     throw new Error("Could not resolve the payment's recipient allocation.");
   }
-  if ((managedRows ?? []).length === 1) {
-    const row = managedRows![0] as { id: string; principal_cents: number; refunded_principal_cents: number };
+  const managedMatches = ((managedRows ?? []) as Array<{ id?: string; charge_id?: string; stripe_charge_id?: string; principal_cents?: number; refunded_principal_cents?: number }>)
+    .filter((r) => r.stripe_charge_id === input.stripeChargeId && r.charge_id === input.chargeId &&
+      typeof r.id === "string" && Number.isSafeInteger(r.principal_cents) && Number.isSafeInteger(r.refunded_principal_cents));
+  if (managedMatches.length === 1) {
+    const row = managedMatches[0] as { id: string; principal_cents: number; refunded_principal_cents: number };
     if (input.amountCents > row.principal_cents - row.refunded_principal_cents) {
       throw new HouseholdChargeRefundReviewError("A refund cannot exceed what remains of the payment.");
     }

@@ -71,9 +71,9 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
       // requested manager page must not render inside the owner chrome: send
       // them to their Overview instead (middleware stamps the header on every
       // matched request, so this is the never-happens branch failing closed).
-      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn) : OWNER_HOME_PATH;
+      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn, owner.financesOn) : OWNER_HOME_PATH;
       if (target) redirect(target);
-      return <OwnerPortalShell messagesOn={owner.messagesOn}>{children}</OwnerPortalShell>;
+      return <OwnerPortalShell messagesOn={owner.messagesOn} financesOn={owner.financesOn}>{children}</OwnerPortalShell>;
     }
   }
 

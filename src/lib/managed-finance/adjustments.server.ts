@@ -23,7 +23,10 @@ export async function managedAllocationsForStripeCharge(db: SupabaseClient, stri
     if (String(error.code) === "42P01" || String(error.code) === "PGRST205") return [];
     throw new LedgerError(500, "Could not read managed allocations.");
   }
-  return (data ?? []) as Alloc[];
+  // Only rows that really are this Charge's allocations count; anything else is not a managed payment.
+  return ((data ?? []) as Alloc[]).filter((a) =>
+    a && a.stripe_charge_id === stripeChargeId && typeof a.id === "string" && typeof a.charge_id === "string" &&
+    Number.isSafeInteger(a.principal_cents) && Number.isSafeInteger(a.refunded_principal_cents));
 }
 
 /** The allocation a refund belongs to: the household charge named in its metadata, else the only one on the Charge. */

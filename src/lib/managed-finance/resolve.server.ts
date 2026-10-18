@@ -27,14 +27,15 @@ export async function resolveManagedForProperties(
   const ids = [...new Set(propertyIds.map((id) => id?.trim() ?? ""))];
   if (ids.every((id) => !id)) return null;
   const workspaceByProperty = new Map<string, string | null>();
-  const real = ids.filter(Boolean);
-  const { data, error } = await db.from("manager_property_records").select("id, workspace_id").in("id", real);
-  if (error) {
-    if (isMissingSchemaError(error)) return null;
-    throw new Error("Could not confirm which workspace this payment belongs to.");
-  }
-  for (const row of (data ?? []) as Array<{ id: string; workspace_id: string | null }>) {
-    workspaceByProperty.set(String(row.id), row.workspace_id ? String(row.workspace_id) : null);
+  // One small read per house (a cart holds at most ten): each house names its own workspace.
+  for (const id of ids.filter(Boolean)) {
+    const { data, error } = await db.from("manager_property_records").select("id, workspace_id").eq("id", id).maybeSingle();
+    if (error) {
+      if (isMissingSchemaError(error)) return null;
+      throw new Error("Could not confirm which workspace this payment belongs to.");
+    }
+    const row = data as { id?: string; workspace_id?: string | null } | null;
+    workspaceByProperty.set(id, row?.workspace_id ? String(row.workspace_id) : null);
   }
   const day = pacificDayKey(new Date(paidAtIso));
   const resolved = new Map<string, PolicyRow | null>();

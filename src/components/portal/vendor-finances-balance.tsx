@@ -28,6 +28,7 @@ import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { RecordTabBand } from "@/components/portal/record-list-band";
 import { VendorFinancesOverviewBody } from "@/components/portal/vendor-finances-overview";
+import { VendorManagedBalance } from "@/components/portal/vendor-managed-balance";
 import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
 import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
@@ -212,6 +213,7 @@ export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: V
             <VendorBalanceLedgerFallback onRetry={reload} />
           )}
           {tabBand(null)}
+          {tab === "overview" ? <VendorManagedBalance basePath={basePath} /> : null}
           {tab === "overview" ? <VendorFinancesOverviewBody hideStripeNotice={state.status === "unavailable"} /> : null}
           {tab === "payouts" ? (
             <PortalRecordListSurface
@@ -260,6 +262,7 @@ export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: V
               ? { label: "Refund a payment", onClick: () => setRefundAddRequest((n) => n + 1), dataAttr: "vendor-refunds-add" }
               : undefined,
           )}
+          {tab === "overview" ? <VendorManagedBalance basePath={basePath} /> : null}
           {tab === "overview" ? <VendorFinancesOverviewBody /> : null}
           {tab === "refunds" ? (
             <VendorRefundsPanel basePath={basePath} embedded addRequest={refundAddRequest} onEnabledChange={setRefundsEnabled} />
