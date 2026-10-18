@@ -99,7 +99,8 @@ function sectionLines(info: HouseInfoV1, sectionId: HouseInfoSectionId, skipKeys
   return lines;
 }
 
-const TRASH_PUBLIC_KEYS = new Set(["day", "recycling", "cleaningCadence"]);
+// Recycling day is a resident detail (C2-RE12 took recycling off the public sheet); it never prints here.
+const TRASH_PUBLIC_KEYS = new Set(["day", "cleaningCadence"]);
 
 /**
  * What anyone who scans the door card may read. Built from the rules and trash

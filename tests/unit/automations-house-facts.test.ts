@@ -95,7 +95,9 @@ describe("what a resident, the public page and the printables may read", () => {
     const everything = JSON.stringify(page);
     for (const secret of houseInfoSecretValues(filled())) expect(everything).not.toContain(secret);
     expect(everything).not.toMatch(/Escalate after/);
-    expect(page.trash.map((l) => l.label)).toContain("Recycling day");
+    // Recycling day is for residents; the public sheet keeps its C2-RE12 shape.
+    expect(page.trash.map((l) => l.label)).not.toContain("Recycling day");
+    expect(page.trash.map((l) => l.label)).toContain("Trash day");
     expect(page.rules.map((l) => l.label)).not.toContain("Escalate after complaints in 30 days");
     expect(housePrivateValues({ houseInfo: filled() } as never)).toContain("4821");
   });

@@ -27,7 +27,7 @@ vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => h.navigate 
 vi.mock("@/lib/portal-base-path-client", () => ({ usePaidPortalBasePath: () => "/portal" }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/communication/escalations", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 
-import { AutomationsSection } from "@/components/portal/automations-settings";
+import { AutomationsSection, AutomationTextModal } from "@/components/portal/automations-settings";
 import { ManagerEscalationsInbox } from "@/components/portal/manager-escalations-inbox";
 
 const row = (over: Record<string, unknown>) => ({
@@ -159,5 +159,39 @@ describe("ManagerEscalationsInbox", () => {
     render(<ManagerEscalationsInbox />);
     fireEvent.click(await screen.findByRole("button", { name: "Back to Communication" }));
     expect(h.navigate).toHaveBeenCalledWith("/portal/communication/active");
+  });
+});
+
+describe("AutomationTextModal", () => {
+  const welcome = () => view().presets[0]! as never;
+
+  it("shows the preview from real data and saves the manager's wording", async () => {
+    const onSaved = vi.fn();
+    render(<AutomationTextModal row={welcome()} onClose={vi.fn()} onSaved={onSaved} />);
+    await waitFor(() => expect(h.preview).toHaveBeenCalled());
+    expect((await screen.findByText("Welcome, Maya!", { selector: '[data-attr="automation-preview"]' })).textContent).toBe("Welcome, Maya!");
+    fireEvent.change(document.querySelector('[data-attr="automation-text"]')!, { target: { value: "Hey {first_name}, welcome!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(h.save).toHaveBeenCalledWith({ preset: "welcome", template: "Hey {first_name}, welcome!" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("shows why the wording cannot be used, and keeps the pop-up open on a refused save", async () => {
+    h.preview.mockResolvedValue({ ok: false, error: "Amount is not available here." });
+    h.save.mockResolvedValue({ ok: false, error: "Amount is not available here." });
+    const onSaved = vi.fn();
+    render(<AutomationTextModal row={welcome()} onClose={vi.fn()} onSaved={onSaved} />);
+    await waitFor(() => expect(document.querySelector('[data-attr="automation-preview"]')!.textContent).toBe("Amount is not available here."));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Amount is not available here.");
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("offers a way back to the standard text only when the wording differs", async () => {
+    render(<AutomationTextModal row={{ ...(welcome() as object), template: "Custom wording" } as never} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Use standard text" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Use standard text" }));
+    await waitFor(() => expect((document.querySelector('[data-attr="automation-text"]') as HTMLTextAreaElement).value).toContain("{first_name}"));
+    expect(screen.queryByRole("button", { name: "Use standard text" })).toBeNull();
   });
 });

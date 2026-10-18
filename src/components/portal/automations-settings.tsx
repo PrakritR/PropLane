@@ -192,7 +192,8 @@ export function AutomationTextModal({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const areaRef = useRef<HTMLTextAreaElement | null>(null);
+  // The caret, remembered from the textarea's own events, so Insert lands where the manager was typing.
+  const caretRef = useRef<{ start: number; end: number } | null>(null);
 
   useEffect(() => {
     if (!row) return;
@@ -220,15 +221,12 @@ export function AutomationTextModal({
   if (!row) return null;
 
   const insert = (variable: string) => {
-    const el = areaRef.current;
     const token = `{${variable}}`;
-    if (!el) {
-      setText((current) => `${current}${token}`);
-      return;
-    }
-    const start = el.selectionStart ?? text.length;
-    const end = el.selectionEnd ?? text.length;
+    const caret = caretRef.current;
+    const start = Math.min(caret?.start ?? text.length, text.length);
+    const end = Math.min(caret?.end ?? text.length, text.length);
     setText(`${text.slice(0, start)}${token}${text.slice(end)}`);
+    caretRef.current = { start: start + token.length, end: start + token.length };
   };
 
   const save = async () => {
@@ -269,11 +267,16 @@ export function AutomationTextModal({
         <div>
           <p className="text-sm font-medium text-foreground">Text</p>
           <Textarea
-            ref={areaRef}
             value={text}
             maxLength={320}
             rows={4}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              caretRef.current = { start: e.target.selectionStart, end: e.target.selectionEnd };
+              setText(e.target.value);
+            }}
+            onSelect={(e) => {
+              caretRef.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd };
+            }}
             className="mt-1"
             data-attr="automation-text"
           />
