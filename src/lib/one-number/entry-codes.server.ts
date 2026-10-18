@@ -51,7 +51,7 @@ async function loadWorkspaceHouse(
   if (!propertyId) return null;
   const { data, error } = await db
     .from("manager_property_records")
-    .select("id, workspace_id, manager_user_id, property_data")
+    .select("id, workspace_id, manager_user_id, property_data, row_data")
     .eq("id", propertyId)
     .maybeSingle();
   if (error || !data) return null;
@@ -59,8 +59,9 @@ async function loadWorkspaceHouse(
   const stamped = str(row.workspace_id);
   const inWorkspace = stamped ? stamped === scope.workspaceId : str(row.manager_user_id) === scope.ownerUserId;
   if (!inWorkspace || str(row.manager_user_id) !== scope.ownerUserId) return null;
-  const data2 = row.property_data && typeof row.property_data === "object" ? (row.property_data as Row) : {};
-  return { id: str(row.id), label: propertyLabel(data2), address: str(data2.address) };
+  const pd = row.property_data && typeof row.property_data === "object" ? (row.property_data as Row) : {};
+  const rd = row.row_data && typeof row.row_data === "object" ? (row.row_data as Row) : {};
+  return { id: str(row.id), label: propertyLabel(pd) || propertyLabel(rd), address: str(pd.address) || str(rd.address) };
 }
 
 /** A code for a house that no other house holds yet (globally unique), or null when every candidate is taken. */

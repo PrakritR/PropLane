@@ -27,7 +27,7 @@ import {
   type LeadProfile,
 } from "@/lib/one-number/lead-qualifying";
 import { redactLeadBody } from "@/lib/one-number/lead-redact";
-import { findWorkspaceProspectCandidate } from "@/lib/one-number/router-lookups.server";
+import { findWorkspaceProspectCandidate, propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
@@ -334,7 +334,7 @@ export async function assignLeadToHouse(
 
   const houseRes = await db
     .from("manager_property_records")
-    .select("id, workspace_id, manager_user_id, status, property_data")
+    .select("id, workspace_id, manager_user_id, status, property_data, row_data")
     .eq("id", input.propertyId)
     .maybeSingle();
   const house = houseRes.data as Row | null;
@@ -347,8 +347,7 @@ export async function assignLeadToHouse(
   }
   const prospect = workspaceId ? await findWorkspaceProspectCandidate(db, workspaceId) : null;
   if (!prospect) return { ok: false, error: "workspace_not_found" };
-  const propertyData = house.property_data && typeof house.property_data === "object" ? (house.property_data as Row) : {};
-  const label = str(propertyData.buildingName) || str(propertyData.address) || prospect.label;
+  const label = propertyLabel(house.property_data) || propertyLabel(house.row_data) || prospect.label;
 
   const at = now().toISOString();
   const claimed = await db
