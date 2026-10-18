@@ -72,6 +72,9 @@ async function makeExpress(userId: string, label: string): Promise<string> {
 
 async function main() {
   console.log(`Managed finance proof ${stamp} (Stripe test mode, dev database)`);
+  // Test-mode top-up so repeated proofs (and the dispute losses they cause) never starve the platform's AVAILABLE balance. The
+  // product's own "funds still arriving" refusal would otherwise (correctly) block the withdrawals below.
+  await stripe.paymentIntents.create({ amount: 500_000, currency: "usd", payment_method: "pm_card_bypassPending", confirm: true, automatic_payment_methods: { enabled: true, allow_redirects: "never" }, metadata: { proof_topup: stamp } });
   const manager = await makeUser("manager");
   const owner = await makeUser("owner");
   const vendor = await makeUser("vendor");

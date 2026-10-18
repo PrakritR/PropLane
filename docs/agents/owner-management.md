@@ -129,11 +129,24 @@ shared-line seam; read-only typed functions scoped to the owner's workspace; the
 Vendor Finances (`/vendor/financials`): the same balance / withdraw / history per vendor across managed workspaces. Admin (Property
 management half): platform cash, owed to owners, owed to vendors, fee revenue by workspace and month, reconciliation status.
 
+## Dev proof (Stripe TEST mode, dev database)
+
+`NODE_OPTIONS=--conditions=react-server npx tsx --env-file=.env.local scripts/prove-managed-finance.ts` refuses to run unless the
+Stripe key is a test key and the Supabase project is the dev/test one. It creates its own workspace, users, property, fee policy
+and two test Express accounts, then drives real Stripe test objects through the real library code: a platform charge (no
+destination), the allocation and its replay, a partial refund, a vendor bill, an owner withdrawal and a vendor withdrawal (real
+Transfers and Payouts to the Express accounts), a repeated click, an over-large and a foreign withdrawal, a real Stripe test
+dispute opened and lost, and the daily reconciliation. Last run: 21 checks, all passing. Not exercised end to end: the resident
+Checkout / webhook claim machinery (covered by unit tests with the same Checkout shapes), and emails (the dev Resend domain is not
+verified).
+
 ## Ease-of-life items built / listed
 
 Built: monthly statement (email + text + portal), repair approval threshold with one-tap "approve routine repairs under $X",
 reserve target shown against available, year-end tax package (Schedule E-ready totals per workspace from the ledger plus vendor
-1099 totals), occupancy on the statement. Listed, not built: document vault with expiry reminders, maintenance history with photos,
+1099 totals), occupancy on the statement. Also built: `POST /api/portal/managed-finance/vendor-charge` (a manager or admin charges the owner for a vendor outside a service
+record, for example a tour host fee or a cleaning; idempotent on a client key, same owner-approval gate).
+Listed, not built: document vault with expiry reminders, maintenance history with photos,
 rent / vacancy recommendations from market data, annual inspection link, owner card-on-file expense collection, per-owner payout
 schedule and instant payouts, trust-account adoption (see below), application and linked-form fees on managed workspaces (they
 still follow the manager-hold path), tour-host / cleaning fee triggers beyond the generic vendor-charge API, autopay-specific tests.

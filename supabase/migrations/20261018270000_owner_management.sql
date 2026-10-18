@@ -535,14 +535,15 @@ begin
 
   v_owner_party := 'owner:' || coalesce(a.owner_user_id::text, '');
   v_lines := jsonb_build_array(jsonb_build_object('account', 'platform_cash', 'amount_cents', -p_amount));
-  if v_owner_part > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_object('account', 'owner_payable', 'party_id', v_owner_party, 'amount_cents', v_owner_part)); end if;
+  -- The debit carries the credit's own availability, so a refund of money that has not matured yet nets against that pending credit.
+  if v_owner_part > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_object('account', 'owner_payable', 'party_id', v_owner_party, 'amount_cents', v_owner_part, 'available_on', a.available_on)); end if;
   if v_fee_part > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_object('account', 'proplane_fee_revenue', 'amount_cents', v_fee_part)); end if;
   if v_borne_part > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_object('account', 'processing_recovery', 'amount_cents', v_borne_part)); end if;
   if v_deposit_part > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_object('account', 'tenant_deposit_liability', 'amount_cents', v_deposit_part)); end if;
 
   v_posted := public.post_party_journal(a.workspace_id, 'refund', v_key, 'stripe_refund', p_refund, a.stripe_charge_id,
     jsonb_build_object('allocation_id', p_alloc, 'charge_id', a.charge_id, 'amount_cents', p_amount, 'owner_cents', v_owner_part,
-      'fee_cents', v_fee_part, 'borne_cents', v_borne_part, 'deposit_cents', v_deposit_part), v_lines, p_posted);
+      'fee_cents', v_fee_part, 'borne_cents', v_borne_part, 'deposit_cents', v_deposit_part, 'property_id', a.property_id), v_lines, p_posted);
 
   v_status := case when a.refunded_principal_cents + p_amount >= a.principal_cents then 'refunded' else 'partially_refunded' end;
   update public.managed_rent_allocations set
@@ -590,7 +591,7 @@ begin
       v_owner_party := 'owner:' || coalesce(a.owner_user_id::text, '');
       if v_owner_d > 0 then
         v_lines := v_lines || jsonb_build_array(
-          jsonb_build_object('account', 'owner_payable', 'party_id', v_owner_party, 'workspace_id', a.workspace_id, 'amount_cents', v_owner_d),
+          jsonb_build_object('account', 'owner_payable', 'party_id', v_owner_party, 'workspace_id', a.workspace_id, 'amount_cents', v_owner_d, 'available_on', a.available_on),
           jsonb_build_object('account', 'dispute_hold', 'party_id', v_owner_party, 'workspace_id', a.workspace_id, 'amount_cents', -v_owner_d));
       end if;
       update public.managed_rent_allocations set disputed_cents = p_amount, status = case when status = 'refunded' then status else 'disputed' end, updated_at = now() where id = a.id;
@@ -612,7 +613,7 @@ begin
 
   if p_phase = 'won' then
     -- Exactly reverse the opened journal's lines.
-    for v_line in select jsonb_build_object('account', l.account, 'party_id', l.party_id, 'workspace_id', l.workspace_id, 'amount_cents', -l.amount_cents)
+    for v_line in select jsonb_build_object('account', l.account, 'party_id', l.party_id, 'workspace_id', l.workspace_id, 'amount_cents', -l.amount_cents, 'available_on', l.available_on)
                     from public.party_ledger_lines l where l.journal_id = v_open.id loop
       v_lines := v_lines || jsonb_build_array(v_line);
     end loop;
