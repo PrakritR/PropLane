@@ -10,6 +10,10 @@ const deliver = vi.fn<(...a: unknown[]) => Promise<{ ok: true; recipientCount: n
 const notifyManager = vi.fn<(...a: unknown[]) => Promise<undefined>>(async () => undefined);
 const resolveReminder = vi.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 
+const offPresets = vi.hoisted(() => ({ ids: new Set<string>() }));
+vi.mock("@/lib/automations/store.server", () => ({
+  loadOffPresetResolver: async () => ({ isOff: (preset: string) => offPresets.ids.has(preset) }),
+}));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://prop-lane.space" }));
 vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: (...args: unknown[]) => deliver(...args) }));
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: (...args: unknown[]) => notifyManager(...args) }));
@@ -341,6 +345,17 @@ describe("delivery: the door code reaches only that guest's own 1:1 message", ()
       expect(result).toBe("failed");
       expect(deliver).not.toHaveBeenCalled();
       expect(notifyManager).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not send while the manager has the preset switched off in Automations", async () => {
+    offPresets.ids.add("arrival_guide");
+    try {
+      const db = fakeDb({ stays: [stayRecord()] });
+      expect(await dispatchReminderRow(db, "worker-1", guideRow(), sender, channels)).toBe("failed");
+      expect(deliver).not.toHaveBeenCalled();
+    } finally {
+      offPresets.ids.clear();
     }
   });
 

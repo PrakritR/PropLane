@@ -150,6 +150,9 @@ time a second way.
   - **What the guide says.** It is built at send time from `houseInfo` (`bookings/arrival-guide.ts`). The door code goes only in that
     guest's own message and is never stored in the queue.
   - **Cleaning runs.** They take the window checkout → next check-in (`vendor-dispatch/turnover-window.ts`).
+  - **The manager's switch.** Each text is a Settings → Automations row (`arrival_guide` / `checkout_reminder`). It is
+    on or off only, default on, and is read at send time (`loadOffPresetResolver`). There is no draft and no editable
+    text, because the body carries the door code and is built from house facts when it is sent.
 - **iCal.** The export stays DATE values, because Airbnb imports dates only. An import with dates only takes the property defaults.
   `parseIcsCalendar` reads a local DATE-TIME's times but does not store them yet. The Google Sheet sync still owns guest names and
   non-channel rows; its stays take defaults and get no guest texts.

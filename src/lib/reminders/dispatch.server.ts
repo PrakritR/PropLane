@@ -30,6 +30,7 @@ import type { NotificationCategory } from "@/lib/notification-preferences";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import { reminderIsCurrent } from "@/lib/reminders/current.server";
+import { loadOffPresetResolver } from "@/lib/automations/store.server";
 import { isStayTimeReminderKind, renderStayTimeReminder } from "@/lib/reminders/subjects/stay-times.server";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { recordRefFromReminderRow } from "@/lib/reminders/reminder-record-ref";
@@ -206,6 +207,13 @@ export async function dispatchReminderRow(
     stayRendered = await renderStayTimeReminder(db, row);
     if (!stayRendered) {
       await resolveReminder(db, row.id, workerId, "failed", "subject changed or is no longer active");
+      return "failed";
+    }
+    // The manager's switch for this text is its automations preset (Settings -> Automations,
+    // `arrival_guide` / `checkout_reminder`), read at SEND time so turning it off stops a queued one.
+    const preset = row.kind === "stay_arrival_guide" ? "arrival_guide" : "checkout_reminder";
+    if ((await loadOffPresetResolver(db, row.managerUserId)).isOff(preset, stayRendered.propertyId || null)) {
+      await resolveReminder(db, row.id, workerId, "failed", "switched off in Automations");
       return "failed";
     }
   }

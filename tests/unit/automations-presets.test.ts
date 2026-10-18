@@ -62,12 +62,17 @@ describe("preset catalog", () => {
     expect(group.template).not.toMatch(/\$|\{amount\}|\{first_name\}/);
   });
 
-  it("booking presets stay out of Settings until their trigger is registered live", () => {
+  it("booking presets draw in Settings once live, as auto-or-off switches with no editable text", () => {
     const ids = visibleAutomationPresets().map((p) => p.id);
-    expect(ids).not.toContain("arrival_guide");
-    expect(ids).not.toContain("checkout_reminder");
-    expect(EXTERNAL_PRESETS_LIVE.size).toBe(0);
-    expect(ids).toHaveLength(10);
+    expect([...EXTERNAL_PRESETS_LIVE].sort()).toEqual(["arrival_guide", "checkout_reminder"]);
+    expect(ids).toContain("arrival_guide");
+    expect(ids).toContain("checkout_reminder");
+    expect(ids).toHaveLength(12);
+    for (const id of ["arrival_guide", "checkout_reminder"] as const) {
+      // The text is built at send time from house facts (door code included), so no held draft
+      // stores it and the manager's control is on/off only.
+      expect(getAutomationPreset(id)).toMatchObject({ engine: "existing", defaultMode: "auto", modes: ["auto", "off"], hasOwnText: false });
+    }
   });
 });
 
