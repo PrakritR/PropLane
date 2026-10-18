@@ -11,6 +11,7 @@ import { workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
+import { handleInviteCommand, inviteCommandApplies } from "@/lib/one-number/onboarding/invite.server";
 import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
@@ -144,6 +145,11 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   // Routed to one workspace.
   const candidate: SharedLineCandidate = decision;
   const person = candidate.role !== "manager";
+  // "invite <phone>" (only while the waitlist flag is on): a manager lets a landlord skip the waitlist.
+  if (!person && inviteCommandApplies(input.body)) {
+    const text = await handleInviteCommand(db, { workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, body: input.body, messageSid: input.messageSid }).catch(() => null);
+    if (text) return { kind: "handled", twiml: text };
+  }
   // A manager can run the sandbox DEMO from their own phone. While it lasts their texts are the demo's,
   // never the real manager agent's, and the demo touches no real workspace row.
   if (!person && (isDemoStartText(input.body) || (await hasLiveDemo(db, input.phoneKey).catch(() => false)))) {
