@@ -193,6 +193,20 @@ describe("backfill: scoped opt-outs", () => {
     expect(planScopedOptOuts({ events: reGranted, sharedSid: SID }).inserts).toHaveLength(0);
   });
 
+  it("skips a revoke whose phone is opted out globally: that block is phone-wide and a START lifts it", async () => {
+    const w = world({
+      sms_consent_events: [ev({}), ev({ recipient_phone_key: "2065550177", manager_user_id: O2 })],
+      sms_consent: [{ phone: "2065550142", opted_in_at: null, opted_out_at: "2026-09-01T00:00:00Z" }],
+    });
+    const { h } = await go(w.db, ["--apply", "--only", "consent", "--service-sid", SID]);
+    const copied = (w.tables.sms_consent_events as any[]).filter((r) => r.messaging_service_sid === SID);
+    expect(copied.map((r) => r.recipient_phone_key)).toEqual(["2065550177"]); // the scoped-only withdrawal
+    expect(h.report.consent).toMatchObject({ planned: 1, coveredByGlobal: 1 });
+    // The person who STOPped globally then texts START: nothing scoped is left to outlive it.
+    (w.tables.sms_consent as any[])[0].opted_in_at = "2026-10-05T00:00:00Z";
+    expect((w.tables.sms_consent_events as any[]).some((r) => r.recipient_phone_key === "2065550142" && r.messaging_service_sid === SID)).toBe(false);
+  });
+
   it("is skipped, loudly, without a shared service SID", async () => {
     const w = world({ sms_consent_events: [ev({})] });
     const { h } = await go(w.db, ["--apply", "--only", "consent"]);

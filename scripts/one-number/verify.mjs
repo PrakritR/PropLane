@@ -164,7 +164,7 @@ async function optOutCheck(db, baseline, flagSid) {
       "id, recipient_phone_key, manager_user_id, messaging_service_sid, purpose, send_class, conversation_key, event_type, wording_version, occurred_at, created_at",
     );
     if (!events.missing) {
-      const plan = planScopedOptOuts({ events: events.rows, sharedSid: sid });
+      const plan = planScopedOptOuts({ events: events.rows, sharedSid: sid, globallyOptedOut: now });
       if (plan.inserts.length) failures.push(`${plan.inserts.length} scoped opt-out(s) are not carried onto ${sid}`);
     }
   } else {

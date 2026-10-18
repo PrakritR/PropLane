@@ -16,14 +16,16 @@
  *   stamps     workspace_id on sms_projection_turns / sms_outbox / sms_inbound_receipts / manager_sms_messages /
  *              inbound_sms_log / manager_sms_contacts, from the conversation, the work line, then the owner's
  *              default workspace. Only NULLs are filled, only with a workspace the row's own owner holds.
- *   consent    a REVOKED scoped consent event under any messaging service is copied to the shared line's
- *              service so an opt-out cannot be bypassed by the move. Grants are never copied. The global STOP
- *              ledger (sms_consent) and profile opt-outs are phone-global and need no copy.
+ *   consent    a scoped-only REVOKE (consent withdrawn for one team in the product) under any messaging service is
+ *              copied to the shared line's service so the move cannot undo it. Grants are never copied. A phone
+ *              opted out in the global ledger (sms_consent, profile flags) is skipped: that block is phone-global,
+ *              already stops every line, and a later START lifts it.
  *
  * Nothing is deleted or overwritten. Production needs every guard (see lib/target.mjs).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { optedOutKeys } from "./lib/consent.mjs";
 import { chunk, fetchAll } from "./lib/db.mjs";
 import { BACKUP_DIR, timestamp, writeJsonFile } from "./lib/files.mjs";
 import { normalizeE164, phoneKey } from "./lib/phones.mjs";
@@ -153,8 +155,16 @@ function aliasTuple(owner, role, line, kind, value) {
 const scopeOf = (e) => [e.recipient_phone_key, e.manager_user_id, e.purpose, e.send_class, e.conversation_key ?? ""].join("|");
 const when = (e) => Date.parse(e.occurred_at ?? e.created_at ?? 0) || 0;
 
-/** Revoked events to mirror onto the shared service: one per scope whose latest evidence, anywhere, is a revoke. */
-export function planScopedOptOuts({ events, sharedSid }) {
+/**
+ * Revoked events to mirror onto the shared service: one per scope whose latest evidence, anywhere, is a revoke.
+ *
+ * A phone that is opted out in the GLOBAL ledger right now is skipped: that block already stops every send on
+ * every line, and a later START lifts it. Copying such a revoke onto the shared service would outlive the START
+ * (the START webhook on the shared number carries no manager, so nothing restores scoped grants). What is
+ * copied are the scoped-only withdrawals (a vendor or resident pulled consent for one team in the product),
+ * which only a fresh grant lifts, exactly as before the move.
+ */
+export function planScopedOptOuts({ events, sharedSid, globallyOptedOut = new Set() }) {
   const latestAny = new Map();
   const latestShared = new Map();
   for (const e of events) {
@@ -165,8 +175,13 @@ export function planScopedOptOuts({ events, sharedSid }) {
   }
   const inserts = [];
   let alreadyCovered = 0;
+  let coveredByGlobal = 0;
   for (const [key, latest] of latestAny) {
     if (latest.event_type !== "revoked") continue;
+    if (globallyOptedOut.has(latest.recipient_phone_key)) {
+      coveredByGlobal += 1;
+      continue;
+    }
     const shared = latestShared.get(key);
     if (shared && when(shared) >= when(latest)) {
       // Covered: the shared scope already says revoked, or the person re-granted there after the revoke.
@@ -188,7 +203,7 @@ export function planScopedOptOuts({ events, sharedSid }) {
       occurred_at: latest.occurred_at ?? latest.created_at ?? new Date().toISOString(),
     });
   }
-  return { inserts, alreadyCovered };
+  return { inserts, alreadyCovered, coveredByGlobal };
 }
 
 /* ------------------------------------- run ------------------------------------- */
@@ -374,10 +389,11 @@ async function consentPart(db, { apply, journal, report, log, sid }) {
     report.consent.skipped = "no_table";
     return;
   }
-  const plan = planScopedOptOuts({ events: events.rows, sharedSid: sid });
+  const plan = planScopedOptOuts({ events: events.rows, sharedSid: sid, globallyOptedOut: await optedOutKeys(db) });
   report.consent.planned = plan.inserts.length;
   report.consent.alreadyCovered = plan.alreadyCovered;
-  log(`${SCRIPT}: consent: ${plan.alreadyCovered} scoped opt-outs already hold on ${sid}, ${plan.inserts.length} to copy (revokes only)`);
+  report.consent.coveredByGlobal = plan.coveredByGlobal;
+  log(`${SCRIPT}: consent: ${plan.alreadyCovered} scoped opt-outs already hold on ${sid}, ${plan.coveredByGlobal} are covered by the global STOP ledger, ${plan.inserts.length} to copy (scoped-only revokes)`);
   if (!apply) return;
   for (const batch of chunk(plan.inserts, 500)) {
     const { data, error } = await db.from("sms_consent_events").insert(batch).select("id");
