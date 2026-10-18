@@ -25,6 +25,7 @@ create table if not exists public.sms_onboarding_state (
   phone_key text primary key,
   role text check (role in ('searcher', 'landlord', 'vendor')),
   asked_at timestamptz,
+  stage text,
   hints jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

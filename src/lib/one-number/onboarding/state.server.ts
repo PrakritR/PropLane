@@ -13,6 +13,8 @@ export type OnboardingState = {
   phoneKey: string;
   role: OnboardingRole | null;
   askedAt: string | null;
+  /** Where a landlord is: `offered` (sample house offered) or `finish_sent` (setup link sent). */
+  stage: "offered" | "finish_sent" | null;
   hints: HouseHints;
 };
 
@@ -25,20 +27,28 @@ function toState(row: Row): OnboardingState {
   if (typeof hintsRaw.rooms === "number") hints.rooms = hintsRaw.rooms;
   if (typeof hintsRaw.rent === "number") hints.rent = hintsRaw.rent;
   const role = row.role === "searcher" || row.role === "landlord" || row.role === "vendor" ? row.role : null;
-  return { phoneKey: String(row.phone_key ?? ""), role, askedAt: row.asked_at ? String(row.asked_at) : null, hints };
+  return { phoneKey: String(row.phone_key ?? ""), role, askedAt: row.asked_at ? String(row.asked_at) : null, stage: row.stage === "offered" || row.stage === "finish_sent" ? row.stage : null, hints };
+}
+
+/**
+ * `available: false` = the table is not there (code running before the migration): the caller then
+ * skips onboarding entirely and the unknown-sender path behaves exactly as it did before.
+ */
+export async function readOnboardingState(db: SupabaseClient, phoneKey: string): Promise<{ available: boolean; state: OnboardingState | null }> {
+  const { data, error } = await db.from("sms_onboarding_state").select("phone_key, role, asked_at, stage, hints").eq("phone_key", phoneKey).maybeSingle();
+  if (error) return { available: false, state: null };
+  return { available: true, state: data ? toState(data as Row) : null };
 }
 
 export async function loadOnboardingState(db: SupabaseClient, phoneKey: string): Promise<OnboardingState | null> {
-  const { data, error } = await db.from("sms_onboarding_state").select("phone_key, role, asked_at, hints").eq("phone_key", phoneKey).maybeSingle();
-  if (error || !data) return null;
-  return toState(data as Row);
+  return (await readOnboardingState(db, phoneKey)).state;
 }
 
 /** Merge a patch into the phone's row, creating it. Returns false when nothing could be stored. */
 export async function saveOnboardingState(
   db: SupabaseClient,
   phoneKey: string,
-  patch: { role?: OnboardingRole | null; askedAt?: string | null; hints?: HouseHints },
+  patch: { role?: OnboardingRole | null; askedAt?: string | null; stage?: OnboardingState["stage"]; hints?: HouseHints },
   now: Date = new Date(),
 ): Promise<boolean> {
   const current = await loadOnboardingState(db, phoneKey);
@@ -46,6 +56,7 @@ export async function saveOnboardingState(
     phone_key: phoneKey,
     role: patch.role !== undefined ? patch.role : (current?.role ?? null),
     asked_at: patch.askedAt !== undefined ? patch.askedAt : (current?.askedAt ?? null),
+    stage: patch.stage !== undefined ? patch.stage : (current?.stage ?? null),
     hints: { ...(current?.hints ?? {}), ...(patch.hints ?? {}) },
     updated_at: now.toISOString(),
   };
