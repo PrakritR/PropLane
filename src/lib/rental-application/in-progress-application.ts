@@ -247,10 +247,26 @@ export function isSubmittedPendingApplicationRow(row: DemoApplicantRow): boolean
 }
 
 /**
- * The manager Applications tab counts. Pending counts exactly what the sidebar badge counts
- * ({@link isSubmittedPendingApplicationRow}): an Incomplete draft or a withdrawn application is listed in
- * the Pending tab as a plain fact on its row, but it is not waiting on the manager, so it never inflates
- * the tab number into disagreeing with the badge ("7" on the tab, "5" on the badge).
+ * Which Applications tab a row is listed under: its stored bucket. An Incomplete draft and a
+ * withdrawn application both keep `bucket === "pending"` and are listed in the Pending tab with
+ * that fact on the row, so they belong to the Pending tab here too.
+ *
+ * This is the ONE routing decision: the list filters with it and {@link countApplicationsByTab}
+ * counts with it, so a tab's number can never disagree with the rows it renders.
+ */
+export function applicationListTabForRow(row: DemoApplicantRow): "pending" | "approved" | "rejected" {
+  if (row.bucket === "rejected") return "rejected";
+  if (row.bucket === "approved") return "approved";
+  return "pending";
+}
+
+/**
+ * The manager Applications tab counts: each tab counts exactly the rows that tab renders
+ * ({@link applicationListTabForRow}).
+ *
+ * The sidebar badge is a different question — "how many are waiting on me" — and keeps counting
+ * {@link isSubmittedPendingApplicationRow} only, so a draft or a withdrawn application is listed
+ * and counted in the Pending tab without ever appearing on the manager's attention badge.
  */
 export function countApplicationsByTab(rows: readonly DemoApplicantRow[]): {
   pending: number;
@@ -258,13 +274,7 @@ export function countApplicationsByTab(rows: readonly DemoApplicantRow[]): {
   rejected: number;
 } {
   const counts = { pending: 0, approved: 0, rejected: 0 };
-  for (const row of rows) {
-    if (row.bucket === "pending") {
-      if (isSubmittedPendingApplicationRow(row)) counts.pending += 1;
-    } else if (row.bucket === "approved" || row.bucket === "rejected") {
-      counts[row.bucket] += 1;
-    }
-  }
+  for (const row of rows) counts[applicationListTabForRow(row)] += 1;
   return counts;
 }
 

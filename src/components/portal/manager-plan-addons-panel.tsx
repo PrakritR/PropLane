@@ -15,6 +15,9 @@ import { formatAddonPrice, PLAN_ADDON_STOREFRONT_IDS, type PlanAddonId } from "@
 
 const ENDPOINT = "/api/manager/plan-addons";
 
+/** This panel's own timeout copy — no checkout is involved in saving add-ons. */
+const ADDONS_TIMEOUT_MESSAGE = "Saving add-ons is taking too long. Try again.";
+
 /** The fact that follows the per-unit price on each add-on's row label (PLAN-0920 UI mock). */
 const ADDON_ROW_FACT: Partial<Record<PlanAddonId, string>> = {
   extra_workspace: "includes a work number + work email",
@@ -123,12 +126,16 @@ export function ManagerPlanAddonsPanel() {
     setNotice(null);
     setSaveFailed(false);
     try {
-      const { ok, body } = await fetchJsonWithTimeout<AddonsPayload & { error?: string; stripeSynced?: boolean }>(ENDPOINT, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changes }),
-      });
+      const { ok, body } = await fetchJsonWithTimeout<AddonsPayload & { error?: string; stripeSynced?: boolean }>(
+        ENDPOINT,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ changes }),
+        },
+        { timeoutMessage: ADDONS_TIMEOUT_MESSAGE },
+      );
       if (!ok) throw new Error(body.error || "We couldn’t update your add-ons. Nothing changed.");
       if (!mounted.current) return;
       setData(body);

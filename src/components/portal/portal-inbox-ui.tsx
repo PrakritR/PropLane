@@ -1,5 +1,5 @@
 "use client";
-import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentsHaveFailure } from "@/lib/inbox-attachment-send-gate";
+import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentsAllowSend, inboxAttachmentsHaveFailure } from "@/lib/inbox-attachment-send-gate";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
@@ -1964,7 +1964,9 @@ export function InboxComposer({
   // A failed upload blocks the send (it used to be dropped silently, so the
   // message left without the file the chip said had failed).
   const hasFailedAttachment = inboxAttachmentsHaveFailure(attachments);
-  const canSend = !sending && !disabled && !hasFailedAttachment && (value.trim().length > 0 || hasReadyAttachment);
+  // One gate: a failed upload AND an upload still in flight both hold the send.
+  const canSend =
+    !sending && !disabled && inboxAttachmentsAllowSend(attachments) && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;
   return (
     <div

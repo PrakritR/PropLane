@@ -4,6 +4,7 @@ import {
   inProgressApplicationResumeUrl,
   buildInProgressApplicationRow,
   applicationStageDisplayLabel,
+  applicationListTabForRow,
   countApplicationsByTab,
   findInProgressRowForTarget,
   INCOMPLETE_APPLICATION_LABEL,
@@ -203,7 +204,7 @@ describe("in-progress-application", () => {
     expect(isSubmittedPendingApplicationRow(withdrawn)).toBe(false);
   });
 
-  it("counts the Pending tab exactly as the sidebar badge does (drafts and withdrawn rows excluded)", () => {
+  it("counts each tab as exactly the rows that tab renders, while the badge stays submitted-only", () => {
     const base = { name: "A", property: "P", detail: "" };
     const rows = [
       { ...base, id: "S1", bucket: "pending" as const, stage: "Submitted" },
@@ -215,8 +216,12 @@ describe("in-progress-application", () => {
       { ...base, id: "R1", bucket: "rejected" as const, stage: "Declined" },
     ];
     const counts = countApplicationsByTab(rows);
-    expect(counts).toEqual({ pending: 2, approved: 1, rejected: 1 });
-    expect(counts.pending).toBe(rows.filter(isSubmittedPendingApplicationRow).length);
+    expect(counts).toEqual({ pending: 5, approved: 1, rejected: 1 });
+    for (const tab of ["pending", "approved", "rejected"] as const) {
+      expect(counts[tab]).toBe(rows.filter((row) => applicationListTabForRow(row) === tab).length);
+    }
+    // The sidebar badge answers a different question and still excludes drafts / withdrawn rows.
+    expect(rows.filter(isSubmittedPendingApplicationRow).length).toBe(2);
   });
 
   it("maps in-progress storage stage to Incomplete in the UI", () => {

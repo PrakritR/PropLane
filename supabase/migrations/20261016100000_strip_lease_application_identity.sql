@@ -37,6 +37,16 @@
 -- enabled, runs the two UPDATEs, and re-enables exactly those. It is one
 -- transaction: any failure rolls the trigger state back with the data.
 
+-- Fail fast instead of blocking leases. `disable trigger` below takes an ACCESS EXCLUSIVE lock on
+-- portal_lease_pipeline_records and holds it for the whole transaction, so an unbounded run would
+-- queue behind — and then block — every live lease read and write. These bound both the wait for
+-- the lock and the work done under it; on timeout the transaction rolls back and the block, being
+-- idempotent, finishes the job on a later run in a quiet window. (`set local` outside the do block
+-- so statement_timeout applies to the do statement itself; it no-ops with a notice if the migration
+-- runner is not in a transaction.)
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
+
 do $strip_lease_application_identity$
 declare
   v_trigger record;

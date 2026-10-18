@@ -6,7 +6,10 @@
  * database reads per browse load. This keeps one answer per instance for `ttlMs`, shares one in-flight
  * computation between concurrent callers, and never caches a failure.
  *
- * Staleness is bounded by `ttlMs` — keep it at or under the response's `s-maxage`. Never use it for anything
+ * This cache and the CDN compose rather than bound each other: the CDN can serve for `s-maxage` a body that
+ * was already built from a snapshot up to `ttlMs` old, so WORST-CASE public staleness is `ttlMs + s-maxage`
+ * (60s + 60s ≈ 2 minutes for the public catalog). Keep `ttlMs` at or under the response's `s-maxage` so that
+ * worst case stays within twice the cache header the route already advertises. Never use it for anything
  * scoped to a viewer, a workspace, or a `fresh=1` read.
  */
 export type TtlCache<T> = {

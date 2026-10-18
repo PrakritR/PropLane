@@ -12,8 +12,21 @@ export function inboxAttachmentsHaveFailure(attachments: readonly InboxAttachmen
 }
 
 export const INBOX_ATTACHMENT_FAILED_MESSAGE = "An attachment failed to upload. Remove it or attach it again to send.";
+export const INBOX_ATTACHMENT_UPLOADING_MESSAGE = "Wait for uploads to finish.";
+
+/**
+ * Why the attachments block this send, or `null` when they do not. Every composer asks this one
+ * question — a gate that lived in two places is how a failed upload got dropped silently once.
+ */
+export function inboxAttachmentSendBlockReason(
+  attachments: readonly InboxAttachmentGateItem[] | undefined,
+): string | null {
+  if (inboxAttachmentsHaveFailure(attachments)) return INBOX_ATTACHMENT_FAILED_MESSAGE;
+  if ((attachments ?? []).some((attachment) => attachment.uploading)) return INBOX_ATTACHMENT_UPLOADING_MESSAGE;
+  return null;
+}
 
 /** True when nothing about the attachments blocks a send (a message with no attachments is always clear). */
 export function inboxAttachmentsAllowSend(attachments: readonly InboxAttachmentGateItem[] | undefined): boolean {
-  return !inboxAttachmentsHaveFailure(attachments) && !(attachments ?? []).some((attachment) => attachment.uploading);
+  return inboxAttachmentSendBlockReason(attachments) === null;
 }
