@@ -17,6 +17,7 @@ import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, traceProspectShadowComparison, type TraceActor } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
 import { leasingSmsAgentRegistry, leasingSmsAutonomousTourRegistry, LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
+import { leasingSendMyLinkTool, withSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
 import { toAnthropicTools } from "@/lib/tools/registry";
 import { isProspectGptShadowEnabled, type ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { projectProspectShadowPrimaryEvidence, prospectRepetitionEvidence } from "@/lib/agent/prospect-shadow-comparison";
@@ -580,7 +581,11 @@ export async function runLeasingSmsAgentTurn(
         };
         const turn = await runAgentTurn({
           ctx,
-          registry: args.prospectBurst && channel === "sms" ? leasingSmsAutonomousTourRegistry : leasingSmsAgentRegistry,
+          registry: await (async () => {
+            const base = args.prospectBurst && channel === "sms" ? leasingSmsAutonomousTourRegistry : leasingSmsAgentRegistry;
+            // "send me the application" exists only while the line is shared (one-number build).
+            return channel === "sms" ? withSendMyLinkTool(ctx.db, base, leasingSendMyLinkTool) : base;
+          })(),
           messages: history,
           observer: forwardingObserver,
           system,

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
+import { hashShareToken, isMissingTokenHashColumn } from "@/lib/share-token-hash";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type DocumentShareLinkRow = {
@@ -17,7 +18,8 @@ function mapShareLinkRow(raw: Record<string, unknown>): DocumentShareLinkRow {
   return {
     id: String(raw.id),
     documentId: String(raw.document_id),
-    shareToken: String(raw.share_token),
+    // Hash-only rows carry no raw token; the creator gets it once from `createDocumentShareLink`.
+    shareToken: raw.share_token ? String(raw.share_token) : "",
     expiresAt: String(raw.expires_at),
     createdAt: String(raw.created_at),
     revokedAt: raw.revoked_at ? String(raw.revoked_at) : null,
@@ -48,20 +50,30 @@ export async function createDocumentShareLink(
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
   const shareToken = generateShareToken();
 
-  const { data, error } = await db
+  const base = {
+    document_id: input.documentId,
+    manager_user_id: input.managerUserId,
+    expires_at: expiresAt,
+    created_by: input.createdBy,
+  };
+  const columns = "id, document_id, expires_at, created_at, revoked_at, access_count";
+  // Only the hash is stored (see portal-record-share-links.server.ts for the fallback rationale).
+  let { data, error } = await db
     .from("document_share_links")
-    .insert({
-      document_id: input.documentId,
-      manager_user_id: input.managerUserId,
-      share_token: shareToken,
-      expires_at: expiresAt,
-      created_by: input.createdBy,
-    })
-    .select("id, document_id, share_token, expires_at, created_at, revoked_at, access_count")
+    .insert({ ...base, token_hash: hashShareToken(shareToken) })
+    .select(columns)
     .single();
+  if (error && isMissingTokenHashColumn(error)) {
+    ({ data, error } = await db
+      .from("document_share_links")
+      .insert({ ...base, share_token: shareToken })
+      .select(columns)
+      .single());
+  }
 
   if (error) throw new Error(error.message);
-  return mapShareLinkRow(data as Record<string, unknown>);
+  // The raw token goes back to the creator once; it is never read from the database again.
+  return { ...mapShareLinkRow(data as Record<string, unknown>), shareToken };
 }
 
 /** Revoke an active share link. */
@@ -97,12 +109,21 @@ export async function resolveDocumentShareToken(
   const trimmed = token.trim();
   if (!trimmed) return null;
 
-  const { data: linkRow, error } = await db
+  const linkColumns = "id, document_id, expires_at, created_at, revoked_at, access_count, manager_user_id";
+  let { data: linkRow, error } = await db
     .from("document_share_links")
-    .select("id, document_id, share_token, expires_at, created_at, revoked_at, access_count, manager_user_id")
-    .eq("share_token", trimmed)
+    .select(linkColumns)
+    .eq("token_hash", hashShareToken(trimmed))
     .is("revoked_at", null)
     .maybeSingle();
+  if (!linkRow && (!error || isMissingTokenHashColumn(error))) {
+    ({ data: linkRow, error } = await db
+      .from("document_share_links")
+      .select(linkColumns)
+      .eq("share_token", trimmed)
+      .is("revoked_at", null)
+      .maybeSingle());
+  }
 
   if (error || !linkRow) return null;
   if (new Date(String(linkRow.expires_at)).getTime() < Date.now()) return null;

@@ -44,7 +44,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({
       links: links.map((link) => ({
         ...link,
-        url: buildDocumentShareUrl(origin, link.shareToken),
+        // A link minted after the hash migration has no stored token: its URL was shown once, at creation.
+        url: link.shareToken ? buildDocumentShareUrl(origin, link.shareToken) : null,
       })),
     });
   } catch (e) {

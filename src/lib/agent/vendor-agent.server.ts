@@ -22,6 +22,7 @@ import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 import { buildVendorAgentContext } from "@/lib/tools/context";
 import { vendorWorkOrderAgentRegistry } from "@/lib/tools";
+import { vendorSendMyLinkTool, withSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
 import { ESCALATE_TOOL_NAME } from "@/lib/tools/domains/vendor-work-order";
 import { isPhoneOptedOut, optedOutFromTimestamps } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/twilio";
@@ -456,13 +457,15 @@ export async function runVendorAgentSessionTurn(
     ? workOrderReferencePromptContext({ kind: "resolved", candidates: [options.reference], message: null })
     : null;
   const system = [VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT, referenceContext].filter(Boolean).join("\n\n");
+  // "job link" exists only while the line is shared (one-number build).
+  const turnRegistry = channel === "sms" ? await withSendMyLinkTool(db, vendorWorkOrderAgentRegistry, vendorSendMyLinkTool) : vendorWorkOrderAgentRegistry;
   const result = await traceAgentTurn(
     vendorWorkOrderTraceActor(session, channel),
     history as { role: string; content: string }[],
     (observer) =>
       runAgentTurn({
         ctx,
-        registry: vendorWorkOrderAgentRegistry,
+        registry: turnRegistry,
         messages: history,
         observer,
         system,
