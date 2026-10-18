@@ -1,222 +1,157 @@
-# Owner management: owners pay for PropLane management, rent splits per home
+# Owner management: PropLane-held funds, per-party balances, owner and vendor withdrawals
 
-Authoritative for this feature. Plan/lane: `on/owners` (W17, one-number build). Money + authorization:
-**Stripe TEST mode only while building; never staging or production; agents never run production steps.**
+Authoritative for this feature. Lane `on/owners` (W17, one-number build). **Money + authorization: Stripe TEST mode only
+while building; dev/test database only; never staging or production; agents never run production steps (decision #10).**
 
-Captain (Oct 18 2026, verbatim): *"what we want to do is have owners paid for our management services
-effectively; this is going to include owner system to be in place, include a split payout for each home for rent
-being collected; we can have a payout system where we can transfer some money to property owner; try to think
-beyond scope to figure out how we can ease property owners' lives in this system."*
+Captain (Oct 18 2026): *"owners paid for our management services effectively ... a split payout ... a payout system where we
+can transfer some money to property owner"* and, later, the redesign this doc implements: *"there will be a new workspace per
+property owner we sign ... owner can withdraw appropriate amount per each workspace, be able to set fee. say rent is $1000, can
+set payment to property owner to be 90% of rent and proplane take 10%. property owner has finance section they can see our cut
+and how much they get. they can see any billings we would do for maintenance vendors etc that get cut from their end. they can
+see their total bank statement and withdraw to their personal bank account. we will keep money in our proplane stripe account.
+implement same money tracking for vendors and think of a way to pay vendors efficiently."*
 
-## Invariants (read these first)
+This **replaces** the first design (a destination charge to the owner's Connect account with the fee as `application_fee_amount`).
+That design is gone: no destination, no application fee, none of its plumbing is in the resident-payment rail.
 
-1. **PropLane never holds owner rent.** For a house under an ACTIVE management agreement whose owner is
-   payout-ready, the resident's rent is a Stripe **destination charge** to the OWNER's connected account. The
-   management fee is the charge's `application_fee_amount`. That one Stripe object IS the split payout per home.
-2. **Fail closed, never pay the wrong account.** The destination is re-derived on the server at every checkout
-   from the agreement row (`owner_user_id` -> `profiles.stripe_connect_account_id`, verified `transfers` +
-   `payouts_enabled`), never from a request body, and attested again from the provider legs at settlement
-   (`attestPlatformDestinationSource`, which also pins `account.metadata.axis_user_id` to the owner). A house with
-   an active agreement and an owner who is NOT payout-ready falls back to today's workspace flow, the owner's net
-   is booked as `held` (owed) and the manager is alerted. It is never silently routed anywhere else.
-3. **Idempotent everywhere.** Allocation rows are unique on `(stripe_payment_intent_id, charge_id)`; every refund,
-   dispute and reversal row is unique on its Stripe object id; every ledger/GL post is keyed on the allocation or
-   adjustment id; every Stripe write carries an idempotency key derived from those ids. Webhook replays are no-ops.
-4. **Ownership is re-derived at every write.** The manager is read from the property record, the owner from an
-   accepted `property_owner` membership that grants that house, never from the request.
-5. **Only `rent` kinds are routed.** `rent`, `first_month_rent`, `prorated_rent`, `prorated_last_month_rent`.
-   Security deposits stay in trust (liability, workspace flow), application and holding fees, utilities, services,
-   short-stay totals, late fees and everything else keep today's flow. A cart that mixes routed and unrouted kinds
-   is refused (422 `MIXED_OWNER_ROUTING`) so one Checkout never has two destinations.
-6. **Flag safety.** No active agreement = byte-for-byte today's behavior. Code that reads a new table treats
-   Postgres 42P01 / 42703 and PostgREST PGRST205 as "nothing there" (prod runs code before migrations).
+## Scope
 
-## Stripe research (docs.stripe.com, read Oct 18 2026)
-
-| Topic | What the docs say | What we do |
-| --- | --- | --- |
-| Destination charge | Charge is created on the platform; the FULL amount is transferred to `transfer_data[destination]`; `application_fee_amount` is then transferred back; **the platform pays the Stripe fee** out of its amount, and refunds/chargebacks debit the platform. | Application fee = management fee + the same processing-fee component the workspace flow already uses (`residentServiceFeeBreakdown`), carried by `extraApplicationFeeCents` (the field built for the vendor take rate). PropLane's net = fee - Stripe cost; never negative by construction (fee >= 0, processing component is the existing pass-through). |
-| `on_behalf_of` | Changes settlement merchant, statement descriptor, fee schedule. | **Not used**, same as every other destination charge in the app (PropLane stays merchant of record; one statement descriptor; same-region only). |
-| Refund | Default: destination keeps the money, platform covers it. `reverse_transfer: true` pulls it back; a partial refund reverses a proportional share; `refund_application_fee: true` returns a **proportional** part of the application fee to the connected account (requires `reverse_transfer`). | Owner-routed refunds always send `reverse_transfer: true` + `refund_application_fee: true`: refunded rent un-collects the management fee in proportion (`feeRefundCents` below mirrors Stripe's proportional rounding and is reconciled against the refund's own application-fee refund). |
-| Dispute | Platform is liable; Stripe debits amount + dispute fee from the platform. Recover by creating a **transfer reversal** (Dashboard or `transfers.createReversal`); if the connected account goes negative Stripe may debit its bank when `debit_negative_balances`. A won dispute can be re-transferred. | `charge.dispute.created` -> allocation `disputed`, manager alerted, no money moved yet. `charge.dispute.closed` lost -> one `transfers.createReversal` for the owner's transferred share with `refund_application_fee: true` (both sides made whole except Stripe's dispute fee, absorbed by PropLane and booked as a platform cost, not charged to the owner); won -> allocation back to `settled`, nothing to re-transfer (we reverse only after a loss). Idempotency key `owner-dispute-reversal:<dispute id>`. The accounts are application-controlled (`losses.payments: application`), so PropLane is responsible for negative balances. |
-| Async ACH | Transfer sits in the connected account's pending balance; if the debit fails Stripe **reverses the transfer itself**. Transfer can also be skipped when the account loses capability (`charge.updated` with `transfer_data` null). | Allocation is created only after the Charge is `succeeded` and the transfer legs hydrate. A skipped transfer fails the attestation (`DestinationSourcePendingError` retry then "needs source review"), so rent is never marked allocated to an owner who did not get it. |
-| Account debits | Only where PropLane is responsible for negative balances, **requires legally binding consent from the connected account**, extra cost, same region, <= $100,000, and a debit can not push the balance negative without reserves. | **Not used.** Expenses are recouped by netting (next row). Debits stay a documented option for the counsel/consent step. |
-| Separate charges and transfers | Charge on platform, `transfers.create` later (optionally `source_transaction`); refunds do NOT touch transfers (platform reconciles). | Not used for rent (would put funds on the platform balance = holding owner money). Reserved for the "pay owner" fallback below. |
-
-## The two routing cases
-
-```
-resident pays rent on house H  ->  resolveOwnerRentRouting(H, cart, method)
-  no ACTIVE agreement on H                  -> { kind: "none" }              today's flow, untouched
-  active agreement, owner payout-ready      -> { kind: "owner_destination" } destination charge to owner,
-                                               application_fee = management fee (+ processing + expense recoup)
-  active agreement, owner NOT ready         -> { kind: "held" }              today's workspace flow; allocation
-                                               row `routing=held` records what the owner is owed; manager alerted
-  agreement expired/ended/draft             -> { kind: "none" }
-  cart mixes routed and unrouted kinds      -> refuse (MIXED_OWNER_ROUTING)
-  autopay on an owner-routed house          -> refuse, resident pays by hand (follow-up; see Not done)
-```
-
-`held` money lives in the manager's own balance exactly as today (workspace flow); the owner's share is a payable on the
-owner ledger. It is settled by the existing **manual owner distribution** (`manager_owner_distributions`:
-draft -> approved -> paid, GL-posted) or disappears from `held` automatically when the owner becomes payout-ready and the
-manager pays the distribution. There is no PropLane-balance-to-owner Stripe transfer in this build (the balance spend
-rail is classified-source arithmetic that deserves its own review).
-
-## Fee model (`src/lib/owner-management/fee-math.ts`, pure, integer cents)
-
-Agreement fields: `fee_model` = `percent_of_collected` | `flat_monthly`; `fee_bps` (percent), `fee_flat_cents`;
-`leasing_fee_bps` (percent of a lease's first routed payment, once per resident + house); `min_fee_cents` (monthly floor);
-caps in code: percent <= 30%, flat <= $5,000, leasing <= 100%.
-
-Fees are computed on the **month's cumulative collected principal** (Pacific month of the payment), so partial payments,
-split carts and retries can never over- or under-collect by a cent:
-
-```
-targetFee(cumPrincipal) =
-  percent_of_collected: round_half_up(cumPrincipal * fee_bps / 10000)
-  flat_monthly:         min(fee_flat_cents, cumPrincipal)
-  then:                 max(that, min(min_fee_cents, cumPrincipal))
-thisPaymentFee = clamp(targetFee(cumAfter) - feeTakenBefore, 0, thisPaymentPrincipal)
-leasingFee     = first routed payment of a lease only: round_half_up(principal * leasing_fee_bps / 10000)
-managementFee  = thisPaymentFee + leasingFee            (<= principal; the destination always nets > 0)
-ownerNet       = principal - managementFee - ownerBornProcessingFee - expenseRecoup
-```
-
-`feeTakenBefore` / `cumBefore` come from the month's allocation rows plus live reservations, net of refunds. Two checkouts
-racing for the same agreement/month serialize on `reserve_owner_fee` (SQL, row-locked on the agreement): the caller passes
-what it saw; if another reservation landed first the RPC answers `conflict` and the caller recomputes (3 tries, then 409
-"try again"). The RPC also enforces the hard bounds regardless of what the caller computed: `fee <= principal`, month
-cumulative fee <= the model's maximum for the month's cumulative principal (+ leasing), recoup <= outstanding approved expense.
-A failed/expired attempt releases its reservation.
-
-Refund of `r` cents on a payment of `p` cents with fee `f`: `feeRefund = round_half_up(f * r / p)` (full refund returns
-exactly `f`), `ownerReversal = r - feeRefund`. A partial refund then re-runs the month target on the next payment, so the
-fee converges on the net collected.
-
-## Checkout integration (what changes in the hardened rail, and what does not)
-
-The resident checkout keeps its claim machinery untouched: `reserve_resident_checkout_attempt` (destination-agnostic in SQL),
-frozen `provider_params`, `settle_resident_checkout_attempt`, refund evidence, the cross-rail double-pay trigger. Changes are
-**additive branches keyed on `metadata.owner_routing_v = "1"`**:
-
-- `createHouseholdChargeCheckout` / the manual-ACH PaymentIntent: after the fee payer is resolved, call
-  `resolveOwnerRentRouting`; for `owner_destination` set `destinationAccountId`, `extraApplicationFeeCents`, metadata
-  `owner_routing_v, owner_agreement_id, owner_user_id, owner_destination_account, owner_mgmt_fee_cents, owner_recoup_cents`,
-  and **omit** `platform_hold`; reserve the fee (`reserve_owner_fee`) before the provider call.
-- `assertResidentCheckoutAttemptTerms` / `assertResidentCheckoutSession` / the manual-ACH loader: allow a destination
-  only when every owner field reconciles with `provider_params` (destination, fee, agreement id), otherwise the old
-  "no destination" rejection stands.
-- Settlement (`settleClaimedHouseholdCart`, `markHouseholdChargePaidFromStripeSession`): the fresh-source check branches to
-  `assertFreshOwnerDestinationSource` (PaymentIntent has the exact destination and fee, Charge succeeded and unrefunded).
-- Crediting (`creditVerifiedHouseholdCheckoutSource`): branches to `creditVerifiedOwnerDestinationSource`, which
-  attests the destination legs, writes the allocation (idempotent), settles the fee reservation, posts the ledger/GL and
-  stamps the manager's `ledger_entries` row. **No `platform_payment_holds` row is created** (nothing to hold).
-- Refund rail: `resolveHouseholdChargeRefundRail` sees an owner allocation and returns `{ rail: "owner_destination" }`; the
-  refund is `reverse_transfer + refund_application_fee`.
-
-## Data model (migration `20261018270000_owner_management.sql`, additive, RLS on, service_role only)
-
-| Table | Purpose |
+| Workspace | Money model |
 | --- | --- |
-| `owner_management_agreements` | One per house per period. Fee terms, owner, threshold, reserve target, signature (`signed_at`, `signed_by_user_id`, `terms_sha256`, `terms_snapshot`), status `draft` / `active` / `ended`. Unique partial index: one `active` per property. |
-| `owner_fee_reservations` | One per checkout attempt: principal, mgmt fee, leasing fee, expense recoup, month key; `reserved` -> `settled` / `released`. Source of truth for in-flight fee math. Unique on attempt token. |
-| `owner_rent_allocations` | One per settled routed (or `held`) rent payment component: gross principal, processing fee (owner-borne), mgmt fee, recoup, owner net, Stripe ids, running refunded/disputed amounts, status. Unique `(stripe_payment_intent_id, charge_id)`. |
-| `owner_allocation_events` | Idempotency log of every refund / dispute / reversal / payout applied to an allocation, unique `(kind, stripe_object_id)`. |
-| `owner_expenses` | A vendor bill on a managed house awaiting / past owner approval, recoup state. Unique `(source_type, source_id)`. |
-| `owner_statements` | One row per owner + house + Pacific month: frozen totals, PDF object path, `emailed_at`, `texted_at`. Unique key makes the monthly job idempotent. |
+| **PropLane-managed** (has an active `managed_workspace_fee_policies` row; one workspace per signed owner / client / city) | Resident money is captured on PropLane's platform Stripe balance (central capture, unchanged) and **never** credited to a manager hold. It is allocated in the **party ledger**: owner payable, PropLane fee revenue, vendor payables. Owners and vendors withdraw their available balance to their own Express account. |
+| **Self-serve software workspace** (no policy) | Byte for byte today's per-workspace Stripe Connect flow (hold credited to the manager, manual payouts, vendors paid from the workspace's own balance). Nothing in this doc touches it. |
 
-All classified in `account-purge-manifest.ts`.
+Managed-ness is read from the database at the moment money is credited (the property's `workspace_id` -> active policy), never
+from a request. A workspace with no policy is not managed.
 
-## Agreement lifecycle and signing
+## Invariants
 
-`draft` (manager edits terms) -> **Send for signature** (stamps `sent_at`, emails and texts the owner a sign-in link to
-`/portal/owner/agreements/<id>`) -> owner **Signs in the portal** (authenticated, `property_owner` membership checked
-fresh) -> `active` with `signed_at`, `signed_by_user_id`, `terms_sha256` of the canonical terms the owner actually saw
-(same discipline as lease execution: the hash is of the document that party saw, the signed terms are immutable; to change
-fees the manager ends the agreement and drafts a new one). Only the property's workspace owner or an admin may create,
-send, end; nobody but the named owner may sign. Ending sets `ends_on` and stops routing for NEW charges; in-flight
-checkouts already reserved settle on their frozen terms.
-The texted link is a plain portal sign-in deep link (`portalSignInHref`), not a phone-bound link: the phone-bound link
-purposes are a fixed contract (`PHONE_BOUND_LINK_POLICY`) and identity here is the logged-in owner, which is stronger.
+1. **The ledger is the source of truth.** Every money event posts exactly one balanced journal (`party_ledger_journals` +
+   `party_ledger_lines`, signed cents, debit positive, credit negative, a deferred constraint makes every journal sum to 0).
+   The idempotency key of a journal is derived from the Stripe object id (or source row id) plus the event type, so a webhook
+   replay is a no-op and a conflicting replay (same key, different payload) raises.
+2. **A party never has more than they are owed.** Withdrawals are reserved inside one database function under a per-party
+   lock, against the ledger's `available` figure, one in flight at a time per party. Stripe is only asked after the
+   reservation; a failed transfer reverses it. Before every transfer the platform's own Stripe available balance is checked and
+   a disagreement refuses the withdrawal.
+3. **Cents are integers; the fee rounds down, the owner gets the remainder** (`fee = floor(distributable * fee_bps / 10000)`
+   on the month's cumulative figure, so partial payments sum to exactly one floor). A refund reverses the owner/fee split
+   pro rata (a full refund reverses it exactly).
+4. **Ownership is re-derived at every write.** The workspace comes from the property record, the owner of record from the
+   policy, the vendor from the stored work order, the withdrawing person from the session. A body id is never authority.
+5. **Deposits are not income.** Security / holding deposits are credited to `tenant_deposit_liability` (trust-style, not
+   withdrawable, refundable) and never split.
+6. **Fail closed.** A managed capture that cannot be allocated throws, so Stripe redelivers; it is never credited to a
+   manager hold as a fallback.
+7. **No flag changes behaviour for non-managed workspaces.** Code that reads a new table treats 42P01 / 42703 / PGRST205 as "not
+   managed / nothing there" (production runs code before migrations).
 
-## Expenses and repair approvals
+## Stripe model (docs.stripe.com, read Oct 18 2026)
 
-A vendor bill/service charge on a managed house creates an `owner_expenses` row. Amount <= `repair_approval_threshold_cents`
--> `auto_approved` (listed on the statement). Above it -> `pending_owner` and ONE text goes to the owner's verified phone:
-`Leak repair at 5259 Brooklyn, $240 from Mike's Plumbing. Approve? Y/N` (GSM-7, <= 160 chars where possible). The owner's
-`Y` / `N` is matched on the shared line to the single open approval for that verified phone (more than one open: they must
-name it or answer from the portal), re-checking membership, house grant and amount; the decision is stored once
-(`decided_at`, `decided_via`). **Collection:** an approved expense is recouped by **netting against the owner's next routed
-rent payments** (extra application fee, capped at 50% of that payment so the owner always receives most of it, remainder
-rolls to the next payment), reserved with the fee. Fallbacks, in order: (1) netting (built), (2) manager marks it collected
-outside PropLane (built), (3) charge the owner's card on file (not built), (4) Connect account debit (not built; needs the
-owner's legally binding debit consent, extra Stripe cost, same-region only, per the docs above). A declined repair is not
-recouped and is shown to the manager.
+Separate charges and transfers. The charge is created on the platform account (no `transfer_data`); funds sit in the platform
+balance; PropLane later creates a **Transfer** to the connected account (`transfers.create`, idempotency key per withdrawal) and the
+connected account's balance is paid out to the bank (a **Payout** on the connected account).
 
-## Ledger and reconciliation
+| Topic | Fact | What we do |
+| --- | --- | --- |
+| Balance timing | A charge's funds are `pending` until the balance transaction's `available_on`. A transfer needs available platform balance (or `source_transaction`). | Each ledger credit carries `available_on` from the charge's balance transaction (`verifiedCapturedChargeAvailability`). `available to withdraw` only counts matured credits, then we re-check `balance.retrieve().available` before every transfer. |
+| Transfers | `transfers.create({ amount, currency, destination, transfer_group, metadata }, { idempotencyKey })`. Reversible with `transfers.createReversal`. Refunds of the original charge do **not** touch transfers. | One transfer per withdrawal, key `party-withdrawal:<id>`. A refund of rent is paid from platform balance and reverses the owner's *ledger* share (owner balance can go negative; recovered from the next rent). |
+| Express accounts | Our accounts are application-controlled (`losses.payments: application`, manual payout schedule). Payout readiness = `resolvePayoutsReadiness`. | Withdraw requires the person's own ready Express account whose `metadata.axis_user_id` is that person. Payout to the bank follows the transfer (`payouts.create`, key per withdrawal), best effort; the transfer is the money event. |
+| Disputes | Platform is liable for amount and dispute fee. | `charge.dispute.created` freezes the owner's share (`dispute_hold`); won returns it; lost writes it off (owner and fee pro rata) and books the dispute fee as a PropLane expense. |
+| Account debits | Need legally binding consent from the connected account, extra Stripe cost, same region. | Not used. Negative owner balances are recovered by netting the next rent. |
+| Async ACH | If the debit fails Stripe reverses automatically; a failed payment never reaches `rent_capture`. | The ledger posts only after the existing claim machinery marks the charge paid and the Charge is `succeeded`. |
 
-Every allocation posts once, keyed `owner-split:<allocation id>` (GL `owner_distribution` source: DR `owners_equity` /
-CR `operating_cash` for the owner net actually transferred); refunds and reversals post `owner-split-reversal:<event id>`.
-The manager's existing `ledger_entries` payment row is untouched (it records the rent paid). The management fee is the part
-of cash PropLane keeps (the application fee) - it is not a second journal line. The statement and the ledger can therefore
-never disagree: `reconcileOwnerAllocations` (daily cron `/api/cron/owner-management`) proves, per house and month,
-`sum(allocation principal) - refunds == ledger payment total for routed charges`, `principal - fee - processing - recoup ==
-owner net`, and spot-checks the newest allocations against Stripe (transfer exists, amount matches). A mismatch is recorded
-in `owner_allocation_events` as `reconcile_flag` and surfaces on the admin events list; nothing is auto-corrected.
+## Ledger
 
-## Monthly owner statement (Pacific, the 1st)
+Accounts (`party_ledger_lines.account`), balance sign in parentheses:
 
-`/api/cron/owner-management` (hourly; acts only when the Pacific date is the 1st and a statement for the previous month is
-missing) builds, per owner + house: rent collected, management fee, leasing fee, expenses (auto-approved + approved),
-processing fees borne, net paid to owner, held/owed, occupancy (rooms occupied / total), known upcoming costs (approved
-bills due), reserve target. Totals are computed from allocations (never a second formula) and frozen in `owner_statements`.
-PDF through the existing `buildOwnerStatementPdf` path (now carrying the real management fee), emailed from the workspace
-work email and summarized by one text from the shared line. Owners read past statements in `/portal/owner/statements`.
-`queryOwnerStatement` now returns the real management fee (it was a hard-coded 0 by captain decision until a fee model
-landed; this is that landing), so Profitability and the formal export agree.
+| Account | Party key | Meaning |
+| --- | --- | --- |
+| `platform_cash` | none | PropLane's Stripe platform balance attributable to managed money (debit). |
+| `owner_payable` | `owner:<user id>` + workspace | What PropLane owes the owner for that workspace (credit). |
+| `vendor_payable` | `vendor:<user id>` (or `vendor_dir:<directory id>` until the vendor has an account) | What PropLane owes a vendor across all managed workspaces (credit). |
+| `proplane_fee_revenue` | workspace | PropLane's cut (credit). |
+| `processing_recovery` | workspace | The resident-added / owner-borne processing fee that pays Stripe's cost (credit). |
+| `tenant_deposit_liability` | workspace | Deposits held for residents (credit). |
+| `withdrawal_in_flight` | party | Reserved by a withdrawal until the transfer lands (credit). |
+| `dispute_hold` | owner + workspace | Owner share frozen by an open dispute (credit). |
+| `platform_dispute_expense` | none | Stripe dispute fees PropLane absorbs (debit). |
 
-## Owner on the PropLane line
+Journals:
 
-The router's `team_member` lane intentionally excludes owners (`withoutOwnerLinks`) and the role/reason contracts are
-fixed, so owners are handled by a **pre-routing owner lane** in the shared-line seam (`owner-line.server.ts`): a verified
-phone that belongs to an owner membership and matches an owner intent (house status / "how's my house doing", "statement",
-Y or N with an open approval, "help") is answered there; anything else falls through to normal routing unchanged. Read-only
-data comes from typed functions scoped to the owner's granted houses (`ownerHouseStatus`, `ownerMonthSummary`,
-`ownerOpenApprovals`) built on `loadOwnerGrants`; no model arithmetic, no manager tools, no cross-owner data. The only write
-is the approval decision, which re-derives the owner from the phone and the house grant.
+```
+rent_capture    DR platform_cash gross | CR owner_payable owner share (available_on) | CR proplane_fee_revenue fee
+                | CR processing_recovery (gross - distributable) | CR tenant_deposit_liability deposits
+refund          DR owner_payable owner part | DR proplane_fee_revenue fee part | (DR tenant_deposit_liability) | CR platform_cash refund
+dispute_opened  DR owner_payable owner part | CR dispute_hold          dispute_won reverses it
+dispute_lost    DR dispute_hold | DR proplane_fee_revenue | DR processing_recovery | DR platform_dispute_expense fee | CR platform_cash amount + fee
+vendor_bill     DR owner_payable amount | CR vendor_payable amount      (managed workspace pays the vendor)
+withdrawal      reserve: DR payable | CR withdrawal_in_flight;  complete: DR withdrawal_in_flight | CR platform_cash;  failed: reverse the reserve
+```
 
-## Owner conveniences built
+`available(party)` = matured credits minus all debits, never more than `owed`, minus the owner's reserve target. `pending` =
+owed minus matured. `owed` = -sum(lines). The processing fee is never refunded (as today).
 
-1. Monthly statement by email + text + portal, with occupancy and upcoming costs.
-2. Repair approvals by Y/N with a per-agreement threshold; **one-tap "approve all routine repairs under $X"** (sets the
-   threshold from the portal).
-3. Reserve target on the agreement, shown with the month's net so the owner can see what to set aside (PropLane does not
-   hold it).
-4. Year-end tax package: per house, Schedule E-ready totals (rents received, management fees, repairs, other expenses)
-   from the allocations and approved expenses, plus the vendor 1099 list from existing vendor tax profiles.
-5. Occupancy and vacancy numbers on the statement and in the text answer.
+Daily reconciliation (`/api/cron/owner-management`, extends the pattern of `reconcile-proplane-balance`): (1) every journal sums
+to 0; (2) `platform_cash` equals receipts - refunds - dispute losses - completed withdrawals; (3) sum of payables + revenue +
+deposit liability + processing recovery + in-flight + dispute hold - dispute expense == `platform_cash` (the whole ledger nets to
+zero by construction, so this checks nothing was posted outside a journal); (4) the Stripe platform `available + pending`
+balance >= `platform_cash` (the managed money is actually there); (5) each recent capture's gross equals the Charge amount at
+Stripe. A failure records an `owner_ledger_flags` row and alerts admin; it never auto-corrects.
 
-Listed, not built (needs product input, would need new tables or integrations): document vault with insurance/permit expiry
-reminders (the Documents module already shares files with owners, expiry reminders exist at `send-document-expiration-reminders`
-and should be pointed at owner-shared documents), maintenance history with photos, rent-and-vacancy recommendations from live
-market data, annual inspection report link, owner card-on-file expense collection, per-house owner payout schedule and
-instant payouts, owner reimbursement via account debit (consent).
+## Fee policy (`managed_workspace_fee_policies`)
+
+One *active* row per workspace (`owner_share_bps` default 9000 = owner 90 / PropLane 10, `applies_to` rent | all, `leasing_fee_bps`
+of the first month, `min_fee_cents` per month, `reserve_target_cents`, `repair_approval_threshold_cents`, `effective_from`).
+History is kept: editing a signed policy is not possible (trigger); a change is a new draft version that, once accepted,
+ends the previous one. The owner of record (`owner_user_id`) accepts it by signing in the owner portal, or an admin records an
+offline signed contract (`accepted_via = admin_attested`, with a note). Only an accepted policy makes a workspace managed.
+Only a platform admin sets or ends a policy (the fee is PropLane's revenue). Rounding, odd amounts, partial payments, minimum and
+leasing fees: `src/lib/owner-management/fee-math.ts`, tested.
+
+## Vendors
+
+A managed workspace's vendor bill (approved work-order / invoice cost, tour host fee, cleaning) posts `vendor_bill`: the vendor
+is owed, the owner is charged, with the job, vendor and date on the owner's statement. PropLane fronts it: nothing moves at Stripe
+until the vendor withdraws, and an owner balance that goes negative is recovered from the next rent. A bill above the owner's
+repair threshold waits for the owner's Y/N (text) or portal approval before it posts. A vendor on a managed workspace is paid
+with one Stripe transfer per withdrawal or per **weekly batch** (`/api/cron/owner-management`, Mondays Pacific, one transfer per
+vendor with at least $25 available, key `vendor-batch:<vendor>:<ISO week>`), not per job. Self-serve workspaces keep paying
+vendors from their own balance through the existing rails.
+
+## Owner experience
+
+`/portal/owner/finances` (owner of record of a managed workspace): Balance, Available to withdraw, Pending, History; statement by
+period (rent collected gross, PropLane fee, vendor charges each with job link, refunds and adjustments, net to owner,
+withdrawals, ending balance), PDF through the existing PDF path, Withdraw. Monthly statement on the 1st (Pacific) by email and
+text. On the PropLane line: "how's my house", "balance", "statement", Y/N repair approvals (pre-routing owner lane in the
+shared-line seam; read-only typed functions scoped to the owner's workspace; the only write is the approval decision).
+Vendor Finances (`/vendor/financials`): the same balance / withdraw / history per vendor across managed workspaces. Admin (Property
+management half): platform cash, owed to owners, owed to vendors, fee revenue by workspace and month, reconciliation status.
+
+## Ease-of-life items built / listed
+
+Built: monthly statement (email + text + portal), repair approval threshold with one-tap "approve routine repairs under $X",
+reserve target shown against available, year-end tax package (Schedule E-ready totals per workspace from the ledger plus vendor
+1099 totals), occupancy on the statement. Listed, not built: document vault with expiry reminders, maintenance history with photos,
+rent / vacancy recommendations from market data, annual inspection link, owner card-on-file expense collection, per-owner payout
+schedule and instant payouts, trust-account adoption (see below), application and linked-form fees on managed workspaces (they
+still follow the manager-hold path), tour-host / cleaning fee triggers beyond the generic vendor-charge API, autopay-specific tests.
 
 ## Legal and compliance flag (read before any production use)
 
-**Washington RCW 18.85 (real estate brokerage / property management licensing) and trust-account rules apply to a business
-that manages rental property for others and handles tenant money.** Routing rent straight to the owner's connected account
-avoids PropLane holding rent, but it does not by itself answer whether PropLane (or a PropLane Service workspace) needs a
-managing broker license, a trust account for security deposits (RCW 59.18.270 - deposits stay in the workspace trust flow
-here, not routed), written management agreements with required disclosures, or 1099-K / 1099-MISC handling for owners.
-Counsel must review the agreement text, the fee disclosures, and the licensing posture per state before the first live
-agreement. Nothing here has been run against live Stripe; the production rollout (flag, Stripe live Connect onboarding,
-migration to staging/production) is a human step (decision #10).
+**Holding owners' rent is regulated.** Washington RCW 18.85 (real estate brokerage and property management licensing) and
+WAC 308-124E (trust accounts, record keeping) apply to a firm that manages rental property for others and handles client funds;
+a security deposit has its own trust rule (RCW 59.18.270). Money in PropLane's platform Stripe balance is commingled at the
+bank, so the ledger keeps each owner's funds segregated per workspace and deposits separate, so a licensed trust account (or a
+Stripe-supported funds-segregation arrangement) can be adopted without redesign. Counsel must review the licensing posture, the
+management agreement and fee disclosures, 1099-K / 1099-MISC handling, and money-transmission analysis **before the first outside
+owner**. Nothing here has run against live Stripe; production rollout, live Connect onboarding and the migration to
+staging / production are human steps.
 
 ## Files
 
-`src/lib/owner-management/`: `fee-math.ts`, `routing.ts`, `agreements.server.ts`, `checkout-routing.server.ts`,
-`destination-credit.server.ts`, `adjustments.server.ts`, `expenses.server.ts`, `statements.server.ts`, `owner-line.server.ts`,
-`reconcile.server.ts`, `tax-package.server.ts`. Routes under `src/app/api/portal/owner-management/*`,
-`src/app/api/owner/agreements/*`, `src/app/api/cron/owner-management/route.ts`. Tests `tests/unit/owner-management-*.test.ts`.
+`src/lib/owner-management/` (policies, fee math, statements, owner texting, expenses), `src/lib/managed-finance/` (party ledger,
+capture crediting, refunds, disputes, vendor bills, balances, withdrawals, reconciliation). Routes: `/api/portal/owner-management/*`
+(admin / workspace), `/api/owner/*` (owner), `/api/vendor/managed-finance/*`, `/api/cron/owner-management`. Migration
+`supabase/migrations/20261018270000_owner_management.sql`. Tests `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`.

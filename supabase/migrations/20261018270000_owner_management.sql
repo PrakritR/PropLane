@@ -236,7 +236,7 @@ end $$;
 
 -- ---------------------------------------------------------------------------------------------
 -- Month totals: what the fee math needs, read under the agreement lock by the reserve function.
--- Settled allocations (net of refunds) plus live reservations (a reserved row whose checkout attempt is
+-- Settled allocations of either routing (a `held` row is still rent the fee is owed on), net of refunds, plus live reservations (a reserved row whose checkout attempt is
 -- still pending / processing / settled, or younger than 10 minutes before an attempt row exists).
 -- ---------------------------------------------------------------------------------------------
 create or replace function public.owner_month_totals(p_agreement uuid, p_month text)
@@ -248,7 +248,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       coalesce(sum(greatest(a.monthly_fee_cents - least(a.refunded_fee_cents, a.monthly_fee_cents), 0)), 0)::bigint as monthly,
       coalesce(sum(greatest(a.leasing_fee_cents - greatest(a.refunded_fee_cents - a.monthly_fee_cents, 0), 0)), 0)::bigint as leasing
     from public.owner_rent_allocations a
-    where a.agreement_id = p_agreement and a.month_key = p_month and a.routing = 'destination'
+    where a.agreement_id = p_agreement and a.month_key = p_month
   ),
   live as (
     select
