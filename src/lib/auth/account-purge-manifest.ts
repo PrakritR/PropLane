@@ -1072,6 +1072,19 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["owner_user_id"] },
   },
   {
+    // Texted vendor intake and "finish setup" links: the login that finished them owns the row.
+    table: "sms_vendor_leads",
+    phase: 1,
+    manager: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+  },
+  {
+    table: "sms_setup_links",
+    phase: 1,
+    manager: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+  },
+  {
     // Shared-line shadow log: what the router would have decided vs the real owner.
     table: "sms_line_shadow_decisions",
     phase: 1,
@@ -1377,6 +1390,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   vendor_dispatch_rule_vendors: "Ordered vendor chain of a dispatch rule; cascades with the rule and the vendor row.",
   vendor_dispatch_attempts: "Offers inside one dispatch run; cascade with the run.",
   sms_line_thread_state: "Per phone + workspace AI pause state; cascades with the workspace.",
+  sms_demo_sessions: "Sandbox demo conversation keyed on a phone or browser session; no account column, never a real row.",
+  sms_onboarding_state: "Role and house hints of an unknown texter keyed on a phone; carries no account column.",
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
   sms_media_files: "MMS file index keyed on message sid and phone; no account column.",
