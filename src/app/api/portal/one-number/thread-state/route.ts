@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isMissingSchemaError } from "@/lib/one-number/config.server";
+import { isMissingSchemaError, loadSharedLineConfig } from "@/lib/one-number/config.server";
 import type { SharedLineRole } from "@/lib/one-number/contracts";
 import { loadThreadPause, pauseThreadAi, resumeThreadAi } from "@/lib/one-number/session.server";
 import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
@@ -35,6 +35,8 @@ async function resolveThread(conversationId: string): Promise<Resolved & { userI
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return { ok: false, status: 401, error: "Unauthorized." };
   const db = createSupabaseServiceRoleClient();
+  // Per-workspace numbers (today's default) have no shared-line pause: the control is simply absent.
+  if ((await loadSharedLineConfig(db)).mode === "per_workspace") return { ok: false, status: 404, error: "Not available." };
   let workspace;
   try {
     workspace = await resolveActiveWorkspaceFromRequest(db, user.id);
