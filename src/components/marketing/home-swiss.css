@@ -1,0 +1,484 @@
+/* Approved Concept A: one paper surface, one blue, a twelve-column grid. */
+.home-swiss {
+  --home-ink: #0c0d10;
+  --home-accent: #2f5fd0;
+  --swiss-paper: #f7f7f4;
+  --swiss-rule: #d6d7d2;
+  --swiss-gutter: clamp(16px, 2.8vw, 40px);
+  background: var(--swiss-paper);
+  color: var(--home-ink);
+  font-family: var(--font-home-swiss), Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  line-height: 1.45;
+}
+.home-swiss .home-editorial {
+  background: var(--swiss-paper);
+}
+.home-swiss :is(h1, h2, h3, p) {
+  margin: 0;
+}
+.home-swiss :is(#service, #pricing, #contact) {
+  scroll-margin-top: 64px;
+}
+.home-swiss :focus-visible {
+  outline: 3px solid var(--home-accent);
+  outline-offset: 3px;
+}
+.swiss-wrap {
+  padding-inline: var(--swiss-gutter);
+  max-width: 1760px;
+  margin-inline: auto;
+  width: 100%;
+}
+.swiss-section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  border-top: 1px solid var(--home-ink);
+  padding-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.swiss-section-label > span {
+  color: var(--home-accent);
+}
+.swiss-title {
+  font-family: var(--font-home-swiss), Arial, sans-serif;
+  font-size: clamp(42px, 6.4vw, 112px);
+  font-weight: 600;
+  letter-spacing: -0.052em;
+  line-height: 0.93;
+}
+.home-swiss-service {
+  padding-block: clamp(56px, 8vw, 128px);
+}
+.swiss-service-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: clamp(28px, 4vw, 56px);
+}
+.swiss-service-grid h2 {
+  grid-column: 1 / span 6;
+}
+.swiss-service-list {
+  grid-column: 7 / span 6;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--home-ink);
+}
+.swiss-service-list li {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  padding: 16px 0;
+  border-bottom: 1px solid #b9bab5;
+  font-size: clamp(20px, 1.9vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+.swiss-service-list li span {
+  color: var(--home-accent);
+  font-size: 14px;
+  letter-spacing: 0;
+  padding-top: 5px;
+}
+.swiss-track-record {
+  margin-top: clamp(48px, 6vw, 96px);
+  padding-block: clamp(28px, 3.4vw, 56px);
+  background: var(--home-accent);
+  color: #fff;
+}
+.swiss-track-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 28px 24px;
+}
+.swiss-track-label {
+  grid-column: 1 / -1;
+  border-top: 1px solid #ffffff80;
+  padding-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.swiss-track-grid > p {
+  grid-column: 1 / span 8;
+  font-size: clamp(30px, 4.5vw, 76px);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.99;
+}
+.swiss-room-plan {
+  grid-column: 9 / span 4;
+  align-self: end;
+}
+.swiss-rooms {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 5px;
+}
+.swiss-rooms > span {
+  aspect-ratio: 1;
+  background: #fff;
+}
+.swiss-rooms > [data-occupied="false"] {
+  border: 1.5px solid #fff;
+  background: repeating-linear-gradient(
+    135deg,
+    #ffffffb3 0 1.5px,
+    transparent 1.5px 5px
+  );
+}
+.swiss-room-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 14px;
+}
+.swiss-room-legend strong {
+  font-weight: 600;
+}
+.swiss-room-legend > span {
+  opacity: 0.85;
+}
+.swiss-pricing,
+.swiss-contact {
+  padding-bottom: clamp(56px, 8vw, 128px);
+}
+.home-swiss .pl-pricing-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: clamp(28px, 4vw, 56px);
+  border: 1px solid var(--home-ink);
+}
+.home-swiss .pl-pricing-compact {
+  min-width: 0;
+  min-height: clamp(300px, 30vw, 440px);
+  border: 0;
+  border-left: 1px solid var(--home-ink);
+  border-radius: 0;
+  padding: 20px 20px 22px;
+  background: var(--swiss-paper);
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  color: var(--home-ink);
+}
+.home-swiss .pl-pricing-compact:first-child {
+  border-left: 0;
+}
+.home-swiss .pl-pricing-index {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--home-accent);
+}
+.home-swiss .pl-pricing-compact h3 {
+  font-family: inherit;
+  font-size: clamp(24px, 2.3vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  margin-top: 8px;
+}
+.home-swiss .pl-pricing-price {
+  order: initial;
+  margin-top: auto;
+  padding-top: 36px;
+  font-size: clamp(34px, 4.4vw, 72px);
+  font-family: inherit;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+}
+.home-swiss .pl-pricing-price strong {
+  font-size: inherit;
+  font-weight: 600;
+}
+.home-swiss .pl-pricing-price > span {
+  font-size: 16px;
+  letter-spacing: 0;
+  color: #6a6d74;
+}
+.home-swiss .pl-pricing-billing {
+  order: initial;
+  min-height: 18px;
+  margin-top: 6px;
+  color: #6a6d74;
+  font-size: 13px;
+}
+.home-swiss .pl-pricing-cta {
+  order: initial;
+  margin-top: 20px;
+  width: 100%;
+  min-height: 42px;
+  height: 42px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--home-accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.home-swiss .pl-pricing-cta::after {
+  content: "→";
+  font-size: 20px;
+}
+.home-swiss .pl-pricing-cta:hover {
+  background: #2249a8;
+}
+.home-swiss .pl-pricing-managed {
+  background: var(--home-accent);
+  color: #fff;
+}
+.home-swiss .pl-pricing-managed :is(h3, .pl-pricing-index, .pl-pricing-price) {
+  color: #fff;
+}
+.home-swiss .pl-pricing-managed .pl-pricing-price {
+  font-size: clamp(28px, 3vw, 48px);
+  padding-bottom: 24px;
+}
+.home-swiss .pl-pricing-managed .pl-pricing-cta {
+  background: #fff;
+  color: #2249a8;
+}
+.swiss-contact-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 40px 24px;
+  margin-top: clamp(28px, 4vw, 56px);
+}
+.home-swiss .home-contact-intro {
+  grid-column: 1 / span 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.home-swiss .home-contact-intro h2 {
+  font-size: clamp(46px, 8vw, 144px);
+}
+.home-swiss .home-contact-intro .home-big-number {
+  margin-top: clamp(24px, 3vw, 44px);
+}
+.home-swiss .home-contact-intro > a[href^="mailto:"] {
+  align-self: flex-start;
+  margin-top: 14px;
+  color: var(--home-ink);
+  border-bottom: 2px solid var(--home-ink);
+  font-size: clamp(20px, 1.8vw, 26px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.home-swiss .home-contact-form {
+  grid-column: 8 / span 5;
+  border: 0;
+  border-top: 1px solid var(--home-ink);
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+.swiss-field {
+  display: grid;
+  gap: 2px;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid #b9bab5;
+}
+.swiss-field:focus-within {
+  border-color: var(--home-accent);
+}
+.swiss-field label {
+  color: #6a6d74;
+  font-size: 13px;
+  font-weight: 600;
+}
+.home-swiss .swiss-field :is(input, textarea) {
+  font: inherit;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--home-ink);
+  padding: 4px 0;
+  width: 100%;
+  min-height: 40px;
+  box-shadow: none;
+}
+.home-swiss .swiss-field textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+.swiss-stepper {
+  display: flex;
+  align-items: center;
+}
+.home-swiss .swiss-stepper input {
+  width: 70px;
+  text-align: center;
+  appearance: textfield;
+}
+.swiss-stepper input::-webkit-outer-spin-button,
+.swiss-stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.swiss-stepper button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--home-ink);
+  font-size: 22px;
+}
+.swiss-stepper button:disabled {
+  color: #777;
+}
+.swiss-form-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 20px;
+}
+.swiss-form-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  height: 54px;
+  padding: 0 26px;
+  border-radius: 3px;
+  background: var(--home-accent);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+}
+.swiss-form-footer button:disabled {
+  opacity: 0.6;
+}
+.swiss-inquiry [role="alert"] {
+  color: #a92323;
+  margin-top: 16px;
+}
+@media (max-width: 1100px) {
+  .home-swiss .pl-pricing-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .home-swiss .pl-pricing-compact:nth-child(3) {
+    border-left: 0;
+  }
+  .home-swiss .pl-pricing-compact:nth-child(n + 3) {
+    border-top: 1px solid var(--home-ink);
+  }
+}
+@media (max-width: 860px) {
+  .home-swiss :is(#service, #pricing, #contact) {
+    scroll-margin-top: 60px;
+  }
+  .swiss-service-grid {
+    display: block;
+  }
+  .swiss-service-list {
+    margin-top: 30px;
+  }
+  .swiss-service-list li {
+    grid-template-columns: 36px 1fr;
+  }
+  .swiss-track-grid {
+    gap: 22px;
+  }
+  .swiss-track-grid > p,
+  .swiss-room-plan {
+    grid-column: 1 / -1;
+  }
+  .swiss-track-grid > p {
+    font-size: clamp(30px, 9vw, 44px);
+  }
+  .home-swiss .pl-pricing-overview {
+    grid-template-columns: 1fr;
+  }
+  .home-swiss .pl-pricing-compact {
+    min-height: 0;
+    padding: 18px 16px;
+    border-left: 0;
+  }
+  .home-swiss .pl-pricing-compact + .pl-pricing-compact {
+    border-top: 1px solid var(--home-ink);
+  }
+  .home-swiss .pl-pricing-price {
+    margin-top: 28px;
+    padding-top: 0;
+    font-size: 48px;
+  }
+  .home-swiss .pl-pricing-managed .pl-pricing-price {
+    font-size: 38px;
+  }
+  .swiss-contact-grid {
+    display: block;
+  }
+  .home-swiss .home-contact-intro {
+    margin-bottom: 36px;
+  }
+  .home-swiss .home-contact-intro h2 {
+    font-size: clamp(48px, 15vw, 84px);
+  }
+  .home-swiss .swiss-field :is(input, textarea) {
+    font-size: 19px;
+  }
+  .swiss-form-footer button {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-swiss {
+    scroll-behavior: auto;
+  }
+}
+.home-swiss .home-contact-intro .home-big-number {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  font-size: clamp(34px, 4.6vw, 80px);
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+.home-swiss .home-contact-intro .home-big-number-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6a6d74;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+}
+.home-swiss .home-contact-intro .home-big-number {
+  border: 0;
+  padding: 0;
+  width: auto;
+}
+.home-swiss .home-contact-intro > a[href^="mailto:"] {
+  width: auto;
+  padding: 0;
+}
+.home-swiss .home-contact-intro > a[href^="mailto:"] {
+  border-top: 0;
+}
+.home-swiss .home-contact-intro > a[href^="mailto:"] {
+  text-decoration: none;
+}
+.swiss-stepper button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.home-swiss .swiss-field :is(input, textarea) {
+  min-height: 44px;
+}
+.home-swiss .pl-pricing-cta {
+  min-height: 44px;
+  height: 44px;
+}

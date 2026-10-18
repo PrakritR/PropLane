@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { TextingHomeHero } from "@/components/marketing/texting-home-hero";
-import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { HomeNumberStage } from "@/components/marketing/home-number-stage";
 import { HomeDashboardStage } from "@/components/marketing/home-dashboard-stage";
 import { BigNumber } from "@/components/marketing/big-number";
@@ -28,8 +26,7 @@ export const metadata: Metadata = {
 // the complete cover and section heights are present in the first response.
 export default function HomePage() {
   return (
-    <div className="texting-home home-wavy">
-      <ResidentLifecycleAtmosphere variant="page" staticBelow={10000} />
+    <div className="texting-home home-swiss">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -42,90 +39,104 @@ export default function HomePage() {
         <HomeDashboardStage />
         <section
           id="service"
-          className="texting-shell home-service"
+          className="home-swiss-service"
           aria-labelledby="home-service-title"
         >
-          <div className="home-service-intro">
-            <h2 className="texting-section-title" id="home-service-title">
-              We manage it
-              <br />
-              for you.
-            </h2>
-            <p>
-              We built PropLane to run our own Seattle homes. Now our team can
-              run yours, on the same software.
-            </p>
-            <Link
-              className="home-inline-link"
-              href="/#contact"
-              data-attr="home-service-contact"
-            >
-              Tell us about your home <span aria-hidden="true">↗</span>
-            </Link>
+          <div className="swiss-wrap">
+            <div className="swiss-section-label">
+              <span>03</span>Service
+            </div>
+            <div className="swiss-service-grid">
+              <h2 className="swiss-title" id="home-service-title">
+                We manage
+                <br />
+                it for you
+              </h2>
+              <ol className="swiss-service-list">
+                {MANAGED_INCLUDES.map((item, index) => (
+                  <li key={item.id}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    {item.title}
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
-          <ul className="home-service-list">
-            {MANAGED_INCLUDES.map((item) => (
-              <li key={item.id}>
-                <h3>{item.title}</h3>
-                <p>{item.copy}</p>
-              </li>
-            ))}
-          </ul>
-          <dl className="home-track-record" aria-label="Our own Seattle homes">
-            <div>
-              <dt>We run ourselves in Seattle</dt>
-              <dd>{TRACK_RECORD.homes} homes</dd>
+          <div className="swiss-track-record">
+            <div className="swiss-wrap swiss-track-grid">
+              <div className="swiss-track-label">Track record</div>
+              <p>
+                We run {TRACK_RECORD.homes === 3 ? "three" : TRACK_RECORD.homes}{" "}
+                homes in Seattle — {TRACK_RECORD.roomsOccupied} of{" "}
+                {TRACK_RECORD.roomsTotal} rooms occupied — at a{" "}
+                {TRACK_RECORD.profit.toLowerCase()}.
+              </p>
+              <div className="swiss-room-plan">
+                <div
+                  className="swiss-rooms"
+                  role="img"
+                  aria-label={`${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied`}
+                >
+                  {Array.from(
+                    { length: TRACK_RECORD.roomsTotal },
+                    (_, index) => (
+                      <span
+                        key={index}
+                        data-occupied={index < TRACK_RECORD.roomsOccupied}
+                      />
+                    ),
+                  )}
+                </div>
+                <div className="swiss-room-legend">
+                  <strong>
+                    {TRACK_RECORD.roomsOccupied} of {TRACK_RECORD.roomsTotal}{" "}
+                    rooms occupied
+                  </strong>
+                  <span>Filled = occupied</span>
+                </div>
+              </div>
             </div>
-            <div>
-              <dt>Rooms occupied</dt>
-              <dd>
-                {TRACK_RECORD.roomsOccupied} of {TRACK_RECORD.roomsTotal}
-              </dd>
-            </div>
-            <div>
-              <dt>From running these homes</dt>
-              <dd>{TRACK_RECORD.profit}</dd>
-            </div>
-          </dl>
+          </div>
         </section>
         <section
           id="pricing"
-          className="texting-shell texting-pricing"
+          className="swiss-wrap swiss-pricing"
           aria-labelledby="home-pricing-title"
         >
-          <h2 className="texting-section-title" id="home-pricing-title">
-            Your software.
-            <br />
-            Or your whole team.
+          <h2 className="swiss-section-label" id="home-pricing-title">
+            <span>04</span>Pricing
           </h2>
           <PricingCards variant="overview" />
         </section>
         <section
           id="contact"
-          className="texting-shell home-contact"
+          className="swiss-wrap swiss-contact"
           aria-labelledby="home-contact-title"
         >
-          <div className="home-contact-intro" id="home-close">
-            <h2 className="texting-section-title" id="home-contact-title">
-              Let’s talk
-              <br />
-              about your home.
-            </h2>
-            <p>
-              Tell us where it is and what you need. We’ll take it from there.
-            </p>
-            <BigNumber dataAttr="home-contact-text" />
-            <a
-              href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
-              data-attr="home-contact-email"
-            >
-              {PUBLIC_SUPPORT_EMAIL}
-            </a>
+          <div className="swiss-section-label">
+            <span>05</span>Contact
           </div>
-          <ManagedServiceForm
-            className="home-contact-form"
-            attrPrefix="home-contact"
-          />
+          <div className="swiss-contact-grid">
+            <div className="home-contact-intro" id="home-close">
+              <h2 className="swiss-title" id="home-contact-title">
+                Talk
+                <br />
+                to us
+              </h2>
+              <BigNumber dataAttr="home-contact-text" label="Text us" />
+              <a
+                href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
+                data-attr="home-contact-email"
+              >
+                {PUBLIC_SUPPORT_EMAIL}
+              </a>
+            </div>
+            <ManagedServiceForm
+              className="home-contact-form"
+              attrPrefix="home-contact"
+              variant="swiss"
+            />
+          </div>
         </section>
       </div>
     </div>

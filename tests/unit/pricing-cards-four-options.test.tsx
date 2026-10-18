@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PricingCards, ServicePricingCard, TIER_CTA } from "@/components/marketing/site/pricing-cards";
+import {
+  PricingCards,
+  ServicePricingCard,
+  TIER_CTA,
+} from "@/components/marketing/site/pricing-cards";
 import PricingPage from "@/app/(public)/pricing/page";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGED_INCLUDES } from "@/lib/marketing/managed-service";
@@ -12,59 +16,120 @@ afterEach(cleanup);
 const optionNames = ["Free", "Pro", "Business", "We manage it for you"];
 
 describe("all four pricing options", () => {
-  it.each(["overview", "full"] as const)("shows every choice together in the %s variant without software/service tabs", (variant) => {
-    render(<PricingCards variant={variant} />);
-    const row = screen.getByRole("region", { name: "Pricing options" });
-    expect(row).not.toHaveAttribute("tabindex");
-    expect(within(row).getAllByRole("article").map((article) => article.getAttribute("aria-label"))).toEqual(optionNames);
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
-    for (const id of ["free", "pro", "business"] as const) {
-      const card = within(row).getByRole("article", { name: id === "free" ? "Free" : id === "pro" ? "Pro" : "Business" });
-      expect(within(card).getByText(formatRateCardUsd(RATE_CARD[id].floorMonthlyCents))).toBeVisible();
-      expect(within(card).getByRole("link", { name: TIER_CTA[id].label })).toHaveAttribute("href", TIER_CTA[id].href);
-    }
-    const managed = within(row).getByRole("article", { name: "We manage it for you" });
-    expect(managed).toHaveClass("pl-pricing-managed");
-    expect(within(managed).getByText("Custom")).toBeVisible();
-    expect(within(managed).getByRole("link", { name: "Talk to us" })).toHaveAttribute("href", "/#contact");
-  });
+  it.each(["overview", "full"] as const)(
+    "shows every choice together in the %s variant without software/service tabs",
+    (variant) => {
+      render(<PricingCards variant={variant} />);
+      const row = screen.getByRole("region", { name: "Pricing options" });
+      expect(row).not.toHaveAttribute("tabindex");
+      expect(
+        within(row)
+          .getAllByRole("article")
+          .map((article) => article.getAttribute("aria-label")),
+      ).toEqual(optionNames);
+      expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+      for (const id of ["free", "pro", "business"] as const) {
+        const card = within(row).getByRole("article", {
+          name: id === "free" ? "Free" : id === "pro" ? "Pro" : "Business",
+        });
+        expect(
+          within(card).getByText(
+            formatRateCardUsd(RATE_CARD[id].floorMonthlyCents),
+          ),
+        ).toBeVisible();
+        expect(
+          within(card).getByRole("link", { name: TIER_CTA[id].label }),
+        ).toHaveAttribute("href", TIER_CTA[id].href);
+      }
+      const managed = within(row).getByRole("article", {
+        name: "We manage it for you",
+      });
+      expect(managed).toHaveClass("pl-pricing-managed");
+      expect(within(managed).getByText("Custom")).toBeVisible();
+      expect(
+        within(managed).getByRole("link", { name: "Talk to us" }),
+      ).toHaveAttribute("href", "/#contact");
+    },
+  );
 
-  it.each(["overview", "full"] as const)("uses the annual rate-card amounts in %s without changing the service quote", (variant) => {
-    render(<PricingCards annual variant={variant} />);
-    for (const [id, name] of [["pro", "Pro"], ["business", "Business"]] as const) {
-      const card = screen.getByRole("article", { name });
-      expect(within(card).getByText(formatRateCardUsd(RATE_CARD[id].floorAnnualCents))).toBeVisible();
-      expect(within(card).getByText("/yr")).toBeVisible();
-    }
-    expect(within(screen.getByRole("article", { name: "We manage it for you" })).getByText("Custom")).toBeVisible();
-  });
+  it.each(["overview", "full"] as const)(
+    "uses the annual rate-card amounts in %s without changing the service quote",
+    (variant) => {
+      render(<PricingCards annual variant={variant} />);
+      for (const [id, name] of [
+        ["pro", "Pro"],
+        ["business", "Business"],
+      ] as const) {
+        const card = screen.getByRole("article", { name });
+        expect(
+          within(card).getByText(
+            formatRateCardUsd(RATE_CARD[id].floorAnnualCents),
+          ),
+        ).toBeVisible();
+        expect(within(card).getByText("/yr")).toBeVisible();
+      }
+      expect(
+        within(
+          screen.getByRole("article", { name: "We manage it for you" }),
+        ).getByText("Custom"),
+      ).toBeVisible();
+    },
+  );
 
   it("keeps the homepage overview short while retaining all four choices", () => {
     render(<PricingCards variant="overview" />);
     for (const article of screen.getAllByRole("article")) {
       expect(article).toHaveClass("pl-pricing-compact");
-      expect(within(article).getAllByRole("listitem")).toHaveLength(3);
+      expect(within(article).queryAllByRole("listitem")).toHaveLength(0);
     }
   });
 
   it("shows all four options for an old service-tab URL and preserves billing and comparison", async () => {
-    render(await PricingPage({ searchParams: Promise.resolve({ view: "service", billing: "annual" }) }));
+    render(
+      await PricingPage({
+        searchParams: Promise.resolve({ view: "service", billing: "annual" }),
+      }),
+    );
     const row = screen.getByRole("region", { name: "Pricing options" });
-    expect(within(row).getAllByRole("article").map((article) => article.getAttribute("aria-label"))).toEqual(optionNames);
-    expect(within(row).getByText(formatRateCardUsd(RATE_CARD.pro.floorAnnualCents))).toBeVisible();
-    expect(screen.getByRole("link", { name: "Monthly" })).toHaveAttribute("href", "/pricing");
-    expect(screen.getByRole("link", { name: /Annual/ })).toHaveAttribute("href", "/pricing?billing=annual");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("We manage it for you.");
-    expect(document.querySelector('[data-attr="pricing-sticky-cta-link"]')).toHaveAttribute("href", "/#contact");
-    expect(document.querySelector('[data-attr="pricing-sticky-cta-link"]')).toHaveTextContent("Talk to us");
+    expect(
+      within(row)
+        .getAllByRole("article")
+        .map((article) => article.getAttribute("aria-label")),
+    ).toEqual(optionNames);
+    expect(
+      within(row).getByText(formatRateCardUsd(RATE_CARD.pro.floorAnnualCents)),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Monthly" })).toHaveAttribute(
+      "href",
+      "/pricing",
+    );
+    expect(screen.getByRole("link", { name: /Annual/ })).toHaveAttribute(
+      "href",
+      "/pricing?billing=annual",
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "We manage it for you.",
+    );
+    expect(
+      document.querySelector('[data-attr="pricing-sticky-cta-link"]'),
+    ).toHaveAttribute("href", "/#contact");
+    expect(
+      document.querySelector('[data-attr="pricing-sticky-cta-link"]'),
+    ).toHaveTextContent("Talk to us");
     expect(screen.getByText("Compare every feature")).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
   it("preserves the detailed service card for the long service page", () => {
     render(<ServicePricingCard />);
-    expect(screen.getByRole("link", { name: "Talk to us" })).toHaveAttribute("href", "/#contact");
-    expect(screen.getByRole("link", { name: "See how it works" })).toHaveAttribute("href", "/#service");
-    for (const item of MANAGED_INCLUDES) expect(screen.getByText(`${item.title}.`)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Talk to us" })).toHaveAttribute(
+      "href",
+      "/#contact",
+    );
+    expect(
+      screen.getByRole("link", { name: "See how it works" }),
+    ).toHaveAttribute("href", "/#service");
+    for (const item of MANAGED_INCLUDES)
+      expect(screen.getByText(`${item.title}.`)).toBeInTheDocument();
   });
 });

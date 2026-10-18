@@ -16,15 +16,26 @@ resident details. Network captions describe the shipped public-listing router,
 approved vendor jobs, and keeping the PropLane number when moving homes; they
 make no claims about sharing a private workspace thread.
 
-`HomeDashboardStage` mounts the real manager panels only near the active story
-step. Initial HTML and reduced motion retain fixture-backed record snapshots.
-The sample approval is local only; no panel fetches live data or persists a write.
-The phone notification and paid state use the same sample workspace and ledger
-row. All operating claims outside the sample panels derive from `TRACK_RECORD`.
+`HomeDashboardStage` renders one dashboard from real `KpiCard`, `AttentionPanel`
+and `UpcomingPanel` components using the shared sample world. Desktop native
+scroll highlights All, Rentals, Services and Payments; the last beat shows the
+same ledger row as the rent receipt. Phone, reduced-motion and no-JavaScript
+views show the complete dashboard without pinning. Preview controls are inert;
+no sample panel fetches live data or persists a write.
 
-The cover reads the cached shared-line config supplied by the public layout.
-When unavailable, it shows Start free and no invented number. Marketing route
-redirects, sitemap and crawl links share `src/lib/seo/marketing-routes.ts`.
+The approved Swiss cover uses self-hosted Inter Tight, paper, hairline rules and
+one blue (`#2F5FD0`). It reads the cached shared-line config supplied by the
+public layout, including the captain-approved `shadow` mode; this does not
+change SMS transport routing. The server generates a QR for that exact SMS
+link. When unavailable, the cover shows Start free and no invented number.
+The five texting beats are Prospects, Residents, Vendors, Owners and Every home.
+Each phone uses only its own beat's messages, not a cumulative prospect thread.
+The rail and visible scene share one scroll index in both directions.
+All operating claims and the 28-cell occupancy diagram derive from
+`TRACK_RECORD`. Pricing comes from the rate card. The compact contact form
+requires an email because the existing contact route does, and preserves its
+inputs after a failed send. Marketing redirects, sitemap and crawl links share
+`src/lib/seo/marketing-routes.ts`.
 The older reusable lifecycle engine below remains available to other surfaces.
 
 ## The home page's product rows reuse REAL portal components, statically
@@ -252,35 +263,14 @@ internal-inconsistency failure as a Pending tab showing an `Approved` badge.
 
 `app-store/screenshots/**` are real captures of the real portal (Apple guideline 2.3.7), framed by `scripts/ios-app-store-screenshots.mjs`, never drawn. They are shot as a dedicated **showcase manager** created by `npm run app-store:seed` (`scripts/app-store-seed.mjs`: dev/test project only, idempotent, rewrites only that manager's rows, never `manager2@` or the e2e seed; `SHOT_EMAIL` / `SHOT_PASSWORD` land in the gitignored `.env.local`). The books are small-landlord realistic (6 houses, 15 rooms, 87% let, rent ~96% collected, 0 overdue, applicants, tours, leases in four stages, a work number on file) and money is rent only: a listing that configures an application fee, deposit, move-in fee or utilities makes the app bill each of them itself the moment it loads a signed lease, which is how 92 overdue charges appeared on the first dashboard shot. No photo is invented; a room with no upload keeps the house glyph. Frame rules: brand blue and deep navy alternating by slot (the install sheet reads blue, navy, blue), the product's own mark from `src/app/icon.svg`, a two-line white headline with **no subtext** (shrunk to fit, never three lines; the unit test fails a third line or "work order"), the device bleeding off the bottom edge, and the app captured without `.portal-mobile-nav-bar` and `.axis-assistant-fab`. Slots 02 and 05 are a zoomed crop card of the one element that sells them. The generator fails the run, rather than shooting a wrong page, when a route redirects elsewhere, an expected element is missing, or the page text contains a fixture string (`FORBIDDEN_TEXT`). Lesson: two slots were silently broken for months. `/portal/move-in/inspections/*` now redirects to the Residents list (slot 08 is a resident's **Move in** section, `/portal/residents/current/<id>/move-in`), and on a phone the listing editor has no side rail (slot 10 reaches Rooms through the Steps picker, `phone-strip-picker-toggle` then `workspace-step-rooms-picker`). Re-run the generator after any change to a gallery screen and look at all twenty PNGs. `npm run test:seed` prunes the showcase account, so re-run `app-store:seed` after a full reseed.
 
-## Text-first homepage (captain Oct 18, 2026)
+## Public homepage assets and pricing
 
-The homepage uses `texting-home-hero.tsx`: the existing Room 3 fixture conversation
-plays once, or appears in full with reduced motion. The shared number comes from
-`public-texting.server.ts`; null/unavailable falls back to Start free. QR generation
-is server-side. The full dashboard is below the fold and never loaded on phones.
-The control proof uses the real `InboxComposer`, with sample-only local state.
-Long lifecycle/import/FAQ content now lives at `/features`. The live web demo
-loads only after Open the demo (or `/?demo=open`) and uses the existing sandbox
-agent; see `demo-sandbox.md`. Homepage copy is shared with AI-search descriptions
-through `home-copy.ts`; pricing structured data still derives from the rate card.
-
-The later Oct 18 addendum sets the headline to “Your AI Property Manager” and
-exactly four sections: hero, Who texts, managed-service founder proof, and
-software/managed-service pricing. The captain supplied “3 Seattle homes”,
-room rentals + Airbnb, and “six-figure profit”; no other performance figure
-is added. Captain feedback #1 removes the hero eyebrow and the draft/control
-block, restores the existing `ResidentLifecycleAtmosphere` waves and dots, and
-moves the dashboard directly after the hero. That preview disables the portal's
-nested scroll body so KPI labels cannot scroll out of its frame; phones keep
-the compact composition. The shared
-`PricingCards` component shows Free, Pro, Business, and “We manage it for you”
-on `/pricing` and the homepage. Its compact `overview` variant keeps the same
-four options in a phone swipe row and four desktop columns. `/service`
-redirects to `/pricing/service`. Both offerings use the same configured PropLane
-line. The public layout supplies that snapshot and its QR to the synchronous
-homepage so the loading shell cannot push the footer down after first paint.
-The homepage uses a smaller instance of the same Bricolage display face at its
-existing 600 weight and normal width, retaining all glyphs and optical sizing.
-Only its 4 KB headline subset is preloaded. Regenerate both with
-`scripts/generate-home-display-font.py` whenever `HOME_HEADLINE` changes. Other
-public headings load the original full variable family when used.
+The Swiss page above supersedes the earlier text-first prototypes. The shared
+`PricingCards` component shows Free, Pro, Business and “We manage it for you.”
+Its compact overview is a hairline comparison: four desktop columns and stacked
+phone cards. Software amounts come from the rate card; the service is Custom.
+Both offerings use the same configured PropLane line. The public layout supplies
+that snapshot and its QR to the synchronous homepage, avoiding a loading-shell
+layout shift. The homepage preloads a Latin subset of Inter Tight (OFL license
+beside the font). Older Bricolage assets and their generator remain for reusable
+lifecycle artwork; they are no longer preloaded by the public layout.

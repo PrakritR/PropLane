@@ -1,145 +1,167 @@
-import { HomeScrollStage } from "./home-scroll-stage";
-import { HomeDashboardDeferred } from "./home-dashboard-deferred";
+import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
+import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import {
-  HOME_DASHBOARD_TABS,
-  homeDashboardRows,
-  homeRentPaid,
-} from "./home-dashboard-data";
-import { MobileAppPreview } from "./mobile-app-preview";
-import { RESIDENT_HOME } from "./site/product-mock/fixtures";
-import {
-  RecordFactCard,
-  RecordFactRow,
-  StatTile,
-} from "@/components/portal/portal-record-overview-kit";
+  AttentionPanel,
+  KpiCard,
+  UpcomingPanel,
+} from "@/components/portal/pro-dashboard-kpis";
+import { HomeDashboardTour } from "./home-dashboard-tour";
+import { homeRentPaid } from "./home-dashboard-data";
+import { DEMO_TABS } from "./site/product-mock/demo-nav";
+import { residentStory, worldFor } from "./site/product-mock/world";
 import "./home-dashboard-stage.css";
 
-/** Fixture markup is available before JavaScript and while a real panel's chunk loads. */
-function PanelSnapshot({ tab }: { tab: (typeof HOME_DASHBOARD_TABS)[number] }) {
-  const rows = homeDashboardRows(tab.id);
+// The bundled sample calendar is created when its fixture module loads.
+const SAMPLE_NOW_MS = Date.now();
+
+/** One real dashboard composition, rendered on the server even without motion or JavaScript. */
+export function HomeDashboardStage() {
+  const world = worldFor(residentStory("pay"));
+  const { dashboard } = world;
+  const paid = homeRentPaid();
+  const attention = dashboard.attention
+    .slice(0, 4)
+    .map((row) => ({ ...row, href: "#dashboard" }));
+  const upcoming = dashboard.upcoming
+    .slice(0, 4)
+    .map((row) => ({ ...row, href: "#dashboard" }));
+  const tabs = DEMO_TABS.manager.filter((tab) =>
+    [
+      "dashboard",
+      "properties",
+      "communication",
+      "residents",
+      "applications",
+      "services",
+      "payments",
+      "calendar",
+    ].includes(tab.id),
+  );
+  const metrics = [
+    {
+      id: "occupied",
+      label: "Occupancy",
+      ...dashboard.occupancy,
+      beat: "rentals",
+    },
+    {
+      id: "collected",
+      label: "Rent collected",
+      ...dashboard.rentCollected,
+      beat: "payments",
+    },
+    {
+      id: "requests",
+      label: "Open requests",
+      value: dashboard.openRequests.value,
+      beat: "services",
+    },
+    {
+      id: "applications",
+      label: "Applications ready",
+      ...dashboard.applicationsReady,
+      beat: "rentals",
+    },
+  ];
   return (
-    <div
-      className="home-dashboard-snapshot"
-      aria-label={`${tab.label} sample records`}
-    >
-      <header>
-        <span>PropLane</span>
-        <span>Sample workspace</span>
-      </header>
-      <div className="home-dashboard-snapshot-body">
-        <h3>{tab.label}</h3>
-        <ul>
-          {rows.map((row) => (
-            <li key={row.id}>
-              <div>
-                <strong>{row.title}</strong>
-                <span>{row.place}</span>
-                <p>{row.detail}</p>
+    <HomeDashboardTour>
+      <div className="home-dashboard-overview" data-home-dashboard-window>
+        <div className="home-dashboard-preview" inert aria-hidden="true">
+          <aside className="home-dashboard-sidebar">
+            <div className="home-dashboard-brand">
+              <ProPlaneMarkIcon />
+              PropLane
+            </div>
+            <div className="home-dashboard-workspace">
+              All houses <span>{world.properties.length}</span>
+            </div>
+            <div className="home-dashboard-nav">
+              {tabs.map((tab) => (
+                <div key={tab.id} data-current={tab.id === "dashboard"}>
+                  <PortalNavIcon section={tab.id} />
+                  <span>{tab.label}</span>
+                </div>
+              ))}
+            </div>
+            <span className="home-dashboard-account">Property manager</span>
+          </aside>
+          <div className="home-dashboard-main">
+            <h3>Dashboard</h3>
+            <div className="home-dashboard-metrics">
+              {metrics.map((metric) => (
+                <div
+                  key={metric.id}
+                  className="home-dashboard-highlight"
+                  data-dashboard-beat={metric.beat}
+                >
+                  <KpiCard
+                    label={metric.label}
+                    value={metric.value}
+                    unit={"unit" in metric ? metric.unit : undefined}
+                    href="#dashboard"
+                    dataAttr={`dashboard-metric-${metric.id}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="home-dashboard-columns">
+              <div
+                className="home-dashboard-highlight home-dashboard-attention"
+                data-dashboard-beat="rentals"
+              >
+                <AttentionPanel rows={attention} />
               </div>
-              <span>{row.figure}</span>
+              <div
+                className="home-dashboard-highlight home-dashboard-upcoming"
+                data-dashboard-beat="services"
+              >
+                <UpcomingPanel
+                  rows={upcoming}
+                  nowMs={SAMPLE_NOW_MS}
+                  calendarHref="#dashboard"
+                  aside={null}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+        <p className="home-dashboard-receipt" data-payment-id={paid.id}>
+          <span aria-hidden="true">✓</span>
+          <span>
+            <strong>Rent received</strong> · {paid.amount}
+            <small>
+              {paid.property} · {paid.chargeTitle}
+            </small>
+          </span>
+        </p>
+      </div>
+      <div className="sr-only" aria-label="Sample dashboard records">
+        <dl>
+          {metrics.map((metric) => (
+            <div key={metric.id}>
+              <dt>{metric.label}</dt>
+              <dd>
+                {metric.value}
+                {"unit" in metric && metric.unit ? ` · ${metric.unit}` : ""}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <h3>Needs attention</h3>
+        <ul>
+          {attention.map((row) => (
+            <li key={row.id}>{row.title}</li>
+          ))}
+        </ul>
+        <h3>Upcoming</h3>
+        <ul>
+          {upcoming.map((row) => (
+            <li key={row.id}>
+              {row.kind} · {row.title} · {row.detail}
             </li>
           ))}
         </ul>
       </div>
-    </div>
-  );
-}
-
-export function HomeDashboardStage() {
-  const paid = homeRentPaid();
-  const steps = HOME_DASHBOARD_TABS.map((tab) => ({
-    ...tab,
-    content: (
-      <HomeDashboardDeferred
-        tab={tab.id}
-        fallback={<PanelSnapshot tab={tab} />}
-      />
-    ),
-  }));
-  return (
-    <HomeScrollStage
-      id="dashboard"
-      title={
-        <>
-          <span>Everything the number does,</span> on one screen.
-        </>
-      }
-      className="home-dashboard-tour"
-      layout="wide"
-      travel={600}
-      steps={[
-        ...steps,
-        {
-          id: "phone-notification",
-          label: "Your phone",
-          caption: "And on your phone.",
-          content: (
-            <div
-              className="home-dashboard-phone"
-              aria-label="Manager’s phone: sample notification"
-            >
-              <MobileAppPreview>
-                <div className="home-dashboard-phone-content">
-                  <span>PropLane</span>
-                  <h3>Communication</h3>
-                  <article className="home-dashboard-notification">
-                    <strong>{RESIDENT_HOME.room} asked about a tour.</strong>
-                    <p>Reply drafted.</p>
-                  </article>
-                  <p>PropLane drafts the reply. You approve it.</p>
-                </div>
-              </MobileAppPreview>
-            </div>
-          ),
-        },
-        {
-          id: "phone-paid",
-          label: "Paid",
-          caption: "Paid.",
-          content: (
-            <div
-              className="home-dashboard-phone"
-              aria-label="Manager’s phone: sample rent payment"
-            >
-              <MobileAppPreview>
-                <div className="home-dashboard-phone-content">
-                  <span>PropLane</span>
-                  <h3>Payments</h3>
-                  <div
-                    className="home-dashboard-payment"
-                    data-payment-id={paid.id}
-                  >
-                    <div className="grid grid-cols-2 gap-2">
-                      <StatTile
-                        label="Amount"
-                        value={paid.amount}
-                        dataAttr="payment-overview-tile-amount"
-                      />
-                      <StatTile
-                        label="Status"
-                        value="Paid"
-                        dataAttr="payment-overview-tile-status"
-                      />
-                    </div>
-                    <RecordFactCard
-                      title="Details"
-                      dataAttr="payment-overview-card-details"
-                    >
-                      <RecordFactRow label="Resident" value={paid.resident} />
-                      <RecordFactRow label="Property" value={paid.property} />
-                      <RecordFactRow label="Charge" value={paid.chargeTitle} />
-                      <RecordFactRow
-                        label="Paid on"
-                        value={paid.due.replace(/^Paid\s+/, "")}
-                      />
-                    </RecordFactCard>
-                  </div>
-                </div>
-              </MobileAppPreview>
-            </div>
-          ),
-        },
-      ]}
-    />
+    </HomeDashboardTour>
   );
 }

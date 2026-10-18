@@ -4,6 +4,7 @@
   color: #17181a;
   isolation: isolate;
 }
+.home-stage-body { display: contents; }
 .home-stage-sticky {
   position: relative;
   padding: 80px clamp(24px, 5vw, 88px);
@@ -254,4 +255,236 @@
   .home-stage-progress {
     display: none;
   }
+}
+
+/* Concept A's timetable belongs only to the number story. */
+.home-number-stage {
+  --how-blue: #2f5fd0;
+  --how-ink: #0c0d10;
+  --how-paper: #f7f7f4;
+  color: var(--how-ink);
+  font-family: var(--font-home-swiss), Arial, sans-serif;
+  scroll-margin-top: 64px;
+}
+.home-number-stage .home-stage-sticky,
+.home-number-stage[data-enhanced="true"] .home-stage-sticky {
+  max-width: 1760px;
+  padding: 40px clamp(16px, 2.8vw, 40px) 44px;
+}
+.home-number-stage[data-enhanced="true"] .home-stage-sticky {
+  top: 64px;
+  height: calc(100svh - 64px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  justify-content: flex-start;
+}
+.home-number-stage .home-stage-section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex: none;
+  padding-top: 14px;
+  border-top: 1px solid var(--how-ink);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.home-number-stage .home-stage-section-label > span:first-child { color: var(--how-blue); }
+.home-number-stage .home-stage-section-note { margin-left: auto; font-weight: 400; }
+.home-number-stage .home-stage-body {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 40px;
+  min-height: 0;
+  flex: 1;
+}
+.home-number-stage .home-stage-heading { grid-column: 1 / span 5; min-width: 0; align-self: start; }
+.home-number-stage .home-stage-heading h2 {
+  font-family: var(--font-home-swiss), Arial, sans-serif;
+  font-size: clamp(40px, 5.6vw, 96px);
+  line-height: .93;
+  font-weight: 600;
+  letter-spacing: -.052em;
+  margin: 0 0 36px;
+  text-wrap: initial;
+}
+.home-number-stage .home-stage-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid #b9bab5;
+}
+.home-number-stage .home-stage-rail a {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 2px 0;
+  padding: 12px 0 12px 16px;
+  border-bottom: 1px solid #b9bab5;
+  color: var(--how-ink);
+  white-space: normal;
+}
+.home-number-stage .home-stage-rail a[aria-current="step"] { color: var(--how-blue); }
+.home-number-stage .home-stage-rail a[aria-current="step"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--how-blue);
+}
+.home-number-stage .home-stage-step-number { font-size: 14px; padding-top: 7px; }
+.home-number-stage .home-stage-step-label { font-size: clamp(26px, 2.7vw, 40px); font-weight: 600; letter-spacing: -.035em; }
+.home-number-stage .home-stage-step-description { grid-column: 2; font-size: 16px; line-height: 1.4; color: #555852; }
+.home-number-stage .home-stage-scenes { grid-column: 7 / span 6; min-height: 0; }
+.home-number-stage .home-stage-mobile-caption { display: none; }
+.home-number-stage[data-enhanced="true"] .home-stage-caption { display: none; }
+.home-number-stage .home-stage-content { height: 100%; }
+.home-number-stage .home-number-phone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.home-number-stage .home-number-phone .rl-phone-wrap {
+  width: min(348px, 100%);
+  min-width: 0;
+  height: 640px;
+  max-height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+.home-number-stage[data-enhanced="true"] .home-number-phone .rl-phone-wrap { height: calc(100% - 24px); }
+.home-number-stage .home-number-phone .rl-phone-device {
+  height: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 42px;
+  background: #0c0d10;
+  box-shadow: none;
+}
+.home-number-stage .home-number-phone .rl-phone-screen {
+  height: 100%;
+  min-height: 0;
+  border-radius: 34px;
+  background: #fff;
+}
+.home-number-stage .home-number-phone .rl-phone-status,
+.home-number-stage .home-number-phone .rl-phone-bottom { display: none; }
+.home-number-stage .home-number-phone .rl-phone-header {
+  display: block;
+  flex: 0 0 auto;
+  padding: 18px 16px 12px;
+  background: #fff;
+}
+.home-number-stage .home-number-phone .rl-phone-contact {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+  text-align: left;
+  align-items: center;
+}
+.home-number-stage .home-number-phone .rl-phone-contact-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background: var(--how-blue);
+  color: white;
+  font-size: 8px;
+}
+.home-number-stage .home-number-phone .rl-phone-contact strong { font-size: 14px; }
+.home-number-stage .home-number-phone .rl-phone-contact small { grid-column: 1 / -1; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.home-number-stage .home-number-phone .rl-phone-thread { padding: 16px 14px; gap: 12px; }
+.home-number-stage .home-number-phone .rl-phone-message > span { font-size: 13px; line-height: 1.4; padding: 11px 12px; border-radius: 14px; }
+.home-number-stage .home-number-phone .rl-phone-outgoing > span { color: var(--how-ink); background: #e9eae5; }
+.home-number-stage .home-number-phone .rl-phone-incoming > span { color: white; background: var(--how-blue); }
+.home-number-stage .home-number-phone .rl-phone-rich-card { border-radius: 8px; background: var(--how-paper); }
+.home-number-stage .home-number-phone .rl-phone-composer {
+  flex: 0 0 36px;
+  margin: 8px 14px 14px;
+  padding: 0 12px;
+  border: 1px solid #d6d7d2;
+  border-radius: 22px;
+  font-size: 11px;
+  color: #777;
+}
+.home-number-stage .home-sample-label { margin-top: 8px; font-size: 10px; line-height: 16px; color: #62645e; }
+.home-number-stage .swiss-number-network { width: 100%; height: 100%; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.home-number-stage .swiss-network-map { position: relative; aspect-ratio: 420 / 560; height: 560px; width: auto; max-width: 100%; max-height: calc(100% - 24px); }
+.home-number-stage .swiss-network-map svg { display: block; width: 100%; height: 100%; }
+.home-number-stage .swiss-network-lines { stroke: var(--how-ink); stroke-width: 2; }
+.home-number-stage .swiss-network-home rect,
+.home-number-stage .swiss-network-person rect { fill: var(--how-paper); stroke: #8d9187; stroke-width: 1; }
+.home-number-stage .swiss-network-home text { fill: var(--how-ink); font-size: 13px; font-weight: 600; letter-spacing: -.3px; }
+.home-number-stage .swiss-network-person text { fill: var(--how-ink); font-size: 13px; font-weight: 600; }
+.home-number-stage .swiss-network-person circle { fill: #e6e9e0; }
+.home-number-stage .swiss-network-person .swiss-network-initial { text-anchor: middle; font-size: 10px; }
+.home-number-stage .swiss-network-junction { fill: var(--how-blue); }
+.home-number-stage .swiss-network-hub {
+  position: absolute;
+  left: 21.4286%;
+  top: 41.4286%;
+  width: 57.1429%;
+  height: 17.1429%;
+  background: var(--how-blue);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.home-number-stage .swiss-network-hub .home-big-number { color: #fff; padding: 0; text-decoration: none; }
+.home-number-stage .swiss-network-hub .home-big-number-value { font-family: inherit; font-size: clamp(18px, 2vw, 30px); font-weight: 600; letter-spacing: -.04em; }
+.home-number-stage .swiss-network-hub .home-big-number-glyph { display: none; }
+.home-number-stage .swiss-network-hub > span { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.home-number-stage .swiss-number-network figcaption { font-size: 10px; color: #62645e; margin-top: 8px; }
+@media (max-height: 800px) and (min-width: 861px) {
+  .home-number-stage .home-stage-body { margin-top: 24px; }
+  .home-number-stage .home-stage-heading h2 { font-size: clamp(40px, 5vw, 70px); margin-bottom: 24px; }
+  .home-number-stage .home-stage-rail a { padding-block: 10px; }
+  .home-number-stage .home-stage-step-label { font-size: 28px; }
+}
+@media (max-width: 860px) {
+  .home-number-stage { scroll-margin-top: 60px; }
+  .home-number-stage .home-stage-sticky,
+  .home-number-stage[data-enhanced="true"] .home-stage-sticky { padding: 12px 16px 78px; }
+  .home-number-stage[data-enhanced="true"] .home-stage-sticky { top: 60px; height: calc(100svh - 60px); }
+  .home-number-stage .home-stage-section-label { font-size: 12px; gap: 12px; padding-top: 10px; line-height: 20px; }
+  .home-number-stage .home-stage-section-note { display: none; }
+  .home-number-stage .home-stage-body { display: flex; flex-direction: column; margin-top: 14px; gap: 12px; }
+  .home-number-stage .home-stage-heading { flex: none; align-self: stretch; }
+  .home-number-stage .home-stage-heading h2 { font-size: clamp(34px, 10.4vw, 48px); line-height: .93; margin: 0 0 14px; }
+  .home-number-stage .home-stage-rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0; border: 0; border-bottom: 1px solid #b9bab5; }
+  .home-number-stage .home-stage-rail a { display: flex; flex: none; gap: 8px; min-height: 44px; padding: 8px 12px 8px 0; border-bottom: 3px solid transparent; white-space: nowrap; }
+  .home-number-stage .home-stage-rail a[aria-current="step"] { border-bottom-color: var(--how-blue); }
+  .home-number-stage .home-stage-rail a[aria-current="step"]::before { display: none; }
+  .home-number-stage .home-stage-step-number { font-size: 10px; padding: 0; }
+  .home-number-stage .home-stage-step-label { font-size: 15px; }
+  .home-number-stage .home-stage-step-description { display: none; }
+  .home-number-stage .home-stage-mobile-caption { display: block; font-size: 14px; line-height: 1.35; margin: 8px 0 0; min-height: 2.7em; color: #555852; }
+  .home-number-stage .home-stage-scenes { flex: 1; min-height: 0; }
+  .home-number-stage .home-number-phone .rl-phone-wrap { width: min(272px, 100%); height: 480px; }
+  .home-number-stage[data-enhanced="true"] .home-number-phone .rl-phone-wrap { height: calc(100% - 22px); }
+  .home-number-stage .home-number-phone .rl-phone-device { padding: 7px; border-radius: 34px; }
+  .home-number-stage .home-number-phone .rl-phone-screen { border-radius: 27px; }
+  .home-number-stage .home-number-phone .rl-phone-header { padding: 12px 12px 10px; }
+  .home-number-stage .home-number-phone .rl-phone-thread { padding: 12px 10px; gap: 9px; }
+  .home-number-stage .home-number-phone .rl-phone-message > span { font-size: 11px; padding: 9px 10px; }
+  .home-number-stage .home-number-phone .rl-phone-rich-card { min-height: 62px; padding: 8px; }
+  .home-number-stage .swiss-network-map { height: 480px; }
+  .home-number-stage .swiss-network-hub .home-big-number-value { font-size: clamp(17px, 6vw, 24px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-number-stage[data-enhanced="true"] .home-stage-sticky { position: static; height: auto; overflow: visible; }
+  .home-number-stage[data-enhanced="true"] .home-number-phone .rl-phone-wrap { height: 600px; }
+  .home-number-stage .home-stage-scene { transition: none; }
 }

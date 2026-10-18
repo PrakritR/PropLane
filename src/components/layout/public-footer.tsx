@@ -1,17 +1,75 @@
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
-import { AxisLogoLink } from "@/components/brand/axis-logo";
-import { AppStoreBadge } from "@/components/marketing/app-store-badge";
+import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
+import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 
-const LINKS = [["/blog", "Blog"], ["/privacy", "Privacy"], ["/tos", "Terms"], ["/auth/sign-in", "Sign in"]];
-
-/** Compact on every public route; legacy callers may still pass their optional config. */
-export function PublicFooter({ compact = false }: { compact?: boolean; texting?: PublicTextingConfig | null }) {
-  return <footer data-site-footer data-home-footer className={`public-simple-footer ${compact ? "public-simple-footer-compact" : ""}`}>
-    <div className="public-simple-footer-inner">
-      <AxisLogoLink href="/" size="compact" />
-      <nav aria-label="Footer navigation">{LINKS.map(([href, label]) => <Link key={href} href={href} prefetch={false}>{label}</Link>)}</nav>
-      <AppStoreBadge size="lg" dataAttr="footer-app-store" />
-    </div>
-  </footer>;
+/** The approved Swiss footer uses the same public line as the cover. */
+export function PublicFooter({
+  compact = false,
+  texting,
+}: {
+  compact?: boolean;
+  texting?: PublicTextingConfig | null;
+}) {
+  const phone = formatPublicPhone(texting?.phone);
+  const links = [
+    ["/blog", "Blog"],
+    ["/privacy", "Privacy"],
+    ["/tos", "Terms"],
+    [iosAppDownloadUrl(), "App Store"],
+    ["/auth/sign-in", "Sign in"],
+    ["/#contact", "Contact"],
+  ];
+  return (
+    <footer
+      data-site-footer
+      data-home-footer
+      className={`public-simple-footer ${compact ? "public-simple-footer-compact" : ""}`}
+    >
+      <div className="public-simple-footer-inner">
+        <div className="public-simple-footer-grid">
+          <div className="public-simple-footer-number">
+            <Link
+              href="/"
+              className="public-simple-footer-logo"
+              aria-label="PropLane home"
+            >
+              <ProPlaneMarkIcon />
+              PropLane
+            </Link>
+            {phone && texting?.smsHref && (
+              <a
+                href={texting.smsHref}
+                aria-label={`Text ${phone}`}
+                data-attr="footer-text"
+              >
+                {phone}
+              </a>
+            )}
+          </div>
+          <nav aria-label="Footer navigation">
+            {links.map(([href, label]) => (
+              <Link
+                key={label}
+                href={href}
+                prefetch={false}
+                data-attr={
+                  label === "App Store" ? "footer-app-store" : undefined
+                }
+              >
+                {label}
+                <ArrowRight aria-hidden="true" size={16} />
+              </Link>
+            ))}
+          </nav>
+        </div>
+        <div className="public-simple-footer-legal">
+          <span>PropLane</span>
+          <span>Seattle</span>
+        </div>
+      </div>
+    </footer>
+  );
 }

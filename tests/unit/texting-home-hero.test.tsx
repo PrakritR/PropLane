@@ -12,7 +12,7 @@ import { PublicTextingProvider } from "@/components/marketing/public-texting-con
 const config = publicTextingConfig("+12025550123");
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-describe("single-page number cover", () => {
+describe("Swiss number cover", () => {
   it("server-renders the configured number from the layout snapshot without a fetch", () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const html = renderToString(<PublicTextingProvider value={config}><TextingHomeHero /></PublicTextingProvider>);
@@ -21,17 +21,33 @@ describe("single-page number cover", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("shows only the huge headline and one Text us/number action", () => {
+  it("shows the huge headline, configured number and four numbered role columns", () => {
     const { container } = render(<TextingHomeHero config={config} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(HOME_HEADLINE);
-    expect(screen.getByRole("link", { name: "Text us (202) 555-0123" })).toHaveAttribute("href", config.smsHref);
+    expect(screen.getByRole("link", { name: "Text (202) 555-0123" })).toHaveAttribute("href", config.smsHref);
     expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    for (const role of ["Prospects", "Residents", "Vendors", "Owners"]) expect(screen.getByText(role)).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(container.querySelector(".rl-phone-wrap")).toBeNull();
     expect(container.querySelector("p")).toBeNull();
     expect(screen.queryByText(/ONE NUMBER\. EVERY CONVERSATION\./)).not.toBeInTheDocument();
+  });
+
+
+  it("renders the layout's real QR for the same SMS destination", () => {
+    const qrDataUrl = "data:image/png;base64,encoded-qr";
+    render(<PublicTextingProvider value={{ ...config, qrDataUrl }}><TextingHomeHero /></PublicTextingProvider>);
+    expect(screen.getByRole("img", { name: "QR code to text PropLane" })).toHaveAttribute("src", qrDataUrl);
+    expect(screen.getByRole("link", { name: "Scan to text PropLane" })).toHaveAttribute("href", config.smsHref);
+  });
+
+  it("does not reuse a snapshot QR for an overridden or missing configuration", () => {
+    render(<PublicTextingProvider value={{ ...config, qrDataUrl: "data:image/png;base64,encoded-qr" }}><TextingHomeHero config={{ phone: null, smsHref: null }} /></PublicTextingProvider>);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Start free" })).toBeVisible();
   });
 
   it("falls back to Start free without inventing a phone when config is missing", () => {

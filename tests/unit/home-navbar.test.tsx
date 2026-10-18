@@ -6,6 +6,7 @@ import { PublicNavbar } from "@/components/layout/public-navbar";
 import { publicTextingConfig } from "@/lib/marketing/public-texting";
 
 const route = vi.hoisted(() => ({ pathname: "/" }));
+vi.mock("@/components/marketing/fonts/home-swiss-font", () => ({ homeSwissFont: { variable: "swiss-font" } }));
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => { throw new Error("Public navigation must not initialize auth"); } }));
@@ -59,24 +60,22 @@ describe("simple public navigation", () => {
     expect(document.querySelector('a[href^="sms:"]')).toBeNull();
   });
 
-  it("shows the number after the hero and hides the sticky bar while the close is in view", () => {
+  it("shows the sticky number after the hero, including while contact is in view", () => {
     render(<><section id="home-hero" /><section id="home-close" /><HomeNavbar texting={texting} /></>);
     expect(observe).toHaveBeenCalledWith(document.getElementById("home-hero"));
-    expect(observe).toHaveBeenCalledWith(document.getElementById("home-close"));
     update("home-hero", false, 900);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
     update("home-hero", false, -1);
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveTextContent("Text (202) 555-0123");
+    expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("aria-label", "Text (202) 555-0123");
     expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("(202) 555-0123");
     update("home-close", true, 700);
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
-    update("home-close", false, 900);
+    expect(document.querySelector('[data-attr="home-sticky-text"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("href", texting.smsHref);
     update("home-hero", true, 500);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
   });
 
-  it("observes streamed hero and close elements when they arrive", async () => {
+  it("observes a streamed hero when it arrives", async () => {
     const view = render(<HomeNavbar texting={texting} />);
     expect(observe).not.toHaveBeenCalled();
     view.rerender(<><HomeNavbar texting={texting} /><section id="home-hero" /><section id="home-close" /></>);

@@ -5,8 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeDashboardStage } from "@/components/marketing/home-dashboard-stage";
 import { HomeDashboardDeferred } from "@/components/marketing/home-dashboard-deferred";
-import { HOME_DASHBOARD_TABS, homeDashboardRows, homeRentPaid } from "@/components/marketing/home-dashboard-data";
-import { DEMO_TABS } from "@/components/marketing/site/product-mock/demo-nav";
+import { homeDashboardRows, homeRentPaid } from "@/components/marketing/home-dashboard-data";
 import { residentStory, worldFor } from "@/components/marketing/site/product-mock/world";
 import { MobileAppPreview } from "@/components/marketing/mobile-app-preview";
 
@@ -25,19 +24,19 @@ vi.mock("@/components/marketing/home-dashboard-panel", () => {
 });
 
 beforeEach(() => { state.active = true; state.near = false; state.enhanced = false; state.fail = false; });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("homepage manager dashboard tour", () => {
-  it("ships complete fixture content and both phone beats before JavaScript", () => {
+  it("ships one complete real dashboard and receipt before JavaScript", () => {
     const html = renderToStaticMarkup(<HomeDashboardStage />);
     expect(html).toContain('id="dashboard"');
-    for (const tab of HOME_DASHBOARD_TABS) {
-      expect(DEMO_TABS.manager.some((item) => item.id === tab.id)).toBe(true);
-      expect(html).toContain(`${tab.label} sample records`);
-      expect(homeDashboardRows(tab.id).length).toBeGreaterThan(0);
-    }
-    expect(html).toContain("Reply drafted.");
-    expect(html).toContain('data-step="phone-paid"');
+    expect((html.match(/data-home-dashboard-window/g) ?? [])).toHaveLength(1);
+    expect(html).toContain('data-enhanced="false"');
+    expect(html).toContain('data-attr="dashboard-attention-panel"');
+    expect(html).toContain('data-attr="dashboard-upcoming-panel"');
+    expect(html).toContain('data-attr="dashboard-metric-occupied"');
+    expect(html).toContain("Rent received");
+    expect(html).not.toContain("phone-paid");
     expect(html).toContain(homeRentPaid().amount);
     expect(html).not.toContain("Loading");
     expect(html).not.toContain("Welcome, Alex");
