@@ -89,12 +89,13 @@ async function insertThreadDraft(
         role: "resident",
         topic: `automation:${input.preset}`,
         mode: "draft",
+        status: "pending",
         inbound_text: "",
         body: input.body.slice(0, 1600),
         property_id: input.propertyId,
       })
       .select("id")
-      .single();
+      .maybeSingle();
     if (error || !data) return null;
     return String((data as Record<string, unknown>).id);
   } catch {

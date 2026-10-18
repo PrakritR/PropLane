@@ -136,7 +136,7 @@ export async function claimRun(db: SupabaseClient, claim: RunClaim): Promise<str
         body: claim.body ?? null,
       })
       .select("id")
-      .single();
+      .maybeSingle();
     if (error || !data) return null;
     return String((data as Record<string, unknown>).id);
   } catch {
