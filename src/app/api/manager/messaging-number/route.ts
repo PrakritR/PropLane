@@ -136,6 +136,14 @@ async function buildStatus(
 
   const pureCoManager = !workspace.owned;
 
+  // The set PropLane line, while it is live: which number every workspace texts from by default, and
+  // whether THIS workspace is on it (a workspace with a number of its own is not).
+  const sharedLine: ManagerMessagingNumberStatus["sharedLine"] =
+    lineConfig && lineConfig.mode === "shared" && lineConfig.sharedNumber
+      ? { number: lineConfig.sharedNumber, onSharedLine: workspaceOnSharedLine(lineConfig, workspace.id) }
+      : null;
+
+
   const configuredMode = runtimeResult.error
     ? "paused"
     : normalizeSmsRuntimeMode(runtimeResult.data?.mode);
@@ -278,6 +286,23 @@ async function buildStatus(
           provisionState: readiness.numberRow.provision_state,
         };
     }
+  } else if (sharedLine?.onSharedLine) {
+    // On the set PropLane line there is no per-workspace number row to check: the send path's own
+    // shared-line decision (runtime switch, rollout seat, the workspace wallet) is the answer.
+    const readiness = await evaluateWorkspaceSendReadiness({
+      db,
+      ownerUserId: workspace.ownerUserId,
+      workspaceId: workspace.id,
+      requiredCents: 3,
+      runtime: runtimeResult,
+    }).catch(() => null);
+    lineReady = sendEnvEnabled && readiness?.canSend === true;
+    lineBlocked = lineReady
+      ? null
+      : !sendEnvEnabled
+        ? "deployment"
+        : lineBlockForSendReadinessReason(readiness && !readiness.canSend ? readiness.reason : null);
+    viewerMayText = true;
   } else {
     const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
     lineReady = billing.allowed && sendEnvEnabled && modeAllowsManager && strictNumberReady;
@@ -327,13 +352,6 @@ async function buildStatus(
       ownerName: shared?.ownerName ?? null,
     };
   }
-
-  // The set PropLane line, while it is live: which number every workspace texts from by default, and
-  // whether THIS workspace is on it (a workspace with a number of its own is not).
-  const sharedLine: ManagerMessagingNumberStatus["sharedLine"] =
-    lineConfig && lineConfig.mode === "shared" && lineConfig.sharedNumber
-      ? { number: lineConfig.sharedNumber, onSharedLine: workspaceOnSharedLine(lineConfig, workspace.id) }
-      : null;
 
   return {
     mode,

@@ -22,6 +22,7 @@ vi.mock("@/lib/sms/work-numbers.server", () => ({
   unassignNumber: vi.fn(),
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
+vi.mock("@/lib/comms-billing/eligibility.server", () => ({ evaluateManagerCommsBillingGate: vi.fn(async () => ({ allowed: true })) }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 
@@ -136,5 +137,28 @@ describe("status: the PropLane line", () => {
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "free" });
     const body = await (await GET(new Request("http://localhost"))).json();
     expect(body.canRequest).toBe(false);
+  });
+});
+
+describe("status: a workspace on the PropLane line can text", () => {
+  it("reads the line as ready from the send path's own shared-line decision", async () => {
+    vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
+    vi.stubEnv("SMS_OUTBOX_SCHEDULER_READY", "1");
+    vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MGdefault");
+    try {
+      const body = await (await GET(new Request("http://localhost"))).json();
+      expect(body.sharedLine).toEqual({ number: SHARED, onSharedLine: true });
+      expect(body.number).toBeNull();
+      expect(body.lineReady).toBe(true);
+      expect(body.canSend).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("is not ready when the deployment's send switch is off, with the deployment as the reason", async () => {
+    const body = await (await GET(new Request("http://localhost"))).json();
+    expect(body.lineReady).toBe(false);
+    expect(body.lineBlocked).toBe("deployment");
   });
 });

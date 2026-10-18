@@ -259,13 +259,16 @@ export type WorkspaceWorkNumberSource = {
   workspaceRole?: ManagerMessagingWorkspaceRole | string | null;
   number?: { phoneNumber?: string | null } | null;
   workspaceNumber?: { phoneNumber?: string | null } | null;
+  /** The set PropLane line, while it is live (see `ManagerMessagingNumberStatus.sharedLine`). */
+  sharedLine?: { number?: string | null; onSharedLine?: boolean } | null;
 };
 
 /**
- * The one answer to "does this workspace have a work number": a teammate
+ * The one answer to "which number does this workspace text from": a teammate
  * (`co_manager`) reads the owner's line from `workspaceNumber`, an owner reads
- * their own `number`. Trimmed, or null when there is none - a teammate's own
- * legacy row is never the workspace's number.
+ * their own `number`, and a workspace on the set PropLane line reads that line.
+ * Trimmed, or null when there is none - a teammate's own legacy row is never
+ * the workspace's number.
  */
 export function workspaceWorkNumber(
   status: WorkspaceWorkNumberSource | null | undefined,
@@ -278,5 +281,9 @@ export function workspaceWorkNumber(
   // A number stored as a JSON number (old rows) is still the workspace's line.
   const value =
     typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
-  return value || null;
+  if (value) return value;
+  // Number model (Oct 18): a workspace with no number of its own texts from the set PropLane line, so
+  // THAT is the number it shows and shares. Absent in per_workspace mode (`sharedLine` is null).
+  const shared = status.sharedLine?.onSharedLine ? String(status.sharedLine.number ?? "").trim() : "";
+  return shared || null;
 }

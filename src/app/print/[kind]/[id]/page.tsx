@@ -67,7 +67,7 @@ export default async function HousePrintPage({
   const house = await loadHouseRecord(ctx.db, id);
   if (!house || !(await managerMayPrintHouse(ctx.db, ctx.userId, house.ownerUserId))) notFound();
   const origin = resolveEmailLinkBaseUrl();
-  const smsPhone = await loadHouseOwnerSmsPhone(ctx.db, house.ownerUserId);
+  const smsPhone = await loadHouseOwnerSmsPhone(ctx.db, house.ownerUserId, house.workspaceId);
   const smsLabel = smsPhone ? formatSmsPhoneLabel(smsPhone) ?? smsPhone : null;
 
   let body: React.ReactNode;

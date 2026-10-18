@@ -517,10 +517,12 @@ export function ManagerMessagingSettingsPanel() {
   if (isCoManager) {
     const workspacePhone = workspaceWorkNumber(status) ?? "";
     // A workspace on the set PropLane line (no number of its own) texts from that line.
-    const sharedPhone = !workspacePhone && status.sharedLine?.onSharedLine ? status.sharedLine.number : "";
+    const lineNumber = status.sharedLine?.onSharedLine ? status.sharedLine.number : "";
+    const onPropLaneLine = Boolean(lineNumber) && (!workspacePhone || workspacePhone === lineNumber);
+    const sharedPhone = onPropLaneLine ? lineNumber : "";
     return <PortalSettingsSection title="Work identity"><PortalSettingsGroup>
-      <WorkIdentityRow label="Workspace number" value={workspacePhone ? `${formatManagerMessagingPhone(workspacePhone)} · ${status.lineReady ? "Ready" : "Not ready"}` : sharedPhone ? `${formatManagerMessagingPhone(sharedPhone)} · ${workNumberStatusWord({ sharedLine: true })}` : "Not set up"}>
-        <PortalSettingsField label="Workspace number" value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : sharedPhone ? formatManagerMessagingPhone(sharedPhone) : "Not set up"} />
+      <WorkIdentityRow label="Workspace number" value={workspacePhone || sharedPhone ? `${formatManagerMessagingPhone(workspacePhone || sharedPhone)} · ${onPropLaneLine ? workNumberStatusWord({ sharedLine: true }) : status.lineReady ? "Ready" : "Not ready"}` : "Not set up"}>
+        <PortalSettingsField label="Workspace number" value={workspacePhone || sharedPhone ? formatManagerMessagingPhone(workspacePhone || sharedPhone) : "Not set up"} />
         <PortalSettingsField label="Managed by" value={status.workspaceNumber?.ownerName || "Workspace owner"} />
         {workspacePhone || sharedPhone ? <Button variant="ghost" onClick={() => copyNumber(workspacePhone || sharedPhone)}>Copy number</Button> : null}
       </WorkIdentityRow>

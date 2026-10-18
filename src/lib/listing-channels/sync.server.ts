@@ -34,7 +34,7 @@ import {
 import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
 import { asProperty, publicListingProjection } from "@/lib/public-listings.server";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
 
 /** After this many failed tries a post stops retrying and the row says why. */
 export const LISTING_CHANNEL_MAX_ATTEMPTS = 5;
@@ -95,7 +95,7 @@ export async function resolveListingPostContact(
   workspaceId: string | null,
 ): Promise<ListingPostContact> {
   const [phone, email] = await Promise.all([
-    resolveActiveManagerSendNumber(db, managerUserId, workspaceId).catch(() => null),
+    resolveWorkspaceDisplayNumber(db, managerUserId, workspaceId).catch(() => null),
     resolveActiveManagerWorkEmail(db, managerUserId, workspaceId).catch(() => null),
   ]);
   return { phone, email };

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfig, workspaceHasDedicatedNumber } from "@/lib/one-number/config.server";
 import {
   entryCodeCallToAction,
   entryCodeCandidates,
@@ -194,6 +194,9 @@ export async function loadDoorCardTextCode(
   try {
     const config = await loadSharedLineConfig(db);
     if (config.mode === "per_workspace" || !config.sharedNumber) return null;
+    // A house whose workspace holds a number of its own prints that number, never a code on the shared line.
+    const { data: houseRow } = await db.from("manager_property_records").select("workspace_id").eq("id", house.propertyId).maybeSingle();
+    if (workspaceHasDedicatedNumber(config, str((houseRow as Row | null)?.workspace_id))) return null;
     const { data, error } = await db
       .from("sms_entry_codes")
       .select("code, owner_user_id")
