@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Archive, ChevronLeft, Pencil, Phone, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ThreadKnowledgeCard } from "@/components/portal/thread-knowledge-card";
 import { AssistantPauseControl, assistantPauseConversationId } from "@/components/portal/assistant-pause-control";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { Select } from "@/components/ui/input";
@@ -1528,6 +1529,14 @@ export const ManagerSmsPanel = forwardRef<
         hideTrigger
         openSignal={askAssistantSignal}
       />
+
+      {smsUiEnabled && !active.resident.sendDisabled && active.resident.counterpartyRole !== "manager" ? (
+        <ThreadKnowledgeCard
+          phone={active.resident.phone}
+          refreshKey={active.messages.length}
+          onUseDraft={(body) => setDraft(body)}
+        />
+      ) : null}
 
       {replyIssue ? (
         <p
