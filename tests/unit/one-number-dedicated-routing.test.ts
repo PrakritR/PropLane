@@ -19,6 +19,8 @@ vi.mock("@/lib/one-number/team-alerts.server", () => ({
 }));
 const unassigned = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => ({ leadId: "lead-1" as string | null, reply: "Welcome! Budget?" as string | null, assignedWorkspaceId: null as string | null })));
 vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: unassigned }));
+// The router reaches the lead qualifier through the unknown-sender front door (onboarding).
+vi.mock("@/lib/one-number/onboarding/unknown-sender.server", () => ({ handleUnknownSenderInbound: unassigned }));
 const logged = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   logManagerSmsMessage: vi.fn(async (_db: unknown, args: Record<string, unknown>) => {
