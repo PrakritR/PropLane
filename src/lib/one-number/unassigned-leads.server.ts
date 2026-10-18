@@ -131,7 +131,17 @@ type FlowResult = { profile: LeadProfile; reply: string; mediaUrls: string[]; as
 
 async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps, "now" | "listings" | "origin">>): Promise<FlowResult> {
   const today = pacificToday(deps.now());
-  const listings = await deps.listings().catch(() => [] as MockProperty[]);
+  let listings: MockProperty[];
+  try {
+    listings = await deps.listings();
+  } catch {
+    // A failed catalog read is not "no room": say so and search again on the next text.
+    return {
+      profile: { ...profile, stage: "qualifying", asked: "refine" },
+      reply: "I could not check rooms just now. Text me again in a minute and I will try again.",
+      mediaUrls: [],
+    };
+  }
   const rows = matchRooms(listings, profile, today);
   if (rows.length === 0) {
     return { profile: { ...profile, stage: "no_match", asked: null, offers: [] }, reply: NO_MATCH_TEXT, mediaUrls: [] };

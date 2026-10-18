@@ -320,7 +320,10 @@ export function extractHousehold(text: string, opts: { bare?: boolean } = {}): n
 }
 
 /** A place or commute in the prospect's own words. Only read when we just asked for it. */
+const ACKNOWLEDGEMENT = /^(?:ok(?:ay)?|k|yes|yeah|yep|yup|ya|sure|thanks?|thank you|thx|please|hi|hello|hey|hmm+|um+|good|great|fine|cool|alright|sounds good|got it|go ahead|retry|try again)[.!?\s]*$/i;
+
 export function extractArea(text: string): string | undefined {
+  if (ACKNOWLEDGEMENT.test(text.trim())) return undefined;
   const cleaned = text
     .trim()
     .replace(/^(?:i(?:'d| would)? (?:like|want|prefer)(?: to be)?|looking|somewhere|something|a place)\s+/i, "")

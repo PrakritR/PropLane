@@ -11,7 +11,13 @@ export const runtime = "nodejs";
  * manager's; a code that belongs to another workspace answers 404, the same as a code that does not exist.
  */
 export async function PATCH(request: Request, context: { params: Promise<{ code: string }> }) {
-  const { code } = await context.params;
+  const { code: rawCode } = await context.params;
+  let code: string;
+  try {
+    code = decodeURIComponent(rawCode);
+  } catch {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   let body: { active?: unknown; workspaceId?: unknown };
   try {
     body = (await request.json()) as typeof body;
@@ -24,7 +30,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ code:
   const config = await loadSharedLineConfig(ctx.db);
   if (config.mode === "per_workspace" || !config.sharedNumber) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
-  const result = await setEntryCodeActive(ctx.db, { workspaceId: ctx.workspace.id, code: decodeURIComponent(code), active: body.active, allowedPropertyIds: ctx.workspace.propertyIds });
+  const result = await setEntryCodeActive(ctx.db, { workspaceId: ctx.workspace.id, code, active: body.active, allowedPropertyIds: ctx.workspace.propertyIds });
   if (!result.ok) {
     const status = result.error === "not_found" ? 404 : result.error === "too_many" ? 409 : 503;
     return NextResponse.json({ error: entryCodeErrorMessage(result.error), reason: result.error }, { status });

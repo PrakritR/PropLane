@@ -135,14 +135,27 @@ describe("the sweep", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("an opted-out or failed send takes its flag back, so nothing is recorded as sent", async () => {
+  it("a number that opted out leaves the queue and is never retried", async () => {
     const fake = db([{ id: "lead-09", quietMs: 30 * HOUR }]);
     const refused = vi.fn(async () => ({ ok: false as const, reason: "opted_out" as const }));
     const { deps } = harness({ send: refused as unknown as FollowUpDeps["send"] });
-    expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ nudged24: 0 });
+    expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ nudged24: 0, optedOut: 1 });
+    expect(fake.rows.sms_unassigned_leads![0]!.status).toBe("closed");
+    await runLeadFollowUps(fake.db, deps);
     expect(refused).toHaveBeenCalledTimes(1);
+    expect(fake.rows.sms_unassigned_lead_turns ?? []).toEqual([]);
+  });
+
+  it("a provider hiccup takes the flag back, so the next sweep retries and nothing is recorded as sent", async () => {
+    const fake = db([{ id: "lead-13", quietMs: 30 * HOUR }]);
+    const failing = vi.fn(async () => ({ ok: false as const, reason: "provider_error" as const }));
+    const { deps } = harness({ send: failing as unknown as FollowUpDeps["send"] });
+    expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ nudged24: 0, optedOut: 0 });
+    expect(fake.rows.sms_unassigned_leads![0]!.status).toBe("open");
     expect(fake.rows.sms_unassigned_leads![0]!.profile).toEqual({ stage: "qualifying", asked: "budget" });
     expect(fake.rows.sms_unassigned_lead_turns ?? []).toEqual([]);
+    await runLeadFollowUps(fake.db, deps);
+    expect(failing).toHaveBeenCalledTimes(2);
   });
 
   it("two overlapping sweeps cannot both send: the second finds the row already changed", async () => {

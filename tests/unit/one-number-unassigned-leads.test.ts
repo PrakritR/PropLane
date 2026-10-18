@@ -224,7 +224,7 @@ describe("matching public rooms", () => {
   it("offers rooms across every workspace that fit, with price, availability and a public link", async () => {
     const fake = seed();
     const turn = await toOffered(fake);
-    expect(turn.reply).toContain("1) 4000 15th Ave NE, $900/mo");
+    expect(turn.reply).toContain("1) 4000 15th Ave NE, $900/mo, available now: https://proplane.ai/rent/listings/prop-uw-a");
     expect(turn.reply).toContain("$900/mo");
     expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-uw-a");
     expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-uw-d");
@@ -254,6 +254,19 @@ describe("matching public rooms", () => {
     expect(out.reply).toBe(NO_MATCH_TEXT);
     expect(profile(none)).toMatchObject({ stage: "no_match" });
     expect(lead(none).status).toBe("open");
+  });
+
+  it("a failed catalog read is not 'no room': it says so and searches again on the next text", async () => {
+    const fake = seed();
+    for (const text of ["hi", "$1000", "Nov 1 for 6 months", "University District", "private bath, furnished"]) await say(fake, text);
+    const failed = await say(fake, "just me", { listings: async () => { throw new Error("catalog down"); } });
+    expect(failed.reply).toBe("I could not check rooms just now. Text me again in a minute and I will try again.");
+    expect(profile(fake).stage).toBe("qualifying");
+    const retry = await say(fake, "ok");
+    // "ok" is an acknowledgement, never an area: the same rooms come back.
+    expect(retry.reply).toContain("These rooms fit:");
+    expect(retry.reply).toContain("prop-uw-d");
+    expect(profile(fake).area).toBe("University District");
   });
 
   it("a decline asks what to change and searches again on the new answer", async () => {

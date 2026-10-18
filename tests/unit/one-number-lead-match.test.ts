@@ -34,6 +34,9 @@ describe("matchRooms", () => {
     expect(listingsInArea(CATALOG, "University District").map((p) => p.id).sort()).toEqual(["l-uw-a", "l-uw-b", "l-uw-d"]);
     // any one word may name the place when no listing carries every word
     expect(listingsInArea(CATALOG, "near the Ballard market").map((p) => p.id)).toEqual(["l-ballard"]);
+    // a token is a word or a real prefix of one, never a substring: "ok" is not Brooklyn
+    expect(listingsInArea(CATALOG, "ok")).toEqual([]);
+    expect(listingsInArea(CATALOG, "univ").map((p) => p.id).sort()).toEqual(["l-uw-a", "l-uw-b", "l-uw-d"]);
   });
 
   it("a skipped area or budget filters nothing on that axis", () => {
@@ -67,7 +70,7 @@ describe("the offer text", () => {
   it("states price, availability and the public listing link, and how to reply", () => {
     const text = buildOfferText(offers, "https://proplane.ai/");
     expect(text).toContain("1) ");
-    expect(text).toContain("$900/mo");
+    expect(text).toContain("$900/mo, available now: https://proplane.ai/rent/listings/l-uw-a");
     expect(text).toContain("https://proplane.ai/rent/listings/l-uw-a");
     expect(text).toContain("https://proplane.ai/rent/listings/l-uw-d");
     expect(text.endsWith("Reply 1 or 2 to pick one, or TOUR to see it.")).toBe(true);

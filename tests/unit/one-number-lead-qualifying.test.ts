@@ -142,6 +142,17 @@ describe("the questions come one at a time, in the fixed order", () => {
   });
 });
 
+describe("area", () => {
+  it("is a place in the prospect's own words, never an acknowledgement", () => {
+    expect(applyAnswer({ asked: "area" }, "near the UW campus", NOW).profile.area).toBe("the UW campus");
+    expect(applyAnswer({ asked: "area" }, "Capitol Hill", NOW).profile.area).toBe("Capitol Hill");
+    for (const ack of ["ok", "Okay.", "yes", "thanks!", "sounds good"]) {
+      expect(applyAnswer({ asked: "area" }, ack, NOW).profile.area).toBeUndefined();
+      expect(applyAnswer({ asked: "refine" }, ack, NOW).profile.area).toBeUndefined();
+    }
+  });
+});
+
 describe("fair housing: only price, dates, location and room features reach the profile", () => {
   const protectedAsks = [
     "are there a lot of families or kids in the house?",

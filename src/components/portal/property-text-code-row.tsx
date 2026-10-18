@@ -29,23 +29,28 @@ export function PropertyTextCodeRow({ propertyId }: { propertyId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetchWithTimeout(`/api/portal/one-number/entry-codes?propertyId=${encodeURIComponent(propertyId)}`, {}, 15_000);
-      if (!res.ok) {
-        setLoaded(null);
-        return;
-      }
-      const json = (await res.json().catch(() => null)) as (Loaded & { codes?: CodeView[] }) | null;
-      setLoaded(json?.codes ? { codes: json.codes, suggestion: json.suggestion ?? null } : null);
-    } catch {
-      setLoaded(null);
-    }
-  }, [propertyId]);
+  const [tick, setTick] = useState(0);
+  const reload = useCallback(() => setTick((n) => n + 1), []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    void (async () => {
+      let next: Loaded | null = null;
+      try {
+        const res = await fetchWithTimeout(`/api/portal/one-number/entry-codes?propertyId=${encodeURIComponent(propertyId)}`, {}, 15_000);
+        if (res.ok) {
+          const json = (await res.json().catch(() => null)) as (Partial<Loaded> & { codes?: CodeView[] }) | null;
+          if (json?.codes) next = { codes: json.codes, suggestion: json.suggestion ?? null };
+        }
+      } catch {
+        next = null;
+      }
+      if (!cancelled) setLoaded(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [propertyId, tick]);
 
   if (!loaded) return null;
 
@@ -62,7 +67,7 @@ export function PropertyTextCodeRow({ propertyId }: { propertyId: string }) {
       );
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) setError(json.error ?? "Could not create a code.");
-      await load();
+      reload();
     } finally {
       setBusy(false);
     }
@@ -78,7 +83,7 @@ export function PropertyTextCodeRow({ propertyId }: { propertyId: string }) {
         15_000,
       );
       if (!res.ok) setError("Could not turn this code off.");
-      await load();
+      reload();
     } finally {
       setBusy(false);
     }

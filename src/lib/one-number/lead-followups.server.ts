@@ -31,6 +31,8 @@ export type FollowUpSummary = {
   nudged24: number;
   nudged72: number;
   newMatch: number;
+  /** Leads closed because their number has opted out. */
+  optedOut: number;
   skipped?: "not_shared_mode" | "quiet_hours";
 };
 
@@ -60,7 +62,7 @@ export function dueNudge(profile: LeadProfile, quietMs: number): "24" | "72" | n
 export async function runLeadFollowUps(db: SupabaseClient, depsIn: FollowUpDeps = {}): Promise<FollowUpSummary> {
   const now = depsIn.now ?? (() => new Date());
   const send = depsIn.send ?? sendPlatformLeadText;
-  const summary: FollowUpSummary = { considered: 0, nudged24: 0, nudged72: 0, newMatch: 0 };
+  const summary: FollowUpSummary = { considered: 0, nudged24: 0, nudged72: 0, newMatch: 0, optedOut: 0 };
   const config = await loadSharedLineConfig(db);
   if (config.mode !== "shared") return { ...summary, skipped: "not_shared_mode" };
   if (quietHoursBlocks("automated", now())) return { ...summary, skipped: "quiet_hours" };
@@ -101,6 +103,10 @@ export async function runLeadFollowUps(db: SupabaseClient, depsIn: FollowUpDeps 
       const result = await send(db, { to, body, mediaUrls, now: now() });
       if (result.ok) {
         await db.from("sms_unassigned_lead_turns").insert({ lead_id: id, direction: "outbound", body, message_sid: sid, media: mediaUrls.length ? { urls: mediaUrls } : null });
+      } else if (result.reason === "opted_out") {
+        // Someone who said STOP is never texted again: the lead leaves the queue instead of being retried every hour.
+        await db.from("sms_unassigned_leads").update({ status: "closed", updated_at: now().toISOString() }).eq("id", id).eq("status", "open");
+        summary.optedOut += 1;
       }
       return result.ok;
     };

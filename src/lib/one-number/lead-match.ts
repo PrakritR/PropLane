@@ -27,8 +27,13 @@ function areaTokens(area: string | undefined): string[] {
     .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
 }
 
-function locationText(p: MockProperty): string {
-  return [p.neighborhood, p.address, p.zip, p.title, p.buildingName].join(" ").toLowerCase();
+function locationWords(p: MockProperty): string[] {
+  return [p.neighborhood, p.address, p.zip, p.title, p.buildingName].join(" ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** A token names a place when it is one of the listing's words, or a real prefix of one ("univ" for University). Never a substring: "ok" is not Brooklyn. */
+function namesPlace(words: string[], token: string): boolean {
+  return words.some((w) => w === token || (token.length >= 4 && w.startsWith(token)));
 }
 
 /**
@@ -38,9 +43,15 @@ function locationText(p: MockProperty): string {
 export function listingsInArea(listings: readonly MockProperty[], area: string | undefined): MockProperty[] {
   const tokens = areaTokens(area);
   if (tokens.length === 0) return [...listings];
-  const all = listings.filter((p) => tokens.every((t) => locationText(p).includes(t)));
+  const all = listings.filter((p) => {
+    const words = locationWords(p);
+    return tokens.every((t) => namesPlace(words, t));
+  });
   if (all.length > 0) return all;
-  return listings.filter((p) => tokens.some((t) => locationText(p).includes(t)));
+  return listings.filter((p) => {
+    const words = locationWords(p);
+    return tokens.some((t) => namesPlace(words, t));
+  });
 }
 
 function addMonths(isoDate: string, months: number): string {
@@ -105,6 +116,13 @@ export function matchRooms(
   return out;
 }
 
+/** "available now" / "available Nov 1", from the room's own availability text (never the count-style card label). */
+function availabilityPhrase(raw: string): string {
+  const t = raw.replace(/\s+/g, " ").trim();
+  if (!t || /^now$/i.test(t)) return "available now";
+  return /^available/i.test(t) ? `a${t.slice(1)}` : `available ${t}`;
+}
+
 export function offerFromRow(row: RoomListingRow, n: number): LeadOffer {
   return {
     n,
@@ -112,7 +130,7 @@ export function offerFromRow(row: RoomListingRow, n: number): LeadOffer {
     roomId: row.roomId,
     label: row.headlineAddress.trim() || row.neighborhood.trim() || "this house",
     rent: row.rentNumeric !== null ? Math.round(row.rentNumeric) : null,
-    availability: row.availabilityLabel,
+    availability: availabilityPhrase(row.availabilityRaw),
   };
 }
 
@@ -128,7 +146,7 @@ export function firstOfferPhoto(rows: readonly RoomListingRow[]): string | null 
 const shortAvailability = (label: string) => {
   const t = label.replace(/\s+/g, " ").trim();
   if (!t) return "ask for dates";
-  return t.length > 20 ? `${t.slice(0, 19).trim()}` : t;
+  return t.length > 24 ? t.slice(0, 24).trim() : t;
 };
 
 /** "1) 5259 Brooklyn Ave, $850/mo, available now: https://..." for each, then how to reply. */
