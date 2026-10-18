@@ -19,6 +19,9 @@ import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.serv
 import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
 import { resolveVendorNumberSenderPhone } from "@/lib/vendor-work-identity.server";
 import { ingestResidentAgentNumberSms } from "@/lib/resident-agent-number/inbound.server";
+import { isSharedLineNumber, loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { handleSharedLineInbound } from "@/lib/one-number/inbound-seam.server";
+import { recordShadowDecision } from "@/lib/one-number/shadow.server";
 
 export const runtime = "nodejs";
 // ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
@@ -102,7 +105,9 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
 
   mark("shield");
   const db = createSupabaseServiceRoleClient();
-  const ownedNumber = await resolveOwnedWorkNumber(db, toPhone);
+  // `lineConfig` fails closed to per_workspace (read error, missing column): then nothing below changes.
+  const [resolvedNumber, lineConfig] = await Promise.all([resolveOwnedWorkNumber(db, toPhone), loadSharedLineConfig(db)]);
+  let ownedNumber: { managerId: string; workspaceId: string | null; messagingServiceSid: string } | null = resolvedNumber;
   mark("owned-number");
 
   // Compliance controls run before traffic shedding so a legitimate STOP can
@@ -156,6 +161,38 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     }
     return twimlOk();
   }
+
+  // One-number shared line (docs/agents/one-number.md): a text to the shared number is stamped with a
+  // workspace here, before any agent runs. A routed text then continues below exactly as a work-number
+  // text would, as that workspace's owner. Only live in `shared` mode; every other mode skips this.
+  let sharedLine = false;
+  if (lineConfig.mode === "shared" && messageSid && isSharedLineNumber(lineConfig, toPhone)) {
+    const sharedKey = normalizeConsentPhone(fromPhone);
+    if (sharedKey) {
+      const limit = await rateLimit(`twilio-shared-line:${fromPhone}`, 20, 60_000);
+      if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
+      if (!limit.ok) return twimlOk();
+      try {
+        const seam = await handleSharedLineInbound(db, {
+          config: lineConfig,
+          fromPhone,
+          body,
+          messageSid,
+          mediaCount: Number(params.NumMedia) || 0,
+          phoneKey: sharedKey,
+        });
+        if (seam.kind === "handled") return twimlOk(seam.twiml ?? undefined);
+        if (seam.kind === "continue") {
+          ownedNumber = { ...seam.owned };
+          sharedLine = true;
+        }
+      } catch (error) {
+        // Fall through to the no-owner path below, which keeps the text in the inbound log.
+        console.error("shared line routing failed", messageSid, error instanceof Error ? error.name : "unknown");
+      }
+    }
+  }
+  mark("shared-line");
 
   // Vendor identities are resolved before manager-only work-number ownership.
   // Inbound never consumes a manager credit/cap and remains visible with the
@@ -248,6 +285,20 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   if (!inboundPhoneKey) {
     return NextResponse.json({ error: "Invalid sender phone." }, { status: 400 });
   }
+  // Shadow mode: record what the shared-line router would have decided, next to the real owner.
+  // After the response, read-only; a failure here never touches this request.
+  if (lineConfig.mode === "shadow" && !sharedLine) {
+    const shadowOwner = managerId;
+    const shadowWorkspace = ownedNumber?.workspaceId ?? null;
+    const shadowInbound = {
+      fromPhone: senderPhone, phoneKey: inboundPhoneKey, body, messageSid, mediaCount: Number(params.NumMedia) || 0,
+    };
+    after(async () => {
+      await recordShadowDecision(createSupabaseServiceRoleClient(), {
+        inbound: shadowInbound, actualOwnerUserId: shadowOwner, actualWorkspaceId: shadowWorkspace,
+      });
+    });
+  }
 
   // Count a provider MessageSid against the abuse limit only before its first
   // durable receipt exists. Twilio retries of a failed/leased message must not
@@ -270,6 +321,8 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     workspaceId: ownedNumber?.workspaceId ?? null,
     media: inboundMediaParams(params),
     runtime: inboundRuntime(),
+    // Stored with the receipt so a recovery rerun still honors a HUMAN pause on the shared line.
+    ...(sharedLine ? { sharedLine: true } : {}),
   };
   const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {
     p_message_sid: messageSid,

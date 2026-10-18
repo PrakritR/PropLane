@@ -1,4 +1,5 @@
 "use client";
+import { AssistantPauseControl, assistantPauseConversationId } from "@/components/portal/assistant-pause-control";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 
@@ -995,6 +996,7 @@ export function ResidentDirectChatPane({
   // One row of matching circular controls, same as every other thread header.
   const threadHeaderActions = (
     <>
+      <AssistantPauseControl conversationId={assistantPauseConversationId(selectedSmsResident)} />
       {detailsPanelMode ? null : (
         <button
           type="button"

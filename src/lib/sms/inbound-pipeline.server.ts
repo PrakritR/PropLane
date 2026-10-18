@@ -55,6 +55,7 @@ import { projectManagerSmsEvent } from "@/lib/sms/project-manager-sms-event.serv
 import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.server";
 import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
+import { loadThreadPause } from "@/lib/one-number/session.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
@@ -83,6 +84,8 @@ export type InboundPayload = {
   /** Runtime that received the text. Staging runs on a production clone, so a
    * sweeper only replays receipts its own runtime stored. */
   runtime: string;
+  /** The text arrived on the one-number shared line, so a HUMAN pause for (phone, workspace) applies. */
+  sharedLine?: boolean;
 };
 
 export function inboundRuntime(): string {
@@ -927,6 +930,26 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     }
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Manager assistant turn unavailable." }, { status: 503 });
+  }
+
+  // One-number shared line: a HUMAN pause silences the AI for this person in THIS workspace only. The
+  // text is still recorded and projected so the team reads it in the inbox; a manager takes it from there.
+  if (saved?.sharedLine || input.sharedLine) {
+    const pause = workspaceId ? await loadThreadPause(db, normalizeConsentPhone(fromPhone), workspaceId) : null;
+    if (pause) {
+      mark("route:paused");
+      await projectClassifiedInbound(db, {
+        managerUserId: managerId, role: pause.role, counterpartyUserId: null, fromPhone, toPhone, messageSid, body, occurredAt,
+      }).catch((error) => console.error("paused inbound projection failed", error instanceof Error ? error.message : "unknown"));
+      await db.from("inbound_sms_log")
+        .update(inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: pause.role, fromPhone }))
+        .eq("message_sid", messageSid).eq("manager_user_id", managerId)
+        .then(() => undefined, () => undefined);
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
   }
 
   // The destination work number scopes vendor sessions before a prospect fallback.
