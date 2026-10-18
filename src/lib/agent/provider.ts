@@ -352,12 +352,16 @@ function openAIContent(blocks: Anthropic.MessageParam["content"]): Record<string
 function openAIInput(messages: Anthropic.MessageParam[]): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const message of messages) {
-    if (message.role === "assistant" && Array.isArray(message.content)) {
-      const unsupported = message.content.find((block) => block.type !== "text" && block.type !== "tool_use");
+    if (message.role === "assistant") {
+      const blocks = typeof message.content === "string"
+        ? [{ type: "text" as const, text: message.content }]
+        : message.content;
+      const unsupported = blocks.find((block) => block.type !== "text" && block.type !== "tool_use");
       if (unsupported) throw new Error(`OpenAI received an unsupported assistant content block (${unsupported.type}).`);
-      const text = message.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
-      if (text) out.push({ role: "assistant", content: text });
-      for (const call of message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")) {
+      const text = blocks.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
+      // Replayed assistant text is output content, including string chat history.
+      if (text) out.push({ role: "assistant", content: [{ type: "output_text", text, annotations: [] }] });
+      for (const call of blocks.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")) {
         // Responses has distinct opaque item `id` and tool correlation `call_id`.
         // The Anthropic tool-use id is only the latter; never invent an item id.
         out.push({ type: "function_call", call_id: call.id, name: call.name, arguments: JSON.stringify(call.input ?? {}) });
