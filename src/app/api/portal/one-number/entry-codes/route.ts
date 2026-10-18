@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfig, workspaceHasDedicatedNumber } from "@/lib/one-number/config.server";
 import {
   ENTRY_CODE_ERROR_STATUS,
   entryCodeErrorMessage,
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const config = await loadSharedLineConfig(ctx.db);
-  if (config.mode === "per_workspace" || !config.sharedNumber) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  if (config.mode === "per_workspace" || !config.sharedNumber || workspaceHasDedicatedNumber(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() ?? "";
   if (propertyId && !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const ctx = await resolveListingChannelContext(request, typeof body.workspaceId === "string" ? body.workspaceId : null).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const config = await loadSharedLineConfig(ctx.db);
-  if (config.mode === "per_workspace" || !config.sharedNumber) return NextResponse.json({ error: "Not available." }, { status: 404 });
+  if (config.mode === "per_workspace" || !config.sharedNumber || workspaceHasDedicatedNumber(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
   const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
   if (!propertyId || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {

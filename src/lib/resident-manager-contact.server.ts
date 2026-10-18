@@ -22,7 +22,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { loadWorkspaceIdForProperty } from "@/lib/workspace-payment-settings.server";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { applicationRowLinksResident } from "@/lib/resident-manager-scope";
@@ -262,7 +262,7 @@ export async function resolveResidentManagerPhones(
     contacts.map(async (contact) => {
       const workspaceId = contact.propertyId ? await loadWorkspaceIdForProperty(db, contact.managerUserId, contact.propertyId).catch(() => null) : null;
       const [workPhone, workEmail, profileRow] = await Promise.all([
-        resolveActiveManagerSendNumber(db, contact.managerUserId, workspaceId).catch(() => null),
+        resolveWorkspaceDisplayNumber(db, contact.managerUserId, workspaceId).catch(() => null),
         resolveActiveManagerWorkEmail(db, contact.managerUserId, workspaceId).catch(() => null),
         Promise.resolve(
           db.from("profiles").select("full_name").eq("id", contact.managerUserId).maybeSingle(),

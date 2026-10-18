@@ -2,6 +2,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaceById } from "@/lib/workspaces/active.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
+import { PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
+import { managerPersonalNumberEntitlement } from "@/lib/one-number/personal-number-entitlement.server";
 import { loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import {
   provisionManagerNumber,
@@ -209,7 +211,7 @@ export type ProvisionForWorkspaceResult =
       ok: false;
       error: string;
       state: "failed";
-      code: "not_authorized" | "cap_exceeded" | "budget_exceeded";
+      code: "not_authorized" | "cap_exceeded" | "budget_exceeded" | "not_entitled";
     };
 
 /**
@@ -275,6 +277,8 @@ export async function provisionNumberForWorkspace(
     };
   }
 
+  // Pro or Business only: a Free workspace texts from the PropLane line. There is no exemption for
+  // PropLane's own managed service. Then the account-wide budget.
   // Account-wide budget: included (one per owned workspace on a paid plan)
   // plus the extra_work_number add-on quantity, compared against every home
   // number the account already holds across all of its own workspaces.
@@ -287,11 +291,20 @@ export async function provisionNumberForWorkspace(
   if (!tierResult.ok) {
     return { ok: false, error: "Could not verify your plan.", state: "failed", code: "budget_exceeded" };
   }
+  // Pro / Business include a number; a Free account may hold one only through the standalone PropLane
+  // Number subscription (active or past_due), which carries exactly one number account-wide.
+  const personal = await managerPersonalNumberEntitlement(db, actor);
+  if (!personal.ok) {
+    return { ok: false, error: "Could not verify your plan.", state: "failed", code: "budget_exceeded" };
+  }
+  if (!personal.entitled) {
+    return { ok: false, error: PERSONAL_NUMBER_FREE_REFUSAL.error, state: "failed", code: "not_entitled" };
+  }
   if (!addons.ok) {
     return { ok: false, error: "Could not verify your add-ons.", state: "failed", code: "budget_exceeded" };
   }
   const ownedCount = (ownedWorkspaces ?? []).length;
-  const included = includedNumbersPerOwnedWorkspace(tierResult.tier) * ownedCount;
+  const included = personal.via === "plan" ? includedNumbersPerOwnedWorkspace(tierResult.tier) * ownedCount : 1;
   const extra = Math.max(0, addons.quantities.extra_work_number ?? 0);
   const budget = included + extra;
   const held = (homeNumbers ?? []).length;

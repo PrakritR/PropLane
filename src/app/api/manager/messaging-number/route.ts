@@ -16,6 +16,11 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
+import { managerPersonalNumberEntitlement } from "@/lib/one-number/personal-number-entitlement.server";
+import { getNumberAvailability } from "@/lib/number-subscription/availability.server";
+import { isNumberSubscriptionEnabled } from "@/lib/number-subscription/constants";
 import { resolveWorkspaceStatusLine, resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { resolveActiveWorkspace, resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -88,6 +93,7 @@ async function buildStatus(
     profileResult,
     automationSettings,
     all,
+    lineConfig,
   ] = await Promise.all([
     db
       .from("sms_runtime_config")
@@ -116,6 +122,8 @@ async function buildStatus(
       .maybeSingle(),
     loadManagerAutomationSettings(db, userId).catch(() => null),
     resolveWorkspaceWorkNumbers(db, userId).catch(() => null),
+    // Fails closed to per_workspace: then `sharedLine` stays null and nothing in Settings changes.
+    loadSharedLineConfig(db).catch(() => null),
   ]);
   // Full per-workspace number lists (up to 2, sharing included) for the
   // grouped Settings → Communication → Work numbers view. Only fetched for
@@ -130,6 +138,15 @@ async function buildStatus(
   );
 
   const pureCoManager = !workspace.owned;
+
+  // The set PropLane line, while it is live: which number every workspace texts from by default, and
+  // whether THIS workspace is on it (a workspace with a number of its own is not).
+  const sharedLine: ManagerMessagingNumberStatus["sharedLine"] =
+    lineConfig && lineConfig.mode === "shared" && lineConfig.sharedNumber
+      ? { number: lineConfig.sharedNumber, onSharedLine: workspaceOnSharedLine(lineConfig, workspace.id) }
+      : null;
+  // (the add-on facts are filled in below, once the entitlement has been read)
+
 
   const configuredMode = runtimeResult.error
     ? "paused"
@@ -273,6 +290,23 @@ async function buildStatus(
           provisionState: readiness.numberRow.provision_state,
         };
     }
+  } else if (sharedLine?.onSharedLine) {
+    // On the set PropLane line there is no per-workspace number row to check: the send path's own
+    // shared-line decision (runtime switch, rollout seat, the workspace wallet) is the answer.
+    const readiness = await evaluateWorkspaceSendReadiness({
+      db,
+      ownerUserId: workspace.ownerUserId,
+      workspaceId: workspace.id,
+      requiredCents: 3,
+      runtime: runtimeResult,
+    }).catch(() => null);
+    lineReady = sendEnvEnabled && readiness?.canSend === true;
+    lineBlocked = lineReady
+      ? null
+      : !sendEnvEnabled
+        ? "deployment"
+        : lineBlockForSendReadinessReason(readiness && !readiness.canSend ? readiness.reason : null);
+    viewerMayText = true;
   } else {
     const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
     lineReady = billing.allowed && sendEnvEnabled && modeAllowsManager && strictNumberReady;
@@ -292,7 +326,25 @@ async function buildStatus(
     viewerMayText = true;
   }
   const canSend = lineReady && viewerMayText;
-  const canRequestBilling = entitlementCanBeReconciled;
+  // The standalone PropLane Number subscription lets a Free manager hold a number too. Read only while
+  // the shared line is live (otherwise Settings is exactly what it always was).
+  const personalNumber = lineConfig?.mode === "shared" && lineConfig.sharedNumber && !pureCoManager
+    ? await managerPersonalNumberEntitlement(db, userId)
+    : null;
+  const addOnActive = Boolean(personalNumber?.ok && personalNumber.entitled && personalNumber.via === "add_on");
+  const canRequestBilling = entitlementCanBeReconciled || addOnActive;
+  // What "Get your own number" can buy for this workspace: the plan includes it (`canRequest` runs the
+  // request), or the standalone PropLane Number subscription (`available` = checkout is on and a
+  // number can actually be delivered), or it is already subscribed (`active`).
+  let addOn: { available: boolean; active: boolean } | null = null;
+  if (sharedLine?.onSharedLine && personalNumber?.ok) {
+    const byPlan = personalNumber.entitled && personalNumber.via === "plan";
+    const deliverable =
+      !byPlan && !addOnActive && isNumberSubscriptionEnabled()
+        ? (await getNumberAvailability(db, "manager").catch(() => ({ available: false }))).available
+        : false;
+    addOn = { available: deliverable, active: addOnActive };
+  }
 
   // One work number per workspace: a co-manager reads the owner's line and
   // never gets a Request button. Their own legacy row (bought before numbers
@@ -324,6 +376,7 @@ async function buildStatus(
 
   return {
     mode,
+    sharedLine: sharedLine && addOn ? { ...sharedLine, addOn } : sharedLine,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
     workspaceNumber,
     workspace: { id: workspace.id, name: workspace.name, owned: workspace.owned, isDefault: workspace.isDefault },
@@ -378,6 +431,7 @@ function publicStatus(
 ): ManagerMessagingNumberStatus {
   return {
     mode: status.mode,
+    sharedLine: status.sharedLine ?? null,
     workspaceRole: status.workspaceRole,
     workspaceNumber: status.workspaceNumber ?? null,
     workspace: status.workspace ?? null,
@@ -418,6 +472,7 @@ const PUBLIC_PROVISIONING_ERROR_PATTERNS: RegExp[] = [
   /^This workspace already has its own number\. Share a number in from another workspace instead of buying a second one\.$/,
   /^You're at your included work numbers\. Add an extra work number in Billing & plan to buy another\.$/,
   /^You cannot request a number for that workspace\.$/,
+  /^This workspace texts from the PropLane line\.$/,
 ];
 
 function publicProvisioningError(error: string): string {
@@ -539,11 +594,21 @@ export async function POST(req: Request) {
 
   // Reconcile at the explicit-request boundary, not on GET. Status checks stay
   // read-only and billing/provider work happens only after a manager asks.
-  const entitlement = await reconcileManagerSmsEntitlement(
-    actor.db,
-    actor.userId,
-  );
+  // Only a paid Pro or Business workspace may take a personalized number; a Free workspace simply
+  // texts from the PropLane line.
+  let entitlement: Awaited<ReturnType<typeof reconcileManagerSmsEntitlement>> = await reconcileManagerSmsEntitlement(actor.db, actor.userId);
   if (!entitlement.eligible) {
+    // A Free (or trialing) account may still hold a number through the standalone PropLane Number
+    // subscription; every other Pro feature stays locked.
+    const personal = await managerPersonalNumberEntitlement(actor.db, actor.userId);
+    if (personal.ok && personal.entitled && personal.via === "add_on") {
+      entitlement = { eligible: true, tier: "free", source: "none" };
+    }
+  }
+  if (!entitlement.eligible) {
+    if (entitlement.reason === "free") {
+      return NextResponse.json(PERSONAL_NUMBER_FREE_REFUSAL, { status: 403, headers: { "Cache-Control": "private, no-store" } });
+    }
     // A trial is a definite, not a transient, refusal — a work number is a paid
     // feature and this account is not paying yet (`refuseTrialForNumber`
     // already collapsed an eligible trial to `reason: "trialing"` above). Give
@@ -606,7 +671,7 @@ export async function POST(req: Request) {
         ...next,
         error: publicProvisioningError(result.error),
       },
-      { status: result.state === "pending_registration" ? 503 : 502 },
+      { status: "code" in result && result.code === "not_entitled" ? 403 : result.state === "pending_registration" ? 503 : 502 },
     );
   }
 

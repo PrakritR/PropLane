@@ -3,6 +3,71 @@
 Spec: [`one-number-spec.md`](one-number-spec.md). Shared types: `src/lib/one-number/contracts.ts`.
 Each workstream owns one heading below.
 
+## Number model (Oct 18 decision)
+
+Captain, verbatim: "have a set work number for anyone who signs up; for pro and business can get personalized
+work number for their workspace; keep overall service PropLane separate." (W16)
+
+- **Everyone texts on the set PropLane line** (`sms_runtime_config.shared_number_e164`, `line_mode = shared`).
+- **A Pro or Business workspace MAY take a personalized number** (the existing per-workspace provisioning).
+  Both run side by side. PropLane's own managed service (W15) has no exemption: it uses the same default line and only gets a personalized number on a paying plan (lead correction, Oct 18).
+- **Dedicated = a working number AND a paid entitlement** (captain addendum, Oct 18: current accounts move to this model too; free
+  has only the default PropLane line). A workspace is dedicated only when it holds a `manager_sms_numbers` home row that is live
+  (`active`, has a phone, registration approved: `managerCanSendFromOwnNumber`) and not released (or a `workspace_work_numbers`
+  link to one) AND the number's owner pays for a personalized number: a Pro / Business plan (`getEffectiveManagerSkuTier`, a live
+  signup trial does not count) or an active standalone **PropLane Number** subscription (`numberServiceEntitled`: active | past_due).
+  `managerPersonalNumberEntitlement` is the one answer. A number with no entitlement, a lapsed add-on, a number still provisioning
+  or awaiting registration, a failed or released one: the workspace stays on the PropLane line. Nobody pays today, so in shared
+  mode every existing workspace lands on the shared line. `loadSharedLineConfig` puts dedicated workspaces in
+  `dedicatedWorkspaceIds` (read only while the mode is `shared`; an unreadable number table or entitlement = fail closed to
+  `per_workspace`). `workspaceOnSharedLine` is false for them, `workspaceHasDedicatedNumber` true. That one decision drives
+  everything below. `per_workspace` mode is untouched.
+- **Free can buy the number alone.** The PropLane Number subscription ($5/month, `number_subscriptions`, `docs/agents/comms-billing.md`
+  § PropLane Number) now also takes `owner_role = 'manager'` (migration `20261018250000_number_subscription_manager_role.sql`, applied
+  to dev). `POST /api/number-subscription/checkout {role:"manager"}` (refused 409 `not_available` unless a manager number can be
+  provisioned: runtime not paused and `SMS_PROVISIONING_ENABLED`). The subscription is per user and carries exactly ONE number
+  account-wide (`provisionNumberForWorkspace` budget); Pro / Business include one per owned workspace. Every other Pro feature stays
+  locked. The status route reports `sharedLine.addOn = { available, active }`; Settings "Get your own number" runs the request flow
+  when the plan or an active add-on covers it, else sends a Free manager to the add-on checkout and returns to Settings.
+- **Vendors and residents keep their own subscription** (own number, own channel). Their number is never the shared one, so the
+  shared-line seam (`isSharedLineNumber(toPhone)`) never engages on it; `ingestVendorWorkIdentitySms` / `ingestResidentAgentNumberSms`
+  keep their inbound path, and the shared line still reaches them as an ordinary vendor / resident of a workspace.
+- **Existing numbers.** Nothing is released in code. Once shared mode is on, an existing workspace number that nobody pays for is no
+  longer used to send or to answer (the workspace is not dedicated). The production cutover runbook (later, human-run) forwards and
+  auto-replies those numbers for 60 days and then releases them.
+
+Files and invariants:
+
+1. **Router** (`router.server.ts`, `inbound-seam.server.ts`, `dedicated-redirect.server.ts`): candidates in a dedicated
+   workspace are not routed on the shared line. All matches dedicated: the text is answered once on the webhook TwiML
+   ("<house or workspace> texts from (XXX) XXX-XXXX. Please text that number.", the candidate's OWN number, one GSM-7
+   segment), no agent runs, no lead is made, and the text plus the reply are logged to that workspace's thread
+   (`messageSid`, `redirect:<sid>`). Mixed: the dedicated ones drop out and the rest route as usual. An
+   EMERGENCY word still gets the safety text and an urgent team alert. If the workspace's number cannot be named the
+   text falls to the existing no-owner log. A lead whose picked room belongs to a dedicated workspace is redirected the same way.
+2. **Outbound.** A dedicated workspace never sends from the shared number: `sendSharedLineMessage` refuses it
+   (`not_shared_mode`); `evaluateWorkspaceSendReadiness` resolves its own line even when it is not the owner's
+   default workspace (`dedicatedWorkspaceId`, shared mode only); `resolveConversationSendLine` ignores the shared-line
+   hint for a house in a dedicated workspace; `sendWorkspacePhoneText` (link and code texts) pins the workspace. Vendor dispatch, alerts and
+   lead assignment already branch on `workspaceOnSharedLine`.
+3. **Entitlement** (`personal-number.ts`, `personal-number-entitlement.server.ts`): `POST /api/manager/messaging-number` `request_number` and
+   `provisionNumberForWorkspace` allow Pro / Business (plan read through `resolveEffectiveManagerSkuTier`) or an active PropLane Number
+   subscription; PropLane's managed service has no exemption. A Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
+   PropLane line."), provisioning code `not_entitled`. Plan words never appear in the refusal.
+4. **Settings > Communication > Channels** (`pro-messaging-settings-panel.tsx`): `status.sharedLine = { number, onSharedLine }`
+   (null in `per_workspace`, so nothing changes there). A workspace on the line shows a "PropLane line" row (number, Copy,
+   no remove); with `canRequest` it also shows "Get your own number" (existing request modal). A workspace with its own
+   number shows it as today. `workNumberStatusWord({ sharedLine: true })` = "PropLane line". `lineReady` / `canSend` for a
+   workspace on the line come from the send path's own shared-line decision.
+5. **Where a number is shown.** Server: `resolveWorkspaceDisplayNumber` (own sendable number, else the line while the workspace
+   is on it) feeds the public catalog CTA phone, the single-listing lead route (`resolveSharedLineNumberFor`), listing-channel posts, the resident
+   welcome reachability line, resident manager contact, work contact, and house printables (`loadHouseOwnerSmsPhone` takes the
+   house's workspace). Client: `workspaceWorkNumber(status)` falls back to `sharedLine.number`, which every compose hint,
+   setup banner and reachability caller already reads. Entry codes (door card code, Text code row, their routes) do not exist for
+   a dedicated workspace (404 / null): its flyers carry its own number.
+
+Tests: `tests/unit/one-number-{config,shared-config,dedicated-routing,dedicated-outbound,personal-number,personal-number-entitlement,personal-number-route,personal-number-coexist,display-number,channels-shared-line}.test.ts(x)`.
+
 ## W1 - Shared-line router, keywords, HUMAN pause, shadow mode
 
 Flag: `sms_runtime_config.line_mode` (`per_workspace` default | `shadow` | `shared`). In `per_workspace` the

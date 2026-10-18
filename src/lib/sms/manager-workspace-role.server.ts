@@ -479,19 +479,29 @@ export async function resolveConversationSendLine(
   // matches no work line above. It answers from that same shared number (no numberId: there is no row),
   // never from the owner's default workspace number. The config read fails closed to per_workspace,
   // in which case this never matches and nothing changes.
+  const propertyId = hints.propertyId?.trim();
+  let houseWorkspace = "";
+  if (propertyId) {
+    const { data: house } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
+    houseWorkspace = String((house as { workspace_id?: unknown } | null)?.workspace_id ?? "").trim();
+  }
+
+  // A conversation that began on the shared line, in a workspace that has since taken a number of its
+  // own (Pro / Business), answers from that number: a workspace with its own line never sends from the
+  // shared one. The config read fails closed to per_workspace, where this never matches.
   const unmatched = (hints.linePhones ?? []).map((phone) => normalizeE164(phone)).filter((phone): phone is string => Boolean(phone));
   if (unmatched.length > 0) {
-    const { loadSharedLineConfig } = await import("@/lib/one-number/config.server");
+    const { loadSharedLineConfig, workspaceHasDedicatedNumber } = await import("@/lib/one-number/config.server");
     const config = await loadSharedLineConfig(db);
-    if (config.mode === "shared" && config.sharedNumber && unmatched.includes(config.sharedNumber)) {
+    if (
+      config.mode === "shared" && config.sharedNumber && unmatched.includes(config.sharedNumber) &&
+      !workspaceHasDedicatedNumber(config, houseWorkspace)
+    ) {
       return { ok: true, numberId: null, phoneNumber: config.sharedNumber, via: "shared" };
     }
   }
 
-  const propertyId = hints.propertyId?.trim();
   if (propertyId) {
-    const { data: house } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
-    const houseWorkspace = String((house as { workspace_id?: unknown } | null)?.workspace_id ?? "").trim();
     const hit = houseWorkspace ? rows.find((row) => row.workspaceId === houseWorkspace) : undefined;
     if (hit) return { ok: true, numberId: hit.id, phoneNumber: hit.phone || null, via: "house" };
   }

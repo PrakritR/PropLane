@@ -21,20 +21,20 @@ export async function resolveNumberOwner(
   const ctx = await getPortalAccessContext();
   if (!ctx.user) return { ok: false, status: 401, error: "Unauthorized." };
 
-  const held = (["vendor", "resident"] as const).filter((role) => hasRole(ctx, role));
-  if (held.length === 0) return { ok: false, status: 403, error: "Only vendor and resident accounts can have a PropLane Number." };
+  const held = (["vendor", "resident", "manager"] as const).filter((role) => hasRole(ctx, role));
+  if (held.length === 0) return { ok: false, status: 403, error: "Only vendor, resident and manager accounts can have a PropLane Number." };
 
   let role: NumberOwnerRole | null = null;
   if (requestedRole !== undefined && requestedRole !== null && requestedRole !== "") {
-    if (requestedRole !== "vendor" && requestedRole !== "resident") return { ok: false, status: 400, error: "Invalid role." };
+    if (requestedRole !== "vendor" && requestedRole !== "resident" && requestedRole !== "manager") return { ok: false, status: 400, error: "Invalid role." };
     if (!held.includes(requestedRole)) return { ok: false, status: 403, error: "You do not hold that role." };
     role = requestedRole;
   } else if (held.length === 1) {
     role = held[0]!;
-  } else if (ctx.effectiveRole === "vendor" || ctx.effectiveRole === "resident") {
+  } else if (ctx.effectiveRole === "vendor" || ctx.effectiveRole === "resident" || ctx.effectiveRole === "manager") {
     role = ctx.effectiveRole;
   }
-  if (!role) return { ok: false, status: 400, error: "Choose vendor or resident." };
+  if (!role) return { ok: false, status: 400, error: "Choose vendor, resident or manager." };
 
   return {
     ok: true,
