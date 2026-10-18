@@ -22,6 +22,7 @@ import {
 } from "@/lib/managed-finance/ledger.server";
 import { buildOwnerStatement, buildVendorStatement, type Statement, type StatementLine, type StatementRow } from "@/lib/managed-finance/statement";
 import { resolvePayoutDestination } from "@/lib/managed-finance/withdrawals.server";
+import { workspaceOccupancy } from "@/lib/managed-finance/occupancy.server";
 
 /** What the Finances pages show: balance, available, pending, the statement for a month, withdrawals and approvals. */
 
@@ -37,6 +38,7 @@ export type OwnerFinancesView = {
   pendingApprovals: PendingExpense[];
   withdrawals: WithdrawalView[];
   payoutReady: boolean | null;
+  occupancy: { houses: number; units: number; occupied: number } | null;
 };
 
 function toStatementLines(lines: LedgerLineRow[]): StatementLine[] {
@@ -97,6 +99,7 @@ export async function loadOwnerFinances(
     const dest = await resolvePayoutDestination(stripe, db, input.ownerUserId).catch(() => null);
     payoutReady = dest ? !("error" in dest) : null;
   }
+  const occupancy = await workspaceOccupancy(db, input.workspaceId, month);
   return {
     workspace: { id: input.workspaceId, name: ws.name ?? "Your workspace" },
     policy: { id: current.id, status: current.status, feeLine: describeManagedFee(current.terms), terms: current.terms, signedAt: current.signedAt },
@@ -106,6 +109,7 @@ export async function loadOwnerFinances(
     pendingApprovals: pending,
     withdrawals,
     payoutReady,
+    occupancy,
   };
 }
 
