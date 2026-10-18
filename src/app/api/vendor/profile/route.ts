@@ -6,6 +6,8 @@ import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { normalizeE164 } from "@/lib/twilio";
 import { buildVendorAcceptedPaymentMethods } from "@/lib/vendor-payment-methods";
 import { resolveOwnVendorRecord } from "@/lib/vendor-own-record";
+import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { legacyPhoneWriteDecision, PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
 
@@ -96,6 +98,15 @@ export async function PATCH(req: Request) {
         );
       }
     }
+    let clearPhoneVerification = false;
+    if (normalizedPhone !== undefined && (await loadSharedLineConfig(auth.db)).mode === "shared") {
+      const { data: current, error } = await auth.db.from("profiles").select("phone, phone_verified_at").eq("id", auth.userId).maybeSingle();
+      if (error) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
+      const decision = legacyPhoneWriteDecision(current, normalizedPhone, true);
+      if (decision.blocked) return NextResponse.json({ error: VERIFIED_PHONE_CHANGE_MESSAGE, redirectTo: PHONE_VERIFICATION_PATH }, { status: 409 });
+      normalizedPhone = decision.phone;
+      clearPhoneVerification = decision.clearVerification;
+    }
 
     // Autosave (VD03) catches most bad emails client-side before this ever
     // fires, but a client check is never authority — reject one here too.
@@ -142,6 +153,7 @@ export async function PATCH(req: Request) {
     // Consent is set/cleared by the vendor here; STOP opt-out is separate.
     const profilePatch: Record<string, unknown> = {};
     if (normalizedPhone !== undefined) profilePatch.phone = normalizedPhone;
+    if (clearPhoneVerification) profilePatch.phone_verified_at = null;
     if (preferredLanguage !== undefined) profilePatch.preferred_language = preferredLanguage || null;
     if (body.smsConsent !== undefined) profilePatch.sms_consent_at = body.smsConsent ? new Date().toISOString() : null;
     if (Object.keys(profilePatch).length > 0) {

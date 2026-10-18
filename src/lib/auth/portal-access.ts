@@ -5,6 +5,7 @@ import type { AuthRole } from "@/components/auth/portal-switcher";
 import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerSessionProfile, type ServerProfile } from "@/lib/auth/server-profile";
+import { needsPhoneVerification } from "@/lib/auth/phone-auth.server";
 
 export const ACTIVE_PORTAL_COOKIE = "axis_active_portal";
 
@@ -41,6 +42,13 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
   const base = await getServerSessionProfile();
   if (!base.user) {
     return { user: null, profile: null, roles: [], effectiveRole: null };
+  }
+
+  // Every portal and OAuth continuation shares this server-side access path.
+  // The verification screen uses direct session auth to avoid a redirect loop.
+  // View-as is a read-only operator session, not a new login for the target.
+  if (!base.viewAs && await needsPhoneVerification(base.user.id)) {
+    redirect("/auth/verify-phone");
   }
 
   const fallbackRole = base.profile?.role ?? null;

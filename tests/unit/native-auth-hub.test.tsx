@@ -38,10 +38,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function renderHub() {
+function renderHub(phoneFirst = false) {
   return render(
     <AppUiProvider>
-      <NativeAuthHub />
+      <NativeAuthHub phoneFirst={phoneFirst} />
     </AppUiProvider>,
   );
 }
@@ -78,6 +78,22 @@ describe("NativeAuthHub native session recovery", () => {
       writable: true,
       value: realLocation,
     });
+  });
+
+  it("places phone sign-in before social sign-in and retains the named email form when enabled", async () => {
+    renderHub(true);
+    const phone = await screen.findByRole("button", { name: "Continue with phone" });
+    const google = screen.getByRole("button", { name: "Continue with Google" });
+    expect(phone.compareDocumentPosition(google) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue with Apple" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Email")).toHaveAttribute("name", "email");
+    expect(screen.getByPlaceholderText("Password")).toHaveAttribute("name", "password");
+  });
+
+  it("preserves the legacy sign-in surface when phone-first is disabled", async () => {
+    renderHub();
+    await screen.findByPlaceholderText("Email");
+    expect(screen.queryByRole("button", { name: "Continue with phone" })).not.toBeInTheDocument();
   });
 
   it("recovers a marked OAuth return immediately when mounted visible", async () => {

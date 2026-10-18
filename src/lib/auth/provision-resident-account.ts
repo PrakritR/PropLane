@@ -7,6 +7,8 @@ import { attachInboxThreadsToResident } from "@/lib/tour-resident-link.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { generateAxisId } from "@/lib/manager-id";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { legacyPhoneWriteDecision, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 type ApplicationRow = {
   id: string;
@@ -109,6 +111,15 @@ export async function provisionResidentAccountByEmail(
     emailProven && opts.inheritFromApplication === true ? await findApplicationByEmail(supabase, normalEmail) : null;
   const linkedApplication = Boolean(matchingApplication);
 
+  const shared = (await loadSharedLineConfig(supabase)).mode === "shared";
+  if (shared) {
+    const { data: profile, error } = await supabase.from("profiles").select("phone, phone_verified_at").eq("id", opts.userId).maybeSingle();
+    if (error) return { ok: false, status: 503, error: "Could not load your profile." };
+    if (legacyPhoneWriteDecision(profile, explicitPhone || profile?.phone || null, true).blocked) {
+      return { ok: false, status: 409, error: VERIFIED_PHONE_CHANGE_MESSAGE };
+    }
+  }
+
   const existingAuthId = emailProven ? await findAuthUserIdByEmail(supabase, normalEmail) : null;
   if (existingAuthId && existingAuthId !== opts.userId) {
     await migratePortalUserId(supabase, existingAuthId, opts.userId);
@@ -128,7 +139,13 @@ export async function provisionResidentAccountByEmail(
     },
   });
 
-  const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", opts.userId).maybeSingle();
+  const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", opts.userId).maybeSingle();
+  if (shared && profileReadError) return { ok: false, status: 503, error: "Could not load your profile." };
+  const phoneDecision = legacyPhoneWriteDecision(existingProfile,
+    explicitPhone || (existingProfile?.phone as string | null)?.trim() ||
+    (matchingApplication ? normalizeE164(applicationPhone(matchingApplication) ?? "") : null) || null,
+    shared);
+  if (phoneDecision.blocked) return { ok: false, status: 409, error: VERIFIED_PHONE_CHANGE_MESSAGE };
   const approved =
     (matchingApplication ? applicationApproved(matchingApplication) : false) ||
     Boolean(existingProfile?.application_approved);
@@ -145,11 +162,8 @@ export async function provisionResidentAccountByEmail(
       manager_id: existingProfile?.manager_id?.trim() || axisId,
       // Notifications text this number automatically — carry the phone the
       // resident gave on their rental application onto the profile.
-      phone:
-        explicitPhone ||
-        (existingProfile?.phone as string | null)?.trim() ||
-        (matchingApplication ? normalizeE164(applicationPhone(matchingApplication) ?? "") : null) ||
-        null,
+      phone: phoneDecision.phone,
+      ...(phoneDecision.clearVerification ? { phone_verified_at: null } : {}),
       application_approved: approved,
     },
     { onConflict: "id" },

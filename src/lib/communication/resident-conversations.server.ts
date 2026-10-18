@@ -6,6 +6,7 @@ import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { profilePhoneVariants } from "@/lib/sms-consent";
 import { loadAccountCandidates, resolveSmsConversationRef, workspaceIdForWorkLine } from "@/lib/communication/conversation-key.server";
 import { workspaceKey } from "@/lib/communication/conversation-key";
+import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
   decideResidentSmsLink,
@@ -85,11 +86,12 @@ export async function loadResidentPhoneIdentity(db: Db, residentId: string): Pro
     const phone = normalizeE164((data as Row).phone);
     if (!phone || !(data as Row).phone_verified_at) return none(hasPhone);
 
-    const { data: owners } = await db
+    const { data: owners, error: ownersError } = await db
       .from("profiles")
       .select("id, phone, phone_verified_at")
       .in("phone", profilePhoneVariants(phone))
       .not("phone_verified_at", "is", null);
+    if (ownersError) return none(hasPhone);
     const verifierIds = [
       ...new Set(
         ((owners ?? []) as Row[])
@@ -376,11 +378,13 @@ export async function readProjectionCandidates(db: Db, identity: ResidentPhoneId
   return [...byId.values()];
 }
 
-export async function readTurns(db: Db, conversationId: string): Promise<ResidentSmsTurn[]> {
-  const { data } = await db
+export async function readTurns(db: Db, conversationId: string, workspaceId?: string): Promise<ResidentSmsTurn[]> {
+  let query = db
     .from("sms_projection_turns")
     .select("id, direction, body, occurred_at, from_phone, to_phone")
-    .eq("conversation_id", conversationId)
+    .eq("conversation_id", conversationId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data } = await query
     .order("occurred_at", { ascending: false })
     .limit(TURNS_PER_CONVERSATION);
   return ((data ?? []) as Row[]).flatMap((row) => {
@@ -455,9 +459,32 @@ export async function loadLinkedSmsConversations(
         if (clean(line.workspace_id)) lineWorkspace.set(clean(line.id), clean(line.workspace_id));
       }
     }
+    // A shared number has no single workspace. Its server-written projection
+    // stamp is usable only when the workspace exists, belongs to the projection
+    // owner, and this exact verified phone owns the conversation. A legacy work
+    // line remains authoritative whenever one is present.
+    const config = await loadSharedLineConfig(db);
+    const sharedWorkspaceByConversation = new Map<string, string>();
+    if (config.mode === "shared" && identity.verifiedPhone && !identity.state.ambiguous) {
+      const sharedRows = mine.map(({ row }) => row).filter((row) =>
+        !row.workLineId && row.workspaceId && workspaceOnSharedLine(config, row.workspaceId) &&
+        normalizeE164(row.phone) === identity.verifiedPhone);
+      const workspaceIds = [...new Set(sharedRows.map((row) => row.workspaceId!))];
+      if (workspaceIds.length) {
+        const { data, error } = await db.from("portal_workspaces").select("id, owner_user_id").in("id", workspaceIds);
+        if (!error) {
+          const owners = new Map(((data ?? []) as Row[]).map((row) => [clean(row.id), clean(row.owner_user_id)]));
+          for (const row of sharedRows) {
+            if (row.owner && owners.get(row.workspaceId!) === row.owner) {
+              sharedWorkspaceByConversation.set(row.id, row.workspaceId!);
+            }
+          }
+        }
+      }
+    }
     const byWorkspace = new Map<string, { rows: ProjectionRow[]; linkedBy: Set<"account" | "verified_phone"> }>();
     for (const entry of mine) {
-      const workspaceId = entry.row.workLineId ? lineWorkspace.get(entry.row.workLineId) : undefined;
+      const workspaceId = entry.row.workLineId ? lineWorkspace.get(entry.row.workLineId) : sharedWorkspaceByConversation.get(entry.row.id);
       if (!workspaceId) continue;
       const bucket = byWorkspace.get(workspaceId) ?? { rows: [], linkedBy: new Set() };
       bucket.rows.push(entry.row);
@@ -471,7 +498,7 @@ export async function loadLinkedSmsConversations(
     for (const [workspaceId, bucket] of byWorkspace) {
       const counterparty = counterparties.get(workspaceId);
       if (!counterparty) continue;
-      const turnSets = await Promise.all(bucket.rows.map((row) => readTurns(db, row.id)));
+      const turnSets = await Promise.all(bucket.rows.map((row) => readTurns(db, row.id, sharedWorkspaceByConversation.get(row.id))));
       const seen = new Set<string>();
       const turns = turnSets
         .flat()

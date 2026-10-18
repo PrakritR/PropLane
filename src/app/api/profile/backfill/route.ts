@@ -3,6 +3,8 @@ import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { legacyPhoneWriteDecision, PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
 
@@ -34,14 +36,19 @@ export async function POST(req: Request) {
     const axisId = typeof body.axisId === "string" ? body.axisId.trim() : "";
 
     const svc = createSupabaseServiceRoleClient();
-    const { data: existingProfile } = await svc.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    const shared = (await loadSharedLineConfig(svc)).mode === "shared";
+    const { data: existingProfile, error: profileReadError } = await svc.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    if (shared && profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
+    const decision = legacyPhoneWriteDecision(existingProfile, phone || existingProfile?.phone || null, shared);
+    if (decision.blocked) return NextResponse.json({ error: VERIFIED_PHONE_CHANGE_MESSAGE, redirectTo: PHONE_VERIFICATION_PATH }, { status: 409 });
 
     const nextProfile = {
       id: user.id,
       email: user.email?.trim().toLowerCase() ?? existingProfile?.email ?? null,
       role: primaryRoleWhenAddingResident(existingProfile?.role as string | undefined),
       full_name: fullName || existingProfile?.full_name || null,
-      phone: phone || existingProfile?.phone || null,
+      phone: decision.phone,
+      ...(decision.clearVerification ? { phone_verified_at: null } : {}),
       manager_id: existingProfile?.manager_id ?? null,
       application_approved: existingProfile?.application_approved ?? false,
     };

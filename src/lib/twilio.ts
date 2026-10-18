@@ -31,6 +31,8 @@ export async function sendSms(
     mediaUrls?: string[];
     creditReservationKey?: string;
     purpose?: "phone_verification";
+    /** Platform auth can select its shared-line service; null sends directly from its number. */
+    messagingServiceSid?: string | null;
     /** Trusted actor identity for delayed/provider calls outside SMS ALS. */
     actorUserId?: string;
   },
@@ -97,7 +99,9 @@ export async function sendSms(
     }
   }
 
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  const messagingServiceSid = opts?.messagingServiceSid !== undefined
+    ? opts.messagingServiceSid?.trim()
+    : process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
   const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
 
   try {

@@ -14,6 +14,7 @@ export type ServerProfile = {
   full_name: string | null;
   /** Present after `profiles.phone` migration is applied. */
   phone?: string | null;
+  phone_verified_at?: string | null;
   /** Twilio "from" number stored by managers; used to send SMS via Axis. */
   sms_from_number?: string | null;
   application_approved: boolean;
@@ -41,6 +42,7 @@ function normalizeProfileRow(data: Record<string, unknown>, fallbackUserId: stri
     manager_id,
     full_name,
     phone,
+    phone_verified_at: typeof data.phone_verified_at === "string" ? data.phone_verified_at : null,
     sms_from_number,
     application_approved,
   };

@@ -186,6 +186,23 @@ max_frequency = "5s"
 # enabled = true
 # uri = "pg-functions://<database>/<schema>/<hook_name>"
 
+# Phone sign-in: hosted configuration is an explicit dashboard operation, not
+# applied by this file. Authentication > Hooks > Send SMS: choose HTTPS and set
+# https://<app-host>/api/auth/hooks/send-sms. Store the generated v1,whsec_ secret
+# in the app's SUPABASE_SEND_SMS_HOOK_SECRET; never put its value in git.
+# Enable the Phone provider but keep phone sign-ups disabled: new accounts go
+# through our verified application flow, not public GoTrue sign-up. Use
+# 6-digit OTPs, 600-second expiry, and configure
+# the Auth SMS rate limit to 3 per hour before enabling the hook-backed flow.
+# Without hosted setup, the app uses its own hashed phone_otp_challenges flow.
+# The hook sends through our platform Twilio verification transport; shared
+# line mode uses sms_runtime_config.shared_number_e164. No hosted settings are
+# changed here. Local CLI equivalent (leave disabled until configured):
+# [auth.hook.send_sms]
+# enabled = true
+# uri = "http://host.docker.internal:3000/api/auth/hooks/send-sms"
+# secrets = "env(SUPABASE_SEND_SMS_HOOK_SECRET)"
+
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
 enabled = false

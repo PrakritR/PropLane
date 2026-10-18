@@ -10,6 +10,8 @@ import {
 import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useSharedPhoneAuth } from "@/hooks/use-shared-phone-auth";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   Check,
@@ -250,6 +252,7 @@ export function PortalProfileClient({
   idValue: string;
 }) {
   const demo = isDemoModeActive();
+  const sharedPhoneAuth = useSharedPhoneAuth(demo);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -371,7 +374,16 @@ export function PortalProfileClient({
       <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr={`profile-${field}-row`}>
         <div className="flex min-h-11 items-center justify-between gap-4">
           <span className="text-sm font-medium text-foreground">{label}</span>
-          {editing ? (
+          {field === "phone" && sharedPhoneAuth ? (
+            <Link
+              href={`/auth/verify-phone?next=${encodeURIComponent(`${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`)}`}
+              className="flex min-w-0 items-center gap-2 text-right text-sm text-foreground hover:text-primary"
+              data-attr="settings-edit-phone"
+            >
+              <span className="max-w-[22rem] truncate">{value || "Add"}</span>
+              <span className="text-muted">Change phone</span>
+            </Link>
+          ) : editing ? (
             <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
               <Input
                 id={inputId}

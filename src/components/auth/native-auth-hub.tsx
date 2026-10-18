@@ -10,6 +10,7 @@ import {
   AuthLoadingCard,
 } from "@/components/auth/auth-mobile-primitives";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
+import { PhoneAuthForm } from "@/components/auth/phone-auth-form";
 import { SignInErrorNotice } from "@/components/auth/sign-in-error-notice";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
@@ -83,6 +84,7 @@ function buildCreateAccountHref(searchParams: URLSearchParams): string {
 }
 
 type NativeAuthHubProps = {
+  phoneFirst?: boolean;
   /** @deprecated Create-account uses /auth/create-account; kept for vendor-register invite redirects. */
   defaultMode?: "sign-in" | "create";
 };
@@ -91,7 +93,7 @@ type NativeAuthHubProps = {
 const PASSIVE_NATIVE_SESSION_TIMEOUT_MS = 400;
 const PASSIVE_NATIVE_USER_VALIDATION_TIMEOUT_MS = 1_200;
 
-function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
+function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: NativeAuthHubProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   useAuthWelcomeChrome(true);
@@ -101,6 +103,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [phoneBusy, setPhoneBusy] = useState(false);
   // `/auth/sign-in` is where EVERY native OAuth failure lands (`nativeOAuthSignInFailureUrl`
   // navigates here with ?error=oauth&message=…). Reading those params is what turns that
   // navigation from a bare page reload — "it just refreshes and goes back" — into an
@@ -324,7 +327,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     router.push(createAccountHref);
   }, [createAccountHref, router]);
 
-  const locked = busy;
+  const locked = busy || phoneBusy;
   const showForgotPassword = failedSignInAttempts >= 2 && !signInError?.credentialMismatch;
 
   if (checkingSession) {
@@ -357,6 +360,12 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
           )}
 
           <div className="space-y-3">
+            {phoneFirst ? (
+              <>
+                <PhoneAuthForm nextPath={signInNextPath} disabled={busy} onBusyChange={setPhoneBusy} />
+                <AuthDivider label="or" />
+              </>
+            ) : null}
             <OAuthSocialStack
               nextPath={signInNextPath}
               intent={signInIntent}
