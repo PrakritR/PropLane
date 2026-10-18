@@ -106,6 +106,8 @@ export async function runManagerSmsAgentTurn(
     inboundMessageSid?: string | null;
     onInboundPersisted?: () => Promise<boolean>;
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null };
+    /** Instant "On it" for a confirmed slow action (dispatch, screening, payments). */
+    onSlowWork?: (toolName: string) => Promise<void>;
   },
 ): Promise<ManagerSmsTurn | null> {
   const access = args.ctx.managerSmsAccess;
@@ -129,6 +131,7 @@ export async function runManagerSmsAgentTurn(
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
     onInboundPersisted: args.onInboundPersisted,
+    onSlowWork: args.onSlowWork,
     workspaceId: args.ctx.workspace?.id ?? null,
     testActor: args.testActor ? { ...args.testActor, mode: "manager" } : undefined,
     precomputedReply:

@@ -106,6 +106,10 @@ export async function runResidentSmsAgentTurn(
     inboundText: string;
     inboundMessageSid?: string | null;
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null; targetListingId: string };
+    /** One-number shared line: answer top house questions from stored facts, no model. */
+    fastPath?: boolean;
+    /** Instant "On it" for a confirmed slow action (dispatch, screening, payments). */
+    onSlowWork?: (toolName: string) => Promise<void>;
   },
 ): Promise<ResidentSmsTurn | null> {
   if (args.ctx.activeManagerId !== args.ownerManagerUserId) {
@@ -115,6 +119,12 @@ export async function runResidentSmsAgentTurn(
   const referenceResolution = resolveWorkOrderReference(args.inboundText).length
     ? await resolveResidentWorkOrderReference(args.ctx, args.inboundText)
     : null;
+  // Resident fast path: a verified current resident asking a stored-fact question is answered
+  // from the house's facts, no model. A miss (or any trouble) runs the normal agent below.
+  const fast =
+    args.fastPath && !args.testActor && !referenceResolution
+      ? await (await import("@/lib/one-number/resident-fast-path.server")).tryResidentFastPath(db, args.ctx, args.inboundText)
+      : null;
   return runSmsAgentTurn<ResidentAgentContext>(db, {
     ctx: args.ctx,
     surface: RESIDENT_SMS_SURFACE,
@@ -126,9 +136,12 @@ export async function runResidentSmsAgentTurn(
     inboundMessageSid: args.inboundMessageSid,
     testActor: args.testActor ? { ...args.testActor, mode: "resident" } : undefined,
     precomputedReply:
-      referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
+      fast?.reply ??
+      (referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
         ? referenceResolution.message
-        : null,
+        : null),
+    precomputedLane: fast ? "fast_path" : "scripted",
+    onSlowWork: args.onSlowWork,
     additionalSystemContext: referenceResolution
       ? workOrderReferencePromptContext(referenceResolution)
       : null,
