@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { approveSuggestedEntry, dismissSuggestedEntry } from "@/lib/one-number/knowledge/approval.server";
-import { houseUsableByActor, requireKnowledgeActor } from "@/lib/one-number/knowledge/route-auth.server";
+import { houseUsableByActor, requireKnowledgeActor, type KnowledgeActor } from "@/lib/one-number/knowledge/route-auth.server";
 import { deleteEntry, getEntry, updateEntry } from "@/lib/one-number/knowledge/store.server";
 import { isReplyTopic } from "@/lib/one-number/knowledge/topics";
 import { asAudience, KNOWLEDGE_AUDIENCES } from "@/lib/one-number/knowledge/types";
@@ -12,11 +12,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Params = { params: Promise<{ id: string }> };
 
 /** The entry must live in the actor's workspace, and a non-owner may only touch their houses. */
-async function loadWritable(actor: Awaited<ReturnType<typeof requireKnowledgeActor>> & { ok: true }, id: string) {
+async function loadWritable(actor: KnowledgeActor, id: string) {
   if (!UUID.test(id)) return null;
-  const entry = await getEntry(actor.actor.db, actor.actor.workspaceId, id);
+  const entry = await getEntry(actor.db, actor.workspaceId, id);
   if (!entry) return null;
-  if (!actor.actor.isOwner && (!entry.propertyId || !actor.actor.allowedPropertyIds?.includes(entry.propertyId))) return null;
+  if (!actor.isOwner && (!entry.propertyId || !actor.allowedPropertyIds?.includes(entry.propertyId))) return null;
   return entry;
 }
 
@@ -29,7 +29,7 @@ export async function PATCH(req: Request, { params }: Params) {
   if (!auth.ok) return auth.response;
   const { actor } = auth;
   const { id } = await params;
-  const entry = await loadWritable(auth, id);
+  const entry = await loadWritable(auth.actor, id);
   if (!entry) return NextResponse.json({ error: "Not found." }, { status: 404 });
   let body: Record<string, unknown>;
   try {
@@ -96,7 +96,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   const auth = await requireKnowledgeActor();
   if (!auth.ok) return auth.response;
   const { id } = await params;
-  const entry = await loadWritable(auth, id);
+  const entry = await loadWritable(auth.actor, id);
   if (!entry) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const ok = await deleteEntry(auth.actor.db, auth.actor.workspaceId, entry.id);
   return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Could not delete." }, { status: 503 });
