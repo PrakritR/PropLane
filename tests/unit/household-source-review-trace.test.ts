@@ -73,6 +73,40 @@ describe("recordHouseholdSourceReviewNeeded", () => {
     });
   });
 
+  it("keys a release-stage review apart from a credit-stage one for the same source", async () => {
+    // A credited hold that cannot pay out is not missing money, so it must not be
+    // suppressed by — nor suppress — a credit refusal row for the same source.
+    const rows: Insert[] = [];
+    const db = {
+      from() {
+        return {
+          async insert(row: Insert) {
+            if (rows.some((existing) => existing.dedupe_key === row.dedupe_key)) {
+              return { error: { code: "23505", message: "duplicate key" } };
+            }
+            rows.push(row);
+            return { error: null };
+          },
+        };
+      },
+    };
+    for (const stage of ["credit", "release", "release"] as const) {
+      await recordHouseholdSourceReviewNeeded(db as never, {
+        ownerManagerUserId: MANAGER,
+        sourceId: "cs_both",
+        surface: stage === "credit" ? "checkout_verify" : "hold_release",
+        stage,
+        error: new Error(stage === "credit" ? "no allocation" : "payout refused"),
+      });
+    }
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.dedupe_key)).toEqual([
+      householdSourceReviewDedupeKey("cs_both"),
+      householdSourceReviewDedupeKey("cs_both", "release"),
+    ]);
+    expect(rows[1]).toMatchObject({ input_summary: { stage: "release" } });
+  });
+
   it("treats the duplicate key a retry hits as already filed", async () => {
     const rows: Insert[] = [];
     const duplicate = { code: "23505", message: 'duplicate key value violates unique constraint "audit_log_dedupe_key_key"' };
@@ -209,6 +243,37 @@ describe("every non-interactive credit path files its refusal", () => {
     expect(financials).toContain("() => creditVerifiedHouseholdAutopaySource(");
     expect(financials).not.toContain("await creditVerifiedHouseholdAutopaySource(");
   });
+
+  it("the autopay RUNNER files too — the off-session driver nobody is watching", async () => {
+    const { readFileSync } = await import("node:fs");
+    const runner = readFileSync("src/lib/resident-autopay.server.ts", "utf8");
+    expect(runner).toContain('from "@/lib/household-source-review.server"');
+    expect(runner).toContain('surface: "autopay_runner"');
+    expect(runner).toContain("() => creditVerifiedHouseholdAutopaySource(");
+    expect(runner).not.toContain("await creditVerifiedHouseholdAutopaySource(");
+  });
+
+  it("no credit anywhere in the codebase is reached without the traced helper", async () => {
+    const { readFileSync, readdirSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry)) files.push(full);
+      }
+    };
+    walk("src");
+    const offenders = files.filter((file) => {
+      if (file.endsWith("household-captured-source.server.ts")) return false;
+      const source = readFileSync(file, "utf8");
+      // The two verify routes answer the resident themselves and file without rethrowing.
+      if (/household-charge-verify|resident-ach-payment/.test(file)) return false;
+      return /await credit(Verified)?Household\w*Source\(/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe("the admin Health page", () => {
@@ -250,5 +315,34 @@ describe("the admin Health page", () => {
       fact: "Household captured source has an unverified prior allocation.",
     });
     expect(payments?.rows[0]!.title).toContain("cs_test_1");
+    expect(payments?.rows[0]!.title).toContain("no manager hold");
+  });
+
+  it("names a credited hold that could not pay out as a payout problem, not missing money", async () => {
+    const { loadAdminHealth } = await import("@/lib/admin/admin-health.server");
+    const auditRows = [
+      {
+        id: "audit-2",
+        landlord_id: MANAGER,
+        input_summary: { sourceId: "cs_release_1", surface: "hold_release", stage: "release" },
+        result_summary: { reason: "Saved payout account does not match its owner." },
+        created_at: "2026-10-17T00:00:00.000Z",
+      },
+    ];
+    const db = {
+      from(table: string) {
+        const query: Record<string, unknown> = {};
+        for (const method of ["select", "in", "gte", "lt", "eq", "is", "not", "order", "limit"]) {
+          query[method] = () => query;
+        }
+        query.then = (resolve: (value: unknown) => unknown) =>
+          resolve({ data: table === "audit_log" ? auditRows : [], error: null });
+        return query;
+      },
+    };
+    const health = await loadAdminHealth(db as never);
+    const row = health.groups.find((group) => group.id === "payments")?.rows[0];
+    expect(row?.title).toBe("Credited hold could not pay out (cs_release_1)");
+    expect(row?.fact).toBe("Saved payout account does not match its owner.");
   });
 });

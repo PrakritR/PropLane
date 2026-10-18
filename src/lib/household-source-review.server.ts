@@ -33,13 +33,31 @@ export type HouseholdSourceReviewSurface =
   | "manual_ach_verify"
   | "webhook"
   | "webhook_manual_ach"
-  | "webhook_autopay";
+  | "webhook_autopay"
+  | "autopay_runner"
+  | "hold_release";
+
+/**
+ * WHICH half of the money move needs the person.
+ *
+ * `credit` is the serious one: the capture settled but the manager's hold was never
+ * created, so the money has no allocation. `release` means the hold EXISTS and is
+ * correct — only paying it out refused (an unlinked or mismatched Connect account, a
+ * transient provider error), so the hold stays `classified_held` and the next release
+ * attempt picks it up. Keeping them apart stops a payout problem from reading as missing
+ * money, and stops either from suppressing the other's row.
+ */
+export type HouseholdSourceReviewStage = "credit" | "release";
 
 /** The reason string as stored: one line, bounded, never a stack trace. */
 export const HOUSEHOLD_SOURCE_REVIEW_REASON_MAX_CHARS = 300;
 
-export function householdSourceReviewDedupeKey(sourceId: string): string {
-  return `${HOUSEHOLD_SOURCE_REVIEW_ACTION}:${sourceId.trim()}`;
+export function householdSourceReviewDedupeKey(
+  sourceId: string,
+  stage: HouseholdSourceReviewStage = "credit",
+): string {
+  const suffix = stage === "credit" ? "" : `${stage}:`;
+  return `${HOUSEHOLD_SOURCE_REVIEW_ACTION}:${suffix}${sourceId.trim()}`;
 }
 
 /** The charge ids a household source's metadata names, in the order it names them. */
@@ -77,12 +95,18 @@ export async function recordHouseholdSourceReviewNeeded(
     chargeIds?: readonly string[];
     /** Which path saw it, so staff know where to look. */
     surface: HouseholdSourceReviewSurface;
+    /** Defaults to the credit itself — the case where the money has no allocation. */
+    stage?: HouseholdSourceReviewStage;
     error: unknown;
   },
 ): Promise<{ recorded: boolean; reason: string }> {
   const reason = householdSourceReviewReason(input.error);
+  const stage = input.stage ?? "credit";
   const ownerUserId = input.ownerManagerUserId?.trim() ?? "";
   const sourceId = input.sourceId.trim();
+  // Logged here, once, for every filed review: the row is what staff find later, the log
+  // line is what a tail of the deploy shows while it is happening.
+  console.error("[household source review]", { stage, surface: input.surface, sourceId, reason });
   if (!ownerUserId || !sourceId) {
     console.error("[household source review] cannot file without an owner and a source", {
       surface: input.surface,
@@ -101,9 +125,10 @@ export async function recordHouseholdSourceReviewNeeded(
         paymentIntentId: input.paymentIntentId?.trim() || null,
         chargeIds: [...(input.chargeIds ?? [])],
         surface: input.surface,
+        stage,
       },
       result_summary: { reason },
-      dedupe_key: householdSourceReviewDedupeKey(sourceId),
+      dedupe_key: householdSourceReviewDedupeKey(sourceId, stage),
       created_at: new Date().toISOString(),
     });
     // A duplicate key is the success case on a retry: the source is already filed.

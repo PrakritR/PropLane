@@ -58,8 +58,9 @@ async function answer(paymentIntentId: string, userId: string) {
       // The charge rows are already paid by the reconcile above. Crediting the manager's
       // hold is platform accounting — idempotent, and retried by the webhook — so a refusal
       // there is reported, never turned into "your completed payment did not go through".
-      // The reason is filed against the manager (one row per source, admin Health) so a
-      // missing hold is findable instead of living only in a log line.
+      // The reason is filed against the manager (one row per source, admin Health) and
+      // logged with its stack here, so a missing hold is findable either way.
+      console.error("[resident ach verify] credit verified source", e);
       await recordHouseholdSourceReviewNeeded(db, {
         ownerManagerUserId: paymentIntent.metadata?.manager_user_id,
         sourceId: paymentIntent.id,

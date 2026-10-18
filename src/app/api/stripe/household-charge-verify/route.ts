@@ -89,8 +89,9 @@ export async function GET(req: Request) {
         // idempotent, and the `checkout.session.completed` webhook runs the very same
         // credit — so it is reported, never a refusal of a settled payment. Every refusal
         // is deliberate and the webhook's retries cannot talk it round, so the reason is
-        // filed durably against the manager (one row per session, admin Health) instead of
-        // living in a log line nobody reads.
+        // filed durably against the manager (one row per session, admin Health) AND logged
+        // with its stack here, rather than discarded.
+        console.error("[household verify] credit verified source", e);
         await recordHouseholdSourceReviewNeeded(db, {
           ownerManagerUserId: session.metadata?.manager_user_id,
           sourceId: session.id,

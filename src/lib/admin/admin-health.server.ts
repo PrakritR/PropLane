@@ -206,9 +206,16 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
   const payments: AdminHealthRow[] = sourceReviewRows.map((r) => {
     const input = (r.input_summary ?? {}) as Record<string, unknown>;
     const result = (r.result_summary ?? {}) as Record<string, unknown>;
+    const source = str(input.sourceId) || "unknown source";
+    // A stuck PAYOUT is not missing money: the hold exists and is correct, only its
+    // release refused. Saying so keeps staff from hunting an allocation that is fine.
+    const title =
+      str(input.stage) === "release"
+        ? `Credited hold could not pay out (${source})`
+        : `Paid charge with no manager hold (${source})`;
     return {
       id: `source-review-${str(r.id)}`,
-      title: `Paid charge with no manager hold (${str(input.sourceId) || "unknown source"})`,
+      title,
       fact: str(result.reason) || "The payment source could not be credited.",
       at: strOrNull(r.created_at),
       accountId: strOrNull(r.landlord_id),

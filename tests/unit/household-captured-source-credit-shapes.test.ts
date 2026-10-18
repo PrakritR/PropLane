@@ -13,7 +13,7 @@
  * A failure here names the refusal, which is the whole point: the function has ~15
  * fail-closed throws and the route only ever reported the generic sentence.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import type { ServiceFeePayer } from "@/lib/payment-policy";
 
@@ -21,13 +21,40 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/stripe-ledger-fees", () => ({
   enrichLedgerPaymentFromStripeCharge: vi.fn(async () => undefined),
 }));
+const release = vi.hoisted(() => ({
+  throws: null as Error | null,
+  settleThrows: null as Error | null,
+  calls: 0,
+  reviews: [] as { stage?: string; surface?: string; sourceId?: string; reason?: string }[],
+}));
 vi.mock("@/lib/platform-hold-release.server", () => ({
   verifyPlatformHoldSourceRefundHistory: vi.fn(async () => undefined),
-  releaseVerifiedPlatformHoldsForOwner: vi.fn(async () => undefined),
+  releaseVerifiedPlatformHoldsForOwner: vi.fn(async () => {
+    release.calls += 1;
+    if (release.throws) throw release.throws;
+  }),
 }));
 vi.mock("@/lib/platform-owner-recovery.server", () => ({
-  settleClearedPlatformOwnerRecovery: vi.fn(async () => undefined),
+  settleClearedPlatformOwnerRecovery: vi.fn(async () => {
+    if (release.settleThrows) throw release.settleThrows;
+  }),
   verifiedCapturedChargeAvailability: vi.fn(async () => ({ availableOn: null })),
+}));
+vi.mock("@/lib/household-source-review.server", () => ({
+  recordHouseholdSourceReviewNeeded: vi.fn(
+    async (
+      _db: unknown,
+      input: { stage?: string; surface?: string; sourceId?: string; error?: unknown },
+    ) => {
+      release.reviews.push({
+        stage: input.stage,
+        surface: input.surface,
+        sourceId: input.sourceId,
+        reason: input.error instanceof Error ? input.error.message : String(input.error),
+      });
+      return { recorded: true, reason: "" };
+    },
+  ),
 }));
 vi.mock("@/lib/stripe-platform-hold.server", () => ({
   findPlatformHold: vi.fn(async () => null),
@@ -35,6 +62,13 @@ vi.mock("@/lib/stripe-platform-hold.server", () => ({
 }));
 
 const { creditVerifiedHouseholdCheckoutSource } = await import("@/lib/household-captured-source.server");
+
+beforeEach(() => {
+  release.throws = null;
+  release.settleThrows = null;
+  release.calls = 0;
+  release.reviews.length = 0;
+});
 
 const MANAGER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "cs_test_browserproof";
@@ -238,5 +272,54 @@ describe("creditVerifiedHouseholdCheckoutSource on the shapes the resident flow 
     // frozen subtotal, and a line cannot have been paid more than it ever cost.
     const cart: Cart = [{ id: "hc_rent_1", kind: "rent", amountLabel: "$100.00", cents: 140000 }];
     await expect(credit(cart, "resident")).rejects.toThrow(/exact saved principal/);
+  });
+});
+
+describe("a credit that lands but cannot pay out", () => {
+  const cart: Cart = [{ id: "hc_rent_1", kind: "rent", amountLabel: "$1,400.00", cents: 140000 }];
+
+  it("stands, and files the payout refusal as a release review instead of failing the credit", async () => {
+    // The real browser-proof 409: the credit RPC had COMMITTED, then
+    // `releaseVerifiedPlatformHoldsForOwner` -> `readyOwnedDestination` threw on a Connect
+    // account whose `metadata.axis_user_id` did not match its owner, and the resident was
+    // told their settled payment needed review.
+    release.throws = new Error("Saved payout account does not match its owner.");
+    const { calls } = await credit(cart, "resident");
+
+    expect(calls).toHaveLength(1);
+    expect(release.reviews).toEqual([
+      {
+        stage: "release",
+        surface: "hold_release",
+        sourceId: SESSION,
+        reason: "Saved payout account does not match its owner.",
+      },
+    ]);
+  });
+
+  it("does the same when the recovery settle before it throws", async () => {
+    release.settleThrows = new Error("Concurrent platform transfer destination needs retry.");
+    await expect(credit(cart, "resident")).resolves.toBeDefined();
+    expect(release.reviews.map((r) => r.stage)).toEqual(["release"]);
+    // The release never ran, so the hold stays classified_held for the next pass.
+    expect(release.calls).toBe(0);
+  });
+
+  it("files nothing when the payout goes through", async () => {
+    await credit(cart, "resident");
+    expect(release.calls).toBe(1);
+    expect(release.reviews).toHaveLength(0);
+  });
+
+  it("re-runs idempotently on a webhook replay without a second credit of its own", async () => {
+    // The credit itself is the RPC, which is idempotent on (source, PI); this asserts the
+    // post-credit isolation does not turn a replay into a refusal either.
+    release.throws = new Error("Saved payout account does not match its owner.");
+    const first = await credit(cart, "resident");
+    const second = await credit(cart, "resident");
+    expect(first.calls).toHaveLength(1);
+    expect(second.calls).toHaveLength(1);
+    expect(release.reviews).toHaveLength(2);
+    expect(new Set(release.reviews.map((r) => r.sourceId))).toEqual(new Set([SESSION]));
   });
 });

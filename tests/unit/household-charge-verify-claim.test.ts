@@ -91,7 +91,12 @@ describe("resident household checkout verification", () => {
   it("returns paid only after the exact claim settlement succeeds", async () => {
     const response = await verify();
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ paid: true, chargeId: "hc_a", sessionId: "cs_paid" });
+    const body = await response.json();
+    expect(body).toMatchObject({ paid: true, chargeId: "hc_a", sessionId: "cs_paid" });
+    // A credit that returns is a clean settlement: the post-credit payout release is
+    // isolated INSIDE it (a refused payout files its own review and does not throw), so a
+    // stuck payout never reaches the resident as "needs review".
+    expect(body.sourceReview).toBeUndefined();
     expect(state.paidCalls).toHaveBeenCalledOnce();
     expect(state.creditCalls).toHaveBeenCalledOnce();
   });
