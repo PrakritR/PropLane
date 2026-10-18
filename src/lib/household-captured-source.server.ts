@@ -9,6 +9,8 @@ import { enrichLedgerPaymentFromStripeCharge } from "@/lib/stripe-ledger-fees";
 import { verifyPlatformHoldSourceRefundHistory, type HeldSourceRow } from "@/lib/platform-hold-release.server";
 import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
 import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-release.server";
+import { creditManagedCapture, type ManagedCaptureComponent } from "@/lib/managed-finance/capture.server";
+import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 type CapturedComponent = {
   source_id: string; kind: HouseholdCharge["kind"];
@@ -119,6 +121,38 @@ export async function creditVerifiedHouseholdManualSource(
     amount_total: pi.amount_received, currency: "usd", mode: "payment",
     status: "complete", payment_status: "paid",
   } as Stripe.Checkout.Session);
+}
+
+
+/**
+ * A PropLane-managed workspace's capture (docs/agents/owner-management.md): the money stays in PropLane's platform balance and is
+ * allocated in the party ledger (owner / fee / deposit) instead of being credited to a manager hold. Returns false for every
+ * other workspace, which then continues down the unchanged hold path. A cart already credited as a hold stays a hold.
+ */
+async function creditManagedIfApplicable(
+  db: SupabaseClient, stripe: Stripe,
+  input: {
+    pi: Stripe.PaymentIntent; chargeId: string; grossCents: number;
+    paid: Array<{ id: string; charge: HouseholdCharge }>; components: CapturedComponent[];
+  },
+): Promise<boolean> {
+  const paidAt = input.paid.map((p) => p.charge.paidAt || new Date().toISOString()).sort()[0]!;
+  const managed = await resolveManagedForProperties(db, input.paid.map((p) => p.charge.propertyId), paidAt);
+  if (!managed) return false;
+  if (await findPlatformHoldByPaymentIntent(db, input.pi.id)) return false;
+  const components: ManagedCaptureComponent[] = input.components.map((c) => {
+    const source = input.paid.find((p) => p.id === c.source_id)!;
+    return {
+      id: c.source_id, kind: c.kind, liabilityClass: c.liability_class, principalCents: c.principal_cents,
+      recipientNetCents: c.recipient_net_cents, propertyId: source.charge.propertyId ?? null,
+      residentEmail: source.charge.residentEmail, paidAt: source.charge.paidAt || paidAt,
+    };
+  });
+  await creditManagedCapture(db, stripe, {
+    policy: managed.policy, paymentIntentId: input.pi.id, stripeChargeId: input.chargeId,
+    grossCents: input.grossCents, components,
+  });
+  return true;
 }
 
 /** Assign the frozen recipient fee across the actual paid charges, with stable rounding. */
@@ -321,6 +355,7 @@ export async function creditVerifiedHouseholdCheckoutSource(
     return { id, charge: saved };
   });
   const components = allocateComponents(paid, principal, net);
+  if (await creditManagedIfApplicable(db, stripe, { pi, chargeId: charge.id, grossCents: gross, paid, components })) return;
   const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
   if (existing) {
     const { data: verified, error: verifiedError } = await db.from("platform_payment_holds")
@@ -408,6 +443,9 @@ export async function creditVerifiedHouseholdAutopaySource(
     throw new Error("Autopay paid charge changed its captured source.");
   }
   const components = allocateComponents([{ id: chargeId, charge: saved }], principal, net);
+  if (await creditManagedIfApplicable(db, stripe, {
+    pi, chargeId: charge.id, grossCents: pi.amount_received, paid: [{ id: chargeId, charge: saved }], components,
+  })) return;
   const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
   if (existing) {
     const { data: verified, error: verifiedError } = await db.from("platform_payment_holds")

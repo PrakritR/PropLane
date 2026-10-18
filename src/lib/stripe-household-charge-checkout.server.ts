@@ -27,6 +27,7 @@ import {
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
 
@@ -317,6 +318,11 @@ export async function createHouseholdChargeCheckout(
     })).captured) {
       return { ok: false, status: 403, code: "TEST_WORKSPACE_PROVIDER_DISABLED", error: "Payments are unavailable for test accounts." };
     }
+
+    // One Checkout is one payee. A cart that mixes a PropLane-managed workspace's charges with another workspace's (or a
+    // house with no workspace) would need two allocations, so it is refused before any money moves.
+    const managedProblem = await managedCartProblem(db, loaded.map((row) => row.charge.propertyId));
+    if (managedProblem) return { ok: false, status: 422, code: "MIXED_PAYMENT_SETUP", error: managedProblem };
 
     const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);
     if (!feePayerResolved.ok) return feePayerResolved;

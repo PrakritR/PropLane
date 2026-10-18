@@ -3,6 +3,7 @@ import "server-only";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runReservedPlatformMoneyRefund } from "@/lib/platform-money-refund.server";
+import { applyManagedRefund } from "@/lib/managed-finance/adjustments.server";
 
 /**
  * The one place a paid household charge is refunded, for every entrypoint that
@@ -28,6 +29,9 @@ import { runReservedPlatformMoneyRefund } from "@/lib/platform-money-refund.serv
  *   while the manager silently keeps money they no longer hold. `handleStripeRefund`
  *   scopes its reservation requirement to `'hold'` holds for the same reason, so
  *   this refund books through the legacy ledger path without wedging the webhook.
+ * - **Managed** (docs/agents/owner-management.md): a payment allocated to a PropLane-managed workspace's party ledger has no
+ *   hold and no transfer. It is refunded from the platform balance (no `reverse_transfer`) and the ledger reverses the owner's
+ *   and PropLane's shares pro rata, once per refund id.
  * - **Pre-arbitration hold** (a hold row with no `source_verified_at` and no
  *   frozen components, written before the central rail landed): refused up front
  *   with no Stripe call. `reserve_platform_money_refund` would raise
@@ -58,12 +62,14 @@ type CapturedHold = {
 
 export type HouseholdChargeRefundResult = {
   refundId: string;
-  rail: "central" | "destination";
+  rail: "central" | "destination" | "managed";
 };
 
 /** Which rail this payment refunds on, and the reservation it needs if central. */
 export type HouseholdChargeRefundRail =
   | { rail: "destination" }
+  /** A PropLane-managed workspace's payment: refunded from the platform balance; the party ledger reverses the owner's share. */
+  | { rail: "managed"; allocationId: string }
   | { rail: "central"; holdId: string; ownerUserId: string };
 
 /**
@@ -82,6 +88,24 @@ export async function resolveHouseholdChargeRefundRail(
     throw new Error("A refund needs its exact source charge and a positive amount.");
   }
 
+  // A payment allocated to a managed workspace has no hold at all: refund it from the platform balance (no transfer exists to
+  // reverse) and let the party ledger reverse the owner's share. A read that fails is a failure, never a fall-through.
+  const { data: managedRows, error: managedError } = await db
+    .from("managed_rent_allocations")
+    .select("id, principal_cents, refunded_principal_cents")
+    .eq("stripe_charge_id", input.stripeChargeId)
+    .eq("charge_id", input.chargeId)
+    .limit(2);
+  if (managedError && String(managedError.code) !== "42P01" && String(managedError.code) !== "PGRST205") {
+    throw new Error("Could not resolve the payment's recipient allocation.");
+  }
+  if ((managedRows ?? []).length === 1) {
+    const row = managedRows![0] as { id: string; principal_cents: number; refunded_principal_cents: number };
+    if (input.amountCents > row.principal_cents - row.refunded_principal_cents) {
+      throw new HouseholdChargeRefundReviewError("A refund cannot exceed what remains of the payment.");
+    }
+    return { rail: "managed", allocationId: row.id };
+  }
   const { data: holds, error } = await db
     .from("platform_payment_holds")
     .select("id,owner_user_id,owner_role,stripe_charge_id,source_allocation_mode,source_verified_at,source_components")
@@ -133,6 +157,22 @@ export async function refundPaidHouseholdCharge(
     stripeChargeId: input.stripeChargeId,
     amountCents: input.amountCents,
   });
+
+  if (resolved.rail === "managed") {
+    // No reverse_transfer: the charge was captured on the platform with no transfer. The ledger reversal is posted by the
+    // refund webhook (and again here once the refund has succeeded); both are keyed on the refund id.
+    const refund = await stripe.refunds.create(
+      {
+        charge: input.stripeChargeId,
+        amount: input.amountCents,
+        ...(input.reason ? { reason: input.reason } : {}),
+        metadata: { ...input.metadata, managed_refund: "1" },
+      },
+      { idempotencyKey: input.idempotencyKey },
+    );
+    if (refund.status === "succeeded") await applyManagedRefund(db, refund, input.stripeChargeId);
+    return { refundId: refund.id, rail: "managed" };
+  }
 
   if (resolved.rail === "destination") {
     const refund = await stripe.refunds.create(

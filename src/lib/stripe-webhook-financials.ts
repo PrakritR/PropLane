@@ -26,6 +26,7 @@ import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { settleVendorRefundFromWebhook } from "@/lib/vendor-banking/central-refund.server";
 import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { applyManagedDispute, applyManagedRefund } from "@/lib/managed-finance/adjustments.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
 
@@ -539,6 +540,9 @@ export async function handleStripeRefund(
       return;
     }
   }
+  // A PropLane-managed workspace's payment: reverse the owner's and PropLane's shares in the party ledger (once per refund id).
+  // The manager's own books below are still posted the same way for every payment.
+  await applyManagedRefund(db, settledRefund, stripeChargeId);
   const postedDate = new Date((settledRefund.created ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
   const components = reservation?.refund_components ?? null;
   if (reservation && (!components?.length || components.some((component) =>
@@ -643,6 +647,8 @@ export async function handleStripeDisputeEvent(db: SupabaseClient, dispute: Stri
   if (await refuseClassifiedFinancialMutation(db, managerUserId, "dispute")) return true;
 
   await upsertStripeDisputeRecord(db, dispute, managerUserId, payment?.source_charge_id ?? null);
+  // A managed workspace's rent: freeze, release or write off the owner's share in the party ledger.
+  await applyManagedDispute(db, dispute);
   return true;
 }
 

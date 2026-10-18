@@ -1,4 +1,5 @@
 import "server-only";
+import { resolveManagedForVendorInvoice } from "@/lib/managed-finance/vendor-bills.server";
 
 import { randomUUID } from "node:crypto";
 import type Stripe from "stripe";
@@ -70,6 +71,13 @@ export async function startVendorInvoicePayCheckout(
   }
   const invoiceCents = Math.round(Number(row.total_cents) || 0);
   if (invoiceCents < 100) return { ok: false, status: 400, error: "Invoice total must be at least $1.00." };
+  // A PropLane-managed workspace pays vendors from PropLane's own funds (the party ledger), never from a card or bank Checkout.
+  try {
+    const managed = await resolveManagedForVendorInvoice(db, row);
+    if (managed.resolution) return { ok: false, status: 409, error: "This workspace pays vendors from PropLane funds. Use Pay from balance." };
+  } catch {
+    return { ok: false, status: 503, error: "Could not confirm how this invoice is paid. Try again in a moment." };
+  }
   if (row.payment_claim && row.payment_claim !== "stripe") {
     return { ok: false, status: 409, error: "Payment already started using another source." };
   }
