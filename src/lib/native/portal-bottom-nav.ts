@@ -106,6 +106,23 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
     return [...ordered, ...trailing];
   }
 
+  // Manager / pro and vendor follow their footer order constant (the sidebar's rows, then each row's tabs), so the
+  // phone's top strip and More sheet read in the same order as the desktop sidebar whatever order the registry lists.
+  const footerOrder: readonly string[] | null =
+    kind === "pro" || kind === "manager"
+      ? NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER
+      : kind === "vendor"
+        ? NATIVE_BOTTOM_NAV_VENDOR_ORDER
+        : null;
+  if (footerOrder) {
+    const rank = (section: string) => {
+      const index = footerOrder.indexOf(section);
+      return index === -1 ? footerOrder.length : index;
+    };
+    const sorted = [...rest].sort((a, b) => rank(a.section) - rank(b.section));
+    return settings ? [...sorted, settings] : sorted;
+  }
+
   if (settings) return [...rest, settings];
   return [...items];
 }

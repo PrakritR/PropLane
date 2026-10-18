@@ -60,7 +60,13 @@ export function isAppNavHiddenInNativeShell(kind: PortalKind, section: string, i
  * every page in the group. Section ids, URLs, handlers, tier gates and stage guards are untouched: this only
  * decides how the sections are SHOWN. A lock applies to a TAB (its own section), never to the whole row.
  */
-export type NavFoldGroup = { label: string; sections: readonly string[]; key?: string };
+export type NavFoldGroup = {
+  label: string;
+  sections: readonly string[];
+  key?: string;
+  /** A shorter name for a section when it is a TAB of this row ("Incoming" for "Incoming payments"). */
+  tabLabels?: Readonly<Record<string, string>>;
+};
 export type NavFoldConfig = Record<string, NavFoldGroup>;
 
 /** The sidebar row key of a group: `key`, else its first section. */
@@ -79,7 +85,11 @@ const PRO_FOLDS: NavFoldConfig = {
   properties: { label: "Properties", sections: ["properties", "bookings", "promotion"] },
   leasing: { label: "Leasing", sections: ["tours", "applications", "leases", "forms"], key: "leases" },
   people: { label: "People", sections: ["residents", "vendors", "services"] },
-  money: { label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
+  money: {
+    label: "Money",
+    sections: ["payments", "outgoing", "financials", "documents"],
+    tabLabels: { payments: "Incoming", outgoing: "Outgoing" },
+  },
 };
 const PRO_ROW_ORDER = ["home", "communication", "properties", "leasing", "people", "money"] as const;
 
@@ -100,7 +110,11 @@ const RESIDENT_ROW_ORDER = ["home", "communication", "my-home", "applying", "mon
 const VENDOR_FOLDS: NavFoldConfig = {
   home: { label: "Home", sections: ["dashboard"] },
   work: { label: "Work", sections: ["work-orders", "calendar", "reviews"] },
-  money: { label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
+  money: {
+    label: "Money",
+    sections: ["payments", "outgoing", "financials", "documents"],
+    tabLabels: { payments: "Incoming", outgoing: "Outgoing" },
+  },
 };
 const VENDOR_ROW_ORDER = ["home", "work", "communication", "money"] as const;
 
@@ -172,14 +186,14 @@ export function navSectionTabsFor(
   kind: PortalKind,
   section: string,
   availableSections: readonly string[],
-): { groupId: string; label: string; sections: string[] } | null {
+): { groupId: string; label: string; sections: string[]; tabLabels: Readonly<Record<string, string>> } | null {
   const groupId = navFoldIdFor(kind, section);
   if (!groupId) return null;
   const group = NAV_FOLDS[kind][groupId]!;
   const available = new Set(availableSections);
   const sections = group.sections.filter((id) => available.has(id));
   if (sections.length < 2) return null;
-  return { groupId, label: group.label, sections };
+  return { groupId, label: group.label, sections, tabLabels: group.tabLabels ?? {} };
 }
 
 /**

@@ -32,6 +32,7 @@ function SectionTabStrip({
   definition,
   section,
   groupSections,
+  tabLabels,
   label,
   subscriptionTier,
   residentNavStage,
@@ -40,6 +41,7 @@ function SectionTabStrip({
   definition: PortalDefinition;
   section: string;
   groupSections: string[];
+  tabLabels: Readonly<Record<string, string>>;
   label: string;
   subscriptionTier?: ManagerPortalNavTier | null;
   residentNavStage?: ResidentPortalNavStage;
@@ -63,7 +65,7 @@ function SectionTabStrip({
       subscriptionTier: subscriptionTier ?? undefined,
       residentNavStage,
     });
-    const tabLabel = definition.sections.find((s) => s.section === id)?.label ?? id;
+    const tabLabel = tabLabels[id] ?? definition.sections.find((s) => s.section === id)?.label ?? id;
     const locked = lock !== "none";
     const reason =
       locked && definition.kind === "resident" && residentNavStage
@@ -129,6 +131,7 @@ export function PortalSectionTabs({
       definition={definition}
       section={section}
       groupSections={group.sections}
+      tabLabels={group.tabLabels}
       label={group.label}
       subscriptionTier={subscriptionTier}
       residentNavStage={residentNavStage}
