@@ -129,6 +129,7 @@ import { listDocumentsTool } from "./domains/documents";
 import { managerFinancialsWriteTools } from "./domains/financials-write";
 import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
+import { houseGroupTools } from "./domains/house-groups";
 import { confirmTourInquiryTool } from "./domains/tours-write";
 import {
   bookTourTool,
@@ -286,6 +287,8 @@ export const agentRegistry = buildRegistry([
   ...managerServicesWriteTools,
   // Vendor dispatch: the manager approves a waiting run by name, or sends a role to an existing service.
   ...managerDispatchTools,
+  // House chat: the manager announces to one house, several or all (the YES gate is the approval).
+  ...houseGroupTools,
   // Bookings reads + room-block writes (calendar area). remove_room_block is destructive.
   ...managerBookingsTools,
   // Manager operations by text: tours on a day, rent status, an application's review link, a resident

@@ -1078,6 +1078,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["actual_owner_user_id"] },
   },
   {
+    // A deleted resident's seat in a house group goes with the account; the row names a phone and a first name.
+    table: "house_group_members",
+    phase: 1,
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
     // Global contact keyed on the phone; the login link is detached, the phone row stays.
     table: "sms_phone_contacts",
     phase: 2,
@@ -1374,6 +1380,10 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_provider_events: "Raw provider webhook log; carries no account column.",
   sms_segment_usage: "Aggregate billing counters; carries no account column.",
   sms_line_sessions: "Shared-line router state keyed on a phone; carries no account column.",
+  house_group_settings: "Workspace house-chat switch and daily post cap; cascades with the workspace.",
+  house_group_conversations: "One Twilio Conversation per house member list; cascades with the workspace and the house.",
+  house_group_preferences: "House-chat consent and opt-out keyed on workspace + phone; cascades with the workspace.",
+  house_group_messages: "Redacted house-chat log (dedupe, daily post count, RA state); cascades with the group.",
   vendor_dispatch_rule_vendors: "Ordered vendor chain of a dispatch rule; cascades with the rule and the vendor row.",
   vendor_dispatch_attempts: "Offers inside one dispatch run; cascade with the run.",
   sms_line_thread_state: "Per phone + workspace AI pause state; cascades with the workspace.",
