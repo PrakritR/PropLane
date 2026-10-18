@@ -48,6 +48,9 @@ const LIST_ROW_SOURCES = [
   "src/components/portal/service-outgoing-payments-list.tsx",
   "src/components/portal/service-details-section.tsx",
   "src/components/portal/service-assign-dialog.tsx",
+  "src/components/portal/dispatch-rules-list.tsx",
+  "src/components/portal/service-dispatch-section.tsx",
+  "src/components/portal/vendor-dispatch-offers.tsx",
 ];
 
 const PILL_PATTERNS: Array<{ label: string; re: RegExp }> = [

@@ -3,6 +3,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { VendorCheckIn } from "@/lib/vendor-check-ins";
 import type { VendorDocumentRecord } from "@/lib/vendor-documents";
 import type { VendorChannel, VendorMessaging } from "@/lib/vendor-messaging";
+import type { VendorDispatchFields } from "@/lib/vendor-dispatch/vendor-roles";
 
 export type ManagerVendorRow = {
   id: string;
@@ -27,6 +28,14 @@ export type ManagerVendorRow = {
   insurancePolicyNumber?: string;
   /** ISO date (yyyy-mm-dd) the vendor's insurance coverage expires. */
   insuranceExpiresAt?: string;
+  /** Dispatch roles, service area, rate, license and availability (`vendor-roles.ts`), normalized server-side on every save. */
+  dispatchTrades?: VendorDispatchFields["dispatchTrades"];
+  serviceArea?: string;
+  dispatchRateCents?: number;
+  dispatchPayModel?: VendorDispatchFields["dispatchPayModel"];
+  licenseNumber?: string;
+  /** Absent = available; only an explicit false takes the vendor out of dispatch. */
+  dispatchAvailable?: boolean;
   /** Uploaded compliance files (insurance cert, W-9 PDF, license). */
   vendorDocuments?: VendorDocumentRecord[];
   /** When true, vendor accepts bank transfer via Stripe Connect (link bank in Payments). */

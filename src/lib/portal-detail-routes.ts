@@ -1666,10 +1666,10 @@ export function vendorListHref(basePath: string, tab: VendorDirectoryTab = "your
   return tab === "yours" ? `${basePath}/vendors` : `${basePath}/vendors?tab=${tab}`;
 }
 
-export type VendorDirectoryTab = "yours" | "catalog" | "services";
+export type VendorDirectoryTab = "yours" | "catalog" | "services" | "dispatch";
 
 export function parseVendorDirectoryTab(raw: string | null | undefined): VendorDirectoryTab {
-  return raw === "catalog" || raw === "services" ? raw : "yours";
+  return raw === "catalog" || raw === "services" || raw === "dispatch" ? raw : "yours";
 }
 
 export function vendorCatalogDetailHref(

@@ -33,6 +33,9 @@ export function VendorListFilterFields({
   onAreaChange,
   rating,
   onRatingChange,
+  roleOptions,
+  roles = [],
+  onRolesChange,
 }: {
   categoryOptions: { value: string; label: string }[];
   categories: string[];
@@ -43,9 +46,14 @@ export function VendorListFilterFields({
   onAreaChange: (next: string) => void;
   rating: string;
   onRatingChange: (next: string) => void;
+  /** Dispatch roles (vendor-dispatch-1018): narrows Your vendors to the ones who take that kind of job. */
+  roleOptions?: { value: string; label: string }[];
+  roles?: string[];
+  onRolesChange?: (next: string[]) => void;
 }) {
   const closeFieldMenu = useFilterAccordionClose();
   const [draftCategories, setDraftCategories] = usePortalFilterDraft(categories, onCategoriesChange, []);
+  const [draftRoles, setDraftRoles] = usePortalFilterDraft(roles, onRolesChange ?? (() => undefined), []);
   return (
     <FilterFieldsAccordion>
       <FilterCollapsibleSection
@@ -64,6 +72,24 @@ export function VendorListFilterFields({
           dataAttr="vendors-filter-category"
         />
       </FilterCollapsibleSection>
+      {!directory && roleOptions && onRolesChange ? (
+        <FilterCollapsibleSection
+          sectionId="vendor-role"
+          label="Dispatch role"
+          summary={filterMultiSelectSummary(draftRoles, roleOptions, "All roles")}
+          empty={draftRoles.length === 0}
+          menuOptionCount={roleOptions.length}
+          dataAttr="vendors-filter-role-trigger"
+        >
+          <FilterCheckboxList
+            options={roleOptions}
+            selected={draftRoles}
+            onChange={setDraftRoles}
+            emptyMenuText="No roles"
+            dataAttr="vendors-filter-role"
+          />
+        </FilterCollapsibleSection>
+      ) : null}
       {directory ? (
         <>
           <div>

@@ -16,6 +16,7 @@ import { VendorSettingsGear } from "@/components/portal/vendor-settings-gear";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { VendorEstimateBidSection } from "@/components/portal/vendor-estimate-bid-section";
 import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
+import { VendorDispatchOffers } from "@/components/portal/vendor-dispatch-offers";
 import { RecordBandFilter, RecordTabBand } from "@/components/portal/record-list-band";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -1174,6 +1175,7 @@ export function VendorWorkOrdersPanel({
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.
         </p>
       ) : null}
+      {!isFindWork && stageTabId === "open" ? <VendorDispatchOffers /> : null}
       {isFindWork ? (
         <PortalRecordListSurface
           isEmpty={boardVisible.length === 0}

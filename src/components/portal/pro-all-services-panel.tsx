@@ -139,6 +139,9 @@ import {
 import { ServiceVendorPipeline, type VendorsIntent } from "@/components/portal/service-vendor-cycle-section";
 import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
 import { ServiceDetailsSection } from "@/components/portal/service-details-section";
+import { ServiceDispatchSection } from "@/components/portal/service-dispatch-section";
+import { useDispatchRuns } from "@/lib/vendor-dispatch/dispatch-client";
+import { DISPATCH_RUN_STATUS_LABEL } from "@/lib/vendor-dispatch/runs-view";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
 import { Modal } from "@/components/ui/modal";
@@ -206,6 +209,34 @@ function ServicesAssigneeFilterField({
   );
 }
 
+const DISPATCH_FILTER_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "awaiting_approval", label: DISPATCH_RUN_STATUS_LABEL.awaiting_approval },
+];
+
+/** Services Filter > Dispatch: the services whose dispatch is waiting on the manager's approval. */
+function ServicesDispatchFilterField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const closeFieldMenu = useFilterAccordionClose();
+  return (
+    <FilterCollapsibleSection
+      sectionId="dispatch"
+      label="Dispatch"
+      summary={filterSingleSelectSummary(value, DISPATCH_FILTER_OPTIONS, "Any")}
+      empty={!value}
+      menuOptionCount={DISPATCH_FILTER_OPTIONS.length}
+      dataAttr="services-filter-dispatch-trigger"
+    >
+      <FilterSingleSelectList
+        options={DISPATCH_FILTER_OPTIONS}
+        value={value}
+        onChange={onChange}
+        onPick={closeFieldMenu}
+        dataAttr="services-filter-dispatch"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
 export function ManagerAllServicesPanel({
   tabId: serverTabId,
   basePath,
@@ -249,6 +280,13 @@ export function ManagerAllServicesPanel({
   /** Resident emails (lower-cased); one at a time, like the property scope. */
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [dispatchFilter, setDispatchFilter] = useState("");
+  // Runs waiting on the manager's approval (vendor-dispatch-1018): a Filter, never a stage bucket.
+  const awaitingDispatch = useDispatchRuns({ status: "awaiting_approval" });
+  const awaitingDispatchKeys = useMemo(
+    () => new Set(awaitingDispatch.runs.map((run) => `${run.sourceType}:${run.sourceId}`)),
+    [awaitingDispatch.runs],
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [woBucket, setWoBucket] = useState<WorkOrderBucketId>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
@@ -434,8 +472,9 @@ export function ManagerAllServicesPanel({
       const id = assigneeFilter.slice("team:".length);
       rows = rows.filter((r) => r.assignee?.type === "team" && r.assignee.id === id);
     }
+    if (dispatchFilter === "awaiting_approval") rows = rows.filter((r) => awaitingDispatchKeys.has(`work_order:${r.id}`));
     return rows;
-  }, [workOrders, propertyFilters, residentFilters, assigneeFilter]);
+  }, [workOrders, propertyFilters, residentFilters, assigneeFilter, dispatchFilter, awaitingDispatchKeys]);
 
   const filteredRequests = useMemo(() => {
     let rows = serviceRequests;
@@ -447,8 +486,9 @@ export function ManagerAllServicesPanel({
     if (residentFilters.length > 0) {
       rows = rows.filter((r) => residentFilters.includes((r.residentEmail ?? "").trim().toLowerCase()));
     }
+    if (dispatchFilter === "awaiting_approval") rows = rows.filter((r) => awaitingDispatchKeys.has(`service_request:${r.id}`));
     return rows;
-  }, [serviceRequests, propertyFilters, residentFilters]);
+  }, [serviceRequests, propertyFilters, residentFilters, dispatchFilter, awaitingDispatchKeys]);
 
   /**
    * Residents the list can be scoped to — everyone who has a service, narrowed
@@ -534,9 +574,11 @@ export function ManagerAllServicesPanel({
     setPropertyFilters(lockedPropertyId ? [lockedPropertyId] : []);
     setResidentFilters([]);
     setAssigneeFilter("");
+    setDispatchFilter("");
   };
 
-  const servicesFilterActiveCount = portalFilterActiveCount([lockedPropertyId ? [] : propertyFilters, residentFilters, assigneeFilter ? [assigneeFilter] : []]);
+  const showDispatchFilter = awaitingDispatch.runs.length > 0 || Boolean(dispatchFilter);
+  const servicesFilterActiveCount = portalFilterActiveCount([lockedPropertyId ? [] : propertyFilters, residentFilters, assigneeFilter ? [assigneeFilter] : [], dispatchFilter ? [dispatchFilter] : []]);
   const residentFilterLabel =
     residentFilters.length === 0
       ? ""
@@ -547,7 +589,7 @@ export function ManagerAllServicesPanel({
         activeCount={servicesFilterActiveCount}
         compactPanel
         commandStripTrigger
-        filterFieldCount={3}
+        filterFieldCount={showDispatchFilter ? 4 : 3}
         constrainDropdownToTitleBand={false}
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
@@ -576,6 +618,9 @@ export function ManagerAllServicesPanel({
           onAssigneeFilterChange={setAssigneeFilter}
           assigneeFilterOptions={assigneeFilterOptions}
         />
+        {showDispatchFilter ? (
+          <ServicesDispatchFilterField value={dispatchFilter} onChange={setDispatchFilter} />
+        ) : null}
       </PortalFilterSortSheet>
   );
 
@@ -602,8 +647,15 @@ export function ManagerAllServicesPanel({
         onRemove: () => setAssigneeFilter(""),
       });
     }
+    if (dispatchFilter) {
+      chips.push({
+        id: "dispatch",
+        label: `Dispatch: ${DISPATCH_RUN_STATUS_LABEL.awaiting_approval}`,
+        onRemove: () => setDispatchFilter(""),
+      });
+    }
     return chips;
-  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions, lockedPropertyId]);
+  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions, dispatchFilter, lockedPropertyId]);
 
   const renderRequestDetail = (req: ServiceRequest, opts?: { actionsOnly?: boolean; onEdit?: () => void; onMarkDone?: () => void }) => {
     return (
@@ -1113,6 +1165,7 @@ export function ManagerAllServicesPanel({
         />
       ) : (
         <ServiceDetailsSection
+          dispatch={<ServiceDispatchSection sourceType="service_request" sourceId={detailRequest.id} />}
           stages={addOnStageSteps(detailRequest)}
           who={
             <ServiceWhoCard
