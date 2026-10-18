@@ -113,7 +113,15 @@ through it or through the workspace-keyed helpers in
   one from, so without it every blocker collapsed into "Finishing setup" over a
   live, carrier-approved line; "Finishing setup" is now reserved for
   `setup`, and the teammate reads the same sentence the owner does
-  (`workNumberReadinessCaption` takes no role). `canSend` is the VIEWER's
+  (`workNumberReadinessCaption` takes no role). A fifth word, `paused`
+  ("Texting paused"), covers a line that IS provisioned and registered but is
+  held on the provider side - quarantined, inside or past a reconciliation
+  grace window, or attached to the wrong Messaging Service. **Both branches
+  word the block through the one map** `lineBlockForSendReadinessReason`, over
+  the reasons in the order `evaluateWorkspaceSendReadiness` refuses in (the
+  send env, then the number's own sendability, then the wallet), so an owner
+  and a teammate never describe the same line differently. Coverage:
+  `tests/unit/line-block-for-send-readiness-reason.test.ts`. `canSend` is the VIEWER's
   answer, and it gates every surface that offers a send — the inbox Text
   channel, the notification compose channel picker, and the vendor record's
   "Reach them by": `lineReady` plus, for a

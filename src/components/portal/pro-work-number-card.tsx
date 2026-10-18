@@ -40,8 +40,9 @@ import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
  * The WORDING is `lineBlocked`, the status route's own reason. Who is looking
  * is deliberately not an input: a caption that claims setup is unfinished over
  * a live, carrier-approved number is wrong whoever reads it, so "Finishing
- * setup" is reserved for a line that genuinely is not provisioned yet and the
- * teammate gets the same honest sentence the owner does.
+ * setup" is reserved for a line that genuinely is not provisioned yet - a live
+ * number held by a provider quarantine or grace window reads "Texting paused"
+ * - and the teammate gets the same honest sentence the owner does.
  */
 export function workNumberReadinessCaption(args: {
   lineReady: boolean;
@@ -55,6 +56,8 @@ export function workNumberReadinessCaption(args: {
       return "Texting is off for this deployment";
     case "billing":
       return "Texting is paused for billing";
+    case "paused":
+      return "Texting paused";
     case "unavailable":
       return "Texting is unavailable right now";
     // An older payload carries no reason at all; the number exists and the

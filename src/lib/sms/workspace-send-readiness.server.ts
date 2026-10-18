@@ -145,10 +145,29 @@ export async function evaluateWorkspaceSendReadiness(input: {
 }
 
 /**
+ * A line that is fully provisioned, registered and carrier-approved but held
+ * on the provider side. Nothing about it is unfinished, so it never borrows
+ * the setup sentence.
+ */
+const PAUSED_LINE_REASONS = new Set([
+  "number_quarantined",
+  "number_in_grace",
+  "number_grace_expired",
+  "number_grace_invalid",
+  "provider_identity_mismatch",
+]);
+
+/**
  * The refusal above, as the one word a UI may say about the line. Only a line
  * that genuinely is not provisioned/registered yet maps to `setup`, so
  * "Finishing setup" is never printed over a live, approved number that is held
- * up by this deployment's switch or by the workspace's wallet.
+ * up by this deployment's switch, by the workspace's wallet, or by a provider
+ * quarantine or grace window.
+ *
+ * Both branches of the messaging-number status route word a blocked line
+ * through this one map, over the reasons in the order
+ * `evaluateWorkspaceSendReadiness` refuses in, so an owner and a teammate
+ * looking at the same line read the same sentence.
  */
 export function lineBlockForSendReadinessReason(
   reason: string | null | undefined,
@@ -156,6 +175,7 @@ export function lineBlockForSendReadinessReason(
   const value = String(reason ?? "").trim();
   if (value === "runtime_paused" || value === "manager_not_allowlisted") return "deployment";
   if (value.startsWith("comms_billing_")) return "billing";
+  if (PAUSED_LINE_REASONS.has(value)) return "paused";
   if (value === "control_plane_unreadable" || value === "") return "unavailable";
   return "setup";
 }

@@ -110,6 +110,46 @@ function teammateDb(
   return db;
 }
 
+/**
+ * The same workspace, read by the account that OWNS it: `line` is its own row.
+ * The owner branch of `buildStatus` resolves `lineBlocked` from its own reads,
+ * so this is how owner and teammate wording are compared on one state.
+ */
+function ownerDb(
+  line: Record<string, unknown> | null,
+  runtime: { mode: string; pilot_manager_user_ids: string[] } = {
+    mode: "automatic",
+    pilot_manager_user_ids: [],
+  },
+) {
+  return createMemoryDb({
+    sms_runtime_config: [{ singleton: true, ...runtime }],
+    manager_sms_numbers: line
+      ? [
+          {
+            id: "num-own",
+            manager_user_id: MANAGER,
+            workspace_id: MY_WS,
+            phone_number: "+12065550144",
+            phone_number_sid: "PN144",
+            messaging_service_sid: "MG123",
+            campaign_sid: "CM123",
+            provision_state: "active",
+            registration_state: "approved",
+            attachment_state: "attached",
+            number_registration_state: "registered",
+            ...line,
+          },
+        ]
+      : [],
+    sms_manager_entitlements: [],
+    profiles: [{ id: MANAGER, full_name: "Manager", email: "manager@example.com" }],
+    portal_workspaces: [{ id: MY_WS, owner_user_id: MANAGER, name: "Mine", is_default: true, created_at: "2026-01-02" }],
+    manager_property_records: [{ id: "house-own", manager_user_id: MANAGER, workspace_id: MY_WS, row_data: {} }],
+    account_link_invites: [],
+  });
+}
+
 const SECOND_WS = "ws-owner-second";
 
 /**
@@ -316,6 +356,82 @@ describe("messaging-number status: lineBlocked is the reason a teammate's captio
     expect(body.canSend).toBe(false);
     expect(body.lineReady).toBe(true);
     expect(body.lineBlocked).toBeNull();
+  });
+});
+
+describe("messaging-number status: a held line is paused, not unfinished setup", () => {
+  // Quarantine and the reconciliation grace windows leave a provisioned,
+  // registered, carrier-approved number: `provision_state` stays "active", so
+  // the card shows the number and prints the caption beside it.
+  const quarantined = { quarantined_at: "2026-10-01T00:00:00.000Z", quarantine_reason: "provider review" };
+
+  it("reads paused for a teammate", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active", ...quarantined }));
+    expect(body.workspaceNumber.phoneNumber).toBe("+12065550199");
+    expect(body.lineReady).toBe(false);
+    expect(body.lineBlocked).toBe("paused");
+  });
+
+  it("reads paused for the owner of the same kind of line", async () => {
+    const body = await statusFor(ownerDb(quarantined), MY_WS);
+    expect(body.workspaceRole).toBe("primary");
+    expect(body.number.phoneNumber).toBe("+12065550144");
+    expect(body.lineReady).toBe(false);
+    expect(body.lineBlocked).toBe("paused");
+  });
+
+  it("reads paused for a grace window too, inside it and past it", async () => {
+    const inside = await statusFor(
+      ownerDb({ grace_started_at: "2026-10-01T00:00:00.000Z", grace_expires_at: "2099-01-01T00:00:00.000Z" }),
+      MY_WS,
+    );
+    expect(inside.lineBlocked).toBe("paused");
+    const past = await statusFor(
+      ownerDb({ grace_started_at: "2026-10-01T00:00:00.000Z", grace_expires_at: "2026-10-02T00:00:00.000Z" }),
+      MY_WS,
+    );
+    expect(past.lineBlocked).toBe("paused");
+    const malformed = await statusFor(ownerDb({ grace_started_at: "2026-10-01T00:00:00.000Z" }), MY_WS);
+    expect(malformed.lineBlocked).toBe("paused");
+  });
+});
+
+describe("messaging-number status: the owner words a blocked line exactly as a teammate does", () => {
+  it("is null while the owner's own line is ready", async () => {
+    const body = await statusFor(ownerDb({}), MY_WS);
+    expect(body.lineReady).toBe(true);
+    expect(body.lineBlocked).toBeNull();
+  });
+
+  it("is deployment for the send switch and for the runtime mode / allowlist seat", async () => {
+    process.env.SMS_RUNTIME_ENABLED = "0";
+    expect((await statusFor(ownerDb({}), MY_WS)).lineBlocked).toBe("deployment");
+    process.env.SMS_RUNTIME_ENABLED = "1";
+    const noSeat = await statusFor(
+      ownerDb({}, { mode: "allowlisted_self_service", pilot_manager_user_ids: [] }),
+      MY_WS,
+    );
+    expect(noSeat.lineBlocked).toBe("deployment");
+  });
+
+  it("is billing only once the line itself is sendable - the send path's own order", async () => {
+    mocks.billing.mockResolvedValue({ allowed: false, reason: "allowance_exhausted" });
+    expect((await statusFor(ownerDb({}), MY_WS)).lineBlocked).toBe("billing");
+    // An unfinished line AND an empty wallet: the send path refuses on the line
+    // first, so the owner must read what a teammate reads, not "billing".
+    const pending = await statusFor(
+      ownerDb({ provision_state: "pending_registration", registration_state: "pending" }),
+      MY_WS,
+    );
+    expect(pending.lineBlocked).toBe("setup");
+    const held = await statusFor(ownerDb({ quarantined_at: "2026-10-01T00:00:00.000Z" }), MY_WS);
+    expect(held.lineBlocked).toBe("paused");
+  });
+
+  it("is setup when the owner's workspace has no line at all", async () => {
+    const body = await statusFor(ownerDb(null), MY_WS);
+    expect(body.number).toBeNull();
+    expect(body.lineBlocked).toBe("setup");
   });
 });
 

@@ -36,6 +36,12 @@ describe("workNumberReadinessCaption", () => {
     );
   });
 
+  it("says a live line held by the provider is paused, never finishing setup", () => {
+    expect(workNumberReadinessCaption({ lineReady: false, sendingAvailable: true, lineBlocked: "paused" })).toBe(
+      "Texting paused",
+    );
+  });
+
   it("claims no reason it does not have when the control plane is unreadable", () => {
     expect(workNumberReadinessCaption({ lineReady: false, sendingAvailable: true, lineBlocked: "unavailable" })).toBe(
       "Texting is unavailable right now",

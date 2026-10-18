@@ -17,6 +17,10 @@ export type ManagerMessagingWorkspaceRole = "primary" | "co_manager";
  *   nobody in the product can flip.
  * - `billing` - the workspace wallet that would pay (paused, out of credit,
  *   unreadable plan).
+ * - `paused` - a line that IS provisioned, registered and carrier-approved,
+ *   held on the provider side: quarantined, inside or past a reconciliation
+ *   grace window, or attached to the wrong Messaging Service. Nothing is
+ *   unfinished, so it must not borrow the setup sentence.
  * - `setup` - the line genuinely is not provisioned/registered/attached yet,
  *   or the workspace has none. The ONLY state that says "Finishing setup".
  * - `unavailable` - the control plane could not be read, so we fail closed
@@ -25,6 +29,7 @@ export type ManagerMessagingWorkspaceRole = "primary" | "co_manager";
 export type ManagerMessagingLineBlock =
   | "deployment"
   | "billing"
+  | "paused"
   | "setup"
   | "unavailable";
 

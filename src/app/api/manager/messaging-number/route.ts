@@ -28,7 +28,7 @@ import {
 import {
   effectiveRegistrationState,
   isProvisioningEnabled,
-  managerSmsNumberIsSendable,
+  evaluateManagerSmsNumberSendability,
   normalizeProvisionState,
   normalizeRegistrationState,
   normalizeSmsNumberAttachmentState,
@@ -212,10 +212,11 @@ async function buildStatus(
     entitlement.eligible ||
     entitlement.reason === "plan_unreadable" ||
     entitlement.reason === "legacy_unknown";
-  const strictNumberReady = managerSmsNumberIsSendable(normalizedNumber, {
+  const numberSendability = evaluateManagerSmsNumberSendability(normalizedNumber, {
     runtimeMode: mode,
     managerIsAllowlisted,
   });
+  const strictNumberReady = numberSendability.sendable;
 
   // A teammate sends from the OWNER's line, so the LINE's readiness is the send
   // path's own decision for this workspace and its owner - not the viewer's
@@ -275,15 +276,19 @@ async function buildStatus(
   } else {
     const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
     lineReady = billing.allowed && sendEnvEnabled && modeAllowsManager && strictNumberReady;
-    // Same order the send path refuses in: the deployment's switch, then the
-    // wallet that pays, then the line's own provisioning.
+    // The order `evaluateWorkspaceSendReadiness` refuses in - the deployment's
+    // switch, then the line's own sendability (which covers the runtime mode
+    // and the allowlist seat), then the wallet that pays - worded through the
+    // same map a teammate's reason goes through, so an owner and a teammate
+    // read the identical line state identically.
     lineBlocked = lineReady
       ? null
-      : !sendEnvEnabled || !modeAllowsManager
+      : !sendEnvEnabled
         ? "deployment"
-        : !billing.allowed
-          ? "billing"
-          : "setup";
+        : lineBlockForSendReadinessReason(
+            numberSendability.reason ??
+              (billing.allowed ? null : `comms_billing_${billing.reason}`),
+          );
     viewerMayText = true;
   }
   const canSend = lineReady && viewerMayText;
