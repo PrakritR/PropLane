@@ -41,3 +41,25 @@ export function roomDateBlockNameError(input: {
   if (isReservedImportReason(reason)) return ROOM_BLOCK_REASON_RESERVED;
   return null;
 }
+
+/**
+ * True when a save leaves the stored row's name, kind and reason exactly as
+ * they already are: a restore (Undo), a pure date edit, or an edit of a row
+ * written before this rule existed. The rule arbitrates NEW content only, so
+ * such a save must always go through - otherwise a reserved block saved with
+ * no reason (pre-rule) could never have its dates changed again.
+ *
+ * One definition, shared by the Edit sheet, the `/api/portal-schedule-records`
+ * route (`sameRoomBlockNameShape`) and the `update_room_block` tool.
+ */
+export function roomBlockNameShapeUnchanged(
+  prior: { residentName?: unknown; blockKind?: unknown; reason?: unknown },
+  next: { residentName?: unknown; blockKind?: unknown; reason?: unknown },
+): boolean {
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  return (
+    text(prior.residentName) === text(next.residentName) &&
+    text(prior.blockKind) === text(next.blockKind) &&
+    text(prior.reason) === text(next.reason)
+  );
+}

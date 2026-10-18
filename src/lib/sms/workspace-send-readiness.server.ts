@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ManagerMessagingLineBlock } from "@/lib/sms/manager-messaging-number";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
 import { WORKSPACE_NO_WORK_NUMBER_CODE } from "@/lib/sms/workspace-no-work-number";
 import { evaluateManagerSmsNumberSendability } from "@/lib/sms/number-registration-policy";
@@ -141,4 +142,20 @@ export async function evaluateWorkspaceSendReadiness(input: {
   if (!billing.allowed) return { canSend: false, reason: `comms_billing_${billing.reason}` };
 
   return { canSend: true, numberRow, workspaceId: sendWorkspaceId, messagingServiceSid: expectedServiceSid };
+}
+
+/**
+ * The refusal above, as the one word a UI may say about the line. Only a line
+ * that genuinely is not provisioned/registered yet maps to `setup`, so
+ * "Finishing setup" is never printed over a live, approved number that is held
+ * up by this deployment's switch or by the workspace's wallet.
+ */
+export function lineBlockForSendReadinessReason(
+  reason: string | null | undefined,
+): ManagerMessagingLineBlock {
+  const value = String(reason ?? "").trim();
+  if (value === "runtime_paused" || value === "manager_not_allowlisted") return "deployment";
+  if (value.startsWith("comms_billing_")) return "billing";
+  if (value === "control_plane_unreadable" || value === "") return "unavailable";
+  return "setup";
 }

@@ -1,6 +1,6 @@
 import { afterResponse } from "@/lib/after-response.server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
-import { roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
+import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
 import {
@@ -77,13 +77,7 @@ function isAnnouncedBooking(record: unknown): boolean {
 /** True when a save leaves the stored row's name, kind and reason untouched - a restore, or an edit of something else. */
 function sameRoomBlockNameShape(existing: Record<string, unknown> | null, record: Record<string, unknown>): boolean {
   if (!existing) return false;
-  const prior = roomDateBlockData(existing);
-  const next = roomDateBlockData(record);
-  return (
-    text(prior.residentName) === text(next.residentName) &&
-    text(prior.blockKind) === text(next.blockKind) &&
-    text(prior.reason) === text(next.reason)
-  );
+  return roomBlockNameShapeUnchanged(roomDateBlockData(existing), roomDateBlockData(record));
 }
 
 async function announceNativeBooking(db: Parameters<typeof emitNativeBookingEvent>[0], event: NativeBookingEvent, record: Record<string, unknown>): Promise<void> {

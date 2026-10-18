@@ -272,8 +272,11 @@ PropLane exports its residents, holds and blocks to Airbnb as unavailable, and A
   an imported channel stay share the `hold` status, so it filters them out (`managerBlocksForRoom`) -
   saving one from that list would re-file it as a Closed room and drop the guest's name, email and phone.
 - The name rule arbitrates NEW content only: a save that leaves the stored row's name, kind and
-  reason exactly as they are passes (`sameRoomBlockNameShape`), so putting back what was just
-  cancelled, and editing the dates of a row written before the rule existed, always work.
+  reason exactly as they are passes (`roomBlockNameShapeUnchanged`, the one definition behind the
+  route's `sameRoomBlockNameShape`, the `update_room_block` tool and the Edit sheet), so putting
+  back what was just cancelled, and editing the dates of a row written before the rule existed,
+  always work. The Edit sheet keeps the stored `blockKind` on an untouched label for that reason —
+  stamping `closed` onto a pure date edit is new content the route would then refuse.
 - One reservation draws ONCE in the calendar grid and in the Bookings list: both read
   `calendarEntries` (`withoutChannelStaysCoveredByResidents`), which drops the channel bar a synced
   Airbnb resident stands in for. `entries` stays whole for the record page, the day page, "Open in

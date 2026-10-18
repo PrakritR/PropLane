@@ -186,6 +186,7 @@ function recordStatusEvidence(body: Record<string, unknown>) {
     number: (body.number as { phoneNumber?: string | null } | null)?.phoneNumber ?? null,
     sendingAvailable: body.sendingAvailable,
     lineReady: body.lineReady,
+    lineBlocked: body.lineBlocked,
     canSend: body.canSend,
     canRequest: body.canRequest,
   };
@@ -260,6 +261,61 @@ describe("messaging-number status: a teammate's canSend is the workspace line's"
     const body = await statusFor(teammateDb({ provision_state: "active" }));
     expect(body.canSend).toBe(false);
     expect(mocks.billing).not.toHaveBeenCalled();
+  });
+});
+
+describe("messaging-number status: lineBlocked is the reason a teammate's caption may print", () => {
+  // Without it every blocker collapsed into "Finishing setup" on the
+  // work-number card, over a live, registered, carrier-approved line.
+  it("is null while the line is ready", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active" }));
+    expect(body.lineReady).toBe(true);
+    expect(body.lineBlocked).toBeNull();
+  });
+
+  it("is deployment when this deployment's texting switch is off", async () => {
+    process.env.SMS_OUTBOX_SCHEDULER_READY = "0";
+    const body = await statusFor(teammateDb({ provision_state: "active" }));
+    expect(body.lineBlocked).toBe("deployment");
+  });
+
+  it("is deployment when the owner holds no allowlist seat either", async () => {
+    const body = await statusFor(
+      teammateDb({ provision_state: "active" }, { mode: "allowlisted_self_service", pilot_manager_user_ids: [] }),
+    );
+    expect(body.lineBlocked).toBe("deployment");
+  });
+
+  it("is billing when the owner's workspace wallet is out of credit or paused", async () => {
+    for (const reason of ["allowance_exhausted", "billing_paused"]) {
+      mocks.billing.mockResolvedValue({ allowed: false, reason });
+      const body = await statusFor(teammateDb({ provision_state: "active" }));
+      expect(body.lineBlocked).toBe("billing");
+      expect(body.sendingAvailable).toBe(true);
+    }
+  });
+
+  it("is setup only when the line itself is unfinished, or the workspace has none", async () => {
+    const pending = await statusFor(
+      teammateDb({ provision_state: "pending_registration", registration_state: "pending" }),
+    );
+    expect(pending.lineBlocked).toBe("setup");
+    const none = await statusFor(teammateDb(null));
+    expect(none.lineBlocked).toBe("setup");
+  });
+
+  it("claims no reason at all when the readiness read throws", async () => {
+    mocks.billing.mockRejectedValue(new Error("boom"));
+    const body = await statusFor(teammateDb({ provision_state: "active" }));
+    expect(body.lineReady).toBe(false);
+    expect(body.lineBlocked).toBe("unavailable");
+  });
+
+  it("is not narrowed by the viewer's own grant: a read-only teammate reads the line's reason", async () => {
+    const body = await statusFor(teammateDb({ provision_state: "active" }, undefined, { inbox: { read: true } }));
+    expect(body.canSend).toBe(false);
+    expect(body.lineReady).toBe(true);
+    expect(body.lineBlocked).toBeNull();
   });
 });
 

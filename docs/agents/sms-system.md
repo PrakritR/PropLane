@@ -105,7 +105,15 @@ through it or through the workspace-keyed helpers in
   surface, the resident-welcome reachability line, the listing CTA phone, and
   the Workspace number row's Ready / Not ready. Only `workNumberAwaitingCarrier`
   (a real `number` row short of registration) may name the carrier as the
-  reason; every other refusal gets neutral copy. `canSend` is the VIEWER's
+  reason; every other refusal gets neutral copy. **The WORDING of a blocked
+  line is `lineBlocked`**, the status's own reason - `deployment` (this
+  deployment's switch or runtime mode), `billing` (the workspace wallet),
+  `setup` (the line genuinely is not provisioned yet) or `unavailable` (the
+  control plane could not be read). A teammate has no `number` row to derive
+  one from, so without it every blocker collapsed into "Finishing setup" over a
+  live, carrier-approved line; "Finishing setup" is now reserved for
+  `setup`, and the teammate reads the same sentence the owner does
+  (`workNumberReadinessCaption` takes no role). `canSend` is the VIEWER's
   answer, and it gates every surface that offers a send — the inbox Text
   channel, the notification compose channel picker, and the vendor record's
   "Reach them by": `lineReady` plus, for a

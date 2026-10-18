@@ -150,11 +150,14 @@ describe("the Edit sheet", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "b1", residentName: "", reason: "Owner stay", bookingStatus: "confirmed", rate: undefined })));
   });
-  it("dates with nobody attached need a reason (Closed) or a guest name before they can be saved", async () => {
+  it("new content on dates with nobody attached needs a reason (Closed) or a guest name", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     wrap(<BookingsEditSheet entry={entry({ reason: "" })} entries={[entry()]} onClose={() => {}} onSave={onSave} />);
     const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
-    expect(save().disabled).toBe(true);
+    // A stored row written before this rule (no reason) is still editable while its name, kind and
+    // reason are left alone - the same exemption the route and the assistant tool apply. The rule
+    // arbitrates what the manager TYPES here.
+    expect(save().disabled).toBe(false);
     fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Airbnb" } });
     expect(save().disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Painting" } });

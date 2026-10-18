@@ -7,6 +7,7 @@ import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server
 import {
   managerCarrierRegistrationNeedsAttention,
   managerMessagingSenderPoolDiagnostic,
+  type ManagerMessagingLineBlock,
   type ManagerMessagingNumberStatus,
   type ManagerMessagingPlanTier,
   type ManagerMessagingRuntimeMode,
@@ -37,7 +38,10 @@ import {
 import {
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
-import { evaluateWorkspaceSendReadiness } from "@/lib/sms/workspace-send-readiness.server";
+import {
+  evaluateWorkspaceSendReadiness,
+  lineBlockForSendReadinessReason,
+} from "@/lib/sms/workspace-send-readiness.server";
 import { resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 
 export const runtime = "nodejs";
@@ -221,6 +225,10 @@ async function buildStatus(
   // work-number card reports, and folding the viewer's grant in here is what
   // described a live workspace line as "Finishing setup".
   let lineReady: boolean;
+  // Why not, when not: the one word a UI may print about the line. A teammate
+  // has no `number` row of their own, so without this every blocker read as
+  // "Finishing setup" over a live, carrier-approved workspace number.
+  let lineBlocked: ManagerMessagingLineBlock | null = null;
   // Whether the VIEWER may text from that line. The send path also demands
   // their own Communication (inbox) grant at EDIT level
   // (`manager-sms-send.server.ts`), so a read-only teammate must never be
@@ -235,6 +243,7 @@ async function buildStatus(
     // grant read are both skipped.
     if (!sendEnvEnabled) {
       lineReady = false;
+      lineBlocked = "deployment";
       viewerMayText = false;
     } else {
       const [readiness, mayText] = await Promise.all([
@@ -253,6 +262,9 @@ async function buildStatus(
           .catch(() => false),
       ]);
       lineReady = readiness?.canSend === true;
+      lineBlocked = lineReady
+        ? null
+        : lineBlockForSendReadinessReason(readiness && !readiness.canSend ? readiness.reason : null);
       viewerMayText = mayText;
       if (readiness?.canSend)
         sendLine = {
@@ -263,6 +275,15 @@ async function buildStatus(
   } else {
     const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
     lineReady = billing.allowed && sendEnvEnabled && modeAllowsManager && strictNumberReady;
+    // Same order the send path refuses in: the deployment's switch, then the
+    // wallet that pays, then the line's own provisioning.
+    lineBlocked = lineReady
+      ? null
+      : !sendEnvEnabled || !modeAllowsManager
+        ? "deployment"
+        : !billing.allowed
+          ? "billing"
+          : "setup";
     viewerMayText = true;
   }
   const canSend = lineReady && viewerMayText;
@@ -320,6 +341,7 @@ async function buildStatus(
     // manager: POST performs the authoritative Stripe/Apple reconciliation.
     requestedAtSignup: automationSettings?.workNumberRequestedAtSignup === true,
     lineReady,
+    lineBlocked,
     canRequest:
       !pureCoManager &&
       canRequestBilling &&
@@ -370,6 +392,7 @@ function publicStatus(
     requestedAtSignup: status.requestedAtSignup,
     canRequest: status.canRequest,
     lineReady: status.lineReady,
+    lineBlocked: status.lineBlocked ?? null,
     canSend: status.canSend,
     personalPhone: status.personalPhone,
   };

@@ -23,7 +23,7 @@ import {
 } from "@/lib/auth/manager-lease-scope";
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
-import { ROOM_BLOCK_KIND_CLOSED, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
+import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { afterResponse } from "@/lib/after-response.server";
 import { occupancySnapshotForManager } from "@/lib/occupancy/snapshot.server";
@@ -790,7 +790,11 @@ async function resolveBlockUpdate(ctx: AgentContext, input: UpdateBlockInput) {
   // The rule arbitrates NEW content only, same exemption as the schedule-records route's
   // `sameRoomBlockNameShape`: leaving the stored name and reason exactly as they are - a pure date
   // edit, including of a row written before the rule existed - must always work.
-  const nameShapeUnchanged = next.residentName === block.residentName && next.reason === block.reason;
+  const blockKindOf = (closed: boolean) => (closed ? ROOM_BLOCK_KIND_CLOSED : undefined);
+  const nameShapeUnchanged = roomBlockNameShapeUnchanged(
+    { residentName: block.residentName, blockKind: blockKindOf(block.closed), reason: block.reason },
+    { residentName: next.residentName, blockKind: blockKindOf(next.closed), reason: next.reason },
+  );
   if (!nameShapeUnchanged) {
     const nameError = roomDateBlockNameError({ residentName: next.residentName, blockKind: next.closed ? ROOM_BLOCK_KIND_CLOSED : undefined, reason: next.reason });
     if (nameError) throw new Error(nameError);

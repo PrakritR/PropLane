@@ -23,7 +23,11 @@ import {
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
-import { MANAGER_MESSAGING_SETTINGS_HREF, workspaceWorkNumber } from "@/lib/sms/manager-messaging-number";
+import {
+  MANAGER_MESSAGING_SETTINGS_HREF,
+  workspaceWorkNumber,
+  type ManagerMessagingLineBlock,
+} from "@/lib/sms/manager-messaging-number";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 
 /**
@@ -32,18 +36,32 @@ import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
  * with read-only Communication is looking at the same live workspace number the
  * owner is, and reporting it as "Finishing setup" sends them hunting for a
  * control that is not theirs and does not exist.
+ *
+ * The WORDING is `lineBlocked`, the status route's own reason. Who is looking
+ * is deliberately not an input: a caption that claims setup is unfinished over
+ * a live, carrier-approved number is wrong whoever reads it, so "Finishing
+ * setup" is reserved for a line that genuinely is not provisioned yet and the
+ * teammate gets the same honest sentence the owner does.
  */
 export function workNumberReadinessCaption(args: {
   lineReady: boolean;
   sendingAvailable: boolean;
-  coManager?: boolean;
+  lineBlocked?: ManagerMessagingLineBlock | null;
 }): string {
   if (args.lineReady && args.sendingAvailable) return "";
-  // A teammate cannot act on this deployment's send switch, so the reason is
-  // not theirs to read - the one word they get is that setup is unfinished.
-  if (args.coManager) return "Finishing setup";
   if (!args.sendingAvailable) return "Texting is off for this deployment";
-  return "Finishing setup";
+  switch (args.lineBlocked) {
+    case "deployment":
+      return "Texting is off for this deployment";
+    case "billing":
+      return "Texting is paused for billing";
+    case "unavailable":
+      return "Texting is unavailable right now";
+    // An older payload carries no reason at all; the number exists and the
+    // deployment can send, so the remaining blocker really is its setup.
+    default:
+      return "Finishing setup";
+  }
 }
 
 function useManagerWorkEmail(): { email: string | null; ready: boolean } {
@@ -184,7 +202,7 @@ export function ManagerWorkNumberCard() {
         workNumberReadinessCaption({
           lineReady: Boolean(status.lineReady),
           sendingAvailable: Boolean(status.sendingAvailable),
-          coManager,
+          lineBlocked: status.lineBlocked ?? null,
         }) || undefined;
       return (
         <PortalInboxContactCard

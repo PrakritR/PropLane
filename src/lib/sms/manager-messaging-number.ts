@@ -6,6 +6,28 @@ export type ManagerMessagingRuntimeMode =
 
 export type ManagerMessagingWorkspaceRole = "primary" | "co_manager";
 
+/**
+ * Why the WORKSPACE's line cannot send, when `lineReady` is false. Resolved
+ * where the facts are (the status route), because a teammate has no `number`
+ * row of their own to read one from - and without it every blocker collapsed
+ * into "Finishing setup", which told a teammate looking at a live, registered,
+ * carrier-approved line to go and finish setup that is already done.
+ *
+ * - `deployment` - this deployment's texting switch or runtime mode, which
+ *   nobody in the product can flip.
+ * - `billing` - the workspace wallet that would pay (paused, out of credit,
+ *   unreadable plan).
+ * - `setup` - the line genuinely is not provisioned/registered/attached yet,
+ *   or the workspace has none. The ONLY state that says "Finishing setup".
+ * - `unavailable` - the control plane could not be read, so we fail closed
+ *   without claiming a reason.
+ */
+export type ManagerMessagingLineBlock =
+  | "deployment"
+  | "billing"
+  | "setup"
+  | "unavailable";
+
 export type ManagerMessagingEntitlement =
   | { eligible: true; tier: "free" | "pro" | "business"; source: "stripe" | "apple" | "none" }
   | {
@@ -110,6 +132,12 @@ export type ManagerMessagingNumberStatus = {
    * `canSend`.
    */
   lineReady: boolean;
+  /**
+   * Why `lineReady` is false, as one non-sensitive word. Absent/null when the
+   * line is ready. Every reader that WORDS the line's state reads this rather
+   * than guessing from `lineReady` alone.
+   */
+  lineBlocked?: ManagerMessagingLineBlock | null;
   /**
    * Whether THIS VIEWER may text from that line: `lineReady` plus, for a
    * teammate, their own Communication (`inbox`) grant at edit level - the gate
