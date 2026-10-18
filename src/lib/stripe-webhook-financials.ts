@@ -64,6 +64,9 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
   const claimedId = account.metadata?.axis_user_id?.trim();
   if (claimedId && claimedId !== targetId) throw new Error("Stripe account ownership mismatch.");
   if (await refuseClassifiedFinancialMutation(db, targetId, "connect_account_updated")) return;
+  // Read BEFORE the write: "becomes payout-ready" is a transition, and only a transition is texted.
+  const { data: before } = await db.from("profiles").select("stripe_connect_payouts_enabled").eq("id", targetId).maybeSingle();
+  const wasPayoutReady = (before as { stripe_connect_payouts_enabled?: unknown } | null)?.stripe_connect_payouts_enabled === true;
   if (account.settings?.payouts?.schedule?.interval &&
       account.settings.payouts.schedule.interval !== "manual") {
     await ensureManualPayoutPolicy(getStripe(), account.id);
@@ -104,6 +107,16 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
       vendorUserId: targetId,
       facts: { reason: String(snapshot.disabledReason).replace(/[._]/g, " ") },
     });
+  }
+
+  // Someone who asked for payouts by text hears when they are set up (a failure here never fails the webhook).
+  if (!wasPayoutReady && account.payouts_enabled && connectAccountTransfersActive(account)) {
+    try {
+      const { textPayoutsReady } = await import("@/lib/one-number/payouts-ready.server");
+      await textPayoutsReady(db, getStripe(), { userId: targetId, accountId: account.id });
+    } catch {
+      console.error("[stripe webhook] payouts-ready text failed");
+    }
   }
 
   if (connectAccountReadyForAchPayouts(account)) {

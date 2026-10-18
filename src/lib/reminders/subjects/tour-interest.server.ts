@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { materializeReminders, resolveReminder, type ReminderQueueRow } from "../queue.server";
 import { loadReminderSettings } from "../settings.server";
-import { TOUR_INTEREST_BODY, TOUR_INTEREST_DELAY_MS, TOUR_INTEREST_PURPOSE, tourInterestProperty } from "../tour-interest";
+import { TOUR_INTEREST_BODY, TOUR_INTEREST_DELAY_MS, TOUR_INTEREST_PURPOSE, TOUR_INTEREST_SECOND_BODY, TOUR_INTEREST_SECOND_DELAY_MS, tourInterestProperty } from "../tour-interest";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { loadAssignableConversationHouses } from "@/lib/sms/conversation-house-access.server";
 import { resolveTourSmsEligibility } from "@/lib/sms/tour-sms-eligibility.server";
@@ -48,8 +48,17 @@ export async function materializeTourInterestFromOutbox(db: SupabaseClient, outb
     recipientEmail: sent.recipient_email ?? "", recipientPhone: sent.recipient_phone,
     recipientRole: "counterparty", sendAt: new Date(anchorMs + TOUR_INTEREST_DELAY_MS).toISOString(), attempts: 0, payload };
   if (!(await tourInterestIsCurrent(db, row))) return 0;
-  return materializeReminders(db, { managerUserId: row.managerUserId, kind: row.kind, subjectId: row.subjectId,
-    anchorIso: anchor, recipients: [{ email: row.recipientEmail, phone: row.recipientPhone, role: "counterparty" }], payload }, settings, now);
+  const recipients = [{ email: row.recipientEmail, phone: row.recipientPhone, role: "counterparty" as const }];
+  const first = await materializeReminders(db, { managerUserId: row.managerUserId, kind: row.kind, subjectId: row.subjectId,
+    anchorIso: anchor, recipients, payload }, settings, now);
+  // One more nudge at 72 hours, then stop: the same prospect, thread and currency checks as the first (any
+  // reply, an application or a booked tour cancels it), its own row and its own words. The saved rule stays
+  // the one-day rule; only this row is timed three days out.
+  const secondRule = { ...settings.rules.tour_interest, leadMinutes: [TOUR_INTEREST_SECOND_DELAY_MS / 60_000], timings: [`after:${TOUR_INTEREST_SECOND_DELAY_MS / 60_000}`] };
+  const second = await materializeReminders(db, { managerUserId: row.managerUserId, kind: row.kind, subjectId: row.subjectId,
+    anchorIso: anchor, recipients, payload: { ...payload, customBody: TOUR_INTEREST_SECOND_BODY, followupStep: 2 } },
+    { ...settings, rules: { ...settings.rules, tour_interest: secondRule } }, now);
+  return first + second;
 }
 
 /** Same check before enqueue and again immediately before provider submission. */

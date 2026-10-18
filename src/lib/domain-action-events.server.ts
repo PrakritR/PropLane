@@ -458,6 +458,20 @@ export async function emitHouseholdChargeTransition(
       return rendered ? [{ ...recipient, rendered }] : [];
     }),
   });
+  // A failed payment and a late fee also reach the owner's listed alert phones.
+  if (event === "payment_failed" || event === "late_fee_applied") {
+    const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+    const rendered = renderPaymentActionEvent(event, "manager", facts);
+    if (rendered) {
+      await alertPhonesOf(db, {
+        ownerUserId: input.managerUserId,
+        kind: event === "payment_failed" ? "payment_failed" : "payment_late",
+        entityId: input.transitionId || `${input.charge.id}:${event}`,
+        propertyId: input.charge.propertyId || null,
+        text: rendered.smsText ?? rendered.text,
+      });
+    }
+  }
 }
 
 function managerHasSignedLease(row: LeasePipelineRow): boolean {

@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
+import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
 export type TourManagerEvent = "confirmed" | "cancelled_by_guest";
 
@@ -52,9 +53,11 @@ export async function emitTourManagerEvent(
   // cancellation stays a manager-only nudge. The team is the PROPERTY
   // OWNER's — `managerUserId` here is the host, who may be a co-manager on
   // the owner's house, and the owner's thread is where the claim notice went.
+  let alertOwnerUserId = input.managerUserId;
   if (input.event === "confirmed") {
     const teamRendered = renderTourTeamEvent(input);
     const ownerUserId = (await resolvePropertyOwnerUserId(db, input.propertyId)) ?? input.managerUserId;
+    alertOwnerUserId = ownerUserId;
     recipients.push({ audience: "team", userId: ownerUserId, rendered: { ...teamRendered, text: `${teamRendered.text}\n\n${url}` } });
   }
   await emitActionEvent(db, {
@@ -71,6 +74,17 @@ export async function emitTourManagerEvent(
     templateContext: { guestName: input.guestName, propertyTitle: input.propertyTitle ?? "", whenLabel: input.whenLabel ?? "", url },
     recipients,
   });
+  // The owner's listed alert phones hear a booked tour too (everyone else already did, above).
+  if (input.event === "confirmed") {
+    await alertPhonesOf(db, {
+      ownerUserId: alertOwnerUserId,
+      kind: "tour_booked",
+      entityId: input.tourId,
+      propertyId: input.propertyId ?? null,
+      text: renderTourTeamEvent(input).smsText,
+      url,
+    });
+  }
 }
 
 /**
