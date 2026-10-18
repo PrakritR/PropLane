@@ -1384,6 +1384,9 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   property_knowledge_entries: "Workspace knowledge base; cascades with the workspace.",
   sms_topic_reply_modes: "Workspace auto-reply settings; cascade with the workspace.",
   sms_ai_reply_outcomes: "Workspace reply-quality counters; cascade with the workspace.",
+  sms_escalated_questions: "Workspace escalated questions awaiting a manager answer; cascade with the workspace.",
+  sms_ai_reply_drafts: "Workspace AI reply drafts held for a manager; cascade with the workspace.",
+  sms_knowledge_digests: "Workspace weekly knowledge digest bookkeeping; cascade with the workspace.",
   rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",
   tour_inquiry_claims:
     "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",
