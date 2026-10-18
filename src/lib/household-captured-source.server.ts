@@ -6,11 +6,9 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { findPlatformHold, findPlatformHoldByPaymentIntent } from "@/lib/stripe-platform-hold.server";
 import { enrichLedgerPaymentFromStripeCharge } from "@/lib/stripe-ledger-fees";
-import { verifyPlatformHoldSourceRefundHistory,
-  releaseVerifiedPlatformHoldsForOwner, type HeldSourceRow } from "@/lib/platform-hold-release.server";
-import { settleClearedPlatformOwnerRecovery,
-  verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
-import { recordHouseholdSourceReviewNeeded } from "@/lib/household-source-review.server";
+import { verifyPlatformHoldSourceRefundHistory, type HeldSourceRow } from "@/lib/platform-hold-release.server";
+import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
+import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-release.server";
 
 type CapturedComponent = {
   source_id: string; kind: HouseholdCharge["kind"];
@@ -170,48 +168,6 @@ async function recordLedgerChargeFacts(
   await enrichLedgerPaymentFromStripeCharge(db, stripe, {
     stripeChargeId: chargeId, stripeCheckoutSessionId: sourceId, destinationCharge: false,
   }).catch((error) => console.error("[household source] ledger charge facts", error));
-}
-
-/**
- * Everything that happens AFTER the credit RPC has committed.
- *
- * The credit is the money: once that transaction returns a hold id, the manager has been
- * allocated their share and the resident's payment is done. Paying it out is a separate,
- * later job — `releaseVerifiedPlatformHoldsForOwner` has to resolve a Connect destination,
- * and it fail-closes on anything it cannot prove (an account whose `metadata.axis_user_id`
- * does not match its owner, a concurrent transfer, a transient provider error). Letting
- * that throw out of here was the browser-proof 409: a successful, already-credited payment
- * was reported to the resident as needing review, and the webhook's retries re-ran the same
- * refusal forever.
- *
- * So this never throws. The hold stays `classified_held`, which is exactly the state the
- * next release pass (`account.updated`, a later receipt, the owner relinking their bank)
- * picks up, and the reason is filed as a `release`-stage review so a payout that is stuck
- * on a person is findable without being mistaken for missing money.
- */
-async function settleAndReleaseAfterCredit(
-  db: SupabaseClient,
-  stripe: Stripe,
-  input: { ownerUserId: string; holdId: string; sourceId: string; paymentIntentId: string; chargeIds: readonly string[] },
-): Promise<void> {
-  try {
-    await settleClearedPlatformOwnerRecovery(db, stripe, {
-      ownerUserId: input.ownerUserId, holdId: input.holdId,
-    });
-    await releaseVerifiedPlatformHoldsForOwner(db, {
-      ownerUserId: input.ownerUserId, holdId: input.holdId, stripe,
-    });
-  } catch (error) {
-    await recordHouseholdSourceReviewNeeded(db, {
-      ownerManagerUserId: input.ownerUserId,
-      sourceId: input.sourceId,
-      paymentIntentId: input.paymentIntentId,
-      chargeIds: input.chargeIds,
-      surface: "hold_release",
-      stage: "release",
-      error,
-    });
-  }
 }
 
 /** Frozen pre-marker Checkout terms may replay, but cannot mint a new raw hold. */
@@ -396,7 +352,7 @@ export async function creditVerifiedHouseholdCheckoutSource(
     throw new Error("Household source could not be atomically credited.");
   }
   await recordLedgerChargeFacts(db, stripe, charge.id, session.id);
-  await settleAndReleaseAfterCredit(db, stripe, {
+  await releaseCreditedHoldAfterCommit(db, stripe, {
     ownerUserId: manager, holdId: result.hold_id, sourceId: session.id,
     paymentIntentId: pi.id, chargeIds: ids,
   });
@@ -483,7 +439,7 @@ export async function creditVerifiedHouseholdAutopaySource(
     throw new Error("Autopay source could not be atomically credited.");
   }
   await recordLedgerChargeFacts(db, stripe, charge.id, pi.id);
-  await settleAndReleaseAfterCredit(db, stripe, {
+  await releaseCreditedHoldAfterCommit(db, stripe, {
     ownerUserId: owner, holdId: result.hold_id, sourceId: pi.id,
     paymentIntentId: pi.id, chargeIds: [chargeId],
   });

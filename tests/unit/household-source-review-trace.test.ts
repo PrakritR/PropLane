@@ -253,6 +253,59 @@ describe("every non-interactive credit path files its refusal", () => {
     expect(runner).not.toContain("await creditVerifiedHouseholdAutopaySource(");
   });
 
+  it("no post-credit payout release anywhere is left un-isolated", async () => {
+    // A release that runs AFTER a committed credit must never throw back to the caller:
+    // that was the browser-proof 409, and in the application-fee flow it also skipped the
+    // promotion, orphan report and setup email that follow the fulfil call. The ONLY
+    // direct callers allowed are the modules that define the two primitives, the shared
+    // post-credit helper, and the paths where the payout IS the operation being requested
+    // (a vendor invoice payout, a work-order payout) or the retry driver itself.
+    const { readFileSync, readdirSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry)) files.push(full);
+      }
+    };
+    walk("src");
+    const allowed = new Set([
+      join("src", "lib", "platform-hold-release.server.ts"),
+      join("src", "lib", "platform-owner-recovery.server.ts"),
+      join("src", "lib", "platform-post-credit-release.server.ts"),
+      // The payout is the requested operation here, so a refusal belongs to the caller.
+      join("src", "lib", "vendor-invoice-pay.server.ts"),
+      join("src", "lib", "work-order-approve-pay.server.ts"),
+      // `account.updated` IS the retry pass: throwing makes Stripe redeliver it.
+      join("src", "lib", "stripe-webhook-financials.ts"),
+    ]);
+    const offenders = files.filter((file) => {
+      if (allowed.has(file)) return false;
+      const source = readFileSync(file, "utf8");
+      return /(releaseVerifiedPlatformHoldsForOwner|settleClearedPlatformOwnerRecovery)\(/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("every post-credit release goes through the one isolated helper", async () => {
+    const { readFileSync } = await import("node:fs");
+    const helper = readFileSync("src/lib/platform-post-credit-release.server.ts", "utf8");
+    // It files the refusal as a RELEASE-stage review and swallows it: the credit stands.
+    expect(helper).toContain('stage: "release"');
+    expect(helper).toContain('surface: "hold_release"');
+    expect(helper).toContain("recordHouseholdSourceReviewNeeded");
+    for (const caller of [
+      "src/lib/household-captured-source.server.ts",
+      "src/lib/application-fee-fulfillment.server.ts",
+    ]) {
+      const source = readFileSync(caller, "utf8");
+      expect(source).toContain("releaseCreditedHoldAfterCommit(");
+      expect(source).not.toContain("releaseVerifiedPlatformHoldsForOwner(");
+    }
+  });
+
   it("no credit anywhere in the codebase is reached without the traced helper", async () => {
     const { readFileSync, readdirSync, statSync } = await import("node:fs");
     const { join } = await import("node:path");

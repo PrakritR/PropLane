@@ -8,8 +8,8 @@ import { syncLedgerChargeOnlyEntry, syncLedgerPaymentEntry } from "@/lib/reports
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { findPlatformHold, findPlatformHoldByPaymentIntent } from "@/lib/stripe-platform-hold.server";
 import { attestPlatformDestinationSource } from "@/lib/platform-destination-source.server";
-import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-release.server";
-import { settleClearedPlatformOwnerRecovery, verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
+import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
+import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-release.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import type { ApplicationFeeClaim } from "@/lib/application-fee-payment-claim.server";
@@ -314,13 +314,13 @@ export async function fulfillClaimedApplicationFeePayment(
         throw new Error("Refunded application hold has no verified original source.");
       }
     }
-    if (atomicIncome) {
-      await settleClearedPlatformOwnerRecovery(db, stripe, {
-        ownerUserId: claim.manager_user_id, holdId: durableHold.id,
-      });
-    }
-    await releaseVerifiedPlatformHoldsForOwner(db, {
-      ownerUserId: claim.manager_user_id, holdId: durableHold.id, stripe,
+    await releaseCreditedHoldAfterCommit(db, stripe, {
+      ownerUserId: claim.manager_user_id,
+      holdId: durableHold.id,
+      sourceId: session.id,
+      paymentIntentId: pi.id,
+      chargeIds: [claim.charge_id],
+      settleRecovery: atomicIncome,
     });
   } else if (destinationSource) {
     const { data: credited, error: creditError } = await db.rpc("credit_verified_platform_hold", {
@@ -490,8 +490,13 @@ export async function repairLegacyBoundApplicationFeePayment(
       (hold && hold.id !== durableHold.id)) {
     throw new Error("Earlier application hold source was not durably credited.");
   }
-  await releaseVerifiedPlatformHoldsForOwner(db, {
-    ownerUserId: row.manager_user_id, holdId: durableHold.id, stripe,
+  await releaseCreditedHoldAfterCommit(db, stripe, {
+    ownerUserId: row.manager_user_id,
+    holdId: durableHold.id,
+    sourceId: session.id,
+    paymentIntentId: pi.id,
+    chargeIds: [row.id],
+    settleRecovery: false,
   });
   await cancelFuturePaymentRemindersForCharge(db, row.manager_user_id, row.id);
   return { chargeId: row.id, alreadyPaid: true, managerUserId: row.manager_user_id, legacy: true };
