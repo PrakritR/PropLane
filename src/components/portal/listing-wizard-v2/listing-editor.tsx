@@ -2836,7 +2836,6 @@ function RentEstimateLine({ sub }: { sub: ManagerListingSubmissionV1 }) {
   const perRoom = r.rentPerRoomUsd && r.fields.includes("houseDefaults") ? ` · ≈ ${usd(r.rentPerRoomUsd)} per room` : "";
   return (
     <p className="-mt-2 mb-4 text-[12.5px] font-semibold text-muted" data-attr="listing-v2-rent-estimate">
-      <span aria-hidden className="mr-1 text-[var(--pl-blue-deep)]">✦</span>
       {`Estimate ≈ ${usd(r.rentEstimateUsd)}/mo${range}${perRoom}`}
     </p>
   );

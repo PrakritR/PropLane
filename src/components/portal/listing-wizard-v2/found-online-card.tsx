@@ -40,7 +40,7 @@ function money(n: number): string {
   return `$${n.toLocaleString("en-US")}`;
 }
 
-/** The small "✦ Filled" / "✦ Imported" / "✦ Estimated" tag beside a field the prefill wrote. */
+/** The small "Filled" / "Imported" / "Estimated" tag beside a field the prefill wrote. */
 export function FieldMark({ kind }: { kind: "filled" | "imported" | "estimated" | "drafted" | null }) {
   if (!kind) return null;
   const text = kind === "filled" ? "Filled" : kind === "imported" ? "Imported" : kind === "estimated" ? "Estimated" : "Drafted";
@@ -52,7 +52,6 @@ export function FieldMark({ kind }: { kind: "filled" | "imported" | "estimated" 
         kind === "estimated" ? "bg-[var(--status-overdue-bg,#fdf0d5)] text-[var(--status-overdue-fg,#a34a06)]" : "bg-primary/[0.08] text-[var(--pl-blue-deep)]",
       )}
     >
-      <span aria-hidden>✦</span>
       {text}
     </span>
   );
@@ -210,7 +209,7 @@ export function FoundOnlineCard({
 
   return (
     <div
-      className="mb-4 rounded-xl border border-[var(--pl-blue-soft)] bg-[linear-gradient(180deg,rgba(40,99,240,.06),rgba(40,99,240,.02))] px-3 py-2.5"
+      className="mb-4 rounded-xl border border-[var(--pl-blue-soft)] bg-primary/[0.04] px-3 py-2.5"
       data-attr="listing-v2-prefill-card"
       data-state={status}
     >
@@ -265,9 +264,6 @@ export function FoundOnlineCard({
         <>
           <div className="flex flex-wrap items-center gap-2 text-[13.5px] font-bold text-foreground">
             Filled in {filledCount} {filledCount === 1 ? "detail" : "details"}
-            <span className="rounded-full bg-[var(--status-confirmed-bg)] px-1.5 text-[11px] text-[var(--status-confirmed-fg)]" aria-hidden>
-              ✦
-            </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <button type="button" className={btnSecondary} data-attr="listing-v2-prefill-undo" onClick={undo}>
