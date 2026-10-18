@@ -142,7 +142,7 @@ describe("seam: the redirect text", () => {
   it("replies once with the workspace's own number on the webhook TwiML, and logs the text to its thread", async () => {
     const { db } = world(residentOfPro);
     const result = await run(db, "the sink is dripping", { messageSid: "SM-r" });
-    expect(result).toEqual({ kind: "handled", twiml: "Brooklyn Homes texts from (206) 555-0111. Please text that number." });
+    expect(result).toEqual({ kind: "handled", twiml: "5259 Brooklyn texts from (206) 555-0111. Please text that number." });
     expect(sent).toEqual([]);
     expect(unassigned).not.toHaveBeenCalled();
     expect(logged).toHaveLength(2);
