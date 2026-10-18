@@ -733,6 +733,35 @@ begin
 end;
 $$;
 
+
+-- ---------------------------------------------------------------------------------------------
+-- activate_managed_policy: accept a draft (owner signature or admin attestation), ending the workspace's previous active
+-- version in the same transaction so a workspace is never left unmanaged between them.
+-- ---------------------------------------------------------------------------------------------
+create or replace function public.activate_managed_policy(
+  p_id uuid, p_via text, p_note text, p_hash text, p_snapshot jsonb, p_actor_role text
+) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_pol public.managed_workspace_fee_policies%rowtype;
+begin
+  if p_via not in ('owner_signature', 'admin_attested') or p_actor_role not in ('admin', 'owner', 'system') then
+    return jsonb_build_object('status', 'refused', 'reason', 'bad_request');
+  end if;
+  select * into v_pol from public.managed_workspace_fee_policies where id = p_id for update;
+  if not found then return jsonb_build_object('status', 'refused', 'reason', 'not_found'); end if;
+  if v_pol.status = 'active' and v_pol.signed_at is not null then return jsonb_build_object('status', 'exists'); end if;
+  if v_pol.status <> 'draft' then return jsonb_build_object('status', 'refused', 'reason', 'not_draft'); end if;
+  if v_pol.effective_from > current_date then return jsonb_build_object('status', 'refused', 'reason', 'future_effective_from'); end if;
+  update public.managed_workspace_fee_policies
+    set status = 'ended', ended_at = now(), ended_by_role = 'system', ends_on = greatest(current_date, effective_from), updated_at = now()
+    where workspace_id = v_pol.workspace_id and status = 'active' and id <> p_id;
+  update public.managed_workspace_fee_policies
+    set status = 'active', signed_at = now(), accepted_via = p_via, attestation_note = nullif(trim(coalesce(p_note, '')), ''),
+        terms_sha256 = p_hash, terms_snapshot = p_snapshot, updated_at = now()
+    where id = p_id;
+  return jsonb_build_object('status', 'active');
+end;
+$$;
+
 do $$
 declare f text;
 begin
@@ -746,7 +775,8 @@ begin
     'reserve_party_withdrawal(text, text, uuid, bigint, text, text, bigint, text)',
     'complete_party_withdrawal(uuid, text, text, text)',
     'fail_party_withdrawal(uuid, text)',
-    'mark_party_withdrawal_unknown(uuid)'
+    'mark_party_withdrawal_unknown(uuid)',
+    'activate_managed_policy(uuid, text, text, text, jsonb, text)'
   ] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
