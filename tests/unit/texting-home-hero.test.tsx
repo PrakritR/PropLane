@@ -45,6 +45,7 @@ describe("text-first homepage hero", () => {
   it("uses the configured SMS link on phones and the QR panel on desktop", () => {
     render(<TextingHomeHero config={config} qrDataUrl={qrDataUrl} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(HOME_HEADLINE);
+    expect(screen.queryByText(/ONE NUMBER\. EVERY CONVERSATION\./)).not.toBeInTheDocument();
     const links = screen.getAllByRole("link", { name: "Text PropLane" });
     expect(links.map((link) => link.getAttribute("href"))).toEqual([config.smsHref, "#text-proplane"]);
     const qrLink = screen.getByRole("link", { name: "Text PropLane using your messaging app" });

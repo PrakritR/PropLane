@@ -1,8 +1,13 @@
 .texting-home {
   color: #172e4a;
-  background:
-    radial-gradient(ellipse at 90% 7%, #e5f0ff 0, transparent 34%), #fbfcff;
+  background: transparent;
   overflow: clip;
+}
+/* The existing production atmosphere owns the continuous field; this header
+   already occupies its own space and needs no legacy 56px overlap. */
+.texting-home.home-wavy {
+  margin-top: 0;
+  padding-top: 0;
 }
 .texting-shell {
   width: min(1184px, 100% - 80px);
@@ -415,12 +420,13 @@
   font-size: 14px;
 }
 .texting-dashboard {
-  padding-block: 15px 60px;
+  padding-block: 0 48px;
 }
 .texting-lazy-dashboard {
   position: relative;
-  height: 440px;
-  overflow: auto;
+  height: clamp(360px, 50vw, 620px);
+  /* One page scroll: a nested scroller could leave KPI headings clipped. */
+  overflow: hidden;
   border: 1px solid #dce5ef;
   border-radius: 22px;
   background: #f7f9fc;
@@ -431,7 +437,7 @@
   border-radius: 20px;
 }
 .texting-lazy-dashboard .texting-proof-placeholder {
-  height: 440px;
+  height: 100%;
 }
 .texting-pricing {
   padding-block: 35px 70px;

@@ -38,7 +38,7 @@ export function TextingHomeLazy({ kind }: { kind: "draft" | "dashboard" }) {
         kind === "draft" ? (
           <Draft />
         ) : (
-          <Dashboard />
+          <Dashboard scrollWithinWindow={false} />
         )
       ) : (
         <div

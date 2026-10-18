@@ -244,7 +244,11 @@ The later Oct 18 addendum sets the headline to “Your AI Property Manager” an
 exactly four sections: hero, Who texts, managed-service founder proof, and
 software/managed-service pricing. The captain supplied “3 Seattle homes”,
 room rentals + Airbnb, and “six-figure profit”; no other performance figure
-is added. The draft and dashboard sit inside the service section. The shared
+is added. Captain feedback #1 removes the hero eyebrow and the draft/control
+block, restores the existing `ResidentLifecycleAtmosphere` waves and dots, and
+moves the dashboard directly after the hero. That preview disables the portal's
+nested scroll body so KPI labels cannot scroll out of its frame; phones keep
+the compact composition. The shared
 `PricingCards` component shows Free, Pro, Business, and “We manage it for you”
 on `/pricing` and the homepage. Its compact `overview` variant keeps the same
 four options in a phone swipe row and four desktop columns. `/service`

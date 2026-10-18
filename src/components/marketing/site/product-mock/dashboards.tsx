@@ -88,7 +88,7 @@ const ACTIVATED = new Set(["res-liam", "res-priya", "res-maya"]);
 
 const placeLine = (place: string) => place;
 
-export function ManagerDashboardView({ story }: { story?: DemoStory }) {
+export function ManagerDashboardView({ story, scrollWithinWindow = true }: { story?: DemoStory; scrollWithinWindow?: boolean }) {
   const [customizing, setCustomizing] = useState(false);
   const [vis, setVis] = useState(() => defaultVisibility(MANAGER_DASHBOARD_SECTIONS));
   const [nowMs] = useState(() => Date.now());
@@ -129,7 +129,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
   return (
     <ProductWindow path="/portal/dashboard" nativeHeight={900}>
       <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle>
+        <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle stickyPageChrome={scrollWithinWindow}>
           <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <KpiCard

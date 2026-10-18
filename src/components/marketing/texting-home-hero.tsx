@@ -73,9 +73,6 @@ export function TextingHomeHero({
       aria-labelledby="home-title"
     >
       <div className="texting-hero-copy">
-        <span className="texting-eyebrow">
-          <span aria-hidden="true" /> ONE NUMBER. EVERY CONVERSATION.
-        </span>
         <h1 id="home-title">{HOME_HEADLINE}</h1>
         <p className="texting-hero-description">{HOME_DESCRIPTION}</p>
         <div className="texting-hero-actions">

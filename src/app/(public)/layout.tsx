@@ -14,6 +14,7 @@ import QRCode from "qrcode";
 // Keep home styles/fonts in the layout's first flush. Page-level stylesheet
 // suspension otherwise exposes the short loading shell and shifts the footer.
 import "@/components/marketing/texting-home.css";
+import "@/components/marketing/resident-lifecycle-atmosphere.css";
 import "@/components/marketing/site/pricing-cards.css";
 
 /**

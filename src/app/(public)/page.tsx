@@ -8,6 +8,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { TextingHomeHero } from "@/components/marketing/texting-home-hero";
+import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { TextingHomeLazy } from "@/components/marketing/texting-home-lazy";
 import { PricingCards } from "@/components/marketing/site/pricing-cards";
 import { HOME_DESCRIPTION, HOME_HEADLINE } from "@/lib/marketing/home-copy";
@@ -53,7 +54,8 @@ const roles = [
 // Suspending here streams a short loading shell and shifts the entire footer.
 export default function HomePage() {
   return (
-    <div className="texting-home">
+    <div className="texting-home home-wavy">
+      <ResidentLifecycleAtmosphere variant="page" staticBelow={640} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -61,6 +63,12 @@ export default function HomePage() {
         }}
       />
       <TextingHomeHero />
+      <div
+        className="texting-shell texting-dashboard"
+        aria-label="Sample manager dashboard"
+      >
+        <TextingHomeLazy kind="dashboard" />
+      </div>
       <section
         id="how-it-works"
         className="texting-shell texting-roles"
@@ -123,22 +131,6 @@ export default function HomePage() {
             <dd>six-figure profit</dd>
           </div>
         </dl>
-        <div className="texting-control">
-          <div>
-            <h3>You stay in control.</h3>
-            <Link className="texting-feature-link" href="/features">
-              Explore the software{" "}
-              <ArrowUpRight aria-hidden="true" className="h-4 w-4" />
-            </Link>
-          </div>
-          <TextingHomeLazy kind="draft" />
-        </div>
-        <div
-          className="texting-dashboard"
-          aria-label="Sample manager dashboard"
-        >
-          <TextingHomeLazy kind="dashboard" />
-        </div>
       </section>
       <section
         id="pricing"

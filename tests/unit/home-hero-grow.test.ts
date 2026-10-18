@@ -58,6 +58,10 @@ describe("text-first homepage composition", () => {
     expect(home).toContain('<PricingCards variant="overview" />');
     expect(home.indexOf("<TextingHomeHero")).toBeLessThan(home.indexOf('id="how-it-works"'));
     expect(home).toContain('<TextingHomeLazy kind="dashboard"');
+    expect(home.indexOf('<TextingHomeLazy kind="dashboard"')).toBeLessThan(home.indexOf('id="how-it-works"'));
+    expect(home).not.toContain('You stay in control.');
+    expect(home).not.toContain('kind="draft"');
+    expect(home).toContain('<ResidentLifecycleAtmosphere variant="page" staticBelow={640} />');
     expect(home).not.toMatch(/ResidentLifecyclePrototypes|resident-lifecycle-prototypes/);
     expect(homeCss).toMatch(/@media\s*\(max-width:\s*639px\)[\s\S]*\.texting-dashboard\s*\{\s*display:\s*none/);
   });
