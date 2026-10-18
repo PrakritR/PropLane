@@ -66,13 +66,29 @@ import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 import { attachVendorJobMedia, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Empty TwiML — replies are sent asynchronously via the Messaging API. */
-export function twimlOk(reply?: string): NextResponse {
-  const escaped = reply
-    ? reply.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    : "";
+/** An https URL is the only thing allowed into a TwiML `<Media>`; anything else is dropped. */
+export function twimlMediaUrl(url: string | null | undefined): string | null {
+  try {
+    const parsed = new URL(String(url ?? "").trim());
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function xmlText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Empty TwiML — replies are sent asynchronously via the Messaging API. An optional https `mediaUrl` rides the reply as `<Media>`. */
+export function twimlOk(reply?: string, mediaUrl?: string | null): NextResponse {
+  const escaped = reply ? xmlText(reply) : "";
+  const media = escaped ? twimlMediaUrl(mediaUrl) : null;
+  const message = !escaped ? "" : media
+    ? `<Message><Body>${escaped}</Body><Media>${xmlText(media)}</Media></Message>`
+    : `<Message>${escaped}</Message>`;
   return new NextResponse(
-    `<?xml version="1.0" encoding="UTF-8"?><Response>${escaped ? `<Message>${escaped}</Message>` : ""}</Response>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${message}</Response>`,
     {
       status: 200,
       headers: { "Content-Type": "text/xml" },

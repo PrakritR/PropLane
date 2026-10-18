@@ -144,6 +144,14 @@ describe("unassigned text", () => {
     expect(sent).toEqual([]);
   });
 
+  it("a lead's one real listing photo rides the TwiML reply; an emergency never carries it", async () => {
+    const { db } = world();
+    unassigned.mockResolvedValueOnce({ leadId: "lead-1", reply: "Room at 5259 Brooklyn, $900.", assignedWorkspaceId: null, mediaUrls: ["https://cdn.example.com/r1.jpg", "https://cdn.example.com/r2.jpg"] } as never);
+    expect(await run(db, "yes please")).toEqual({ kind: "handled", twiml: "Room at 5259 Brooklyn, $900.", mediaUrl: "https://cdn.example.com/r1.jpg" });
+    unassigned.mockResolvedValueOnce({ leadId: "lead-1", reply: "Room.", assignedWorkspaceId: null, mediaUrls: ["https://cdn.example.com/r1.jpg"] } as never);
+    expect(await run(db, "fire")).toEqual({ kind: "handled", twiml: EMERGENCY_SAFETY_REPLY });
+  });
+
   it("a stranger texting an emergency word gets the safety text first", async () => {
     const { db } = world();
     expect(await run(db, "fire")).toEqual({ kind: "handled", twiml: EMERGENCY_SAFETY_REPLY });
