@@ -28,7 +28,7 @@ export const FIXED_RULE_FIELDS: Partial<Record<ReminderSubjectKind, FixedRuleDec
   tour_interest: {
     fields: ["timings", "audience", "channels"],
     reason:
-      "This follow-up is sent once, 24 hours later, as a text to the prospect who messaged you — they reached you by phone and have no PropLane inbox. You can edit the message; the timing and channel are fixed.",
+      "This follow-up is sent twice at most, 24 and 72 hours later, as a text to the prospect who messaged you — they reached you by phone and have no PropLane inbox. You can edit the message; the timing and channel are fixed.",
   },
 };
 

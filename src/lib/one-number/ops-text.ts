@@ -144,7 +144,7 @@ export function digestIsEmpty(facts: DigestFacts): boolean {
 }
 
 /**
- * One GSM-7 segment where it fits (the transport adds "PropLane: "): tours today, open services,
+ * One GSM-7 segment where it fits (the sender adds the "Good morning" subject line): tours today, open services,
  * rent paid / unpaid, new leads. A clause with nothing in it is dropped; rent is always kept
  * when there is any, because it is the one a manager acts on.
  */
@@ -160,8 +160,7 @@ export function buildMorningDigestText(facts: DigestFacts): string {
     );
   }
   if (facts.newLeads > 0) parts.push(plural(facts.newLeads, "new lead"));
-  const body = `Good morning. ${parts.join(", ")}.`;
-  return toGsm7(body);
+  return toGsm7(`${parts.join(", ")}.`);
 }
 
 // ---- house choice ---------------------------------------------------------------------------
