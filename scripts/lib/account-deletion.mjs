@@ -327,6 +327,8 @@ export const DELETE_ORDER = [
   "portal_work_order_records",
   "portal_inbox_thread_records",
   "communication_dismissed_contacts",
+  // The service-owner singleton (admin Service tab); cleared with the owner before their workspaces go.
+  "platform_service_settings",
   "manager_property_records",
   "portal_workspaces",
 ];

@@ -702,3 +702,93 @@ Findings, not fixed here: the staging rehearsal needs a staging service-role key
 - **Who pays.** The auto-reply and the one-time cutover notices are platform sends: `sendPlatformLeadText` (`inboundReply` skips quiet hours for the reply), purpose `platform_lead`, from the shared number, no workspace wallet or credit hold. Cutover notices queue in `sms_moved_notices` (`status = queued`, `available_at` in Pacific daytime) and `runMovedNoticeQueue` sends them (cron `/api/cron/moved-notices`, every 5 minutes, claims each row before sending, puts it back on a provider failure).
 - Migration `20261018290000_one_number_fixes` (applied to dev); both tables RLS on, service role only; classified in `account-purge-manifest.ts` (`sms_moved_notices` cascades with its workspace; replies are pruned and carry no account column, so neither is in `DELETE_ORDER`).
 - Tests: `tests/unit/one-number-old-number.test.ts`, `tests/unit/one-number-old-number-route.test.ts`, the retry cases in `tests/integration/one-number-e2e/prospect-journey.test.ts`, `tests/unit/one-number-migration-cutover.test.ts`.
+
+## W15 - PropLane Service workspaces (admin Service tab)
+
+Admin > Accounts > **Service** lists PropLane's own managed-property workspaces (one per city). They are
+ordinary `portal_workspaces`, so everything the manager portal does works for managed properties with no
+new code path. Migration `20261018260000_admin_service_workspaces.sql` (additive; applied to dev).
+
+**Ownership model.** One designated *service owner* account owns every service workspace
+(`portal_workspaces.is_service = true`, plus a free-text `city`). Other admin operators are **members with
+the Admin role** (an accepted `account_link_invites` row pinned to the workspace, `team_role='admin'`,
+`house_scope='all'`) - "add other people to the admin team" = add them to the service workspaces.
+- Source of truth: `platform_service_settings` (singleton, service_role only). The DB trigger needs it to
+  exempt the owner from the 10-workspace ceiling. `PROPLANE_SERVICE_OWNER_USER_ID` only **seeds** the row,
+  once, and only for an existing account holding the admin role; a stored row always wins over the env.
+  No row and no valid env = not configured: the tab says so, `+` is disabled, create returns 409.
+- `src/lib/service/service-owner.server.ts`: `resolveServiceOwner` (seeds), `isPlatformServiceOwner`
+  (read-only, fail-closed; 42P01/42703/PGRST204/205 = no owner), `loadServiceWorkspace` (the one test every
+  route runs on a body id: must be `is_service` AND owned by the stored owner, else 404).
+- `create_portal_service_workspace(owner, name, city)`: service_role only, refuses any owner that is not the
+  stored service owner (42501), makes the first the owner's default (no stray "My workspace").
+
+**Routes** (`POST|GET /api/admin/service-workspaces`, every verb starts with `requireAdminRoute()`):
+`create` (owned by the service owner, the creating operator is seated as Admin; the workspace is deleted if
+that seating fails), `rename`, `open`, `team`, `team-add`, `team-remove`. Logic is in
+`src/lib/service/service-workspaces.server.ts`; each action re-derives what the operator IS inside the
+workspace (`actorWorkspaceStanding`): Open needs an accepted membership (or ownership), rename / team
+need the workspace "members" right (owner or Admin). A non-member admin sees the row but cannot act.
+`team-add` only accepts a target that itself holds the admin role (re-checked server-side); `team-remove`
+cancels only that workspace's own row (`canActOnMember`). **Open** sets the same `proplane-workspace`
+cookie the manager portal's switcher sets (`POST /api/workspaces` select) and lands on
+`/portal/properties`, so the viewer reads only that workspace's houses.
+
+**Service number: there is none of its own.** Service workspaces use the same default PropLane line as every
+other workspace (captain, Oct 18). Nothing is provisioned, reserved or exempted for them: no route action, no
+entitlement bypass, no budget exemption (`tests/unit/admin-service-guards.test.ts` fails if `src/lib/service/`
+touches provisioning, or if the sms entitlement/provisioning modules mention the service owner). A workspace
+gets its own number only the normal way (W16: paid Pro/Business specialized number). The Service list shows
+the number the workspace actually texts from (`workNumber` + `workNumberSource`): its own live number if it
+holds one, else the shared PropLane line when `sms_runtime_config` puts the workspace on it
+(`workspaceOnSharedLine`), else "No number".
+
+**Invariants.** No manager route gains an admin branch (`tests/unit/admin-service-guards.test.ts` pins the
+set of manager-side files that use an admin gate, and forbids any of them importing `@/lib/service/`). The
+admin ROLE is still not the all-owners read. Purge: `platform_service_settings` is classified in
+`account-purge-manifest.ts` (deleting the owner clears it, so the exemption fails closed).
+
+**Admin navigation: two halves** (Settings is untouched, in the account menu). `ADMIN_SECTION_TABS` /
+`ADMIN_GROUPS` in `src/lib/portals/nav-groups.ts` are the one source:
+- **Property management** (headed sidebar group, one row keyed on `properties`): tabs Properties (existing
+  all-owners oversight) · Service · PropLane line · Unassigned leads (moved here from Accounts).
+- **Software** (headed group, two rows): Accounts (Accounts · Subscribers · Test accounts) and Money
+  (Payments · Promo codes · Finances), regrouped, not rebuilt. Support and Growth follow, unheaded.
+Every section id and route is unchanged (`/admin/unassigned-leads` etc.); the row key `properties` is kept so
+the native bottom bar (`NATIVE_BOTTOM_NAV_ADMIN_PRIMARY`) still resolves.
+
+**The PropLane line** (`/admin/proplane-line`, `src/lib/service/proplane-line.server.ts`, route
+`/api/admin/proplane-line`): the shared number on the website is the admin account's number
+(`sms_runtime_config.shared_number_e164`, mode `line_mode`, `shared_pilot_workspace_ids`). The panel shows number,
+mode (Per workspace / Shadow / Shared; status Off / Shadow / Live) and the workspaces on it; **Change** needs a
+reason. `PATCH` is `requireAdminRoute`, validates the mode, the E.164 number (shared needs one) and that every
+workspace id exists, refuses a no-op (409), and writes the `audit_log` row (`admin_proplane_line_change`, before /
+after / reason) **before** applying - no audit row, no change; the row is stamped `applied: true|false` after.
+It never touches Twilio and no sms module is imported (guard test). Existing manager workspaces, their numbers
+and ownership are untouched.
+
+**One workspace per owner client, per city** (migration `20261018260100_service_owner_of_record.sql`, applied to
+dev). The Service list is sectioned by city (`groupServiceByCity`: Seattle first, the rest alphabetical, no city
+last; matched ignoring case). A workspace carries `city` and an optional `owner_of_record_name` typed on `+`
+(the client, before they have an account on the team). The **Team** pop-up has an **Invite owner** section:
+`team-invite` takes a PropLane ID and writes a **pending** `account_link_invites` row (Admin role, `house_scope
+all`, this workspace only - full access to it once accepted in their own portal, through the existing accept
+flow); the invitee must already be a property-portal account (the same rule as every co-manager invite) and
+their own accounts and workspaces are untouched. `account_link_invites.is_owner_of_record` flags THE membership
+that is the owner of record for payouts and finances (W17); it grants nothing by itself, and a partial unique
+index allows one live row per workspace (the server checks first and returns 409). A pending invitee shows by
+the invite-time name snapshot, never their live profile or email. `team-owner-of-record` sets / clears the flag;
+`team-remove` also withdraws a pending invite. The list shows the owner of record by name (the accepted flagged
+member's profile name, else the typed client name). Money / finances are W17: `serviceWorkspaceFinancesHref`
+(`src/lib/service/service-links.ts`) returns `null` and the row menu draws a Finances button only when it
+returns an href.
+
+**Service owner must be a property-portal manager too.** The co-manager sweeper
+(`purgeOrphanedCoManagerLinks`, run when an admin loads the portal) deletes every `account_link_invites` row whose
+inviter is not a manager/owner account, which silently stripped every operator from every service workspace when the
+owner held only the admin role. `resolveServiceOwner` therefore returns "not configured" (create / list) for an
+owner without that role, and refuses to seed one.
+
+**Not done / notes.** The service owner still needs a plan for *inviting non-admin teammates by role* through
+the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
+admins directly and links to the portal for role invites.

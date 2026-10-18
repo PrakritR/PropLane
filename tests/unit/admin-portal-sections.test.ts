@@ -27,33 +27,45 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 describe("admin nav groups", () => {
   const groups = PORTAL_NAV_GROUPS.admin;
   const rows = groups.flatMap((g) => g.sections);
-  const registry = adminPortal.sections.map((s) => s.section).filter((s) => s !== "profile");
+  const registry = adminPortal.sections.map((s) => s.section);
 
-  it("folds into seven unheaded rows: Dashboard, Communication, Accounts, Money, Properties, Support, Growth", () => {
+  it("folds into eight rows: Settings first, then Dashboard, Communication, Properties, Accounts, Money, Support, Growth", () => {
     expect(ADMIN_NAV_ROW_SECTIONS).toEqual([
+      "profile",
       "dashboard",
       "communication",
+      "properties",
       "axis-users",
       "payments",
-      "properties",
       "bugs-feedback",
       "growth",
     ]);
   });
 
-  it("is one unheaded group listing every section in row order, so an unfolded caller buckets too", () => {
-    expect(groups.map((g) => [g.id, g.label] as const)).toEqual([["home", null]]);
+  it("is two headed halves (Property management, Software) after Settings and Dashboard/Communication and before Support/Growth, listing every section in row order so an unfolded caller buckets too", () => {
+    expect(groups.map((g) => [g.id, g.label] as const)).toEqual([
+      ["settings", null],
+      ["home", null],
+      ["property-management", "Property management"],
+      ["software", "Software"],
+      ["platform", null],
+    ]);
+    expect(groups.find((g) => g.id === "property-management")?.sections).toEqual(["properties", "service", "proplane-line", "unassigned-leads"]);
+    expect(groups.find((g) => g.id === "software")?.sections).toEqual(["axis-users", "subscribers", "test-accounts", "payments", "promo-codes", "finances"]);
     expect(rows).toEqual([
+      "profile",
       "dashboard",
       "communication",
+      "properties",
+      "service",
+      "proplane-line",
+      "unassigned-leads",
       "axis-users",
       "subscribers",
-      "unassigned-leads",
       "test-accounts",
       "payments",
       "promo-codes",
       "finances",
-      "properties",
       "bugs-feedback",
       "events",
       "health",
@@ -61,7 +73,7 @@ describe("admin nav groups", () => {
     ]);
   });
 
-  it("reaches every admin section exactly once, through a row or a tab (Settings is the account menu)", () => {
+  it("reaches every admin section exactly once, through a row or a tab (Settings is the first row)", () => {
     const tabbed = Object.values(ADMIN_SECTION_TABS).flatMap((t) => t.sections);
     const rowsWithoutGroupKeys = ADMIN_NAV_ROW_SECTIONS.filter((id) => !tabbed.includes(id));
     const reach = [...rowsWithoutGroupKeys, ...tabbed];
@@ -74,40 +86,49 @@ describe("admin nav groups", () => {
   });
 
   it("keeps the registry in sidebar order so the native bar and the web nav agree", () => {
-    const folded = collapseAdminNavItems(adminPortal.sections.filter((s) => s.section !== "profile")).map(
-      (s) => s.section,
-    );
+    const folded = collapseAdminNavItems(adminPortal.sections).map((s) => s.section);
     expect(folded).toEqual(ADMIN_NAV_ROW_SECTIONS);
   });
 
-  it("groups the folded rows into one unheaded home group of seven labelled rows", () => {
+  it("groups the folded rows under Property management and Software headings", () => {
     const items = collapseAdminNavItems(
       adminPortal.sections.map((s) => ({ section: s.section, label: s.label })),
     );
     const grouped = groupNavItems("admin", items);
-    expect(grouped.map((g) => g.id)).toEqual(["home"]);
-    expect(grouped[0]!.label).toBeNull();
-    expect(grouped[0]!.items.map((i) => i.label)).toEqual([
-      "Dashboard",
-      "Communication",
-      "Accounts",
-      "Money",
-      "Properties",
-      "Support",
-      "Growth",
+    expect(grouped.map((g) => [g.id, g.label] as const)).toEqual([
+      ["settings", null],
+      ["home", null],
+      ["property-management", "Property management"],
+      ["software", "Software"],
+      ["platform", null],
+    ]);
+    expect(grouped.map((g) => g.items.map((i) => i.label))).toEqual([
+      ["Settings"],
+      ["Dashboard", "Communication"],
+      ["Properties"],
+      ["Accounts", "Money"],
+      ["Support", "Growth"],
     ]);
   });
 
   it("leaves an unfolded caller (the command palette) every section as its own destination", () => {
-    const items = adminPortal.sections
-      .filter((s) => s.section !== "profile")
-      .map((s) => ({ section: s.section, label: s.label }));
+    const items = adminPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const grouped = groupNavItems("admin", items);
-    expect(grouped.map((g) => g.id)).toEqual(["home"]);
-    expect(grouped[0]!.items.map((i) => i.section)).toEqual(rows);
-    expect(grouped[0]!.items.map((i) => i.label)).toContain("Promo codes");
-    expect(grouped[0]!.items.map((i) => i.label)).toContain("Health");
-    expect(grouped[0]!.items).toHaveLength(registry.length);
+    const flat = grouped.flatMap((g) => g.items);
+    expect(flat.map((i) => i.section)).toEqual(rows);
+    expect(flat.map((i) => i.label)).toContain("Promo codes");
+    expect(flat.map((i) => i.label)).toContain("Health");
+    expect(flat.map((i) => i.label)).toContain("PropLane line");
+    expect(flat).toHaveLength(registry.length);
+  });
+});
+
+describe("admin landing", () => {
+  it("opens on Settings: Settings is the first registry section and /admin redirects to it", () => {
+    expect(adminPortal.sections[0]!.section).toBe("profile");
+    expect(ADMIN_PORTAL_SMOKE_PATHS[0]).toEqual({ label: "Settings", path: "/admin/profile" });
+    expect(read("src/app/admin/page.tsx")).toContain('redirect("/admin/profile")');
+    expect(routeResolves("/admin/profile")).toBe(true);
   });
 });
 
@@ -196,5 +217,34 @@ describe("admin Growth section resolves", () => {
     expect(read("src/lib/render-portal-section.tsx")).toContain('kind === "admin" && section === "growth"');
     expect(read("src/lib/render-portal-section/admin.tsx")).toContain("GrowthAdminClient");
     expect(read("next.config.ts")).not.toMatch(/source:\s*"\/admin\/growth/);
+  });
+});
+
+describe("admin Property management sections resolve", () => {
+  const sections = [
+    { section: "service", label: "Service" },
+    { section: "proplane-line", label: "PropLane line" },
+    { section: "unassigned-leads", label: "Unassigned leads" },
+    { section: "properties", label: "Properties" },
+  ] as const;
+
+  it.each(sections)("$section is registered, linked, a smoke path and a real route", ({ section, label }) => {
+    const path = `/admin/${section}`;
+    expect(findSection(adminPortal, section)).toMatchObject({ section, label });
+    expect(hrefForSection(adminPortal, section)).toBe(path);
+    expect(routeResolves(path)).toBe(true);
+    expect(isInAppPath(path)).toBe(true);
+    expect(ADMIN_PORTAL_SMOKE_PATHS.some((p) => p.path === path)).toBe(true);
+  });
+
+  it("renders Service and PropLane line through their own handlers, before any legacy rewrite", () => {
+    const src = read("src/lib/render-portal-section.tsx");
+    expect(src).toMatch(/section === "service"[\s\S]{0,120}<AdminServicePanel \/>/);
+    expect(src).toMatch(/section === "proplane-line"[\s\S]{0,120}<AdminProplaneLinePanel \/>/);
+  });
+
+  it("no next.config redirect shadows a Service route", () => {
+    const cfg = read("next.config.ts");
+    expect(cfg).not.toMatch(/source: "\/admin\/(service|proplane-line)/);
   });
 });
