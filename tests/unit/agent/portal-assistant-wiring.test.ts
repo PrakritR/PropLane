@@ -158,7 +158,7 @@ describe("role registries never cross", () => {
    * unique to it — that is what keeps a texting prospect or a one-job vendor
    * away from a manager's financials and a resident's records.
    */
-  const SMS_SHARED_PUBLIC_TOOLS = new Set(["list_open_tour_slots", "request_tour", "check_room_availability"]);
+  const SMS_SHARED_PUBLIC_TOOLS = new Set(["list_open_tour_slots", "request_tour", "check_room_availability", "lookup_property_knowledge"]);
 
   it("the SMS registries stay tiny and see no manager financials or resident data", () => {
     const smsNames = [...vendorWorkOrderAgentRegistry.keys(), ...leasingSmsAgentRegistry.keys()];
@@ -168,16 +168,20 @@ describe("role registries never cross", () => {
       expect(resident.has(name), `${name} is a resident tool`).toBe(false);
     }
     expect(vendorWorkOrderAgentRegistry.size).toBeLessThanOrEqual(6);
-    // Eleven intentional capabilities: listing/link reads, nearby transit,
+    // Twelve intentional capabilities: listing/link reads, nearby transit,
     // public property research, tour availability, redundant-reply suppression,
-    // manager escalation, tour requests, and dates-only room availability.
-    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(11);
+    // manager escalation, tour requests, dates-only room availability, and
+    // the approved-answers knowledge lookup (audience "all" only).
+    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(12);
   });
 
   it("the one-job vendor SMS agent shares nothing at all", () => {
     // The exemption above is scoped to leasing. A vendor texting about one work
     // order has no business seeing tour availability either.
     for (const name of vendorWorkOrderAgentRegistry.keys()) {
+      // The knowledge lookup is one tool name on every texting role by design; each role binds its own
+      // scope (the vendor hears only audience "all"), see tests/unit/one-number-knowledge-lookup.test.ts.
+      if (name === "lookup_property_knowledge") continue;
       expect(manager.has(name), `${name} is a manager tool`).toBe(false);
       expect(resident.has(name), `${name} is a resident tool`).toBe(false);
     }

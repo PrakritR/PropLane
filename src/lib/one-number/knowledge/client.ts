@@ -83,7 +83,9 @@ export async function fetchThreadKnowledge(phone: string): Promise<ThreadKnowled
   try {
     const res = await fetchWithTimeout(`${BASE}/thread?phone=${encodeURIComponent(phone)}`, { credentials: "include" }, PORTAL_READ_TIMEOUT_MS);
     if (!res.ok) return null;
-    return await readJson<ThreadKnowledgeView>(res);
+    const data = await readJson<ThreadKnowledgeView>(res);
+    // Anything that is not this route's shape (an unrelated response) reads as "nothing to show".
+    return data && Array.isArray(data.suggestions) ? data : null;
   } catch {
     return null;
   }

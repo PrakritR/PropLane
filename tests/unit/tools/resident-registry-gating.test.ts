@@ -72,6 +72,8 @@ const UNGATED_TOOLS = [
   // Autopay enrollment is a standing payment-method change — portal-chat only
   // (see the SMS-exclusion test below), but not phase- or tier-gated.
   "set_autopay",
+  // One-number knowledge: approved answers for the resident's own house.
+  "lookup_property_knowledge",
 ];
 
 describe("resident registry gating", () => {
@@ -89,6 +91,7 @@ describe("resident registry gating", () => {
         "cancel_scheduled_message",
         "list_open_tour_slots",
         "request_tour",
+        "lookup_property_knowledge",
       ].sort(),
     );
   });

@@ -54,7 +54,7 @@ const TOPIC_PATTERNS: ReadonlyArray<readonly [ReplyTopic, RegExp]> = [
   ["parking", /\b(park|parking|garage|driveway|car|bike|bicycle|ev charg\w*)\b/i],
   ["utilities", /\b(utilit\w*|wi-?fi|internet|electric\w*|water bill|gas bill|trash|garbage|recycl\w*|laundry|heat|heating|a\/c|air conditioning)\b/i],
   ["maintenance", /\b(broken|leak\w*|repair|fix|maintenance|clog\w*|not working|stopped working|mold|pest|bugs?|mice|roaches)\b/i],
-  ["payment", /\b(rent|pay|paid|payment|late fee|deposit|autopay|venmo|zelle|invoice|charge|balance)\b/i],
+  ["payment", /\b(rent|pay|paid|payment|late fee|deposit|autopay|invoice|charge|balance)\b/i],
   ["pricing", /\b(price|pricing|cost|how much|per month|monthly|fees?|what does it cost)\b/i],
   ["availability", /\b(available|availability|vacan\w*|move[- ]?in date|open room|any rooms?|still open|lease length|how long)\b/i],
   ["house_rules", /\b(pets?|dog|cat|smok\w*|quiet hours|guests?|visitors?|rules?|policy|policies|curfew|party|parties)\b/i],
