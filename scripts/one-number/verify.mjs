@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { countRows, fetchAll } from "./lib/db.mjs";
 import { writeJsonFile } from "./lib/files.mjs";
+import { optedOutKeys } from "./lib/consent.mjs";
 import { phoneKey } from "./lib/phones.mjs";
 import { bootstrap, isMain, runMain } from "./lib/runtime.mjs";
 import { STAMP_TABLES } from "./lib/stamp-plan.mjs";
@@ -28,20 +29,6 @@ const SCRIPT = "verify";
 
 function check(name, failures, detail = "", warnings = []) {
   return { name, ok: failures.length === 0, failures, detail, warnings };
-}
-
-export async function optedOutKeys(db) {
-  const out = new Set();
-  const ledger = await fetchAll(db, "sms_consent", "phone, opted_in_at, opted_out_at", { key: "phone" });
-  for (const r of ledger.rows) {
-    if (r.opted_out_at && (!r.opted_in_at || Date.parse(r.opted_in_at) < Date.parse(r.opted_out_at))) out.add(phoneKey(r.phone));
-  }
-  const profiles = await fetchAll(db, "profiles", "id, phone, sms_opt_out_at, sms_consent_at", { filter: (q) => q.not("sms_opt_out_at", "is", null) });
-  for (const r of profiles.rows) {
-    if (r.phone && (!r.sms_consent_at || Date.parse(r.sms_consent_at) < Date.parse(r.sms_opt_out_at))) out.add(phoneKey(r.phone));
-  }
-  out.delete("");
-  return out;
 }
 
 async function takeBaseline(db) {
