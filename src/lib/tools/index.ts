@@ -111,6 +111,8 @@ import {
   acceptTourInquiryTool,
 } from "./domains/calendar";
 import { managerBookingsTools } from "./domains/bookings";
+import { managerOpsTools } from "./domains/manager-ops";
+import { managerOpsRoomTools } from "./domains/manager-ops-rooms";
 import { listServiceRequestsTool } from "./domains/services";
 import { findRecordsTool } from "./domains/search";
 import { getManagerProfileTool, getDashboardSummaryTool } from "./domains/profile";
@@ -286,6 +288,10 @@ export const agentRegistry = buildRegistry([
   ...managerDispatchTools,
   // Bookings reads + room-block writes (calendar area). remove_room_block is destructive.
   ...managerBookingsTools,
+  // Manager operations by text: tours on a day, rent status, an application's review link, a resident
+  // broadcast and "set up payouts" (W8), plus vacancies and "mark room rented".
+  ...managerOpsTools,
+  ...managerOpsRoomTools,
   // The accounting writes (bills, budgets, deposit dispositions, owner
   // distributions, bank reconciliation). Each carries a preview, which is what
   // makes it safe to expose — the model can propose, only the landlord can
@@ -315,6 +321,15 @@ export const MANAGER_INLINE_WRITE_TOOLS: readonly string[] = [updateThreadTool.n
  * does not exist on SMS.
  */
 export const MANAGER_PORTAL_ONLY_TOOLS: readonly string[] = [portfolioImportStatusTool.name];
+
+/**
+ * Approval-type writes withheld from manager SMS: "Approve Priya's application" is answered with the
+ * portal link (`get_application_review_link`), never executed by a text. AGENTS.md keeps application
+ * approval out of the tool layer until charge generation moves server-side; the portal assistant
+ * still has these tools, a text does not. Withheld by name on purpose: it is a product rule, not a
+ * property of the tool (neither is `destructive`).
+ */
+export const MANAGER_SMS_DEEP_LINK_ONLY_TOOLS: readonly string[] = ["update_application_bucket", "set_resident_approval"];
 
 /**
  * The MANAGER SMS agent's registry: everything the manager portal assistant has,
@@ -347,7 +362,10 @@ export function buildManagerSmsRegistry(
   // to repeat on each inbound text.
   managerSmsRegistry ??= buildRegistry(
     [...agentRegistry.values()].filter(
-      (tool) => !(tool.kind === "write" && tool.destructive) && !MANAGER_PORTAL_ONLY_TOOLS.includes(tool.name),
+      (tool) =>
+        !(tool.kind === "write" && tool.destructive) &&
+        !MANAGER_PORTAL_ONLY_TOOLS.includes(tool.name) &&
+        !MANAGER_SMS_DEEP_LINK_ONLY_TOOLS.includes(tool.name),
     ),
   );
   if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return managerSmsRegistry;
