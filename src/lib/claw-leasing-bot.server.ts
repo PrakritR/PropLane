@@ -44,6 +44,7 @@ import {
   type PropLaneSmsResult,
 } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { recordAutoReplyOnSmsNoticeFresh } from "@/lib/sms-inbox-notice.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -562,6 +563,8 @@ async function persistClawInboundSms(args: {
   /** The sender's capacity — 'resident' from the resident hub, 'prospect' from
    * the leasing responder. Splits prospect vs resident threads on one line. */
   counterpartyRole?: SmsCounterpartyRole;
+  /** The workspace the text belongs to; stamped on both logs. */
+  workspaceId?: string | null;
 }): Promise<boolean> {
   const db = createSupabaseServiceRoleClient();
   const { logManagerSmsMessage, inboundLogIdentityFields } = await import(
@@ -579,6 +582,7 @@ async function persistClawInboundSms(args: {
     createdAt: args.receivedAt ?? null,
     source: "automated",
     counterpartyRole: args.counterpartyRole,
+    workspaceId: args.workspaceId ?? null,
   });
   const identity = {
     manager_user_id: args.managerUserId,
@@ -595,7 +599,8 @@ async function persistClawInboundSms(args: {
     }),
     ...(args.receivedAt ? { created_at: args.receivedAt } : {}),
   };
-  const { error } = await db.from("inbound_sms_log").insert(identity);
+  const { error } = await withWorkspaceStamp(args.workspaceId, (stamp) =>
+    db.from("inbound_sms_log").insert({ ...stamp, ...identity }));
   const inboundLogStored = !error || error.code === "23505";
   if (!inboundLogStored) {
     console.error("claw inbound_sms_log insert failed", error.message);
@@ -749,6 +754,8 @@ export async function handleClawLeasingInbound(args: {
   service?: string | null;
   /** Owning manager when inbound hit their Twilio `sms_from_number`. */
   managerUserId?: string | null;
+  /** The workspace this text belongs to (the work number's, or the router's on the shared line). */
+  workspaceId?: string | null;
   /** E.164 work number to send replies From. */
   workNumber?: string | null;
   /** The caller owns a distributed, leased MessageSid receipt. */
@@ -974,6 +981,7 @@ export async function handleClawLeasingInbound(args: {
           messageId: event.messageId,
           receivedAt: event.receivedAt,
           counterpartyRole: "resident",
+          workspaceId: args.workspaceId ?? null,
         }).catch((e) => {
           console.error("claw resident inbound log failed", e);
           return false;
@@ -1138,6 +1146,7 @@ export async function handleClawLeasingInbound(args: {
         messageId: event.messageId,
         receivedAt: event.receivedAt,
         counterpartyRole: "prospect",
+        workspaceId: args.workspaceId ?? null,
       }).catch((e) => {
         console.error("claw leasing inbound log failed", e);
         return false;

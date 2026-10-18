@@ -1,4 +1,5 @@
 import "server-only";
+import { withSmsMedia } from "@/lib/one-number/sms-media-index.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -373,12 +374,14 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
   if (actorError) throw new Error("Could not load SMS sender labels.");
   const actorNames = new Map((actorProfiles ?? []).map((actor) => [String(actor.id), String(actor.full_name ?? "").trim()]));
   const actorBySid = new Map((outboxRows ?? []).map((outbox) => [String(outbox.provider_message_sid), String(outbox.actor_user_id ?? "")]));
+  const mappedMessages = page.turns.reverse().map((turn) => {
+    const message = mapTurn(turn);
+    const actorId = actorBySid.get(turn.sourceEventId);
+    return actorId && actorId !== viewerId ? { ...message, sentBy: { userId: actorId, name: actorNames.get(actorId) || "Teammate" } } : message;
+  });
   return {
-    messages: page.turns.reverse().map((turn) => {
-      const message = mapTurn(turn);
-      const actorId = actorBySid.get(turn.sourceEventId);
-      return actorId && actorId !== viewerId ? { ...message, sentBy: { userId: actorId, name: actorNames.get(actorId) || "Teammate" } } : message;
-    }),
+    // Inbound MMS photos ride on their bubble (private bucket, signed per view).
+    messages: await withSmsMedia(db, mappedMessages),
     nextCursor: encodeCursor(page.nextCursor),
     stateVersion: context.viewStates.get(summary.id)?.version ?? 0,
     unread: asResident(summary, context).unread,

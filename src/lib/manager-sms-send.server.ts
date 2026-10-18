@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dispatcher.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { resolveSharedLineHumanSend } from "@/lib/one-number/shared-line-number.server";
+import { appendSignOff } from "@/lib/one-number/segments";
 import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.server";
 import { WORKSPACE_NO_WORK_NUMBER_CODE, WORKSPACE_NO_WORK_NUMBER_MESSAGE } from "@/lib/sms/workspace-no-work-number";
 import { track } from "@/lib/analytics/posthog";
@@ -156,7 +158,15 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   // the house it is about. Two lines and no placement is a refusal - never the
   // owner's default workspace number.
   let selectedWorkLineId: string | null = args.selectedConversation ? match.workLineId ?? null : null;
-  if (!args.selectedConversation) {
+  // On the shared line a reply leaves from the one PropLane number (there is no
+  // per-workspace line to place it on), billed to the conversation's workspace
+  // and signed "<house or workspace name> team". Null under per_workspace.
+  const sharedSend = await resolveSharedLineHumanSend(db, {
+    ownerUserId: ownerManagerUserId,
+    selectedWorkLineId: args.selectedConversation ? match.workLineId ?? null : null,
+    propertyId: match.houses?.[0]?.propertyId ?? null,
+  });
+  if (!args.selectedConversation && !sharedSend) {
     const linePhones = [...(match.messages ?? [])]
       .reverse()
       .filter((message) => message.source === "work_number")
@@ -198,11 +208,12 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
         .digest("hex")}`;
   const result = await enqueueOwnerSms({
     managerUserId: ownerManagerUserId,
+    ...(sharedSend ? { workspaceId: sharedSend.workspaceId } : {}),
     selectedWorkLineId,
     actorUserId: args.actorUserId,
     recipientPhone: matchedPhone,
     recipientEmail: match?.residentEmail ?? null,
-    body: text,
+    body: sharedSend?.signOff ? appendSignOff(text, sharedSend.signOff) : text,
     sendClass: "transactional",
     // A vendor thread carries the vendor consent ledger (the vendor's own text
     // or the manager's attestation); every other thread keeps the generic purpose.

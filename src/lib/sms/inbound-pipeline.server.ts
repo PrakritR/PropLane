@@ -62,6 +62,8 @@ import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { loadThreadPause } from "@/lib/one-number/session.server";
 import { gateAiReply } from "@/lib/one-number/knowledge/reply-modes.server";
+import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
+import { attachVendorJobMedia, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
@@ -85,6 +87,8 @@ export type InboundPayload = {
   toPhone: string;
   body: string;
   workspaceId: string | null;
+  /** The body held a card or bank number and was stored redacted; the sender gets the secure-link reply. */
+  redacted?: boolean;
   /** Only `NumMedia` / `MediaUrlN` / `MediaContentTypeN` from the webhook. */
   media: Record<string, string>;
   /** Runtime that received the text. Staging runs on a production clone, so a
@@ -230,9 +234,25 @@ async function hydrateReceiptRetry(
        (queuedUserEnrichment && prior?.counterpartyRole === "unknown"))) {
     throw new Error("receipt_classification_unproven");
   }
-  const line = await resolveSmsProjectionWorkLine(db, {
+  let line = await resolveSmsProjectionWorkLine(db, {
     ownerManagerUserId: projectedOwnerId, phoneNumber: toPhone, occurredAt,
   });
+  if (!line) {
+    // The shared line has no work-number row: place the receipt on the workspace
+    // the router stamped in the claim payload.
+    try {
+      const { data: payloadRow } = await db.from("sms_inbound_receipts")
+        .select("inbound_payload").eq("message_sid", sid).limit(1).maybeSingle();
+      const stampedWorkspace = String((payloadRow?.inbound_payload as { workspaceId?: unknown } | null)?.workspaceId ?? "").trim();
+      if (stampedWorkspace) {
+        line = await resolveSmsProjectionWorkLine(db, {
+          ownerManagerUserId: projectedOwnerId, phoneNumber: toPhone, occurredAt, workspaceId: stampedWorkspace,
+        });
+      }
+    } catch {
+      /* unresolved stays unresolved */
+    }
+  }
   if (!line) throw new Error("receipt_work_line_unresolved");
   if (original.workLineId && line.workLineId !== original.workLineId) throw new Error("receipt_work_line_conflict");
   if (prior && managerRef && prior.workLineId && prior.workLineId !== line.workLineId) {
@@ -451,6 +471,7 @@ export async function recoverSmsProjectionRetries(
               ownerManagerUserId: event.ownerManagerUserId,
               phoneNumber,
               occurredAt: event.occurredAt,
+              workspaceId: event.workspaceId ?? null,
             })
           : null;
         if (!line) {
@@ -495,6 +516,8 @@ async function projectClassifiedInbound(
     messageSid: string;
     body: string;
     occurredAt: string;
+    /** The workspace the router picked; places a shared-line thread. */
+    workspaceId?: string | null;
   },
 ): Promise<string | null> {
   const occurredAt = args.occurredAt;
@@ -512,6 +535,7 @@ async function projectClassifiedInbound(
     counterpartyUserId: args.counterpartyUserId,
     counterpartyPhone: normalizedFrom,
     workPhone: normalizedTo,
+    workspaceId: args.workspaceId ?? null,
     legacyConversationKey,
     messageSid: args.messageSid,
     direction: "inbound",
@@ -625,11 +649,12 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   const body = saved?.body ?? input.body;
   // Preserve the incoming body before any billing read. An unavailable wallet
   // must not erase incoming communication while delivery retries are pending.
-  const { error: inboundBodyError } = await db.from("inbound_sms_log").insert({
+  const { error: inboundBodyError } = await withWorkspaceStamp(workspaceId, (stamp) => db.from("inbound_sms_log").insert({
+    ...stamp,
     manager_user_id: managerId, from_phone: fromPhone, to_phone: toPhone, body, message_sid: messageSid,
     created_at: occurredAt,
     ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "unknown", fromPhone }),
-  });
+  }));
   if (inboundBodyError && inboundBodyError.code !== "23505") {
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Incoming message could not be saved." }, { status: 503 });
@@ -653,6 +678,21 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   }
 
   mark("logged");
+  // Every role: copy each media item into the private sms-media bucket now
+  // (Twilio deletes it later) and index it. Best-effort and idempotent per
+  // item; a failure never stops the turn.
+  if ((Number(media.NumMedia) || 0) > 0) {
+    await ingestInboundMedia(db, {
+      messageSid,
+      ownerUserId: managerId,
+      workspaceId: workspaceId ?? null,
+      senderPhone: fromPhone,
+      params: media,
+    }).catch((error) => console.error("inbound media ingest failed", {
+      messageSid,
+      reason: error instanceof Error ? error.message : "unknown",
+    }));
+  }
   const replay = await loadInboundReplay(db, messageSid);
   mark("replay");
   if (!replay.ok) {
@@ -854,6 +894,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body: agentBody,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
     const managerIdentity = await resolveManagerSmsAgentContext(db, {
       managerUserId: managerInbound.workNumberOwnerId,
@@ -1034,6 +1075,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("vendor inbound projection failed", error instanceof Error ? error.message : "unknown"));
     await db.from("inbound_sms_log").update({ matched_sender_user_id: vendor.session.vendor_user_id,
       ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "vendor", counterpartyUserId: vendor.session.vendor_user_id, fromPhone })
@@ -1048,6 +1090,14 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       runTurn: runVendorAgentSessionTurn as never,
     });
     if (vendorRoute.route === "manager_thread") mark("vendor:manager-wins");
+    // A photo texted on an open job belongs to that job's record.
+    if ((Number(media.NumMedia) || 0) > 0 && vendor.session.work_order_id) {
+      await attachVendorJobMedia(db, {
+        ownerUserId: managerId,
+        workOrderId: vendor.session.work_order_id,
+        messageSid,
+      });
+    }
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
     return twimlOk();
   }
@@ -1079,6 +1129,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       managerUserId: managerId,
       phone: fromPhone,
       counterpartyRole: "resident",
+      workspaceId: workspaceId ?? null,
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
     // "Is it fixed?" after a dispatched job: a bare YES / NO from the resident the question was
@@ -1315,6 +1366,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         managerUserId: managerId,
         phone: fromPhone,
         counterpartyRole: "vendor",
+        workspaceId: workspaceId ?? null,
         ...(routing.created ? { suggestedDisplayName: routing.name } : {}),
         lastInboundAt: new Date().toISOString(),
       }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
@@ -1336,6 +1388,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       managerUserId: managerId,
       phone: fromPhone,
       counterpartyRole: "prospect",
+      workspaceId: workspaceId ?? null,
       ...(routing.kind === "potential" && routing.created ? { suggestedDisplayName: routing.name } : {}),
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
@@ -1359,6 +1412,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageId: messageSid,
       receivedAt: originalReceivedAt,
       managerUserId: workspace.ownerUserId,
+      workspaceId: workspaceId ?? null,
       workNumber,
       service: "SMS",
       durablyClaimed: true,

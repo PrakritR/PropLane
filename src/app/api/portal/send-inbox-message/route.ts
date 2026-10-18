@@ -50,6 +50,8 @@ import {
   openClawResidentThread,
 } from "@/lib/claw-resident-messaging.server";
 import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
+import { resolveSharedLineHumanSend } from "@/lib/one-number/shared-line-number.server";
+import { appendSignOff } from "@/lib/one-number/segments";
 import { normalizeE164 } from "@/lib/twilio";
 import {
   ensureSmsIncludesPortalLink,
@@ -1171,6 +1173,14 @@ export async function POST(req: Request) {
         const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
 
         const senderIsManager = ["manager", "pro", "admin"].includes(String(senderRole ?? "").toLowerCase());
+        // A human message from the inbox on the shared line is signed
+        // "<house or workspace name> team"; null (and no change) per-workspace.
+        const sharedLineHumanSend = senderIsManager && !eventCategory
+          ? await resolveSharedLineHumanSend(db, {
+              ownerUserId: user.id,
+              selectedWorkLineId: managerSendScope?.activeWorkspaceId ?? null,
+            })
+          : null;
         // Parallel fan-out — a broadcast to N residents must not pay N serial
         // Claw relay round-trips inside the request.
         await Promise.all(
@@ -1192,6 +1202,7 @@ export async function POST(req: Request) {
                       ? "inbox"
                       : null;
           if (linkKind) smsText = ensureSmsIncludesPortalLink(smsText, linkKind);
+          if (sharedLineHumanSend?.signOff) smsText = appendSignOff(smsText, sharedLineHumanSend.signOff);
           const recipientIsResident =
             String(recipient.role ?? "").toLowerCase() === "resident" ||
             recipient.scope.includes("resident");

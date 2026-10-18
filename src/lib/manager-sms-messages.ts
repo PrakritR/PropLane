@@ -31,6 +31,9 @@ export type ManagerSmsMessageStorageTable =
   | "inbound_sms_log"
   | "sms_relay_messages";
 
+/** One MMS attachment of a text: private bucket path + the in-app serve URL (fresh signed URL per view). */
+export type ManagerSmsMessageMedia = { path: string; contentType: string; url: string };
+
 export type ManagerSmsMessageRow = {
   id: string;
   direction: "inbound" | "outbound";
@@ -49,6 +52,8 @@ export type ManagerSmsMessageRow = {
    * Never shown to the texter; only inside Communication.
    */
   sentBy?: { userId: string; name: string } | null;
+  /** MMS attachments of this text (inbound photos), shown inline in the bubble. */
+  media?: ManagerSmsMessageMedia[];
 };
 
 /**

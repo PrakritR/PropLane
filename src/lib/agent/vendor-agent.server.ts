@@ -1,6 +1,8 @@
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { toGsm7 } from "@/lib/one-number/segments";
+import { redactedInboundReplyOverride } from "@/lib/one-number/redact-reply.server";
 import { reserveCommsCredit, resolveWorkspaceIdForWorkOrder } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
@@ -312,7 +314,9 @@ export async function deliverVendorAgentReply(
   if (!consent.allowed) return;
   const delivered = await enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
     recipientPhone: session.vendor_phone_e164, recipientUserId: session.vendor_user_id,
-    body: text, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
+    // Segment guard: a curly quote or emoji would bill this reply as UCS-2. A
+    // reply to a text that carried a card/bank number is the secure-link notice.
+    body: toGsm7((await redactedInboundReplyOverride(inboundMessageSid)) ?? text), sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
     dedupeKey,
   }, db);
   if (!delivered.ok) throw new Error("Vendor reply delivery could not be queued.");
