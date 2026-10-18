@@ -338,6 +338,11 @@ export async function notifyPropertyScopedManagersFromAgent(
   input: {
     ownerManagerUserId: string;
     propertyId?: string | null;
+    /**
+     * An already-known workspace (the shared line's router stamped one) when no house names it.
+     * Outranks the owner's default workspace; never a browser cookie.
+     */
+    workspaceId?: string | null;
     module: CoManagerPermissionId;
     subject: string;
     text: string;
@@ -361,7 +366,10 @@ export async function notifyPropertyScopedManagersFromAgent(
 ): Promise<void> {
   const ownerId = input.ownerManagerUserId.trim();
   const excluded = new Set((input.excludeUserIds ?? []).map((id) => id.trim()));
-  const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, { propertyId: input.propertyId }).catch(
+  const noticeWorkspace = await resolveManagerAssistantWorkspace(db, ownerId, {
+    propertyId: input.propertyId,
+    workspaceId: input.workspaceId,
+  }).catch(
     () => null,
   );
   // Routine notices reach teammates only through ONE Team chat line (derived
@@ -398,6 +406,7 @@ export async function notifyPropertyScopedManagersFromAgent(
         category: input.category,
         idempotencyKey: input.idempotencyKey,
         propertyId: input.propertyId ?? null,
+        workspaceId: input.workspaceId ?? null,
         senderOwnerId: ownerId,
       });
     if (isOwner) {
