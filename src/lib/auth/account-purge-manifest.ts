@@ -1415,6 +1415,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_escalated_questions: "Workspace escalated questions awaiting a manager answer; cascade with the workspace.",
   sms_ai_reply_drafts: "Workspace AI reply drafts held for a manager; cascade with the workspace.",
   sms_knowledge_digests: "Workspace weekly knowledge digest bookkeeping; cascade with the workspace.",
+  workspace_automation_settings: "Workspace preset auto-send modes and wording; cascade with the workspace.",
+  workspace_automation_runs: "Workspace preset auto-send run ledger and held drafts; cascade with the workspace.",
   sms_reply_debounce:
     "Transient reply-burst bookkeeping keyed on an opaque owner:role:phone scope; texts are dropped as soon as the reply is durable and no account column exists.",
   rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",

@@ -116,7 +116,7 @@ Files (`src/lib/one-number/` unless noted):
 - `lead-qualifying.ts` (pure) - the five questions in fixed order (budget; move-in date + lease length; area or commute; bath + furnished; household size), deterministic extractors, `touchesProtectedTopic` / `withoutProtectedClauses`, `sanitizeModelFields` / `mergeModelFields`, `toGsm7`.
 - `lead-match.ts` (pure) - `matchRooms` over `getCrawlPublicListings()` (the hourly `publicListingProjection` catalog, all workspaces) through `filterRoomListings`; `buildOfferText`; `parseOfferPick`.
 - `lead-extract.server.ts` - Claude Haiku (`TIER_MODELS.simple`) through `completeAgentModel`, extraction only, off under `NODE_ENV=test` and without `ANTHROPIC_API_KEY`.
-- `lead-redact.ts` - local redaction call site (card / bank / SSN numbers never stored). Swap its body for `redactSensitiveNumbers` (`redact.ts`, transport workstream) when the branches meet.
+- (deleted by the lane) `lead-redact.ts` - local redaction call site (card / bank / SSN numbers never stored). Swap its body for `redactSensitiveNumbers` (`redact.ts`, transport workstream) when the branches meet.
 - `unassigned-leads.server.ts` - `handleUnassignedLeadInbound` (signature unchanged; optional third `LeadDeps` argument for tests), `assignLeadToHouse`, `closeLead`, `listOpenLeads`.
 - `lead-followups.server.ts` + `lead-send.server.ts` + cron `/api/cron/unassigned-lead-followups` (hourly at :15, `vercel.json`).
 - Admin queue: `src/components/portal/admin-unassigned-leads-panel.tsx`, section `unassigned-leads` in the Accounts tab group (`/admin/unassigned-leads`), routes `GET /api/admin/unassigned-leads`, `PATCH /api/admin/unassigned-leads/[id]` (`{action: "assign", propertyId}` | `{action: "close"}`), guard `admin-leads-guard.server.ts` (`isAdminUser`).
@@ -414,6 +414,74 @@ with the secure-link notice in every agent deliverer (`redactedInboundReplyOverr
 leasing and vendor agent reply deliverers and in `sendSharedLineMessage`. Text that is already
 GSM-7 is returned unchanged.
 
+## W11 - Preset auto-sends (Automations), house facts, escalations inbox
+
+Spec: `texting-plan-1018` "Preset auto-sends", "Resident fast path" (house facts) and "New data". Migration
+`20261018200000_automations.sql` (dev applied, ledger row recorded): `workspace_automation_settings` (workspace, preset,
+mode `auto|draft|off`, optional wording), `workspace_automation_runs` (the ledger; `unique (workspace_id, idempotency_key)` is the
+idempotency, `held` = a draft waiting), and `sms_escalated_questions` gains `source` (`agent|ra|unanswered`), `excerpt`,
+`resolved_by`. Both new tables are RLS-on, service role only, classified in `account-purge-manifest.ts`. Every read treats 42P01 /
+42703 / PGRST205 as "nothing there".
+
+**Presets** (`src/lib/automations/presets.ts`, pure). Ten from the spec table plus `arrival_guide` and `checkout_reminder`, which
+claude-2's check-in/out times work fires through `fireAutomation` (below); they draw in Settings only once their id is added to
+`EXTERNAL_PRESETS_LIVE`. Two engines: `existing` presets (`rent_due_3d`, `rent_late_3d`, `maintenance_booked`, `move_out`) gate a
+message the product already sends, `off` stops it (payment-reminder cron via `presetForScheduledPaymentKind`, `workOrderEvent` for the
+resident's visit notice, `sweepTenancyReminders` for the move-out checklist; all through `loadOffPresetResolver`, which fails OPEN) and
+nothing else about today's behaviour moves; `automation` presets are the new texts. New presets default `draft`; `announcement` defaults
+`auto` (the manager already said send). Rent late stays 1:1; a group preset never offers a name, room, amount, pay link or secret
+(`GROUP_FORBIDDEN_VARIABLES`, enforced by `validateTemplate`).
+
+**Flag safety.** The sweep serves a workspace only when it has picked a mode for at least one preset (`loadOptedInWorkspaces`) or is on
+the shared line; a workspace that never opens Automations keeps today's behaviour. The first pick opts it in and every other new preset
+then runs at its default (draft).
+
+**The spine.** `sweep.server.ts` (`sweepAutomations`) rides the existing 5-minute `/api/cron/dispatch-reminders` tick: no new cron.
+`moments.ts` is the pure date logic (3 days before move-in, lease signed in the last 7 days, move-in / rent due / move-out today,
+pickup the evening before, monthly cleaning on the 1st, nothing before 9 am or after 9 pm Pacific or inside the house's own quiet
+window); `sources.server.ts` loads signed leases (`portal_lease_pipeline_records`), their houses, rent charges due today and services
+scheduled in the last day (`action_events`). `fire.server.ts` `fireAutomation(db, { workspaceId, ownerUserId, preset, idempotencyKey,
+vars, target })` is the one door: off -> nothing recorded; draft -> held (a pending `sms_ai_reply_drafts` row in the resident's
+thread, `topic = automation:<preset>`, plus the run row; a group draft is the run row alone, listed under Settings > Automations);
+auto -> sent. A quiet-hours / budget / rate-limit refusal releases the claim so a later tick retries; opt-out, no consent and no group
+are recorded as `skipped`. 1:1 goes through `sendResidentAutomationText` (`sendSharedLineMessage` on the shared line, else the work
+number with scoped automated consent). Group posts go through `postToHouseGroup` (`src/lib/house-groups/post.server.ts`; W10 owns the
+body, the stub answers `not_enabled`) after `houseGroupReady` (`ready.server.ts`, reads `house_group_conversations`, false until W10's
+table exists). A group-only preset with no group is silent (no draft); `announcement` and house-wide `maintenance_booked` fall back to
+one text per resident (never a name, amount or secret either way). `approveHeldRun` re-checks a held group text against who lives
+there NOW; `reconcileHeldRuns` follows a draft the manager handled from the thread.
+
+**Templates** (`templates.ts`). `{variable}` from a fixed list, filled from data only (never an AI-written amount); a sentence whose
+variable is empty is dropped whole; GSM-7. `groupTextViolations` refuses money, any resident's first name and any house secret in
+the RENDERED group text (templates, announcements alike).
+
+**House facts** (`src/lib/house-info.ts`, additive). New fields: recycling day, manager contact, `rules.escalateAfter` (complaint
+threshold, a `count` stepper). `HouseInfoField.secret` marks door code, gate code, lockbox, Wi-Fi password and alarm
+(`houseInfoSecretValues`, `containsHouseSecret`); `.internal` marks the threshold (never drawn to a resident or printed). Recycling day
+is resident-only: `TRASH_PUBLIC_KEYS` no longer lists it, so the public page and printables are unchanged (C2-RE12). Secrets reach only a
+verified current resident past the move-in lock (W6 lookup scope, `loadMoveInDetailsLock` in the move-in text), never a prospect, a
+vendor, the public listing or a group post.
+
+**Announce.** `announce.server.ts` `announceToHouses` (houses re-derived from the actor's workspace; a co-manager only their own);
+route `POST /api/portal/automations/announce`; manager chat/SMS tool `announce_to_house` (confirm gate; with several houses and none
+named the preview refuses with "Which house: A, B, or all?"; registered in `COMMUNICATION_SENDING_TOOLS` and the MCP exclusion list).
+UI: megaphone icon in Settings > Communication > Automations opens the pop-up.
+
+**Settings UI.** `automations-settings.tsx` (`AutomationsSection`, mounted after "Answers for all houses"): held drafts first (Send /
+Dismiss icon actions), then one row per preset (glyph for 1:1 or group, mode dropdown, "Edit text" in the row menu for presets that own
+their wording). `AutomationTextModal`: plain "Insert" dropdown (no chips), live preview from one real resident. Routes under
+`/api/portal/automations` (`GET`, `PUT` owner only, `preview`, `runs/[id]`, `announce`).
+
+**Escalations inbox.** `escalations.server.ts` (`listEscalations`, `resolveEscalation`, `recordEscalationItem`, `recordHouseComplaint`),
+route `GET|PATCH /api/portal/one-number/escalations`, page `/portal/communication/escalations`
+(`manager-escalations-inbox.tsx`, `PortalRecordListSurface`, Open | Resolved, reached by the triangle icon in the Communication header,
+`manager-escalations-action.tsx`). Phones leave the server as the last four digits. W10's RA calls `recordEscalationItem` (source `ra`)
+and `recordHouseComplaint` (logged quietly; the complaint that reaches the house's threshold files ONE open "repeated complaints"
+item with the excerpt; no punishment by AI).
+
+Tests: `tests/unit/automations-{presets,templates,moments,house-facts,fire,sweep,store,escalations,routes,announce-tool,door-code-reach,service-visit-gate}.test.ts`,
+`tests/unit/automations-settings.test.tsx`, helper `tests/helpers/automations-fake-db.ts`.
+
 ## W10 - House group chats with an AI RA (Twilio Conversations group MMS)
 
 Spec: [`texting-plan-1018`](../../../.cockpit/briefs/texting-plan-1018.md) § House group chats, § Preset auto-sends, § Risks. Migration `20261018190000_house_groups.sql` (dev applied, ledger row
@@ -434,7 +502,7 @@ Files (`src/lib/house-groups/`):
 - `members.ts` (pure) - `selectGroupMembers`, `memberHash`, `diffMembers`. `residents.server.ts` - `candidatesFromStays` (pure) over the Bookings occupancy snapshot (`occupancySnapshotForManager`): a stay with a `resident` payload (executed lease or approved hold) lasting 30+ days or open-ended is long-term; a guest-portal short stay has no resident payload and is never a member.
 - `ra-policy.ts` (pure) - `classifyGroupText`, `planGroupReply`, `planDueCheck`, `groupPreferenceCommand`. `facts.ts` (pure) - `composeFactReply`. `copy.ts` - every line the RA says. `time.ts` - Pacific quiet hours.
 - `store.server.ts` (all table access), `conversations-gateway.server.ts` (the only Twilio Conversations calls), `post.server.ts`, `manager.server.ts`, `ra.server.ts`, `announce.server.ts`, `consent.server.ts`, `webhook.server.ts`.
-- Tool `announce_to_house_chat` (`src/lib/tools/domains/house-groups.ts`), routes `GET|POST /api/portal/house-groups`, `GET|POST /api/resident/house-chat`, `POST /api/twilio/conversations`, crons `/api/cron/house-group-sync` (daily 17:10 UTC) and `/api/cron/house-group-sweep` (every 5 minutes).
+- Manager tool `announce_to_house` (`src/lib/tools/domains/announce.ts`, the ONE announce tool: posts to each house group, one on one when a house has no group), routes `GET|POST /api/portal/house-groups`, `GET|POST /api/resident/house-chat`, `POST /api/twilio/conversations`, crons `/api/cron/house-group-sync` (daily 17:10 UTC) and `/api/cron/house-group-sweep` (every 5 minutes).
 - UI: `PropertyHouseChatList` rows in House details (status, one row per member by first name + room, Announce and Update members icon actions, Turn on/off in the row menu, over-nine and not-joined warning rows); an optional checkbox on the resident's lease signing window.
 
 Invariants:
@@ -445,7 +513,7 @@ Invariants:
 4. **Answers come from approved facts only** (`lookupPropertyKnowledge` with a resident scope for that house): first name and room only, never another resident's details, never an amount. A door code, lockbox, gate/alarm code, Wi-Fi password or anything in an access section is NEVER posted in the group: the thread gets the open part plus "I'm texting you that privately." and the asker gets the secret 1:1. Money, legal, safety and fair-housing questions are acknowledged, texted to the asker and escalated. No approved answer: "Let me check with your landlord and get back to you." plus a team alert.
 5. **Consent.** Housemates see each other's number and PropLane reads the thread, so a resident is added only with a recorded yes: the optional checkbox on the resident's lease signing window (`lease_signature`, saved by the server against the signed-in account's verified phone), or the text "join group" (`sms_join`). A resident who lives in a chat-enabled house without consent is offered it once, privately (`house-group-offer:<workspace>:<phone>`). "leave group" (1:1 or in the group) sets `opted_out_of_group`, confirms privately, and the next sync removes them; "join group" reverses it. Both are handled before routing in `handleSharedLineInbound`.
 6. **Webhook.** `POST /api/twilio/conversations` verifies `X-Twilio-Signature` against the exact registered URL (403 on mismatch; no signature = 403 on Vercel/production), acknowledges at once, and works in `after()`. Dedupe is the unique (group, MessageSid) index; PropLane's own posts (`Author = proplane`) are ignored.
-7. **Manager.** The owner turns house chat on per workspace; managers never join the thread. "announce: water off Tuesday 9-12" -> `announce_to_house_chat` (write tool behind the YES gate; with several houses on chat and none named it refuses with "Which house: A, B, or C? Or say all."; ids are re-checked against the workspace; delegated co-managers do not get it). The House chat section posts to its own house.
+7. **Manager.** The owner turns house chat on per workspace; managers never join the thread. "announce: water off Tuesday 9-12" -> `announce_to_house` (write tool behind the YES gate; with several houses and none named it refuses with "Which house: A, B, or all?"; groups first, one on one when a house has no group; ids are re-checked against the workspace; delegated co-managers do not get it). The House chat section posts to its own house.
 
 Tests: `tests/unit/house-groups-{members,ra-policy,post,sync,ra-handler,routes}.test.ts`, helpers `tests/helpers/house-group-fake-db.ts`, `tests/helpers/house-group-fixtures.ts`. Twilio is mocked; a live group proof needs the shared number.
 

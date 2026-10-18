@@ -5,6 +5,7 @@ import { EMERGENCY_SAFETY_REPLY } from "@/lib/one-number/contracts";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
+import { recordEscalationItem, recordHouseComplaint } from "@/lib/automations/escalations.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/phone-e164";
 import {
@@ -153,6 +154,52 @@ async function tellTeam(c: Ctx, member: MemberRow | null, text: string, kind: "e
   }).catch(() => undefined);
 }
 
+/**
+ * File what the RA handed to the team into the manager's escalations inbox (best effort: it never
+ * breaks the conversation). A complaint is counted against the house's threshold; everything else
+ * is one open item with the redacted excerpt.
+ */
+async function fileEscalation(
+  c: Ctx,
+  member: MemberRow,
+  input: { kind: "complaint" | "item"; source: "ra" | "unanswered"; topic: string; text: string },
+): Promise<void> {
+  try {
+    if (input.kind === "complaint") {
+      let houseInfo = null;
+      try {
+        const { loadHouseDirectory } = await import("@/lib/automations/sources.server");
+        houseInfo = (await loadHouseDirectory(c.db, [c.group.propertyId])).get(c.group.propertyId)?.houseInfo ?? null;
+      } catch {
+        houseInfo = null;
+      }
+      await recordHouseComplaint(c.db, {
+        workspaceId: c.group.workspaceId,
+        ownerUserId: c.ownerUserId,
+        propertyId: c.group.propertyId,
+        phone: member.phoneE164,
+        text: input.text,
+        houseInfo,
+        now: c.now,
+      });
+      return;
+    }
+    await recordEscalationItem(c.db, {
+      workspaceId: c.group.workspaceId,
+      ownerUserId: c.ownerUserId,
+      source: input.source,
+      phone: member.phoneE164,
+      propertyId: c.group.propertyId,
+      topic: input.topic,
+      question: input.text,
+      excerpt: input.text,
+      at: c.now,
+    });
+  } catch {
+    /* the inbox is a convenience; the group keeps working */
+  }
+}
+
 /** Answer a house-fact question into the group (or privately). Returns what was done. */
 async function answerQuestion(c: Ctx, member: MemberRow, question: string, key: string, privately: boolean): Promise<string> {
   const lookup =
@@ -169,12 +216,14 @@ async function answerQuestion(c: Ctx, member: MemberRow, question: string, key: 
     await say(c, COMPLAINT_ACK, "complaint_ack", `${key}:ack`);
     await sendComplaintFollowUp(c.db, { workspaceId: c.group.workspaceId, ownerUserId: c.ownerUserId, phoneE164: member.phoneE164, firstName: member.firstName, idempotencyKey: `${key}:dm` }, c.deps.sendDirect);
     await tellTeam(c, member, `asked about something for the team: "${excerpt(question)}"`, "unanswered", false, `${key}:team`);
+    await fileEscalation(c, member, { kind: "item", source: "ra", topic: "house_question", text: question });
     return "escalated";
   }
   if (reply.kind === "unknown") {
     if (privately) await privateText(c, member, UNKNOWN_FACT_REPLY, `${key}:dm`);
     else await say(c, UNKNOWN_FACT_REPLY, "answer", `${key}:answer`);
     await tellTeam(c, member, `asked "${excerpt(question)}" and no approved answer covers it`, "unanswered", false, `${key}:team`);
+    await fileEscalation(c, member, { kind: "item", source: "unanswered", topic: "house_question", text: question });
     return "unknown_fact";
   }
   if (reply.kind === "private") {
@@ -289,12 +338,16 @@ export async function handleGroupMessage(db: SupabaseClient, message: GroupWebho
         ? `repeated house-rule issues at ${label}`
         : `${plan.escalate.category} concern at ${label}`;
     await tellTeam(c, member, `${what}: "${excerpt(body)}"`, "human_request", plan.escalate.urgent, `${key}:escalate`);
+    await fileEscalation(c, member, { kind: "item", source: "ra", topic: plan.escalate.category, text: body });
     if (plan.escalate.category === "repeated_rules" && cls.flag === "rule") {
       await sendComplaintFollowUp(db, { workspaceId: group.workspaceId, ownerUserId, phoneE164: member.phoneE164, firstName: member.firstName, idempotencyKey: `${key}:dm` }, deps.sendDirect);
     }
     await done();
     return { handled: true, action: `escalated_${plan.escalate.category}` };
   }
+
+  // A complaint is counted against the house's threshold (House details); the manager hears at N.
+  if (cls.flag === "complaint") await fileEscalation(c, member, { kind: "complaint", source: "ra", topic: "complaint", text: body });
 
   let action = "silent";
   if (plan.groupReply === "answer") {

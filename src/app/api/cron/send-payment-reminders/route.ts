@@ -33,6 +33,8 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
 import { paymentReminderSnapshotMatches, resolveReminderWorkspaceOwner } from "@/lib/payment-reminder-workspace";
 import { loadPaymentReminderChargeForActor } from "@/lib/payment-reminder-capability.server";
+import { presetForScheduledPaymentKind } from "@/lib/automations/presets";
+import { loadOffPresetResolver } from "@/lib/automations/store.server";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 
 export const runtime = "nodejs";
@@ -262,9 +264,16 @@ export async function GET(req: Request) {
 
     const chargeById = new Map(eligibleCharges.map((c) => [c.id, c]));
 
-    const dueReminders = scheduled.filter(
-      (message) => message.kind !== "late_fee" && shouldSendScheduledMessage(message, now),
-    );
+    // Settings -> Automations: a rent preset switched off for this house's workspace stops the
+    // matching reminder. Fails open (nothing off) so an automations read problem never mutes rent.
+    const offPresets = await loadOffPresetResolver(db, managerId);
+    const dueReminders = scheduled.filter((message) => {
+      if (message.kind === "late_fee" || !shouldSendScheduledMessage(message, now)) return false;
+      const preset = presetForScheduledPaymentKind(message.kind);
+      if (!preset) return true;
+      const propertyId = chargeById.get(message.chargeId)?.propertyId ?? null;
+      return !offPresets.isOff(preset, propertyId);
+    });
     const bundledReminders = combineScheduledPaymentMessages(dueReminders);
 
     for (const message of bundledReminders) {

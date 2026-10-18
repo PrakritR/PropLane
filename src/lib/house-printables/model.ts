@@ -91,14 +91,16 @@ function sectionLines(info: HouseInfoV1, sectionId: HouseInfoSectionId, skipKeys
   if (!spec) return [];
   const lines: HousePrintableLine[] = [];
   for (const field of spec.fields) {
-    if (field.pairKey || skipKeys.has(field.key)) continue;
+    // `internal` fields (the complaint threshold) are the manager's own setting, on no printout.
+    if (field.pairKey || field.internal || skipKeys.has(field.key)) continue;
     const value = getHouseInfoValue(info, sectionId, field.key);
     if (value) lines.push({ label: field.label, value });
   }
   return lines;
 }
 
-const TRASH_PUBLIC_KEYS = new Set(["day", "recycling", "cleaningCadence"]);
+// Recycling day is a resident detail (C2-RE12 took recycling off the public sheet); it never prints here.
+const TRASH_PUBLIC_KEYS = new Set(["day", "cleaningCadence"]);
 
 /**
  * What anyone who scans the door card may read. Built from the rules and trash
