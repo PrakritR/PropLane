@@ -100,7 +100,7 @@ export type AdminSectionTabGroup = { label: string; sections: readonly string[] 
 export const ADMIN_SECTION_TABS: Record<string, AdminSectionTabGroup> = {
   // The "Property management" half (one-number W15): PropLane's own managed portfolio. The row stays keyed on
   // `properties`, the key the native bottom bar and every older link already use.
-  property: { label: "Property management", sections: ["properties", "service", "proplane-line", "unassigned-leads"] },
+  property: { label: "Properties", sections: ["properties", "service", "proplane-line", "unassigned-leads"] },
   accounts: { label: "Accounts", sections: ["axis-users", "subscribers", "test-accounts"] },
   money: { label: "Money", sections: ["payments", "promo-codes", "finances"] },
   support: { label: "Support", sections: ["bugs-feedback", "events", "health"] },

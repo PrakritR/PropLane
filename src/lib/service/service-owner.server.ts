@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 
 /**
  * The PropLane SERVICE OWNER: the one designated account that owns every
@@ -16,6 +17,10 @@ import { userHoldsAdminRole } from "@/lib/auth/admin-role";
  *     always wins over the env var, so a changed env can never silently move
  *     ownership of existing workspaces.
  *   * No row and no valid env = "not configured": every caller fails closed.
+ *   * The owner must ALSO be a property-portal manager account (`userIsPropertyPortalManager`): memberships are
+ *     `account_link_invites` rows and the co-manager sweeper (`purgeOrphanedCoManagerLinks`) deletes any link whose
+ *     inviter is not a valid manager account, which would silently strip every operator from every service
+ *     workspace. An owner without that role reads as "not configured" for create / list.
  *
  * Nothing here is reachable from a request body; callers pass ids they derived.
  */
@@ -56,7 +61,11 @@ export async function resolveServiceOwner(
 ): Promise<ServiceOwnerResolution> {
   try {
     const stored = await readStoredOwner(db);
-    if (stored) return { ok: true, ownerUserId: stored };
+    if (stored) {
+      return (await userIsPropertyPortalManager(db, stored))
+        ? { ok: true, ownerUserId: stored }
+        : { ok: false, reason: "not_configured" };
+    }
 
     const candidate = (env.PROPLANE_SERVICE_OWNER_USER_ID ?? "").trim();
     if (!UUID.test(candidate)) return { ok: false, reason: "not_configured" };
@@ -65,6 +74,7 @@ export async function resolveServiceOwner(
     if (profileError) return { ok: false, reason: "unreadable" };
     if (!profile) return { ok: false, reason: "not_configured" };
     if (!(await userHoldsAdminRole(db, candidate))) return { ok: false, reason: "not_configured" };
+    if (!(await userIsPropertyPortalManager(db, candidate))) return { ok: false, reason: "not_configured" };
 
     const { error: seedError } = await db
       .from("platform_service_settings")

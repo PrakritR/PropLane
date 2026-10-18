@@ -176,6 +176,7 @@ export function AdminProplaneLinePanel() {
             facts={proplaneLineFacts(line)}
             checked={selected}
             onSelectedChange={setSelected}
+            omitActionView
             dataAttr="admin-proplane-line-row"
           />
         ) : null}

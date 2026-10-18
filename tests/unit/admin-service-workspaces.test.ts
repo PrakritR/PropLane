@@ -36,6 +36,7 @@ function seed(extra: Record<string, Record<string, unknown>[]> = {}) {
   admins = new Set([OWNER, ADMIN_A, ADMIN_B]);
   db = makeServiceFakeDb({
     platform_service_settings: [{ singleton: true, owner_user_id: OWNER }],
+    profile_roles: [{ user_id: OWNER, role: "manager" }],
     profiles: [OWNER, ADMIN_A, ADMIN_B, MANAGER, OUTSIDER].map((id) => ({ id, full_name: `Name ${id.slice(0, 4)}`, email: `${id.slice(0, 4)}@example.com` })),
     portal_workspaces: [],
     account_link_invites: [],
@@ -56,12 +57,25 @@ describe("service owner resolution", () => {
 
   it("seeds the singleton from the env var only for an existing admin account", async () => {
     admins = new Set([OWNER]);
-    db = makeServiceFakeDb({ platform_service_settings: [], profiles: [{ id: OWNER }, { id: MANAGER }] });
+    db = makeServiceFakeDb({ platform_service_settings: [], profile_roles: [{ user_id: OWNER, role: "manager" }], profiles: [{ id: OWNER }, { id: MANAGER }] });
     expect(await owner.resolveServiceOwner(client(), { PROPLANE_SERVICE_OWNER_USER_ID: MANAGER })).toEqual({ ok: false, reason: "not_configured" });
     expect(db.tables.platform_service_settings).toHaveLength(0);
     expect(await owner.resolveServiceOwner(client(), { PROPLANE_SERVICE_OWNER_USER_ID: "not-a-uuid" })).toEqual({ ok: false, reason: "not_configured" });
     expect(await owner.resolveServiceOwner(client(), { PROPLANE_SERVICE_OWNER_USER_ID: OWNER })).toEqual({ ok: true, ownerUserId: OWNER });
     expect(db.tables.platform_service_settings).toHaveLength(1);
+  });
+
+  it("needs the owner to be a property-portal manager too: sweepers delete links whose inviter is not one", async () => {
+    db.tables.profile_roles = [];
+    expect(await owner.resolveServiceOwner(client(), {})).toEqual({ ok: false, reason: "not_configured" });
+    expect(await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: null })).toMatchObject({ ok: false, status: 409 });
+    expect(db.rpcCalls).toHaveLength(0);
+    expect(await svc.listServiceWorkspaces(client(), ADMIN_A)).toMatchObject({ ok: true, payload: { configured: false } });
+    // The same refusal at seed time.
+    admins = new Set([OWNER]);
+    const fresh = makeServiceFakeDb({ platform_service_settings: [], profile_roles: [], profiles: [{ id: OWNER }] });
+    expect(await owner.resolveServiceOwner(fresh as never, { PROPLANE_SERVICE_OWNER_USER_ID: OWNER })).toEqual({ ok: false, reason: "not_configured" });
+    expect(fresh.tables.platform_service_settings).toHaveLength(0);
   });
 
   it("lets a stored row win over a different env value", async () => {

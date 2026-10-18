@@ -6,10 +6,12 @@ import {
   addServiceTeamMember,
   authorizeOpenServiceWorkspace,
   createServiceWorkspace,
+  inviteServiceClient,
   listServiceTeam,
   listServiceWorkspaces,
   removeServiceTeamMember,
   renameServiceWorkspace,
+  setServiceOwnerOfRecord,
   type ServiceFailure,
 } from "@/lib/service/service-workspaces.server";
 
@@ -48,12 +50,12 @@ export async function POST(request: Request) {
 
   switch (body.action) {
     case "create": {
-      const result = await createServiceWorkspace(db, admin.userId, { name: body.name, city: body.city });
+      const result = await createServiceWorkspace(db, admin.userId, { name: body.name, city: body.city, ownerOfRecord: body.ownerOfRecord });
       if (!result.ok) return failure(result);
       return NextResponse.json({ id: result.id }, { status: 201, headers: NO_STORE });
     }
     case "rename": {
-      const result = await renameServiceWorkspace(db, admin.userId, { id, name: body.name, city: body.city });
+      const result = await renameServiceWorkspace(db, admin.userId, { id, name: body.name, city: body.city, ownerOfRecord: body.ownerOfRecord });
       if (!result.ok) return failure(result);
       return NextResponse.json({ ok: true }, { headers: NO_STORE });
     }
@@ -83,6 +85,16 @@ export async function POST(request: Request) {
       const result = await addServiceTeamMember(db, admin.userId, { id, userId: body.userId });
       if (!result.ok) return failure(result);
       return NextResponse.json({ ok: true, linkId: result.linkId }, { status: 201, headers: NO_STORE });
+    }
+    case "team-invite": {
+      const result = await inviteServiceClient(db, admin.userId, { id, proplaneId: body.proplaneId, ownerOfRecord: body.ownerOfRecord });
+      if (!result.ok) return failure(result);
+      return NextResponse.json({ ok: true, linkId: result.linkId }, { status: 201, headers: NO_STORE });
+    }
+    case "team-owner-of-record": {
+      const result = await setServiceOwnerOfRecord(db, admin.userId, { id, linkId: body.linkId, value: body.value });
+      if (!result.ok) return failure(result);
+      return NextResponse.json({ ok: true }, { headers: NO_STORE });
     }
     case "team-remove": {
       const result = await removeServiceTeamMember(db, admin.userId, { id, linkId: body.linkId });

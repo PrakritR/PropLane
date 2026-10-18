@@ -47,7 +47,7 @@ describe("admin sidebar rows", () => {
     expect(rows.map((r) => r.label)).toEqual([
       "Dashboard",
       "Communication",
-      "Property management",
+      "Properties",
       "Accounts",
       "Money",
       "Support",
@@ -174,7 +174,7 @@ describe("AdminSectionTabs strip", () => {
     expect(screen.getByRole("link", { name: "Test accounts" }).getAttribute("href")).toBe("/admin/test-accounts");
   });
 
-  it("renders Property management · Properties · Service · PropLane line · Unassigned leads as one strip with the page's tab active", () => {
+  it("renders Properties · Service · PropLane line · Unassigned leads as one strip with the page's tab active", () => {
     state.pathname = "/admin/proplane-line";
     render(<AdminSectionTabs definition={operator} />);
     expect(labels()).toEqual(["Properties", "Service", "PropLane line", "Unassigned leads"]);

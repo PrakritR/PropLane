@@ -38,6 +38,7 @@ beforeEach(() => {
   signedIn = ADMIN_A;
   db = makeServiceFakeDb({
     platform_service_settings: [{ singleton: true, owner_user_id: OWNER }],
+    profile_roles: [{ user_id: OWNER, role: "manager" }],
     profiles: [OWNER, ADMIN_A, ADMIN_B, MANAGER].map((id) => ({ id })),
     portal_workspaces: [],
     account_link_invites: [],

@@ -29,7 +29,7 @@ describe("admin nav groups", () => {
   const rows = groups.flatMap((g) => g.sections);
   const registry = adminPortal.sections.map((s) => s.section).filter((s) => s !== "profile");
 
-  it("folds into seven rows: Dashboard, Communication, Property management, Accounts, Money, Support, Growth", () => {
+  it("folds into seven rows: Dashboard, Communication, Properties, Accounts, Money, Support, Growth", () => {
     expect(ADMIN_NAV_ROW_SECTIONS).toEqual([
       "dashboard",
       "communication",
@@ -102,7 +102,7 @@ describe("admin nav groups", () => {
     ]);
     expect(grouped.map((g) => g.items.map((i) => i.label))).toEqual([
       ["Dashboard", "Communication"],
-      ["Property management"],
+      ["Properties"],
       ["Accounts", "Money"],
       ["Support", "Growth"],
     ]);

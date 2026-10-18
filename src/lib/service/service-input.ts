@@ -13,3 +13,8 @@ export function cleanServiceCity(raw: unknown): string | null | undefined {
   if (!city) return null;
   return city.length <= 80 ? city : undefined;
 }
+
+/** The client's name on a service workspace: optional; unusable (not text, too long) is `undefined`, blank is `null`. */
+export function cleanOwnerOfRecord(raw: unknown): string | null | undefined {
+  return cleanServiceCity(raw);
+}

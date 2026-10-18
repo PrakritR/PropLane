@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSection } from "@/components/portal/add-workspace/parts";
 import { Input } from "@/components/ui/input";
-import { cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
+import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
 
 /**
  * New property portal workspace - the New property pop-up standard (AddWorkspace). A PropLane Service
@@ -22,6 +22,7 @@ export function AdminNewServiceWorkspace({
 }) {
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
+  const [client, setClient] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +34,8 @@ export function AdminNewServiceWorkspace({
 
   const cleanName = cleanServiceName(name);
   const cleanCity = cleanServiceCity(city);
-  const valid = Boolean(cleanName) && cleanCity !== undefined;
+  const cleanClient = cleanOwnerOfRecord(client);
+  const valid = Boolean(cleanName) && cleanCity !== undefined && cleanClient !== undefined;
   const steps: AddWorkspaceStep[] = [{ id: "workspace", label: "Workspace", incomplete: !valid }];
 
   const create = async () => {
@@ -45,7 +47,7 @@ export function AdminNewServiceWorkspace({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", name: cleanName, city: cleanCity }),
+        body: JSON.stringify({ action: "create", name: cleanName, city: cleanCity, ownerOfRecord: cleanClient }),
       });
       const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
       if (!res.ok || !json.id) {
@@ -55,6 +57,7 @@ export function AdminNewServiceWorkspace({
       const created = cleanName!;
       setName("");
       setCity("");
+      setClient("");
       onCreated(json.id, created);
     } catch {
       setError("Could not reach the server. Try again.");
@@ -73,7 +76,7 @@ export function AdminNewServiceWorkspace({
         current={0}
         onJump={() => undefined}
         onClose={onClose}
-        dirty={Boolean(name.trim() || city.trim())}
+        dirty={Boolean(name.trim() || city.trim() || client.trim())}
         discardTitle="Discard this workspace?"
         assistantContext="Creating a PropLane Service property portal workspace."
         assistantScopeKey="admin-new-service-workspace"
@@ -89,8 +92,8 @@ export function AdminNewServiceWorkspace({
             name={cleanName ?? "Workspace"}
             sub={cleanCity || undefined}
             facts={[
+              { label: "Owner of record", value: cleanClient || "None yet" },
               { label: "Properties", value: "0" },
-              { label: "Work number", value: "Not set up" },
             ]}
           />
         }
@@ -115,6 +118,17 @@ export function AdminNewServiceWorkspace({
                 autoComplete="off"
                 placeholder="Seattle"
                 data-attr="admin-service-workspace-city"
+              />
+            </WizardField>
+          </div>
+          <div className="mt-4">
+            <WizardField label="Owner of record">
+              <Input
+                value={client}
+                onChange={(e) => setClient(e.target.value)}
+                maxLength={80}
+                autoComplete="off"
+                data-attr="admin-service-workspace-client"
               />
             </WizardField>
           </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Home, Phone, Users } from "lucide-react";
+import { PortalListGroup } from "@/components/portal/portal-list-group";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -16,7 +17,8 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
-import { cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
+import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
+import { serviceWorkspaceFinancesHref } from "@/lib/service/service-links";
 import { Trash2 } from "lucide-react";
 
 const FETCH_TIMEOUT_MS = 25_000;
@@ -26,6 +28,7 @@ export type ServiceRow = {
   id: string;
   name: string;
   city: string | null;
+  ownerOfRecord: { name: string; linked: boolean } | null;
   isDefault: boolean;
   houseCount: number;
   workNumber: string | null;
@@ -36,7 +39,15 @@ export type ServiceRow = {
 };
 
 type TeamState = {
-  members: { linkId: string; userId: string; name: string; email: string; role: string }[];
+  members: {
+    linkId: string;
+    userId: string;
+    name: string;
+    email: string;
+    role: string;
+    status: "accepted" | "pending";
+    ownerOfRecord: boolean;
+  }[];
   candidates: { userId: string; name: string; email: string }[];
   canManage: boolean;
 };
@@ -54,6 +65,19 @@ export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
     { icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" },
   ];
   return facts;
+}
+
+/** Service workspaces grouped per city: Seattle first, the rest alphabetical, workspaces with no city last. */
+export function groupServiceByCity(rows: ServiceRow[]): { city: string | null; rows: ServiceRow[] }[] {
+  const map = new Map<string, ServiceRow[]>();
+  for (const row of rows) {
+    const key = row.city?.trim() ?? "";
+    map.set(key, [...(map.get(key) ?? []), row]);
+  }
+  const rank = (city: string) => (!city ? 2 : city.toLowerCase() === "seattle" ? 0 : 1);
+  return [...map.entries()]
+    .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(([city, list]) => ({ city: city || null, rows: list }));
 }
 
 async function post<T extends Record<string, unknown>>(body: Record<string, unknown>): Promise<{ ok: boolean; json: T & { error?: string }; res: Response }> {
@@ -84,6 +108,9 @@ export function AdminServicePanel() {
   const [formError, setFormError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [cityDraft, setCityDraft] = useState("");
+  const [clientDraft, setClientDraft] = useState("");
+  const [inviteId, setInviteId] = useState("");
+  const [inviteOwner, setInviteOwner] = useState(false);
   const [team, setTeam] = useState<TeamState | null>(null);
   const [candidateId, setCandidateId] = useState("");
 
@@ -125,6 +152,14 @@ export function AdminServicePanel() {
         showToast(json.error ?? "Could not open this workspace.");
         return;
       }
+      // Land in the property portal itself: a multi-role account would otherwise stop at the portal chooser.
+      // Best effort and re-checked server-side (reachability); the workspace cookie is already set.
+      await fetchWithTimeout("/api/auth/set-active-portal", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "manager" }),
+      }, FETCH_TIMEOUT_MS).catch(() => undefined);
       // A full navigation: the property portal reads the workspace cookie the route just set.
       window.location.assign(json.href);
     } catch {
@@ -149,12 +184,52 @@ export function AdminServicePanel() {
     }
   }, []);
 
+  const invite = async () => {
+    if (!selected || !inviteId.trim()) return;
+    setBusy(true);
+    setFormError(null);
+    try {
+      const { ok, json } = await post({ action: "team-invite", id: selected.id, proplaneId: inviteId.trim(), ownerOfRecord: inviteOwner });
+      if (!ok) {
+        setFormError(json.error ?? "Could not send the invite.");
+        return;
+      }
+      setInviteId("");
+      setInviteOwner(false);
+      await loadTeam(selected.id);
+      reload();
+    } catch {
+      setFormError("Could not send the invite.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setOwnerOfRecord = async (linkId: string, value: boolean) => {
+    if (!selected) return;
+    setBusy(true);
+    setFormError(null);
+    try {
+      const { ok, json } = await post({ action: "team-owner-of-record", id: selected.id, linkId, value });
+      if (!ok) {
+        setFormError(json.error ?? "Could not update the owner of record.");
+        return;
+      }
+      await loadTeam(selected.id);
+      reload();
+    } catch {
+      setFormError("Could not update the owner of record.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveRename = async () => {
     if (!selected) return;
     setBusy(true);
     setFormError(null);
     try {
-      const { ok, json } = await post({ action: "rename", id: selected.id, name: cleanServiceName(nameDraft), city: cleanServiceCity(cityDraft) });
+      const { ok, json } = await post({ action: "rename", id: selected.id, name: cleanServiceName(nameDraft), city: cleanServiceCity(cityDraft), ownerOfRecord: cleanOwnerOfRecord(clientDraft) });
       if (!ok) {
         setFormError(json.error ?? "Could not rename the workspace.");
         return;
@@ -219,7 +294,7 @@ export function AdminServicePanel() {
             variant="outline"
             className={PORTAL_BULK_BAR_BTN}
             data-attr="admin-service-rename"
-            onClick={() => { setFormError(null); setNameDraft(selected.name); setCityDraft(selected.city ?? ""); setRenameOpen(true); }}
+            onClick={() => { setFormError(null); setNameDraft(selected.name); setCityDraft(selected.city ?? ""); setClientDraft(selected.ownerOfRecord?.linked ? "" : selected.ownerOfRecord?.name ?? ""); setRenameOpen(true); }}
           >
             Rename
           </Button>
@@ -228,10 +303,15 @@ export function AdminServicePanel() {
             variant="outline"
             className={PORTAL_BULK_BAR_BTN}
             data-attr="admin-service-team"
-            onClick={() => { setCandidateId(""); setTeamOpen(true); void loadTeam(selected.id); }}
+            onClick={() => { setCandidateId(""); setInviteId(""); setInviteOwner(false); setTeamOpen(true); void loadTeam(selected.id); }}
           >
             Team
           </Button>
+          {serviceWorkspaceFinancesHref(selected.id) ? (
+            <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-service-finances" onClick={() => window.location.assign(serviceWorkspaceFinancesHref(selected.id)!)}>
+              Finances
+            </Button>
+          ) : null}
         </>
       ) : null}
     </>
@@ -268,18 +348,30 @@ export function AdminServicePanel() {
         onBulkClear={() => setSelectedId(null)}
         dataAttr="admin-service-list"
       >
-        {rows.map((row) => (
-          <PortalEntryRow
-            key={row.id}
-            tile={{ kind: "glyph", icon: Building2, label: "Service workspace" }}
-            title={row.name}
-            place={row.city ?? undefined}
-            facts={serviceRowFacts(row)}
-            checked={selectedId === row.id}
-            onSelectedChange={(on) => setSelectedId(on ? row.id : null)}
-            onOpen={row.viewerRole ? () => void open(row) : undefined}
-            dataAttr="admin-service-row"
-          />
+        {groupServiceByCity(rows).map((group) => (
+          <PortalListGroup
+            key={group.city ?? "none"}
+            listKey="admin-service"
+            groupKey={group.city ?? "none"}
+            name={group.city ?? "No city"}
+            count={`${group.rows.length} ${group.rows.length === 1 ? "workspace" : "workspaces"}`}
+            dataAttr="admin-service-city"
+          >
+            {group.rows.map((row) => (
+              <PortalEntryRow
+                key={row.id}
+                tile={{ kind: "glyph", icon: Building2, label: "Service workspace" }}
+                title={row.name}
+                place={row.ownerOfRecord?.name}
+                facts={serviceRowFacts(row)}
+                checked={selectedId === row.id}
+                onSelectedChange={(on) => setSelectedId(on ? row.id : null)}
+                onOpen={row.viewerRole ? () => void open(row) : undefined}
+                omitActionView
+                dataAttr="admin-service-row"
+              />
+            ))}
+          </PortalListGroup>
         ))}
       </PortalRecordListSurface>
 
@@ -300,7 +392,7 @@ export function AdminServicePanel() {
         dataAttr="admin-service-rename-modal"
         footer={
           <ModalFooter>
-            <Button type="button" disabled={busy || !cleanServiceName(nameDraft) || cleanServiceCity(cityDraft) === undefined} data-attr="admin-service-rename-save" onClick={() => void saveRename()}>
+            <Button type="button" disabled={busy || !cleanServiceName(nameDraft) || cleanServiceCity(cityDraft) === undefined || cleanOwnerOfRecord(clientDraft) === undefined} data-attr="admin-service-rename-save" onClick={() => void saveRename()}>
               Save
             </Button>
           </ModalFooter>
@@ -315,6 +407,10 @@ export function AdminServicePanel() {
             <span className="mb-1 block">City</span>
             <Input value={cityDraft} onChange={(e) => setCityDraft(e.target.value)} maxLength={80} data-attr="admin-service-rename-city" />
           </label>
+          <label className="block text-[13px] font-semibold text-foreground">
+            <span className="mb-1 block">Owner of record</span>
+            <Input value={clientDraft} onChange={(e) => setClientDraft(e.target.value)} maxLength={80} data-attr="admin-service-rename-client" />
+          </label>
         </div>
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
       </Modal>
@@ -325,17 +421,53 @@ export function AdminServicePanel() {
             <ul className="divide-y divide-border" data-attr="admin-service-team-list">
               {team.members.length === 0 ? <li className="py-2 text-[14px] text-muted">No teammates yet</li> : null}
               {team.members.map((m) => (
-                <li key={m.linkId} className="flex items-center justify-between gap-3 py-2">
+                <li key={m.linkId} className="flex items-center justify-between gap-3 py-2" data-attr="admin-service-team-member">
                   <span className="min-w-0">
-                    <span className="block truncate text-[14px] font-semibold text-foreground">{m.name}</span>
-                    <span className="block truncate text-[12.5px] text-muted">{m.email}</span>
+                    <span className="block truncate text-[14px] font-semibold text-foreground">
+                      {m.name}
+                      {m.status === "pending" ? " · Invited" : ""}
+                    </span>
+                    <span className="block truncate text-[12.5px] text-muted">{m.email || "Admin"}</span>
                   </span>
-                  {team.canManage ? (
-                    <PortalIconAction icon={Trash2} label="Remove" ariaLabel={`Remove ${m.name}`} disabled={busy} data-attr="admin-service-team-remove" onClick={() => void removeMember(m.linkId)} />
-                  ) : null}
+                  <span className="flex shrink-0 items-center gap-3">
+                    {team.canManage ? (
+                      <label className="flex items-center gap-1.5 text-[13px] text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={m.ownerOfRecord}
+                          disabled={busy}
+                          onChange={(e) => void setOwnerOfRecord(m.linkId, e.target.checked)}
+                          data-attr="admin-service-team-owner-of-record"
+                        />
+                        Owner of record
+                      </label>
+                    ) : m.ownerOfRecord ? (
+                      <span className="text-[13px] text-foreground">Owner of record</span>
+                    ) : null}
+                    {team.canManage ? (
+                      <PortalIconAction icon={Trash2} label="Remove" ariaLabel={`Remove ${m.name}`} disabled={busy} data-attr="admin-service-team-remove" onClick={() => void removeMember(m.linkId)} />
+                    ) : null}
+                  </span>
                 </li>
               ))}
             </ul>
+            {team.canManage ? (
+              <div className="space-y-2" data-attr="admin-service-invite">
+                <label className="block text-[13px] font-semibold text-foreground">
+                  <span className="mb-1 block">Invite owner</span>
+                  <span className="flex items-center gap-2">
+                    <Input value={inviteId} onChange={(e) => setInviteId(e.target.value)} maxLength={40} placeholder="PropLane ID" data-attr="admin-service-invite-id" />
+                    <Button type="button" disabled={busy || !inviteId.trim()} data-attr="admin-service-invite-send" onClick={() => void invite()}>
+                      Invite
+                    </Button>
+                  </span>
+                </label>
+                <label className="flex items-center gap-1.5 text-[13px] text-foreground">
+                  <input type="checkbox" checked={inviteOwner} onChange={(e) => setInviteOwner(e.target.checked)} data-attr="admin-service-invite-owner" />
+                  Owner of record
+                </label>
+              </div>
+            ) : null}
             {team.canManage ? (
               <div className="flex items-end gap-2">
                 <div className="min-w-0 flex-1">
