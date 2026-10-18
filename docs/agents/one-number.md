@@ -662,3 +662,35 @@ Invariants:
 5. **Waitlist / invite** (flag on only): a new landlord is admitted while finished text-setups < cap; otherwise the link is marked `waitlisted_at` (still unspent, re-checked on the next visit; an unreadable count fails closed). A manager's `invite <phone>` mints a link with `invited_by_workspace_id` that skips the cap (5 a day per workspace, sent through `sendSharedLineMessage`). An existing manager is never waitlisted.
 
 Tests: `tests/unit/one-number-{onboarding-roles,demo-script,demo-run,unknown-sender,finish-setup,onboarding-seam,setup-routes}.test.ts`.
+
+## W18 - Migration scripts, verification, cutover runbook, simulated texting E2E, load test
+
+No migration, no flag, no runtime code: this workstream adds human-run scripts, a runbook and tests. Runbook (the
+exact production sequence, guards, rollbacks and the migration list): [`one-number-runbook.md`](one-number-runbook.md).
+
+Scripts (`scripts/one-number/`, Node `.mjs`, npm aliases `one-number:*`; each prints the exact Supabase project ref first):
+
+- `lib/target.mjs` + `lib/runtime.mjs` - the guards. `--target dev|staging|production` is required; the ref in the env must be the one that target owns; staging and production need `--confirm-ref` even to read; a staging write needs `--reason`; a **production write needs `--confirm-ref`, `--reason` (10+ chars) and `--backup` of a complete, same-project, under-2-hour-old file from `backup.mjs`**. `--rollback` and `--undo` are writes. Dry run is the default. Refusals exit 2, failed checks 1.
+- `backup.mjs` - read-only export to `~/.cockpit/backups/` (mode 0600): `sms_runtime_config`, `platform_service_settings`, the service owner's workspaces, number tables, contacts, aliases, conversation ids and keys, `sms_consent`, consent event ids, and the ids of every row whose `workspace_id` is NULL.
+- `backfill.mjs` - idempotent: `sms_phone_contacts` (E.164, a user only when exactly one verified profile holds the phone), `sms_projection_aliases` for legacy keys (a merged conversation aliases its survivor), `workspace_id` on turns / outbox / receipts / manager messages / inbound log / manager contacts (conversation, then work line, then the owner's default workspace; NULLs only; only a workspace the row's own owner holds), and scoped-only consent revokes copied onto the shared Messaging Service. Writes a journal; `--undo <journal>` takes back exactly that. `sms_projection_conversations.workspace_id` is stamped only with `--stamp-conversations` (readers use it for placement).
+- `verify.mjs` - the spec's queries; `--save-baseline` before, `--baseline` after: counts, stamps, opt-outs, aliases, isolation, contacts. Exit 1 on any failure. Keys that resolved to nothing before are a note, not a failure.
+- `create-service-workspace.mjs` - against W15's contract (`platform_service_settings`, `create_portal_service_workspace`); refuses when that migration is absent; seeds the service owner only from an admin account when the singleton is empty; idempotent by name; moves no property.
+- `cutover.mjs` - `--mode shadow|shared`, `--pilot`, `--rollback`, `--notify-moved`. Validates E.164 and the service SID, asks Twilio read-only (GET `.../Services/{sid}/PhoneNumbers`) that the number is attached, sets exactly four `sms_runtime_config` columns. `--notify-moved` queues `number_moved_notice` outbox rows from each workspace's old number (daytime Pacific, staggered, never to opted-out phones, idempotent).
+- `shadow-report.mjs` - agreement of `sms_line_shadow_decisions` with the real owner; exit 1 until enough samples and 98% agreement.
+- `list-migrations.mjs` - the one-number migration files in order.
+
+Simulated texting (no Twilio; the transport and the team alert are the only stand-ins), `npm run test:one-number-e2e`, `tests/integration/one-number-e2e/`:
+
+- `routing-and-safety` - resident in A + vendor in B: the question, the remembered answer, house and role-word switching, HUMAN pausing both and a manager resuming one, gas smell, a manager's own words, a stranger with and without a code, Twilio retries, config fail-closed.
+- `prospect-journey` - stranger -> role question -> five qualifiers -> rooms from every team -> a pick -> that one team owns the thread with the history and a `new_lead` alert -> the next text reaches them. Fair-housing question changes nothing. One known gap (`it.fails`): the role question is not idempotent on `MessageSid`.
+- `resident-rent-link` - `send_my_link` rent -> code to the bound phone only -> five-try lockout, 15 tries an hour, 30-minute session, forwarded link, expiry, replacement.
+- `vendor-dispatch-chain` - lockout filed -> manager Y -> vendor 1 NO -> vendor 2 YES with a time -> Scheduled -> DONE -> resident YES -> completed; price over the cap; other team's manager and vendor ignored; opted-out vendor skipped; gas smell never dispatched.
+- `manager-ops` - "who hasn't paid" scoped to the team and to a one-house teammate; broadcast previewed, sent only on YES, once, never to another team.
+- `leak-photo-to-ticket` - MMS routed, stored privately under the owner, the repair request carries the photo and links it; another team's photo from the same phone is never attached.
+- `stop-start` - the real webhook route: STOP is global and never reaches the router; START; a delayed old START cannot reopen; YES is an answer unless the phone is opted out; HELP. The control function was also run against dev in a rolled-back transaction.
+
+Load, `npm run test:one-number-load` (`ONE_NUMBER_LOAD_COUNT`, default 5,000; `ONE_NUMBER_LOAD_REPORT=<file>` writes the numbers): residents, vendors, managers, two-team people and strangers, bursts and Twilio redeliveries, in waves of 64 through the real seam, router, session store, burst debounce and bubble delivery. Asserts routing against an independent oracle, no dropped text (each reaches exactly one reply), no duplicate reply (a burst gets one; a redelivery is answered from the receipt claim), HUMAN / emergency once each, no send from a workspace the recipient does not belong to. The debounce RPCs run on `tests/helpers/debounce-sql-port.ts`, checked against recorded output of the real SQL (`tests/unit/one-number-debounce-sql-parity.test.ts`). Timings are of the code path on an in-memory database (about 0.3 ms p50 / 0.7 ms p95 sequential service time, about 13 / 21 ms p50 / p95 per text with 64 in flight, about 5,000 texts a second on a loaded laptop); they say nothing about Postgres or network time.
+
+Tests: `tests/unit/one-number-migration-{guards,backup,backfill,verify,cutover,service,runbook}.test.ts` (shared fixtures `one-number-migration-fixtures.ts`, fake `tests/helpers/migration-fake-db.ts`); the runbook test fails when a `20261018*` migration is on disk and not in the runbook, or when the runbook uses a flag a script does not accept.
+
+Findings, not fixed here: the role question before the lead queue is not idempotent on `MessageSid`; no inbound auto-reply exists on an old number after the switch (the old number keeps working and the one outbound notice is the only "we've moved" text); the staging rehearsal needs a staging service-role key that was not available.
