@@ -107,7 +107,7 @@ describe("Have a waive code?", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("That code has expired."));
     expect(onFeeWaived).not.toHaveBeenCalled();
     // The total is still the full amount.
-    expect(screen.getByText("Total $800.00")).toBeTruthy();
+    expect(screen.getByText("Total $800")).toBeTruthy();
   });
 
   it("Apply stays off until a code is typed", () => {
@@ -118,12 +118,12 @@ describe("Have a waive code?", () => {
 
   it("once the page re-reads the charges the fee is gone from the total and the code box is gone", () => {
     const { rerender } = mount();
-    expect(screen.getByText("Total $800.00")).toBeTruthy();
+    expect(screen.getByText("Total $800")).toBeTruthy();
     rerender(
       <ResidentSignAndPayMoveIn email="signer@example.com" signed={false} mode="at-signing" charges={[deposit]} leaseId="lease-1" />,
     );
     expect(screen.queryByText("Lease fee")).toBeNull();
-    expect(screen.getByText("Total $500.00")).toBeTruthy();
+    expect(screen.getByText("Total $500")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Have a waive code?" })).toBeNull();
   });
 
@@ -134,7 +134,7 @@ describe("Have a waive code?", () => {
         : { ok: true, json: async () => ({ ok: true }) },
     );
     mount();
-    fireEvent.click(screen.getByRole("button", { name: "Pay $800.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pay $800" }));
     await waitFor(() => expect(screen.getByTestId("stripe").textContent).toBe("cs_old"));
     // The code box is hidden while a Stripe session is open, so an old session can never outlive a waiver.
     expect(screen.queryByRole("button", { name: "Have a waive code?" })).toBeNull();

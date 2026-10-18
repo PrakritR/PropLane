@@ -187,14 +187,20 @@ the per-section set. `headerActions` render as `PortalIconAction ring`
 existing `PortalRecordDetailPage iconTitleActions` slot, hidden below `lg`
 exactly as before.
 
-The row measures the space it has and folds the overflow into ⋯
-(`PortalAdaptiveActionRow`). The title slot is content-sized, so a folded row reads
-its own narrow width back as the space available and stays folded; a kind whose set
-is short and fixed therefore opts out of that measurement on desktop with
-`keepInlineOnDesktop` on `PortalRecordHeaderIconActions` and keeps every icon inline
-from `lg` up. Below `lg` the measured row stays — unless the kind passes
-`alwaysInline` (Bookings, whose header is its only home for Unblock and Delete now
-that it carries no ⋯), which keeps every icon inline at every width.
+**Icons whenever they fit (captain, 2026-10-16).** The row measures the space it has and
+folds the overflow into ⋯ (`PortalAdaptiveActionRow`), but on a desktop viewport (`lg` and
+wider) a record's own detail header inlines up to `RECORD_HEADER_INLINE_MAX` = 5 icons and
+folds only what does not fit. The measurement is the header's real free space — the flex
+child marked `data-portal-record-header-actions`, minus the static buttons beside the slot,
+re-measured through a `ResizeObserver` on it — not the row's own content-sized box, which
+read its already-folded width back as the space available and so stayed folded forever.
+`recordHeaderInlineCap` (`src/lib/portal-adaptive-actions.ts`) is a CEILING, never a count:
+returning a fixed count short-circuits measurement and makes a narrow header squeeze its
+title instead. Below `lg` the header folds. Each ⋯ item carries its inline action's 16px
+glyph. A kind whose set is short and fixed may still skip measuring on desktop with
+`keepInlineOnDesktop`, or at every width with `alwaysInline` (Bookings, whose header is its
+only home for Unblock and Delete now that it carries no ⋯). Coverage:
+`tests/unit/record-header-inline-icons.test.tsx`.
 
 ## Known gap
 

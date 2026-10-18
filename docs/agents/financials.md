@@ -234,6 +234,19 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   succeeded funded debt less actual recovery; reserved recovery is a separate
   noncash fact and does not reduce that debt. A pending unreconciled in-app
   payout claim disables another withdrawal.
+- **The credit is the money; paying it out is a later job.** Once a credit RPC has
+  committed, nothing after it may fail the payer's request: every post-credit release goes
+  through `releaseCreditedHoldAfterCommit`
+  (`src/lib/platform-post-credit-release.server.ts`), which never throws — the hold stays
+  `classified_held` for the next pass (`account.updated`, the reconcile cron). A refusal on
+  either side — the allocation itself, or the release — is filed instead as ONE
+  `household_source_review` `audit_log` row per source id, deduped across the verify route,
+  the webhook and every retry (`household-source-review.server.ts`), naming the manager
+  whose hold is missing and the invariant that said no. It is a record, never a credit. Admin
+  Health reads them as the windowed **Payments needing review** group, which distinguishes a
+  paid charge with no hold from a credited hold whose payout refused. Guards:
+  `tests/unit/household-source-review-trace.test.ts` (fails a new direct release call),
+  `tests/unit/household-captured-source-credit-shapes.test.ts`.
 - **Stripe/DB reads and writes** — `src/lib/stripe-payouts.server.ts`:
   `readPayoutSnapshot` (balance, setup state from `account.requirements`,
   schedule, last-50 history, held vs withdrawable); the separate exact-owner

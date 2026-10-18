@@ -2244,7 +2244,14 @@ converted into a recurring monthly surcharge or made a platform default. It also
 includes the missing trust-account/name-and-address notice and shared-space
 cleaning responsibilities. Addendum A no longer treats a missing report as proof
 of undamaged condition or a lease signature as certification of a blank checklist.
-The completed checklist requires both parties' signatures and dates.
+The completed checklist requires both parties' signatures and dates — stated in words,
+with **no handwritten signature lines**: a lease is signed electronically, so neither
+template prints "Landlord signature: ____". The compact document's deposit-return
+paragraph is one complete sentence (the jurisdiction's window, then the itemized
+statement and the forwarding address), never the window fragment alone, and its premises
+paragraph says the floor once ("on the 2nd floor", not "2nd floor floor") and gives the
+bathroom arrangement its own sentence. Guard:
+`tests/unit/lease-compact-wording.test.ts`.
 
 Verified primary sources for the added Washington text:
 - [RCW 59.18.270 — deposit custody and notice](https://app.leg.wa.gov/rcw/default.aspx?cite=59.18.270)

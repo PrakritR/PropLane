@@ -256,6 +256,13 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   only. A sent reply removes the AI draft it answered (`aiDraftFieldsAfterReply`);
   a thread whose last turn is the manager's own is never sent for a draft; a
   failed attachment blocks the send.
+- **A merged person conversation is titled by the COUNTERPARTY, never the viewer**
+  (`personConversationTitle`, `portal-inbox-storage.ts`): when the earliest turn is
+  the viewer's own outbound notice, the title is whoever wrote an inbound turn, else
+  the other party's own inbox copy, else the address the conversation is with. A line
+  PropLane posted in the Team chat is a notice, so it is neither a right-hand bubble
+  nor a "You:" preview (`inboxTurnDirection`). Coverage:
+  `tests/unit/inbox-ux-sweep-1016.test.ts`.
 - **Manager, resident, vendor AND admin Communication have Active | Archived
   command tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
   chrome: label + count badge + cobalt underline (`DestinationNav

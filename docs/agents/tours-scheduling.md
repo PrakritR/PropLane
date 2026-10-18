@@ -124,6 +124,14 @@ to the slot's Pacific instant (the requested duration is kept), the row's
 it, and a key that names no slot is refused as `slot_unavailable`. Coverage:
 `tests/unit/tour-inquiry-slot-anchor.test.ts`, run under a UTC process zone.
 
+The public scheduler's **"today"** is Pacific too (`pacificCalendarDateYmd`): a prospect
+east of Pacific whose own date has rolled over was shown today's open slots as past and
+told there were none. The grid says **"No tour times yet"** (with a "Message the manager"
+link when the listing publishes a text number) only when no published slot is today or
+later — `tourAvailabilityHasUpcoming` — because a grid whose every slot has passed looks
+identical to an empty one. A FAILED availability read is still never rendered as either
+(see the doc comment in `tour-schedule-flow.tsx`).
+
 ## What a prospect is offered = published − busy − booked
 
 The one rule, and now literally one function — `listOpenTourSlots`

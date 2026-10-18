@@ -64,14 +64,14 @@ describe("Pay before you sign", () => {
     render(<ResidentSignAndPayMoveIn email="signer@example.com" signed={false} mode="at-signing" charges={charges} />);
     expect(screen.getByText("Pay before you sign")).toBeTruthy();
     for (const title of ["Lease fee", "Security deposit", "Move-in cost"]) expect(screen.getByText(title)).toBeTruthy();
-    expect(screen.getByText("Charges $850.00")).toBeTruthy();
-    expect(screen.getByText("Total $850.00")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Pay $850.00" })).toBeTruthy();
+    expect(screen.getByText("Charges $850")).toBeTruthy();
+    expect(screen.getByText("Total $850")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pay $850" })).toBeTruthy();
   });
 
   it("asks Stripe for exactly those charges in ONE checkout", async () => {
     render(<ResidentSignAndPayMoveIn email="signer@example.com" signed={false} mode="at-signing" charges={charges} />);
-    fireEvent.click(screen.getByRole("button", { name: "Pay $850.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pay $850" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/stripe/household-charge-checkout");
@@ -82,7 +82,7 @@ describe("Pay before you sign", () => {
   it("a waived (absent) lease fee drops out of the total", () => {
     render(<ResidentSignAndPayMoveIn email="signer@example.com" signed={false} mode="at-signing" charges={charges.slice(1)} />);
     expect(screen.queryByText("Lease fee")).toBeNull();
-    expect(screen.getByText("Total $550.00")).toBeTruthy();
+    expect(screen.getByText("Total $550")).toBeTruthy();
   });
 
   it("shows nothing when nothing is due at signing", () => {

@@ -28,7 +28,10 @@ manual bank PaymentIntents and autopay PaymentIntents capture centrally with
 After the exact captured USD Charge is attested and the charge is atomically
 marked paid, `household-captured-source.server.ts` allocates the frozen
 principal, processing fee and manager net to the owner or a durable hold.
-Manager withdrawal spends only available, verified funds. The economic fee
+Manager withdrawal spends only available, verified funds. That allocation is platform
+accounting, so a refusal there is never reported to the payer as "your completed payment
+needs review" — it is filed for staff and retried — see
+[`financials.md`](financials.md) § In-app payouts. The economic fee
 split remains:
 
 | Fee payer | Resident charged | Processing fee allocation | Manager receives | PropLane net |
@@ -521,9 +524,30 @@ Guard: `tests/unit/no-off-platform-payment-channels.test.ts`.
 
 # Resident Payments section: Charges-only (§9.3, post-financials-merge)
 
-**Payments is Charges-only.** There are no URL sub-tabs and no `TabNav` switcher: the section is one screen at the bare `/resident/payments`, rendered by `ResidentPaymentsPanel` (the former `ResidentFinancialsPanel` was merged into it, then its Summary + Statements views were removed from the resident portal). The panel takes only `initialStatus` — the `tabId`/`basePath` props existed solely to serve those tabs and are gone, in `demo-section-renderer.tsx` too. `PAYMENTS_TABS` no longer exists; both resident section registries in `resident-sections.ts` declare `tabs: []`, so the sidebar links straight to `/resident/payments`.
+**Payments is Charges-only.** One screen, `ResidentPaymentsPanel` (the former
+`ResidentFinancialsPanel` was merged into it, then its Summary + Statements views were
+removed from the resident portal), with no `TabNav` switcher: both resident section
+registries in `resident-sections.ts` declare `tabs: []`, so the sidebar links straight to
+`/resident/payments`, and `PAYMENTS_TABS` no longer exists. The URL still carries the
+bucket as a path segment — `/resident/payments/{pending|overdue|paid}[/{chargeId}[/{tab}]]`
+(PLAN-0921-1029 area 2) — and the panel takes `bucket` / `basePath` / `chargeId` /
+`chargeDetailTab`; the three header buttons read Upcoming / Due / Paid
+(`RESIDENT_PAYMENTS_TAB_LABELS`), which is a LABEL change only, never the ids or the URLs.
 
-Pending / Overdue / Paid are in-section status pills, not tabs. `RESIDENT_PAYMENTS_LEGACY_TABS` is a `{ status?: string }` map of every old sub-path (`charges`, `summary`, `statements`, `balance`, `pending`, `overdue`, `paid`); `renderPortalSection` redirects all of them to `/resident/payments`, preserving `?status=` for the three that map to a pill (forwarded as the panel's `initialStatus`). `/resident/financials/*` redirects the same way. The map is a **null-prototype** object so inherited `Object.prototype` keys (`toString`, `constructor`, `__proto__`, `hasOwnProperty`) do not read as known tabs — unknown sub-paths still `notFound()`. See AGENTS.md "Financials UI cleanup" for the routing gotchas, and `tests/unit/resident-payments-charges-only.test.ts` for the regression coverage on the empty `tabs`, the bare smoke path, and the legacy map (including the prototype-key case).
+`renderPortalSection` normalizes the rest: the bare `/resident/payments` and any unknown
+first segment redirect to a bucket path, and `RESIDENT_PAYMENTS_LEGACY_TABS` is a
+`{ status?: string }` map of every old sub-path (`charges`, `summary`, `statements`,
+`balance`, `pending`, `overdue`, `paid`) that `/resident/financials/*` resolves through.
+**The whole query rides through those redirects**, not an allowlist of it: `?pay=…` (the
+dashboard's overdue / Balance due links) opens a charge, and the Stripe return
+(`?ach_checkout=return&session_id=…`) is what makes the panel's verify effect run at all —
+dropping it left a paid charge sitting in Upcoming until a webhook landed. `status` is the
+one param a redirect consumes, because it chose the bucket. The legacy map is a
+**null-prototype** object so inherited `Object.prototype` keys (`toString`, `constructor`,
+`__proto__`, `hasOwnProperty`) do not read as known tabs — unknown sub-paths still
+`notFound()`. See AGENTS.md "Financials UI cleanup" for the routing gotchas, and
+`tests/unit/resident-payments-charges-only.test.ts` plus
+`tests/unit/resident-payments-checkout-return-query.test.ts` for the regression coverage.
 
 `/api/reports/resident-ledger` is live (resident Documents → Rent receipts).
 
