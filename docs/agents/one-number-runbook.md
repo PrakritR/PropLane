@@ -87,6 +87,8 @@ branch, and `db:push` applies it only once merged):
 | 20261018190000 | `house_groups` | house group chats |
 | 20261018200000 | `automations` | preset auto-sends and the escalations inbox (branch: `on/automations`, in `claude-1`) |
 | 20261018210000 | `one_number_feel` | bubbles, burst debounce RPCs, latency columns |
+| 20261018220000 | `booking_exact_times` | exact check-in/out timestamps on stays + backfill from property defaults, time-aware capacity trigger (claude-2 bookings-times-1018) |
+| 20261018220001 | `stay_time_reminders` | arrival-guide and checkout-reminder sends keyed on stay times (claude-2 bookings-times-1018) |
 | 20261018230000 | `one_number_onboarding` | first conversation, DEMO, setup links |
 | 20261018240000 | `sms_outbox_media_urls` | outbound MMS |
 | 20261018250000 | `number_subscription_manager_role` | PropLane Number for a manager's workspace (branch: `on/numbers`, in `claude-1`) |
@@ -94,6 +96,7 @@ branch, and `db:push` applies it only once merged):
 | 20261018260100 | `service_owner_of_record` | owner-of-record name and flag (branch: `on/admin-service`) |
 | 20261018270000 | `owner_management` | management agreements, owner statements (branch: `on/owners`) |
 | 20261018290000 | `one_number_fixes` | `sms_onboarding_replies` (turn replay per MessageSid), `sms_moved_notices` (moved-number marker and cutover queue) (branch: `on/fixes`) |
+| 20261018300000 | `action_event_domains_explicit` | restates `action_events_domain_check` with every domain spelled out, incl. `vendor_dispatch` |
 
 Check after the push (SQL editor, read-only):
 
