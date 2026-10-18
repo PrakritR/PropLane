@@ -184,6 +184,8 @@ export const DELETE_ORDER = [
   "sms_projection_turns",
   "sms_projection_conversations",
   "sms_provisioning_operations",
+  "sms_vendor_leads",
+  "sms_setup_links",
   "inbound_sms_log",
   "property_utility_allocations",
   "manager_assistant_email_inbound",

@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
-import { redactLeadBody } from "@/lib/one-number/lead-redact";
+import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { toGsm7 } from "@/lib/one-number/lead-qualifying";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import {
@@ -58,7 +58,7 @@ export async function handleVendorIntake(
 ): Promise<VendorIntakeTurn> {
   try {
     const now = (deps.now ?? (() => new Date()))();
-    const body = redactLeadBody(input.body);
+    const body = redactSensitiveNumbers(String(input.body ?? "")).text.slice(0, 1000);
     const found = await findOrCreateLead(db, input.phoneKey, {});
     if (!found) return { leadId: null, reply: null };
     const { lead } = found;
