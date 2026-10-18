@@ -529,3 +529,21 @@ Invariants:
 5. **Waitlist / invite** (flag on only): a new landlord is admitted while finished text-setups < cap; otherwise the link is marked `waitlisted_at` (still unspent, re-checked on the next visit; an unreadable count fails closed). A manager's `invite <phone>` mints a link with `invited_by_workspace_id` that skips the cap (5 a day per workspace, sent through `sendSharedLineMessage`). An existing manager is never waitlisted.
 
 Tests: `tests/unit/one-number-{onboarding-roles,demo-script,demo-run,unknown-sender,finish-setup,onboarding-seam,setup-routes}.test.ts`.
+
+## W17 - Owner management: PropLane-held funds, party ledger, owner and vendor withdrawals
+
+Authoritative design, Stripe research, ledger and legal flag: [`owner-management.md`](owner-management.md). Migration `20261018270000_owner_management.sql` (dev applied, ledger row recorded). Dev proof: `scripts/prove-managed-finance.ts` (Stripe TEST mode only, dev database only; refuses anything else).
+
+Flags: none. A workspace is managed only when it has an ACCEPTED `managed_workspace_fee_policies` row (owner signature or admin attestation); with none, every code path below is the unchanged self-serve flow. Every read of a new table treats 42P01 / 42703 / PGRST205 as "not managed".
+
+Files:
+
+- `src/lib/owner-management/` - `fee-math.ts` (pure: floor fee on the month's cumulative figure, leasing/minimum, spread, pro rata refund split, Pacific months), `policies.server.ts` (draft / send / sign / attest / end; atomic `activate_managed_policy`), `monthly-statements.server.ts`, `owner-line.server.ts` (the owner on the PropLane line: runs before routing in `inbound-seam.server.ts`), `alerts.server.ts`.
+- `src/lib/managed-finance/` - `ledger.server.ts`, `capture.server.ts` (allocation of a verified platform capture), `adjustments.server.ts` (refunds, disputes), `vendor-bills.server.ts` (bills + owner approval), `withdrawals.server.ts` (reserve, Transfer, Payout, reconcile, weekly batch), `finances.server.ts`, `statement.ts`, `tax-package*.ts`, `reconcile.server.ts`, `resolve.server.ts`.
+- Edits to hardened files, each a small additive branch: `household-captured-source.server.ts` (`creditManagedIfApplicable`: a managed capture is allocated in the party ledger instead of credited to a hold, for card Checkout, manual bank and autopay), `household-charge-refund-rail.server.ts` (`managed` rail: refund from the platform balance, no `reverse_transfer`), `stripe-webhook-financials.ts` (refund and dispute hooks), `stripe-household-charge-checkout.server.ts` (a cart mixing a managed workspace with another payee is refused), `work-order-approve-pay.server.ts` and `pay-from-balance/route.ts` (a managed workspace pays vendors from PropLane funds; above the owner's repair amount the owner is asked first), `vendor-invoice-pay.server.ts` (no Stripe Checkout for a managed invoice), `queryOwnerStatement` (the real fee on a managed house).
+- Routes: `/api/owner/finances/*`, `/api/vendor/managed-finance/*`, `/api/admin/managed-finance`, `/api/admin/managed-workspaces[/..]`, `/api/admin/managed-policies/[id]`, cron `/api/cron/owner-management` (hourly: reconciliation every run; vendor weekly batch Mondays Pacific; owner statements on the 1st).
+- UI: `src/components/owner/owner-finances.tsx` (`/portal/owner/finances`), the vendor Finances "PropLane balance" section (`vendor-managed-balance.tsx`), admin "Managed funds" (`admin-managed-finance-panel.tsx`, `/admin/managed-finance`).
+
+Invariants: see `owner-management.md` § Invariants. In one line: the ledger balances, every post is idempotent on a Stripe/source id, a party never withdraws more than the ledger says is matured and owed, ownership is re-derived from the policy / property / session at every write, and a managed capture that cannot be allocated throws (never falls back to a hold).
+
+Tests: `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`, `tests/unit/owner-finances.test.tsx`, `tests/unit/admin-managed-finance-panel.test.tsx`, `tests/unit/vendor-managed-balance.test.tsx`.
