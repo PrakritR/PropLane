@@ -385,6 +385,23 @@ describe("a turn: identity, credit before work, confirm-first", () => {
     expect(opts.readOnly).toBe(false);
     expect(opts.allowWriteTools).toEqual([]);
   });
+  it("runs Luna with only an OpenAI key and preserves confirmation-first resident scope", async () => {
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "true");
+    vi.stubEnv("OPENAI_API_KEY", "openai-test");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    mocks.runAgentTurn.mockResolvedValue({ reply: "ok", toolTrace: [] });
+    mocks.traceAgentTurn.mockImplementation(async (_actor: unknown, _msgs: unknown, runIt: (o?: unknown) => Promise<unknown>) => runIt(undefined));
+    expect(await run(seed(), undefined)).toBe("replied");
+    const actor = mocks.traceAgentTurn.mock.calls[0]![0] as { userId: string; sessionId: string; metadata: Record<string, unknown> };
+    expect(actor.userId).toBe(OWNER);
+    expect(actor.sessionId).toBe(`resident-personal-agent:${OWNER}:${hashPhoneForTrace(OWNER_PHONE)}`);
+    expect(JSON.stringify(actor)).not.toContain(OWNER_PHONE);
+    const opts = mocks.runAgentTurn.mock.calls[0]![0] as { registry: unknown; readOnly: boolean; allowWriteTools: string[] };
+    expect(mocks.runAgentTurn.mock.calls[0]![0].model).toMatchObject({ model: "gpt-6-luna", provider: "openai" });
+    expect(opts.registry).toBe(residentPersonalAgentRegistry);
+    expect(opts.readOnly).toBe(false);
+    expect(opts.allowWriteTools).toEqual([]);
+  });
 
   it("texts the exact request and waits: a proposal is stored, nothing is requested", async () => {
     mocks.createPending.mockResolvedValue("act-1");

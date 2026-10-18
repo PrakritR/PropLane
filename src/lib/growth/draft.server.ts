@@ -1,7 +1,9 @@
 import "server-only";
 
-import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MODELS } from "@/lib/agent/model";
+import type Anthropic from "@anthropic-ai/sdk";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
+import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { growthDb, mapPost, must, type GrowthDb } from "./db.server";
 import { defaultPlatforms, parseDraftOutput } from "./draft-parse";
 import { bumpIdeaUsed } from "./ideas.server";
@@ -33,29 +35,72 @@ function userPrompt(idea: Pick<GrowthIdea, "title" | "angle" | "format" | "notes
   ].join("\n");
 }
 
-/** Call Claude and return a validated draft. Retries once on malformed output, then throws. */
+/** Generate a validated draft. Retries once on malformed output, then throws. */
 export async function generateDraft(idea: Pick<GrowthIdea, "title" | "angle" | "format" | "notes">): Promise<DraftOutput> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) throw new Error("ANTHROPIC_API_KEY is not set");
-  const client = new Anthropic();
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await client.messages.create({
-      model: TIER_MODELS.standard,
-      max_tokens: 2000,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userPrompt(idea) }],
-    });
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    try {
-      return parseDraftOutput(text, idea.format);
-    } catch (e) {
-      lastError = e;
-    }
-  }
-  throw new Error(`draft failed after retry: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  const selection = selectLunaTaskModel(
+    { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 2000, timeoutMs: 45_000 },
+    { maxOutputTokens: 4000, timeoutMs: 45_000 },
+  );
+  if (!hasAgentModelCredential(selection)) throw new Error(`${selection.provider.toUpperCase()} API key is not set`);
+  const prompt = userPrompt(idea);
+  const result = await traceAgentTurn(
+    { userId: "system:growth", metadata: { role: "system", surface: "growth-draft", task: "draft-post" } },
+    [{ role: "user", content: prompt }],
+    async (observer) => {
+      observer?.onStart?.({
+        system: SYSTEM_PROMPT,
+        toolsAvailable: [],
+        model: selection.model,
+        tier: selection.tier,
+        provider: selection.provider,
+        route: selection.route,
+        reasoningEffort: selection.reasoningEffort,
+      });
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await completeAgentModel({
+          selection,
+          system: SYSTEM_PROMPT,
+          tools: [],
+          messages: [{ role: "user", content: prompt }],
+        });
+        const text = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+        observer?.onLlmCall?.({
+          iteration: attempt,
+          model: response.responseModel ?? selection.model,
+          usage: response.usage,
+          stopReason: response.stopReason,
+          toolsChosen: [],
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
+          input: [{ role: "user", content: prompt }],
+          assistantContent: response.content,
+        });
+        try {
+          const draft = parseDraftOutput(text, idea.format);
+          return {
+            reply: text,
+            toolTrace: [],
+            model: response.responseModel ?? selection.model,
+            tier: selection.tier,
+            usage: response.usage,
+            provider: response.provider,
+            route: selection.route,
+            payload: draft,
+          };
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw new Error(`draft failed after retry: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+    },
+    { name: "growth-draft", emitTurnSummary: false },
+  );
+  return result.payload as DraftOutput;
 }
 
 /** Draft a post from an idea and store it in `review` (createdBy 'claude'). */

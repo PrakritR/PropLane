@@ -1,7 +1,9 @@
+import { completeAgentModel } from "@/lib/agent/provider";
+import type { AnthropicToolSchema } from "@/lib/tools/registry";
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { TIER_MODELS } from "@/lib/agent/model";
+import { TIER_MODELS, selectLunaTaskModel, hasAgentModelCredential } from "@/lib/agent/model";
 import { track } from "@/lib/analytics/posthog";
 import { tracePublicToolTurn } from "@/lib/observability/langfuse";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
@@ -49,7 +51,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Describe what you're looking for." }, { status: 400 });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const selection = selectLunaTaskModel({ model: TIER_MODELS.simple, tier: "simple", provider: "anthropic", route: "anthropic", maxOutputTokens: 512 }, { maxOutputTokens: 4_000, timeoutMs: 20_000 });
+  if (!hasAgentModelCredential(selection)) {
     return NextResponse.json({ error: "The assistant isn't configured in this environment." }, { status: 503 });
   }
 
@@ -62,7 +65,6 @@ export async function POST(req: Request) {
       sessionId,
       input: message,
       run: async ({ llmCall, toolCall }) => {
-        const client = new Anthropic();
         // One catalog read for the whole turn: the prompt's neighborhood list and the
         // search below share it, so an "Ask" never builds the uncached catalog twice.
         const catalog = await loadPublicHousingCatalog();
@@ -83,28 +85,26 @@ export async function POST(req: Request) {
         ];
 
         const messages: Anthropic.MessageParam[] = [{ role: "user", content: message }];
-        const response = await client.messages.create({
-          model: TIER_MODELS.simple,
-          max_tokens: 512,
+        const response = await completeAgentModel({
+          selection,
           system,
-          tools: tools as unknown as Anthropic.Tool[],
-          tool_choice: { type: "tool", name: TOOL_NAME },
+          tools: tools as unknown as AnthropicToolSchema[],
+          toolChoice: { type: "tool", name: TOOL_NAME },
           messages,
         });
 
         llmCall({
-          model: TIER_MODELS.simple,
-          usage: {
-            inputTokens: response.usage?.input_tokens ?? 0,
-            outputTokens: response.usage?.output_tokens ?? 0,
-          },
+          model: response.responseModel ?? selection.model,
+          usage: response.usage,
           input: messages,
           output: response.content,
         });
 
-        const toolUse = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-        const parsed = HOUSING_SEARCH_FILTERS_SCHEMA.safeParse(toolUse?.input ?? {});
-        const rawFilters = parsed.success ? parsed.data : {};
+        const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+        if (toolUses.length !== 1 || toolUses[0]!.name !== TOOL_NAME) throw new Error("Housing search extraction did not return the required tool.");
+        const parsed = HOUSING_SEARCH_FILTERS_SCHEMA.safeParse(toolUses[0]!.input);
+        if (!parsed.success) throw new Error("Housing search extraction returned invalid filters.");
+        const rawFilters = parsed.data;
 
         const searchResult = await searchPublicHousing(rawFilters, catalog);
         toolCall({ name: TOOL_NAME, input: rawFilters, output: { matchCount: searchResult.matches.length } });

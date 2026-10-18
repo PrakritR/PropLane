@@ -3,8 +3,9 @@
  * persists `aiDraft` on resident-scoped thread rows (manager-only field).
  */
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MODELS } from "@/lib/agent/model";
+import type Anthropic from "@anthropic-ai/sdk";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { track } from "@/lib/analytics/posthog";
@@ -148,11 +149,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skip: true, reason: "not-inbound" });
     }
 
-    if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    const selection = selectLunaTaskModel(
+      { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 400, timeoutMs: 30_000 },
+      { maxOutputTokens: 4000, timeoutMs: 30_000 },
+    );
+    if (!hasAgentModelCredential(selection)) {
       return NextResponse.json({ ok: false, error: "AI drafting is not configured." }, { status: 503 });
     }
 
-    const model = TIER_MODELS.standard;
+    const model = selection.model;
     const conversation = clampText(buildConversationPrompt(rowData, assistantThread), 4000);
     if (!conversation.trim() && !assistantThread) {
       return NextResponse.json({ ok: true, skip: true, reason: "empty-message" });
@@ -191,12 +196,12 @@ export async function POST(req: Request) {
         },
       },
       [{ role: "user", content: userPrompt }],
-      async () => {
-        const client = new Anthropic();
-        const response = await client.messages.create({
-          model,
-          max_tokens: 400,
+      async (observer) => {
+        observer?.onStart?.({ system: systemPrompt, toolsAvailable: [], model, tier: "standard", provider: selection.provider, route: selection.route });
+        const response = await completeAgentModel({
+          selection,
           system: systemPrompt,
+          tools: [],
           messages: [{ role: "user", content: userPrompt }],
         });
         const reply = response.content
@@ -204,14 +209,26 @@ export async function POST(req: Request) {
           .map((b) => b.text)
           .join("")
           .trim();
+        const usage = response.usage;
+        observer?.onLlmCall?.({
+          iteration: 0,
+          model: response.responseModel ?? model,
+          usage,
+          stopReason: response.stopReason,
+          toolsChosen: [],
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
+          input: [{ role: "user", content: userPrompt }],
+          assistantContent: response.content,
+        });
         return {
           reply,
           toolTrace: [] as { tool: string; ok: boolean }[],
-          model,
-          usage: {
-            inputTokens: response.usage.input_tokens,
-            outputTokens: response.usage.output_tokens,
-          },
+          model: response.responseModel ?? model,
+          usage,
+          provider: response.provider,
+          route: selection.route,
         };
       },
       { name: "resident-inbox-draft-reply" },
@@ -226,10 +243,10 @@ export async function POST(req: Request) {
       text: draftText,
       status: "pending_approval",
       generatedAt: new Date().toISOString(),
-      model,
+      model: result.model ?? model,
     };
 
-    track("resident_inbox_reply_drafted", scope.user.id, { model, assistantThread });
+    track("resident_inbox_reply_drafted", scope.user.id, { model: result.model ?? model, assistantThread });
     return NextResponse.json({ ok: true, draft });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to draft reply.";

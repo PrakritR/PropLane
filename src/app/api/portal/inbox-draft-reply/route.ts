@@ -16,8 +16,9 @@
  * approving it.
  */
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MODELS } from "@/lib/agent/model";
+import type Anthropic from "@anthropic-ai/sdk";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { track } from "@/lib/analytics/posthog";
 import { rateLimit, clientIpFrom } from "@/lib/rate-limit";
@@ -167,6 +168,10 @@ export async function POST(req: Request) {
     const residentEmail = String(body.residentEmail ?? "").trim().toLowerCase();
     const residentName = clampText(String(body.residentName ?? "the resident"), 120);
     const force = body.force === true;
+    const selection = selectLunaTaskModel(
+      { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 400, timeoutMs: 30_000 },
+      { maxOutputTokens: 4000, timeoutMs: 30_000 },
+    );
 
     if (!threadId) {
       if (!residentEmail.includes("@")) {
@@ -175,10 +180,10 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+      if (!hasAgentModelCredential(selection)) {
         return NextResponse.json({ ok: false, error: "AI drafting is not configured." }, { status: 503 });
       }
-      const model = TIER_MODELS.standard;
+      const model = selection.model;
       const userPrompt = [
         `You are a property manager reaching out to ${residentName} (${residentEmail}) for the first time in PropLane.`,
         "",
@@ -195,12 +200,12 @@ export async function POST(req: Request) {
           },
         },
         [{ role: "user", content: userPrompt }],
-        async () => {
-          const client = new Anthropic();
-          const response = await client.messages.create({
-            model,
-            max_tokens: 400,
+        async (observer) => {
+          observer?.onStart?.({ system: SYSTEM_PROMPT, toolsAvailable: [], model, tier: "standard", provider: selection.provider, route: selection.route });
+          const response = await completeAgentModel({
+            selection,
             system: SYSTEM_PROMPT,
+            tools: [],
             messages: [{ role: "user", content: userPrompt }],
           });
           const reply = response.content
@@ -208,14 +213,26 @@ export async function POST(req: Request) {
             .map((b) => b.text)
             .join("")
             .trim();
+          const usage = response.usage;
+          observer?.onLlmCall?.({
+            iteration: 0,
+            model: response.responseModel ?? model,
+            usage,
+            stopReason: response.stopReason,
+            toolsChosen: [],
+            provider: response.provider,
+            route: selection.route,
+            latencyMs: response.latencyMs,
+            input: [{ role: "user", content: userPrompt }],
+            assistantContent: response.content,
+          });
           return {
             reply,
             toolTrace: [] as { tool: string; ok: boolean }[],
-            model,
-            usage: {
-              inputTokens: response.usage.input_tokens,
-              outputTokens: response.usage.output_tokens,
-            },
+            model: response.responseModel ?? model,
+            usage,
+            provider: response.provider,
+            route: selection.route,
           };
         },
         { name: "inbox-draft-reply-first-contact" },
@@ -225,14 +242,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "Could not generate a draft." }, { status: 502 });
       }
       void force;
-      track("inbox_reply_drafted", scope.user.id, { model, firstContact: true });
+      track("inbox_reply_drafted", scope.user.id, { model: result.model ?? model, firstContact: true });
       return NextResponse.json({
         ok: true,
         draft: {
           text: draftText,
           status: "pending_approval",
           generatedAt: new Date().toISOString(),
-          model,
+          model: result.model ?? model,
         } satisfies InboxAiDraft,
       });
     }
@@ -293,11 +310,11 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    if (!hasAgentModelCredential(selection)) {
       return NextResponse.json({ ok: false, error: "AI drafting is not configured." }, { status: 503 });
     }
 
-    const model = TIER_MODELS.standard;
+    const model = selection.model;
     const senderName = clampText(String(rowData.from ?? "the resident"), 120);
     const subject = clampText(String(rowData.subject ?? ""), 200);
     const conversation = clampText(buildConversationPrompt(rowData), 4000);
@@ -344,12 +361,12 @@ export async function POST(req: Request) {
         },
       },
       [{ role: "user", content: userPrompt }],
-      async () => {
-        const client = new Anthropic();
-        const response = await client.messages.create({
-          model,
-          max_tokens: 400,
+      async (observer) => {
+        observer?.onStart?.({ system: SYSTEM_PROMPT, toolsAvailable: [], model, tier: "standard", provider: selection.provider, route: selection.route });
+        const response = await completeAgentModel({
+          selection,
           system: SYSTEM_PROMPT,
+          tools: [],
           messages: [{ role: "user", content: userPrompt }],
         });
         const reply = response.content
@@ -357,14 +374,26 @@ export async function POST(req: Request) {
           .map((b) => b.text)
           .join("")
           .trim();
+        const usage = response.usage;
+        observer?.onLlmCall?.({
+          iteration: 0,
+          model: response.responseModel ?? model,
+          usage,
+          stopReason: response.stopReason,
+          toolsChosen: [],
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
+          input: [{ role: "user", content: userPrompt }],
+          assistantContent: response.content,
+        });
         return {
           reply,
           toolTrace: [] as { tool: string; ok: boolean }[],
-          model,
-          usage: {
-            inputTokens: response.usage.input_tokens,
-            outputTokens: response.usage.output_tokens,
-          },
+          model: response.responseModel ?? model,
+          usage,
+          provider: response.provider,
+          route: selection.route,
         };
       },
       { name: "inbox-draft-reply" },
@@ -379,7 +408,7 @@ export async function POST(req: Request) {
       text: draftText,
       status: "pending_approval",
       generatedAt: new Date().toISOString(),
-      model,
+      model: result.model ?? model,
     };
 
     // Persist the draft onto the manager's own thread row (manager-scoped,
@@ -396,7 +425,7 @@ export async function POST(req: Request) {
       { onConflict: "id" },
     );
 
-    track("inbox_reply_drafted", scope.user.id, { model });
+    track("inbox_reply_drafted", scope.user.id, { model: result.model ?? model });
     return NextResponse.json({ ok: true, draft });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to draft reply.";

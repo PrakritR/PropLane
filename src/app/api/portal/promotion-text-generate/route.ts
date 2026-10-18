@@ -2,9 +2,10 @@
  * AI promotion text generation (social, email, SMS). Manager-only.
  */
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { resolveAgentContext } from "@/lib/tools/context";
-import { TIER_MODELS } from "@/lib/agent/model";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { track } from "@/lib/analytics/posthog";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
@@ -130,41 +131,57 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    const selection = selectLunaTaskModel(
+      { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 900, timeoutMs: 30_000 },
+      { maxOutputTokens: 4000, timeoutMs: 30_000 },
+    );
+    if (!hasAgentModelCredential(selection)) {
       return NextResponse.json({
         copy: composeFallbackPromotionText(inputs, propertyLabel, format),
         source: "fallback",
       });
     }
 
-    const model = TIER_MODELS.standard;
+    const model = selection.model;
     const userPrompt = buildUserPrompt(inputs, propertyLabel, format, extraInstructions);
 
-    const result = await traceAgentTurn(ctx, [{ role: "user", content: userPrompt }], async () => {
-      const client = new Anthropic();
-      const response = await client.messages.create({
-        model,
-        max_tokens: 900,
+    const result = await traceAgentTurn(ctx, [{ role: "user", content: userPrompt }], async (observer) => {
+      observer?.onStart?.({ system: SYSTEM_PROMPT, toolsAvailable: [], model, tier: "standard", provider: selection.provider, route: selection.route });
+      const response = await completeAgentModel({
+        selection,
         system: SYSTEM_PROMPT,
+        tools: [],
         messages: [{ role: "user", content: userPrompt }],
       });
       const reply = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("");
+      const usage = response.usage;
+      observer?.onLlmCall?.({
+        iteration: 0,
+        model: response.responseModel ?? model,
+        usage,
+        stopReason: response.stopReason,
+        toolsChosen: [],
+        provider: response.provider,
+        route: selection.route,
+        latencyMs: response.latencyMs,
+        input: [{ role: "user", content: userPrompt }],
+        assistantContent: response.content,
+      });
       return {
         reply,
         toolTrace: [] as { tool: string; ok: boolean }[],
-        model,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
+        model: response.responseModel ?? model,
+        usage,
+        provider: response.provider,
+        route: selection.route,
       };
     });
 
     const copy = parseCopy(result.reply, inputs, propertyLabel, format);
-    track("promotion_text_generated", ctx.userId, { format, model });
+    track("promotion_text_generated", ctx.userId, { format, model: result.model ?? model });
     return NextResponse.json({ copy, source: "ai" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to generate promotion text.";

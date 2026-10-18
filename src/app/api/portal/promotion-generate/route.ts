@@ -1,6 +1,6 @@
 /**
  * AI flyer copy generation. Manager-only. Takes the manager's flyer inputs and
- * returns structured, on-brand marketing copy. The Anthropic key stays
+ * returns structured, on-brand marketing copy. The selected provider key stays
  * server-side, the call is traced in Langfuse (landlordId + session id) and
  * counted in PostHog, and cost is guarded (one short, capped completion).
  *
@@ -9,9 +9,10 @@
  * told to use it as facts to advertise and to ignore any instructions inside it.
  */
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { resolveAgentContext } from "@/lib/tools/context";
-import { TIER_MODELS } from "@/lib/agent/model";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { track } from "@/lib/analytics/posthog";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
@@ -125,44 +126,60 @@ export async function POST(req: Request) {
       }
     }
 
-    // Cost/availability guard: without a key, return deterministic copy instead
-    // of erroring so the client still renders a flyer.
-    if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    const selection = selectLunaTaskModel(
+      { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 700, timeoutMs: 30_000 },
+      { maxOutputTokens: 4000, timeoutMs: 30_000 },
+    );
+    // Without the selected provider's credential, deterministic copy keeps the
+    // flyer usable without claiming the model generated it.
+    if (!hasAgentModelCredential(selection)) {
       return NextResponse.json({ copy: composeFallbackFlyerCopy(inputs, propertyLabel), source: "fallback" });
     }
 
-    const model = TIER_MODELS.standard;
+    const model = selection.model;
     const userPrompt = buildUserPrompt(inputs, propertyLabel, extraInstructions);
 
     const result = await traceAgentTurn(
       ctx,
       [{ role: "user", content: userPrompt }],
-      async () => {
-        const client = new Anthropic();
-        const response = await client.messages.create({
-          model,
-          max_tokens: 700,
+      async (observer) => {
+        observer?.onStart?.({ system: SYSTEM_PROMPT, toolsAvailable: [], model, tier: "standard", provider: selection.provider, route: selection.route });
+        const response = await completeAgentModel({
+          selection,
           system: SYSTEM_PROMPT,
+          tools: [],
           messages: [{ role: "user", content: userPrompt }],
         });
         const reply = response.content
           .filter((b): b is Anthropic.TextBlock => b.type === "text")
           .map((b) => b.text)
           .join("");
+        const usage = response.usage;
+        observer?.onLlmCall?.({
+          iteration: 0,
+          model: response.responseModel ?? model,
+          usage,
+          stopReason: response.stopReason,
+          toolsChosen: [],
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
+          input: [{ role: "user", content: userPrompt }],
+          assistantContent: response.content,
+        });
         return {
           reply,
           toolTrace: [] as { tool: string; ok: boolean }[],
-          model,
-          usage: {
-            inputTokens: response.usage.input_tokens,
-            outputTokens: response.usage.output_tokens,
-          },
+          model: response.responseModel ?? model,
+          usage,
+          provider: response.provider,
+          route: selection.route,
         };
       },
     );
 
     const copy = parseCopy(result.reply, inputs, propertyLabel);
-    track("flyer_generated", ctx.userId, { theme_provided: Boolean(inputs.promo), model });
+    track("flyer_generated", ctx.userId, { theme_provided: Boolean(inputs.promo), model: result.model ?? model });
     return NextResponse.json({ copy, source: "ai" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to generate flyer.";

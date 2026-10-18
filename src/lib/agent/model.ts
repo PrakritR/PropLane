@@ -31,8 +31,31 @@ export type AgentModelSelection = {
   reasoningEffort?: "low" | "medium" | "high";
   maxOutputTokens?: number;
   timeoutMs?: number;
+  /** Maximum wall-clock budget for the complete multi-call agent turn. */
+  turnBudgetMs?: number;
   disableBillingFallback?: boolean;
 };
+
+/** A single release switch for task and portal reasoning. Unset preserves the caller's baseline. */
+export function selectLunaTaskModel(
+  legacy: AgentModelSelection,
+  options: Pick<AgentModelSelection, "reasoningEffort" | "maxOutputTokens" | "timeoutMs" | "turnBudgetMs"> = {},
+): AgentModelSelection {
+  if (process.env.AXIS_AI_LUNA_ENABLED?.trim().toLowerCase() !== "true") return legacy;
+  return {
+    model: "gpt-6-luna", tier: legacy.tier, provider: "openai", route: "luna_primary",
+    reasoningEffort: options.reasoningEffort ?? "low",
+    maxOutputTokens: options.maxOutputTokens ?? legacy.maxOutputTokens ?? 8_000,
+    timeoutMs: options.timeoutMs ?? legacy.timeoutMs ?? 45_000,
+    turnBudgetMs: options.turnBudgetMs ?? legacy.turnBudgetMs,
+  };
+}
+
+export function hasAgentModelCredential(selection: AgentModelSelection): boolean {
+  if (selection.provider === "openai") return Boolean(process.env.OPENAI_API_KEY?.trim());
+  if (selection.provider === "openrouter") return Boolean(process.env.OPENROUTER_API_KEY?.trim());
+  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+}
 
 /** Route selection plus optional read-only fast-lane tool shortlist. */
 export type AgentRouteSelection = AgentModelSelection & {
@@ -79,8 +102,8 @@ export const MODEL_PRICING: Record<string, { inputPerMTok: number; outputPerMTok
 
 const warnedUnpricedModels = new Set<string>();
 
-/** Estimated USD cost of a turn from accumulated token usage. 0 if unpriced. */
-export function estimateCostUsd(model: string, usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number }): number {
+/** Provider-call estimate. Unknown models remain unknown to callers that need exact accounting. */
+export function estimateCostDetailsUsd(model: string, usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number }): { input: number; output: number; total: number } | undefined {
   const pricedModel = /^claude-haiku-4-5(?:-\d{8})?$/.test(model)
     ? "claude-haiku-4-5"
     : /^claude-sonnet-4-6(?:-\d{8})?$/.test(model)
@@ -89,7 +112,26 @@ export function estimateCostUsd(model: string, usage: { inputTokens: number; out
         ? "gpt-6-luna"
         : model;
   const price = MODEL_PRICING[pricedModel];
-  if (!price) {
+  if (!price) return undefined;
+  const safe = (value: number | undefined) => Number.isFinite(value) && (value ?? 0) > 0 ? value! : 0;
+  const inputTokens = safe(usage.inputTokens);
+  const outputTokens = safe(usage.outputTokens);
+  const isLuna = pricedModel === "gpt-6-luna";
+  const cached = isLuna ? Math.min(inputTokens, safe(usage.cachedInputTokens)) : 0;
+  const cacheCreation = isLuna ? Math.min(inputTokens - cached, safe(usage.cacheCreationInputTokens)) : 0;
+  const inputMultiplier = isLuna && inputTokens > 272_000 ? 2 : 1;
+  const outputMultiplier = isLuna && inputTokens > 272_000 ? 1.5 : 1;
+  const input = ((inputTokens - cached - cacheCreation) * price.inputPerMTok +
+    cached * (price.cachedInputPerMTok ?? price.inputPerMTok) +
+    cacheCreation * (price.cacheCreationInputPerMTok ?? price.inputPerMTok)) * inputMultiplier / 1_000_000;
+  const output = outputTokens * price.outputPerMTok * outputMultiplier / 1_000_000;
+  return { input, output, total: input + output };
+}
+
+/** Back-compatible trace estimate; unpriced models are reported as zero. */
+export function estimateCostUsd(model: string, usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number }): number {
+  const cost = estimateCostDetailsUsd(model, usage);
+  if (!cost) {
     if (!warnedUnpricedModels.has(model)) {
       warnedUnpricedModels.add(model);
       console.warn(
@@ -98,19 +140,20 @@ export function estimateCostUsd(model: string, usage: { inputTokens: number; out
     }
     return 0;
   }
-  const isLuna = model === "gpt-6-luna" || model.startsWith("gpt-6-luna-");
-  if (!isLuna) return (usage.inputTokens * price.inputPerMTok + usage.outputTokens * price.outputPerMTok) / 1_000_000;
-  const cached = Math.min(usage.inputTokens, usage.cachedInputTokens ?? 0);
-  const cacheCreation = Math.min(usage.inputTokens - cached, usage.cacheCreationInputTokens ?? 0);
-  const regularInput = usage.inputTokens - cached - cacheCreation;
-  return (regularInput * price.inputPerMTok +
-    cached * (price.cachedInputPerMTok ?? price.inputPerMTok) +
-    cacheCreation * (price.cacheCreationInputPerMTok ?? price.inputPerMTok) +
-    usage.outputTokens * price.outputPerMTok) / 1_000_000;
+  return cost.total;
 }
 
 /** Server-side, actor-stable rollout; the existing route remains the rollback. */
 export function selectPortalAgentRoute(args: Parameters<typeof selectAgentRoute>[0]): AgentRouteSelection {
+  const master = process.env.AXIS_AI_LUNA_ENABLED?.trim().toLowerCase();
+  if (master !== undefined && master !== "true") return selectAgentRoute(args);
+  if (master === "true") {
+    const tier = classifyComplexity(args.messages);
+    return selectLunaTaskModel({ model: TIER_MODELS[tier], tier, provider: "anthropic", route: "anthropic" }, {
+      reasoningEffort: tier === "complex" ? "high" : "low",
+      maxOutputTokens: tier === "complex" ? 12_000 : 8_000,
+    });
+  }
   const flag = process.env.AXIS_AGENT_LUNA_ENABLED?.trim().toLowerCase();
   const enabled = flag === undefined || flag === "true";
   const keyPresent = Boolean(process.env.OPENAI_API_KEY?.trim());

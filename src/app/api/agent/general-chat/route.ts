@@ -1,7 +1,8 @@
+import { tracePublicToolTurn } from "@/lib/observability/langfuse";
 import { NextResponse } from "next/server";
 import { GENERAL_ASSISTANT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { applyChatAttachments, sanitizeChatMessages } from "@/lib/agent/chat-handler";
-import { selectAgentRoute } from "@/lib/agent/model";
+import { selectAgentRoute, selectLunaTaskModel, hasAgentModelCredential } from "@/lib/agent/model";
 import { completeAgentModel } from "@/lib/agent/provider";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { formatAgentChatUserError } from "@/lib/agent/assistant-turn-error";
@@ -49,7 +50,10 @@ export async function POST(req: Request) {
   if (!attached.ok) return NextResponse.json({ error: attached.error }, { status: 400 });
   messages = attached.messages;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const routing = messagesNeedVisionModel(messages)
+    ? visionPinnedModel()
+    : selectLunaTaskModel(selectAgentRoute({ messages, actorKey: ip, availableTools: [] }));
+  if (!hasAgentModelCredential(routing)) {
     return NextResponse.json(
       { error: "The assistant isn't configured in this environment." },
       { status: 503 },
@@ -57,27 +61,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    const routing = messagesNeedVisionModel(messages)
-      ? visionPinnedModel()
-      : selectAgentRoute({ messages, actorKey: ip, availableTools: [] });
-    const provider = "provider" in routing && routing.provider === "openrouter" ? "openrouter" : "anthropic";
-    const route =
-      "route" in routing && (routing.route === "fast_direct" || routing.route === "fast_lookup")
-        ? routing.route
-        : "anthropic";
-    const fallbackModel =
-      "fallbackModel" in routing && typeof routing.fallbackModel === "string" ? routing.fallbackModel : undefined;
-    const response = await completeAgentModel({
-      selection: {
-        model: routing.model,
-        tier: routing.tier,
-        provider,
-        route,
-        ...(fallbackModel ? { fallbackModel } : {}),
+    const response = await tracePublicToolTurn({
+      name: "general-chat", sessionId: `general:${crypto.randomUUID()}`, input: messages,
+      run: async ({ llmCall }) => {
+        const completion = await completeAgentModel({ selection: routing, system: GENERAL_ASSISTANT_SYSTEM_PROMPT, tools: [], messages });
+        llmCall({ model: completion.responseModel ?? routing.model, usage: completion.usage, input: messages, output: completion.content,
+          metadata: { provider: completion.provider, route: routing.route, latencyMs: completion.latencyMs } });
+        return completion;
       },
-      system: GENERAL_ASSISTANT_SYSTEM_PROMPT,
-      tools: [],
-      messages,
     });
     const reply = response.content
       .filter((b) => b.type === "text")

@@ -12,7 +12,7 @@ import { Langfuse } from "langfuse";
 import { startObservation } from "@langfuse/tracing";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentObserver, PendingActionProposal, ToolEvidenceEntry } from "@/lib/agent/loop";
-import { estimateCostUsd } from "@/lib/agent/model";
+import { estimateCostDetailsUsd } from "@/lib/agent/model";
 import type { AgentPromptMeta } from "@/lib/agent/prompt-metadata";
 
 let client: Langfuse | null = null;
@@ -231,6 +231,33 @@ function safe(fn: () => void) {
   }
 }
 
+/** Mutually exclusive input categories keep Langfuse totals and cache pricing truthful. */
+function generationUsageDetails(usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number }): Record<string, number> {
+  const safe = (value: number | undefined) => Number.isFinite(value) && (value ?? 0) > 0 ? value! : 0;
+  const input = safe(usage.inputTokens);
+  const cached = Math.min(input, safe(usage.cachedInputTokens));
+  const written = Math.min(input - cached, safe(usage.cacheCreationInputTokens));
+  return { input: input - cached - written, input_cached: cached, input_cache_write: written, output: safe(usage.outputTokens) };
+}
+
+/** Record billable failed calls separately from earlier successful generations. */
+export function recordFailedAgentGeneration(trace: TraceLike | null, error: unknown): void {
+  if (!trace || !error || typeof error !== "object" || !("responseUsage" in error)) return;
+  const failed = error as { responseUsage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number; reasoningOutputTokens?: number }; responseModel?: string; incompleteReason?: string; failureReason?: string };
+  if (!failed.responseUsage) return;
+  const cost = failed.responseModel ? estimateCostDetailsUsd(failed.responseModel, failed.responseUsage) : undefined;
+  endObservation(trace.generation({
+    name: "axis-agent-llm-failed",
+    ...(failed.responseModel ? { model: failed.responseModel } : {}),
+    usage: { input: failed.responseUsage.inputTokens, output: failed.responseUsage.outputTokens, unit: "TOKENS" },
+    usageDetails: generationUsageDetails(failed.responseUsage),
+    ...(cost ? { costDetails: { input: cost.input, output: cost.output, total: cost.total } } : {}),
+    output: error instanceof Error ? error.message : "Provider call failed",
+    level: "ERROR",
+    metadata: { provider: "openai", failureReason: failed.incompleteReason ?? failed.failureReason, costAccountingScope: "failed_call_only", estimatedCostUsd: cost?.total },
+  }));
+}
+
 /** Completed observations are required before managed evaluators will run. */
 function endObservation(observation: void | { end(): unknown }): void {
   observation?.end();
@@ -250,12 +277,15 @@ export function buildTraceObserver(
   trace: TraceLike,
   actor: TraceActor,
   promptMeta?: AgentPromptMeta,
-): { observer: AgentObserver; getEvidence: () => ToolEvidence[] } {
+): { observer: AgentObserver; getEvidence: () => ToolEvidence[]; getEstimatedCost: () => number | undefined } {
   const actorMeta = actor.metadata ?? {};
   const promptFields = promptMeta
     ? { promptId: promptMeta.promptId, promptHash: promptMeta.promptHash, release: promptMeta.release }
     : {};
   const evidence: ToolEvidence[] = [];
+  let estimatedCost = 0;
+  let callCount = 0;
+  let unknownCost = false;
   const observer: AgentObserver = {
     onStart: (info) =>
       safe(() =>
@@ -274,10 +304,16 @@ export function buildTraceObserver(
       ),
     onLlmCall: (e) =>
       safe(() => {
+        const cost = estimateCostDetailsUsd(e.model, e.usage);
+        callCount += 1;
+        if (cost) estimatedCost += cost.total;
+        else unknownCost = true;
         endObservation(trace.generation({
           name: "axis-agent-llm",
           model: e.model,
           usage: { input: e.usage.inputTokens, output: e.usage.outputTokens, unit: "TOKENS" },
+          usageDetails: generationUsageDetails(e.usage),
+          ...(cost ? { costDetails: { input: cost.input, output: cost.output, total: cost.total } } : {}),
           input: e.input,
           output: e.assistantContent,
           metadata: {
@@ -289,7 +325,7 @@ export function buildTraceObserver(
             reasoningEffort: e.reasoningEffort,
             latencyMs: e.latencyMs,
             fallbackReason: e.fallbackReason,
-            estimatedCostUsd: estimateCostUsd(e.model, e.usage),
+            estimatedCostUsd: estimateCostDetailsUsd(e.model, e.usage)?.total,
             cachedInputTokens: e.usage.cachedInputTokens,
             cacheCreationInputTokens: e.usage.cacheCreationInputTokens,
             reasoningOutputTokens: e.usage.reasoningOutputTokens,
@@ -321,7 +357,7 @@ export function buildTraceObserver(
         }));
       }),
   };
-  return { observer, getEvidence: () => evidence };
+  return { observer, getEvidence: () => evidence, getEstimatedCost: () => callCount > 0 && !unknownCost ? estimatedCost : undefined };
 }
 
 /**
@@ -334,11 +370,11 @@ export function buildTraceObserver(
 export async function tracePublicToolTurn<T>(opts: {
   name: string;
   sessionId: string;
-  input: string;
+  input: unknown;
   run: (record: {
     llmCall: (e: {
       model: string;
-      usage: { inputTokens: number; outputTokens: number };
+      usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number };
       input: unknown;
       output: unknown;
       metadata?: Record<string, unknown>;
@@ -364,20 +400,23 @@ export async function tracePublicToolTurn<T>(opts: {
   const record = {
     llmCall: (e: {
       model: string;
-      usage: { inputTokens: number; outputTokens: number };
+      usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number };
       input: unknown;
       output: unknown;
       metadata?: Record<string, unknown>;
     }) =>
       safe(() => {
         if (!trace) return;
+        const cost = estimateCostDetailsUsd(e.model, e.usage);
         endObservation(trace.generation({
-          name: "housing-search-extract",
+          name: opts.name === "resident-housing-search" ? "housing-search-extract" : "axis-agent-llm",
           model: e.model,
           usage: { input: e.usage.inputTokens, output: e.usage.outputTokens, unit: "TOKENS" },
+          usageDetails: generationUsageDetails(e.usage),
+          ...(cost ? { costDetails: { input: cost.input, output: cost.output, total: cost.total } } : {}),
           input: e.input,
           output: e.output,
-          metadata: { ...e.metadata, estimatedCostUsd: estimateCostUsd(e.model, e.usage) },
+          metadata: { ...e.metadata, estimatedCostUsd: estimateCostDetailsUsd(e.model, e.usage)?.total },
         }));
       }),
     toolCall: (e: { name: string; input: unknown; output: unknown }) =>
@@ -392,6 +431,7 @@ export async function tracePublicToolTurn<T>(opts: {
     safe(() => trace?.update({ output: result as unknown as Record<string, unknown> }));
     return result;
   } catch (e) {
+    safe(() => recordFailedAgentGeneration(trace, e));
     safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
     throw e;
   } finally {
@@ -661,7 +701,7 @@ export async function traceAgentTurn<T extends TracedResult>(
       // Per-call generations and per-tool spans are recorded live via the
       // observer; here we only stamp the turn-level summary for quick scanning.
       const costUsd =
-        result.model && result.usage ? estimateCostUsd(result.model, result.usage) : undefined;
+        built ? built.getEstimatedCost() : (result.iterationCount === undefined && result.model && result.usage ? estimateCostDetailsUsd(result.model, result.usage)?.total : undefined);
       const toolOk = result.toolTrace.filter((t) => t.ok).length;
       const toolFail = result.toolTrace.filter((t) => !t.ok).length;
       const evidence = built?.getEvidence() ?? [];
@@ -746,8 +786,9 @@ export async function traceAgentTurn<T extends TracedResult>(
     return result;
   } catch (e) {
     try {
+      recordFailedAgentGeneration(trace, e);
       const failed = e && typeof e === "object" && "responseUsage" in e
-        ? e as { responseUsage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; reasoningOutputTokens?: number }; responseModel?: string; incompleteReason?: string; failureReason?: string }
+        ? e as { responseUsage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number; reasoningOutputTokens?: number }; responseModel?: string; incompleteReason?: string; failureReason?: string }
         : null;
       trace?.update({
         output: e instanceof Error ? e.message : "error",
@@ -760,8 +801,9 @@ export async function traceAgentTurn<T extends TracedResult>(
             inputTokens: failed.responseUsage.inputTokens,
             outputTokens: failed.responseUsage.outputTokens,
             cachedInputTokens: failed.responseUsage.cachedInputTokens,
+            cacheCreationInputTokens: failed.responseUsage.cacheCreationInputTokens,
             reasoningOutputTokens: failed.responseUsage.reasoningOutputTokens,
-            estimatedCostUsd: failed.responseModel ? estimateCostUsd(failed.responseModel, failed.responseUsage) : undefined,
+            estimatedCostUsd: failed.responseModel ? estimateCostDetailsUsd(failed.responseModel, failed.responseUsage)?.total : undefined,
           },
         } } : {}),
       });
@@ -829,6 +871,7 @@ export async function traceAgentAction<T extends TracedActionResult | { ok: true
     });
     return result;
   } catch (e) {
+    safe(() => recordFailedAgentGeneration(trace, e));
     safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
     throw e;
   } finally {
@@ -874,6 +917,7 @@ export async function traceExternalToolCall<T>(
     safe(() => trace?.update({ output: result }));
     return result;
   } catch (e) {
+    safe(() => recordFailedAgentGeneration(trace, e));
     safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
     throw e;
   } finally {

@@ -1,3 +1,5 @@
+import { smsTaskModel } from "@/lib/agent/runtime-model";
+import { hasAgentModelCredential } from "@/lib/agent/model";
 import "server-only";
 
 /**
@@ -21,7 +23,6 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { runAgentTurn, type AgentTurnResult } from "@/lib/agent/loop";
-import { TIER_MODELS } from "@/lib/agent/model";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { composeAgentSystemPrompt } from "@/lib/agent/system-prompts";
 import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
@@ -210,7 +211,7 @@ const defaultTurn: ResidentAgentModelTurn = async ({ ctx, messages, system, sess
         messages,
         observer,
         system,
-        model: { model: TIER_MODELS.standard, tier: "standard" },
+        model: smsTaskModel(ctx.userId),
         // Writes are NOT inline: the loop proposes and the resident confirms by text.
         readOnly: false,
         allowWriteTools: RESIDENT_PERSONAL_AGENT_INLINE_WRITE_TOOLS,
@@ -369,7 +370,7 @@ export async function runResidentPersonalAgentReply(
     }
 
     // Normal turn.
-    if (!deps.turn && !process.env.ANTHROPIC_API_KEY?.trim()) {
+    if (!deps.turn && !hasAgentModelCredential(smsTaskModel(ownerId))) {
       await finishNumberCredit(ownerId, k.ai, { release: true, db }).catch(() => undefined);
       return null;
     }

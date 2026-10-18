@@ -71,6 +71,7 @@ const DEFAULT_SYSTEM = "You are a silent evaluation shadow for a prospect SMS re
 let activeRuns = 0;
 
 function enabled(): boolean {
+  if (process.env.AXIS_AI_LUNA_ENABLED?.trim().toLowerCase() === "true") return false;
   if (process.env.AXIS_PROSPECT_GPT_SHADOW_ENABLED?.trim().toLowerCase() !== "true") return false;
   const configuredDeadline = process.env.AXIS_PROSPECT_GPT_SHADOW_UNTIL?.trim();
   if (!configuredDeadline) return true;

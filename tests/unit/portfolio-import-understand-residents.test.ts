@@ -4,7 +4,7 @@
  * the pure merge in isolation). This suite drives the actual file reader
  * (`read-file.server.ts`) on every fixture on disk, then the two real model
  * passes (`understand.server.ts`, `understand-residents.server.ts`) with only
- * the Anthropic call mocked, then the real pure merge (`propose.ts`) — and
+ * the provider completion mocked, then the real pure merge (`propose.ts`) — and
  * checks the fixture's own facts survive: every citation points at a real
  * row/page, the resident/property counts match what is actually in the file,
  * rent is never the market/asking figure sitting in the next column, and a
@@ -18,12 +18,8 @@ import type { ImportPropertyProposal, ImportSource } from "@/lib/portfolio-impor
 import type { PropertyImportUnderstanding } from "@/lib/property-import/types";
 import type { UnderstoodResident } from "@/lib/portfolio-import/understand-residents.server";
 
-const create = vi.fn();
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class {
-    messages = { create };
-  },
-}));
+const { complete } = vi.hoisted(() => ({ complete: vi.fn() }));
+vi.mock("@/lib/agent/provider", () => ({ completeAgentModel: complete }));
 // Bypass the real Langfuse client entirely rather than letting it decide
 // whether to init off a flipped NODE_ENV — same pattern as
 // tests/unit/listing-prefill-route.test.ts.
@@ -41,37 +37,49 @@ const FIXTURES = path.join(process.cwd(), "tests/fixtures/portfolio-import");
 const bytes = (name: string) => new Uint8Array(readFileSync(path.join(FIXTURES, name)));
 const ACTOR = { userId: "mgr-1" };
 
-/** Routes the mocked Anthropic response by which tool the caller forced. */
+/** Routes the mocked provider response by which tool the caller forced. */
 function mockModel(propertiesInput: unknown, residentsInput: unknown) {
-  create.mockImplementation(async (params: { tool_choice: { name: string } }) => {
-    const name = params.tool_choice.name;
+  complete.mockImplementation(async (params: { toolChoice: { name: string } }) => {
+    const name = params.toolChoice.name;
     const input = name === "report_properties" ? propertiesInput : residentsInput;
     return {
-      stop_reason: "tool_use",
+      stopReason: "tool_use",
       content: [{ type: "tool_use", id: "tu_1", name, input }],
-      usage: { input_tokens: 10, output_tokens: 5 },
+      usage: { inputTokens: 10, outputTokens: 5 },
+      provider: "openai",
+      latencyMs: 1,
     };
   });
 }
 
 let prevNodeEnv: string | undefined;
 let prevApiKey: string | undefined;
+let prevOpenAiKey: string | undefined;
+let prevLunaEnabled: string | undefined;
 
 beforeEach(() => {
-  create.mockReset();
+  complete.mockReset();
   prevNodeEnv = process.env.NODE_ENV;
   prevApiKey = process.env.ANTHROPIC_API_KEY;
+  prevOpenAiKey = process.env.OPENAI_API_KEY;
+  prevLunaEnabled = process.env.AXIS_AI_LUNA_ENABLED;
   // Both real model-call functions refuse under NODE_ENV=test or without a
-  // key rather than inventing a portfolio (see their own tests) — flip both
-  // for the duration of the call so the real (mocked) call path runs.
+  // key rather than inventing a portfolio — flip both for the duration of the
+  // call so the selected provider path runs against the mock.
   process.env.NODE_ENV = "development";
   process.env.ANTHROPIC_API_KEY = "test-key";
+  process.env.OPENAI_API_KEY = "test-openai-key";
+  process.env.AXIS_AI_LUNA_ENABLED = "true";
 });
 
 afterEach(() => {
   process.env.NODE_ENV = prevNodeEnv;
   if (prevApiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
   else process.env.ANTHROPIC_API_KEY = prevApiKey;
+  if (prevOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = prevOpenAiKey;
+  if (prevLunaEnabled === undefined) delete process.env.AXIS_AI_LUNA_ENABLED;
+  else process.env.AXIS_AI_LUNA_ENABLED = prevLunaEnabled;
 });
 
 /** Every resident, room and charge in a proposal cites a real row or page. */
@@ -168,6 +176,18 @@ describe("portfolio import over real fixtures", () => {
     };
 
     const { proposal } = await runPipeline("appfolio-rent-roll.csv", propertiesInput, residentsInput);
+
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(complete.mock.calls.map(([args]) => args)).toEqual([
+      expect.objectContaining({
+        selection: expect.objectContaining({ model: "gpt-6-luna", provider: "openai" }),
+        toolChoice: { type: "tool", name: "report_properties" },
+      }),
+      expect.objectContaining({
+        selection: expect.objectContaining({ model: "gpt-6-luna", provider: "openai" }),
+        toolChoice: { type: "tool", name: "report_residents" },
+      }),
+    ]);
 
     // Ground truth counted directly from the fixture: 2 property blocks
     // (Maple Court rows 2-5, 1412 Pine St rows 6-8), 5 occupied rows (2A and

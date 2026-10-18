@@ -17,7 +17,7 @@ import {
   previewWriteTool,
 } from "@/lib/tools/registry";
 import { MANAGER_SYSTEM_PROMPT } from "./system-prompts";
-import { selectModel, type ModelTier, type AgentProvider, type AgentRoute, type AgentModelSelection } from "./model";
+import { selectModel, selectLunaTaskModel, type ModelTier, type AgentProvider, type AgentRoute, type AgentModelSelection } from "./model";
 import { completeAgentModel } from "./provider";
 import { guardLunaFailedLookupClaim, guardLunaReplyLinks } from "./luna-link-guard";
 import { withPropertyResearchBudget } from "@/lib/property-research-budget.server";
@@ -166,7 +166,7 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   // Route the turn once, up front, based on its complexity, and use that model
   // for every iteration of the loop (switching models mid-turn would thrash the
   // prompt cache). Token usage accumulates across iterations for cost tracing.
-  const selected = opts.model ?? ({ ...selectModel(opts.messages), provider: "anthropic", route: "anthropic" } as AgentModelSelection);
+  const selected = opts.model ?? selectLunaTaskModel({ ...selectModel(opts.messages), provider: "anthropic", route: "anthropic" } as AgentModelSelection);
   const selection: AgentModelSelection = {
     model: selected.model,
     tier: selected.tier,
@@ -176,6 +176,7 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
     ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
     ...(selected.maxOutputTokens ? { maxOutputTokens: selected.maxOutputTokens } : {}),
     ...(selected.timeoutMs ? { timeoutMs: selected.timeoutMs } : {}),
+    ...(selected.turnBudgetMs ? { turnBudgetMs: selected.turnBudgetMs } : {}),
     ...(selected.disableBillingFallback ? { disableBillingFallback: true } : {}),
   };
   const { model, tier } = selection;
@@ -186,7 +187,7 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   let continuationState: import("./provider").OpenAIResponsesContinuation | undefined;
   // Leave room for tool execution, persistence, and SSE completion inside the
   // portal routes' 120-second platform ceiling.
-  const lunaDeadline = selection.route === "luna_primary" ? performance.now() + 100_000 : undefined;
+  const lunaDeadline = selection.route === "luna_primary" ? performance.now() + (selection.turnBudgetMs ?? 100_000) : undefined;
   const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 };
 
   const observer = opts.observer;

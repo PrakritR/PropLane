@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const create = vi.fn();
-vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { create }; } }));
+const complete = vi.fn();
+vi.mock("@/lib/agent/provider", () => ({ completeAgentModel: complete }));
 
 const good = {
   title: "The relay", hook: "Your job is relaying messages.", script: "Script body",
@@ -9,36 +9,63 @@ const good = {
   captions: { instagram: "Short #pm #landlord", tiktok: "Short #pm", youtube: "Yt caption" },
   platforms: ["instagram", "tiktok", "youtube"],
 };
-const reply = (text: string) => ({ content: [{ type: "text", text }] });
+const reply = (text: string) => ({
+  content: [{ type: "text", text }],
+  stopReason: "end_turn",
+  usage: { inputTokens: 10, outputTokens: 20 },
+  provider: "openai",
+  latencyMs: 1,
+});
 const idea = { title: "t", angle: "positioning", format: "reel", notes: null } as const;
+let previousAnthropicKey: string | undefined;
+let previousOpenAiKey: string | undefined;
+let previousLunaEnabled: string | undefined;
 
 describe("draft", () => {
   beforeEach(() => {
-    create.mockReset();
+    complete.mockReset();
+    previousAnthropicKey = process.env.ANTHROPIC_API_KEY;
+    previousOpenAiKey = process.env.OPENAI_API_KEY;
+    previousLunaEnabled = process.env.AXIS_AI_LUNA_ENABLED;
     process.env.ANTHROPIC_API_KEY = "test";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.AXIS_AI_LUNA_ENABLED = "true";
+  });
+
+  afterEach(() => {
+    if (previousAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = previousAnthropicKey;
+    if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousOpenAiKey;
+    if (previousLunaEnabled === undefined) delete process.env.AXIS_AI_LUNA_ENABLED;
+    else process.env.AXIS_AI_LUNA_ENABLED = previousLunaEnabled;
   });
 
   it("parses a good JSON draft (with surrounding text)", async () => {
-    create.mockResolvedValueOnce(reply("here: " + JSON.stringify(good)));
+    complete.mockResolvedValueOnce(reply("here: " + JSON.stringify(good)));
     const { generateDraft } = await import("@/lib/growth/draft.server");
     const out = await generateDraft(idea);
     expect(out.scenes.map((s) => s.index)).toEqual([0, 1, 2]);
     expect(out.platforms).toEqual(["instagram", "tiktok", "youtube"]);
-    expect(create).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete.mock.calls[0]?.[0]).toMatchObject({
+      selection: { model: "gpt-6-luna", provider: "openai" },
+      tools: [],
+    });
   });
 
   it("retries once on malformed output then succeeds", async () => {
-    create.mockResolvedValueOnce(reply("not json")).mockResolvedValueOnce(reply(JSON.stringify(good)));
+    complete.mockResolvedValueOnce(reply("not json")).mockResolvedValueOnce(reply(JSON.stringify(good)));
     const { generateDraft } = await import("@/lib/growth/draft.server");
     await expect(generateDraft(idea)).resolves.toMatchObject({ title: "The relay" });
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it("throws after the retry also fails", async () => {
-    create.mockResolvedValue(reply("{bad"));
+    complete.mockResolvedValue(reply("{bad"));
     const { generateDraft } = await import("@/lib/growth/draft.server");
     await expect(generateDraft(idea)).rejects.toThrow(/draft failed after retry/);
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it("enforces caption rules and defaults platforms by format", async () => {

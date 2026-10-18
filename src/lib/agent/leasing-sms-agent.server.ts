@@ -1,3 +1,5 @@
+import { smsTaskModel } from "@/lib/agent/runtime-model";
+import { hasAgentModelCredential } from "@/lib/agent/model";
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { toGsm7 } from "@/lib/one-number/segments";
 import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
@@ -351,8 +353,8 @@ export async function runLeasingSmsAgentTurn(
     testTarget?: { listingId: string; title: string };
   },
 ): Promise<LeasingSmsTurn | null> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
-    console.warn("leasing-sms turn skipped: ANTHROPIC_API_KEY missing");
+  if (!hasAgentModelCredential(smsTaskModel(args.landlordId, args.channel))) {
+    console.warn("leasing-sms turn skipped: selected model credential missing");
     return null;
   }
 
@@ -590,7 +592,7 @@ export async function runLeasingSmsAgentTurn(
           messages: history,
           observer: forwardingObserver,
           system,
-          model: { model: TIER_MODELS.standard, tier: "standard" },
+          model: smsTaskModel(session.landlord_id, channel),
           readOnly: true,
           allowWriteTools: args.prospectBurst && channel === "sms" ? LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS : LEASING_SMS_INLINE_WRITE_TOOLS,
           suppressionTools: ["suppress_redundant_reply"],

@@ -1,7 +1,8 @@
 import "server-only";
 
-import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MODELS } from "@/lib/agent/model";
+import type Anthropic from "@anthropic-ai/sdk";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 import type { PropertyCatalogEntry } from "@/lib/resident-document-import/property-catalog";
 import {
@@ -144,7 +145,11 @@ export async function extractResidentDocumentWithAi(args: {
   preferredPropertyId?: string | null;
   actor: TraceActor;
 }): Promise<AiResidentDocumentExtraction | null> {
-  if (process.env.NODE_ENV === "test" || !process.env.ANTHROPIC_API_KEY?.trim()) return null;
+  const selection = selectLunaTaskModel(
+    { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 1200, timeoutMs: 45_000 },
+    { maxOutputTokens: 4000, timeoutMs: 45_000 },
+  );
+  if (process.env.NODE_ENV === "test" || !hasAgentModelCredential(selection)) return null;
   const excerpt = truncateForModel(args.text);
   if (!excerpt.trim()) return null;
 
@@ -164,21 +169,19 @@ export async function extractResidentDocumentWithAi(args: {
 
   try {
     const result = await traceAgentTurn(args.actor, [{ role: "user", content: userPrompt }], async (observer) => {
-      const client = new Anthropic();
-      const model = TIER_MODELS.standard;
-      const startedAt = Date.now();
+      const model = selection.model;
       observer?.onStart?.({
         system: SYSTEM_PROMPT,
         toolsAvailable: [],
         model,
         tier: "standard",
-        provider: "anthropic",
-        route: "anthropic",
+        provider: selection.provider,
+        route: selection.route,
       });
-      const response = await client.messages.create({
-        model,
-        max_tokens: 1200,
+      const response = await completeAgentModel({
+        selection,
         system: SYSTEM_PROMPT,
+        tools: [],
         messages: [{ role: "user", content: userPrompt }],
       });
       const reply = response.content
@@ -186,23 +189,20 @@ export async function extractResidentDocumentWithAi(args: {
         .map((block) => block.text)
         .join("")
         .trim();
-      const usage = {
-        inputTokens: response.usage?.input_tokens ?? 0,
-        outputTokens: response.usage?.output_tokens ?? 0,
-      };
+      const usage = response.usage;
       observer?.onLlmCall?.({
         iteration: 0,
-        model,
+        model: response.responseModel ?? model,
         usage,
-        stopReason: response.stop_reason ?? null,
+        stopReason: response.stopReason,
         toolsChosen: [],
-        provider: "anthropic",
-        route: "anthropic",
-        latencyMs: Date.now() - startedAt,
+        provider: response.provider,
+        route: selection.route,
+        latencyMs: response.latencyMs,
         input: [{ role: "user", content: userPrompt }],
         assistantContent: response.content,
       });
-      return { reply, toolTrace: [], model, tier: "standard" as const, usage };
+      return { reply, toolTrace: [], model: response.responseModel ?? model, tier: "standard" as const, usage, provider: response.provider, route: selection.route };
     });
     return parseJsonPayload(result.reply);
   } catch (err) {

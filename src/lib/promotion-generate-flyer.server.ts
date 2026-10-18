@@ -1,9 +1,10 @@
 /**
  * Server-side flyer copy generation (shared by the portal route and agent tools).
  */
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentContext } from "@/lib/tools/context";
-import { TIER_MODELS } from "@/lib/agent/model";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -54,9 +55,9 @@ async function fetchReferenceImageBlock(url: string): Promise<Anthropic.ImageBlo
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length > MAX_REFERENCE_BYTES) return null;
     const mimeHeader = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "image/jpeg";
-    const mediaType = (
-      mimeHeader.startsWith("image/") ? mimeHeader : "image/jpeg"
-    ) as Anthropic.Base64ImageSource["media_type"];
+    const supportedMediaTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+    const mediaType = supportedMediaTypes.find((type) => type === mimeHeader);
+    if (!mediaType) return null;
     return {
       type: "image",
       source: { type: "base64", media_type: mediaType, data: buf.toString("base64") },
@@ -138,11 +139,15 @@ export async function generateFlyerCopyForManager(
   extraInstructions = "",
   referenceImageUrls: string[] = [],
 ): Promise<{ copy: FlyerCopy; source: "ai" | "fallback" }> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+  const selection = selectLunaTaskModel(
+    { model: TIER_MODELS.standard, tier: "standard", provider: "anthropic", route: "anthropic", maxOutputTokens: 700, timeoutMs: 30_000 },
+    { maxOutputTokens: 4000, timeoutMs: 30_000 },
+  );
+  if (!hasAgentModelCredential(selection)) {
     return { copy: composeFallbackFlyerCopy(inputs, propertyLabel), source: "fallback" };
   }
 
-  const model = TIER_MODELS.standard;
+  const model = selection.model;
   const userPrompt = buildUserPrompt(inputs, propertyLabel, extraInstructions);
   const refUrls = normalizeReferenceImageUrls(referenceImageUrls);
   const refBlocks = await loadReferenceImageBlocks(refUrls);
@@ -162,33 +167,45 @@ export async function generateFlyerCopyForManager(
     metadata: { landlordId: ctx.landlordId, role: "manager" as const },
   };
 
-  const result = await traceAgentTurn(traceActor, [{ role: "user", content: userPrompt }], async () => {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model,
-      max_tokens: 700,
+  const result = await traceAgentTurn(traceActor, [{ role: "user", content: userPrompt }], async (observer) => {
+    observer?.onStart?.({ system: SYSTEM_PROMPT, toolsAvailable: [], model, tier: "standard", provider: selection.provider, route: selection.route });
+    const response = await completeAgentModel({
+      selection,
       system: SYSTEM_PROMPT,
+      tools: [],
       messages: [{ role: "user", content: userContent }],
     });
     const reply = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("");
+    const usage = response.usage;
+    observer?.onLlmCall?.({
+      iteration: 0,
+      model: response.responseModel ?? model,
+      usage,
+      stopReason: response.stopReason,
+      toolsChosen: [],
+      provider: response.provider,
+      route: selection.route,
+      latencyMs: response.latencyMs,
+      input: [{ role: "user", content: userPrompt }],
+      assistantContent: response.content,
+    });
     return {
       reply,
       toolTrace: [] as { tool: string; ok: boolean }[],
-      model,
-      usage: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      },
+      model: response.responseModel ?? model,
+      usage,
+      provider: response.provider,
+      route: selection.route,
     };
   });
 
   const copy = parseCopy(result.reply, inputs, propertyLabel);
   track("flyer_generated", ctx.userId, {
     theme_provided: Boolean(inputs.promo),
-    model,
+    model: result.model ?? model,
     via: "agent_tool",
     reference_images: refBlocks.length,
   });

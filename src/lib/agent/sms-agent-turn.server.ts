@@ -1,3 +1,5 @@
+import { smsTaskModel } from "@/lib/agent/runtime-model";
+import { hasAgentModelCredential, selectModel } from "@/lib/agent/model";
 /**
  * The SMS agent turn: one inbound text becomes one outbound reply, with a
  * portal's tool catalog behind it and the write gate intact.
@@ -528,7 +530,6 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     };
   },
 ): Promise<SmsAgentTurn | null> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim() && !args.precomputedReply?.trim()) return null;
   const text = args.inboundText.trim().slice(0, 2000);
   if (!text) return null;
 
@@ -697,6 +698,9 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     history.push({ role: "user", content: text });
   }
 
+  const model = smsTaskModel(ctx.userId, messageChannel, { ...selectModel(history), provider: "anthropic", route: "anthropic" });
+  if (!hasAgentModelCredential(model)) return null;
+
   let traceId: string | null = null;
   let result;
   try {
@@ -715,6 +719,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
           registry,
           messages: history,
           observer,
+          model,
           system,
           // Writes stay un-allow-listed on purpose: the loop proposes, the
           // person confirms by text. Nothing here executes inline beyond the

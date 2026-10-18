@@ -1,3 +1,4 @@
+import { runtimeTaskModel } from "@/lib/agent/runtime-model";
 import "server-only";
 
 /**
@@ -24,7 +25,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runAgentTurn } from "@/lib/agent/loop";
-import { TIER_MODELS } from "@/lib/agent/model";
 import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sms-custom-instructions";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
@@ -182,7 +182,7 @@ export async function runLeasingEmailAgentTurn(
           messages: history,
           observer,
           system,
-          model: { model: TIER_MODELS.standard, tier: "standard" },
+          model: runtimeTaskModel(),
           readOnly: true,
           allowWriteTools: LEASING_SMS_INLINE_WRITE_TOOLS,
         }),
