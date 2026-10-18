@@ -1066,6 +1066,33 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["owner_user_id"] },
   },
   {
+    // Owner management (W17): the agreement is void without either party; money rows keep the books.
+    table: "owner_management_agreements",
+    phase: 2,
+    manager: { ids: ["manager_user_id", "owner_user_id"] },
+  },
+  {
+    table: "owner_fee_reservations",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    // Per-payment split rows: the manager's financial history. A deleted owner is detached, not deleted.
+    table: "owner_rent_allocations",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], detachIds: ["owner_user_id"] },
+  },
+  {
+    table: "owner_expenses",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], detachIds: ["owner_user_id"] },
+  },
+  {
+    table: "owner_statements",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], detachIds: ["owner_user_id"] },
+  },
+  {
     // One-number entry codes ("Text BROOKLYN5"): the workspace owner's own rows.
     table: "sms_entry_codes",
     phase: 1,
@@ -1405,6 +1432,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
   sms_media_files: "MMS file index keyed on message sid and phone; no account column.",
+  owner_allocation_events: "Refund/dispute/reversal log of an owner rent allocation; cascades with the allocation, no account column.",
   phone_bound_links: "Phone-bound signed links; keyed on a phone, cascade with the workspace.",
   phone_bound_link_sessions: "Verified link sessions; cascade with the link.",
   phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",

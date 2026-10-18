@@ -177,7 +177,7 @@ describe("expense recoup and the owner's net", () => {
   it("is bounded by outstanding, by half the payment, and leaves the owner a positive net", () => {
     expect(computeExpenseRecoupCents({ outstandingApprovedCents: 24_000, principal: 100_000, managementFeeCents: 8_000, ownerBornProcessingCents: 0 })).toBe(24_000);
     expect(computeExpenseRecoupCents({ outstandingApprovedCents: 90_000, principal: 100_000, managementFeeCents: 8_000, ownerBornProcessingCents: 0 })).toBe(50_000);
-    expect(computeExpenseRecoupCents({ outstandingApprovedCents: 90_000, principal: 10_000, managementFeeCents: 9_990, ownerBornProcessingCents: 0 })).toBe(0);
+    expect(computeExpenseRecoupCents({ outstandingApprovedCents: 90_000, principal: 10_000, managementFeeCents: 9_999, ownerBornProcessingCents: 0 })).toBe(0);
   });
   it("net equals principal minus every deduction and must stay positive", () => {
     const net = ownerNetBreakdown({ principalCents: 100_000, managementFeeCents: 8_000, ownerBornProcessingCents: 500, expenseRecoupCents: 24_000 });

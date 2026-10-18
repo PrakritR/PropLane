@@ -235,7 +235,11 @@ export function previousMonthKey(key: string): string {
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
-/** Canonical text of the terms an owner signs, and its hash. Changing a term changes the hash. */
+/**
+ * Canonical text of the terms an owner signs, and its hash. Changing a fee term changes the hash. The repair
+ * approval amount and reserve target are the owner's own preferences, not fee terms, so they are outside it
+ * (the owner may move them after signing; the migration trigger leaves them editable).
+ */
 export function canonicalAgreementTerms(input: {
   propertyId: string;
   ownerUserId: string;
@@ -253,8 +257,6 @@ export function canonicalAgreementTerms(input: {
     feeFlatCents: t.feeFlatCents,
     leasingFeeBps: t.leasingFeeBps,
     minFeeCents: t.minFeeCents,
-    repairApprovalThresholdCents: t.repairApprovalThresholdCents,
-    reserveTargetCents: t.reserveTargetCents,
     startsOn: input.startsOn,
     endsOn: input.endsOn,
   });
