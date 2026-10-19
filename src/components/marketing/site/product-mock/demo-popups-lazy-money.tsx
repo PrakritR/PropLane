@@ -7,15 +7,16 @@
  */
 
 import dynamic from "next/dynamic";
+import { DemoPopupLoading, DemoSampleLoading } from "./demo-sample-loading";
 
 const money = () => import("@/components/marketing/site/product-mock/demo-popups-money");
 
-export const DemoAddChargePopup = dynamic(() => money().then((m) => m.DemoAddChargePopup), { ssr: false });
-export const DemoEditPaymentPopup = dynamic(() => money().then((m) => m.DemoEditPaymentPopup), { ssr: false });
-export const DemoPaymentRecordView = dynamic(() => money().then((m) => m.DemoPaymentRecordView), { ssr: false });
-export const DemoAddServicePopup = dynamic(() => money().then((m) => m.DemoAddServicePopup), { ssr: false });
-export const DemoServiceRecordView = dynamic(() => money().then((m) => m.DemoServiceRecordView), { ssr: false });
-export const DemoNewMessagePopup = dynamic(() => money().then((m) => m.DemoNewMessagePopup), { ssr: false });
+export const DemoAddChargePopup = dynamic(() => money().then((m) => m.DemoAddChargePopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoEditPaymentPopup = dynamic(() => money().then((m) => m.DemoEditPaymentPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoPaymentRecordView = dynamic(() => money().then((m) => m.DemoPaymentRecordView), { ssr: false, loading: DemoSampleLoading });
+export const DemoAddServicePopup = dynamic(() => money().then((m) => m.DemoAddServicePopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoServiceRecordView = dynamic(() => money().then((m) => m.DemoServiceRecordView), { ssr: false, loading: DemoSampleLoading });
+export const DemoNewMessagePopup = dynamic(() => money().then((m) => m.DemoNewMessagePopup), { ssr: false, loading: DemoPopupLoading });
 
 /** Starts the chunk early (a panel calls it once it is mounted) so a row click does not wait for the network. */
 export function preloadMoneyPopups(): void {

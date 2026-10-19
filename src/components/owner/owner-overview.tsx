@@ -10,12 +10,12 @@ import { OwnerBand, OwnerError, OwnerLoading, OwnerPageTitle, OwnerTile, OwnerTi
 import { OWNER_BASE_PATH } from "@/lib/property-owner/sections";
 import type { OwnerChartPoint, OwnerPropertySummary, OwnerSummary } from "@/lib/property-owner/projection";
 
-export function OwnerIncomeChart({ points }: { points: OwnerChartPoint[] }) {
+export function OwnerIncomeChart({ points, periodLabel = "last 12 months" }: { points: OwnerChartPoint[]; periodLabel?: string }) {
   const max = Math.max(1, ...points.flatMap((p) => [p.incomeCents, p.expensesCents]));
   return (
     <div className="mb-4 rounded-2xl border border-border bg-card p-4" data-attr="owner-chart">
-      <p className="text-sm font-semibold text-foreground">Income and expenses · last 12 months</p>
-      <div className="mt-3 flex h-24 items-end gap-1.5" role="img" aria-label="Income and expenses for the last 12 months">
+      <p className="text-sm font-semibold text-foreground">Income and expenses · {periodLabel}</p>
+      <div className="mt-3 flex h-24 items-end gap-1.5" role="img" aria-label={`Income and expenses for the ${periodLabel}`}>
         {points.map((p) => (
           <div
             key={p.month}
@@ -46,7 +46,7 @@ export function OwnerIncomeChart({ points }: { points: OwnerChartPoint[] }) {
   );
 }
 
-export function OwnerSummaryTiles({ summary, scope }: { summary: { period: string; totals: OwnerSummary["totals"] }; scope?: OwnerPropertySummary }) {
+export function OwnerSummaryTiles({ summary, scope, yearToDateKnown = true, rentDueKnown = true }: { summary: { period: string; totals: OwnerSummary["totals"] }; scope?: OwnerPropertySummary; yearToDateKnown?: boolean; rentDueKnown?: boolean }) {
   const t = summary.totals;
   const net = scope ? scope.netCents : t.netMonthCents;
   const ytd = scope ? scope.netYtdCents : t.netYtdCents;
@@ -57,14 +57,14 @@ export function OwnerSummaryTiles({ summary, scope }: { summary: { period: strin
   return (
     <OwnerTiles>
       <OwnerTile label={`Net income · ${ownerMonthLabel(summary.period, true)}`} value={formatOwnerUsd(net)} tone={net >= 0 ? "good" : "bad"} />
-      <OwnerTile label={`Net income · ${summary.period.slice(0, 4)}`} value={formatOwnerUsd(ytd)} tone={ytd >= 0 ? "good" : "bad"} />
-      <OwnerTile label="Rent collected" value={formatOwnerUsd(collected)} of={`of ${formatOwnerUsd(due)}`} />
+      <OwnerTile label={`Net income · ${summary.period.slice(0, 4)}`} value={yearToDateKnown ? formatOwnerUsd(ytd) : "—"} tone={yearToDateKnown ? (ytd >= 0 ? "good" : "bad") : undefined} />
+      <OwnerTile label="Rent collected" value={formatOwnerUsd(collected)} of={rentDueKnown ? `of ${formatOwnerUsd(due)}` : undefined} />
       <OwnerTile label="Occupied" value={`${occupied} of ${units}`} />
     </OwnerTiles>
   );
 }
 
-export function OwnerPropertyRow({ property, onOpen }: { property: OwnerPropertySummary; onOpen: () => void }) {
+export function OwnerPropertyRow({ property, onOpen, rentDueKnown = true }: { property: OwnerPropertySummary; onOpen: () => void; rentDueKnown?: boolean }) {
   return (
     <PortalServiceRecordRow
       title={property.label}
@@ -80,7 +80,7 @@ export function OwnerPropertyRow({ property, onOpen }: { property: OwnerProperty
             <BedDouble className="size-3.5" aria-hidden /> {property.occupied} of {property.units} occupied
           </span>
           <span className="inline-flex items-center gap-1">
-            <Banknote className="size-3.5" aria-hidden /> {formatOwnerUsd(property.rentCollectedCents)} of {formatOwnerUsd(property.rentDueCents)} collected
+            <Banknote className="size-3.5" aria-hidden /> {formatOwnerUsd(property.rentCollectedCents)}{rentDueKnown ? ` of ${formatOwnerUsd(property.rentDueCents)}` : ""} collected
           </span>
         </>
       }
@@ -111,23 +111,7 @@ export function OwnerOverview() {
       ) : empty || !data ? (
         <OwnerEmpty />
       ) : (
-        <>
-          <OwnerSummaryTiles summary={data} />
-          <OwnerIncomeChart points={data.chart} />
-          <OwnerBand label="Properties" count={data.properties.length}>
-            <PortalIconAction
-              icon={Download}
-              label="Download statement"
-              data-attr="owner-download-statement"
-              onClick={() => router.push(`${OWNER_BASE_PATH}/statements`)}
-            />
-          </OwnerBand>
-          <PortalRecordListSurface dataAttr="owner-properties-list">
-            {data.properties.map((p) => (
-              <OwnerPropertyRow key={p.propertyId} property={p} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
-            ))}
-          </PortalRecordListSurface>
-        </>
+        <OwnerOverviewView data={data} onDownload={() => router.push(`${OWNER_BASE_PATH}/statements`)} onOpenProperty={(id) => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(id)}`)} />
       )}
     </div>
   );
@@ -149,13 +133,34 @@ export function OwnerPropertiesList() {
       ) : !data || data.properties.length === 0 ? (
         <OwnerEmpty title="No properties yet" />
       ) : (
-        <PortalRecordListSurface dataAttr="owner-properties-list">
-          {data.properties.map((p) => (
-            <OwnerPropertyRow key={p.propertyId} property={p} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
-          ))}
-        </PortalRecordListSurface>
+        <OwnerPropertiesListView data={data} onOpenProperty={(id) => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(id)}`)} />
       )}
     </div>
   );
+}
+
+type OwnerViewProps = {
+  data: OwnerSummary;
+  onOpenProperty(propertyId: string): void;
+  rentDueKnown?: boolean;
+};
+
+/** The live overview's successful-data presentation, with navigation supplied by its caller. */
+export function OwnerOverviewView({ data, onOpenProperty, onDownload, yearToDateKnown = true, rentDueKnown = true, chartPeriodLabel }: OwnerViewProps & { onDownload(): void; yearToDateKnown?: boolean; chartPeriodLabel?: string }) {
+  return <>
+    <OwnerSummaryTiles summary={data} yearToDateKnown={yearToDateKnown} rentDueKnown={rentDueKnown} />
+    <OwnerIncomeChart points={data.chart} periodLabel={chartPeriodLabel} />
+    <OwnerBand label="Properties" count={data.properties.length}>
+      <PortalIconAction icon={Download} label="Download statement" data-attr="owner-download-statement" onClick={onDownload} />
+    </OwnerBand>
+    <OwnerPropertiesListView data={data} onOpenProperty={onOpenProperty} rentDueKnown={rentDueKnown} />
+  </>;
+}
+
+/** The exact rows shared by the live overview and Properties section. */
+export function OwnerPropertiesListView({ data, onOpenProperty, rentDueKnown = true }: OwnerViewProps) {
+  return <PortalRecordListSurface dataAttr="owner-properties-list">
+    {data.properties.map((property) => <OwnerPropertyRow key={property.propertyId} property={property} rentDueKnown={rentDueKnown} onOpen={() => onOpenProperty(property.propertyId)} />)}
+  </PortalRecordListSurface>;
 }
 

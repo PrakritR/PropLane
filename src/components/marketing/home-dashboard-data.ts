@@ -37,9 +37,9 @@ export function homeRentPaid() {
 }
 
 export const HOME_DASHBOARD_PORTALS = [
-  { id: "manager", label: "Manager", caption: "Your properties, people and payments." },
-  { id: "resident", label: "Resident", caption: "Your home, lease and payments." },
-  { id: "vendor", label: "Vendor", caption: "Your services and upcoming jobs." },
-  { id: "owner", label: "Owner", caption: "The statements shared with you." },
+  { id: "manager", label: "Manager" },
+  { id: "resident", label: "Resident" },
+  { id: "vendor", label: "Vendor" },
+  { id: "owner", label: "Owner" },
 ] as const;
 export type HomeDashboardPortal = (typeof HOME_DASHBOARD_PORTALS)[number]["id"];

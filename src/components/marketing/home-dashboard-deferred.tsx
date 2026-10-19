@@ -14,6 +14,6 @@ class PanelBoundary extends Component<{ children: ReactNode; fallback: ReactNode
 export function HomeDashboardDeferred({ portal, fallback }: { portal: HomeDashboardPortal; fallback: ReactNode }) {
   const { active, near } = useHomeDashboardVisibility();
   return <div className="home-dashboard-frame" data-home-dashboard-portal={portal}>
-    {near && active ? <PanelBoundary fallback={fallback}><Suspense fallback={fallback}><Panel portal={portal} /><div className="sr-only">{fallback}</div></Suspense></PanelBoundary> : fallback}
+    {near && active ? <PanelBoundary fallback={fallback}><Suspense fallback={fallback}><Panel portal={portal} /></Suspense></PanelBoundary> : fallback}
   </div>;
 }

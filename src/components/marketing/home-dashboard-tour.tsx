@@ -9,7 +9,7 @@ export const useHomeDashboardVisibility = () => useContext(VisibilityContext);
 const subscribeHydration = () => () => {};
 const clientSnapshot = () => true;
 const serverSnapshot = () => false;
-type Step = { id: HomeDashboardPortal; label: string; caption: string; content: ReactNode };
+type Step = { id: HomeDashboardPortal; label: string; content: ReactNode };
 
 /** Scroll selects roles on desktop; phones and reduced motion use the same frame's native buttons. */
 export function HomeDashboardTour({ steps }: { steps: Step[] }) {
@@ -65,7 +65,7 @@ export function HomeDashboardTour({ steps }: { steps: Step[] }) {
       </div>
       <div className="home-dashboard-scenes">{steps.map((step, index) => <VisibilityContext.Provider key={step.id} value={{ active: !interactive || active === index, near: near || (interactive && typeof IntersectionObserver === "undefined"), animated: pinned }}>
         <div className="home-dashboard-scene" id={`software-panel-${step.id}`} role={interactive ? "tabpanel" : undefined} aria-labelledby={`software-tab-${step.id}`} hidden={interactive && active !== index} inert={interactive && active !== index ? true : undefined}>
-          {step.content}<p className="home-dashboard-caption">{step.caption}</p>
+          {step.content}
         </div>
       </VisibilityContext.Provider>)}</div>
     </div>

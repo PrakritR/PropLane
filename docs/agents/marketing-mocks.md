@@ -23,8 +23,12 @@ make no claims about sharing a private workspace thread.
 `HomeDashboardStage` presents the real Manager, Resident, Vendor and Owner UI
 with sample data in one shared frame. Desktop scrolling and the portal switch
 select the same view; mobile uses the switch without pinning. No-JavaScript
-views preserve all portal examples. Preview controls never fetch live data or
-persist a write. Owner examples contain only the permitted aggregate reports.
+views preserve all portal examples. The frame is interactive: sidebar navigation and in-page tabs, records and menus
+run on the existing fixture adapters in client state. There are no per-portal
+captions below the frame. Preview controls never fetch live data or persist a write. Owner examples contain only aggregate fixture data: statement income/expenses and
+property occupancy counts. The real overview, properties, statements and profile
+views accept local navigation callbacks. Sample statement downloads are generated
+as CSV in the browser; unknown year-to-date amounts show a dash.
 
 The cover uses self-hosted Inter Tight and one blue (`#2F5FD0`), with the original
 `ResidentLifecycleAtmosphere` waves, blue gradients and dots behind the page.

@@ -432,3 +432,10 @@
 @media (max-width: 860px) {
   .home-swiss :is(#how, #dashboard, #service, #pricing, #contact) { scroll-margin-top: 76px; }
 }
+
+/* Small sample labels remain legible over the pale phone cards and frame. */
+.home-swiss .rl-phone-contact small,
+.home-swiss .rl-phone-rich-card small,
+.home-swiss .rl-phone-rich-card span,
+.home-swiss .rl-phone-composer span,
+.home-swiss .home-dashboard-snapshot > span { color: #626b78; }

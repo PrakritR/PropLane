@@ -19,6 +19,8 @@ import { recordSections } from "@/lib/portals/record-sections";
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }) }));
 
 afterEach(cleanup);
+// Fixture dialogs load real wizard chunks; allow the cold transform to finish.
+vi.setConfig({ testTimeout: 40000 });
 
 let fetchSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -56,7 +58,7 @@ describe("demo Properties tab matches the real Properties page", () => {
   it("the Share icon opens Send listing (Home, Recipient, Review) and Send closes it", async () => {
     render(<DemoPanel portal="manager" tab="properties" />);
     fireEvent.click(screen.getByRole("button", { name: "Share listing link" }));
-    const dialog = await screen.findByRole("dialog", { name: "Send listing" });
+    const dialog = await screen.findByRole("dialog", { name: "Send listing" }, { timeout: 15000 });
     for (const label of ["Home", "Recipient", "Review"]) expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0);
     expect(screen.queryByRole("status")).toBeNull();
     fireEvent.click(within(dialog).getAllByText("Review")[0]!);

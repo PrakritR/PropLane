@@ -14,7 +14,7 @@ const disconnect = vi.fn();
 const scrollTo = vi.fn();
 const cancel = vi.fn((id: number) => frames.delete(id));
 const portals = ["manager", "resident", "vendor", "owner"] as const;
-const tour = () => <HomeDashboardTour steps={portals.map((id) => ({ id, label: id, caption: id + " workspace", content: <div data-testid={id + "-content"}>{id} real content</div> }))} />;
+const tour = () => <HomeDashboardTour steps={portals.map((id) => ({ id, label: id, content: <div data-testid={id + "-content"}>{id} real content</div> }))} />;
 function flush() { act(() => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback(0)); }); }
 function near(value = true) { act(() => observerCallback([{ isIntersecting: value } as IntersectionObserverEntry], {} as IntersectionObserver)); }
 
@@ -42,7 +42,8 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("software role switch", () => {
   it("syncs four portals bidirectionally with desktop scrolling", () => {
-    render(tour()); near();
+    const { container } = render(tour()); near();
+    expect(container.querySelector(".home-dashboard-caption")).toBeNull();
     for (const [position, role] of [[0, "manager"], [-810, "resident"], [-1610, "vendor"], [-2500, "owner"], [0, "manager"]] as const) {
       top = position; fireEvent.scroll(window); flush();
       expect(screen.getByRole("tab", { name: role })).toHaveAttribute("aria-selected", "true");
