@@ -690,6 +690,16 @@ export function homeDemoResidentProspectThread(lineCount: number, nowMs: number)
     // The root turn is the prospect's own, and a root turn is signed with the thread's `from`.
     from: "Jordan",
     email: "text@proplane.com",
+    // Who the conversation is WITH, as the server stamps it on a real resident row: the row and the open thread are
+    // titled by the other party (the property's workspace), never by the resident's own name.
+    counterparty: {
+      workspaceId: "demo-workspace-seattle-homes",
+      name: "Seattle Homes",
+      workspaceName: "Seattle Homes",
+      workPhone: null,
+      avatarUrl: null,
+      initials: "SH",
+    },
     subject: "Looking for a house",
     preview: last.text.split("\n")[0] ?? "",
     body: first.text,

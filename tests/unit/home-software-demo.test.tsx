@@ -94,10 +94,9 @@ describe("homepage Software demo", () => {
     expect(portalLabel(view)).toBe("Vendor");
   });
 
-  it("keeps Sample data as quiet text beside the switcher", () => {
-    render(<HomeSoftwareDemoPlayer />);
-    expect(screen.getByText("Sample data")).toBeInTheDocument();
-    expect(screen.queryByText(/portal · Sample data/)).toBeNull();
+  it("shows no 'Sample …' label anywhere (captain #24)", () => {
+    const { container } = render(<HomeSoftwareDemoPlayer />);
+    expect(container).not.toHaveTextContent(/Sample/);
   });
 
   it("choosing a portal jumps the run to that portal's first step, switches the phone view to Portal, and the phone follows", () => {

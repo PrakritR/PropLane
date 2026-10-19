@@ -33,10 +33,13 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Swiss number story", () => {
-  it("ships exactly five readable beats and a real configured-number network without JavaScript", () => {
+  it("ships exactly six readable beats and a real configured-number network without JavaScript", () => {
     const html = renderToStaticMarkup(stage());
-    expect(html.match(/class="home-stage-scene"/g)).toHaveLength(5);
-    for (const id of ["prospects", "residents", "vendors", "owners", "homes"]) expect(html).toContain(`id="how-${id}"`);
+    expect(html.match(/class="home-stage-scene"/g)).toHaveLength(6);
+    for (const id of ["prospects", "residents", "vendors", "managers", "owners", "homes"]) expect(html).toContain(`id="how-${id}"`);
+    // Captain #23/#25: no number under "PropLane" in these phones' headers, and no "Sample …" captions.
+    expect(html).not.toContain('data-attr="home-phone-number"');
+    expect(html).not.toMatch(/Sample/);
     expect(html).toContain("How it works");
     expect(html).toContain("October rent is due Oct 1");
     expect(html).toContain("Owner share");
@@ -64,7 +67,18 @@ describe("Swiss number story", () => {
     observer.emit();
     expect(visible()).toHaveTextContent("$180");
     expect(visible()).not.toHaveTextContent("October rent");
-    position = 4;
+    position = 3;
+    observer.emit();
+    expect(screen.getByRole("link", { name: /Managers/ })).toHaveAccessibleName("04 Managers Ask about your houses and prospects.");
+    expect(within(visible()).getByRole("region", { name: "Manager’s phone Messages conversation" })).toBeInTheDocument();
+    expect(visible()).toHaveTextContent("Any new prospects for Willow Court?");
+    expect(visible()).toHaveTextContent("2 new inquiries for Room 3.");
+    expect(visible()).toHaveTextContent("Tour booked: Jordan, Thursday, 5:30 PM.");
+    expect(visible()).toHaveTextContent("How is Alder House?");
+    expect(visible()).toHaveTextContent("2 of 3 rooms occupied");
+    expect(visible()).toHaveTextContent("Rent collected: $1,650");
+    expect(visible()).toHaveTextContent("Open services: 1 (Storage locker)");
+    position = 5;
     observer.emit();
     expect(within(visible()).getByRole("img", { name: /3 homes connected to prospects/ })).toBeInTheDocument();
     expect(within(visible()).getByRole("link", { name: /Text/ })).toHaveAttribute("href", number.smsHref);
@@ -79,7 +93,7 @@ describe("Swiss number story", () => {
     reduced = true;
     const { container } = render(<HomeNumberStage />);
     expect(container.querySelector("[inert]")).toBeNull();
-    expect(screen.getAllByRole("region", { name: /Messages conversation/ })).toHaveLength(4);
+    expect(screen.getAllByRole("region", { name: /Messages conversation/ })).toHaveLength(5);
     expect(container.querySelector('[data-attr="home-network-number"]')).toBeNull();
     expect(container.querySelector(".swiss-network-hub")).toHaveTextContent("PropLane · One number");
   });
@@ -93,10 +107,10 @@ describe("Swiss number story", () => {
     Object.defineProperties(nav, { clientWidth: { value: 343 }, scrollWidth: { value: 480 } });
     Object.defineProperty(nav, "getBoundingClientRect", { value: () => ({ left: 16, width: 343 }) });
     Object.defineProperty(last, "getBoundingClientRect", { value: () => ({ left: 390, width: 90 }) });
-    position = 4;
+    position = 5;
     Observer.instances.findLast((entry) => entry.options.threshold === 0)!.emit();
     expect(nav.scrollLeft).toBe(247.5);
-    expect(container.querySelector('.home-stage-scene[data-active="true"]')).toHaveTextContent("Sample homes");
+    expect(container.querySelector('.home-stage-scene[data-active="true"]')).toHaveTextContent("PropLane · One number");
     expect(documentScroll).not.toHaveBeenCalled();
   });
 });

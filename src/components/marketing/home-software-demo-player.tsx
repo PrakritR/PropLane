@@ -48,7 +48,7 @@ export function HomeSoftwareDemoPlayer() {
   const pendingJump = useRef<{ type: typeof HOME_DEMO_CONTROL; action: "jump"; portal: HomeDemoPortal; paused: boolean } | null>(null);
   const reducedRef = useRef(true);
   const [phone, setPhone] = useState<HomeDemoPhone>(() => homeDemoEndPhone());
-  /** Which real portal the iframe is showing: named beside "Sample data" so the visitor always knows whose screen it is. */
+  /** Which real portal the iframe is showing: the switcher marks it, so the visitor always knows whose screen it is. */
   const [portal, setPortal] = useState<HomeDemoPortal>(() => homeDemoEndPortal());
   const [typing, setTyping] = useState<"in" | "out" | null>(null);
   const [done, setDone] = useState(false);
@@ -262,7 +262,6 @@ export function HomeSoftwareDemoPlayer() {
             </button>
           ))}
         </div>
-        <span className="home-software-demo-sample">Sample data</span>
       </header>
       <div className="home-software-demo-views" role="group" aria-label="Show">
         <button type="button" aria-pressed={view === "phone"} onClick={() => setView("phone")}>Phone</button>

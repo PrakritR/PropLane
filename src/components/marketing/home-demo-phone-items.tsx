@@ -43,7 +43,7 @@ export function homeDemoPhoneItems(items: readonly HomeDemoPhoneItem[]): HomePho
             <span className={`home-demo-photo home-demo-photo--${item.from}`}>
               {/* A drawn sample illustration (an inline SVG data URL), never a stock or listing photo. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={HOME_DEMO_PHOTOS[item.art]} alt={item.art === "leak" ? "Sample photo of a leaking faucet" : "Sample photo of the repaired faucet"} width={400} height={300} />
+              <img src={HOME_DEMO_PHOTOS[item.art]} alt={item.art === "leak" ? "Photo of a leaking faucet" : "Photo of the repaired faucet"} width={400} height={300} />
             </span>
           ),
         };

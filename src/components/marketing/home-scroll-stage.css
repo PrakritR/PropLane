@@ -417,7 +417,6 @@
   font-size: 11px;
   color: #777;
 }
-.home-number-stage .home-sample-label { margin-top: 8px; font-size: 10px; line-height: 16px; color: #62645e; }
 .home-number-stage .swiss-number-network { width: 100%; height: 100%; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .home-number-stage .swiss-network-map { position: relative; aspect-ratio: 420 / 560; height: 560px; width: auto; max-width: 100%; max-height: calc(100% - 24px); }
 .home-number-stage .swiss-network-map svg { display: block; width: 100%; height: 100%; }
@@ -450,7 +449,6 @@
 .home-number-stage .swiss-network-hub .home-big-number-value { font-family: inherit; font-size: clamp(18px, 2vw, 30px); font-weight: 600; letter-spacing: -.04em; }
 .home-number-stage .swiss-network-hub .home-big-number-glyph { display: none; }
 .home-number-stage .swiss-network-hub > span { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
-.home-number-stage .swiss-number-network figcaption { font-size: 10px; color: #62645e; margin-top: 8px; }
 @media (max-height: 800px) and (min-width: 861px) {
   .home-number-stage .home-stage-body { margin-top: 24px; }
   .home-number-stage .home-stage-heading h2 { font-size: clamp(40px, 5vw, 70px); margin-bottom: 24px; }

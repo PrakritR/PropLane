@@ -50,11 +50,6 @@
 .home-number-phone .rl-phone-device {
   box-shadow: none;
 }
-.home-sample-label {
-  font-size: 11px;
-  color: #636970;
-  margin-top: 10px;
-}
 .home-network {
   width: min(640px, 100%);
   padding: 28px 12px;

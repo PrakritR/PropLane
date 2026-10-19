@@ -6,7 +6,8 @@ vendor portals: Jordan books a tour by text (resident Tour + manager Tours), app
 approves), pays (resident Payments, manager Incoming payments), signs the lease (manager Leases, resident Lease; the
 resident sidebar unlocks by stage for real), then a service goes to the vendor (vendor Services, manager Services
 Assigned). It is an iframe of `/demo/home-embed` at a fixed 1280x800 logical size, scaled to fit, with the phone of
-whoever is acting beside it and the portal named top right as plain text ("Resident portal · Sample data"). The
+whoever is acting beside it and a Resident · Property · Vendor switcher top right (no "Sample …" captions anywhere on
+the homepage: captain #24/#25). The
 phone is drawn from what the iframe reports (`HomeIphonePhone`, plus listing cards and photos from
 `home-demo-phone-items.tsx`), so the two never disagree. A visible cursor, labelled with the acting portal, clicks
 the real controls; inbound events (a text, a YES, a payment) are store writes, applied at the press that opens the

@@ -1,7 +1,8 @@
 import { HomeScrollStage } from "./home-scroll-stage";
 import { HomeIphonePhone } from "./home-iphone-phone";
 import { STORIES, type PhoneItem } from "./resident-lifecycle-script";
-import { PROPERTY_ROWS } from "./site/product-mock/fixtures";
+import { PROPERTY_ROWS, RESIDENT_ROWS, SERVICE_ROWS, WILLOW_INQUIRIES } from "./site/product-mock/fixtures";
+import { BOOKING_ROWS, FINANCE_BY_PROPERTY } from "./site/product-mock/fixtures-more";
 import { OPS_REPORTS } from "./site/product-mock/fixtures-popups-ops";
 import { BigNumber } from "./big-number";
 
@@ -18,10 +19,44 @@ function beatItems(role: "resident" | "vendor", id: string): PhoneItem[] {
 function PhoneScene({ role, items }: { role: string; items: PhoneItem[] }) {
   return (
     <div className="home-number-phone">
-      <HomeIphonePhone label={`${role}’s phone`} items={items} />
-      <span className="home-sample-label">Sample conversation</span>
+      <HomeIphonePhone label={`${role}’s phone`} items={items} showNumber={false} />
     </div>
   );
+}
+
+/** The Managers step: two questions about the houses, each answered from the same fixture rows the portal mock draws. */
+function managerItems(): PhoneItem[] {
+  const tours = WILLOW_INQUIRIES.filter((inquiry) => inquiry.tour);
+  const alder = PROPERTY_ROWS.find((home) => home.id === "prop-alder")!;
+  const inAlder = (place: string) => place.endsWith(alder.title) || place.startsWith(`${alder.title} ·`);
+  const occupied = new Set([
+    ...RESIDENT_ROWS.filter((row) => row.tab === "current" && inAlder(row.place)).map((row) => row.place.split(" · ")[0]),
+    ...BOOKING_ROWS.filter((row) => row.bucket === "inhouse" && inAlder(row.place)).map((row) => row.place.split(" · ")[1]),
+  ]).size;
+  const rent = FINANCE_BY_PROPERTY.find((row) => row.title === alder.title)!.in;
+  const services = SERVICE_ROWS.filter((row) => row.property === alder.title);
+  const open = services.filter((row) => row.state === "open");
+  const scheduled = services.filter((row) => row.state === "scheduled");
+  return [
+    { kind: "out", text: "Any new prospects for Willow Court?" },
+    {
+      kind: "in",
+      text: [
+        `${WILLOW_INQUIRIES.length} new inquiries for Room 3.`,
+        ...tours.map((inquiry) => `Tour booked: ${inquiry.name}, ${inquiry.tour}.`),
+      ].join("\n"),
+    },
+    { kind: "out", text: `How is ${alder.title}?` },
+    {
+      kind: "in",
+      text: [
+        `${occupied} of ${alder.rooms} rooms occupied`,
+        `Rent collected: $${rent.toLocaleString("en-US")}`,
+        `Open services: ${open.length}${open.length ? ` (${open.map((row) => row.title).join(", ")})` : ""}`,
+        ...scheduled.map((row) => `Scheduled: ${row.title}`),
+      ].join("\n"),
+    },
+  ];
 }
 
 const homes = PROPERTY_ROWS.slice(0, 3);
@@ -34,7 +69,7 @@ function NetworkScene() {
         <svg
           viewBox="0 0 420 560"
           role="img"
-          aria-label={`Sample network: ${homes.length} homes connected to prospects, residents, vendors and owners through PropLane`}
+          aria-label={`Network: ${homes.length} homes connected to prospects, residents, vendors and owners through PropLane`}
         >
           <g className="swiss-network-lines" fill="none">
             <path d="M210 232V158M72 158H348M72 158V86M210 158V86M348 158V86" />
@@ -75,7 +110,6 @@ function NetworkScene() {
           <span>PropLane · One number</span>
         </div>
       </div>
-      <figcaption>Sample homes</figcaption>
     </figure>
   );
 }
@@ -132,6 +166,12 @@ export function HomeNumberStage() {
               ]}
             />
           ),
+        },
+        {
+          id: "managers",
+          label: "Managers",
+          caption: "Ask about your houses and prospects.",
+          content: <PhoneScene role="Manager" items={managerItems()} />,
         },
         {
           id: "owners",

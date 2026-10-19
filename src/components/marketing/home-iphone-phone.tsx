@@ -13,11 +13,13 @@ const cardIcons = { file: FileText, calendar: CalendarDays, wrench: Wrench, card
 export type HomePhoneItem = PhoneItem | { kind: "node"; node: ReactNode };
 
 /** Read-only Messages preview. The caller owns the scene and playback clock. */
-export function HomeIphonePhone({ items, typing = null, label = "Sample", className = "" }: {
+export function HomeIphonePhone({ items, typing = null, label = "PropLane", className = "", showNumber = true }: {
   items: HomePhoneItem[];
   typing?: "in" | "out" | null;
   label?: string;
   className?: string;
+  /** The number under "PropLane" in the header; How it works shows just "PropLane >" (captain #23). */
+  showNumber?: boolean;
 }) {
   const { phone } = usePublicTexting();
   const formattedPhone = formatPublicPhone(phone);
@@ -39,7 +41,7 @@ export function HomeIphonePhone({ items, typing = null, label = "Sample", classN
         <div className="home-iphone-contact">
           <span className="home-iphone-avatar" aria-hidden="true"><ProPlaneMarkIcon /></span>
           <strong>PropLane <ChevronRight aria-hidden="true" /></strong>
-          {formattedPhone ? <span className="home-iphone-number" data-attr="home-phone-number">{formattedPhone}</span> : null}
+          {showNumber && formattedPhone ? <span className="home-iphone-number" data-attr="home-phone-number">{formattedPhone}</span> : null}
         </div>
         <span className="home-iphone-video" aria-hidden="true"><Video /></span>
       </header>

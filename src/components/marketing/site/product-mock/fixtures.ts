@@ -690,6 +690,15 @@ export type PropertyFixtureRow = {
   stage: "listed" | "unlisted" | "draft";
 };
 
+/**
+ * New prospect inquiries for Willow Court, the home the How it works story is about: Jordan (the Prospects step) and
+ * his Thursday 5:30 PM tour, and one more asking about the same room. The Managers step's answer counts these rows.
+ */
+export const WILLOW_INQUIRIES: { id: string; name: string; place: string; tour?: string }[] = [
+  { id: "inq-willow-jordan", name: "Jordan", place: "Willow Court · Room 3", tour: "Thursday, 5:30 PM" },
+  { id: "inq-willow-riley", name: "Riley Park", place: "Willow Court · Room 3" },
+];
+
 export const PROPERTY_ROWS: PropertyFixtureRow[] = [
   { id: "prop-alder", title: "Alder House", street: "210 Alder St", neighborhood: "Central District", rooms: 3, rentLabel: "$1,650/mo", stage: "listed" },
   { id: "prop-maple", title: "Maple Duplex", street: "1412 Maple Ct", neighborhood: "Ballard", rooms: 4, rentLabel: "$1,850/mo", stage: "listed" },

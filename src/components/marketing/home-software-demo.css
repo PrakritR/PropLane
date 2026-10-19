@@ -13,9 +13,8 @@
   font-family: var(--font-home-swiss), Arial, sans-serif;
 }
 .home-software-demo-heading { display: flex; align-items: center; gap: 16px; flex: none; }
-/* Software at the left; the switcher and "Sample data" at the top right. */
+/* Software at the left; the portal switcher at the top right. */
 .home-software-demo-heading > .home-software-demo-switch { margin-left: auto; }
-.home-software-demo-sample { font-size: 12px; color: #69717b; white-space: nowrap; }
 /* The portal switcher: text segments with an underline on the active one, the same look as the section's other tabs. */
 .home-software-demo-switch { display: flex; align-items: stretch; gap: 4px; flex: none; }
 .home-software-demo-switch button { display: flex; align-items: center; min-height: 36px; padding: 6px 12px; font-size: 15px; line-height: 1.2; color: #656970; border-bottom: 2px solid transparent; white-space: nowrap; cursor: pointer; }
@@ -59,9 +58,8 @@
 }
 @media (max-width: 860px) {
   .home-software-demo { height: calc(100svh - 60px - 80px); min-height: 530px; padding: 18px 16px 16px; gap: 12px; scroll-margin-top: 60px; }
-  /* "Software" and "Sample data" share the first row; the switcher takes its own full row beneath them. */
+  /* "Software" takes the first row; the switcher takes its own full row beneath it. */
   .home-software-demo-heading { min-height: 32px; flex-wrap: wrap; row-gap: 0; }
-  .home-software-demo-sample { font-size: 10px; }
   .home-software-demo-switch { order: 3; flex: 1 0 100%; gap: 0; margin-top: 2px; }
   .home-software-demo-switch button { min-height: 44px; padding: 6px 14px 6px 0; margin-right: 6px; }
   .home-software-demo-views { display: flex; gap: 6px; flex: none; }
