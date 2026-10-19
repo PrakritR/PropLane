@@ -1135,7 +1135,11 @@ function normalizePendingRenewal(
   const leaseStart = typeof r.leaseStart === "string" ? r.leaseStart.trim() : "";
   const leaseEnd = typeof r.leaseEnd === "string" ? r.leaseEnd.trim() : "";
   const requestedAtIso = typeof r.requestedAtIso === "string" ? r.requestedAtIso.trim() : "";
-  if (!leaseTerm || !leaseStart || !leaseEnd || !requestedAtIso) return null;
+  // Month-to-Month is open-ended by design: `renewLease` stores `leaseEnd: ""`.
+  // Requiring an end date here dropped every month-to-month renewal on its first
+  // pass through the client.
+  const openEnded = leaseTerm === "Month-to-Month";
+  if (!leaseTerm || !leaseStart || (!leaseEnd && !openEnded) || !requestedAtIso) return null;
   const monthlyRent =
     typeof r.monthlyRent === "number" && Number.isFinite(r.monthlyRent)
       ? r.monthlyRent

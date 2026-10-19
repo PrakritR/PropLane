@@ -18,7 +18,10 @@ import {
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import {
+  readRecurringRentProfilesForManager,
+  renewalPriorRent,
   recordApprovedApplicationCharges,
+  setRecurringRentProfilePriorRent,
   updatePendingRentAmountForResident,
 } from "@/lib/household-charges";
 import {
@@ -46,12 +49,20 @@ export async function applySignedLeaseRenewal(leaseRowId: string, managerUserId:
     const existing = rows[idx]!;
     const rentalType = renewal.rentalType ?? renewalRentalTypeForTerm(renewal.leaseTerm);
     const isShortTerm = rentalType === "short_term";
+    // The tenancy keeps its ORIGINAL start. A renewal extends the term and may change the rent, but
+    // the resident did not move in again: rewriting the start date made the schedule rebuild as a
+    // brand-new move-in (the recurring profile jumped past the old term's last months, so October
+    // and November rent were deleted and the renewal's first period was skipped as a duplicate of
+    // the original first month), fired "move-in" reminders, and left a gap in the occupancy record.
+    // The renewal's own start lives on the lease row. A short stay is a separate booking per
+    // stay, so it still takes the renewal's dates verbatim.
+    const keepTenancyStart = !isShortTerm;
     const nextRow = {
       ...existing,
       ...(renewal.monthlyRent != null ? { signedMonthlyRent: renewal.monthlyRent } : {}),
       manualResidentDetails: {
         ...(existing.manualResidentDetails ?? {}),
-        moveInDate: renewal.leaseStart || undefined,
+        ...(keepTenancyStart ? {} : { moveInDate: renewal.leaseStart || undefined }),
         moveOutDate: renewal.leaseEnd || undefined,
         leaseTerm: renewal.leaseTerm || undefined,
       },
@@ -60,7 +71,7 @@ export async function applySignedLeaseRenewal(leaseRowId: string, managerUserId:
             ...existing.application,
             rentalType,
             leaseTerm: renewal.leaseTerm,
-            leaseStart: renewal.leaseStart,
+            ...(keepTenancyStart ? {} : { leaseStart: renewal.leaseStart }),
             leaseEnd: renewal.leaseEnd,
             ...(renewal.monthlyRent != null ? { managerRentOverride: String(renewal.monthlyRent) } : {}),
           }
@@ -81,7 +92,17 @@ export async function applySignedLeaseRenewal(leaseRowId: string, managerUserId:
       renewal.monthlyRent != null &&
       Number.isFinite(renewal.monthlyRent)
     ) {
-      updatePendingRentAmountForResident(residentEmail, propertyId, renewal.monthlyRent, managerUserId);
+      // Months before the renewal starts keep the rent of the term they belong to: the profile
+      // remembers the old rent for them, and the pending rows are repriced from the renewal's
+      // first month only. Paid rows are never touched.
+      const renewalMonth = renewal.leaseStart.slice(0, 7);
+      const profile = readRecurringRentProfilesForManager(managerUserId).find(
+        (p) => p.residentEmail.trim().toLowerCase() === residentEmail && p.propertyId === propertyId,
+      );
+      if (profile && /^\d{4}-\d{2}$/.test(renewalMonth)) {
+        setRecurringRentProfilePriorRent(residentEmail, propertyId, renewalPriorRent(profile, renewalMonth, renewal.monthlyRent));
+      }
+      updatePendingRentAmountForResident(residentEmail, propertyId, renewal.monthlyRent, managerUserId, renewalMonth);
     }
     // force=true wipes and regenerates the pending schedule (deposit/move-in
     // fee stay settled; rent months re-derive from the new profile + dates).

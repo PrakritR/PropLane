@@ -221,6 +221,9 @@ function ymdToLocalDate(value: string): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
+/** The end date a month-to-month renewal is checked against: later than any real date. */
+const OPEN_ENDED_LEASE_END = "9999-12-31";
+
 export async function checkMoveOutAvailabilityForLease(
   db: SupabaseClient,
   leaseRow: LeasePipelineRow,
@@ -232,7 +235,10 @@ export async function checkMoveOutAvailabilityForLease(
   | { ok: true; direction: "extend" | "decrease" | "same" }
   | { ok: false; direction: "extend" | "decrease" | "same"; reason: string; nextAvailableDate?: string | null }
 > {
-  const currentEnd = leaseRow.application?.leaseEnd ?? "";
+  // A month-to-month lease has no end date. It is the latest end there is: moving it to a fixed date
+  // shortens it, and an empty string here made the extension window below an Invalid Date (a 500
+  // on the most ordinary renewal there is).
+  const currentEnd = leaseRow.application?.leaseEnd?.trim() || OPEN_ENDED_LEASE_END;
   const currentStart = leaseRow.application?.leaseStart ?? "";
   const direction =
     newLeaseEnd < currentEnd ? "decrease" : newLeaseEnd > currentEnd ? "extend" : ("same" as const);

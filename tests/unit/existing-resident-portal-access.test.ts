@@ -74,3 +74,23 @@ describe("the onboarding write stamps it", () => {
     expect(noPdfBranch).not.toContain("externallySignedLease");
   });
 });
+
+describe("a renewal in flight does not lock the resident out of their own home", () => {
+  const snapshot = { id: "snap-1", label: "Prior lease", fullySignedAt: "2026-01-01T00:00:00Z" };
+
+  it("keeps portal access while the renewed lease is unsigned, but still reports the document unsigned", async () => {
+    rows.data = [{ row_data: { status: "Resident Signature Pending", signedLeaseSnapshots: [snapshot], pendingRenewal: { leaseTerm: "12 months" } } }];
+    await expect(loadResidentManagerAttestedTenancy("tenant@example.com")).resolves.toBe(true);
+    await expect(loadResidentLeaseSignedStatus("tenant@example.com")).resolves.toBe(false);
+  });
+
+  it("does not unlock a lease that was never signed", async () => {
+    rows.data = [{ row_data: { status: "Resident Signature Pending" } }];
+    await expect(loadResidentManagerAttestedTenancy("tenant@example.com")).resolves.toBe(false);
+  });
+
+  it("does not unlock a voided lease that once had a prior term", async () => {
+    rows.data = [{ row_data: { status: "Voided", signedLeaseSnapshots: [snapshot] } }];
+    await expect(loadResidentManagerAttestedTenancy("tenant@example.com")).resolves.toBe(false);
+  });
+});
