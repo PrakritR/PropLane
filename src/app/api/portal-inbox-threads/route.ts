@@ -47,8 +47,8 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
-import { isManagedReadOnly } from "@/lib/auth/managed-read-only.server";
-import { MANAGED_READ_ONLY_BODY, managedReadOnlyInboxThreadAllowed, managedReadOnlyInboxWrites } from "@/lib/auth/managed-read-only-policy";
+import { isManagedReadOnly, managedReadOnlyOwnerLocked } from "@/lib/auth/managed-read-only.server";
+import { MANAGED_READ_ONLY_BODY, managedReadOnlyInboxLockApplies, managedReadOnlyInboxThreadAllowed, managedReadOnlyInboxWrites } from "@/lib/auth/managed-read-only-policy";
 
 export const runtime = "nodejs";
 
@@ -532,10 +532,20 @@ export async function POST(req: Request) {
 
     // A PropLane-managed workspace is view-only for its client: she may write only the workspace Team
     // chat and her own Assistant thread. Resolved from the session + cookie, never from the body.
-    if (scopeKey === MANAGER_INBOX_SCOPE && ctx.user.role !== "admin") {
+    // Runs for every action except a resident / vendor scoped write: delete / deleteIds name no scope.
+    // An OWNER of a locked service workspace is locked account-wide (the cookie never lifts it).
+    if (managedReadOnlyInboxLockApplies(body.action, scopeKey, MANAGER_INBOX_SCOPE) && ctx.user.role !== "admin") {
       const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
       const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
-      if (await isManagedReadOnly(ctx.db, ctx.user.id, active.id)) {
+      let locked = true;
+      try {
+        locked =
+          (await managedReadOnlyOwnerLocked(ctx.db, ctx.user.id)) ||
+          (await isManagedReadOnly(ctx.db, ctx.user.id, active.id));
+      } catch {
+        /* fail closed */
+      }
+      if (locked) {
         const ids = managedReadOnlyInboxWrites(body);
         const allowed =
           ids !== null &&
