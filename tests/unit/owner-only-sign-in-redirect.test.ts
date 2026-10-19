@@ -38,9 +38,9 @@ describe("owner-only sign-in", () => {
     ownerOnly.value = true;
   });
 
-  it("lands a plan-less Property owner on /portal/owner, not the plan chooser", async () => {
+  it("lands a plan-less Property owner on /portal/dashboard, not the plan chooser", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
-    expect(await resolveOAuthPortalRedirect(db() as never, user, "/auth/continue")).toBe("/portal/owner");
+    expect(await resolveOAuthPortalRedirect(db() as never, user, "/auth/continue")).toBe("/portal/dashboard");
   });
 
   it("leaves a manager who also has an owner row on the normal manager route", async () => {

@@ -13,6 +13,7 @@ import { PortalClientSessionGuard } from "@/components/portal/portal-client-sess
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
+import { PortalReadOnlyProvider } from "@/components/portal/portal-read-only";
 import { ManagedReadOnlyStrip } from "@/components/portal/managed-read-only-strip";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
@@ -69,6 +70,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
       <div className={PORTAL_SHELL_ROOT_CLASS}>
         {viewAs ? <ViewAsBanner {...viewAs} /> : null}
         <WorkspaceProvider>
+        <PortalReadOnlyProvider>
         <SurfaceThemeDefault theme="light" />
         <PortalDataPrefetch kind="pro" />
         <PortalSessionKeepalive />
@@ -148,6 +150,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             />
           )}
         </div>
+        </PortalReadOnlyProvider>
         </WorkspaceProvider>
       </div>
     </AxisAssistant>

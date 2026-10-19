@@ -104,7 +104,7 @@ Stripe. A failure records an `owner_ledger_flags` row and alerts admin; it never
 One *active* row per workspace (`owner_share_bps` default 9000 = owner 90 / PropLane 10, `applies_to` rent | all, `leasing_fee_bps`
 of the first month, `min_fee_cents` per month, `reserve_target_cents`, `repair_approval_threshold_cents`, `effective_from`).
 History is kept: editing a signed policy is not possible (trigger); a change is a new draft version that, once accepted,
-ends the previous one. The owner of record (`owner_user_id`) accepts it by signing in the owner portal, or an admin records an
+ends the previous one. The owner of record (`owner_user_id`) accepts it by signing in to the Property portal (Finances › Owner payouts), or an admin records an
 offline signed contract (`accepted_via = admin_attested`, with a note). Only an accepted policy makes a workspace managed.
 Only a platform admin sets or ends a policy (the fee is PropLane's revenue). Rounding, odd amounts, partial payments, minimum and
 leasing fees: `src/lib/owner-management/fee-math.ts`, tested.
@@ -121,7 +121,7 @@ vendors from their own balance through the existing rails.
 
 ## Owner experience
 
-`/portal/owner/finances` (owner of record of a managed workspace): Balance, Available to withdraw, Pending, History; statement by
+Finances › Owner payouts in the Property portal, `/portal/financials/owner-payouts` (owner of record of a managed workspace; the tab is hidden on a 403): Balance, Available to withdraw, Pending, History; statement by
 period (rent collected gross, PropLane fee, vendor charges each with job link, refunds and adjustments, net to owner,
 withdrawals, ending balance), PDF through the existing PDF path, Withdraw. Monthly statement on the 1st (Pacific) by email and
 text. On the PropLane line: "how's my house", "balance", "statement", Y/N repair approvals (pre-routing owner lane in the

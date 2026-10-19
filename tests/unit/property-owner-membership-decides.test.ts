@@ -4,8 +4,8 @@
  *
  *  - a manager's reply is filed in the scope the owner Messages page reads,
  *    even for an owner whose account was created as a resident;
- *  - a membership that cannot be read withholds the manager surface at every
- *    call site instead of throwing into a page render;
+ *  - the manager surface is never withheld (the owner portal is retired; an
+ *    owner uses the Property portal), even when the membership cannot be read;
  *  - a Property owner's flat grant is the keys the manager set, so a house
  *    that joins an "all houses" row later cannot resurrect the role default;
  *  - the number a manager texted a service link to is shown back to them.
@@ -139,7 +139,7 @@ describe("the manager's reply lands where the owner reads", () => {
   });
 });
 
-describe("a membership that cannot be read withholds the manager surface", () => {
+describe("the manager surface is never withheld, even when the membership cannot be read", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -160,32 +160,28 @@ describe("a membership that cannot be read withholds the manager surface", () =>
     expect(logged).not.toHaveBeenCalled();
   });
 
-  it("logs the denial so a membership outage is diagnosable", async () => {
+  it("does not read the membership, so an outage neither withholds nor logs", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const broken = makeFakeDb({ account_link_invites: [] }, { errors: { account_link_invites: { message: "boom" } } });
-    expect(await withholdManagerSurface(broken, MANAGER)).toBe(true);
-    expect(logged).toHaveBeenCalledTimes(1);
-    const [message, payload] = logged.mock.calls[0] as [string, string];
-    expect(message).toContain("owner_membership_unreadable");
-    expect(JSON.parse(payload)).toMatchObject({ userId: MANAGER });
-    expect(JSON.parse(payload).error).toContain("OwnerAccessUnavailableError");
+    expect(await withholdManagerSurface(broken, MANAGER)).toBe(false);
+    expect(logged).not.toHaveBeenCalled();
   });
 
-  it("withholdManagerSurface answers true for an unreadable membership and for an owner-only account", async () => {
+  it("withholdManagerSurface answers false for an unreadable membership and for an owner-only account", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const broken = makeFakeDb({ account_link_invites: [] }, { errors: { account_link_invites: { message: "boom" } } });
-    expect(await withholdManagerSurface(broken, MANAGER)).toBe(true);
+    expect(await withholdManagerSurface(broken, MANAGER)).toBe(false);
     const owner = makeFakeDb({
       ...tables(),
       manager_property_records: [],
       manager_purchases: [],
       profile_roles: [{ user_id: OWNER, role: "manager" }],
     });
-    expect(await withholdManagerSurface(owner, OWNER)).toBe(true);
+    expect(await withholdManagerSurface(owner, OWNER)).toBe(false);
     expect(await withholdManagerSurface(makeFakeDb({ account_link_invites: [] }), MANAGER)).toBe(false);
   });
 
-  it("every manager-side call site goes through it, and the page shells show neither portal", () => {
+  it("every manager-side call site still goes through it, and the page shells have no owner branch", () => {
     for (const file of [
       "src/lib/manager-route-guard.server.ts",
       "src/lib/reports/auth.ts",
@@ -196,11 +192,10 @@ describe("a membership that cannot be read withholds the manager surface", () =>
       expect(read(file), file).not.toContain(").ownerOnly");
     }
     for (const file of ["src/app/portal/layout.tsx", "src/lib/render-portal-section.tsx"]) {
-      expect(read(file), file).toContain("<PortalAccessUnavailable />");
+      expect(read(file), file).not.toContain("<PortalAccessUnavailable />");
     }
-    // The two that must tell 403 from 503 keep the explicit refusal.
+    expect(read("src/app/portal/layout.tsx")).not.toContain("OwnerPortalShell");
     expect(read("src/app/api/portal-vendors/route.ts")).toContain("refuseOwnerOnly(db, user.id)");
-    expect(read("src/lib/property-owner/page-guard.server.ts")).toContain("catch {");
   });
 });
 
@@ -276,20 +271,5 @@ describe("the texted service-link number is shown back to the manager", () => {
     ]) {
       expect(read(file).includes("linkPhone"), file).toBe(false);
     }
-  });
-});
-
-describe("the Statements house filter survives a failed filter", () => {
-  it("the tab band renders above the loading / error / empty switch", () => {
-    const src = read("src/components/owner/owner-statements.tsx");
-    const view = src.slice(src.indexOf("export function OwnerStatementsView"));
-    const band = view.indexOf("<PortalListControlStack");
-    const branch = view.indexOf("{status ??");
-    expect(band).toBeGreaterThan(-1);
-    expect(band).toBeLessThan(branch);
-    expect(view.indexOf("emptyCard")).toBeGreaterThan(branch);
-    const page = src.slice(0, src.indexOf("export function OwnerStatementsView"));
-    expect(page).toContain("const status = loading && !data ? <OwnerLoading /> : error ? <OwnerError");
-    expect(page).toMatch(/<OwnerStatementsView[^>]+status=\{status\}/);
   });
 });

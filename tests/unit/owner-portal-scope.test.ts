@@ -22,8 +22,6 @@ import { assertOwnerPayloadRedacted } from "@/lib/property-owner/projection";
 import { loadOwnerPropertyDetail, ownerCostCents, ownerPhotoUrls } from "@/lib/property-owner/property-detail.server";
 import { OwnerScopeError } from "@/lib/property-owner/summary.server";
 import { loadOwnerWorkspaces } from "@/lib/property-owner/workspaces.server";
-import { withOwnerWorkspace } from "@/components/owner/owner-data";
-import { pickOwnerWorkspace } from "@/components/owner/owner-workspace";
 import { makeFakeDb } from "./property-owner-fake-db";
 
 const MANAGER = "manager-1";
@@ -52,27 +50,6 @@ describe("workspace narrowing", () => {
     expect(ownerWorkspaceKey(grants[0]!)).toBe("ws-a");
     expect(ownerWorkspaceKey(grants[2]!)).toBe("link:link-old");
     expect(narrowGrantsToWorkspace(grants, "link:link-old").map((g) => g.linkId)).toEqual(["link-old"]);
-  });
-
-  it("is added to every owner read except the lists that mean 'mine'", () => {
-    expect(withOwnerWorkspace("/api/owner/summary", "ws-a")).toBe("/api/owner/summary?workspace=ws-a");
-    expect(withOwnerWorkspace("/api/owner/summary?propertyId=x", "ws-a")).toBe("/api/owner/summary?propertyId=x&workspace=ws-a");
-    expect(withOwnerWorkspace("/api/owner/finances", "ws-a")).toBe("/api/owner/finances");
-    expect(withOwnerWorkspace("/api/owner/finances?workspace=ws-b&month=2026-10", "ws-a")).toBe("/api/owner/finances?workspace=ws-b&month=2026-10");
-    expect(withOwnerWorkspace("/api/owner/workspaces", "ws-a")).toBe("/api/owner/workspaces");
-    expect(withOwnerWorkspace("/api/other", "ws-a")).toBe("/api/other");
-    expect(withOwnerWorkspace("/api/owner/summary", null)).toBe("/api/owner/summary");
-  });
-
-  it("starts on the remembered workspace only while it is still the owner's", () => {
-    const tiles = [
-      { id: "ws-a", label: "A", houses: 2, managed: true },
-      { id: "ws-b", label: "B", houses: 1, managed: false },
-    ];
-    expect(pickOwnerWorkspace(tiles, "ws-b")).toBe("ws-b");
-    expect(pickOwnerWorkspace(tiles, "ws-gone")).toBe("ws-a");
-    expect(pickOwnerWorkspace(tiles, null)).toBe("ws-a");
-    expect(pickOwnerWorkspace([], "ws-a")).toBeNull();
   });
 });
 

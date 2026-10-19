@@ -2,8 +2,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-// An owner-only account holds the manager role row only to host /portal/owner.
-// A manager-surface route must refuse it (403). Most inherit that from their
+// An owner-only account holds the manager role row and uses the normal Property
+// portal (the separate owner portal is retired; a PropLane-managed workspace is
+// view-only for it, enforced elsewhere). The refusal seam (refuseOwnerOnly /
+// withholdManagerSurface) therefore never refuses, but every manager-surface
+// route must still ask it, so the rule lands in one place. Most inherit that from their
 // auth helper; the rest check a manager role themselves, which is exactly the
 // shape `/api/portal-vendors` had when it leaked shared vendor contact rows.
 // The enumeration below walks `src/app/api/**` and fails BOTH shapes: a route
@@ -132,10 +135,12 @@ function routeFiles(dir: string, out: string[] = []): string[] {
 }
 
 describe("manager routes refuse an owner-only account", () => {
-  it("the shared helper answers 403, and 503 when the membership cannot be read", () => {
+  it("the shared helper no longer refuses: no 403, no 503, it resolves null", () => {
     const src = read("src/lib/property-owner/route-auth.server.ts");
-    expect(src).toMatch(/export async function refuseOwnerOnly[\s\S]*status: 403/);
-    expect(src).toMatch(/export async function refuseOwnerOnly[\s\S]*status: 503/);
+    expect(src).toMatch(/export async function refuseOwnerOnly[\s\S]*return null/);
+    const body = src.slice(src.indexOf("export async function refuseOwnerOnly"));
+    expect(body).not.toMatch(/status: 403/);
+    expect(body).not.toMatch(/status: 503/);
   });
 
   it("every manager auth helper this enumeration trusts still refuses an owner-only account", () => {

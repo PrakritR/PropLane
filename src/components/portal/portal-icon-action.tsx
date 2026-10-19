@@ -13,7 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Archive, ArchiveRestore, Check, Copy, Pencil, Plus, SquarePen, Trash2, type LucideIcon } from "lucide-react";
-import { usePortalReadOnly } from "@/components/portal/portal-read-only";
+import { usePortalReadOnly } from "@/components/portal/portal-read-only-context";
 import { isWriteActionLabel } from "@/lib/workspaces/read-only";
 import { cn } from "@/lib/utils";
 import { CrossfadeFace, CrossfadeSlot } from "@/components/ui/motion/crossfade-slot";

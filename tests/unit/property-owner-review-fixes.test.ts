@@ -6,7 +6,7 @@
  *  - Statements' house filter comes from the Statements grant, not from the
  *    performance-scoped summary;
  *  - months default to the PACIFIC calendar month, like every other money view;
- *  - an unreadable owner membership denies (503), it never hands over a shell;
+ *  - an unreadable owner membership still fails the state read closed (the manager seam no longer refuses);
  *  - a superseded document version stops minting bytes;
  *  - accepting an owner invite does not rewrite `profiles.role`;
  *  - a delegate cannot hand out owner keys they do not hold themselves.
@@ -203,24 +203,17 @@ describe("the Statements house filter follows the Statements grant", () => {
     const none = await loadOwnerStatements(db, [{ linkId: "l", workspaceId: "ws-1", managerUserId: MANAGER, houses: [] }], {});
     expect(none).toEqual({ rows: [], houses: [] });
   });
-
-  it("the page builds its tabs from the statements response, never from /api/owner/summary", () => {
-    const src = read("src/components/owner/owner-statements.tsx");
-    expect(src).not.toContain("/api/owner/summary");
-    expect(src).toContain("all.data?.houses ?? []");
-    expect(src).toContain("OwnerStatementHouse");
-  });
 });
 
-describe("an unreadable owner membership denies", () => {
-  it("the state read fails closed instead of answering 'no owner row'", async () => {
+describe("an unreadable owner membership", () => {
+  it("the state read still fails closed instead of answering 'no owner row'", async () => {
     const db = makeFakeDb({ account_link_invites: [] }, { errors: { account_link_invites: { message: "boom" } } });
     await expect(ownerAccessStateFor(db, OWNER)).rejects.toBeInstanceOf(OwnerAccessUnavailableError);
-    const refusal = await refuseOwnerOnly(db, OWNER);
-    expect(refusal?.status).toBe(503);
+    // The manager seam no longer reads the membership: no 503, it continues.
+    expect(await refuseOwnerOnly(db, OWNER)).toBeNull();
   });
 
-  it("an owner-only account still gets 403, and a manager still passes", async () => {
+  it("an owner-only account and a manager both pass the manager seam (no refusal)", async () => {
     const ownerDb = makeFakeDb({
       account_link_invites: [ownerLinkRow()],
       manager_property_records: [{ id: HOUSE, manager_user_id: MANAGER, workspace_id: "ws-1" }],
@@ -228,14 +221,15 @@ describe("an unreadable owner membership denies", () => {
       profile_roles: [{ user_id: OWNER, role: "manager" }],
       profiles: [{ id: OWNER, email: "dana@example.com" }],
     });
-    expect((await refuseOwnerOnly(ownerDb, OWNER))?.status).toBe(403);
+    expect(await refuseOwnerOnly(ownerDb, OWNER)).toBeNull();
     const managerDb = makeFakeDb({ account_link_invites: [] });
     expect(await refuseOwnerOnly(managerDb, MANAGER)).toBeNull();
   });
 
-  it("the portal layout redirects when it cannot see the path", () => {
+  it("the portal layout has no owner redirect any more", () => {
     const src = read("src/app/portal/layout.tsx");
-    expect(src).toContain('ownerRedirectFor(pathname, owner.messagesOn, owner.financesOn) : OWNER_HOME_PATH');
+    expect(src).not.toContain("ownerRedirectFor");
+    expect(src).not.toContain("OWNER_HOME_PATH");
   });
 });
 
@@ -273,12 +267,6 @@ describe("owner documents and the statement PDF", () => {
     const src = read("src/app/api/owner/statements/pdf/route.ts");
     expect(src).not.toContain("address_line1");
     expect(src).toContain('.select("legal_name")');
-  });
-
-  it("the owner document row renders its date in Pacific time", () => {
-    const src = read("src/components/owner/owner-documents.tsx");
-    expect(src).toContain("formatPacificDate(doc.createdAt");
-    expect(src).not.toContain("toLocaleDateString");
   });
 });
 
@@ -325,20 +313,6 @@ describe("a delegate cannot hand out owner keys they do not hold", () => {
     expect(src).toMatch(/houseScopeForRoleChange\(next, \{ houseScope, selectedHouseIds \}\)/);
     const membership = read("src/lib/workspaces/membership.ts");
     expect(membership).toMatch(/role !== "property_owner" \|\| current\.houseScope !== "all"/);
-  });
-});
-
-describe("the Overview keeps real figures", () => {
-  it("only an owner with no houses sees the empty state", () => {
-    const src = read("src/components/owner/owner-overview.tsx");
-    expect(src).not.toContain("const quiet");
-    expect(src).toContain("empty || !data ?");
-  });
-
-  it("the owner send button has one path, not a form and an onClick", () => {
-    const src = read("src/components/owner/owner-messages.tsx");
-    expect(src).toContain('loading={busy === conversation.conversationId}');
-    expect(src).not.toMatch(/onClick=\{\(\) => send\(/);
   });
 });
 

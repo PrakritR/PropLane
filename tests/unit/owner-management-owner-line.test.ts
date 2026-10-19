@@ -74,7 +74,7 @@ describe("the owner lane", () => {
   it("sends the statement as a sign-in link to the owner's own workspace", async () => {
     const r = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "statement" });
     expect((r as { reply: string }).reply).toContain("/auth/sign-in?next=");
-    expect((r as { reply: string }).reply).toContain(encodeURIComponent("/portal/owner/finances?workspace=ws-1"));
+    expect((r as { reply: string }).reply).toContain(encodeURIComponent("/portal/financials/owner-payouts?workspace=ws-1"));
   });
   it("a Y or N means nothing unless a repair is waiting on this person", async () => {
     expect(await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y" })).toEqual({ handled: false });

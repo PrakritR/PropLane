@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { PortalReadOnlyRoot, usePortalReadOnly } from "@/components/portal/portal-read-only";
+import { usePortalReadOnly } from "@/components/portal/portal-read-only-context";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -9,8 +9,8 @@ import { workspaceTeamThreadId } from "@/lib/team-thread-id";
 
 /**
  * The one strip under the top bar on every Property-portal page while the active workspace is view-only: PropLane
- * manages the workspace for its owner. It also stamps `data-read-only="managed"` on the root (the CSS backstop for
- * upload and submit controls). Renders nothing for everyone else.
+ * manages the workspace for its owner (the `data-read-only="managed"` stamp comes from PortalReadOnlyProvider). Renders
+ * nothing for everyone else.
  *
  * "Message the team" opens Communication on the workspace Team chat; "Get a plan" opens Settings › Billing & plan.
  */
@@ -19,7 +19,6 @@ export function ManagedReadOnlyStrip() {
   const active = useWorkspaces()?.active ?? null;
   return (
     <>
-      <PortalReadOnlyRoot />
       {readOnly && active ? (
         <div
           role="region"

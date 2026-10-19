@@ -6,7 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
 import { usePortalSurface } from "@/components/ui/portal-surface";
-import { usePortalReadOnly } from "@/components/portal/portal-read-only";
+import { usePortalReadOnly } from "@/components/portal/portal-read-only-context";
 import { readOnlyMenuLabelAllowed } from "@/lib/workspaces/read-only";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;

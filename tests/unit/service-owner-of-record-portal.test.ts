@@ -48,7 +48,7 @@ const houses = [
   { id: "house-z", manager_user_id: SERVICE_OWNER, workspace_id: "other-ws" },
 ];
 
-describe("owner of record -> owner portal access", () => {
+describe("owner of record -> Property portal access", () => {
   it("reads every house of the service workspace, including one added after the invite, on the owner defaults", async () => {
     const db = makeFakeDb({ account_link_invites: [ownerLink({})], manager_property_records: houses, profiles });
     const grants = await loadOwnerGrants(db, CLIENT);
@@ -93,7 +93,7 @@ describe("owner of record -> owner portal access", () => {
     expect(await loadOwnerGrants(db, CLIENT)).toEqual([]);
   });
 
-  it("the owner of record with no portal of their own is owner-only: sign-in and Property portal land in the owner portal", async () => {
+  it("the owner of record with no portal of their own is owner-only: sign-in lands in the Property portal", async () => {
     const db = makeFakeDb({
       account_link_invites: [ownerLink({})],
       manager_property_records: houses,
@@ -149,7 +149,7 @@ describe("a client who still OWNS an attached service workspace and is its owner
     ...extra,
   });
 
-  it("reads her own workspace's houses through the owner portal, on the owner defaults and never another's", async () => {
+  it("reads her own workspace's houses through the owner grants, on the owner defaults and never another's", async () => {
     const db = makeFakeDb(tablesFor() as never);
     const grants = await loadOwnerGrants(db, AMBIKA);
     expect(grants).toHaveLength(1);
@@ -158,7 +158,7 @@ describe("a client who still OWNS an attached service workspace and is its owner
     expect(grants[0]!.houses.every((h) => h.performance && h.statements && h.documents && !h.messages)).toBe(true);
   });
 
-  it("lands in the owner portal (owner-only) even with a plan row, because PropLane Service runs the workspace", async () => {
+  it("is owner-only even with a plan row, because PropLane Service runs the workspace", async () => {
     const db = makeFakeDb(tablesFor() as never);
     expect(await ownerAccessStateFor(db, AMBIKA)).toMatchObject({ hasOwnerAccess: true, ownerOnly: true, messagesOn: false });
   });
@@ -208,14 +208,14 @@ describe("a client who still OWNS an attached service workspace and is its owner
 });
 
 describe("portal chooser for an owner-only account", () => {
-  it("portal-roles reports ownerOnly from the owner membership, and the chooser names that entry Owner", () => {
+  it("portal-roles no longer reports ownerOnly, and the chooser has no Owner entry (the manager entry stays Property)", () => {
     const route = read("src/app/api/auth/portal-roles/route.ts");
-    expect(route).toMatch(/ownerAccessStateFor/);
-    expect(route).toMatch(/ownerOnly/);
+    expect(route).not.toMatch(/ownerOnly/);
     const page = read("src/app/auth/choose-portal/page.tsx");
-    expect(page).toMatch(/OWNER_ROLE_META/);
-    expect(page).toMatch(/role === "manager" && ownerOnly/);
-    // A multi-role account still gets the chooser: the role list is unchanged, only the label differs.
+    expect(page).not.toMatch(/OWNER_ROLE_META/);
+    expect(page).not.toMatch(/ownerOnly/);
+    expect(page).toMatch(/label: "Property"/);
+    // A multi-role account still gets the chooser: the role list is unchanged.
     expect(page).toMatch(/roles\.length !== 1|roles\?\.length !== 1|roles\?\.length === 1/);
   });
 });
