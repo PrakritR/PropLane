@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HomePricingCompare } from "@/components/marketing/home-pricing-compare";
-import { HOME_COMPARE_ROWS, HOME_PLAN_COLUMNS } from "@/components/marketing/home-pricing-compare-data";
+import { ANNUAL_MONTHS_FREE, HOME_COMPARE_ROWS, HOME_PLAN_COLUMNS } from "@/components/marketing/home-pricing-compare-data";
 import { COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGED_CONTACT_HREF } from "@/lib/marketing/managed-service";
@@ -15,12 +15,16 @@ describe("homepage plan comparison", () => {
   it("lists the four plans with price and action at the top of each column", () => {
     render(<HomePricingCompare />);
     const table = screen.getByRole("table", { name: "Compare plans" });
-    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent).filter(Boolean)).toEqual([
-      "Free$0",
-      `Pro${formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents)}/mo`,
-      `Business${formatRateCardUsd(RATE_CARD.business.floorMonthlyCents)}/mo`,
-      "We manage it for youCustom",
+    expect(within(table).getAllByRole("columnheader").map((h) => h.querySelector("h3")?.textContent).filter(Boolean)).toEqual([
+      "Free",
+      "Pro",
+      "Business",
+      "We manage it for you",
     ]);
+    expect(within(table).getByText("$0")).toBeInTheDocument();
+    expect(within(table).getByText(formatRateCardUsd(RATE_CARD.pro.floorMonthlyCents))).toBeInTheDocument();
+    expect(within(table).getByText(formatRateCardUsd(RATE_CARD.business.floorMonthlyCents))).toBeInTheDocument();
+    expect(within(table).getByText("Custom", { selector: "strong" })).toBeInTheDocument();
     for (const id of ["free", "pro", "business"] as const) {
       const link = document.querySelector(`[data-attr="pricing-plan-${id}-cta"]`);
       expect(link).toHaveAttribute("href", TIER_CTA[id].href);
@@ -49,5 +53,22 @@ describe("homepage plan comparison", () => {
     }
     const residents = HOME_COMPARE_ROWS.find((row) => row.label === "Residents included")!;
     expect(residents.cells.slice(0, 3)).toEqual([RATE_CARD.free.includedDoors, RATE_CARD.pro.includedDoors, RATE_CARD.business.includedDoors].map(String));
+  });
+
+  it("is headed with the top-bar word and offers a Monthly | Annual switch derived from the rate card", () => {
+    render(<HomePricingCompare titleId="t" />);
+    expect(screen.getByRole("heading", { level: 2, name: "Pricing" })).toHaveAttribute("id", "t");
+    const monthly = document.getElementById("home-billing-monthly") as HTMLInputElement;
+    const annual = document.getElementById("home-billing-annual") as HTMLInputElement;
+    expect(monthly.checked).toBe(true);
+    expect(annual.checked).toBe(false);
+    expect(screen.getByText(`${ANNUAL_MONTHS_FREE} months free`)).toBeInTheDocument();
+    for (const id of ["pro", "business"] as const) {
+      const column = HOME_PLAN_COLUMNS.find((c) => c.id === id)!;
+      expect(column.monthly.price).toBe(formatRateCardUsd(RATE_CARD[id].floorMonthlyCents));
+      expect(column.annual.sub).toBe(`Billed yearly · ${formatRateCardUsd(RATE_CARD[id].floorAnnualCents)}`);
+      const perMonth = RATE_CARD[id].floorAnnualCents / 12;
+      expect(Number(column.annual.price.replace("$", ""))).toBeCloseTo(perMonth / 100, 2);
+    }
   });
 });

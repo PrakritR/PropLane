@@ -98,16 +98,8 @@ export function HomeNumberStage() {
   return (
     <HomeScrollStage
       id="how"
-      title={
-        <>
-          One number.
-          <br />
-          Every home.
-        </>
-      }
+      title="How it works"
       sectionNumber="01"
-      sectionLabel="The number"
-      sectionNote="One number connects every home"
       className="home-number-stage"
       travel={500}
       steps={[

@@ -36,6 +36,9 @@ export const MANAGER_GET_STARTED_HREF =
 /** Vendor signup when the visitor already chose the vendor entry point (PRP-313). */
 export const VENDOR_GET_STARTED_HREF =
   "/auth/create-account?mode=create&role=vendor";
+/** Resident signup with the role already decided (the homepage "Join free" row). */
+export const RESIDENT_GET_STARTED_HREF =
+  "/auth/create-account?mode=create&role=resident";
 export const BOOK_DEMO_HREF = "/contact?tab=schedule";
 
 /**

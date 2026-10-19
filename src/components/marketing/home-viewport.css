@@ -19,7 +19,6 @@
 .home-swiss .swiss-service-list li { padding-block: 12px; font-size: clamp(17px, 1.5vw, 21px); }
 .home-swiss .swiss-track-record { margin-top: 32px; }
 .home-swiss .swiss-track-grid > p { font-size: clamp(26px, 2.8vw, 40px); }
-.home-swiss #home-pricing-title { font-size: clamp(34px, 3.4vw, 48px); }
 .home-swiss .pl-pricing-overview { margin-top: 24px; gap: 14px; }
 .home-swiss .pl-pricing-compact { min-height: 0; padding: 24px 20px; border-radius: 16px; }
 .home-swiss .pl-pricing-compact h3 { min-height: 54px; font-size: 24px; }
@@ -60,7 +59,6 @@
   .home-swiss .swiss-track-record { margin-top: 24px; }
   .home-swiss .swiss-track-label { margin-bottom: 8px; padding-top: 0; }
   .home-swiss .swiss-track-grid > p { font-size: 25px; }
-  .home-swiss #home-pricing-title { font-size: 32px; }
   .home-swiss .pl-pricing-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
   .home-swiss .pl-pricing-compact { padding: 10px; border-radius: 12px; }
   .home-swiss .pl-pricing-compact h3 { font-size: 18px; line-height: 1.05; min-height: 0; }

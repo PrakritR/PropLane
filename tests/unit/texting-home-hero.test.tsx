@@ -7,6 +7,7 @@ import { BigNumber } from "@/components/marketing/big-number";
 import { publicTextingConfig } from "@/lib/marketing/public-texting";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { HOME_HEADLINE } from "@/lib/marketing/home-copy";
+import { RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
 
 const config = publicTextingConfig("+12025550123");
@@ -29,7 +30,10 @@ describe("housing texting cover", () => {
     expect(pill).toHaveTextContent("Text PropLane");
     expect(pill.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(container.querySelector(".home-text-number")).toHaveTextContent("(202) 555-0123");
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getAllByRole("link")).toHaveLength(5);
+    expect(screen.getByRole("link", { name: "Residents" })).toHaveAttribute("href", RESIDENT_GET_STARTED_HREF);
+    expect(screen.getByRole("link", { name: "Vendors" })).toHaveAttribute("href", VENDOR_GET_STARTED_HREF);
+    expect(screen.getByRole("link", { name: "Prospects" })).toHaveAttribute("href", "/rent/browse");
     expect(container.querySelector(".home-housing-scene")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(4);

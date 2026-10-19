@@ -1,5 +1,5 @@
 import { MANAGER_PLAN_TIERS, type PlanTierId } from "@/data/manager-plan-tiers";
-import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
+import { RATE_CARD, formatRateCardUsd, type RateCardTier } from "@/lib/billing/rate-card";
 import {
   MANAGED_CONTACT_HREF,
   MANAGED_INCLUDES,
@@ -18,13 +18,64 @@ import { TIER_CTA } from "@/components/marketing/site/pricing-cards";
  * does) — no number or value is typed here.
  */
 
+export type HomePlanPrice = { price: string; period: string | null; sub: string };
+
 export type HomePlanColumn = {
   id: PlanTierId | "managed";
   name: string;
-  price: string;
-  period: string | null;
+  monthly: HomePlanPrice;
+  /** The yearly floor shown as its per-month equivalent, the way /pricing derives it from the same rate card. */
+  annual: HomePlanPrice;
   cta: { href: string; label: string };
 };
+
+/** Whole dollars when exact, otherwise dollars and cents ($490 / 12 = $40.83). */
+function usd(cents: number): string {
+  return cents % 100 === 0
+    ? formatRateCardUsd(cents)
+    : `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Months of the monthly floor an annual plan saves, from the rate card (never typed). */
+function monthsFree(tier: RateCardTier): number {
+  const card = RATE_CARD[tier];
+  return Math.round((card.floorMonthlyCents * 12 - card.floorAnnualCents) / card.floorMonthlyCents);
+}
+export const ANNUAL_MONTHS_FREE = Math.min(monthsFree("pro"), monthsFree("business"));
+
+function softwareColumn(id: PlanTierId, name: string): HomePlanColumn {
+  const card = RATE_CARD[id];
+  if (id === "free") {
+    const free: HomePlanPrice = { price: usd(card.floorMonthlyCents), period: null, sub: "No card required" };
+    return { id, name, monthly: free, annual: free, cta: TIER_CTA[id] };
+  }
+  return {
+    id,
+    name,
+    monthly: { price: usd(card.floorMonthlyCents), period: "/mo", sub: "Billed monthly" },
+    annual: {
+      price: usd(Math.round(card.floorAnnualCents / 12)),
+      period: "/mo",
+      sub: `Billed yearly · ${usd(card.floorAnnualCents)}`,
+    },
+    cta: TIER_CTA[id],
+  };
+}
+
+/** Plans in column order: the three software tiers, then the managed service. */
+export const HOME_PLAN_COLUMNS: readonly HomePlanColumn[] = [
+  ...MANAGER_PLAN_TIERS.map((tier) => softwareColumn(tier.id, tier.label)),
+  (() => {
+    const quoted: HomePlanPrice = { price: MANAGED_PRICE_HEADLINE, period: null, sub: "Quoted for your home" };
+    return {
+      id: "managed",
+      name: "We manage it for you",
+      monthly: quoted,
+      annual: quoted,
+      cta: { href: MANAGED_CONTACT_HREF, label: "Talk to us" },
+    } satisfies HomePlanColumn;
+  })(),
+];
 
 /** Row label -> the managed-service inclusion that covers it. `null` = the value is quoted per home. */
 const MANAGED_COVERAGE: Record<string, (typeof MANAGED_INCLUDES)[number]["id"] | null> = {
@@ -39,29 +90,6 @@ const MANAGED_COVERAGE: Record<string, (typeof MANAGED_INCLUDES)[number]["id"] |
   "AI assistant in the portal": "line",
   "AI drafts in Communication": "line",
 };
-
-/** Plans in column order: the three software tiers, then the managed service. */
-export const HOME_PLAN_COLUMNS: readonly HomePlanColumn[] = [
-  ...MANAGER_PLAN_TIERS.map(
-    (tier): HomePlanColumn => ({
-      id: tier.id,
-      name: tier.label,
-      price:
-        tier.id === "free"
-          ? formatRateCardUsd(RATE_CARD.free.floorMonthlyCents)
-          : tier.monthly.headline,
-      period: tier.id === "free" ? null : "/mo",
-      cta: TIER_CTA[tier.id],
-    }),
-  ),
-  {
-    id: "managed",
-    name: "We manage it for you",
-    price: MANAGED_PRICE_HEADLINE,
-    period: null,
-    cta: { href: MANAGED_CONTACT_HREF, label: "Talk to us" },
-  },
-];
 
 export type HomeCompareRow = { label: string; cells: [CompareCell, CompareCell, CompareCell, CompareCell] };
 

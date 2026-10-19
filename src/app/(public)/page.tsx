@@ -5,6 +5,8 @@ import { HomeNumberStage } from "@/components/marketing/home-number-stage";
 import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { BigNumber } from "@/components/marketing/big-number";
 import "@/components/marketing/home-h1.css";
+import { HomeSectionHeader } from "@/components/marketing/home-section-header";
+import { HomeJoinFree } from "@/components/marketing/home-join-free";
 import { HomePricingCompare } from "@/components/marketing/home-pricing-compare";
 import { ManagedServiceForm } from "@/components/marketing/site/managed-service-form";
 import { HOME_DESCRIPTION, HOME_HEADLINE } from "@/lib/marketing/home-copy";
@@ -48,16 +50,9 @@ export default function HomePage() {
           aria-labelledby="home-service-title"
         >
           <div className="swiss-wrap">
-            <div className="swiss-section-label">
-              <span>03</span>Service
-            </div>
+            <HomeSectionHeader id="home-service-title">Service</HomeSectionHeader>
             <div className="swiss-service-grid">
               <div className="swiss-service-intro">
-                <h2 className="swiss-title" id="home-service-title">
-                  We manage
-                  <br />
-                  it for you
-                </h2>
                 <p className="swiss-service-caption">
                   Too much work to run yourself? We&apos;ll manage it for you.
                 </p>
@@ -70,11 +65,8 @@ export default function HomePage() {
                 </a>
               </div>
               <ol className="swiss-service-list">
-                {MANAGED_INCLUDES.map((item, index) => (
-                  <li key={item.id}>
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    {item.title}
-                  </li>
+                {MANAGED_INCLUDES.map((item) => (
+                  <li key={item.id}>{item.title}</li>
                 ))}
               </ol>
             </div>
@@ -96,26 +88,16 @@ export default function HomePage() {
           className="swiss-wrap swiss-pricing"
           aria-labelledby="home-pricing-title"
         >
-          <h2 className="swiss-section-label" id="home-pricing-title">
-            <span>04</span>Plans
-          </h2>
-          <HomePricingCompare />
+          <HomePricingCompare titleId="home-pricing-title" />
         </section>
         <section
           id="contact"
           className="swiss-wrap swiss-contact"
           aria-labelledby="home-contact-title"
         >
-          <div className="swiss-section-label">
-            <span>05</span>Contact
-          </div>
+          <HomeSectionHeader id="home-contact-title">Contact</HomeSectionHeader>
           <div className="swiss-contact-grid">
             <div className="home-contact-intro" id="home-close">
-              <h2 className="swiss-title" id="home-contact-title">
-                Talk
-                <br />
-                to us
-              </h2>
               <BigNumber dataAttr="home-contact-text" label="Text us" />
               <a
                 href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
@@ -131,6 +113,7 @@ export default function HomePage() {
             />
           </div>
         </section>
+        <HomeJoinFree />
       </div>
     </div>
   );
