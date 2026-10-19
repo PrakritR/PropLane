@@ -18,6 +18,7 @@ import { handleVendorSessionInbound } from "@/lib/sms/vendor-inbound-session.ser
 import {
   handleManagerDispatchReply,
   handleResidentDispatchReply,
+  handleVendorDispatchMedia,
   handleVendorDispatchReply,
 } from "@/lib/vendor-dispatch/inbound.server";
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
@@ -1172,16 +1173,32 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     phoneE164: normalizeE164(fromPhone) ?? fromPhone,
     body,
     messageSid,
+    mediaCount: Number(media.NumMedia) || 0,
   }).catch((error: unknown) => {
     console.error("vendor dispatch vendor reply failed", error instanceof Error ? error.message : "unknown");
     return { handled: false as const };
   });
-  if (dispatchVendor.handled) {
+  // A photo from a vendor on an accepted dispatched job (no DONE with it) is the job's before/after picture.
+  const dispatchVendorMedia = dispatchVendor.handled || (Number(media.NumMedia) || 0) === 0
+    ? ({ handled: false } as const)
+    : await handleVendorDispatchMedia(db, {
+        ownerUserId: managerId,
+        workspaceId: workspaceId ?? null,
+        phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+        body,
+        messageSid,
+        mediaCount: Number(media.NumMedia) || 0,
+      }).catch((error: unknown) => {
+        console.error("vendor dispatch photo failed", error instanceof Error ? error.message : "unknown");
+        return { handled: false as const };
+      });
+  if (dispatchVendor.handled || dispatchVendorMedia.handled) {
+    const handledVendor = dispatchVendor.handled ? dispatchVendor : dispatchVendorMedia as { handled: true; vendorUserId?: string | null };
     mark("dispatch:vendor-answer");
     await projectClassifiedInbound(db, {
       managerUserId: managerId,
       role: "vendor",
-      counterpartyUserId: dispatchVendor.vendorUserId ?? null,
+      counterpartyUserId: handledVendor.vendorUserId ?? null,
       fromPhone,
       toPhone,
       messageSid,

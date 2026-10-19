@@ -13,6 +13,9 @@ const m = vi.hoisted(() => ({
   finish: vi.fn(async (..._a: unknown[]) => true),
   forward: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
   settle: vi.fn(async () => undefined),
+  images: vi.fn(async (..._a: unknown[]) => [] as unknown[]),
+  vendorMedia: vi.fn(async (..._a: unknown[]) => ({ handled: false }) as { handled: boolean; vendorUserId?: string | null }),
+  leasing: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
 }));
 
 vi.mock("@/lib/tools/resident-sms-context", () => ({ resolveResidentSmsAgentContext: m.residentCtx }));
@@ -24,10 +27,15 @@ vi.mock("@/lib/vendor-dispatch/inbound.server", () => ({
   handleManagerDispatchReply: vi.fn(async () => ({ handled: false })),
   handleResidentDispatchReply: vi.fn(async () => ({ handled: false })),
   handleVendorDispatchReply: vi.fn(async () => ({ handled: false })),
+  handleVendorDispatchMedia: m.vendorMedia,
+}));
+vi.mock("@/lib/one-number/inbound-media.server", async (orig) => ({
+  ...(await orig<typeof import("@/lib/one-number/inbound-media.server")>()),
+  inboundImageBlocks: m.images,
 }));
 vi.mock("@/lib/inspections/attachment-intake.server", () => ({ intakeResidentSmsPhotos: vi.fn(async () => []) }));
 vi.mock("@/lib/one-number/session.server", () => ({ loadThreadPause: vi.fn(async () => null) }));
-vi.mock("@/lib/claw-leasing-bot.server", () => ({ handleClawLeasingInbound: vi.fn(async () => ({ ok: true })) }));
+vi.mock("@/lib/claw-leasing-bot.server", () => ({ handleClawLeasingInbound: m.leasing }));
 vi.mock("@/lib/agent/vendor-agent.server", () => ({ resolveVendorAgentSessionForInbound: vi.fn(async () => ({ kind: "unknown_phone" })), runVendorAgentSessionTurn: vi.fn() }));
 vi.mock("@/lib/sms/manager-sms-access.server", () => ({ resolveManagerSmsInboundIdentity: vi.fn(async () => null) }));
 vi.mock("@/lib/sms/project-manager-sms-event.server", () => ({ projectManagerSmsEvent: vi.fn(async () => true) }));
@@ -77,6 +85,8 @@ beforeEach(() => {
   resetFeelSettingsCacheForTests();
   m.residentCtx.mockResolvedValue({ ok: true, ctx: { userId: "res-1", email: "r@x.co" } });
   m.deliver.mockResolvedValue({ ok: true });
+  m.images.mockResolvedValue([]);
+  m.vendorMedia.mockResolvedValue({ handled: false });
   m.gate.mockResolvedValue({ held: false });
   m.debounce.mockImplementation(async (_db: unknown, a: { body: string }) => proceed(a.body));
   m.residentTurn.mockResolvedValue({ reply: "Wi-Fi: 4709A, password sunny42.", sessionId: "s1", traceId: "tr1", lane: "fast_path", model: null });
@@ -124,6 +134,24 @@ describe("resident text on the shared line", () => {
       claim({ sharedLine: true, media: { NumMedia: "1" } }),
     );
     expect(m.debounce.mock.calls[0]![1]).toMatchObject({ immediate: true });
+  });
+
+  it("a photo from a vendor on an accepted dispatched job is the job's, and no other agent answers it", async () => {
+    m.vendorMedia.mockResolvedValue({ handled: true, vendorUserId: "v-1" });
+    const res = await runClaimedInbound(
+      fakeDb({ ...PAYLOAD, body: "", media: { NumMedia: "2" }, sharedLine: true }),
+      claim({ sharedLine: true, body: "", media: { NumMedia: "2" } }),
+    );
+    expect(res.status).toBe(200);
+    expect(m.vendorMedia).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ownerUserId: "owner-a", messageSid: "SM1", mediaCount: 2, workspaceId: "ws-a" }));
+    expect(m.residentTurn).not.toHaveBeenCalled();
+    expect(m.leasing).not.toHaveBeenCalled();
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), "SM1", "w1", "completed");
+  });
+
+  it("a text with no photo never asks the dispatch media handler", async () => {
+    await runClaimedInbound(fakeDb({ ...PAYLOAD, sharedLine: true }), claim({ sharedLine: true }));
+    expect(m.vendorMedia).not.toHaveBeenCalled();
   });
 
   it("a reply held as a draft is logged as a draft, not sent, and nothing is delivered", async () => {

@@ -284,3 +284,28 @@ export async function attachVendorJobMedia(
     return { linked: 0 };
   }
 }
+
+/**
+ * Link every unlinked file of one inbound text to a dispatch run (`vendor_job`, the run id). Used when
+ * the run has no service record to carry the pictures. Scoped to this owner's bucket path; returns the
+ * number of files linked.
+ */
+export async function linkVendorRunMedia(
+  db: SupabaseClient,
+  args: { ownerUserId: string; runId: string; messageSid: string },
+): Promise<number> {
+  try {
+    const { data, error } = await db
+      .from("sms_media_files")
+      .select("id")
+      .eq("message_sid", args.messageSid)
+      .like("storage_path", `manager/${args.ownerUserId}/%`)
+      .is("linked_type", null);
+    if (error || !data?.length) return 0;
+    const ids = (data as Array<{ id: string }>).map((row) => row.id);
+    await linkClaimedMedia(db, { ids, linkedType: "vendor_job", linkedId: args.runId });
+    return ids.length;
+  } catch {
+    return 0;
+  }
+}
