@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { MARKETING_REDIRECTS } from "./src/lib/seo/marketing-routes";
 import { networkInterfaces } from "os";
+import { OWNER_PORTAL_REDIRECTS } from "./src/lib/property-owner/legacy-redirects";
 import { browserSecurityHeaders } from "./src/lib/security/browser-headers";
 
 function localLanHosts(): string[] {
@@ -115,6 +116,7 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       ...MARKETING_REDIRECTS,
+      ...OWNER_PORTAL_REDIRECTS,
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
       // Captain 2026-09-26: "remove live demo no need" — the public site no
       // longer embeds or links the running `/demo` sandbox anywhere, so the

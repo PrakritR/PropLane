@@ -168,7 +168,8 @@ function CoManagerRoleSelect({
   return (
     <FieldSingleSelect
       label="Role"
-      options={TEAM_ROLE_INVITE_OPTIONS}
+      // An existing Property owner row still lists as one (editing it must not blank the select); no new invite offers it.
+      options={value === "property_owner" ? [{ value: "property_owner" as const, label: TEAM_ROLE_LABELS.property_owner }, ...TEAM_ROLE_INVITE_OPTIONS] : TEAM_ROLE_INVITE_OPTIONS}
       // The legacy Full access stamp is the same grant as Admin and lists as it.
       value={value === "full" ? "admin" : value}
       onChange={(next) => onChange(next as TeamRoleId)}

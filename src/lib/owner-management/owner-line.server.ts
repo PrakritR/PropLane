@@ -46,7 +46,7 @@ export function classifyOwnerText(body: string): OwnerIntent {
 const usd = (cents: number) => `${cents < 0 ? "-" : ""}$${(Math.abs(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function financeLink(workspaceId: string, extra = ""): string {
-  return `${resolveEmailLinkBaseUrl()}${portalSignInHref(`/portal/owner/finances?workspace=${encodeURIComponent(workspaceId)}${extra}`)}`;
+  return `${resolveEmailLinkBaseUrl()}${portalSignInHref(`/portal/financials/owner-payouts?workspace=${encodeURIComponent(workspaceId)}${extra}`)}`;
 }
 
 async function statusReply(db: SupabaseClient, ownerUserId: string, w: OwnedManagedWorkspace, now: Date): Promise<string> {

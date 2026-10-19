@@ -62,7 +62,7 @@ export async function sendMonthlyOwnerStatements(db: SupabaseClient, now: Date =
 
     const { data: ws } = await db.from("portal_workspaces").select("owner_user_id, name").eq("id", p.workspace_id).maybeSingle();
     const manager = String((ws as { owner_user_id?: string } | null)?.owner_user_id ?? "");
-    const path = `/portal/owner/finances?workspace=${encodeURIComponent(p.workspace_id)}&month=${month}`;
+    const path = `/portal/financials/owner-payouts?workspace=${encodeURIComponent(p.workspace_id)}&month=${month}`;
     const link = `${resolveEmailLinkBaseUrl()}${portalSignInHref(path)}`;
     const body = [
       `Your ${monthName(month)} statement for ${view.workspace.name}`,

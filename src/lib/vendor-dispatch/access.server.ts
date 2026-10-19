@@ -64,7 +64,7 @@ export async function authorizeDispatchActor(
   if (!(await userHoldsManagerRole(db, user.id, user.user_metadata?.role)) && !(await isAdminUser(user.id))) {
     return fail(403, "Forbidden.");
   }
-  // A Property owner carries the manager role row only to host /portal/owner.
+  // Owner-only refusal seam (retired: owners use the Property portal).
   const ownerRefusal = await refuseOwnerOnly(db, user.id);
   if (ownerRefusal) return { ok: false, response: ownerRefusal };
 

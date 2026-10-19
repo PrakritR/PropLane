@@ -13,15 +13,10 @@ import { PortalClientSessionGuard } from "@/components/portal/portal-client-sess
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
+import { ManagedReadOnlyStrip } from "@/components/portal/managed-read-only-strip";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import { OwnerPortalShell } from "@/components/owner/owner-portal-shell";
-import { getOwnerAccessState, type OwnerAccessState } from "@/lib/property-owner/access.server";
-import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
-import { OWNER_HOME_PATH, ownerRedirectFor } from "@/lib/property-owner/sections";
 import { assertPropertyPortalAccess } from "@/lib/auth/portal-access";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import {
@@ -46,54 +41,16 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   // portal even by typing the URL — hiding the switch is not access control.
   await assertPropertyPortalAccess();
 
-  // An owner-only account (a Property owner with no houses, plan or team seat
-  // of their own) gets the owner shell and nothing else under /portal. Any
-  // other path, typed or followed from an old link, lands on their Overview.
-  // The menu is not the boundary (the manager APIs refuse them on the server);
-  // this is the page half of the same rule.
-  // The two cookie reads need no identity, so they ride along with the session
-  // lookup instead of waiting behind the owner and nav lookups below.
+  // Every account with manager access gets the one manager shell (black top bar, workspace rail, sidebar,
+  // assistant rail). There is no separate owner chrome: an owner of a PropLane-managed workspace sees their
+  // workspace here, view-only (`workspace.readOnly`, see ManagedReadOnlyStrip).
   const [session, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
     getServerSessionProfile(),
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
   ]);
-  if (session.user) {
-    let owner: OwnerAccessState;
-    try {
-      owner = await getOwnerAccessState(session.user.id);
-    } catch {
-      return <PortalAccessUnavailable />;
-    }
-    if (owner.ownerOnly) {
-      const pathname = (await headers()).get("x-pathname") ?? "";
-      // No path to judge means we cannot say this page is one of theirs, so the
-      // requested manager page must not render inside the owner chrome: send
-      // them to their Overview instead (middleware stamps the header on every
-      // matched request, so this is the never-happens branch failing closed).
-      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn, owner.financesOn) : OWNER_HOME_PATH;
-      if (target) redirect(target);
-      return (
-        <>
-          <SurfaceThemeDefault theme="light" />
-          <PortalSessionKeepalive />
-          <PortalClientSessionGuard />
-          <OwnerPortalShell
-            messagesOn={owner.messagesOn}
-            financesOn={owner.financesOn}
-            name={session.profile?.full_name ?? null}
-            email={session.profile?.email ?? session.user.email ?? null}
-            initialSidebarCollapsed={sidebarCollapsed}
-          >
-            {children}
-          </OwnerPortalShell>
-        </>
-      );
-    }
-  }
 
-  // Past the owner gate: the nav definition and the test-workspace
-  // classification are independent of each other, so they resolve together.
+  // The nav definition and the test-workspace classification are independent of each other, so they resolve together.
   // `session` is already resolved (and request-cached), so `user` is known.
   const { profile, user } = session;
   const [nav, testWorkspace] = await Promise.all([
@@ -129,6 +86,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
           name={profile?.full_name ?? null}
           email={profile?.email ?? null}
         />
+        <ManagedReadOnlyStrip />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
           <PortalSkipLink />
           <PortalWorkspaceRail

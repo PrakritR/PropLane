@@ -1,6 +1,3 @@
-import { getOwnerAccessState } from "@/lib/property-owner/access.server";
-import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
-import { OWNER_HOME_PATH } from "@/lib/property-owner/sections";
 import {
   parseResidentInspectionTypeFilter,
 } from "@/lib/resident-inspections-tabs";
@@ -32,7 +29,6 @@ import type { Crumb } from "@/components/layout/breadcrumbs";
 import type { TabItem } from "@/components/ui/tabs";
 import type { ReactNode } from "react";
 import { getEffectiveSessionForPortal, getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
-import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import {
   managerSectionAllowedForTier,
   residentSectionAllowedForManagerTier,
@@ -95,7 +91,7 @@ const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   "rental-days": "income-documents",
   library: "other",
 };
-const FINANCIALS_TABS = ["overview", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
+const FINANCIALS_TABS = ["overview", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "owner-payouts", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
@@ -319,34 +315,16 @@ export async function renderPortalSectionWith(
     loadManagerOutgoingInvoicesPanel, loadPortalCalendar, loadResidentServicesPanel,
   } = panels;
 
-  // A Property owner (an owner-only account) is sent to their Overview for
-  // every manager section — runs before anything else can redirect them into
-  // a manager surface. The layout enforces the same rule for the routes that
-  // have their own directory; this is the dynamic-section half.
+  // Warm the reads every manager section needs, together, so none waits behind another. Every reader is
+  // request-cached: the reads further down reuse these promises, so nothing is fetched twice. A warmed lookup
+  // that settles in a redirect is swallowed here and surfaces again at its original read. There is no owner
+  // branch: an owner of a managed workspace renders the same manager sections, view-only.
   if (kind === "pro" || kind === "manager") {
-    // The session, the acting user id and the plan tier do not depend on each other, so they are
-    // read together instead of one after another. Every reader is request-cached: the reads further
-    // down reuse these promises, so nothing is fetched twice and nothing new is fetched. A warmed
-    // lookup that settles in a redirect is swallowed here and surfaces again at its original read.
     const proRenderContext = kind === "pro" ? getProPortalRenderContext() : null;
     proRenderContext?.catch(() => undefined);
-    const [{ user }, managerUserId] = await Promise.all([
-      getServerSessionProfile(),
-      kind === "manager" ? getEffectiveUserIdForPortal("manager") : Promise.resolve(null),
-    ]);
+    const managerUserId = kind === "manager" ? await getEffectiveUserIdForPortal("manager") : null;
     const managerTierWarm = managerUserId ? getManagerPortalNavSubscriptionTier(managerUserId) : null;
     managerTierWarm?.catch(() => undefined);
-    if (user) {
-      let ownerOnly: boolean;
-      try {
-        ownerOnly = (await getOwnerAccessState(user.id)).ownerOnly;
-      } catch {
-        // Neither shell: a membership we could not read must not decide in
-        // favour of the manager surface.
-        return <PortalAccessUnavailable />;
-      }
-      if (ownerOnly) redirect(OWNER_HOME_PATH);
-    }
   }
 
   const def = await getPortalDefinition(kind);
