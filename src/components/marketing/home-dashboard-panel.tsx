@@ -5,16 +5,9 @@ import { ResidentLifecycleWorkspace } from "./resident-lifecycle-workspace";
 import { DEMO_TABS } from "./site/product-mock/demo-nav";
 import { residentStory, vendorStory } from "./site/product-mock/world";
 import type { HomeDashboardPortal } from "./home-dashboard-data";
-import { PortalSectionTabsView } from "@/components/portal/portal-section-tabs-view";
-import { navSectionTabsFor } from "@/lib/portals/nav-groups";
-import { proPortal } from "@/lib/portals/pro";
-import { vendorPortal } from "@/lib/portals/vendor";
-import { RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
 import { ManagerCommunication, type SampleMessage } from "./resident-lifecycle-manager";
 import type { SoftwareDemoScene } from "./home-software-demo-scenes";
 import "./resident-lifecycle-prototypes.css";
-
-const definitions = { manager: proPortal.sections, resident: RESIDENT_UNIFIED_PORTAL_SECTIONS, vendor: vendorPortal.sections };
 
 const Panel = lazy(() => import("./site/product-mock/demo-panels").then((module) => ({ default: module.DemoPanel })));
 const Owner = lazy(() => import("./home-dashboard-owner"));
@@ -82,20 +75,6 @@ export default function HomeDashboardPanel({ portal, walkthrough }: { portal: Ho
     setPage({ tab, sub });
   };
   const active = scene ? walkthroughTab(scene) : page.tab;
-  const group = portal === "owner" ? null : navSectionTabsFor(portal, active, DEMO_TABS[portal].flatMap((row) => row.members));
-  const sectionTabs = group && portal !== "owner" ? <div className="mx-4 mt-4 shrink-0 lg:mx-8">
-    <PortalSectionTabsView
-      section={active}
-      label={group.label}
-      items={group.sections.map((id) => ({
-        id,
-        label: group.tabLabels[id] ?? definitions[portal].find((section) => section.section === id)?.label ?? id,
-        href: `#demo/${id}`,
-        dataAttr: `section-tab-${id}`,
-      }))}
-      onChange={navigate}
-    />
-  </div> : null;
   const story = portal === "vendor" ? vendorStory("visit") : residentStory(scene && scene !== "paid" ? "tour" : "pay");
   const incoming = request ?? conversation.request;
   const content = portal === "owner" ? <Owner /> : portal === "manager" && active === "communication" && incoming !== undefined ? <ManagerCommunication
@@ -116,7 +95,7 @@ export default function HomeDashboardPanel({ portal, walkthrough }: { portal: Ho
   const screen = <Suspense fallback={<div className="home-dashboard-panel-loading" role="status">Loading {portal} preview…</div>}>{content}{guided ? <WalkthroughReady scene={guided.scene} onReady={guided.onReady} /> : null}</Suspense>;
   return <div ref={ref} className="home-dashboard-live rlp-page" data-home-live-panel={portal} style={{ "--home-dashboard-scale": scale } as CSSProperties}>
     <div className="home-dashboard-window">
-      {portal === "owner" ? screen : <ResidentLifecycleWorkspace story={story} portal={portal} tabs={DEMO_TABS[portal]} active={active} panel onSelect={navigate}><div className="rlp-panel-frame" style={{ flexDirection: "column" }}>{sectionTabs}<div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto" data-software-demo-panel={scene}>{screen}</div></div></ResidentLifecycleWorkspace>}
+      {portal === "owner" ? screen : <ResidentLifecycleWorkspace story={story} portal={portal} tabs={DEMO_TABS[portal]} active={active} panel onSelect={navigate}><div className="rlp-panel-frame" style={{ flexDirection: "column" }}><div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto" data-software-demo-panel={scene}>{screen}</div></div></ResidentLifecycleWorkspace>}
     </div>
   </div>;
 }
