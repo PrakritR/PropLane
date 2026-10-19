@@ -12,6 +12,13 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+/** Texts billed to a workspace through its public flyer codes: tight per code, per IP and per workspace per day. */
+const PUBLIC_BIND_SEND_PER_IP_PER_HOUR = 8;
+const PUBLIC_BIND_SEND_PER_CODE_PER_HOUR = 20;
+const PUBLIC_BIND_SEND_PER_WORKSPACE_PER_DAY = 200;
+
 const NO_STORE = { "Cache-Control": "no-store" };
 const INACTIVE = { error: "This link is not active." };
 
@@ -37,9 +44,15 @@ export async function POST(req: Request) {
   if (!body || !isPublicBindKind(body.kind)) return NextResponse.json(INACTIVE, { status: 404, headers: NO_STORE });
 
   const ip = clientIpFrom(req);
+  const code = String(body.code ?? "").toUpperCase().slice(0, 16);
+  const sending = body.action === "send";
+  // Send and verify never share a bucket: guessing codes (or hitting unknown entry codes) must not
+  // eat the allowance for texting, and a text costs money so its caps are the tight ones.
   const [byIp, byCode] = await Promise.all([
-    rateLimit(`public-bind-ip:${ip}`, body.action === "send" ? 8 : 30, 60 * 60 * 1000),
-    rateLimit(`public-bind-code:${String(body.code ?? "").toUpperCase().slice(0, 16)}`, 120, 60 * 60 * 1000),
+    rateLimit(`public-bind-${sending ? "send" : "verify"}-ip:${ip}`, sending ? PUBLIC_BIND_SEND_PER_IP_PER_HOUR : 30, HOUR_MS),
+    sending
+      ? rateLimit(`public-bind-send-code:${code}`, PUBLIC_BIND_SEND_PER_CODE_PER_HOUR, HOUR_MS)
+      : rateLimit(`public-bind-verify-code:${code}`, 120, HOUR_MS),
   ]);
   if (!byIp.ok || !byCode.ok) {
     return NextResponse.json({ error: "Too many tries. Try again later." }, { status: 429, headers: NO_STORE });
@@ -52,6 +65,11 @@ export async function POST(req: Request) {
   if (!phoneKey) return NextResponse.json({ error: "Enter a US phone number." }, { status: 400, headers: NO_STORE });
 
   if (body.action === "send") {
+    // Reserved only for a real code and a usable number, so bad input never spends the workspace's day.
+    const byWorkspace = await rateLimit(`public-bind-send-workspace:${entry.workspaceId}`, PUBLIC_BIND_SEND_PER_WORKSPACE_PER_DAY, DAY_MS);
+    if (!byWorkspace.ok) {
+      return NextResponse.json({ error: "Too many tries. Try again later." }, { status: 429, headers: NO_STORE });
+    }
     const sent = await requestPublicBindCode(db, { entry, kind: body.kind, phoneKey });
     if (sent.ok) return NextResponse.json({ ok: true }, { headers: NO_STORE });
     if (sent.reason === "rate_limited") {
