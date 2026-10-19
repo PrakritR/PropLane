@@ -1,7 +1,7 @@
 import { OwnerProfile } from "@/components/owner/owner-profile";
 import { requireOwnerPage } from "@/lib/property-owner/page-guard.server";
 
-export const metadata = { title: "Profile" };
+export const metadata = { title: "Settings" };
 
 export default async function OwnerProfileRoute() {
   const who = await requireOwnerPage();

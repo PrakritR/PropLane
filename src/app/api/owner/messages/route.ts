@@ -6,8 +6,8 @@ import { requireOwnerRoute } from "@/lib/property-owner/route-auth.server";
 export const runtime = "nodejs";
 
 /** GET /api/owner/messages — the owner's own conversation with each manager that has Messages on. 404 for the whole route while it is off. */
-export async function GET() {
-  const ctx = await requireOwnerRoute();
+export async function GET(req: Request) {
+  const ctx = await requireOwnerRoute(req);
   if (ctx instanceof NextResponse) return ctx;
   try {
     const conversations = await loadOwnerConversations(ctx.db, ctx.userId, ctx.grants);
@@ -20,7 +20,7 @@ export async function GET() {
 
 /** POST /api/owner/messages { conversationId, body } — the recipient is resolved from the owner's own membership. */
 export async function POST(req: Request) {
-  const ctx = await requireOwnerRoute();
+  const ctx = await requireOwnerRoute(req);
   if (ctx instanceof NextResponse) return ctx;
   // Same shape as the portal's own send: a per-account and a per-IP bucket, so
   // one owner cannot flood their manager's inbox (or the delivery pipeline).

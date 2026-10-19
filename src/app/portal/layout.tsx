@@ -74,7 +74,22 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
       // matched request, so this is the never-happens branch failing closed).
       const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn, owner.financesOn) : OWNER_HOME_PATH;
       if (target) redirect(target);
-      return <OwnerPortalShell messagesOn={owner.messagesOn} financesOn={owner.financesOn}>{children}</OwnerPortalShell>;
+      return (
+        <>
+          <SurfaceThemeDefault theme="light" />
+          <PortalSessionKeepalive />
+          <PortalClientSessionGuard />
+          <OwnerPortalShell
+            messagesOn={owner.messagesOn}
+            financesOn={owner.financesOn}
+            name={session.profile?.full_name ?? null}
+            email={session.profile?.email ?? session.user.email ?? null}
+            initialSidebarCollapsed={sidebarCollapsed}
+          >
+            {children}
+          </OwnerPortalShell>
+        </>
+      );
     }
   }
 

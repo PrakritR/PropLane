@@ -25,8 +25,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
-import { formatOwnerUsd, ownerMonthLabel, useOwnerFetch } from "@/components/owner/owner-data";
-import { OwnerBand, OwnerEmpty, OwnerError, OwnerLoading, OwnerPageTitle, OwnerTile, OwnerTiles } from "@/components/owner/owner-ui";
+import { formatOwnerUsd, ownerMonthLabel, ownerServiceHref, useOwnerFetch } from "@/components/owner/owner-data";
+import { OwnerBand, OwnerEmpty, OwnerError, OwnerLoading, OwnerTile, OwnerTiles } from "@/components/owner/owner-ui";
+import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS, Modal, ModalFooter, PORTAL_MODAL_FORM_FIELD_CLASS } from "@/components/ui/modal";
@@ -74,7 +75,7 @@ export function shiftMonthKey(month: string, delta: number): string {
   return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
 }
 
-const KIND_ICON: Record<string, LucideIcon> = {
+export const KIND_ICON: Record<string, LucideIcon> = {
   rent: Banknote,
   fee: Percent,
   fee_returned: Percent,
@@ -96,7 +97,7 @@ function withdrawalStatus(status: string) {
   return WITHDRAWAL_STATUS[status] ?? { label: status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, " "), icon: Clock };
 }
 
-function shortDate(value: string): string {
+export function shortDate(value: string): string {
   return formatPacificDate(value, { month: "short", day: "numeric" });
 }
 
@@ -104,11 +105,11 @@ function moneyClass(cents: number): string {
   return cents < 0 ? "text-red-600" : "text-foreground";
 }
 
-function AmountFigure({ cents }: { cents: number }) {
+export function AmountFigure({ cents }: { cents: number }) {
   return <span className={cn("min-w-24 shrink-0 text-right text-[14px] font-semibold tabular-nums", moneyClass(cents))}>{formatOwnerUsd(cents)}</span>;
 }
 
-function TotalLine({ label, cents, strong = false }: { label: string; cents: number; strong?: boolean }) {
+export function TotalLine({ label, cents, strong = false }: { label: string; cents: number; strong?: boolean }) {
   return (
     <div className={cn("flex items-center justify-between gap-3 border-b border-border/60 px-4 py-2.5 text-sm last:border-b-0", strong && "font-semibold")}>
       <span className="text-foreground">{label}</span>
@@ -142,16 +143,18 @@ export function OwnerFinancesPage() {
   const reviewId = params?.get("review") ?? "";
   const approveId = params?.get("approve") ?? "";
 
+  const owner = useOwnerWorkspace();
   const list = useOwnerFetch<WorkspaceList>("/api/owner/finances");
-  const [picked, setPicked] = useState<string>("");
   const [month, setMonth] = useState<string | null>(MONTH_KEY.test(paramMonth) ? paramMonth : null);
   const [currentMonth] = useState(() => pacificCalendarMonthKey(Date.now()));
 
   const workspaces = list.data?.workspaces ?? [];
   const waiting = list.data?.waiting ?? [];
+  // A link that names a workspace wins, then the workspace the switcher is on (when PropLane holds its funds), then the first one
+  // that is held: Finances never dead-ends on a workspace with nothing to show.
   const workspaceId =
-    (picked && workspaces.some((w) => w.id === picked) ? picked : "") ||
     (paramWorkspace && workspaces.some((w) => w.id === paramWorkspace) ? paramWorkspace : "") ||
+    (owner?.activeId && workspaces.some((w) => w.id === owner.activeId) ? owner.activeId : "") ||
     workspaces[0]?.id ||
     "";
 
@@ -305,10 +308,7 @@ export function OwnerFinancesPage() {
 
   return (
     <div data-attr="owner-finances">
-      <div className="mb-4 flex items-center justify-between gap-2 [&_h1]:mb-0">
-        <OwnerPageTitle>Finances</OwnerPageTitle>
-        {headerIcons}
-      </div>
+      {headerIcons ? <div className="mb-3 flex items-center justify-end gap-2">{headerIcons}</div> : null}
 
       {list.loading && !list.data ? (
         <OwnerLoading />
@@ -337,29 +337,6 @@ export function OwnerFinancesPage() {
               </Button>
             </div>
           ))}
-
-          {workspaces.length > 1 ? (
-            <OwnerBand label="">
-              <span className="mr-auto flex flex-wrap gap-1" role="tablist" aria-label="Workspaces">
-                {workspaces.map((w) => (
-                  <button
-                    key={w.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={workspaceId === w.id}
-                    data-attr={`owner-finances-workspace-${w.id}`}
-                    onClick={() => {
-                      setPicked(w.id);
-                      setMonth(null);
-                    }}
-                    className={cn("rounded-md px-2 py-1 text-sm font-semibold", workspaceId === w.id ? "bg-accent text-foreground" : "text-muted")}
-                  >
-                    {w.name}
-                  </button>
-                ))}
-              </span>
-            </OwnerBand>
-          ) : null}
 
           {notice ? (
             <p role="status" className="mb-3 text-sm font-medium text-foreground" data-attr="owner-finances-notice">
@@ -422,6 +399,7 @@ export function OwnerFinancesPage() {
                 />
                 {view.statement.rows.map((row) => {
                   const Icon = KIND_ICON[row.kind] ?? Receipt;
+                  const href = row.kind === "vendor_charge" ? ownerServiceHref(row.propertyId) : null;
                   return (
                     <PortalServiceRecordRow
                       key={row.id}
@@ -441,18 +419,18 @@ export function OwnerFinancesPage() {
                       actions={
                         <span className="flex items-center gap-1">
                           <AmountFigure cents={row.amountCents} />
-                          {row.href ? (
+                          {href ? (
                             <PortalIconAction
                               icon={ExternalLink}
                               label="Open"
                               ariaLabel={`Open ${row.label}`}
                               data-attr={`owner-finances-row-open-${row.id}`}
-                              onClick={() => window.open(row.href as string, "_blank", "noopener")}
+                              onClick={() => window.location.assign(href)}
                             />
                           ) : null}
                         </span>
                       }
-                      onOpen={() => (row.href ? window.open(row.href, "_blank", "noopener") : undefined)}
+                      onOpen={() => (href ? window.location.assign(href) : undefined)}
                       dataAttr={`owner-finances-row-${row.id}`}
                     />
                   );

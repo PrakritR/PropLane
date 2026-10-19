@@ -60,7 +60,7 @@ function ownerLinkRow(over: Record<string, unknown> = {}) {
 }
 
 const grants = (messages: boolean, manager = MANAGER): OwnerGrant[] => [
-  { linkId: "link-1", managerUserId: manager, houses: [{ propertyId: HOUSE, performance: true, statements: true, documents: true, messages }] },
+  { linkId: "link-1", workspaceId: "ws-1", managerUserId: manager, houses: [{ propertyId: HOUSE, performance: true, statements: true, documents: true, messages }] },
 ];
 
 describe("owner Messages is two-way", () => {
@@ -188,6 +188,7 @@ describe("the Statements house filter follows the Statements grant", () => {
     const statementsOnly: OwnerGrant[] = [
       {
         linkId: "link-1",
+        workspaceId: "ws-1",
         managerUserId: MANAGER,
         houses: [
           { propertyId: HOUSE, performance: false, statements: true, documents: false, messages: false },
@@ -199,7 +200,7 @@ describe("the Statements house filter follows the Statements grant", () => {
     expect(out.houses.map((h) => h.propertyId)).toEqual([HOUSE]);
     expect(out.rows).toHaveLength(2);
     // An owner with no statements house at all gets an empty tab list.
-    const none = await loadOwnerStatements(db, [{ linkId: "l", managerUserId: MANAGER, houses: [] }], {});
+    const none = await loadOwnerStatements(db, [{ linkId: "l", workspaceId: "ws-1", managerUserId: MANAGER, houses: [] }], {});
     expect(none).toEqual({ rows: [], houses: [] });
   });
 
@@ -207,6 +208,7 @@ describe("the Statements house filter follows the Statements grant", () => {
     const src = read("src/components/owner/owner-statements.tsx");
     expect(src).not.toContain("/api/owner/summary");
     expect(src).toContain("all.data?.houses ?? []");
+    expect(src).toContain("OwnerStatementHouse");
   });
 });
 

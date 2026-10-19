@@ -31,6 +31,8 @@ export type OwnerHouseGrant = {
 
 export type OwnerGrant = {
   linkId: string;
+  /** The workspace this membership is in ("" for a legacy row written before memberships carried one). */
+  workspaceId: string;
   /** The manager (workspace owner) whose books the owner reads. Never sent to the browser. */
   managerUserId: string;
   houses: OwnerHouseGrant[];
@@ -138,7 +140,7 @@ export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promi
       // A house with nothing on is not a grant at all.
       if (grant.performance || grant.statements || grant.documents || grant.messages) houses.push(grant);
     }
-    grants.push({ linkId: String(link.id), managerUserId, houses });
+    grants.push({ linkId: String(link.id), workspaceId, managerUserId, houses });
   }
   return [...grants, ...ownServiceGrants];
 }
@@ -162,6 +164,22 @@ async function loadOwnServiceWorkspaceGrants(db: SupabaseClient, uid: string): P
     });
   }
   return grants;
+}
+
+/**
+ * The opaque key the owner portal uses for one membership's workspace: the
+ * workspace id, or `link:<membership id>` for a legacy row that has none. A
+ * request may only name a key one of the owner's own grants carries.
+ */
+export function ownerWorkspaceKey(grant: Pick<OwnerGrant, "workspaceId" | "linkId">): string {
+  return grant.workspaceId || `link:${grant.linkId}`;
+}
+
+/** The grants of ONE workspace the owner is a member of; empty when the key is not theirs. */
+export function narrowGrantsToWorkspace(grants: OwnerGrant[], key: string | null | undefined): OwnerGrant[] {
+  const wanted = (key ?? "").trim();
+  if (!wanted) return grants;
+  return grants.filter((grant) => ownerWorkspaceKey(grant) === wanted);
 }
 
 /** Houses (across memberships) where `field` is on, with the manager each belongs to. */

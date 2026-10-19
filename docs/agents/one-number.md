@@ -823,6 +823,60 @@ Invariants: see `owner-management.md` § Invariants. In one line: the ledger bal
 
 Tests: `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`, `tests/unit/owner-finances.test.tsx`, `tests/unit/admin-managed-finance-panel.test.tsx`, `tests/unit/vendor-managed-balance.test.tsx`.
 
+## W21 - Owner portal: the shared shell, five rows, workspace switcher (`on/owner-portal`)
+
+Captain (Oct 18): "design owner portal better, work on full design for it to match resident, vendor, manager." The owner-only account
+(`src/lib/property-owner/*`, `src/components/owner/*`, `src/app/portal/owner/*`) now draws the same chrome as every other portal.
+
+- **Shell** (`owner-portal-shell.tsx`): the 40px dark top strip (sidebar toggle, Search, Cmd/Ctrl+K), the 60px workspace rail (one
+  tile per workspace the person is an owner in, Help, the shared `PortalAccountMenu`), the 248px sidebar (workspace heading with
+  "Owner · N houses", the same row class as `PortalSidebar`) and on a phone the header line, the shared bottom-bar classes and a More
+  sheet. It uses `PORTAL_SHELL_ROOT_CLASS`, the sidebar-collapse store and the `data-slot` hooks the other portals do; it carries no
+  assistant and no sparkle. Search is `owner-search-dialog.tsx` (pages only: the palette's Ask row needs an assistant an owner does
+  not have).
+- **Five rows** (`sections.ts`): Overview, Properties, Money, Messages (only while on), Settings. Money folds Statements, Finances
+  (only for the owner of record of a PropLane-managed workspace) and Documents into a tab strip (`owner-section-tabs.tsx`, the
+  `DestinationNav` command appearance, list level only). Routes are unchanged (`/portal/owner/statements|finances|documents|profile`);
+  `/portal/owner/statements/<YYYY-MM>` is new. Settings sits at the foot of the sidebar and in the account menu; on a phone it lives in More.
+- **Workspace switcher.** An owner of record in several workspaces gets a tile each. `OwnerWorkspaceProvider` keeps the active key
+  (localStorage, best effort); `useOwnerFetch` adds `?workspace=<key>` to every `/api/owner/*` read except the finances list. The
+  server re-derives it: `requireOwnerRoute(req)` narrows the membership grants to that workspace (`narrowGrantsToWorkspace`) and a key
+  that is none of the owner's own is a 404. Key = workspace id, or `link:<membership id>` for a legacy membership with none
+  (`ownerWorkspaceKey`). `GET /api/owner/workspaces` lists the tiles (label = the workspace's own name; `managed` = owner of record of an
+  accepted fee policy there). A switch remounts the page content so no state from the other workspace lingers.
+- **Overview** (`owner-overview.tsx`, `GET /api/owner/overview`): `KpiCard`s as on the manager dashboard. A managed workspace shows
+  Occupancy, Rent collected, PropLane fee, Net to you, Available to withdraw (rent, fee, net from the ledger statement of the current
+  Pacific month, available from the balance); any other shows Occupancy, Rent collected, Net income (month and year), Rent due. Then
+  Needs attention (repair approvals waiting on the owner, a statement that landed in the last 14 days, an agreement to sign; each
+  row links to the page that clears it) and Upcoming (move-in and move-out dates of the owner's own rooms in the next 30 days from
+  `resident_inspections`: a house, a room and a day, never a resident) and the twelve-month chart.
+- **Properties** (`owner-properties.tsx`): the manager's list surface, read-only (header card with All / Vacancies tabs, search, no +).
+  House page (`owner-property.tsx`, `GET /api/owner/properties/<id>`): the listing's real https photos or `NoImagePlaceholder` (never a
+  stock photo, a `data:` blob or a relative path), KPI cards, Rooms / Services / Months tabs. Services history is title, Open |
+  Scheduled | Completed, day and cost, with no resident, vendor or unit. A house outside the narrowed workspace is the same 404.
+- **Statements** (`owner-statements.tsx`, `owner-statement-detail.tsx`): a `PortalListControlStack` header (houses as tabs, search, icon
+  Download of the latest month) and a row per month (tile, month, houses line, net, ⋯ with View and Download PDF). A workspace PropLane
+  holds the funds for reads its months from the owner's ledger (`loadOwnerMonthlyNets`, one ledger read folded per month, the same
+  builder the month detail uses, so a row and the month it opens agree), has no per-house tabs (the ledger is per workspace) and
+  downloads through `/api/owner/finances/statement`; a request narrowed to one house keeps the manager's books. The month detail shows
+  gross rent, PropLane fee, repairs and vendors (each line goes to that house's Services history, never to the manager's service
+  record, which an owner account cannot open), adjustments, net to you, withdrawals and the ending balance; a non-managed workspace shows
+  the month's rent, other income, processing fees, repairs and services and net from the books.
+- **Finances / Documents / Messages / Settings** keep their behaviour; Finances drops its own workspace tabs (the switcher decides,
+  a `?workspace=` link wins, else the first held workspace), Documents moves onto the list surface, and no page carries a title above
+  its content (Settings keeps its own).
+- **Not changed:** the owner APIs' redaction (`assertOwnerPayloadRedacted` runs over every new payload), the manager APIs' refusal of
+  an owner-only account, flags, schema. No migration. PropLane-held rent is not split per house on the Properties list (the ledger is
+  per workspace), so those rows show occupancy only.
+- **Proof fixture:** `NODE_OPTIONS=--conditions=react-server npx tsx --env-file=.env.local scripts/seed-owner-portal-proof.ts` (dev project
+  and Stripe test key only; `SKIP_CAPTURE=1` on a re-run). Login `owner.w21@test.proplane.local`. It makes one owner in two workspaces (one
+  managed with a signed 90/10 policy), three houses, rent captured on the platform balance, a vendor bill under the approval threshold and
+  one waiting for the owner, services and upcoming inspections.
+- **Tests:** `tests/unit/owner-portal-routes.test.tsx` (every route has a page, the shell, tiles and scoped reads, each screen),
+  `owner-portal-scope.test.ts` (narrowing, tiles, overview extras, house detail, photo and cost parsing, owner sees only their houses),
+  `owner-statements-held.test.ts`, `owner-portal-guards.test.ts` (no pills, no subtext, no list titles, no sparkle, shared shell classes),
+  plus the updated `property-owner-sections`, `-review-fixes`, `-membership-decides` and `owner-finances` suites.
+=======
 ## W19 - Portal simplification (fold rows, tab strips, merged Settings pages)
 
 Captain: "keep the portal heavy but not too many tabs; simplify; nothing should look too AI". Nothing is dropped:
@@ -866,3 +920,4 @@ labels, the icons and the Settings grouping changed.
   "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
   AI-review legal disclaimers are untouched.
 - Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.
+>>>>>>> claude-1
