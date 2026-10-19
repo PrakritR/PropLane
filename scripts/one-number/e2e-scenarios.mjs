@@ -18,6 +18,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Harness, hex, loadDevEnv, createDb } from "./e2e/core.mjs";
 import { cleanup } from "./e2e/cleanup.mjs";
+import { waitHealthy } from "./e2e/health.mjs";
+import { restoreBaseline, DEV_BASELINE } from "./e2e/baseline.mjs";
 import { World } from "./e2e/fixtures.mjs";
 import { SCENARIOS } from "./e2e/scenarios.mjs";
 
@@ -28,6 +30,7 @@ function parse(argv) {
     if (t === "--keep") flags.keep = true;
     else if (t === "--help") flags.help = true;
     else if (t === "--sweep") flags.sweep = true;
+    else if (t === "--check-config") flags.checkConfig = true;
     else if (t === "--tick") flags.tick = true;
     else if (t === "--port") flags.port = argv[++i];
     else if (t === "--only") flags.only = argv[++i].split(",").map((s) => s.trim().toLowerCase());
@@ -56,6 +59,15 @@ async function main() {
   console.log(`e2e: target=dev project=${resolved.ref}`);
   const db = createDb(resolved);
 
+  // The dev database is shared and fragile: nothing below starts until it answers fast.
+  await waitHealthy(resolved, env, console.log);
+
+  if (flags.checkConfig) {
+    const state = await restoreBaseline(db, console.log);
+    console.log(`e2e: config at baseline ${JSON.stringify(state)} (expected ${JSON.stringify(DEV_BASELINE)})`);
+    return 0;
+  }
+
   if (flags.sweep) {
     // Every auth user this harness ever made carries the e2e-<run>-<label>@proplane-e2e.test address.
     const ids = [];
@@ -75,6 +87,7 @@ async function main() {
   if (flags.reap) {
     const ledger = JSON.parse(readFileSync(flags.reap, "utf8"));
     await restoreConfig(db, ledger.configSnapshot);
+    await restoreBaseline(db, console.log);
     await cleanup(db, ledger.fixtures, console.log);
     return 0;
   }
@@ -133,7 +146,7 @@ async function main() {
         note(text) { console.log(`        ${text.replace(/\n/g, "\n        ")}`); },
       };
       console.log(`\n== ${s.id.toUpperCase()}. ${s.title}`);
-      try { await s.run(ctx); } catch (error) { ctx.check("scenario ran to the end", false, error instanceof Error ? error.stack ?? error.message : String(error)); }
+      try { await waitHealthy(resolved, env, console.log); await s.run(ctx); } catch (error) { ctx.check("scenario ran to the end", false, error instanceof Error ? error.stack ?? error.message : String(error)); }
       const failed = checks.filter((c) => !c.ok);
       results.push({ id: s.id, title: s.title, passed: checks.length - failed.length, failed: failed.length, failures: failed });
       if (failed.length) exitCode = 1;

@@ -30,28 +30,37 @@ export function readManifest() {
     }));
 }
 
-/** Run async tasks with at most `n` in flight (the shared dev API is slow; one at a time would take an hour). */
-async function pool(tasks, n, each) {
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, async () => {
-    while (next < tasks.length) {
-      const task = tasks[next++];
-      await each(await task());
-    }
-  }));
+/**
+ * Run the tasks ONE AT A TIME with a short pause between them. The shared dev database was knocked over by a parallel reap
+ * (many DELETEs across the purge manifest at once), so cleanup is strictly sequential: one table, one small batch, a sleep.
+ */
+const PAUSE_MS = 150;
+const BATCH = 20;
+const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+async function pool(tasks, _ignoredConcurrency, each) {
+  for (const task of tasks) {
+    await each(await task());
+    await nap(PAUSE_MS);
+  }
 }
 
 async function del(db, table, column, values) {
   if (!values.length) return 0;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const { error, count } = await db.from(table).delete({ count: "exact" }).in(column, values);
-    if (!error) return count ?? 0;
-    if (/does not exist|schema cache|Could not find/i.test(error.message ?? "")) return 0;
-    // The shared dev database is busy: a statement timeout is retried, anything else is reported.
-    if (attempt === 3 || !/timeout|deadlock|fetch failed|ECONNRESET|50\d/i.test(error.message ?? "")) return { error: `${table}.${column}: ${error.message}` };
-    await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+  let total = 0;
+  for (let i = 0; i < values.length; i += BATCH) {
+    const batch = values.slice(i, i + BATCH);
+    let done = false;
+    for (let attempt = 0; attempt < 4 && !done; attempt += 1) {
+      const { error, count } = await db.from(table).delete({ count: "exact" }).in(column, batch);
+      if (!error) { total += count ?? 0; done = true; break; }
+      if (/does not exist|schema cache|Could not find/i.test(error.message ?? "")) { done = true; break; }
+      // The shared dev database is busy: a timeout is retried with a growing pause, anything else is reported.
+      if (attempt === 3 || !/timeout|deadlock|fetch failed|ECONNRESET|50\d/i.test(error.message ?? "")) return { error: `${table}.${column}: ${error.message}` };
+      await nap(3000 * (attempt + 1));
+    }
+    await nap(PAUSE_MS);
   }
-  return 0;
+  return total;
 }
 
 export async function cleanup(db, fx, log = () => {}) {
@@ -88,7 +97,7 @@ export async function cleanup(db, fx, log = () => {}) {
       return error && !/does not exist|schema cache|Could not find|column/i.test(error.message ?? "") ? { error: `${table}: ${error.message}` } : 0;
     });
   }
-  await pool(jobs, 8, note);
+  await pool(jobs, 1, note);
 
   // Account-owned rows. The auth user goes first: nearly every account table cascades from it. The manifest sweep after it
   // catches what does not (set-null columns, tables keyed by workspace owner), phase by phase, tables in parallel.
@@ -108,9 +117,9 @@ export async function cleanup(db, fx, log = () => {}) {
     for (const rule of manifest.filter((r) => r.phase === phase)) {
       for (const scope of ["manager", "resident", "vendor"]) for (const column of rule[scope]) tasks.push(() => del(db, rule.table, column, userIds));
     }
-    await pool(tasks, 12, note);
+    await pool(tasks, 1, note);
   }
-  await pool([() => del(db, "manager_property_records", "id", houseIds), () => del(db, "portal_workspaces", "id", workspaceIds)], 2, note);
+  await pool([() => del(db, "manager_property_records", "id", houseIds), () => del(db, "portal_workspaces", "id", workspaceIds)], 1, note);
 
   // Private media written for the fixture owners.
   for (const id of userIds) {
