@@ -13,7 +13,9 @@ import {
 } from "@/lib/vendor-dispatch/engine.server";
 import { isMissingRelationError } from "@/lib/vendor-dispatch/match.server";
 import { timeoutAttempt } from "@/lib/vendor-dispatch/responses.server";
-import { composeApprovalText, composeQuoteAskText } from "@/lib/vendor-dispatch/text";
+import { sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
+import { composeApprovalText, composeQuoteAskText, toGsm7 } from "@/lib/vendor-dispatch/text";
+import { formatPacificShort } from "@/lib/vendor-dispatch/time";
 import { APPROVAL_REMINDER_MINUTES } from "@/lib/vendor-dispatch/trades";
 import { dispatchCleaningForStays, type TurnoverStay } from "@/lib/vendor-dispatch/triggers.server";
 import type { DispatchAttemptRow, DispatchRunRow } from "@/lib/vendor-dispatch/types";
@@ -198,6 +200,50 @@ async function sweepQuoteHolds(db: SupabaseClient, now: Date): Promise<number> {
   return reminded;
 }
 
+/** A vendor with an accepted job is texted once, about an hour before the time they agreed to. */
+export const JOB_REMINDER_LEAD_MINUTES = 60;
+/** Wide enough that a two-minute tick that runs late still catches it, narrow enough not to nag a far-off job. */
+const JOB_REMINDER_WINDOW_MINUTES = 75;
+
+async function sweepJobReminders(db: SupabaseClient, now: Date): Promise<number> {
+  const horizon = new Date(now.getTime() + JOB_REMINDER_WINDOW_MINUTES * 60_000).toISOString();
+  const { data, error } = await db
+    .from("vendor_dispatch_runs")
+    .select("*")
+    .eq("status", "accepted")
+    .is("vendor_done_at", null)
+    .not("scheduled_for", "is", null)
+    .lte("scheduled_for", horizon);
+  if (error) {
+    if (isMissingRelationError(error)) return 0;
+    throw new Error(error.message);
+  }
+  let reminded = 0;
+  for (const run of (data ?? []) as DispatchRunRow[]) {
+    const when = run.scheduled_for ? new Date(run.scheduled_for) : null;
+    if (!when || !Number.isFinite(when.getTime()) || when.getTime() <= now.getTime() || !run.accepted_vendor_directory_id) continue;
+    // A vendor who accepted minutes ago was just given the time and place: no second text for it.
+    if (minutes(now, run.accepted_at) < 30) continue;
+    const contact = (await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id])).get(run.accepted_vendor_directory_id);
+    if (!contact?.phone) continue;
+    const where = toGsm7(String(run.details.houseLabel || run.details.area || "the house"));
+    // The outbox key is the once-only guard: a later tick (or a second instance) re-sends nothing.
+    const sent = await sendVendorDispatchText(db, {
+      ownerUserId: run.owner_user_id,
+      workspaceId: run.workspace_id,
+      vendorDirectoryId: contact.id,
+      phone: contact.phone,
+      vendorUserId: contact.vendorUserId,
+      text: `Reminder: #${run.handle} at ${where}, ${formatPacificShort(when, now)}. Reply DONE when finished`,
+      idempotencyKey: `dispatch-job-reminder-${run.id}`,
+    }).catch(() => ({ ok: false as const, reason: "send_failed" }));
+    if (!sent.ok) continue;
+    await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_reminded", channel: "system", now });
+    reminded += 1;
+  }
+  return reminded;
+}
+
 /** Checkouts today and tomorrow at houses with a cleaner rule. Runs about every ten minutes, not every tick. */
 async function sweepTurnovers(db: SupabaseClient, now: Date): Promise<{ created: number; checked: number }> {
   const bookings = await import("@/lib/reminders/subjects/bookings.server");
@@ -230,6 +276,7 @@ export type DispatchSweepSummary = {
   escalated: number;
   expired: number;
   quoteReminders: number;
+  jobReminders: number;
   turnoversCreated: number;
   errors: string[];
 };
@@ -240,9 +287,10 @@ export async function sweepVendorDispatch(db: SupabaseClient, now: Date = new Da
   const portalDeclines = await guarded("portal_declines", errors, () => sweepPortalDeclines(db, now), 0);
   const approvals = await guarded("approvals", errors, () => sweepApprovals(db, now), { reminded: 0, escalated: 0, expired: 0 });
   const quoteReminders = await guarded("quote_holds", errors, () => sweepQuoteHolds(db, now), 0);
+  const jobReminders = await guarded("job_reminders", errors, () => sweepJobReminders(db, now), 0);
   const turnovers =
     options.turnovers === false
       ? { created: 0, checked: 0 }
       : await guarded("turnovers", errors, () => sweepTurnovers(db, now), { created: 0, checked: 0 });
-  return { timedOut, portalDeclines, ...approvals, quoteReminders, turnoversCreated: turnovers.created, errors };
+  return { timedOut, portalDeclines, ...approvals, quoteReminders, jobReminders, turnoversCreated: turnovers.created, errors };
 }

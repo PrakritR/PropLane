@@ -53,6 +53,7 @@ vi.mock("@/lib/sms/agent-confirmation.server", () => ({ classifySmsConfirmationR
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({ userDefaultWorkspaceId: async () => "ws-1" }));
 
 import { createDispatchRun } from "@/lib/vendor-dispatch/runs.server";
+import { sweepVendorDispatch } from "@/lib/vendor-dispatch/sweep.server";
 import { handleManagerDispatchReply, handleResidentDispatchReply, handleVendorDispatchReply } from "@/lib/vendor-dispatch/inbound.server";
 
 type Row = Record<string, unknown>;
@@ -219,5 +220,52 @@ describe("teams stay apart", () => {
     expect(out).toMatchObject({ ok: false, reason: "never_auto" });
     expect(sent.team).toEqual([]);
     expect(sent.vendor).toEqual([]);
+  });
+});
+
+describe("the hour-before reminder", () => {
+  const minutesAfter = (m: number) => new Date(T0.getTime() + m * 60_000);
+  const sweep = (db: Db, at: Date) => sweepVendorDispatch(db as never, at, { turnovers: false });
+  const reminders = () => sent.vendor.filter((v) => v.text.startsWith("Reminder:"));
+
+  it("texts the accepted vendor once, about an hour before the agreed time, and never twice", async () => {
+    const db = world();
+    await fileLockout(db);
+    await manager(db, "Y");
+    await vendorSays(db, "+12065550101", "YES 2:30pm"); // 21:30Z, accepted at 20:00Z
+    // Too early (two hours out): nothing.
+    expect((await sweep(db, minutesAfter(0))).jobReminders).toBe(0);
+    // 31 minutes later it is 59 minutes before the visit: the reminder goes.
+    expect((await sweep(db, minutesAfter(31))).jobReminders).toBe(1);
+    expect(reminders()).toHaveLength(1);
+    expect(reminders()[0]).toMatchObject({ vendorDirectoryId: "v1" });
+    expect(reminders()[0]!.text).toMatch(/^Reminder: #1 at .*2:30pm\. Reply DONE when finished$/);
+    expect(reminders()[0]!.text.length).toBeLessThanOrEqual(160);
+    // The next ticks do not text again.
+    await sweep(db, minutesAfter(33));
+    await sweep(db, minutesAfter(45));
+    expect(reminders()).toHaveLength(1);
+  });
+
+  it("does not remind a finished job, a job already past, or a job accepted minutes ago", async () => {
+    const done = world();
+    await fileLockout(done);
+    await manager(done, "Y");
+    await vendorSays(done, "+12065550101", "YES 2:30pm");
+    await vendorSays(done, "+12065550101", "DONE");
+    expect((await sweep(done, minutesAfter(40))).jobReminders).toBe(0);
+
+    const late = world();
+    await fileLockout(late);
+    await manager(late, "Y");
+    await vendorSays(late, "+12065550101", "YES 2:30pm");
+    expect((await sweep(late, minutesAfter(100))).jobReminders).toBe(0); // 21:40Z, after the visit time
+
+    const fresh = world();
+    await fileLockout(fresh);
+    await manager(fresh, "Y");
+    await vendorSays(fresh, "+12065550101", "YES 1pm"); // 20:00Z, now
+    expect((await sweep(fresh, minutesAfter(5))).jobReminders).toBe(0);
+    expect(reminders()).toHaveLength(0);
   });
 });
