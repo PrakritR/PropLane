@@ -417,6 +417,12 @@ export type RecurringRentProfile = {
   startMonth: string;
   /** ISO date YYYY-MM-DD — last day of the lease; used to prorate the final partial month. */
   leaseEnd?: string;
+  /**
+   * Set when a signed renewal raised or lowered the rent: months BEFORE `beforeMonth`
+   * (YYYY-MM, the renewal's first month) still bill the rent of the term they belong to.
+   * `monthlyRent` is the renewed rent. Absent on every profile that never renewed.
+   */
+  priorRent?: { beforeMonth: string; monthlyRent: number };
   active: boolean;
   updatedAt: string;
 };
@@ -2870,6 +2876,12 @@ export function recordWorkOrderResidentCharge(input: {
   return charge;
 }
 
+/** The flat monthly rent a profile bills for one month: the prior term's rent before a renewal starts. */
+function recurringMonthlyRentForMonth(profile: RecurringRentProfile, rentMonth: string): number {
+  const prior = profile.priorRent;
+  return prior && rentMonth < prior.beforeMonth && prior.monthlyRent > 0 ? prior.monthlyRent : profile.monthlyRent;
+}
+
 /**
  * Expected recurring rent dollars for one profile + calendar month (same math as
  * {@link syncAllRecurringRentCharges}). Exported for unit tests (PRP-408).
@@ -2905,7 +2917,7 @@ export function expectedRecurringRentAmountForMonth(
       ? Number((daysBilled * profileDailyRate).toFixed(2)) + monthlyAddon
       : profileWeeklyRate > 0
         ? weeklyRentForBillableDays(profileWeeklyRate, daysBilled) + monthlyAddon
-        : Number((profile.monthlyRent * proratedFactor).toFixed(2));
+        : Number((recurringMonthlyRentForMonth(profile, rentMonth) * proratedFactor).toFixed(2));
   const rentSplit = applyBundleGroupSplit(
     householdAmount,
     "Rent",
@@ -3175,6 +3187,8 @@ export function upsertRecurringRentProfile(input: {
   dueDayMode?: RentDueDayMode;
   startMonth?: string;
   leaseEnd?: string;
+  /** Omitted inherits the existing profile's prior rent; an explicit `null` clears it. */
+  priorRent?: { beforeMonth: string; monthlyRent: number } | null;
 }): RecurringRentProfile | null {
   if (!isBrowser()) return null;
   const profiles = readRentProfiles();
@@ -3221,6 +3235,7 @@ export function upsertRecurringRentProfile(input: {
     dueDayMode: input.dueDayMode ?? existing?.dueDayMode ?? "first_of_month",
     startMonth: input.startMonth ?? currentRentMonth(),
     leaseEnd: input.leaseEnd?.trim() || undefined,
+    priorRent: input.priorRent === undefined ? existing?.priorRent : (input.priorRent ?? undefined),
     active: true,
     updatedAt: new Date().toISOString(),
   };
@@ -3240,10 +3255,13 @@ export function updatePendingRentAmountForResident(
   propertyId: string,
   newAmount: number,
   managerUserId: string | null,
+  /** YYYY-MM: leave pending months before this one at the rent they were billed (a renewal's first month). */
+  fromMonth?: string,
 ): void {
   if (!isBrowser()) return;
   const e = email.trim().toLowerCase();
   const rows = readAll();
+  const label = moneyAmountLabel(newAmount);
   let changed = false;
   const next = rows.map((r) => {
     if (
@@ -3251,14 +3269,50 @@ export function updatePendingRentAmountForResident(
       r.status === "pending" &&
       r.residentEmail.trim().toLowerCase() === e &&
       r.propertyId === propertyId &&
-      (r.managerUserId === managerUserId || r.managerUserId === HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE)
+      (r.managerUserId === managerUserId || r.managerUserId === HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE) &&
+      !(fromMonth && r.rentMonth && r.rentMonth < fromMonth)
     ) {
       changed = true;
-      return { ...r, amountLabel: `$${newAmount}`, balanceLabel: `$${newAmount}` };
+      return { ...r, amountLabel: label, balanceLabel: label };
     }
     return r;
   });
   if (changed) writeAll(next);
+}
+
+/**
+ * The prior-rent mark a renewal starting in `renewalMonth` at `newRent` leaves on a profile, or
+ * null when the rent does not change. Re-applying the same renewal yields the same mark.
+ */
+export function renewalPriorRent(
+  profile: Pick<RecurringRentProfile, "monthlyRent" | "priorRent">,
+  renewalMonth: string,
+  newRent: number,
+): { beforeMonth: string; monthlyRent: number } | null {
+  const prior = profile.priorRent;
+  const outgoing = prior && renewalMonth <= prior.beforeMonth ? prior.monthlyRent : profile.monthlyRent;
+  return outgoing > 0 && outgoing !== newRent ? { beforeMonth: renewalMonth, monthlyRent: outgoing } : null;
+}
+
+/**
+ * A renewal changed the rent from `beforeMonth` on: the months before it keep billing the old
+ * rent, so a pending October is never repriced for a lease that starts in November. Clears the
+ * mark when `priorRent` is null. A no-op when the resident has no recurring profile yet.
+ */
+export function setRecurringRentProfilePriorRent(
+  email: string,
+  propertyId: string,
+  priorRent: { beforeMonth: string; monthlyRent: number } | null,
+): boolean {
+  if (!isBrowser()) return false;
+  const key = `${email.trim().toLowerCase()}|${propertyId}`;
+  const profiles = readRentProfiles();
+  const existing = profiles.find((p) => recurringRentProfileKey(p) === key);
+  if (!existing) return false;
+  writeRentProfiles(
+    profiles.map((p) => (p === existing ? { ...p, priorRent: priorRent ?? undefined, updatedAt: new Date().toISOString() } : p)),
+  );
+  return true;
 }
 
 /** Link charges created with email-only to the signed-in resident account. */
