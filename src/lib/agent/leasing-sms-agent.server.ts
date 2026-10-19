@@ -2,6 +2,7 @@ import { smsTaskModel } from "@/lib/agent/runtime-model";
 import { hasAgentModelCredential } from "@/lib/agent/model";
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { toGsm7 } from "@/lib/one-number/segments";
+import { loadLeadHandoffPrompt } from "@/lib/one-number/lead-handoff-context.server";
 import { workspaceOwnedBy } from "@/lib/one-number/shared-line-number.server";
 import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
@@ -536,6 +537,11 @@ export async function runLeasingSmsAgentTurn(
       if (confirmedToolContext.length > 0) {
         system += `\n\nSuccessful tool facts from earlier submitted replies are authoritative conversation context. Reuse canonical listing/property/room ids for follow-up requests unless the prospect explicitly changes the property. Availability facts are timestamped and must be rechecked with list_open_tour_slots before quoting or requesting a time:\n${JSON.stringify(confirmedToolContext)}`;
       }
+    }
+    // A prospect who picked a home on the shared line arrives with it already chosen: say so, or the agent asks "which place?".
+    if (!args.testActor && channel === "sms") {
+      const handoff = await loadLeadHandoffPrompt(db, { ownerUserId: session.landlord_id, workspaceId: args.workspaceId, phone: prospectPhone }).catch(() => null);
+      if (handoff) system += `\n\n${handoff}`;
     }
     if (args.testActor && args.testTarget) {
       system += `\n\nThis authenticated test conversation is scoped to the selected listing ${JSON.stringify(args.testTarget.title)} (canonical property id ${JSON.stringify(args.testTarget.listingId)}). Resolve and reuse that listing unless the person explicitly asks to discuss another listing owned by this manager.`;
