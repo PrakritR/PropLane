@@ -92,9 +92,7 @@ export function defaultTimeoutMinutes(urgency: DispatchUrgency): number {
 export const TRIAGE_QUESTIONS: Record<string, readonly string[]> = {
   lockout: [
     "Is anyone, a child or a pet, locked inside, or is something on like a stove? If yes, call 911.",
-    "Which house and room are you locked out of?",
     "Is there a spare key or a lockbox code you can use?",
-    "Text your name. We confirm you live there before anyone is sent.",
   ],
   leak: [
     "Is water near outlets or a light fixture? If yes, switch power off at the panel if it is safe.",

@@ -84,7 +84,7 @@ export class World {
     const id = `e2e-${this.runId}-${hex(6)}`;
     const address = `${street}, Seattle, WA 98107`;
     const rooms = rents.map((rent, i) => ({
-      id: `${id}-r${i + 1}`, name: `Room ${String.fromCharCode(65 + i)}`, floor: "2", monthlyRent: rent, occupancyCapacity: 1,
+      id: `${id}-r${i + 1}`, name: `Room ${String.fromCharCode(65 + i)}`, floor: "2", monthlyRent: rent, occupancyCapacity: i === 1 ? 3 : 1,
       availability: "Now", moveInAvailableDate: "2026-10-01", manualUnavailableRanges: [], detail: "Sunny room with a desk",
       furnishing: "Furnished", roomAmenitiesText: "Desk", utilitiesEstimate: "60", utilitiesPaymentModel: "manager_billed", securityDeposit: "500",
       photoDataUrls: [`https://images.proplane-e2e.test/${id}/room-${i + 1}.jpg`], videoDataUrl: null,

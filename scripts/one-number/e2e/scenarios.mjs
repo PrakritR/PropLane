@@ -22,7 +22,12 @@ function ensureTeamAPeople(h, world) {
     const locksmith = await world.createRosterVendor({ ownerId: a.manager.id, name: "Sam Locksmith", trade: "Locksmith", phone: world.phone() });
     const plumber = await world.createRosterVendor({ ownerId: a.manager.id, name: "Pat Plumber", trade: "Plumber", phone: world.phone() });
     const lockoutRule = await world.createDispatchRule({ workspaceId: a.workspaceId, ownerId: a.manager.id, trade: "locksmith", issue: "lockout", vendors: [locksmith] });
-    return { ...a, resident, residentPhone, locksmith, plumber, lockoutRule };
+    // Separate residents for the lockout scenarios, so one conversation never colours another.
+    const residentPhoneC = world.phone();
+    const residentC = await world.createResident({ ownerId: a.manager.id, house: a.house, roomIndex: 1, label: "res-c", phone: residentPhoneC, fullName: "Sky Resident" });
+    const residentPhoneG = world.phone();
+    const residentG = await world.createResident({ ownerId: a.manager.id, house: a.house, roomIndex: 1, label: "res-g", phone: residentPhoneG, fullName: "Drew Resident" });
+    return { ...a, resident, residentPhone, residentC, residentPhoneC, residentG, residentPhoneG, locksmith, plumber, lockoutRule };
   })();
 }
 
@@ -100,10 +105,15 @@ SCENARIOS.push({
     const { h, db, check } = ctx;
     const a = await h.fx.bReady;
     const phone = a.residentPhone;
+    const rent = await say(ctx, phone, "how much rent do I owe?");
+    const figures = dollars(rent.all);
+    check("the rent answer comes from the ledger: $1000 (the room rent) is named", figures.includes(1000), rent.all);
+    check("no invented numbers: every dollar figure is one the ledger has ($1000 a month, $2000 with the overdue month)", figures.every((n) => [1000, 2000].includes(n)), rent.all);
+    check("the overdue month is called out", /(overdue|late|past due|september)/i.test(rent.all), rent.all);
     let r1 = await say(ctx, phone, "my kitchen sink is leaking", { media: [{ url: h.mediaUrl("leak"), type: "image/png" }] });
     check("the first reply is one short message with at most one question", (r1.all.match(/\?/g) ?? []).length <= 1, r1.all);
     // The assistant triages first (one question per text); answer it the way a resident would until the service is filed.
-    const answers = ["It is clean water, just dripping under the sink. Nothing electrical nearby.", "Yes please send someone, anytime this week is fine."];
+    const answers = ["Clean water, nothing electrical nearby, and I already closed the shutoff valve under the sink. Please file it now.", "Yes, file it please."];
     const filed = async () => (await db.from("portal_work_order_records").select("id, resident_email, property_id, row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.resident.email)).data ?? [];
     for (let i = 0; i < answers.length && (await filed()).length === 0; i += 1) r1 = await say(ctx, phone, answers[i]);
     check("the resident gets a reply that says it was logged / what happens next", /(logged|filed|submitted|request|got it|on it|manager)/i.test(r1.all), r1.all);
@@ -115,11 +125,6 @@ SCENARIOS.push({
     const { data: media } = await db.from("sms_media_files").select("linked_type, linked_id, workspace_id").eq("sender_phone_key", phone.slice(-10));
     check("the photo is stored privately, indexed with the workspace and linked to the service", (media ?? []).length >= 1 && media.every((m) => m.workspace_id === a.workspaceId) && media.some((m) => m.linked_type === "work_order"), JSON.stringify(media));
 
-    const rent = await say(ctx, phone, "how much rent do I owe?");
-    const figures = dollars(rent.all);
-    check("the rent answer comes from the ledger: $1000 (the room rent) is named", figures.includes(1000), rent.all);
-    check("no invented numbers: every dollar figure is one the ledger has ($1000 a month, $2000 with the overdue month)", figures.every((n) => [1000, 2000].includes(n)), rent.all);
-    check("the overdue month is called out", /(overdue|late|past due|september)/i.test(rent.all), rent.all);
   },
 });
 
@@ -130,11 +135,11 @@ SCENARIOS.push({
   async run(ctx) {
     const { h, db, check } = ctx;
     const a = await h.fx.cReady;
-    let lockout = await say(ctx, a.residentPhone, "I'm locked out of my room, can someone come help?");
+    let lockout = await say(ctx, a.residentPhoneC, "I'm locked out of my room, can someone come help?");
     check("a lockout is not told to call 911", !/911/.test(lockout.all), lockout.all);
     const runsOf = async () => (await db.from("vendor_dispatch_runs").select("id, status, handle, trade, issue").eq("owner_user_id", a.manager.id)).data ?? [];
     const triage = ["Nobody and nothing is inside, I just left my key in the room.", "I am at the front door now, anytime works."];
-    for (let i = 0; i < triage.length && (await runsOf()).length === 0; i += 1) lockout = await say(ctx, a.residentPhone, triage[i]);
+    for (let i = 0; i < triage.length && (await runsOf()).length === 0; i += 1) lockout = await say(ctx, a.residentPhoneC, triage[i]);
     check("the resident is told help is being arranged", /(arrang|locksmith|help|on (its|the) way|manager|looking|let you know|logged|got it)/i.test(lockout.all), lockout.all);
     const runs = await runsOf();
     check("one lockout dispatch run is waiting for the manager's approval", runs.length === 1 && runs[0].status === "awaiting_approval", JSON.stringify(runs));
@@ -144,7 +149,7 @@ SCENARIOS.push({
     const approve = await say(ctx, a.managerPhone, "Y");
     check("the manager's Y approves it", /approved/i.test(approve.all), approve.all);
     const offer = h.captured().filter((m) => m.to.endsWith(a.locksmith.phone.slice(-10))).map((m) => m.body).join("\n");
-    check("the locksmith is offered the job: pay shown, first name only, no street address", /\$120/.test(offer) && /Riley/.test(offer) && !new RegExp(a.house.address.split(",")[0]).test(offer), offer || "(no offer sent)");
+    check("the locksmith is offered the job: pay shown, first name only, no street address", /\$120/.test(offer) && /Sky/.test(offer) && !new RegExp(a.house.address.split(",")[0]).test(offer), offer || "(no offer sent)");
 
     const yes = await say(ctx, a.locksmith.phone, "YES 3pm");
     check("the vendor's YES is accepted with a confirmation", /(got it|accepted|confirmed|you have|assigned)/i.test(yes.all) && !/work order/i.test(yes.all), yes.all);
@@ -153,15 +158,15 @@ SCENARIOS.push({
 
     const done = await say(ctx, a.locksmith.phone, "DONE", { media: [{ url: h.mediaUrl("after1"), type: "image/png" }, { url: h.mediaUrl("after2"), type: "image/png" }] });
     check("DONE is acknowledged", done.all.length > 5, done.all);
-    const asked = h.captured().filter((m) => m.to.endsWith(a.residentPhone.slice(-10))).map((m) => m.body).join("\n");
+    const asked = h.captured().filter((m) => m.to.endsWith(a.residentPhoneC.slice(-10))).map((m) => m.body).join("\n");
     check("the resident is asked whether it is fixed", /fixed/i.test(asked), asked);
-    const { data: wo } = await db.from("portal_work_order_records").select("row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.resident.email);
+    const { data: wo } = await db.from("portal_work_order_records").select("row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.residentC.email);
     const completion = wo?.[0]?.row_data?.completionPhotoDataUrls;
     check("the completion photos are attached to the service", Array.isArray(completion) && completion.length === 2, JSON.stringify(Object.keys(wo?.[0]?.row_data ?? {})));
 
-    const fixed = await say(ctx, a.residentPhone, "YES");
+    const fixed = await say(ctx, a.residentPhoneC, "YES");
     check("the resident's YES completes it", /(glad|great|thank|complete|closed)/i.test(fixed.all), fixed.all);
-    const { data: final } = await db.from("portal_work_order_records").select("row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.resident.email);
+    const { data: final } = await db.from("portal_work_order_records").select("row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.residentC.email);
     check("the service is Completed", /complete/i.test(String(final?.[0]?.row_data?.status ?? "") + String(final?.[0]?.row_data?.bucket ?? "")), JSON.stringify({ status: final?.[0]?.row_data?.status, bucket: final?.[0]?.row_data?.bucket }));
   },
 });
@@ -173,7 +178,7 @@ SCENARIOS.push({
   async run(ctx) {
     const { h, db, check, world } = ctx;
     const a = await h.fx.dReady;
-    await world.createService({ ownerId: a.manager.id, house: a.house, resident: a.resident });
+    await world.createService({ ownerId: a.manager.id, house: a.house, resident: a.resident, title: "Bathroom faucet leak" });
     const late = await say(ctx, a.managerPhone, "who's late on rent");
     check("names the resident with the overdue month and the ledger amount", /Riley/i.test(late.all) && /september/i.test(late.all) && dollars(late.all).includes(1000), late.all);
     const vacant = await say(ctx, a.managerPhone, "what's vacant");
@@ -185,7 +190,7 @@ SCENARIOS.push({
     const rentNow = (before?.property_data?.listingSubmission?.rooms ?? []).find((r) => r.name === "Room A")?.monthlyRent;
     check("nothing changed before the YES", rentNow === 900, String(rentNow));
 
-    const plumber = await say(ctx, a.managerPhone, `send a plumber to the kitchen sink leak at ${a.house.name}`);
+    const plumber = await say(ctx, a.managerPhone, `send a plumber to the bathroom faucet leak at ${a.house.name}`);
     check("sending a plumber is previewed and asks for YES", /(yes)/i.test(plumber.all) && /plumber|Pat/i.test(plumber.all), plumber.all);
     const { data: noRuns } = await db.from("vendor_dispatch_runs").select("id").eq("owner_user_id", a.manager.id).eq("trade", "plumber");
     check("no plumber run exists before the YES", (noRuns ?? []).length === 0, JSON.stringify(noRuns));
@@ -300,7 +305,7 @@ SCENARIOS.push({
     const a = b.a;
     // Team A gets a newer rule whose chain is Lee, then Lee turns A's offer down.
     await world.createDispatchRule({ workspaceId: a.workspaceId, ownerId: a.manager.id, trade: "locksmith", issue: "lockout", vendors: [b.leeA] });
-    const lockA = await reportLockout(ctx, a.residentPhone, a.manager.id, "I'm locked out again, can someone come?");
+    const lockA = await reportLockout(ctx, a.residentPhoneG, a.manager.id, "I'm locked out again, can someone come?");
     check("team A's second lockout is filed", lockA.filed, lockA.last.all);
     await say(ctx, a.managerPhone, "Y");
     const offerA = h.captured().filter((m) => m.to.endsWith(b.sharedPhone.slice(-10))).map((m) => m.body);
