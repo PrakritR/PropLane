@@ -21,6 +21,8 @@ const REPLACEMENTS: Array<[RegExp, string]> = [
   [/…/g, "..."],
   [/[  -   　]/g, " "],
   [/[•·●▪]/g, "-"],
+  // A preview that shows a change ("$900/mo → $850/mo") must not lose the arrow: "$900/mo $850/mo" reads as two prices.
+  [/\s*[→⇒➜➔➡⟶]\s*/g, " to "],
   [/[​-‍⁠﻿]/g, ""],
 ];
 

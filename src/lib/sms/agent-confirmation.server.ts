@@ -77,6 +77,17 @@ export function classifySmsConfirmationReply(body: string): SmsConfirmationInten
   return "none";
 }
 
+/**
+ * Third-party text in a preview is fenced for the MODEL (`<<<EXTERNAL_MESSAGE from ...>>> ... <<<END EXTERNAL_MESSAGE>>>`, with
+ * zero-width spaces inside). A person reading the text does not need the fence, so it becomes plain quotes.
+ */
+export function unfenceUntrustedText(value: string): string {
+  return String(value ?? "")
+    .replace(/<<<EXTERNAL_[A-Z_]+[^<>\u200B]*>>>\s*/g, '"')
+    .replace(/\s*<<<END EXTERNAL_[A-Z_]+>>>/g, '"')
+    .replace(/\u200B/g, "");
+}
+
 /** Render a preview as plain text a person can judge from a phone. */
 export function renderPreviewForSms(preview: ActionPreview): string {
   const lines: string[] = [preview.title];
@@ -84,7 +95,7 @@ export function renderPreviewForSms(preview: ActionPreview): string {
   if (preview.fields?.length) {
     lines.push("");
     for (const field of preview.fields.slice(0, 8)) {
-      lines.push(`${field.label}: ${field.value}`);
+      lines.push(`${field.label}: ${unfenceUntrustedText(field.value)}`);
     }
   }
   for (const warning of preview.warnings ?? []) lines.push("", `Note: ${warning}`);

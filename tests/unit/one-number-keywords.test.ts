@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
+import { EMERGENCY_SAFETY_REPLY, LOCKOUT_REPLY } from "@/lib/one-number/contracts";
+import { classifySharedLineKeyword, emergencyReplyFor } from "@/lib/one-number/keywords";
 
 describe("classifySharedLineKeyword", () => {
   it.each(["HUMAN", "human", "Agent", "person", "representative", "  Human!  ", "HUMAN please", "human, pls", "agent."])(
@@ -43,6 +44,15 @@ describe("classifySharedLineKeyword", () => {
     "",
     "   ",
   ])("leaves %j alone", (body) => expect(classifySharedLineKeyword(body)).toBeNull());
+
+  it("a lockout alone gets the plain apology; anything with danger keeps the 911 safety text", () => {
+    expect(emergencyReplyFor("I am locked out")).toBe(LOCKOUT_REPLY);
+    expect(emergencyReplyFor("Lockout again")).toBe(LOCKOUT_REPLY);
+    expect(emergencyReplyFor("gas leak")).toBe(EMERGENCY_SAFETY_REPLY);
+    expect(emergencyReplyFor("locked out and I smell smoke")).toBe(EMERGENCY_SAFETY_REPLY);
+    expect(LOCKOUT_REPLY).not.toMatch(/911/);
+    expect(LOCKOUT_REPLY).toMatch(/^[\x20-\x7E]+$/);
+  });
 
   it("handles null and undefined", () => {
     expect(classifySharedLineKeyword(null)).toBeNull();

@@ -29,6 +29,12 @@ describe("matchRooms", () => {
     expect(rows.map((r) => r.rentNumeric)).toEqual([900, 950]);
   });
 
+  it("a stored listing with no rent label never takes the other houses down with it", () => {
+    const broken = { ...CATALOG[0]!, id: "l-broken", rentLabel: undefined, listingSubmission: undefined } as unknown as MockProperty;
+    const rows = matchRooms([broken, ...CATALOG], profile({}), TODAY);
+    expect(rows.map((r) => r.propertyId)).toEqual(expect.arrayContaining(["l-uw-a", "l-uw-d"]));
+  });
+
   it("an area nobody serves is no match, never a far-away room", () => {
     expect(matchRooms(CATALOG, profile({ area: "Tacoma" }), TODAY)).toEqual([]);
     expect(listingsInArea(CATALOG, "University District").map((p) => p.id).sort()).toEqual(["l-uw-a", "l-uw-b", "l-uw-d"]);

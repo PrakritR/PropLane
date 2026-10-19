@@ -92,9 +92,7 @@ export function defaultTimeoutMinutes(urgency: DispatchUrgency): number {
 export const TRIAGE_QUESTIONS: Record<string, readonly string[]> = {
   lockout: [
     "Is anyone, a child or a pet, locked inside, or is something on like a stove? If yes, call 911.",
-    "Which house and room are you locked out of?",
     "Is there a spare key or a lockbox code you can use?",
-    "Text your name. We confirm you live there before anyone is sent.",
   ],
   leak: [
     "Is water near outlets or a light fixture? If yes, switch power off at the panel if it is safe.",
@@ -143,7 +141,7 @@ export function triageGuidanceForPrompt(): string {
     .map(([issue, questions]) => `${issue.replace(/_/g, " ")}: ${questions.slice(0, 3).join(" ")}`)
     .join(" | ");
   return [
-    "Triage before a repair goes to a vendor. Safety first, then ask only what the resident's description leaves out, one short question at a time and never more than three or four in all; an emergency is filed at once while you ask.",
+    "Triage before a repair goes to a vendor. Safety first, then ask only what the resident's description leaves out. Put exactly ONE question in each text and wait for the answer before the next; never more than three or four in all; an emergency is filed at once while you ask. The resident's house and room are already on file from their lease: never ask which house or room, and never ask the same thing twice.",
     "A gas smell, smoke, fire or a carbon monoxide alarm: tell them to leave and call 911 and the gas company, and stop. Do not troubleshoot and never promise a vendor; the property team is alerted.",
     "Noise is a conduct issue for the property manager, never a vendor job. A lockout only gets a locksmith after the system matches the texter to a resident of that house; do not promise one. Never promise a price or an arrival time: the vendor confirms those.",
     `Questions by issue: ${perIssue}`,

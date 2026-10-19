@@ -1,4 +1,4 @@
-import { EMERGENCY_TERMS, HUMAN_KEYWORDS } from "@/lib/one-number/contracts";
+import { EMERGENCY_SAFETY_REPLY, EMERGENCY_TERMS, HUMAN_KEYWORDS, LOCKOUT_REPLY, LOCKOUT_TERMS } from "@/lib/one-number/contracts";
 
 /** STOP / START / HELP are NOT classified here: the inbound route handles them as it always has. */
 export type SharedLineTextKeyword = "HUMAN" | "EMERGENCY";
@@ -32,4 +32,16 @@ export function classifySharedLineKeyword(body: string | null | undefined): Shar
   if (isHumanKeyword(text)) return "HUMAN";
   if (EMERGENCY_PATTERNS.some((pattern) => pattern.test(text))) return "EMERGENCY";
   return null;
+}
+
+const LOCKOUT_SET: ReadonlySet<string> = new Set(LOCKOUT_TERMS);
+
+/**
+ * The text that goes back for an EMERGENCY keyword. A lockout alone is urgent for the team but no danger, so it gets a plain
+ * apology; anything else that matched (gas, fire, smoke, a flood, a break-in) keeps the safety text with 911.
+ */
+export function emergencyReplyFor(body: string | null | undefined): string {
+  const text = String(body ?? "");
+  const matched = EMERGENCY_TERMS.filter((_, index) => EMERGENCY_PATTERNS[index]!.test(text));
+  return matched.length > 0 && matched.every((term) => LOCKOUT_SET.has(term)) ? LOCKOUT_REPLY : EMERGENCY_SAFETY_REPLY;
 }

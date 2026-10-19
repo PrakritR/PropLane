@@ -101,6 +101,8 @@ export async function upsertManagerInboxNotice(
     p_control_keys: controlKeys,
   });
   if (error || !data || data.threadId !== threadId || data.messageId !== messageId) {
+    // The cause was invisible ("Could not append"): keep the database's own code and message outside production.
+    if (process.env.NODE_ENV !== "production") console.error("append_manager_sms_inbox_notice refused", error ? { code: error.code, message: error.message } : { result: JSON.stringify(data)?.slice(0, 200) });
     throw new Error("Could not append the SMS inbox notice.");
   }
   return { threadId, messageId };

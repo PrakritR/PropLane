@@ -6,6 +6,20 @@ import { traceProspectShadowComparison } from "@/lib/observability/langfuse";
 import { isProductionRuntime } from "@/lib/server-env";
 
 const QUIET_SECONDS = 10;
+/** A text that reads as a finished thought (a question, or four words or more) is answered after a shorter quiet window. */
+const COMPLETE_TEXT_QUIET_SECONDS = 5;
+
+/**
+ * How long to wait for more texts before answering. A person typing in pieces ("District" ... "UDistrict near campus") needs the
+ * full window; a complete question does not, and the 10 seconds were most of the wait on a one-line question. Each new text
+ * restarts the window with its own length, so a fragment followed by its completion still merges into one answer.
+ */
+export function quietSecondsFor(body: string): number {
+  const text = body.trim();
+  if (!text) return QUIET_SECONDS;
+  const words = text.split(/\s+/).length;
+  return text.endsWith("?") || words >= 4 ? COMPLETE_TEXT_QUIET_SECONDS : QUIET_SECONDS;
+}
 const PROSPECT_SMS_BURST_CALLBACK_PATH = "/api/internal/prospect-sms-burst";
 
 export type ProspectSmsChannel = "twilio" | "claw";
@@ -98,7 +112,7 @@ export async function enqueueProspectSmsBurst(db: SupabaseClient, args: {
   const { data, error } = await db.rpc("record_prospect_sms_ingress", {
     p_source_message_id: args.sourceMessageId, p_manager_user_id: args.managerUserId,
     p_counterparty_phone_e164: args.counterpartyPhoneE164, p_channel: args.channel,
-    p_body: args.body, p_reply_from_number: args.replyFromNumber ?? null, p_quiet_seconds: QUIET_SECONDS,
+    p_body: args.body, p_reply_from_number: args.replyFromNumber ?? null, p_quiet_seconds: quietSecondsFor(args.body),
   });
   const row = Array.isArray(data) ? data[0] : data;
   if (error || !row?.burst_id) return { ok: false, error: "durable_ingress_unavailable" };

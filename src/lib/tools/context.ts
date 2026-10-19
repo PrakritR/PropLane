@@ -97,6 +97,12 @@ export type LeasingSmsAgentScope = {
    * False/undefined on a per-manager work number (scoped to that manager only).
    */
   crossCatalog?: boolean;
+  /**
+   * True on the PropLane line in per-workspace mode (a number the platform service owner holds): the listing tools read
+   * ONLY the live homes of PropLane-managed (`is_service`) workspaces, never the owner's own other workspaces and never
+   * the rest of the public catalog.
+   */
+  serviceCatalog?: boolean;
   /** Confirmed submitted/delivered replies eligible for semantic repeat suppression. */
   recentDeliveredReplies?: readonly {
     messageId: string;

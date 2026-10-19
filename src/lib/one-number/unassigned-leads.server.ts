@@ -34,7 +34,7 @@ import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
+import { getServicePublicListings } from "@/lib/service/service-catalog.server";
 
 export type UnassignedLeadTurn = {
   leadId: string | null;
@@ -260,7 +260,8 @@ export async function handleUnassignedLeadInbound(
 ): Promise<UnassignedLeadTurn> {
   const deps: Required<LeadDeps> = {
     now: depsIn.now ?? (() => new Date()),
-    listings: depsIn.listings ?? getCrawlPublicListings,
+    // A stranger on the PropLane line is shown the homes PropLane manages and no one else's.
+    listings: depsIn.listings ?? (() => getServicePublicListings(db)),
     extract: depsIn.extract ?? extractLeadFieldsWithModel,
     origin: depsIn.origin ?? resolveEmailLinkBaseUrl,
   };
@@ -321,7 +322,8 @@ export async function handleUnassignedLeadInbound(
     };
   } catch (error) {
     // Masked: neither a number nor the body reaches a log.
-    console.error("unassigned lead turn failed", error instanceof Error ? error.name : "unknown");
+    // Outside production the first stack frames are kept: a bare "TypeError" hid a broken offer step.
+    console.error("unassigned lead turn failed", error instanceof Error ? error.name : "unknown", process.env.NODE_ENV !== "production" && error instanceof Error ? error.stack?.split("\n").slice(0, 4).join(" | ") : "");
     return EMPTY_TURN;
   }
 }

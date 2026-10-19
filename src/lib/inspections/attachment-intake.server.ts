@@ -5,6 +5,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { INBOX_ATTACHMENTS_BUCKET, isInboxAttachmentPath } from "@/lib/inbox-attachments.server";
 import { InspectionError } from "./model";
+import { isE2eMediaUrl } from "@/lib/sms/e2e-transport.server";
 import type { InspectionActor } from "./server";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -77,6 +78,12 @@ export async function fetchTwilioMessageMedia(
   messageSid: string,
   maxBytes = MAX_BYTES,
 ): Promise<{ bytes: Buffer; contentType: string }> {
+  // End-to-end harness (dev only): media served from this machine, no credentials sent.
+  if (isE2eMediaUrl(rawUrl) && /^(SM|MM)[a-fA-F0-9]{32}$/.test(messageSid)) {
+    const local = await fetch(rawUrl, { redirect: "error", signal: AbortSignal.timeout(15_000) });
+    if (!local.ok) throw new InspectionError("Could not receive the photo. Please retry.", 503);
+    return { bytes: Buffer.from(await local.arrayBuffer()), contentType: (local.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() };
+  }
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim(), token = process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!sid || !token || !/^(SM|MM)[a-fA-F0-9]{32}$/.test(messageSid)) throw new InspectionError("Photo intake is unavailable.", 503);
   const url = new URL(rawUrl);

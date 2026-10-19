@@ -126,6 +126,13 @@ describe("renderPreviewForSms", () => {
     expect(text).toContain("Reply YES to confirm or NO to cancel.");
   });
 
+  it("shows third-party text as plain quotes: the model's fence and its zero-width spaces never reach a person", () => {
+    const fenced = "<<<EXTERNAL_MESSAGE from service description>>> Kitchen sink is leaking. <<<END EXTERNAL_MESSAGE>>>";
+    const text = renderPreviewForSms({ kind: "x", title: "Create service", confirmLabel: "Go", fields: [{ label: "Description", value: fenced }, { label: "Note", value: "a\u200B<\u200Bb" }] });
+    expect(text).toContain('Description: "Kitchen sink is leaking."');
+    expect(text).not.toMatch(/EXTERNAL_|<<<|>>>|\u200B/);
+  });
+
   it("caps fields so one preview cannot balloon into many segments", () => {
     const text = renderPreviewForSms({
       kind: "x",

@@ -1097,6 +1097,10 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         }
       }
     }
+    // `finishPreparedDelivery` completes the claim once the reply is delivered. Completing it again below failed ("not
+    // processing") and answered 503 AFTER the manager had their reply, so Twilio retried every manager text (found by the
+    // end-to-end harness).
+    let managerClaimFinished = false;
     if (turn?.reply) {
       const prepared = await prepareInboundReply(db, {
         messageSid,
@@ -1143,6 +1147,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         delivered,
       );
       if (finished.status !== 200) return finished;
+      managerClaimFinished = true;
       await settleManagerDebounce();
       await recordAnswered({
         role: "manager",
@@ -1156,7 +1161,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     }
     if (turn) {
       if (!turn.reply) await settleManagerDebounce();
-      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+      if (!managerClaimFinished && !(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
         return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
       }
       return twimlOk();
@@ -1204,6 +1209,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("vendor dispatch inbound projection failed", error instanceof Error ? error.message : "unknown"));
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
     return twimlOk();
@@ -1217,6 +1223,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       mark("route:paused");
       await projectClassifiedInbound(db, {
         managerUserId: managerId, role: pause.role, counterpartyUserId: null, fromPhone, toPhone, messageSid, body, occurredAt,
+        workspaceId: workspaceId ?? null,
       }).catch((error) => console.error("paused inbound projection failed", error instanceof Error ? error.message : "unknown"));
       await db.from("inbound_sms_log")
         .update(inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: pause.role, fromPhone }))
@@ -1313,6 +1320,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("resident inbound projection failed", error instanceof Error ? error.message : "unknown"));
     await upsertManagerSmsContact(db, {
       managerUserId: managerId,
@@ -1602,6 +1610,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         messageSid,
         body,
         occurredAt,
+        workspaceId: workspaceId ?? null,
       }).catch((error) => console.error("vendor roster inbound projection failed", error instanceof Error ? error.message : "unknown"));
       // A text from a vendor on the manager's list (or one the manager texted
       // in the last 90 days) unlocks replies in this thread, unless STOP stands.
@@ -1650,6 +1659,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => {
       console.error("prospect inbound projection failed", error instanceof Error ? error.message : "unknown");
       return null;

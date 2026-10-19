@@ -5,11 +5,12 @@ import {
   shortBathHint,
   type RoomListingRow,
 } from "@/lib/room-listings-catalog";
+import { compareAreaMatches, matchHomeToPlace, resolveSeattlePlace, type AreaMatch } from "@/lib/places/seattle-places";
 import { toGsm7, type LeadOffer, type LeadProfile } from "@/lib/one-number/lead-qualifying";
 
 /**
  * Matching and offers for the Unassigned-leads agent. The listings passed in are what
- * `getCrawlPublicListings()` returns: already run through `publicListingProjection`, the one
+ * `getServicePublicListings()` returns (PropLane-managed homes only): already run through `publicListingProjection`, the one
  * allowlist every anonymous reader shares. Nothing here reads a private row, and an offer carries
  * only facts a browse page already shows: a street line, a price, an availability label, a link.
  *
@@ -41,6 +42,15 @@ function namesPlace(words: string[], token: string): boolean {
  * anywhere yields nothing rather than a far-away room: a stranger told "near UW" is never sent across town.
  */
 export function listingsInArea(listings: readonly MockProperty[], area: string | undefined): MockProperty[] {
+  // A landmark or neighborhood the resolver knows ("UW", "near campus", "Capitol Hill", a zip) ranks homes by distance.
+  const place = resolveSeattlePlace(area ?? "");
+  if (place) {
+    const near = listings
+      .map((p) => ({ p, m: matchHomeToPlace({ lat: p.mapLat, lng: p.mapLng, neighborhood: p.neighborhood, zip: p.zip }, place) }))
+      .filter((x): x is { p: MockProperty; m: AreaMatch } => x.m !== null && x.m.near)
+      .sort((a, b) => compareAreaMatches(a.m, b.m));
+    if (near.length > 0) return near.map((x) => x.p);
+  }
   const tokens = areaTokens(area);
   if (tokens.length === 0) return [...listings];
   const all = listings.filter((p) => {
@@ -79,14 +89,24 @@ export function matchRooms(
   if (inArea.length === 0) return [];
   const moveIn = profile.moveInDate && profile.moveInDate >= today ? profile.moveInDate : undefined;
   const moveOut = moveIn && (profile.leaseMonths ?? 0) > 0 ? addMonths(moveIn, profile.leaseMonths!) : undefined;
-  const rows = filterRoomListings([...inArea], {
+  const filter = {
     zipRaw: "",
     radiusMiles: 50,
     maxBudgetNum: profile.budgetMax && profile.budgetMax > 0 && !skipped.has("budget") ? profile.budgetMax : null,
-    bathroom: profile.bathroom === "private" ? "private" : "any",
+    bathroom: profile.bathroom === "private" ? ("private" as const) : ("any" as const),
     moveIn,
     moveOut,
-  });
+  };
+  // One house at a time: a stored listing with a missing field (no rent label) must drop out of the
+  // search, never take every other team's rooms down with it (found by the end-to-end harness).
+  const rows: RoomListingRow[] = [];
+  for (const listing of inArea) {
+    try {
+      rows.push(...filterRoomListings([listing], filter));
+    } catch (error) {
+      console.error("lead match skipped a listing", listing.id, error instanceof Error ? error.name : "unknown");
+    }
+  }
   const fits = rows.filter((row) => {
     if (row.rentNumeric === null || row.rentNumeric <= 0) return false;
     if (classifyRoomAvailability(row.availabilityRaw) === "unavailable") return false;

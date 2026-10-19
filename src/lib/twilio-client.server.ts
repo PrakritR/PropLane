@@ -1,4 +1,5 @@
 import twilio, { type Twilio } from "twilio";
+import { isE2eMessageSid } from "@/lib/sms/e2e-transport.server";
 
 /**
  * Restricted API keys are preferred for REST mutations. The Auth Token stays
@@ -54,6 +55,8 @@ export function twilioErrorFields(e: unknown): {
  */
 export async function fetchTwilioMessageCreatedAt(messageSid: string): Promise<string | null> {
   const sid = messageSid.trim();
+  // End-to-end harness (dev only): its synthetic MessageSids are created "now".
+  if (isE2eMessageSid(sid)) return new Date().toISOString();
   if (!/^SM[a-fA-F0-9]{32}$/.test(sid)) return null;
   const client = createTwilioRestClient();
   if (!client) return null;

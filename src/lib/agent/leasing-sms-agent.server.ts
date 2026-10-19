@@ -2,6 +2,8 @@ import { smsTaskModel } from "@/lib/agent/runtime-model";
 import { hasAgentModelCredential } from "@/lib/agent/model";
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { toGsm7 } from "@/lib/one-number/segments";
+import { loadLeadHandoffPrompt } from "@/lib/one-number/lead-handoff-context.server";
+import { workspaceOwnedBy } from "@/lib/one-number/shared-line-number.server";
 import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
@@ -36,6 +38,9 @@ import {
   schedulingContextPrompt,
 } from "@/lib/prospect-tour-scheduling-context.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
+import { proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
+import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 
 type Db = SupabaseClient;
 
@@ -335,6 +340,12 @@ export async function runLeasingSmsAgentTurn(
     prospectPhoneE164?: string;
     inboundText: string;
     workNumber?: string | null;
+    /**
+     * The workspace the shared-line router stamped on this text. The shared number has no
+     * `manager_sms_numbers` row to place it by, so without this a billed turn on the shared line was
+     * refused as "workspace unknown". Re-checked against `landlordId` below; never trusted as given.
+     */
+    workspaceId?: string | null;
     inboundMessageSid?: string | null;
     /** True on the shared Claw line — lets listing tools span the whole public catalog. */
     crossCatalog?: boolean;
@@ -456,6 +467,11 @@ export async function runLeasingSmsAgentTurn(
   }
 
   const prospectPhone = normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim();
+  // The PropLane line in per-workspace mode (a number the platform service owner holds): the catalog is the homes PropLane
+  // manages, not this account's own other workspaces. Any other number keeps its workspace's homes only.
+  const serviceLine = !args.testActor && args.crossCatalog !== true && channel === "sms"
+    ? await isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber })
+    : false;
   const recentDeliveredReplies = args.testActor ? [] : await loadRecentDeliveredReplies(db, {
     landlordId: session.landlord_id,
     phone: prospectPhone,
@@ -474,6 +490,7 @@ export async function runLeasingSmsAgentTurn(
       prospectEmail: args.testActor?.email ?? null,
       workNumber: args.workNumber?.trim() || null,
       crossCatalog: args.crossCatalog === true,
+      ...(serviceLine ? { serviceCatalog: true } : {}),
       channel,
       currentInboundText: text,
       recentDeliveredReplies,
@@ -530,8 +547,19 @@ export async function runLeasingSmsAgentTurn(
         system += `\n\nSuccessful tool facts from earlier submitted replies are authoritative conversation context. Reuse canonical listing/property/room ids for follow-up requests unless the prospect explicitly changes the property. Availability facts are timestamped and must be rechecked with list_open_tour_slots before quoting or requesting a time:\n${JSON.stringify(confirmedToolContext)}`;
       }
     }
+    // The model has no clock: without today's date "Thursday" or "tomorrow" cannot become the fromDate/toDate that
+    // list_open_tour_slots needs, and a page of the first 40 slots never reaches the day they asked about.
+    system += `\n\nToday in Pacific time is ${new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(new Date())} (${new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())}).`;
+    // A prospect who picked a home on the shared line arrives with it already chosen: say so, or the agent asks "which place?".
+    if (!args.testActor && channel === "sms") {
+      const handoff = await loadLeadHandoffPrompt(db, { ownerUserId: session.landlord_id, workspaceId: args.workspaceId, phone: prospectPhone }).catch(() => null);
+      if (handoff) system += `\n\n${handoff}`;
+    }
     if (args.testActor && args.testTarget) {
       system += `\n\nThis authenticated test conversation is scoped to the selected listing ${JSON.stringify(args.testTarget.title)} (canonical property id ${JSON.stringify(args.testTarget.listingId)}). Resolve and reuse that listing unless the person explicitly asks to discuss another listing owned by this manager.`;
+    }
+    if (serviceLine) {
+      system += `\n\nYou are answering on the PropLane line. The only homes you know are the ones list_live_listings returns: homes PropLane manages. Never name or suggest a home a tool did not return. For any place the prospect names (a campus, a landmark, a neighborhood, a zip, "near downtown"), call list_live_listings ONCE with area set to their words, then answer from that one result: list up to three homes with name, rent and the distance the tool gave, and put each home's own listingUrl from the tool next to it. Use the tool's browseUrl for "see everything". If the tool says no home is in the area, say so and give the closest ones it returned. If the lookup fails, say a teammate will follow up. When they pick a home, call build_prospect_links and send the tour or apply link.`;
     }
     shadowSystem = system;
     turnPromptMeta = resolvePromptMeta(PROMPT_IDS.leasingSmsAgent, system);
@@ -597,6 +625,21 @@ export async function runLeasingSmsAgentTurn(
           readOnly: true,
           allowWriteTools: args.prospectBurst && channel === "sms" ? LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS : LEASING_SMS_INLINE_WRITE_TOOLS,
           suppressionTools: ["suppress_redundant_reply"],
+          // A prospect never receives the portal's "I can't verify that link" sentence: a link no lookup returned is redone
+          // once without links, then answered from the tool results alone. The site links are constants, so always allowed.
+          ...(channel === "sms"
+            ? {
+                linkRecovery: {
+                  allowedUrls: Object.values(proplaneSiteLinks(publicOrigin())).filter((value) => value.startsWith("http")),
+                  summarize: summarizeLeasingEvidence,
+                  replaceWhen: (trace: { tool: string; ok: boolean }[]) => {
+                    if (!serviceLine) return false;
+                    const lists = trace.filter((entry) => entry.tool === "list_live_listings");
+                    return lists.length > 0 && !lists[lists.length - 1].ok;
+                  },
+                },
+              }
+            : {}),
           authorizeInlineWrite: args.prospectBurst
             ? async (call) => {
                 if (inlineActionAuthorized) return false;
@@ -802,7 +845,8 @@ export async function runLeasingSmsAgentTurn(
   // guessing; the legacy per-workspace wallet keeps its existing
   // default-workspace fallback when the number cannot be placed, so this is
   // never a behavior change while the pool is off.
-  const workspaceId = await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber);
+  const workspaceId = (await workspaceOwnedBy(db, session.landlord_id, args.workspaceId))
+    ?? (await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber));
   if (!workspaceId && isCommsCreditPoolEnabled()) {
     console.warn("leasing-sms turn skipped: workspace unknown", { sessionId: session.id, managerUserId: session.landlord_id });
     return null;

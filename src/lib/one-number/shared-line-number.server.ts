@@ -20,6 +20,22 @@ export async function isConfiguredSharedNumber(db: SupabaseClient, phone: string
   return config.sharedNumber !== null && config.sharedNumber === normalized;
 }
 
+/** `workspaceId` only when it really belongs to `ownerUserId`; null otherwise (never a default, never a guess). */
+export async function workspaceOwnedBy(
+  db: SupabaseClient,
+  ownerUserId: string,
+  workspaceId: string | null | undefined,
+): Promise<string | null> {
+  const id = String(workspaceId ?? "").trim();
+  if (!id || !ownerUserId.trim()) return null;
+  try {
+    const { data, error } = await db.from("portal_workspaces").select("id").eq("id", id).eq("owner_user_id", ownerUserId).maybeSingle();
+    return error || !data?.id ? null : String(data.id);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The workspace a send is about: the one named, else the workspace that holds
  * the house, else the owner's default workspace. Null when none can be proven.

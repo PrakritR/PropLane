@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { isGsm7, smsSegmentCount, toGsm7 } from "@/lib/one-number/segments";
 
 describe("one-number segment guard", () => {
+  it("keeps a change preview readable: an arrow becomes 'to'", () => {
+    expect(toGsm7("Monthly rent: $900/mo \u2192 $850/mo")).toBe("Monthly rent: $900/mo to $850/mo");
+    expect(toGsm7("Room A\u2192Room B")).toBe("Room A to Room B");
+  });
+
   it("rewrites curly quotes, long dashes and ellipsis", () => {
     expect(toGsm7("It’s “ready” — see you…")).toBe('It\'s "ready" - see you...');
     expect(toGsm7("9–10am")).toBe("9-10am");

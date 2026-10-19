@@ -103,7 +103,7 @@ describe("OTP lockout", () => {
     expect(await verifyLinkUnlockCode(db, link, right)).toEqual({ ok: false, reason: "locked" });
   });
 
-  it("a guesser gets at most 10 tries a day: two codes of five, then the third code is refused", async () => {
+  it("a guesser gets at most 10 wrong tries: two codes of five, then the third code is refused (the phone-wide failure cap)", async () => {
     const { db } = world();
     const { link } = await rentLink(db);
     let tries = 0;

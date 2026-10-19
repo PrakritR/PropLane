@@ -128,6 +128,11 @@ export const EMERGENCY_TERMS = [
   "lockout",
 ] as const;
 
+/** Lockout words are urgent for the team but not a danger: "call 911" would be the wrong thing to tell someone standing outside their door. */
+export const LOCKOUT_TERMS = ["locked out", "lockout"] as const;
+
+export const LOCKOUT_REPLY = "Sorry about that. We have alerted your property team and someone will contact you shortly.";
+
 export const EMERGENCY_SAFETY_REPLY =
   "If anyone is in danger, call 911 now. We have alerted your property team and someone will call you shortly.";
 
