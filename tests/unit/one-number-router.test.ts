@@ -372,6 +372,57 @@ describe("pure helpers", () => {
     expect(buildDisambiguationQuestion([A, same])).toBe("Is this about your room at 5259 Brooklyn Ave or a job at 5259 Brooklyn Ave?");
   });
 
+  describe("a live dispatch offer outranks the sticky thread", () => {
+    const sticky: SharedLineSession = { phoneKey: "2065550142", currentWorkspaceId: "a", activeRole: "vendor", aiPaused: false, pausedAt: null, pendingCandidates: null, updatedAt: "2026-10-18T00:00:00Z" };
+    const stickyJob: SharedLineCandidate = { ...B, workspaceId: "a", ownerUserId: "oa", label: "5259 Brooklyn Ave" };
+    const offerJob: SharedLineCandidate = { ...B, workspaceId: "c", ownerUserId: "oc", label: "Cedar Apts", liveDispatch: ["offer"] };
+    const secondOffer: SharedLineCandidate = { ...B, workspaceId: "d", ownerUserId: "od", label: "Dexter House", liveDispatch: ["offer"] };
+    const acceptedJob: SharedLineCandidate = { ...B, workspaceId: "e", ownerUserId: "oe", label: "Elm Court", liveDispatch: ["accepted"] };
+
+    it("a bare YES / Y / N goes to the workspace with the live offer, not the sticky one", () => {
+      for (const body of ["YES", "y", "No", "N"]) {
+        const d = decideFromCandidates({ body, candidates: [stickyJob, offerJob], session: sticky });
+        expect(d).toMatchObject({ kind: "routed", candidate: { workspaceId: "c" } });
+      }
+    });
+
+    it("a bare DONE goes to the workspace with the accepted job, and YES does not", () => {
+      expect(decideFromCandidates({ body: "DONE", candidates: [stickyJob, acceptedJob], session: sticky })).toMatchObject({ kind: "routed", candidate: { workspaceId: "e" } });
+      expect(decideFromCandidates({ body: "yes", candidates: [stickyJob, acceptedJob], session: sticky })).toMatchObject({ kind: "routed", candidate: { workspaceId: "a" } });
+    });
+
+    it("two live offers ask which, listing only those two", () => {
+      const d = decideFromCandidates({ body: "YES", candidates: [stickyJob, offerJob, secondOffer], session: sticky });
+      expect(d.kind).toBe("ambiguous");
+      if (d.kind === "ambiguous") {
+        expect(d.candidates.map((c) => c.workspaceId).sort()).toEqual(["c", "d"]);
+        expect(d.question).toBe("Is this about your job at Cedar Apts or your job at Dexter House?");
+      }
+    });
+
+    it("sticky still wins when nothing is waiting, and a job number or a non-answer does not trigger the rule", () => {
+      expect(decideFromCandidates({ body: "YES", candidates: [stickyJob, { ...offerJob, liveDispatch: [] }], session: sticky })).toMatchObject({ kind: "routed", candidate: { workspaceId: "a" } });
+      expect(decideFromCandidates({ body: "what time is the visit", candidates: [stickyJob, offerJob], session: sticky })).toMatchObject({ kind: "routed", candidate: { workspaceId: "a" } });
+      expect(decideFromCandidates({ body: "YES #4", candidates: [stickyJob, offerJob], session: sticky })).toMatchObject({ kind: "routed", candidate: { workspaceId: "a" } });
+    });
+  });
+
+  it("dispatch lookup: an offered attempt marks its workspace as waiting on an answer, an accepted job as waiting on DONE", async () => {
+    const dispatch = (attempt: string, run: string) => ({
+      manager_vendor_records: [{ id: "vd-1", manager_user_id: OWNER_B, row_data: { name: "Sam", phone: "(206) 555-0142", active: true } }],
+      vendor_dispatch_attempts: [{ run_id: "run-1", vendor_directory_id: "vd-1", status: attempt }],
+      vendor_dispatch_runs: [{ id: "run-1", owner_user_id: OWNER_B, property_id: "prop-b1", status: run, completed_at: null }],
+    });
+    const offered = world(dispatch("offered", "offering"));
+    expect(await findVendorJobCandidates(offered.db, PHONE)).toMatchObject([{ workspaceId: "ws-b", liveDispatch: ["offer"] }]);
+    const accepted = world(dispatch("accepted", "accepted"));
+    expect(await findVendorJobCandidates(accepted.db, PHONE)).toMatchObject([{ workspaceId: "ws-b", liveDispatch: ["accepted"] }]);
+    const exhausted = world(dispatch("timed_out", "exhausted"));
+    const [candidate] = await findVendorJobCandidates(exhausted.db, PHONE);
+    expect(candidate).toMatchObject({ workspaceId: "ws-b" });
+    expect(candidate!.liveDispatch).toBeUndefined();
+  });
+
   it("decideFromCandidates is none for nobody and routed for one", () => {
     expect(decideFromCandidates({ body: "hi", candidates: [], session: null }).kind).toBe("none");
     expect(decideFromCandidates({ body: "hi", candidates: [A], session: null })).toMatchObject({ kind: "routed" });

@@ -19,6 +19,7 @@ import {
 } from "@/lib/one-number/router-lookups.server";
 import { saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { handleUnknownSenderInbound } from "@/lib/one-number/onboarding/unknown-sender.server";
+import { parseVendorDispatchReply } from "@/lib/vendor-dispatch/reply-parse";
 
 export {
   findApplicantCandidates,
@@ -167,6 +168,14 @@ export function buildDisambiguationQuestion(candidates: SharedLineCandidate[]): 
   return `Is this about ${head} or ${labels[labels.length - 1]}?`;
 }
 
+/** What a bare vendor answer is for: YES / NO / BUSY answer an offer, DONE closes an accepted job. A job number (#7) names its own run. */
+export function dispatchAnswerKind(body: string): "offer" | "accepted" | null {
+  const parsed = parseVendorDispatchReply(body);
+  if (!parsed || parsed.kind === "invoice") return null;
+  if ("handle" in parsed && parsed.handle != null) return null;
+  return parsed.kind === "done" ? "accepted" : "offer";
+}
+
 /**
  * The pure core of routing. Given every workspace this phone legitimately
  * belongs to, pick one, or say we must ask. Order of evidence:
@@ -188,6 +197,15 @@ export function decideFromCandidates(
 
   const fitting = pickCandidateFromText(input.body, candidates);
   if (fitting) return { kind: "routed", candidate: fitting };
+
+  // A bare YES / NO / DONE answers whatever is waiting on this phone, and that outranks the sticky thread:
+  // the vendor who was last talking to team A still means team B's open offer.
+  const waitingOn = dispatchAnswerKind(input.body);
+  if (waitingOn) {
+    const live = candidates.filter((c) => c.role === "vendor" && c.liveDispatch?.includes(waitingOn));
+    if (live.length === 1) return { kind: "routed", candidate: live[0] };
+    if (live.length > 1) return { kind: "ambiguous", candidates: live, question: buildDisambiguationQuestion(live) };
+  }
 
   if (session?.currentWorkspaceId) {
     const sticky =
