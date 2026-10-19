@@ -192,6 +192,8 @@ const ZIP_CENTROIDS: Record<string, { lat: number; lng: number; label: string }>
   "98199": { lat: 47.650, lng: -122.399, label: "Magnolia (98199)" },
 };
 
+const KNOWN_NEIGHBORHOODS = new Set(SEATTLE_PLACES.flatMap((p) => p.neighborhoods.map((n) => normalizePlaceText(n))));
+
 export type ResolvedPlace = {
   id: string;
   label: string;
@@ -290,6 +292,8 @@ export function matchHomeToPlace(home: AreaHome, target: ResolvedPlace): AreaMat
   }
   const hood = normalizePlaceText(home.neighborhood ?? "");
   if (hood && target.neighborhoods.some((n) => normalizePlaceText(n) === hood)) return { how: "neighborhood", distanceMiles: null, near: true };
+  // A home that names a DIFFERENT known neighborhood is not here, whatever its zip shares (98105 spans several).
+  if (hood && target.kind !== "zip" && KNOWN_NEIGHBORHOODS.has(hood)) return null;
   const zip = (home.zip ?? "").trim().slice(0, 5);
   if (zip && target.zips.includes(zip)) return { how: "zip", distanceMiles: null, near: true };
   // A home with a zip but no coordinates still has a rough position.
