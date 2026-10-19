@@ -10,6 +10,23 @@ The browser omits auth credentials; proposals and confirmations stay simulated
 on the demo route. It never executes a real account tool. The Room 3 hero and
 lower manager proof remain fixture-only; draft edits/sends stay in component state.
 
+**The homepage Software demo is the one exception (captain feedback #14, Oct 18, 2026).**
+`/demo/home-embed` (`src/app/demo/home-embed/page.tsx`) is exempt from both `/demo` redirects
+(`next.config.ts` negative-lookahead source, `src/middleware.ts` path check), is `noindex`, and is the only
+`/demo` URL a visitor reaches: the homepage `#dashboard` section iframes it. It renders the SAME
+`DemoManagerShell` (`embed` prop: no role switch) over `buildHomeDemoSnapshot()` (Willow Court / Fremont Studio /
+Maple Duplex, Pacific Plumbing, one open service), so every panel is the real portal component and follows the
+portal as it changes. Never redraw a panel for the homepage. `HomeDemoEmbed` (`src/components/demo/`) plays
+`home-demo-script.ts` (data: `click` / `hover` / `say` / `effect` steps) with the existing `DemoCursor`; a click
+targets a real control by route, role or text (never a copy), and an INBOUND event (a text arriving, a vendor's
+YES, a photo) is a store write through the app's own writers (`home-demo-effects.ts`). The embed answers every
+same-origin `/api/*` request in the browser (`home-demo-fetch-guard.ts`: sample workspace, empty SMS directory,
+quiet success for writes, "unavailable" for other reads), keeps its own address (panels push `/portal/...`
+history entries that would otherwise switch demo mode off), and never loads analytics. It reaches the parent
+only by `postMessage` (`src/lib/demo/home-demo-embed.ts`, origin and source checked both ways); the parent draws
+the phone from what the embed reports. Chapter text comes from `home-discovery-script.ts`. A new chapter is a
+new entry in the script, never new UI. Verify: no non-GET request and no 401/403 from the iframe, no console error.
+
 **`/demo` is retired from the public site (captain 2026-09-26: "remove live
 demo no need").** `next.config.ts`'s `redirects()` and `src/middleware.ts`
 both bounce `/demo` and every `/demo/*` sub-path straight to `/`, so the page

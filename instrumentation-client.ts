@@ -27,6 +27,8 @@ if (
   typeof window !== "undefined"
   && isProductionAnalyticsHost(window.location.hostname)
   && process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
+  // The homepage's sample portal iframe (`/demo/home-embed`): fixture data, scripted clicks. Never analytics.
+  && !window.location.pathname.startsWith("/demo")
 ) {
   const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
   if (window.location.pathname.startsWith("/auth")) {

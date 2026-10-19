@@ -79,7 +79,11 @@ describe("single-page homepage composition", () => {
     const positions = order.map((item) => home.indexOf(item));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
-    expect(home).toContain('<PricingCards variant="overview" />');
+    // Pricing is the compare table; its cells come from the same rate card and COMPARE rows /pricing reads.
+    expect(home).toContain("<HomePricingCompare");
+    const compare = read("src/components/marketing/home-pricing-compare-data.ts");
+    expect(compare).toContain('from "@/lib/billing/rate-card"');
+    expect(compare).toContain('from "@/components/marketing/site/pricing-compare-data"');
     expect(home).toContain("<ManagedServiceForm");
     expect(home).not.toMatch(
       /TextingHomeLazy|texting-roles|texting-eyebrow|You stay in control/,

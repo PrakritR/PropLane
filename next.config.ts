@@ -123,7 +123,8 @@ const nextConfig: NextConfig = {
       // (`src/lib/demo/*`) stay in the tree — other code/tests still import
       // them — this only closes the public URL. See docs/agents/demo-sandbox.md.
       { source: "/demo", destination: "/", permanent: false },
-      { source: "/demo/:path+", destination: "/", permanent: false },
+      // The one exception is the homepage Software demo's iframe (`/demo/home-embed`, fixture data, no writes).
+      { source: "/demo/:path((?!home-embed$).+)", destination: "/", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a

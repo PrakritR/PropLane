@@ -1,12 +1,15 @@
-## One Software frame (captain feedback 10–11, October 18)
+## One Software section (captain feedback 10-14, October 18)
 
-The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, after the number
-system. Desktop and mobile navigation call it Software. Its six-scene story and
-hands-on portal share `HomeDashboardPanel`, the canonical folded navigation and
-section tabs. The first scene already includes the phone’s incoming message in
-the manager inbox. Pausing or finishing hands the same mounted frame to the
-visitor; selecting a portal also pauses. Replay is explicit, and reduced motion
-keeps scenes static. There is no second dashboard/demo section on the homepage.
+The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, headed with the shared `HomeSectionHeader`
+("Software"). It is three chapters (01 Find a house, 02 Vendor gets work, 03 Photo by text) over the REAL manager
+portal: an iframe of `/demo/home-embed` at a fixed 1280x800 logical size, scaled to fit, with the phone that is
+texting beside it. The phone is drawn from what the iframe reports (`HomeIphonePhone`, plus listing cards and
+photos from `home-demo-phone-items.tsx`), so the two never disagree. A visible cursor clicks the real controls;
+inbound events (a text, a YES, a photo) are store writes. Hover, focus, a press inside the portal, leaving the
+screen or a hidden tab pause it and leave a Play control; chapters advance and loop. Reduced motion draws each
+chapter's finished state (no cursor, no autoplay). Photos are drawn sample SVGs, never stock or listing photos.
+Architecture and rules: `docs/agents/demo-sandbox.md`. There is no redrawn portal copy on the homepage, and no
+second dashboard/demo section.
 
 `public-footer-band.css` owns the shared footer’s opaque ink-blue surface. Do
 not restore transparent footer rules in the wave styles or a separate gradient
@@ -36,21 +39,7 @@ resident details. Network captions describe the shipped public-listing router,
 approved vendor jobs, and keeping the PropLane number when moving homes; they
 make no claims about sharing a private workspace thread.
 
-`HomeSoftwareDemo` presents the real Manager, Resident, Vendor and Owner UI
-with sample data in one shared frame. The folded sidebar and section strip
-derive from the canonical portal navigation model; `PortalSectionTabsView` is
-shared with the live portal, with local callbacks in the preview. The guided story runs once, then the portal switch
-selects the same frame; pausing also allows hands-on exploration. The frame is interactive: sidebar navigation and in-page tabs, records and menus
-run on the existing fixture adapters in client state. There are no per-portal
-captions below the frame. Ask PropLane mounts the real assistant presentation
-(header, suggestions, messages, composer and chat history) with local answers
-from the same fixture snapshot as the active portal. It has no model or network
-connection. Account Settings opens the shared settings presentation; Sign out
-ends only that sample frame and Resume restores it. The owner portal preserves its real shell's absence of an assistant.
-Preview controls never fetch live data or persist a write. Owner examples contain only aggregate fixture data: statement income/expenses and
-property occupancy counts. The real overview, properties, statements and profile
-views accept local navigation callbacks. Sample statement downloads are generated
-as CSV in the browser; unknown year-to-date amounts show a dash.
+The Software section is documented in § One Software section above.
 
 The cover uses self-hosted Inter Tight and one blue (`#2F5FD0`), with the original
 `ResidentLifecycleAtmosphere` waves, blue gradients and dots behind the page.
@@ -71,12 +60,6 @@ from `MANAGED_INCLUDES`. The compact contact form
 requires an email because the existing contact route does, and preserves its
 inputs after a failed send. Marketing redirects, sitemap and crawl links share
 `src/lib/seo/marketing-routes.ts`.
-`HomeSoftwareDemo` follows the cover with six sample scenes: incoming text,
-manager inbox, draft, approval, booked tour and paid rent. Its lazy panels reuse
-the existing fixture adapters. One clock drives both the phone and portal;
-approval clicks the fixture composer's handler before advancing. Hover, focus,
-manual pause, offscreen visibility and a hidden document stop playback. Reduced
-motion leaves manually selectable static frames. There are no live writes.
 
 The active stages fit below the top bar and above the mobile text action at
 100% zoom. The compact pricing grid is four columns on desktop and two by two

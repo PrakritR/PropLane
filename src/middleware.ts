@@ -6,6 +6,7 @@ import {
   shouldRedirectLegacyHostVisitor,
 } from "@/lib/legacy-host-redirect";
 import { legacyPaidPortalToPortal } from "@/lib/legacy-portal-redirect";
+import { HOME_DEMO_EMBED_PATH } from "@/lib/demo/home-demo-embed";
 import {
   isCanonicalPublicCrawlHost,
   NOINDEX_ROBOTS_TAG,
@@ -90,7 +91,8 @@ export async function middleware(request: NextRequest) {
   // longer embeds or links the running `/demo` sandbox, so the whole route
   // bounces home. Kept in sync with next.config.ts's `/demo` + `/demo/:path+`
   // redirects; see docs/agents/demo-sandbox.md.
-  if (path === "/demo" || path.startsWith("/demo/")) {
+  // Exception: `/demo/home-embed`, the fixture-fed iframe the homepage Software demo mounts.
+  if ((path === "/demo" || path.startsWith("/demo/")) && path !== HOME_DEMO_EMBED_PATH) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return stampCrawlPolicy(request, NextResponse.redirect(url));
