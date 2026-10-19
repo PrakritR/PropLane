@@ -538,6 +538,9 @@ export async function runLeasingSmsAgentTurn(
         system += `\n\nSuccessful tool facts from earlier submitted replies are authoritative conversation context. Reuse canonical listing/property/room ids for follow-up requests unless the prospect explicitly changes the property. Availability facts are timestamped and must be rechecked with list_open_tour_slots before quoting or requesting a time:\n${JSON.stringify(confirmedToolContext)}`;
       }
     }
+    // The model has no clock: without today's date "Thursday" or "tomorrow" cannot become the fromDate/toDate that
+    // list_open_tour_slots needs, and a page of the first 40 slots never reaches the day they asked about.
+    system += `\n\nToday in Pacific time is ${new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(new Date())} (${new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())}).`;
     // A prospect who picked a home on the shared line arrives with it already chosen: say so, or the agent asks "which place?".
     if (!args.testActor && channel === "sms") {
       const handoff = await loadLeadHandoffPrompt(db, { ownerUserId: session.landlord_id, workspaceId: args.workspaceId, phone: prospectPhone }).catch(() => null);

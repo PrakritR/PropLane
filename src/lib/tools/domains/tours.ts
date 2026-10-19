@@ -129,7 +129,7 @@ export async function loadOfferedSlots(
 }
 
 const SLOTS_DESCRIPTION =
-  "List the tour times currently open for a property, with the host for each. This is the ONLY source of bookable times — published availability minus calendar-busy minus already-booked, the same grid the public booking page shows. Always call this before offering, requesting, or booking a time, and quote the returned start/end verbatim; never work a time out yourself.";
+  "List the tour times currently open for a property, with the host for each. This is the ONLY source of bookable times — published availability minus calendar-busy minus already-booked, the same grid the public booking page shows. Always call this before offering, requesting, or booking a time, and quote the returned start/end verbatim; never work a time out yourself. The list starts today and holds at most 40 slots, so when the person names a day or a time of day (\"Thursday\", \"after 5\", \"next week\"), pass fromDate/toDate (Pacific dates) and localStartMinute/localEndMinute for it, or the day they asked about is never in the page; use nextOffset to read on.";
 
 /** Manager-scoped read. Availability is public by nature, so no extra filter. */
 export const listOpenTourSlotsTool = defineTool<SlotsInput, OfferedSlotsResult>({
