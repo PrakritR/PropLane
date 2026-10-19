@@ -37,8 +37,15 @@ const NON_GSM = /[^\x20-\x7E\n]/;
 /** Send one text as `from`, print the exchange, and run the product-voice checks every reply must pass. */
 async function say(ctx, from, body, opts = {}) {
   const { h, check, note } = ctx;
-  const logMark = h.logMark();
-  const r = await h.text({ from, to: opts.to ?? h.sharedNumber, body, media: opts.media ?? [], quietMs: opts.quietMs });
+  let logMark = h.logMark();
+  let r = await h.text({ from, to: opts.to ?? h.sharedNumber, body, media: opts.media ?? [], quietMs: opts.quietMs });
+  // The dev runtime's HTTP/2 client to the model API sometimes dies mid-turn ("could not finish that request"): a person would
+  // simply send it again, so the harness does too (twice at most) and says so.
+  for (let retry = 0; retry < 2 && /could not finish that request|try again or rephrase/i.test(r.all) && !opts.media?.length; retry += 1) {
+    note(`(model connection dropped; sending "${body}" again)`);
+    logMark = h.logMark();
+    r = await h.text({ from, to: opts.to ?? h.sharedNumber, body, media: opts.media ?? [], quietMs: opts.quietMs });
+  }
   const problems = h.logProblemsSince(logMark);
   note(`> ${body}${(opts.media ?? []).length ? `  [+${opts.media.length} photo]` : ""}\n< [${r.status}] ${r.all || "(no reply)"}${r.media.length ? `\n  media: ${r.media.join(", ")}` : ""}`);
   if (problems.length && (r.status !== 200 || !r.all || opts.showLog)) note(`server log:\n${problems.slice(0, 14).join("\n")}`);
@@ -86,6 +93,13 @@ SCENARIOS.push({
 
 const dollars = (text) => [...String(text).matchAll(/\$\s?([\d,]+(?:\.\d\d)?)/g)].map((m) => Number(m[1].replace(/,/g, "")));
 
+/** When the assistant asks "Reply YES to confirm", say YES (twice at most) the way the person would. */
+async function confirmWhileAsked(ctx, phone, last) {
+  let current = last;
+  for (let i = 0; i < 2 && /reply yes to confirm/i.test(current.all); i += 1) current = await say(ctx, phone, "YES");
+  return current;
+}
+
 /** A resident reports a lockout; answer the assistant's one-question triage like a person until a dispatch run exists for the team. */
 async function reportLockout(ctx, residentPhone, ownerId, opening) {
   const { db } = ctx;
@@ -93,7 +107,8 @@ async function reportLockout(ctx, residentPhone, ownerId, opening) {
   const before = await count();
   let last = await say(ctx, residentPhone, opening);
   const triage = ["Nobody and nothing is inside, I just left my key in the room.", "I am at the front door now, anytime works."];
-  for (let i = 0; i < triage.length && (await count()) === before; i += 1) last = await say(ctx, residentPhone, triage[i]);
+  last = await confirmWhileAsked(ctx, residentPhone, last);
+  for (let i = 0; i < triage.length && (await count()) === before; i += 1) last = await confirmWhileAsked(ctx, residentPhone, await say(ctx, residentPhone, triage[i]));
   return { last, filed: (await count()) > before };
 }
 
@@ -115,7 +130,8 @@ SCENARIOS.push({
     // The assistant triages first (one question per text); answer it the way a resident would until the service is filed.
     const answers = ["Clean water, nothing electrical nearby, and I already closed the shutoff valve under the sink. Please file it now.", "Yes, file it please."];
     const filed = async () => (await db.from("portal_work_order_records").select("id, resident_email, property_id, row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.resident.email)).data ?? [];
-    for (let i = 0; i < answers.length && (await filed()).length === 0; i += 1) r1 = await say(ctx, phone, answers[i]);
+    r1 = await confirmWhileAsked(ctx, phone, r1);
+    for (let i = 0; i < answers.length && (await filed()).length === 0; i += 1) r1 = await confirmWhileAsked(ctx, phone, await say(ctx, phone, answers[i]));
     check("the resident gets a reply that says it was logged / what happens next", /(logged|filed|submitted|request|got it|on it|manager)/i.test(r1.all), r1.all);
     check("the reply says 'service', never 'work order'", !/work order/i.test(r1.all), r1.all);
     const orders = await filed();
