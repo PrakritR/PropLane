@@ -93,10 +93,22 @@ export const VENDOR_JOBS_SCENARIOS = [
         const sessions = (await db.from("agent_sessions").select("id, kind").eq("landlord_id", fx.owner.id).eq("vendor_phone_e164", stranger)).data ?? [];
         check("history: one vendor_line_sms session for the phone", sessions.length === 1 && sessions[0].kind === "vendor_line_sms", JSON.stringify(sessions));
         const msgs = (await db.from("agent_messages").select("role").eq("session_id", sessions[0]?.id ?? "00000000-0000-0000-0000-000000000000")).data ?? [];
-        check("history: both sides of both turns saved", msgs.length === 4, JSON.stringify(msgs));
+        check("history: both sides of both turns saved", msgs.length === 6, JSON.stringify(msgs));
         const inboundLog = (await db.from("inbound_sms_log").select("counterparty_role").eq("manager_user_id", fx.owner.id).eq("from_phone", stranger)).data ?? [];
         const outbox = (await db.from("sms_outbox").select("counterparty_role").eq("manager_user_id", fx.owner.id).eq("recipient_phone", stranger)).data ?? [];
         check("history: the service owner's inbox has both directions as a vendor", inboundLog.length >= 2 && inboundLog.every((m) => m.counterparty_role === "vendor") && outbox.length >= 2 && outbox.every((m) => m.counterparty_role === "vendor"), JSON.stringify({ inboundLog, outbox }));
+
+        const asked = await say(stranger, "how do I get paid?");
+        check("question: a short answer about payout through the vendor account", /paid through your PropLane vendor account/.test(asked.all) && !/1\. /.test(asked.all), asked.all);
+
+        const tradeOnly = world.phone();
+        const bare = await say(tradeOnly, "handyman here");
+        check("trade word alone: answered with a sign-up link", bare.replies.length > 0 && /\/start\//.test(bare.all), bare.all);
+        const bareKey = tradeOnly.replace(/\D/g, "").slice(-10);
+        const bareLead = (await db.from("sms_vendor_leads").select("status").eq("phone_key", bareKey)).data ?? [];
+        check("trade word alone: a pending lead", bareLead.length === 1 && bareLead[0].status === "pending", JSON.stringify(bareLead));
+        const bareRoster = (await db.from("manager_vendor_records").select("id").eq("manager_user_id", fx.owner.id)).data ?? [];
+        check("trade word alone: never silently added to the service owner's roster", bareRoster.length === 0, JSON.stringify(bareRoster));
 
         const known = await say(vendorPhone, "any jobs available?");
         check("known vendor: answered with their job", /1\. Plumbing/.test(known.all), known.all);

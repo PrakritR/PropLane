@@ -150,6 +150,65 @@ describe("an unknown vendor on the PropLane line", () => {
   });
 });
 
+describe("a trade word alone on the PropLane line", () => {
+  it.each(["I do plumbing", "handyman here", "cleaner"])("%s gets jobs, a sign-up link and a lead, never a silent roster add", async (text) => {
+    const turn = await say(text);
+    expect(turn.handled).toBe(true);
+    // The board has plumbing and cleaning only: a handyman is told there is nothing yet, and still gets the link.
+    expect(turn.reply).toMatch(text === "handyman here" ? /No open general maintenance jobs/ : /1\. /);
+    expect(turn.reply).toContain("/start/");
+    expect(fake.tables.sms_vendor_leads).toHaveLength(1);
+    expect(fake.tables.manager_vendor_records).toEqual([]);
+  });
+
+  it("the trade narrows the list", async () => {
+    const turn = await say("cleaner");
+    expect(turn.reply).toContain("Open cleaning jobs");
+    expect(turn.reply).not.toContain("Plumbing");
+  });
+
+  it("shared mode does not take a bare trade word from a placed sender", async () => {
+    expect((await say("cleaner", { mode: "shared" })).handled).toBe(false);
+  });
+});
+
+describe("what vendors ask about PropLane", () => {
+  it("how it works: jobs are offered in Find work; a stranger gets the sign-up link", async () => {
+    await say("any jobs available");
+    const turn = await say("how does it work?");
+    expect(turn.reply).toContain("Property managers publish jobs");
+    expect(turn.reply).toContain("Find work");
+    expect(turn.reply).not.toMatch(/1\. /);
+  });
+
+  it("pay: through the vendor account; a known vendor is sent to Payouts", async () => {
+    seed({
+      profiles: [{ id: "vendor-7", phone: PHONE, phone_verified_at: "2026-09-01T00:00:00Z" }],
+      vendor_business_profiles: [{ user_id: "vendor-7", trades: ["Plumbing"], service_area_zips: ["98115"] }],
+    });
+    const turn = await say("how do I get paid?");
+    expect(turn.reply).toContain("paid through your PropLane vendor account");
+    expect(turn.reply).toContain("https://proplane.ai/vendor/financials/payouts");
+    expect(turn.reply).not.toContain("/start/");
+  });
+
+  it("coverage: the Seattle area by neighborhood or zip, with the link", async () => {
+    await say("any jobs available");
+    const turn = await say("what areas do you cover");
+    expect(turn.reply).toContain("Seattle area");
+    expect(turn.reply).not.toMatch(/1\. /);
+  });
+
+  it("a question that also asks for jobs gets the jobs", async () => {
+    const turn = await say("how do I get paid, and any jobs near Ballard?");
+    expect(turn.reply).toMatch(/1\. Cleaning/);
+  });
+
+  it("a stranger's bare question is not taken (it is not a vendor yet)", async () => {
+    expect((await say("how does it work?")).handled).toBe(false);
+  });
+});
+
 describe("a known vendor on the PropLane line", () => {
   beforeEach(() => {
     seed({
