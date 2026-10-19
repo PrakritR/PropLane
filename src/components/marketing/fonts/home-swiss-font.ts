@@ -2,7 +2,7 @@ import localFont from "next/font/local";
 
 /** Inter Tight, OFL-licensed; self-hosted so the cover needs no third-party request. */
 export const homeSwissFont = localFont({
-  src: "./InterTight-variable.woff2",
+  src: "./InterTight-latin-variable.woff2",
   variable: "--font-home-swiss",
   weight: "100 900",
   style: "normal",

@@ -285,5 +285,7 @@ Both offerings use the same configured PropLane line. The public layout supplies
 that snapshot to the synchronous homepage, avoiding a loading-shell
 layout shift. The homepage preloads a small Inter Tight cover subset (OFL license beside
 the font); regenerate it with `scripts/generate-home-swiss-cover.py` when the
-headline changes. Older Bricolage assets and their generator remain for reusable
+headline changes. The same generator produces the Latin-1 variable UI subset,
+preserving all weights and shaping features while keeping the full licensed
+source font committed. Older Bricolage assets and their generator remain for reusable
 lifecycle artwork; they are no longer preloaded by the public layout.
