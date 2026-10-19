@@ -249,10 +249,14 @@ MATRIX_SCENARIOS.push({
       const sawNotice = toManager.length > 0 || (notices ?? []).some((n) => /tour|jordan/i.test(JSON.stringify(n.row_data)));
       c.check("the manager was told (a text to the manager or a notice in the inbox)", sawNotice, JSON.stringify({ toManager: toManager.map((m) => m.body), notices: (notices ?? []).map((n) => n.thread_type) }));
       const { data: outbox } = await db.from("sms_outbox").select("purpose, status, available_at, body").eq("recipient_phone", T);
-      const { data: planned } = await db.from("portal_scheduled_inbox_message_records").select("id, send_at, status, row_data").eq("manager_user_id", fx.manager.id);
-      const tourReminders = (planned ?? []).filter((x) => x.row_data?.messageKind === "tour_reminder");
-      c.note(`texts to the prospect (outbox): ${JSON.stringify((outbox ?? []).map((o) => ({ s: o.status, at: o.available_at, b: String(o.body).slice(0, 40) })))}; scheduled tour reminders for the manager: ${tourReminders.length}`);
-      c.check("a reminder is scheduled for the prospect (a future-dated text, or a scheduled tour reminder)", tourReminders.length > 0 || (outbox ?? []).some((o) => /remind/i.test(String(o.purpose)) || (new Date(o.available_at) > new Date(Date.now() + 3600_000))), "no reminder row: the tour reminder sweep needs an attendee email, and an SMS booking has none");
+      // The reminder spine (cron dispatch-reminders, every 5 min) reads tours from the admin planned-events record. It is not ticked here:
+      // it sweeps every manager in the shared dev database and would text/email their real users. The rule that decides is unit-tested
+      // (tests/unit/tour-reminder-sms-booking.test.ts); here the booking must be a planned event the sweep can see.
+      const { data: planRec } = await db.from("portal_schedule_records").select("row_data").eq("id", "axis_admin_planned_events_v1").maybeSingle();
+      const plannedTour = (Array.isArray(planRec?.row_data?.payload) ? planRec.row_data.payload : []).find((e) => e.managerUserId === fx.manager.id && e.kind === "tour");
+      c.note(`texts to the prospect (outbox): ${JSON.stringify((outbox ?? []).map((o) => ({ s: o.status, at: o.available_at, b: String(o.body).slice(0, 40) })))}`);
+      c.check("the booking is a planned tour the reminder sweep reads (future start, guest phone)", Boolean(plannedTour) && Date.parse(plannedTour.start) > Date.now() && String(plannedTour.attendeePhone ?? "").endsWith(T.slice(-10)), JSON.stringify(plannedTour ?? null));
+      c.check("the prospect was texted the confirmation", (outbox ?? []).some((o) => /confirmed|all set|booked/i.test(String(o.body))), JSON.stringify((outbox ?? []).map((o) => o.body)));
     });
 
     await item(5, "'how do I apply' returns an apply link bound to the phone", async (c) => {

@@ -25,7 +25,7 @@ const HORIZON_DAYS = 31;
 
 /**
  * Tours worth reminding about: an active tour, in the future, inside the
- * horizon, with a guest to reach and a manager to send as.
+ * horizon, with a guest to reach (an email or a phone) and a manager to send as.
  *
  * A cancelled tour is excluded by `isActivePlannedEvent` rather than by a
  * hand-rolled check, so this agrees with every other reader of the same data.
@@ -42,7 +42,10 @@ export function remindableTours(
     if (event.kind !== "tour") return false;
     if (!isActivePlannedEvent(event)) return false;
     if (!event.managerUserId?.trim()) return false;
-    if (!event.attendeeEmail?.trim().includes("@")) return false;
+    // A guest to reach is an email OR a phone: a tour booked by text carries only the prospect's number.
+    const hasEmail = Boolean(event.attendeeEmail?.trim().includes("@"));
+    const hasPhone = (event.attendeePhone ?? "").replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) return false;
     const ms = Date.parse(event.start ?? "");
     if (!Number.isFinite(ms)) return false;
     return ms > from && ms <= to;
