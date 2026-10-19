@@ -91,6 +91,41 @@ describe("loadOrderedPoolFunders", () => {
     expect(funders.find((f) => f.funderUserId === OWNER)?.tier).toBe("business");
   });
 
+  it("a workspace created after the one-time backfill funds from its owner by default, and the row is written once", async () => {
+    mocks.tier.mockResolvedValue({ ok: true, tier: "business" });
+    const upserts: unknown[] = [];
+    const db = {
+      from: (table: string) => {
+        if (table === "portal_workspaces") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: WORKSPACE, owner_user_id: OWNER }, error: null }) }) }) };
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          order: async () => ({ data: [], error: null }),
+          upsert: async (row: unknown, options: unknown) => { upserts.push({ row, options }); return { error: null }; },
+        };
+        return chain;
+      },
+    };
+    const funders = await loadOrderedPoolFunders(db as never, WORKSPACE);
+    expect(funders.map((f) => f.funderUserId)).toEqual([OWNER]);
+    expect(upserts).toEqual([{ row: { funder_user_id: OWNER, workspace_id: WORKSPACE, enabled: true }, options: { onConflict: "funder_user_id,workspace_id", ignoreDuplicates: true } }]);
+  });
+
+  it("an owner who switched the workspace off keeps it off (a disabled row is never re-enabled)", async () => {
+    mocks.tier.mockResolvedValue({ ok: true, tier: "business" });
+    // The query filters enabled rows, so a disabled owner row reads as absent here; ignoreDuplicates leaves it untouched.
+    const upsert = vi.fn(async () => ({ error: null }));
+    const db = {
+      from: (table: string) => {
+        if (table === "portal_workspaces") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: WORKSPACE, owner_user_id: OWNER }, error: null }) }) }) };
+        const chain = { select: () => chain, eq: () => chain, order: async () => ({ data: [], error: null }), upsert };
+        return chain;
+      },
+    };
+    await loadOrderedPoolFunders(db as never, WORKSPACE);
+    expect(upsert).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ignoreDuplicates: true }));
+  });
+
   it("drops a funder whose plan tier cannot be verified rather than guessing", async () => {
     mocks.tier.mockImplementation(async (id: string) => (id === OWNER ? { ok: false } : { ok: true, tier: "pro" }));
     const db = fundingDb([

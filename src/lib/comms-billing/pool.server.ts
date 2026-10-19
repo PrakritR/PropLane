@@ -95,6 +95,21 @@ export async function loadOrderedPoolFunders(
   if (fundingError) return [];
   const ownerId = workspace?.owner_user_id ? String(workspace.owner_user_id) : null;
   const ids = [...new Set((funding ?? []).map((r) => String(r.funder_user_id ?? "").trim()).filter(Boolean))];
+  // The backfill that made "all my workspaces" the default ran once (2026-09-27); a workspace created
+  // after it has no row, and an absent row used to fund nothing: every metered turn and text of every
+  // newer workspace was refused as "allowance_exhausted" (found by the end-to-end harness: 90 of 150
+  // dev workspaces). The owner's default is "funds it": write the row once, never over a row that exists
+  // (a funder's later choice to switch it off is a row with enabled = false, and stays).
+  if (ownerId && !ids.includes(ownerId)) {
+    try {
+      const { error: seedError } = await db
+        .from("comms_workspace_funding")
+        .upsert({ funder_user_id: ownerId, workspace_id: workspaceId, enabled: true }, { onConflict: "funder_user_id,workspace_id", ignoreDuplicates: true });
+      if (!seedError) ids.push(ownerId);
+    } catch {
+      /* unreadable or unwritable: the owner is simply not a funder this time */
+    }
+  }
   ids.sort((a, b) => {
     if (a === ownerId) return -1;
     if (b === ownerId) return 1;
