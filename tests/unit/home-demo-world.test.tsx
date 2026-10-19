@@ -167,24 +167,22 @@ describe("sidebar grouping (the redesigned shell)", () => {
     }
   });
 
-  it("buckets the manager sidebar like the real shell: home, Portfolio, Leasing, People, Money", () => {
+  it("draws the manager sidebar as the six folded rows in one unheaded group, like the real shell", () => {
     const { container } = mount("manager");
     const groups = Array.from(container.querySelector("nav")!.children);
-    expect(groups.map((group) => group.querySelector("p")?.textContent?.trim() ?? "")).toEqual(["", "Portfolio", "Leasing", "People", "Money"]);
-    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Dashboard", "Tasks", "Calendar", "Communication"]);
-    expect(Array.from(groups[2]!.querySelectorAll("button[data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(["Tours", "Applications", "Leases", "Forms"]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.querySelector("p")).toBeNull();
+    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(
+      DEMO_TABS.manager.map((tab) => tab.label),
+    );
+    expect(DEMO_TABS.manager.map((tab) => tab.id)).toEqual(["dashboard", "communication", "properties", "leases", "residents", "payments"]);
   });
 
-  it("collapses and re-opens a group, and keeps every cursor target on its row", () => {
-    const { container } = mount("manager");
-    const leasing = screen.getByRole("button", { name: "Leasing group" });
-    expect(leasing.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(leasing);
-    expect(leasing.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelector('[data-demo-tab="tours"]')).toBeNull();
-    fireEvent.click(leasing);
-    expect(container.querySelector('[data-demo-target="nav-tours"]')).not.toBeNull();
+  it("keeps every cursor target on its row, and a folded row is active on any of its tabs", () => {
+    const { container } = mount("manager", { active: "applications" });
     for (const tab of DEMO_TABS.manager) expect(container.querySelector(`[data-demo-target="nav-${tab.id}"]`), tab.id).not.toBeNull();
+    expect(container.querySelector('[data-demo-tab="leases"]')!.getAttribute("aria-current")).toBe("page");
+    expect(container.querySelector('[data-demo-tab="communication"]')!.getAttribute("aria-current")).toBeNull();
   });
 
   it("draws the house mark in the top strip and a red count only on an unread Communication", () => {
@@ -192,7 +190,7 @@ describe("sidebar grouping (the redesigned shell)", () => {
     expect(container.querySelector(".pls-strip svg.pls-strip-mark")).not.toBeNull();
     expect(container.querySelector(".pls-strip")!.innerHTML).not.toMatch(/lucide-send|lucide-plane/);
     expect(container.querySelector('[data-demo-tab="communication"]')!.getAttribute("data-unread")).toBe("true");
-    expect(container.querySelector('[data-demo-tab="tours"]')!.getAttribute("data-unread")).toBeNull();
+    expect(container.querySelector('[data-demo-tab="leases"]')!.getAttribute("data-unread")).toBeNull();
   });
 
   it("docks the assistant as the only right panel, with Needs attention counted from the rows it draws", () => {
