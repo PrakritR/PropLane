@@ -1169,7 +1169,7 @@ export function ManagerFinancesPanel({
             ? { value: reportQuery, onChange: setReportQuery, placeholder: "Search reports", dataAttr: "finances-reports-search" }
             : undefined
         }
-        actions={isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={Landmark} label="Balance & payouts" data-attr="finances-balance-payouts" onClick={() => router.push(`${basePath}/profile?tab=payments`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
+        actions={isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={Landmark} label="Balance & payouts" data-attr="finances-balance-payouts" onClick={() => router.push(`${basePath}/profile?tab=payments`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => router.push(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
         primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={() => setEntryChooser(true)} /> : undefined}
 
         activeFilterChips={

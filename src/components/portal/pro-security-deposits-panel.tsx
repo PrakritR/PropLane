@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {Input, Select} from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PORTAL_DATA_TABLE,
@@ -24,12 +23,13 @@ import {
   type SecurityDepositStatus,
 } from "@/lib/reports/security-deposits";
 
-const STATUS_TONE: Record<SecurityDepositStatus, "pending" | "approved" | "confirmed" | "overdue"> = {
-  held: "pending",
-  partially_refunded: "approved",
-  refunded: "confirmed",
-  forfeited: "overdue",
-  applied_to_damages: "overdue",
+/** A plain fact, never a chip: rows carry no pills (AGENTS.md § Portal UI system). */
+const STATUS_LABEL: Record<SecurityDepositStatus, string> = {
+  held: "Held",
+  partially_refunded: "Partly refunded",
+  refunded: "Refunded",
+  forfeited: "Forfeited",
+  applied_to_damages: "Applied to damages",
 };
 
 type DisposeDraft = {
@@ -132,7 +132,7 @@ export function ManagerSecurityDepositsPanel() {
                     <td className={PORTAL_TABLE_TD}>{deposit.receivedDate}</td>
                     <td className={`${PORTAL_TABLE_TD} tabular-nums`}>{centsToUsd(deposit.amountHeldCents)}</td>
                     <td className={PORTAL_TABLE_TD}>
-                      <Badge tone={STATUS_TONE[deposit.status]}>{deposit.status.replace(/_/g, " ")}</Badge>
+                      {STATUS_LABEL[deposit.status] ?? deposit.status.replace(/_/g, " ")}
                     </td>
                     <td className={PORTAL_TABLE_TD}>
                       <div className="flex flex-wrap gap-2">
