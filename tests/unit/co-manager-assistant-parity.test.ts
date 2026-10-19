@@ -130,7 +130,11 @@ describe("the work email belongs to the workspace, exactly like the work number"
     expect(messaging.slice(start, start + 200)).toContain("!pureCoManager");
     const post = messaging.slice(messaging.indexOf("export async function POST"));
     expect(post.indexOf("workspace_not_owned")).toBeGreaterThan(-1);
-    expect(post.indexOf("workspace_not_owned")).toBeLessThan(post.indexOf("const entitlement = await reconcileManagerSmsEntitlement("));
+    // The billing call is now `let entitlement: Awaited<...> = await reconcileManagerSmsEntitlement(` (the
+    // standalone-PropLane-Number path reassigns it); the order, refusal before billing, is the invariant.
+    const billingCall = post.search(/let entitlement[^=]*= await reconcileManagerSmsEntitlement\(/);
+    expect(billingCall).toBeGreaterThan(-1);
+    expect(post.indexOf("workspace_not_owned")).toBeLessThan(billingCall);
   });
 
   it("the assistant-email panel gives a co-manager the workspace address, not a Request button", () => {

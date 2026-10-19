@@ -125,7 +125,8 @@ describe("the settings copy names the workspace channel instead of offering a re
       join(process.cwd(), "src/components/portal/pro-messaging-settings-panel.tsx"),
       "utf8",
     );
-    expect(panel).toContain('WorkIdentityRow label="Work number"');
+    // The co-manager branch labels its read-only row "Workspace number" (the number the workspace texts from).
+    expect(panel).toContain('WorkIdentityRow label="Workspace number"');
     expect(panel).toContain('label="Managed by"');
   });
 });

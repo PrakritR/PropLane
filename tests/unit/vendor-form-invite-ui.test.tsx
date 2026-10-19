@@ -63,6 +63,7 @@ function continueToReview() {
   next();
   next();
   next();
+  next(); // Dispatch sits between "What they do" and "Typical price"
 }
 
 describe("three-path vendor invitation", () => {
@@ -99,6 +100,7 @@ describe("three-path vendor invitation", () => {
     fireEvent.change(screen.getByLabelText("Vendor name"), { target: { value: "Updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Next: Properties" }));
     fireEvent.click(screen.getByRole("button", { name: "Next: Who can handle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Dispatch" }));
     fireEvent.click(screen.getByRole("button", { name: "Next: Typical price" }));
     fireEvent.click(screen.getByRole("button", { name: "Next: Review" }));
     fireEvent.click(screen.getByRole("button", { name: "Save vendor" }));
@@ -118,6 +120,7 @@ describe("three-path vendor invitation", () => {
     next();
     next();
     next();
+    next(); // Dispatch step
     expect(screen.getByLabelText("Share on PropLane")).toBeInTheDocument();
   });
 
