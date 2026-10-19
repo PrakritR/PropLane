@@ -1204,6 +1204,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("vendor dispatch inbound projection failed", error instanceof Error ? error.message : "unknown"));
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
     return twimlOk();
@@ -1217,6 +1218,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       mark("route:paused");
       await projectClassifiedInbound(db, {
         managerUserId: managerId, role: pause.role, counterpartyUserId: null, fromPhone, toPhone, messageSid, body, occurredAt,
+        workspaceId: workspaceId ?? null,
       }).catch((error) => console.error("paused inbound projection failed", error instanceof Error ? error.message : "unknown"));
       await db.from("inbound_sms_log")
         .update(inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: pause.role, fromPhone }))
@@ -1313,6 +1315,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("resident inbound projection failed", error instanceof Error ? error.message : "unknown"));
     await upsertManagerSmsContact(db, {
       managerUserId: managerId,
@@ -1602,6 +1605,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         messageSid,
         body,
         occurredAt,
+        workspaceId: workspaceId ?? null,
       }).catch((error) => console.error("vendor roster inbound projection failed", error instanceof Error ? error.message : "unknown"));
       // A text from a vendor on the manager's list (or one the manager texted
       // in the last 90 days) unlocks replies in this thread, unless STOP stands.
@@ -1650,6 +1654,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body,
       occurredAt,
+      workspaceId: workspaceId ?? null,
     }).catch((error) => {
       console.error("prospect inbound projection failed", error instanceof Error ? error.message : "unknown");
       return null;
