@@ -153,7 +153,7 @@ export function OwnerStatementDetail({ month }: { month: string }) {
   const view = managedId ? finances.data : null;
   return (
     <div data-attr="owner-statement">
-      <Header month={valid} onPdf={() => window.location.assign(ownerStatementPdfUrl(valid, "", workspace?.activeId ?? null))} />
+      <Header month={valid} onPdf={() => window.location.assign(ownerStatementPdfUrl(valid, "", workspace?.activeId ?? null, Boolean(managedId)))} />
       {active.loading && !active.data ? (
         <OwnerLoading />
       ) : active.error ? (

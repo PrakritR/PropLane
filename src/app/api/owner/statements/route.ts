@@ -12,6 +12,7 @@ export async function GET(req: Request) {
   try {
     const statements = await loadOwnerStatements(ctx.db, ctx.grants, {
       propertyId: new URL(req.url).searchParams.get("propertyId"),
+      ownerUserId: ctx.userId,
     });
     assertOwnerPayloadRedacted(statements);
     return NextResponse.json(statements, { headers: { "Cache-Control": "private, no-store" } });

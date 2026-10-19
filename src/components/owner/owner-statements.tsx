@@ -15,8 +15,12 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { OWNER_BASE_PATH } from "@/lib/property-owner/sections";
 import type { OwnerStatementHouse, OwnerStatementRow, OwnerStatements } from "@/lib/property-owner/projection";
 
-/** The PDF address of one statement month, narrowed to a house and to the active workspace. */
-export function ownerStatementPdfUrl(month: string, propertyId: string, workspaceId: string | null): string {
+/**
+ * The PDF address of one statement month, narrowed to a house and to the active workspace. A workspace PropLane holds the funds
+ * for has its own statement (the ledger), served by the Finances route.
+ */
+export function ownerStatementPdfUrl(month: string, propertyId: string, workspaceId: string | null, held = false): string {
+  if (held && workspaceId) return `/api/owner/finances/statement?workspace=${encodeURIComponent(workspaceId)}&month=${encodeURIComponent(month)}`;
   const q = new URLSearchParams({ month });
   if (propertyId) q.set("propertyId", propertyId);
   return withOwnerWorkspace(`/api/owner/statements/pdf?${q.toString()}`, workspaceId);
@@ -46,7 +50,10 @@ export function OwnerStatementsPage() {
   const { data, loading, error, reload } = propertyId ? filtered : all;
   const tabs: OwnerStatementHouse[] = all.data?.houses ?? [];
   const rows = useMemo(() => filterOwnerStatementRows(data?.rows ?? [], query), [data, query]);
-  const download = (month: string) => window.location.assign(ownerStatementPdfUrl(month, propertyId, workspace?.activeId ?? null));
+  const held = workspace?.active?.managed === true;
+  // The ledger is per workspace, so a workspace PropLane holds the funds for has no per-house tabs.
+  const houseTabs = held ? [] : tabs;
+  const download = (month: string) => window.location.assign(ownerStatementPdfUrl(month, propertyId, workspace?.activeId ?? null, held));
   const open = (month: string) => router.push(`${OWNER_BASE_PATH}/statements/${encodeURIComponent(month)}${propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : ""}`);
   const latest = data?.rows[0]?.month ?? null;
   return (
@@ -55,11 +62,11 @@ export function OwnerStatementsPage() {
         className="plp-header-card mb-2 max-lg:mb-1.5"
         variant="command"
         destinationRow={
-          tabs.length > 0 ? (
+          houseTabs.length > 0 ? (
             <LocalDestinationNav
               items={[
                 { id: "", label: "All houses", dataAttr: "owner-statements-tab-all" },
-                ...tabs.map((p) => ({ id: p.propertyId, label: p.label, dataAttr: `owner-statements-tab-${p.propertyId}` })),
+                ...houseTabs.map((p) => ({ id: p.propertyId, label: p.label, dataAttr: `owner-statements-tab-${p.propertyId}` })),
               ]}
               activeId={propertyId}
               onChange={setPropertyId}

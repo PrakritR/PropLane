@@ -39,12 +39,13 @@ export async function loadOwnerOverviewExtras(
 
   const attention: OwnerAttentionItem[] = [];
   let firstManagedId: string | null = null;
-  let managedTotals: { feeCents: number; netCents: number; availableCents: number } | null = null;
+  let managedTotals: { rentCents: number; feeCents: number; netCents: number; availableCents: number } | null = null;
   for (const workspace of managedWorkspaces) {
     try {
       const view = await loadOwnerFinances(db, null, { ownerUserId, workspaceId: workspace.workspaceId }, now);
-      const sums: { feeCents: number; netCents: number; availableCents: number } = managedTotals ?? { feeCents: 0, netCents: 0, availableCents: 0 };
+      const sums: { rentCents: number; feeCents: number; netCents: number; availableCents: number } = managedTotals ?? { rentCents: 0, feeCents: 0, netCents: 0, availableCents: 0 };
       managedTotals = {
+        rentCents: sums.rentCents + view.statement.totals.rentGrossCents,
         feeCents: sums.feeCents + view.statement.totals.feeCents,
         netCents: sums.netCents + view.statement.totals.netCents,
         availableCents: sums.availableCents + view.balance.availableCents,

@@ -188,7 +188,7 @@ export type OwnerUpcomingItem = {
 
 export type OwnerOverviewExtras = {
   /** Present only when the scope holds a PropLane-managed workspace. All cents. */
-  managed: { feeCents: number; netCents: number; availableCents: number; workspaceId: string } | null;
+  managed: { rentCents: number; feeCents: number; netCents: number; availableCents: number; workspaceId: string } | null;
   attention: OwnerAttentionItem[];
   upcoming: OwnerUpcomingItem[];
 };

@@ -104,7 +104,7 @@ describe("workspace tiles", () => {
 
 describe("overview extras", () => {
   const view = (pending: { id: string; title: string; amountCents: number }[]) => ({
-    statement: { totals: { feeCents: -21_500, netCents: 193_500 } },
+    statement: { totals: { rentGrossCents: 215_000, feeCents: -21_500, netCents: 193_500 } },
     balance: { availableCents: 150_000 },
     pendingApprovals: pending.map((p) => ({ ...p, workspaceId: "ws-a", vendorLabel: "Top Roofing", propertyId: null, requestedAt: "2026-10-10T00:00:00Z" })),
   });
@@ -114,7 +114,7 @@ describe("overview extras", () => {
     financeViews.set("ws-a", view([{ id: "exp-1", title: "Roof patch", amountCents: 40_000 }]));
     const db = makeFakeDb({ owner_statements: [], managed_workspace_fee_policies: [], resident_inspections: [] });
     const out = await loadOwnerOverviewExtras(db, OWNER, grants.slice(0, 1), new Date("2026-10-18T12:00:00Z"));
-    expect(out.managed).toEqual({ workspaceId: "ws-a", feeCents: -21_500, netCents: 193_500, availableCents: 150_000 });
+    expect(out.managed).toEqual({ workspaceId: "ws-a", rentCents: 215_000, feeCents: -21_500, netCents: 193_500, availableCents: 150_000 });
     expect(out.attention).toEqual([{ kind: "repair", id: "exp-1", title: "Roof patch", amountCents: 40_000, workspaceId: "ws-a" }]);
     // The vendor is never named to the owner.
     expect(JSON.stringify(out)).not.toContain("Top Roofing");

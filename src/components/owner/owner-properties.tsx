@@ -2,6 +2,7 @@
 
 import { BedDouble, Banknote, Building2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
 import { useMemo, useState } from "react";
 import { formatOwnerUsd, useOwnerFetch } from "@/components/owner/owner-data";
 import { OwnerError } from "@/components/owner/owner-ui";
@@ -27,7 +28,8 @@ export function filterOwnerProperties(properties: readonly OwnerPropertySummary[
   return properties.filter((p) => (tab === "all" || p.occupied < p.units) && (!q || p.label.toLowerCase().includes(q)));
 }
 
-export function OwnerPropertyRow({ property, onOpen }: { property: OwnerPropertySummary; onOpen: () => void }) {
+/** `held`: PropLane holds this workspace's funds, so the rent never reaches the manager's books and the row says only what is true there. */
+export function OwnerPropertyRow({ property, onOpen, held = false }: { property: OwnerPropertySummary; onOpen: () => void; held?: boolean }) {
   return (
     <PortalPropertyRecordRow
       title={property.label}
@@ -38,13 +40,15 @@ export function OwnerPropertyRow({ property, onOpen }: { property: OwnerProperty
           <PortalRowFact icon={BedDouble} srLabel="Occupied">
             {property.occupied} of {property.units} occupied
           </PortalRowFact>
-          <PortalRowFact icon={Banknote} srLabel="Rent collected">
-            {formatOwnerUsd(property.rentCollectedCents)} of {formatOwnerUsd(property.rentDueCents)} collected
-          </PortalRowFact>
+          {held ? null : (
+            <PortalRowFact icon={Banknote} srLabel="Rent collected">
+              {formatOwnerUsd(property.rentCollectedCents)} of {formatOwnerUsd(property.rentDueCents)} collected
+            </PortalRowFact>
+          )}
         </>
       }
-      amount={formatOwnerUsd(property.netCents)}
-      amountTone={property.netCents < 0 ? "bad" : undefined}
+      amount={held ? undefined : formatOwnerUsd(property.netCents)}
+      amountTone={!held && property.netCents < 0 ? "bad" : undefined}
       onOpen={onOpen}
       dataAttr={`owner-property-row-${property.propertyId}`}
     />
@@ -54,6 +58,7 @@ export function OwnerPropertyRow({ property, onOpen }: { property: OwnerProperty
 /** Properties: the same list surface as the manager's, read-only (no add, no edit). */
 export function OwnerPropertiesList() {
   const router = useRouter();
+  const held = useOwnerWorkspace()?.active?.managed === true;
   const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>("/api/owner/summary");
   const [tab, setTab] = useState<PropertyTab>("all");
   const [query, setQuery] = useState("");
@@ -89,7 +94,7 @@ export function OwnerPropertiesList() {
           emptyCard={{ title: forbidden ? "No properties are shared with you" : query ? "No matching properties" : tab === "vacancies" ? "No vacancies" : "No properties yet", section: "properties" }}
         >
           {rows.map((p) => (
-            <OwnerPropertyRow key={p.propertyId} property={p} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
+            <OwnerPropertyRow key={p.propertyId} property={p} held={held} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
           ))}
         </PortalRecordListSurface>
       )}

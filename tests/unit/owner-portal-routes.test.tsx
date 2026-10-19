@@ -193,12 +193,15 @@ describe("Overview", () => {
   });
 
   it("shows fee, net to you and available to withdraw for a managed workspace", async () => {
-    overrides["/api/owner/overview"] = { managed: { workspaceId: "ws-a", feeCents: 21_500, netCents: 193_500, availableCents: 150_000 }, attention: [], upcoming: [] };
+    overrides["/api/owner/overview"] = { managed: { workspaceId: "ws-a", rentCents: 215_000, feeCents: -21_500, netCents: 193_500, availableCents: 150_000 }, attention: [], upcoming: [] };
     render(withWorkspaces(<OwnerOverview />));
     await screen.findByText("PropLane fee");
     expect(screen.getByText("Net to you")).toBeTruthy();
     expect(screen.getByText("Available to withdraw")).toBeTruthy();
     expect(screen.getByText("$1,500")).toBeTruthy();
+    // The fee reads as a positive amount, and managed rent comes from the ledger rather than the manager's own books.
+    expect(screen.getByText("$215")).toBeTruthy();
+    expect(screen.getByText("$2,150")).toBeTruthy();
     expect(screen.getByText("Nothing is waiting on you. Nice.")).toBeTruthy();
   });
 

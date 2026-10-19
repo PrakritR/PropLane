@@ -24,6 +24,8 @@ import { queryOccupancyReport } from "@/lib/reports/formal-documents/scoped-quer
 import { dollarsToCents } from "@/lib/reports/money";
 import { queryOwnerStatement } from "@/lib/reports/queries/ap-reports";
 import { queryProfitability } from "@/lib/reports/profitability.server";
+import { loadOwnerMonthlyNets } from "@/lib/managed-finance/finances.server";
+import { listManagedWorkspacesForOwner } from "@/lib/owner-management/policies.server";
 
 /** A request named a house the owner was not granted (or a period that is not a month). */
 export class OwnerScopeError extends Error {
@@ -171,11 +173,16 @@ export async function loadOwnerSummary(
   return buildOwnerSummary(period, inputs);
 }
 
-/** Month rows for the Statements list: cash collected less expenses paid, per month, over the houses the owner may see statements for. */
+/**
+ * Month rows for the Statements list: cash collected less expenses paid, per month, over the houses the owner may see statements
+ * for. With `ownerUserId`, the houses of a workspace PropLane holds the funds for are read from the owner's ledger instead (their
+ * rent never touches the manager's own books), one figure per workspace per month; a request narrowed to one house keeps the
+ * books, since the ledger is per workspace.
+ */
 export async function loadOwnerStatements(
   db: SupabaseClient,
   grants: OwnerGrant[],
-  input: { months?: number; propertyId?: string | null } = {},
+  input: { months?: number; propertyId?: string | null; ownerUserId?: string } = {},
 ): Promise<OwnerStatements> {
   let houses = grantedHouses(grants, "statements");
   const requested = (input.propertyId ?? "").trim();
@@ -186,7 +193,25 @@ export async function loadOwnerStatements(
   if (houses.length === 0) return { rows: [], houses: [] };
   const count = Math.min(24, Math.max(1, Math.floor(input.months ?? 12)));
   const keys = ownerMonthKeys(pacificCalendarMonthKey(Date.now()), count);
-  const byManager = groupByManager(houses);
+
+  // Houses of a PropLane-held workspace come from the ledger (unless one house was asked for).
+  let heldWorkspaceIds: string[] = [];
+  if (input.ownerUserId && !requested) {
+    try {
+      const held = new Set((await listManagedWorkspacesForOwner(db, input.ownerUserId)).map((w) => w.workspaceId));
+      heldWorkspaceIds = [...new Set(grants.filter((g) => g.workspaceId && held.has(g.workspaceId) && g.houses.some((h) => h.statements)).map((g) => g.workspaceId))];
+    } catch {
+      heldWorkspaceIds = [];
+    }
+  }
+  const heldHouseIds = new Set(
+    grants.filter((g) => heldWorkspaceIds.includes(g.workspaceId)).flatMap((g) => g.houses.filter((h) => h.statements).map((h) => h.propertyId)),
+  );
+  const bookHouses = houses.filter((h) => !heldHouseIds.has(h.propertyId));
+  const byManager = groupByManager(bookHouses);
+  const heldNets = await Promise.all(
+    heldWorkspaceIds.map((workspaceId) => loadOwnerMonthlyNets(db, { ownerUserId: input.ownerUserId!, workspaceId, months: keys })),
+  );
   // One statement query per month per manager, all in flight at once: a dozen
   // months used to run as a dozen serial round trips of three reads each.
   const months = await Promise.all(
@@ -201,15 +226,17 @@ export async function loadOwnerStatements(
           return dollarsToCents(String(report.meta?.distribution ?? "$0.00"));
         }),
       );
-      return { month, houses: houses.length, distributionCents: perManager.reduce((sum, c) => sum + c, 0) };
+      const held = heldNets.reduce((sum, nets) => sum + (nets.get(month) ?? 0), 0);
+      return { month, houses: houses.length, distributionCents: perManager.reduce((sum, c) => sum + c, 0) + held };
     }),
   );
   const rows: OwnerStatementRow[] = months.reverse();
   // The house filter on the Statements page is built from THIS grant, never
   // from the performance-scoped summary: a house the owner may see statements
   // for is exactly a tab here, and nothing else is.
+  const labelByManager = groupByManager(houses);
   const labels = await Promise.all(
-    [...byManager].map(async ([managerUserId, propertyIds]) => {
+    [...labelByManager].map(async ([managerUserId, propertyIds]) => {
       const display = await loadManagerReportDisplayContext(db, managerUserId);
       return propertyIds.map((propertyId) => ({ propertyId, label: display.propertyLabel(propertyId) }));
     }),

@@ -69,8 +69,9 @@ export function OwnerKpis({ summary, extras }: { summary: OwnerSummary; extras: 
     <KpiCard
       key="rent"
       label={`Rent collected · ${month}`}
-      value={formatOwnerUsd(t.rentCollectedCents)}
-      unit={`of ${formatOwnerUsd(t.rentDueCents)} due`}
+      // PropLane-held rent never touches the manager's own books, so a managed workspace reads it from its ledger.
+      value={formatOwnerUsd(extras?.managed ? extras.managed.rentCents : t.rentCollectedCents)}
+      unit={extras?.managed ? undefined : `of ${formatOwnerUsd(t.rentDueCents)} due`}
       href={`${OWNER_BASE_PATH}/statements`}
       dataAttr="owner-kpi-rent"
     />,
@@ -80,7 +81,7 @@ export function OwnerKpis({ summary, extras }: { summary: OwnerSummary; extras: 
       <KpiCard
         key="fee"
         label="PropLane fee"
-        value={formatOwnerUsd(extras.managed.feeCents)}
+        value={formatOwnerUsd(Math.abs(extras.managed.feeCents))}
         unit={month}
         href={`${OWNER_BASE_PATH}/finances`}
         dataAttr="owner-kpi-fee"

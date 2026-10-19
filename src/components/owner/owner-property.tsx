@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { formatOwnerUsd, ownerMonthLabel, useOwnerFetch } from "@/components/owner/owner-data";
 import { ownerShortDay } from "@/components/owner/owner-overview";
+import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
 import { OwnerEmpty, OwnerError, OwnerLoading } from "@/components/owner/owner-ui";
 import { KpiCard } from "@/components/portal/pro-dashboard-kpis";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -52,16 +53,19 @@ export function OwnerProperty({ propertyId }: { propertyId: string }) {
   const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>(`/api/owner/summary?propertyId=${encodeURIComponent(propertyId)}`);
   const detail = useOwnerFetch<OwnerPropertyDetail>(`/api/owner/properties/${encodeURIComponent(propertyId)}`);
   const router = useRouter();
+  const held = useOwnerWorkspace()?.active?.managed === true;
   const params = useSearchParams();
   const [tab, setTab] = useState<HouseTab>(params?.get("tab") === "services" ? "services" : "rooms");
   const property = data?.properties[0];
   const services = detail.data?.services ?? [];
   const units = property?.unitRows ?? [];
   const months = property ? [...property.months].reverse().slice(0, 6) : [];
+  // PropLane-held rent is booked in the workspace ledger, not the manager's books, so those money views are Money's job there.
+  const rentRoll = units.reduce((sum, u) => sum + (u.status === "occupied" ? (u.rentCents ?? 0) : 0), 0);
   const tabItems = [
     { id: "rooms", label: "Rooms", count: units.length },
     { id: "services", label: "Services", count: services.length },
-    { id: "months", label: "Months", count: months.length },
+    ...(held ? [] : [{ id: "months", label: "Months", count: months.length }]),
   ];
   return (
     <div data-attr="owner-property" className="space-y-4">
@@ -78,22 +82,28 @@ export function OwnerProperty({ propertyId }: { propertyId: string }) {
       ) : (
         <>
           <OwnerPhotoStrip photos={detail.data?.photos ?? []} label={property.label} />
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 [&>*]:min-w-0" data-attr="owner-property-kpis">
+          <div className={`grid grid-cols-2 gap-3 [&>*]:min-w-0 ${held ? "lg:grid-cols-2" : "lg:grid-cols-4"}`} data-attr="owner-property-kpis">
             <KpiCard
               label="Occupied"
               value={`${property.occupied} of ${property.units}`}
               href={`${OWNER_BASE_PATH}/properties/${encodeURIComponent(propertyId)}`}
               dataAttr="owner-property-kpi-occupied"
             />
-            <KpiCard
-              label={`Rent collected · ${ownerMonthLabel(data.period, true)}`}
-              value={formatOwnerUsd(property.rentCollectedCents)}
-              unit={`of ${formatOwnerUsd(property.rentDueCents)} due`}
-              href={`${OWNER_BASE_PATH}/statements`}
-              dataAttr="owner-property-kpi-rent"
-            />
-            <KpiCard label={`Net income · ${ownerMonthLabel(data.period, true)}`} value={formatOwnerUsd(property.netCents)} href={`${OWNER_BASE_PATH}/statements`} dataAttr="owner-property-kpi-net" />
-            <KpiCard label={`Net income · ${data.period.slice(0, 4)}`} value={formatOwnerUsd(property.netYtdCents)} href={`${OWNER_BASE_PATH}/statements`} dataAttr="owner-property-kpi-ytd" />
+            {held ? (
+              <KpiCard label="Monthly rent" value={formatOwnerUsd(rentRoll)} href={`${OWNER_BASE_PATH}/statements`} dataAttr="owner-property-kpi-rent-roll" />
+            ) : (
+              <>
+                <KpiCard
+                  label={`Rent collected · ${ownerMonthLabel(data.period, true)}`}
+                  value={formatOwnerUsd(property.rentCollectedCents)}
+                  unit={`of ${formatOwnerUsd(property.rentDueCents)} due`}
+                  href={`${OWNER_BASE_PATH}/statements`}
+                  dataAttr="owner-property-kpi-rent"
+                />
+                <KpiCard label={`Net income · ${ownerMonthLabel(data.period, true)}`} value={formatOwnerUsd(property.netCents)} href={`${OWNER_BASE_PATH}/statements`} dataAttr="owner-property-kpi-net" />
+                <KpiCard label={`Net income · ${data.period.slice(0, 4)}`} value={formatOwnerUsd(property.netYtdCents)} href={`${OWNER_BASE_PATH}/statements`} dataAttr="owner-property-kpi-ytd" />
+              </>
+            )}
           </div>
           <div>
             <div className="mb-2">
