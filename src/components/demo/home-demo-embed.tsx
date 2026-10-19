@@ -17,6 +17,7 @@ import {
   HOME_DEMO_CONTROL,
   HOME_DEMO_EVENT,
   HOME_DEMO_INTERACT,
+  HOME_DEMO_READY,
   isHomeDemoChapterId,
   type HomeDemoChapterId,
   type HomeDemoControl,
@@ -222,6 +223,7 @@ export function HomeDemoEmbed() {
     };
     window.addEventListener("message", onMessage);
     window.addEventListener("pointerdown", onPointerDown, true);
+    post({ type: HOME_DEMO_READY });
     return () => {
       tokenRef.current += 1;
       window.removeEventListener("message", onMessage);

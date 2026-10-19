@@ -5,14 +5,30 @@
   --home-nav-height: 64px;
   --home-bottom-space: 0px;
   --home-stage-height: calc(100svh - var(--home-nav-height) - var(--home-bottom-space));
+  /* One rhythm for every section: nav -> header, header -> body, body -> next section. */
+  --home-sec-pt: 48px;
+  --home-sec-pb: 48px;
+  --home-sec-gap: 24px;
+  --home-stage-pb: 16px;
+  /* One phone mock per breakpoint (How it works + Software). */
+  --home-phone-w: 288px;
+  --home-phone-h: 590px;
+}
+@media (min-width: 861px) and (max-height: 859px) {
+  .home-swiss { --home-sec-pt: 40px; --home-sec-pb: 40px; --home-sec-gap: 20px; --home-phone-w: 252px; --home-phone-h: 516px; }
+}
+@media (max-width: 860px) {
+  .home-swiss { --home-sec-pt: 40px; --home-sec-pb: 40px; --home-sec-gap: 20px; }
+}
+@media (max-width: 560px) {
+  .home-swiss { --home-sec-pt: 24px; --home-sec-pb: 20px; --home-sec-gap: 16px; --home-stage-pb: 12px; --home-phone-w: 232px; --home-phone-h: 474px; }
 }
 .home-swiss :is(#how, #dashboard, #service, #pricing, #contact, #software-demo) { scroll-margin-top: var(--home-nav-height); }
 .home-swiss :is(.home-swiss-service, .swiss-pricing, .swiss-contact) {
-  min-height: var(--home-stage-height);
-  padding-block: clamp(24px, 4svh, 40px);
+  padding-block: var(--home-sec-pt) var(--home-sec-pb);
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .home-swiss .swiss-title { font-size: clamp(40px, 4.5vw, 64px); }
 .home-swiss .swiss-service-grid { gap: 40px; margin-top: 24px; }
@@ -51,7 +67,6 @@
 .home-swiss .home-number-stage .swiss-network-map { height: min(540px, 100%); }
 @media (max-width: 860px) {
   .home-swiss { --home-nav-height: 60px; --home-bottom-space: 74px; --swiss-gutter: 16px; }
-  .home-swiss :is(.home-swiss-service, .swiss-pricing, .swiss-contact) { padding-block: 20px; }
   .home-swiss .swiss-title { font-size: 38px; }
   .home-swiss .swiss-service-grid { margin-top: 16px; }
   .home-swiss .swiss-service-list { margin-top: 20px; }
@@ -99,17 +114,10 @@
 @media (prefers-reduced-motion: reduce) {
   .home-swiss .home-number-stage[data-enhanced="true"] .home-stage-sticky { height: auto; }
 }
-.home-swiss .home-number-phone { --home-phone-width: 280px; --home-phone-height: min(548px, calc(100% - 24px)); }
-@media (max-width: 860px) {
-  .home-swiss .home-number-phone { --home-phone-width: 244px; --home-phone-height: min(484px, calc(100% - 22px)); }
-}
+.home-swiss .home-number-phone { --home-phone-width: var(--home-phone-w); --home-phone-height: min(var(--home-phone-h), calc(100% - 24px)); }
 /* Without scroll enhancement each example remains a complete, readable frame. */
-.home-swiss .home-number-stage[data-enhanced="false"] .home-number-phone { --home-phone-height: 548px; }
+.home-swiss .home-number-stage[data-enhanced="false"] .home-number-phone { --home-phone-height: var(--home-phone-h); }
 @media (max-width: 860px) {
-  .home-swiss .home-number-stage[data-enhanced="false"] .home-number-phone { --home-phone-height: 484px; }
-}
-@media (max-width: 860px) {
-  .home-swiss .swiss-pricing { padding-block: 12px; }
   .home-swiss .pl-pricing-overview { margin-top: 12px; }
   /* The price already carries /mo; retain the billing details on wider cards. */
   .home-swiss .pl-pricing-compact .pl-pricing-billing { display: none; }

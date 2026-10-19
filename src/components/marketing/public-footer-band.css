@@ -39,3 +39,15 @@
   /* Public journeys retain their chat launcher in the bottom-right corner. */
   .public-simple-footer-legal { padding-right: 64px; }
 }
+
+/* On the homepage the footer shares the sections' wrap and gutter (home-swiss.css --swiss-gutter, .swiss-wrap max-width). */
+.axis-page-frame:has(.texting-home) footer.public-simple-footer { padding-inline: 0; }
+.axis-page-frame:has(.texting-home) footer.public-simple-footer .public-simple-footer-inner { max-width: 1520px; margin-inline: auto; padding-inline: clamp(20px, 3.5vw, 56px); }
+@media (max-width: 860px) {
+  .axis-page-frame:has(.texting-home) footer.public-simple-footer .public-simple-footer-inner { padding-inline: 16px; }
+}
+@media (min-width: 861px) {
+  /* The chat launcher keeps the bottom-right corner, so the legal row clears it from below instead of shortening the row. */
+  .axis-page-frame:has(.texting-home) .public-simple-footer-legal { padding-right: 0; }
+  .axis-page-frame:has(.texting-home) footer.public-simple-footer { padding-bottom: 28px; }
+}

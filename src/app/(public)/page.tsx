@@ -70,16 +70,16 @@ export default function HomePage() {
                 ))}
               </ol>
             </div>
-          </div>
-          <div className="swiss-track-record">
-            <div className="swiss-wrap swiss-track-grid">
-              <div className="swiss-track-label">Track record</div>
-              <p>
-                We run {TRACK_RECORD.homes === 3 ? "three" : TRACK_RECORD.homes}{" "}
-                homes in Seattle — {TRACK_RECORD.roomsOccupied} of{" "}
-                {TRACK_RECORD.roomsTotal} rooms occupied — at a{" "}
-                {TRACK_RECORD.profit.toLowerCase()}.
-              </p>
+            <div className="swiss-track-record">
+              <div className="swiss-track-grid">
+                <div className="swiss-track-label">Track record</div>
+                <p>
+                  We run {TRACK_RECORD.homes === 3 ? "three" : TRACK_RECORD.homes}{" "}
+                  homes in Seattle — {TRACK_RECORD.roomsOccupied} of{" "}
+                  {TRACK_RECORD.roomsTotal} rooms occupied — at a{" "}
+                  {TRACK_RECORD.profit.toLowerCase()}.
+                </p>
+              </div>
             </div>
           </div>
         </section>

@@ -9,6 +9,7 @@ import {
   HOME_DEMO_EMBED_PATH,
   HOME_DEMO_EVENT,
   HOME_DEMO_INTERACT,
+  HOME_DEMO_READY,
   type HomeDemoChapterId,
   type HomeDemoControl,
   type HomeDemoEvent,
@@ -54,6 +55,8 @@ export function HomeSoftwareDemoPlayer() {
   const [scale, setScale] = useState(0.7);
   const [view, setView] = useState<"phone" | "portal">("phone");
   const holding = paused || hovered || focused || !inView || !visible;
+  const holdingRef = useRef(holding);
+  useEffect(() => { holdingRef.current = holding; }, [holding]);
 
   const post = useCallback((message: HomeDemoControl) => {
     frame.current?.contentWindow?.postMessage(message, window.location.origin);
@@ -106,6 +109,13 @@ export function HomeSoftwareDemoPlayer() {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== frame.current?.contentWindow) return;
       const data = event.data as ({ type?: string } & Partial<Omit<HomeDemoEvent, "type">>) | null;
+      if (data?.type === HOME_DEMO_READY) {
+        loaded.current = true;
+        if (reducedRef.current) return;
+        post({ type: HOME_DEMO_CONTROL, action: "select", chapter: chapterRef.current });
+        post({ type: HOME_DEMO_CONTROL, action: holdingRef.current ? "pause" : "play" });
+        return;
+      }
       if (data?.type === HOME_DEMO_INTERACT) {
         setPaused(true);
         return;
@@ -118,7 +128,7 @@ export function HomeSoftwareDemoPlayer() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [post]);
   // Tell the iframe whether it may run.
   useEffect(() => {
     if (!loaded.current || reduced) return;

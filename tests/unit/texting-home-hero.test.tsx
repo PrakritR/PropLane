@@ -37,7 +37,8 @@ describe("housing texting cover", () => {
     expect(container.querySelector(".home-housing-scene")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(4);
-    expect(container.querySelector(".home-discovery-phone")).not.toBeNull();
+    expect(container.querySelector(".home-discovery-phone")).toBeNull();
+    expect(container.querySelector(".home-hero-phone")).toBeNull();
     for (const role of ["Prospects", "Residents", "Vendors", "Owners"]) expect(screen.getByText(role)).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();

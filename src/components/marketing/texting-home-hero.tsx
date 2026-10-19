@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { HomeHousingScene } from "./home-housing-scene";
-import { HomeDiscoveryPhone } from "./home-discovery-phone";
 import { GET_STARTED_HREF, RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
 import { HOME_HEADLINE } from "@/lib/marketing/home-copy";
@@ -35,21 +34,15 @@ export function TextingHomeHero({ config: override }: { config?: PublicTextingCo
   const configured = Boolean(phone && config.smsHref);
   return <section id="home-hero" className="home-number-hero" aria-labelledby="home-title">
     <HomeHousingScene />
-    <div className="home-number-cover-grid">
-      <div className="home-number-cover-content">
-        <h1 id="home-title" aria-label={HOME_HEADLINE}>{HOME_HEADLINE}</h1>
-        {configured ? <div className="home-text-row">
-          <a href={config.smsHref!} className="home-text-pill" aria-label={`Text PropLane ${phone}`} data-attr="home-text-proplane">
-            <MessagesTile />
-            <span>Text PropLane</span>
-          </a>
-          <span className="home-text-number" data-attr="home-text-number">{phone}</span>
-        </div> : <Link href={GET_STARTED_HREF} className="home-number-start" data-attr="home-start-free">Start free</Link>}
-      </div>
-      <div className="home-hero-phone">
-        <HomeDiscoveryPhone />
-        <span className="home-sample-label">Sample conversation</span>
-      </div>
+    <div className="home-number-cover-content">
+      <h1 id="home-title" aria-label={HOME_HEADLINE}>{HOME_HEADLINE}</h1>
+      {configured ? <div className="home-text-row">
+        <a href={config.smsHref!} className="home-text-pill" aria-label={`Text PropLane ${phone}`} data-attr="home-text-proplane">
+          <MessagesTile />
+          <span>Text PropLane</span>
+        </a>
+        <span className="home-text-number" data-attr="home-text-number">{phone}</span>
+      </div> : <Link href={GET_STARTED_HREF} className="home-number-start" data-attr="home-start-free">Start free</Link>}
     </div>
     <ul className="home-number-who" aria-label="Who texts PropLane">{WHO_TEXTS.map(({ role, href }) => <li key={role}><Link href={href} prefetch={false} data-attr={`home-who-${role.toLowerCase()}`}>{role}</Link></li>)}</ul>
   </section>;

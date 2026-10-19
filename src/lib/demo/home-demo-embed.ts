@@ -10,6 +10,9 @@ export const HOME_DEMO_EMBED_PATH = "/demo/home-embed";
 export const HOME_DEMO_EVENT = "proplane-home-demo";
 /** Embed -> parent: the visitor pressed something inside the portal (the parent pauses). */
 export const HOME_DEMO_INTERACT = "proplane-home-demo-interact";
+/** Embed -> parent: its message listener is attached. The iframe `load` event fires before hydration, so a
+ *  control sent on load can be lost; the parent re-sends the current chapter and play/pause on this. */
+export const HOME_DEMO_READY = "proplane-home-demo-ready";
 /** Parent -> embed: play / pause / select a chapter. */
 export const HOME_DEMO_CONTROL = "proplane-home-demo-control";
 
