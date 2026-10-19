@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * One-number W22: move ONE owner's houses in a city into a PropLane Service workspace (admin account).
+ * One-number W22: bring ONE owner's workspace (their houses in a city) under PropLane Service.
+ *
+ *   --mode attach (the default)  the workspace STAYS with its owner. No house, lease, charge or listing row is written.
+ *                                Only the workspace row (is_service, city, name, owner_of_record_name) and one membership
+ *                                row (the service owner, accepted Admin) change. Undo removes exactly those.
+ *   --mode transfer              hands the workspace to the service owner through the app's ownership-transfer RPC.
+ *                                Needs --acknowledge-unmoved: that RPC leaves about thirty tables on the old owner.
  *
  *   node scripts/one-number/move-houses-to-service.mjs --target dev --owner-email ambika@example.com --label Ambika
  *   ... --owner-name Ambika                    no --owner-email: lists the accounts that match, then stops
@@ -112,11 +118,15 @@ async function loadOwnerWorld(db, ownerId, city) {
 
 /* ----------------------------------- printing ----------------------------------- */
 
-function printPlan(log, { owner, service, target, houses, summaries, snap, left, history, label, city }) {
+function printPlan(log, { owner, service, target, houses, summaries, snap, left, history, label, city, mode }) {
   log(`${SCRIPT}: owner      ${owner.email} (${owner.full_name ?? "no name"}) ${owner.id}`);
   log(`${SCRIPT}: service    ${service.email} ${service.id}`);
   log(`${SCRIPT}: workspace  "${target.workspace.name}" ${target.workspace.id}${target.workspace.is_default ? " (the owner's default workspace)" : ""}`);
-  log(`${SCRIPT}: becomes    service workspace "${label}" (${city}), owned by the service owner; ${owner.email} stays as Admin and owner of record`);
+  log(
+    mode === "attach"
+      ? `${SCRIPT}: mode       ATTACH: the workspace stays owned by ${owner.email}; it becomes service workspace "${label}" (${city}) and the service owner joins as Admin. No house, lease, charge or listing row is written.`
+      : `${SCRIPT}: mode       TRANSFER: becomes service workspace "${label}" (${city}), owned by the service owner; ${owner.email} stays as Admin and owner of record`,
+  );
   log(`${SCRIPT}: houses (${houses.length}):`);
   for (const s of summaries) {
     log(
@@ -126,15 +136,17 @@ function printPlan(log, { owner, service, target, houses, summaries, snap, left,
     );
   }
   const moved = Object.entries(snap.tables).filter(([, e]) => e.moved && e.count > 0).map(([t, e]) => `${t} ${e.count}`);
-  log(`${SCRIPT}: re-keyed by the app's transfer: ${moved.join(", ") || "no related rows"}`);
+  log(`${SCRIPT}: ${mode === "attach" ? "rows that stay exactly as they are (proved by fingerprint)" : "re-keyed by the app's transfer"}: ${moved.join(", ") || "no related rows"}`);
   log(`${SCRIPT}: members that stay: ${snap.members.length}; work numbers: ${snap.numbers.length}; work emails: ${snap.emails.length}`);
-  if (left.length) {
+  if (mode === "attach") {
+    // nothing moves, so nothing can be left behind
+  } else if (left.length) {
     log(`${SCRIPT}: LEFT BEHIND (rows that name ${owner.email}'s account and that the app's transfer does not re-key):`);
     for (const l of left) log(`${SCRIPT}:   ${l.table}: ${l.rows}`);
   } else {
     log(`${SCRIPT}: left behind: nothing (no unmoved table holds a row for these houses)`);
   }
-  if (history.length) log(`${SCRIPT}: workspace history that stays attached to the workspace id: ${history.map((h) => `${h.table} ${h.rows}`).join(", ")}`);
+  if (history.length && mode !== "attach") log(`${SCRIPT}: workspace history that stays attached to the workspace id: ${history.map((h) => `${h.table} ${h.rows}`).join(", ")}`);
   if (snap.missingTables.length) log(`${SCRIPT}: not migrated here (skipped): ${snap.missingTables.join(", ")}`);
 }
 
@@ -390,6 +402,99 @@ export async function undoMove(db, journal, { log, save, deps = {} }) {
   return { after, problems };
 }
 
+/* ------------------------------------ attach ------------------------------------ */
+
+/**
+ * Attach mode: the workspace keeps its owner. Writes the workspace row and ONE membership row, nothing else, and the
+ * snapshot proves it (row fingerprints of every house-keyed table, owners unchanged).
+ */
+async function applyAttach(db, ctx) {
+  const { owner, service, target, label, city, houseIds, journal, save, log } = ctx;
+  const W = target.workspace.id;
+  journal.state = "applying";
+  save(journal);
+
+  if (journal.preexistingMembership) {
+    step(journal, "service-owner-already-admin", { linkId: journal.preexistingMembership });
+  } else {
+    journal.attachMembershipId = await seatServiceOwner(db, { owner, service, workspaceId: W });
+    step(journal, "service-owner-added-as-admin", { linkId: journal.attachMembershipId });
+    log(`${SCRIPT}: added the service owner as an accepted Admin member (link ${journal.attachMembershipId})`);
+  }
+  save(journal);
+
+  const ownerName = clean(owner.full_name) || owner.email;
+  const marked = await db
+    .from("portal_workspaces")
+    .update({ name: label, city, is_service: true, owner_of_record_name: ownerName.slice(0, 80) })
+    .eq("id", W)
+    .eq("owner_user_id", owner.id)
+    .select("id");
+  if (marked.error || (marked.data ?? []).length !== 1) throw new Error(`portal_workspaces: could not mark the service workspace (${marked.error?.message ?? "no row"})`);
+  step(journal, "marked-service", { workspaceName: label, city, ownerOfRecordName: ownerName });
+  save(journal);
+
+  const after = await readSnapshot(db, { workspaceId: W, houseIds, now: new Date(journal.snapshotBefore.asOf) });
+  journal.snapshotAfter = after;
+  const sMember = after.members.filter((m) => m.invitee === service.id);
+  const problems = [
+    ...diffSnapshots(
+      { ...journal.snapshotBefore, members: journal.snapshotBefore.members.filter((m) => m.invitee !== service.id) },
+      { ...after, members: after.members.filter((m) => m.invitee !== service.id) },
+      { strictRows: true },
+    ),
+    ...ownerProblems(after, owner.id),
+  ];
+  if (sMember.length !== 1 || sMember[0].role !== "admin" || sMember[0].status !== "accepted" || sMember[0].scope !== "all") {
+    problems.push("the service owner is not exactly one accepted Admin member with all houses");
+  }
+  const w = after.workspace;
+  if (!w || w.owner_user_id !== owner.id) problems.push("the workspace owner changed");
+  if (w && (w.is_service !== true || w.name !== label || w.city !== city)) problems.push("the workspace is not marked as the service workspace");
+  step(journal, "verified", { problems });
+  save(journal);
+  return { after, problems };
+}
+
+export async function undoAttach(db, journal, { log, save }) {
+  const W = journal.workspace.id;
+  const O = journal.owner.id;
+  const S = journal.service.id;
+  const before = journal.snapshotBefore.workspace;
+  const ws = await db.from("portal_workspaces").select("id, owner_user_id").eq("id", W).maybeSingle();
+  if (ws.error) throw new Error(`portal_workspaces: ${ws.error.message}`);
+  if (!ws.data) throw new MoveRefusal(`Workspace ${W} no longer exists; nothing to undo safely.`);
+  if (ws.data.owner_user_id !== O) throw new MoveRefusal(`Workspace ${W} is now owned by ${ws.data.owner_user_id}, not ${journal.owner.email}. Refusing to touch it.`);
+
+  if (journal.attachMembershipId) {
+    const gone = await db.from("account_link_invites").delete().eq("id", journal.attachMembershipId).eq("workspace_id", W).eq("invitee_user_id", S).select("id");
+    if (gone.error) throw new Error(`account_link_invites: ${gone.error.message}`);
+    if ((gone.data ?? []).length) log(`${SCRIPT}: removed the service owner's membership`);
+  }
+  const restore = await db
+    .from("portal_workspaces")
+    .update({
+      name: before.name,
+      city: before.city ?? null,
+      is_service: before.is_service === true,
+      owner_of_record_name: before.owner_of_record_name ?? null,
+    })
+    .eq("id", W)
+    .eq("owner_user_id", O)
+    .select("id");
+  if (restore.error) throw new Error(`portal_workspaces: ${restore.error.message}`);
+  save(journal);
+
+  const after = await readSnapshot(db, { workspaceId: W, houseIds: journal.houseIds, now: new Date(journal.snapshotBefore.asOf) });
+  const problems = [...diffSnapshots(journal.snapshotBefore, after, { strictRows: true }), ...ownerProblems(after, O)];
+  const w = after.workspace;
+  if (!w || w.owner_user_id !== O) problems.push("the workspace owner changed");
+  if (w && (w.is_service !== (before.is_service === true) || w.name !== before.name || (w.city ?? null) !== (before.city ?? null) || (w.owner_of_record_name ?? null) !== (before.owner_of_record_name ?? null))) {
+    problems.push("the workspace name / city / service flag / owner-of-record name was not restored");
+  }
+  return { after, problems };
+}
+
 /* ------------------------------------- run ------------------------------------- */
 
 function readJournal(path, deps) {
@@ -408,7 +513,7 @@ export async function run(argv, deps = {}) {
     SCRIPT,
     argv,
     {
-      strings: ["owner-email", "owner-name", "label", "workspace-id", "city", "expect-houses", "undo", "journal-out"],
+      strings: ["owner-email", "owner-name", "label", "workspace-id", "city", "expect-houses", "undo", "journal-out", "mode"],
       booleans: ["acknowledge-unmoved"],
     },
     { write: (f) => Boolean(f.apply || f.undo), deps },
@@ -424,13 +529,19 @@ export async function run(argv, deps = {}) {
       log(`${SCRIPT}: that journal is already undone. Nothing to do.`);
       return 0;
     }
-    log(`${SCRIPT}: undo: workspace ${journal.workspace.id} -> back to ${journal.owner.email}; ${journal.houseIds.length} house(s)`);
+    const attached = journal.mode === "attach";
+    const undoFn = attached ? undoAttach : undoMove;
+    log(
+      attached
+        ? `${SCRIPT}: undo (attach): workspace ${journal.workspace.id} stays with ${journal.owner.email}; unflag it and remove the service owner's membership`
+        : `${SCRIPT}: undo: workspace ${journal.workspace.id} -> back to ${journal.owner.email}; ${journal.houseIds.length} house(s)`,
+    );
     if (!apply) {
       log(`${SCRIPT}: dry run, nothing written. Re-run with --apply to undo.`);
       return 0;
     }
     const save = journalWriter(deps, flags.undo);
-    const { problems } = await undoMove(db, journal, { log, save, deps });
+    const { problems } = await undoFn(db, journal, { log, save, deps });
     journal.undo = { at: new Date().toISOString(), problems };
     if (problems.length) {
       journal.state = "undo-failed";
@@ -445,7 +556,9 @@ export async function run(argv, deps = {}) {
     return 0;
   }
 
-  /* --- move --- */
+  /* --- attach / transfer --- */
+  const mode = clean(flags.mode ?? "attach");
+  if (mode !== "attach" && mode !== "transfer") throw new UsageError("--mode must be attach (default) or transfer.");
   if (!flags["owner-email"]) {
     if (flags["owner-name"]) await listCandidates(db, flags["owner-name"], log);
     throw new UsageError("--owner-email <the owner's account email> is required (use --owner-name to list matching accounts).");
@@ -500,7 +613,22 @@ export async function run(argv, deps = {}) {
     throw new MoveRefusal(`${owner.email} has ${candidates.length} workspaces with ${city} houses; pick one with --workspace-id:\n  ${lines.join("\n  ")}`);
   } else target = candidates[0];
 
-  if (target.workspace.is_service) throw new MoveRefusal(`"${target.workspace.name}" is already a service workspace.`);
+  if (target.workspace.is_service) {
+    if (mode === "attach") {
+      const already = await db
+        .from("account_link_invites")
+        .select("id, team_role")
+        .eq("workspace_id", target.workspace.id)
+        .eq("invitee_user_id", service.id)
+        .eq("status", "accepted");
+      if (!already.error && (already.data ?? []).length === 1 && already.data[0].team_role === "admin") {
+        log(`${SCRIPT}: "${target.workspace.name}" ${target.workspace.id} is already attached to PropLane Service (service owner is an Admin member). Nothing to do.`);
+        report.alreadyMoved = [target.workspace.id];
+        return 0;
+      }
+    }
+    throw new MoveRefusal(`"${target.workspace.name}" is already a service workspace.`);
+  }
   if (target.houses.length === 0) throw new MoveRefusal("That workspace holds no houses.");
   if (target.mixed || !target.movable) {
     const lines = target.houses.map((h) => `${h.id}  ${houseLabel(h)}  -> ${h.city ?? "city not readable"}`);
@@ -512,28 +640,34 @@ export async function run(argv, deps = {}) {
   const W = target.workspace.id;
   const houseIds = target.houses.map((h) => h.id).sort();
 
-  const servicesNames = await db.from("portal_workspaces").select("id, name").eq("owner_user_id", service.id);
-  if (servicesNames.error) throw new Error(`portal_workspaces: ${servicesNames.error.message}`);
-  if ((servicesNames.data ?? []).some((w) => clean(w.name).toLowerCase() === label.toLowerCase())) {
-    throw new MoveRefusal(`The service owner already has a workspace named "${label}". Choose another --label.`);
+  const labelOwner = mode === "attach" ? owner.id : service.id;
+  const sameNames = await db.from("portal_workspaces").select("id, name").eq("owner_user_id", labelOwner);
+  if (sameNames.error) throw new Error(`portal_workspaces: ${sameNames.error.message}`);
+  if ((sameNames.data ?? []).some((w) => w.id !== W && clean(w.name).toLowerCase() === label.toLowerCase())) {
+    throw new MoveRefusal(`${mode === "attach" ? `${owner.email} already has` : "The service owner already has"} a workspace named "${label}". Choose another --label.`);
   }
   const seated = await db
     .from("account_link_invites")
-    .select("id")
+    .select("id, team_role, status")
     .eq("workspace_id", W)
     .eq("invitee_user_id", service.id)
     .in("status", ["pending", "accepted"]);
   if (seated.error) throw new Error(`account_link_invites: ${seated.error.message}`);
-  if ((seated.data ?? []).length) throw new MoveRefusal("The service owner already has a membership row in that workspace; remove it first so the move starts from a known state.");
+  let preexistingMembership = null;
+  if ((seated.data ?? []).length) {
+    const only = seated.data.length === 1 ? seated.data[0] : null;
+    if (mode === "attach" && only && only.status === "accepted" && only.team_role === "admin") preexistingMembership = only.id;
+    else throw new MoveRefusal("The service owner already has a membership row in that workspace that is not an accepted Admin one; remove it first so the run starts from a known state.");
+  }
 
   const snap = await readSnapshot(db, { workspaceId: W, houseIds });
   const left = leftBehind(snap, owner.id);
   const history = workspaceHistory(snap);
   const summaries = houseSummaries(target.houses.map((h) => ({ ...h, label: houseLabel(h) })), snap);
-  printPlan(log, { owner, service, target, houses: target.houses, summaries, snap, left, history, label, city });
+  printPlan(log, { owner, service, target, houses: target.houses, summaries, snap, left, history, label, city, mode });
   report.plan = { workspaceId: W, houseIds, left, ownerId: owner.id };
 
-  const ackFlag = left.length ? " --acknowledge-unmoved" : "";
+  const ackFlag = mode === "transfer" ? " --mode transfer --acknowledge-unmoved" : "";
   if (!apply) {
     log(`${SCRIPT}: dry run, nothing written. To apply: add --apply --expect-houses ${houseIds.length}${ackFlag}${resolved.target === "production" ? ' --reason "<why>" --backup <backup file made with this --owner-email>' : ""}`);
     return 0;
@@ -543,8 +677,8 @@ export async function run(argv, deps = {}) {
   if (String(flags["expect-houses"] ?? "") !== String(houseIds.length)) {
     throw new MoveRefusal(`--expect-houses ${houseIds.length} is required (the count the dry run showed); got ${flags["expect-houses"] ?? "none"}.`);
   }
-  if (left.length && !flags["acknowledge-unmoved"]) {
-    throw new MoveRefusal("Rows are left behind (listed above). Re-run with --acknowledge-unmoved to accept that, or have the transfer extended first.");
+  if (mode === "transfer" && !flags["acknowledge-unmoved"]) {
+    throw new MoveRefusal("--mode transfer refuses without --acknowledge-unmoved: the app's transfer re-keys only twelve house-keyed tables and leaves the rest (listed above) on the old owner. Prefer --mode attach, or extend the transfer first.");
   }
   if (resolved.target === "production") {
     const move = facts.backup?.move;
@@ -564,7 +698,9 @@ export async function run(argv, deps = {}) {
     : { rows: [] };
   const journal = {
     kind: JOURNAL_KIND,
-    version: 1,
+    version: 2,
+    mode,
+    preexistingMembership,
     target: resolved.target,
     ref: resolved.ref,
     createdAt: new Date().toISOString(),
@@ -587,9 +723,9 @@ export async function run(argv, deps = {}) {
 
   let outcome;
   try {
-    outcome = await applyMove(db, { owner, service, target, label, city, houseIds, journal, save, log });
+    outcome = await (mode === "attach" ? applyAttach : applyMove)(db, { owner, service, target, label, city, houseIds, journal, save, log });
   } catch (error) {
-    log(`${SCRIPT}: FAILED during the move: ${error instanceof Error ? error.message : String(error)}. Undoing.`);
+    log(`${SCRIPT}: FAILED during the ${mode}: ${error instanceof Error ? error.message : String(error)}. Undoing.`);
     outcome = { problems: [`exception: ${error instanceof Error ? error.message : String(error)}`] };
   }
   if (outcome.problems.length) {
@@ -597,7 +733,7 @@ export async function run(argv, deps = {}) {
     journal.state = "failed";
     save(journal);
     try {
-      const undone = await undoMove(db, journal, { log, save, deps });
+      const undone = await (mode === "attach" ? undoAttach : undoMove)(db, journal, { log, save, deps });
       journal.state = undone.problems.length ? "undo-failed" : "undone";
       journal.undo = { at: new Date().toISOString(), problems: undone.problems, automatic: true };
       save(journal);
@@ -605,7 +741,7 @@ export async function run(argv, deps = {}) {
         for (const p of undone.problems) log(`${SCRIPT}: UNDO CHECK FAILED: ${p}`);
         log(`${SCRIPT}: the automatic undo did not restore everything. Journal: ${path}. Stop and read it before doing anything else.`);
       } else {
-        log(`${SCRIPT}: undone and verified; the workspace is back with ${owner.email}. Journal: ${path}`);
+        log(`${SCRIPT}: undone and verified; the workspace is as it was for ${owner.email}. Journal: ${path}`);
       }
     } catch (error) {
       journal.state = "undo-failed";
@@ -618,8 +754,13 @@ export async function run(argv, deps = {}) {
 
   journal.state = "applied";
   save(journal);
-  log(`${SCRIPT}: moved and verified. ${houseIds.length} house(s), residents, leases, bookings, charges, conversations, members and numbers match the snapshot taken first.`);
-  log(`${SCRIPT}: ${owner.email} can open "${label}" as Admin (owner of record). Undo: --apply --undo ${path}`);
+  if (mode === "attach") {
+    log(`${SCRIPT}: attached and verified. ${houseIds.length} house(s): the owner is unchanged and every house-keyed row is byte-identical to the snapshot taken first; only the workspace row and the service owner's membership differ.`);
+    log(`${SCRIPT}: "${label}" is now a service workspace still owned by ${owner.email}. Undo: --apply --undo ${path}`);
+  } else {
+    log(`${SCRIPT}: moved and verified. ${houseIds.length} house(s), residents, leases, bookings, charges, conversations, members and numbers match the snapshot taken first.`);
+    log(`${SCRIPT}: ${owner.email} can open "${label}" as Admin (owner of record). Undo: --apply --undo ${path}`);
+  }
   report.journal = path;
   return 0;
 }

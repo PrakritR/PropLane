@@ -6,6 +6,7 @@
  * number/email. This file decides WHAT may move (a workspace whose every house is in the city) and PROVES the result
  * (a before/after snapshot of every table that carries a house id, plus the rows the RPC does not touch).
  */
+import { createHash } from "node:crypto";
 import { chunk, fetchAll } from "./db.mjs";
 
 /** The permission stamp of the "admin" team role (src/lib/co-manager-team-roles.ts, `allModules("manage")`). A test pins it. */
@@ -202,33 +203,26 @@ function perHouse(rows, prop, summarize) {
   return Object.fromEntries(Object.entries(groups).map(([id, list]) => [id, summarize(list)]));
 }
 
+function stable(value) {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(",")}}`;
+  return JSON.stringify(value ?? null);
+}
+
+/** Fingerprint of whole rows (every column), order-independent: any edit to any row changes it. */
+export function rowsHash(rows) {
+  const lines = rows.map(stable).sort();
+  return createHash("sha256").update(lines.join("\n")).digest("hex");
+}
+
 async function readPropertyRows(db, table, owner, prop, houseIds) {
-  const extras = EXTRAS[table] ?? [];
-  // Some tables have no `id` column, some lack an extra: a missing-column answer retries with fewer columns.
-  const attempts = [
-    [true, extras],
-    [true, []],
-    [false, extras],
-    [false, []],
-  ];
-  const seen = new Set();
-  for (const [withId, cols] of attempts) {
-    const select = [...new Set([...(withId ? ["id"] : []), owner, prop, ...cols])].join(", ");
-    if (seen.has(select)) continue;
-    seen.add(select);
-    const rows = [];
-    let missing = false;
-    for (const batch of chunk(houseIds, 50)) {
-      const res = await fetchAll(db, table, select, { key: prop, offsetPaging: true, filter: (q) => q.in(prop, batch) });
-      if (res.missing) {
-        missing = true;
-        break;
-      }
-      rows.push(...res.rows);
-    }
-    if (!missing) return rows;
+  const rows = [];
+  for (const batch of chunk(houseIds, 50)) {
+    const res = await fetchAll(db, table, "*", { key: prop, offsetPaging: true, filter: (q) => q.in(prop, batch) });
+    if (res.missing) return null;
+    rows.push(...res.rows);
   }
-  return null;
+  return rows;
 }
 
 /** Everything the move must leave unchanged (per house), plus who owns each row (checked separately). */
@@ -243,9 +237,10 @@ export async function readSnapshot(db, { workspaceId, houseIds, now = new Date()
   if (ws.error) throw new Error(`portal_workspaces: ${ws.error.message}`);
   snap.workspace = ws.data ?? null;
 
-  const houses = await fetchAll(db, "manager_property_records", "id, manager_user_id, workspace_id, status", {
+  const houses = await fetchAll(db, "manager_property_records", "*", {
     filter: (q) => q.eq("workspace_id", workspaceId),
   });
+  snap.housesHash = rowsHash(houses.rows);
   snap.houses = houses.rows.map((h) => ({ id: h.id, workspace_id: h.workspace_id, status: h.status ?? null })).sort((a, b) => a.id.localeCompare(b.id));
   snap.houseOwners = histogram(houses.rows, "manager_user_id");
   const ids = houseIds;
@@ -265,7 +260,7 @@ export async function readSnapshot(db, { workspaceId, houseIds, now = new Date()
     }
     const byHouse = {};
     for (const r of rows) byHouse[r[spec.prop]] = (byHouse[r[spec.prop]] ?? 0) + 1;
-    const entry = { moved: spec.moved, owner: spec.owner, count: rows.length, byHouse, byOwner: histogram(rows, spec.owner) };
+    const entry = { moved: spec.moved, owner: spec.owner, count: rows.length, byHouse, byOwner: histogram(rows, spec.owner), hash: rowsHash(rows) };
     if (spec.table === "portal_lease_pipeline_records" && spec.prop === "property_id") {
       entry.status = histogram(rows, "status");
       entry.residents = [...new Set(rows.map((r) => String(r.resident_email ?? "").trim().toLowerCase()).filter(Boolean))].sort();
@@ -334,10 +329,11 @@ export async function readSnapshot(db, { workspaceId, houseIds, now = new Date()
  * Differences that matter: everything except who owns a row. Pass `membersExtra` for the one membership the move
  * adds on purpose (the former owner, as Admin), and `ignoreMember` for one it removes (the service owner's own).
  */
-export function diffSnapshots(before, after, { addedMembers = [], removedMembers = [] } = {}) {
+export function diffSnapshots(before, after, { addedMembers = [], removedMembers = [], strictRows = false } = {}) {
   const diffs = [];
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   if (!eq(before.houses, after.houses)) diffs.push("houses differ (ids, workspace or status)");
+  if (strictRows && before.housesHash !== after.housesHash) diffs.push("manager_property_records: at least one house row changed");
   for (const label of new Set([...Object.keys(before.tables), ...Object.keys(after.tables)])) {
     const a = before.tables[label];
     const b = after.tables[label];
@@ -345,6 +341,7 @@ export function diffSnapshots(before, after, { addedMembers = [], removedMembers
       diffs.push(`${label}: readable on one side only`);
       continue;
     }
+    if (strictRows && a.hash !== b.hash) diffs.push(`${label}: at least one row changed`);
     for (const field of ["count", "byHouse", "perHouse", "status", "residents", "open", "bookings", "upcomingBookings", "recordTypes"]) {
       if (!eq(a[field], b[field])) diffs.push(`${label}.${field}: ${JSON.stringify(a[field])} -> ${JSON.stringify(b[field])}`);
     }

@@ -189,7 +189,7 @@ describe("move-houses-to-service: guards and refusals", () => {
 
   it("dry run lists every house with its counts and writes nothing", async () => {
     const w = world();
-    const { code, h } = await go(w, [...AMB, "--workspace-id", WA]);
+    const { code, h } = await go(w, [...AMB, "--workspace-id", WA, "--mode", "transfer"]);
     expect(code).toBe(0);
     expect(w.writes).toEqual([]);
     const text = h.text();
@@ -199,7 +199,7 @@ describe("move-houses-to-service: guards and refusals", () => {
     expect(text).toMatch(/conversations 1/);
     expect(text).toMatch(/LEFT BEHIND/);
     expect(text).toMatch(/manager_sms_conversation_houses: 1/);
-    expect(text).toMatch(/--apply --expect-houses 3 --acknowledge-unmoved/);
+    expect(text).toMatch(/--apply --expect-houses 3 --mode transfer --acknowledge-unmoved/);
   });
 
   it("STOPS on a workspace that mixes cities, and never picks for you between two", async () => {
@@ -229,7 +229,8 @@ describe("move-houses-to-service: guards and refusals", () => {
     await expect(go(w, ["--owner-email", "admin@proplane.test", "--label", "x"])).rejects.toThrow(/service owner's own account/);
     await expect(go(w, ["--owner-email", "nobody@example.com", "--label", "x"])).rejects.toThrow(/No account has the email/);
     const taken = world({ portal_workspaces: [...seedMove().portal_workspaces!, { id: "t", owner_user_id: S, name: "1. ambika", is_default: false, is_service: true }] });
-    await expect(go(taken, [...AMB, "--workspace-id", WA])).rejects.toThrow(/already has a workspace named/);
+    await expect(go(taken, [...AMB, "--workspace-id", WA, "--mode", "transfer"])).rejects.toThrow(/The service owner already has a workspace named/);
+    await expect(go(w, ["--owner-email", "ambika@example.com", "--label", "mixed", "--workspace-id", WA])).rejects.toThrow(/ambika@example.com already has a workspace named/);
   });
 
   it("refuses without the W15 migration", async () => {
@@ -241,7 +242,8 @@ describe("move-houses-to-service: guards and refusals", () => {
     const w = world();
     await expect(go(w, [...AMB, "--workspace-id", WA, "--apply"])).rejects.toThrow(/--expect-houses 3/);
     await expect(go(w, [...AMB, "--workspace-id", WA, "--apply", "--expect-houses", "2"])).rejects.toThrow(/--expect-houses 3/);
-    await expect(go(w, [...AMB, "--workspace-id", WA, "--apply", "--expect-houses", "3"])).rejects.toThrow(/left behind/);
+    await expect(go(w, [...AMB, "--workspace-id", WA, "--mode", "transfer", "--apply", "--expect-houses", "3"])).rejects.toThrow(/--mode transfer refuses without --acknowledge-unmoved/);
+    await expect(go(w, [...AMB, "--workspace-id", WA, "--mode", "bogus"])).rejects.toThrow(/--mode must be attach/);
     expect(w.writes).toEqual([]);
   });
 
@@ -260,7 +262,7 @@ describe("move-houses-to-service: guards and refusals", () => {
 });
 
 describe("move-houses-to-service: apply, verify, undo, re-apply", () => {
-  const APPLY = [...AMB, "--workspace-id", WA, "--apply", "--expect-houses", "3", "--acknowledge-unmoved"];
+  const APPLY = [...AMB, "--workspace-id", WA, "--mode", "transfer", "--apply", "--expect-houses", "3", "--acknowledge-unmoved"];
 
   it("moves the workspace through the app's transfer, keeps every count, and leaves the owner a default workspace", async () => {
     const w = world();
@@ -334,7 +336,7 @@ describe("move-houses-to-service: apply, verify, undo, re-apply", () => {
     const before = JSON.stringify(w.tables);
     const { code, h, files } = await go(w, APPLY);
     expect(code).toBe(1);
-    expect(h.text()).toMatch(/FAILED during the move: ensure_default_portal_workspace: boom\. Undoing\./);
+    expect(h.text()).toMatch(/FAILED during the transfer: ensure_default_portal_workspace: boom\. Undoing\./);
     expect(h.text()).toMatch(/undone and verified/);
     expect(files["/j/amb.json"].state).toBe("undone");
     expect(JSON.stringify(Object.fromEntries(original.map((k) => [k, w.tables[k]])))).toBe(before);
@@ -372,11 +374,116 @@ describe("move-houses-to-service: apply, verify, undo, re-apply", () => {
 
   it("Vinod: an empty draft in his default workspace moves with an explicit --workspace-id", async () => {
     const w = world();
-    const { code } = await go(w, ["--owner-email", "vinod@example.com", "--label", "2. Vinod", "--workspace-id", WV, "--apply", "--expect-houses", "1", "--journal-out", "/j/v.json"]);
+    const { code } = await go(w, ["--owner-email", "vinod@example.com", "--label", "2. Vinod", "--workspace-id", WV, "--mode", "transfer", "--acknowledge-unmoved", "--apply", "--expect-houses", "1", "--journal-out", "/j/v.json"]);
     expect(code).toBe(0);
     expect(w.tables.portal_workspaces.find((x) => x.id === WV)).toMatchObject({ owner_user_id: S, is_service: true, name: "2. Vinod", is_default: false });
     expect(w.tables.portal_workspaces.filter((x) => x.owner_user_id === V && x.is_default).length).toBe(1);
     expect(w.tables.manager_property_records.find((x) => x.id === "d1")!.manager_user_id).toBe(S);
+  });
+});
+
+describe("move-houses-to-service: attach mode (the default)", () => {
+  const ATTACH = [...AMB, "--workspace-id", WA, "--apply", "--expect-houses", "3"];
+  const KEYS = Object.keys(seedMove()).filter((k) => !["portal_workspaces", "account_link_invites"].includes(k));
+  const untouched = (w: ReturnType<typeof world>) => JSON.stringify(Object.fromEntries(KEYS.map((k) => [k, w.tables[k]])));
+
+  it("dry run says nothing moves and lists no left-behind rows", async () => {
+    const w = world();
+    const { code, h } = await go(w, [...AMB, "--workspace-id", WA]);
+    expect(code).toBe(0);
+    expect(w.writes).toEqual([]);
+    expect(h.text()).toMatch(/ATTACH: the workspace stays owned by ambika@example.com/);
+    expect(h.text()).not.toMatch(/LEFT BEHIND/);
+    expect(h.text()).toMatch(/To apply: add --apply --expect-houses 3$/m);
+  });
+
+  it("flags the workspace and adds the service owner as Admin; the owner and every other row are untouched", async () => {
+    const w = world();
+    const before = untouched(w);
+    const { code, files, h } = await go(w, ATTACH);
+    expect(h.text()).toMatch(/attached and verified/);
+    expect(code).toBe(0);
+    expect(w.tables.portal_workspaces.find((x) => x.id === WA)).toMatchObject({ owner_user_id: A, is_service: true, name: "1. Ambika", city: "Seattle", is_default: true, owner_of_record_name: "Ambika Mago" });
+    expect(untouched(w)).toBe(before);
+    // only these two tables were written, and no RPC ran
+    expect([...new Set(w.writes.map((x) => x.table))].sort()).toEqual(["account_link_invites", "portal_workspaces"]);
+    expect(w.tables.account_link_invites.filter((x) => x.invitee_user_id === S)).toMatchObject([{ inviter_user_id: A, team_role: "admin", status: "accepted", house_scope: "all", co_manager_permissions: ADMIN_STAMP }]);
+    expect(w.tables.account_link_invites.find((x) => x.invitee_user_id === "co-manager")).toMatchObject({ inviter_user_id: A });
+    expect(files["/j/amb.json"]).toMatchObject({ mode: "attach", state: "applied" });
+    expect(files["/j/amb.json"].steps.map((x: any) => x.name)).toEqual(["service-owner-added-as-admin", "marked-service", "verified"]);
+  });
+
+  it("re-running finds it attached and writes nothing", async () => {
+    const w = world();
+    await go(w, ATTACH);
+    const writes = w.writes.length;
+    const again = await go(w, ATTACH);
+    expect(again.code).toBe(0);
+    expect(again.h.text()).toMatch(/already attached to PropLane Service/);
+    expect(w.writes.length).toBe(writes);
+  });
+
+  it("undo unflags the workspace and removes the service owner's membership, nothing else", async () => {
+    const w = world();
+    const original = Object.keys(w.tables);
+    const pick = () => JSON.stringify(Object.fromEntries(original.map((k) => [k, w.tables[k]])));
+    const start = pick();
+    const { files } = await go(w, ATTACH);
+    const io = { readFile: (p: string) => JSON.stringify(files[p]), writeFile: (p: string, v: any) => { files[p] = JSON.parse(JSON.stringify(v)); } };
+    const undo = await go(w, ["--apply", "--undo", "/j/amb.json"], io);
+    expect(undo.code).toBe(0);
+    expect(undo.h.text()).toMatch(/removed the service owner's membership/);
+    expect(pick()).toBe(start);
+    expect(files["/j/amb.json"].state).toBe("undone");
+    const again = await go(w, ATTACH);
+    expect(again.code).toBe(0);
+  });
+
+  it("a stray write to a house row during the run is caught by the fingerprint and undone", async () => {
+    const w = world();
+    const start = JSON.stringify(w.tables.portal_workspaces);
+    const files: Record<string, any> = {};
+    let poked = false;
+    const writeFile = (p: string, v: any) => {
+      files[p] = JSON.parse(JSON.stringify(v));
+      if (!poked && v.steps?.some((x: any) => x.name === "service-owner-added-as-admin")) {
+        poked = true;
+        w.tables.manager_property_records[0]!.updated_at = "2026-10-18T00:00:00Z"; // something else writes a house
+      }
+    };
+    const { code, h } = await go(w, ATTACH, { writeFile });
+    expect(code).toBe(1);
+    expect(h.text()).toMatch(/manager_property_records: at least one house row changed/);
+    expect(h.text()).toMatch(/undone and verified|UNDO CHECK FAILED/);
+    expect(JSON.stringify(w.tables.portal_workspaces)).toBe(start);
+    expect(w.tables.account_link_invites.some((x) => x.invitee_user_id === S)).toBe(false);
+  });
+
+  it("an existing Admin membership of the service owner is kept (and not removed by undo)", async () => {
+    const link = { id: "pre", inviter_user_id: A, invitee_user_id: S, workspace_id: WA, team_role: "admin", house_scope: "all", status: "accepted", assigned_property_ids: ["h1", "h2", "h3"], is_owner_of_record: false };
+    const w = world({ account_link_invites: [...seedMove().account_link_invites!, link] });
+    const { code, files } = await go(w, ATTACH);
+    expect(code).toBe(0);
+    expect(w.tables.account_link_invites.filter((x) => x.invitee_user_id === S).length).toBe(1);
+    expect(files["/j/amb.json"].attachMembershipId).toBeUndefined();
+    const io = { readFile: (p: string) => JSON.stringify(files[p]), writeFile: (p: string, v: any) => { files[p] = JSON.parse(JSON.stringify(v)); } };
+    await go(w, ["--apply", "--undo", "/j/amb.json"], io);
+    expect(w.tables.account_link_invites.find((x) => x.id === "pre")).toBeTruthy();
+    expect(w.tables.portal_workspaces.find((x) => x.id === WA)).toMatchObject({ is_service: false, name: "SEATTLE HOMES" });
+  });
+
+  it("refuses a service-owner membership that is not an accepted Admin one", async () => {
+    const link = { id: "pre", inviter_user_id: A, invitee_user_id: S, workspace_id: WA, team_role: "viewer", house_scope: "all", status: "accepted", assigned_property_ids: [], is_owner_of_record: false };
+    const w = world({ account_link_invites: [...seedMove().account_link_invites!, link] });
+    await expect(go(w, ATTACH)).rejects.toThrow(/not an accepted Admin one/);
+    expect(w.writes).toEqual([]);
+  });
+
+  it("Vinod's empty draft attaches with the explicit override", async () => {
+    const w = world();
+    const { code } = await go(w, ["--owner-email", "vinod@example.com", "--label", "2. Vinod", "--workspace-id", WV, "--apply", "--expect-houses", "1", "--journal-out", "/j/v.json"]);
+    expect(code).toBe(0);
+    expect(w.tables.portal_workspaces.find((x) => x.id === WV)).toMatchObject({ owner_user_id: V, is_service: true, name: "2. Vinod", is_default: true });
   });
 });
 
