@@ -6,7 +6,7 @@ import { ownerMoneyTabForPath, ownerMoneyTabs, OWNER_BASE_PATH } from "@/lib/pro
 
 /**
  * The strip along the top of every page in the Money row: Statements · Finances · Documents. Every tab is a real link to its own
- * page, like the folded rows of the other portals (`PortalSectionTabs`). It shows on the LIST level of a tab only; a statement
+ * page, as a self-contained strip (no dependency on the shared nav folds). It shows on the LIST level of a tab only; a statement
  * month opened from the list keeps its own record header and carries no strip.
  */
 export function OwnerSectionTabs({ financesOn }: { financesOn: boolean }) {

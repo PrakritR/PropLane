@@ -146,8 +146,9 @@ export async function loadOwnerSummary(
     for (const propertyId of propertyIds) {
       const occ = occupancyById.get(propertyId);
       let unitRows: OwnerUnitRow[] | undefined;
+      const rents = await loadUnitRents(db, managerUserId, propertyId);
+      const rentRollCents = (occ?.units ?? []).reduce((sum, u) => sum + (u.status === "occupied" ? (rents.get(u.unit) ?? 0) : 0), 0);
       if (requested && occ) {
-        const rents = await loadUnitRents(db, managerUserId, propertyId);
         // `resident` is dropped here, field by field: only unit, status, rent and lease end go on.
         unitRows = occ.units.map((u) => ({
           unit: u.unit,
@@ -165,6 +166,7 @@ export async function loadOwnerSummary(
         rentDueByMonth: due.get(propertyId) ?? {},
         units: occ?.totalUnits ?? 0,
         occupied: occ?.occupiedUnits ?? 0,
+        rentRollCents,
         unitRows,
       });
     }

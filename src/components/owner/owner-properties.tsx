@@ -40,7 +40,13 @@ export function OwnerPropertyRow({ property, onOpen, held = false }: { property:
           <PortalRowFact icon={BedDouble} srLabel="Occupied">
             {property.occupied} of {property.units} occupied
           </PortalRowFact>
-          {held ? null : (
+          {held ? (
+            property.rentRollCents ? (
+              <PortalRowFact icon={Banknote} srLabel="Monthly rent">
+                {formatOwnerUsd(property.rentRollCents)}/mo
+              </PortalRowFact>
+            ) : null
+          ) : (
             <PortalRowFact icon={Banknote} srLabel="Rent collected">
               {formatOwnerUsd(property.rentCollectedCents)} of {formatOwnerUsd(property.rentDueCents)} collected
             </PortalRowFact>

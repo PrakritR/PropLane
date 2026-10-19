@@ -48,6 +48,8 @@ export type OwnerPropertySummary = {
   netYtdCents: number;
   /** Oldest to newest, ending at the selected month. */
   months: OwnerMonthRow[];
+  /** Monthly rent of the occupied rooms, cents (the Properties list shows it). */
+  rentRollCents?: number;
   /** Present only on a single-house request. */
   unitRows?: OwnerUnitRow[];
 };

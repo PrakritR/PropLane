@@ -226,3 +226,21 @@ describe("house detail", () => {
     expect(ownerCostCents(undefined)).toBeNull();
   });
 });
+
+describe("Properties list rent", () => {
+  it("carries the occupied rent roll through the summary projection", async () => {
+    const { buildOwnerPropertySummary } = await import("@/lib/property-owner/summary");
+    const row = buildOwnerPropertySummary("2026-10", {
+      propertyId: "p1",
+      label: "Alder Row",
+      profitability: [],
+      rentDueByMonth: {},
+      units: 3,
+      occupied: 2,
+      rentRollCents: 215000,
+    });
+    expect(row.rentRollCents).toBe(215000);
+    const bare = buildOwnerPropertySummary("2026-10", { propertyId: "p1", label: "A", profitability: [], rentDueByMonth: {}, units: 1, occupied: 0 });
+    expect("rentRollCents" in bare).toBe(false);
+  });
+});

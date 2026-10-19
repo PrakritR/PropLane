@@ -68,8 +68,8 @@ function navLinkClass(active: boolean) {
   return cn(
     "group relative flex h-8 items-center justify-between gap-2 rounded-[7px] px-2 text-[15px] leading-5 tracking-[-0.003em] transition-colors duration-100",
     active
-      ? "bg-[var(--portal-sidebar-active-bg,#e9effe)] font-semibold text-[var(--portal-sidebar-active-fg,#1f55e0)]"
-      : "font-normal text-[#3c414b] hover:bg-[rgba(17,24,39,0.045)]",
+      ? "bg-[var(--portal-sidebar-active-bg)] font-semibold text-[var(--portal-sidebar-active-fg)]"
+      : "font-normal text-foreground/80 hover:bg-[rgba(17,24,39,0.045)]",
   );
 }
 
@@ -81,7 +81,7 @@ function OwnerTopStrip({ initialCollapsed, onSearch }: { initialCollapsed: boole
   );
   return (
     <header
-      className="hidden h-10 shrink-0 items-center gap-2 bg-[var(--portal-strip-bg,#101828)] px-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
+      className="hidden h-10 shrink-0 items-center gap-2 bg-[var(--portal-strip-bg)] px-2.5 text-[var(--portal-strip-fg)] lg:flex"
       data-slot="portal-top-strip"
     >
       <button
@@ -124,12 +124,12 @@ function OwnerRail({ name, email }: { name: string | null; email: string | null 
       <nav
         aria-label="Workspaces"
         data-slot="portal-workspace-rail"
-        className="hidden w-[60px] shrink-0 flex-col items-center gap-2.5 bg-[var(--portal-strip-bg,#101828)] py-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
+        className="hidden w-[60px] shrink-0 flex-col items-center gap-2.5 bg-[var(--portal-strip-bg)] py-2.5 text-[var(--portal-strip-fg)] lg:flex"
       >
         {ctx?.loading && workspaces.length === 0 ? (
-          <span className={cn(TILE, "animate-pulse bg-[#2b3448] motion-reduce:animate-none")} aria-hidden />
+          <span className={cn(TILE, "animate-pulse bg-[color-mix(in_srgb,var(--portal-strip-fg)_18%,var(--portal-strip-bg))] motion-reduce:animate-none")} aria-hidden />
         ) : workspaces.length === 0 ? (
-          <span className={cn(TILE, "bg-white shadow-[0_0_0_2px_#101828,0_0_0_4px_#fff]")} title="PropLane" data-attr="owner-rail-brand">
+          <span className={cn(TILE, "bg-[var(--portal-canvas)] shadow-[0_0_0_2px_var(--portal-strip-bg),0_0_0_4px_var(--portal-canvas)]")} title="PropLane" data-attr="owner-rail-brand">
             <AxisLogoGlyph size="micro" />
           </span>
         ) : (
@@ -147,7 +147,7 @@ function OwnerRail({ name, email }: { name: string | null; email: string | null 
                 className={cn(
                   TILE,
                   "hover:-translate-y-px",
-                  active ? "bg-white text-[#101828] shadow-[0_0_0_2px_#101828,0_0_0_4px_#fff]" : "bg-[#2b3448] text-white",
+                  active ? "bg-white text-[var(--portal-strip-bg)] shadow-[0_0_0_2px_var(--portal-strip-bg),0_0_0_4px_var(--portal-canvas)]" : "bg-[color-mix(in_srgb,var(--portal-strip-fg)_18%,var(--portal-strip-bg))] text-white",
                 )}
               >
                 {labels[index]}
@@ -214,7 +214,7 @@ function OwnerSidebar({ messagesOn, initialCollapsed, active }: { messagesOn: bo
     <aside
       aria-hidden={collapsed || undefined}
       className={cn(
-        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,#f6f7f9)]",
+        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg)]",
         collapsed ? "lg:hidden" : "lg:flex",
       )}
       data-slot="portal-sidebar"
@@ -223,8 +223,8 @@ function OwnerSidebar({ messagesOn, initialCollapsed, active }: { messagesOn: bo
       <div className="flex shrink-0 items-start gap-1.5 pb-2 pl-3.5 pr-2.5 pt-3">
         <div className="min-w-0 flex-1">
           <OwnerWorkspaceSwitcher variant="sidebar" />
-          <p className="mt-0.5 flex items-center gap-[5px] text-[12px] text-[#7a808b]">
-            <b aria-hidden className="inline-block size-1.5 rounded-full bg-[#22a06b]" />
+          <p className="mt-0.5 flex items-center gap-[5px] text-[12px] text-muted">
+            <b aria-hidden className="inline-block size-1.5 rounded-full bg-[var(--green)]" />
             <span className="min-w-0 truncate">{ctx?.active ? `Owner · ${ownerHousesLine(ctx.active.houses)}` : "Owner"}</span>
           </p>
         </div>
@@ -258,7 +258,7 @@ function OwnerMobileBar({ name, email }: { name: string | null; email: string | 
         href={`${OWNER_BASE_PATH}/profile`}
         aria-label="Settings"
         data-attr="owner-mobile-avatar"
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[var(--portal-avatar-bg,var(--primary))] text-[13px] font-extrabold text-[var(--portal-avatar-fg,#fff)] outline-none transition focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[var(--portal-avatar-bg,var(--primary))] text-[13px] font-extrabold text-[var(--portal-avatar-fg)] outline-none transition focus-visible:ring-2 focus-visible:ring-primary/40"
       >
         {accountInitials(name, email)}
       </Link>
