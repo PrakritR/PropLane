@@ -9,7 +9,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
 import { PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
@@ -209,7 +209,10 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const db = createSupabaseServiceRoleClient();
-  if ((await loadSharedLineConfig(db)).mode === "shared") {
+  // A config read that failed is NOT "not on the shared line": the verified-phone-only guard refuses.
+  const line = await loadSharedLineConfigStrict(db);
+  if (!line.ok) return NextResponse.json({ error: "Could not verify your phone settings. Try again." }, { status: 503 });
+  if (line.config.mode === "shared") {
     return NextResponse.json({ error: VERIFIED_PHONE_CHANGE_MESSAGE, redirectTo: PHONE_VERIFICATION_PATH }, { status: 409 });
   }
   // Test identities never verify against the real phone provider. This gate
@@ -369,7 +372,10 @@ export async function PUT(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const db = createSupabaseServiceRoleClient();
-  if ((await loadSharedLineConfig(db)).mode === "shared") {
+  // A config read that failed is NOT "not on the shared line": the verified-phone-only guard refuses.
+  const line = await loadSharedLineConfigStrict(db);
+  if (!line.ok) return NextResponse.json({ error: "Could not verify your phone settings. Try again." }, { status: 503 });
+  if (line.config.mode === "shared") {
     return NextResponse.json({ error: VERIFIED_PHONE_CHANGE_MESSAGE, redirectTo: PHONE_VERIFICATION_PATH }, { status: 409 });
   }
   // Resolve durable classification before reading the pending verification or

@@ -536,7 +536,7 @@ export function StepRail({
               className={cn(
                 "flex min-h-9 w-full shrink-0 items-center gap-[9px] whitespace-nowrap rounded-[7px] px-2 py-[7px] text-left transition-colors disabled:opacity-45",
                 on
-                  ? "bg-[#f1f5ff] text-primary [html[data-theme=dark]_&]:bg-primary/15"
+                  ? "bg-[#f0f4fc] text-primary [html[data-theme=dark]_&]:bg-primary/15"
                   : "text-muted hover:bg-foreground/[0.035]",
               )}
             >
@@ -545,7 +545,7 @@ export function StepRail({
                 data-step-number={i + 1}
                 className={cn(
                   "grid size-5 shrink-0 place-items-center rounded-full border-[1.5px] text-[11px] font-bold leading-none",
-                  done ? "border-[var(--green,#12805c)] bg-[var(--green,#12805c)] text-white" : "border-current",
+                  done ? "border-[var(--green,#1e7a4a)] bg-[var(--green,#1e7a4a)] text-white" : "border-current",
                 )}
               >
                 {done ? <Check className="size-3" strokeWidth={3} data-step-done="" /> : i + 1}
@@ -1028,7 +1028,7 @@ export function ChoiceCard({
       data-attr={dataAttr}
       className={cn(
         "mb-2 flex min-h-10 w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-        selected ? "border-primary bg-[#f1f5ff] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15" : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
+        selected ? "border-primary bg-[#f0f4fc] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15" : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
       )}
     >
       <span
@@ -1063,7 +1063,7 @@ export function CheckCard({
       data-attr={dataAttr}
       className={cn(
         "mb-2 flex min-h-10 w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-        checked ? "border-primary bg-[#f1f5ff] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15" : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
+        checked ? "border-primary bg-[#f0f4fc] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15" : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
       )}
     >
       <span
@@ -1113,7 +1113,7 @@ export function KindTile({
       className={cn(
         "flex min-h-10 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
         selected
-          ? "border-primary bg-[#f1f5ff] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15"
+          ? "border-primary bg-[#f0f4fc] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15"
           : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
       )}
     >
@@ -1551,7 +1551,7 @@ export function Row({
     <div
       className={cn(
         "grid items-center gap-2 border-b border-border px-3 py-2 last:border-b-0",
-        selected ? "bg-[#f1f5ff] [html[data-theme=dark]_&]:bg-primary/15" : "bg-card",
+        selected ? "bg-[#f0f4fc] [html[data-theme=dark]_&]:bg-primary/15" : "bg-card",
       )}
       style={{ gridTemplateColumns: rowTemplate(columnCount) }}
     >

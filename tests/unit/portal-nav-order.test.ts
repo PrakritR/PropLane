@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FREE_SUBSCRIPTION_SECTIONS, managerSectionAllowedForTier } from "@/lib/manager-access";
-import { NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER, orderNativeBottomNavItems } from "@/lib/native/portal-bottom-nav";
+import { orderNativeBottomNavItems } from "@/lib/native/portal-bottom-nav";
 import { adminPortal } from "@/lib/portals/admin";
 import { proPortal } from "@/lib/portals/pro";
 import {
@@ -36,12 +36,10 @@ describe("portal nav order contracts", () => {
     expect(proPortal.sections.find((section) => section.section === "applications")?.label).toBe("Applications");
   });
 
-  it("pro native order follows the sidebar rows (the footer order constant) with settings last (no Teams page)", () => {
+  it("pro native order matches web registry with settings last", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
-    // The phone's strip and More sheet follow the sidebar's rows, not the registry's listing order.
-    expect(ordered).toEqual([...(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER as readonly string[])].filter((id) => ordered.includes(id)).concat("profile"));
-    expect([...ordered].sort()).toEqual([...sectionIds(proPortal.sections)].sort());
+    expect(ordered).toEqual(sectionIds(proPortal.sections));
     expect(ordered).not.toContain("teams");
     expect(ordered.at(-1)).toBe("profile");
   });
@@ -57,15 +55,14 @@ describe("portal nav order contracts", () => {
   it("resident limited native order follows the cross-stage mobile order", () => {
     const items = RESIDENT_LIMITED_PORTAL_SECTIONS.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "resident").map((item) => item.section);
-    // Row order of the sidebar (Home, Communication, My home, Applying, Money), each row's tabs after it.
     expect(ordered).toEqual([
-      "dashboard",
-      "communication",
-      "lease",
-      "forms",
       "tour",
       "applications",
+      "dashboard",
+      "lease",
       "payments",
+      "communication",
+      "forms",
       "documents",
     ]);
     expect(ordered.at(-1)).toBe("documents");
@@ -75,16 +72,16 @@ describe("portal nav order contracts", () => {
     const items = RESIDENT_APPROVED_PORTAL_SECTIONS.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "resident").map((item) => item.section);
     expect(ordered).toEqual([
-      "dashboard",
-      "communication",
-      // My home folds Inspections (`move-in`), Lease, Forms and Services; Inspections is a tab, not a row.
-      "move-in",
-      "lease",
-      "forms",
-      "services",
       "tour",
       "applications",
+      "dashboard",
+      "lease",
+      "services",
       "payments",
+      "communication",
+      // Forms is its own section; Inspections is a tab of My home (C1-R5) — no row of its own.
+      "forms",
+      "move-in",
       "documents",
     ]);
   });
@@ -186,20 +183,9 @@ describe("pro portal documents section", () => {
     expect(sections).toContain("financials");
   });
 
-  it("documents tabs are the three the strip draws, then every other routable tab", () => {
+  it("documents tabs are applications, leases, and other", () => {
     const documents = proPortal.sections.find((s) => s.section === "documents");
-    expect(documents?.tabs.map((t) => t.id)).toEqual([
-      "applications",
-      "leases",
-      "other",
-      "library",
-      "templates",
-      "income-documents",
-      "expense-documents",
-      "occupancy",
-      "1099",
-      "tax-summary",
-    ]);
+    expect(documents?.tabs.map((t) => t.id)).toEqual(["applications", "leases", "other"]);
   });
 
   it("finances tabs are overview, activity and reports in nav", () => {

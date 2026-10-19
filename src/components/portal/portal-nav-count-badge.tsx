@@ -12,7 +12,7 @@ export function PortalNavCountBadge({ count, tone = "muted" }: { count: number; 
     <span
       className={
         tone === "alert"
-          ? "inline-grid h-[18px] min-w-[18px] shrink-0 place-items-center rounded-[9px] bg-[#d92d20] px-[5px] text-[11px] font-bold leading-none text-white [font-feature-settings:'tnum']"
+          ? "inline-grid h-[18px] min-w-[18px] shrink-0 place-items-center rounded-[9px] bg-[#b42318] px-[5px] text-[11px] font-bold leading-none text-white [font-feature-settings:'tnum']"
           : "shrink-0 text-[12px] font-medium leading-none text-muted [font-feature-settings:'tnum']"
       }
       data-attr="nav-count"

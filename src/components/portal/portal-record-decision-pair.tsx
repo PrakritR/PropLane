@@ -53,7 +53,7 @@ export function PortalRecordDecisionPair({
         <Button
           variant="outline"
           data-attr={`${dataAttrPrefix}-${negative.id}`}
-          className="!border-[#d92d20] !bg-white !text-[#d92d20] hover:!bg-[#fef3f2]"
+          className="!border-[#b42318] !bg-white !text-[#b42318] hover:!bg-[#fef3f2]"
           onClick={() => onAction?.(negative.id)}
         >
           <XCircle className="size-4" aria-hidden />
@@ -64,7 +64,7 @@ export function PortalRecordDecisionPair({
         <Button
           data-attr={`${dataAttrPrefix}-${positive.id}`}
           className="hover:!brightness-95"
-          style={{ background: "#12805c" }}
+          style={{ background: "#1e7a4a" }}
           onClick={() => onAction?.(positive.id)}
         >
           <CheckCircle2 className="size-4" aria-hidden />

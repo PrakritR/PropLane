@@ -58,6 +58,7 @@ import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-se
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
+import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -586,18 +587,15 @@ export function VendorSettingsPanel() {
           </>
         );
       case "integrations":
-        return <VendorIntegrationsSettings onManage={() => openGroup("messaging")} />;
+        return <VendorIntegrationsSettings onManage={() => openGroup("work-number-email")} />;
       case "work-number-email":
         return <VendorWorkNumberSettings />;
       case "messaging":
-        // Phone & notifications: verify the phone job texts come to, then what reaches the inbox and phone,
-        // then the work number and email, then quick replies (their own pages until Oct 18).
+        // Phone & notifications: verify the phone job texts come to, then what reaches the inbox and phone.
         return (
           <>
             <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} title="Verify your phone" />
             <VendorNotificationsPane ctx={business} />
-            <VendorWorkNumberSettings />
-            <VendorQuickRepliesSettings />
           </>
         );
       case "preferences":
@@ -613,13 +611,13 @@ export function VendorSettingsPanel() {
                 already use for this same panel — a modal here would be the one-off
                 inconsistency, not the established pattern (studio VD69). */}
             <PortalChangePasswordPanel accountEmail={profileDraft.email} />
-            {/* Account (Oct 18) is a section of this page: who you sign in as, switch portals, sign out, delete. */}
-            <PortalSettingsSection title="Account">
+            <PortalSettingsSection title="Sign out">
               <PortalSettingsGroup>
-                <PortalSettingsField label="Signed in as" value={signedInEmail ?? "—"} />
+                <div className="px-4 py-3.5">
+                  <PortalSignOutButton dataAttr="vendor-settings-security-sign-out" />
+                </div>
               </PortalSettingsGroup>
             </PortalSettingsSection>
-            <PortalSettingsExtras currentKind="vendor" variant="session" />
           </>
         );
       case "feedback":

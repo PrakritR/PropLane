@@ -97,8 +97,8 @@ Shared across all portals. Use `Badge` tones — do not invent new status colors
 
 ## Typography
 
-**Sans:** **Schibsted Grotesk** (SIL Open Font License), variable 400–900,
-self-hosted and subset — `src/app/fonts.ts`, loaded in `src/app/layout.tsx`.
+**Sans:** **Inter Tight** (SIL Open Font License), variable 100–900, the
+homepage's face (Oct 18 2026; it replaced Schibsted Grotesk), self-hosted and subset — `src/app/fonts.ts`, loaded in `src/app/layout.tsx`.
 The token is `--font-sans` (`globals.css`), composed as
 `var(--font-brand-sans), <former system stack>`.
 

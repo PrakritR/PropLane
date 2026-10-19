@@ -18,10 +18,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  const { db, workspaceId } = auth.actor;
+  const { db, workspaceId, allowedPropertyIds } = auth.actor;
   let ok = false;
-  if (body.action === "reject") ok = await rejectDraft(db, { workspaceId, draftId: id });
-  else if (body.action === "ok" || body.action === "corrected") ok = await reviewAutoReply(db, { workspaceId, draftId: id, verdict: body.action });
+  if (body.action === "reject") ok = await rejectDraft(db, { workspaceId, draftId: id, allowedPropertyIds });
+  else if (body.action === "ok" || body.action === "corrected") ok = await reviewAutoReply(db, { workspaceId, draftId: id, verdict: body.action, allowedPropertyIds });
   else return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Not found." }, { status: 404 });
 }

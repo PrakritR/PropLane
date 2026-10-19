@@ -168,33 +168,32 @@ describe("sidebar grouping (the redesigned shell)", () => {
     }
   });
 
-  it("draws the manager sidebar as the six folded rows in one unheaded group, like the real shell", () => {
+  it("draws the manager sidebar as the original headed groups, like the real shell", () => {
     const { container } = mount("manager");
     const groups = Array.from(container.querySelector("nav")!.children);
-    expect(groups).toHaveLength(1);
+    expect(groups).toHaveLength(5);
     expect(groups[0]!.querySelector("p")).toBeNull();
-    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(
+    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("data-demo-tab"))).toEqual(["dashboard", "tasks", "calendar", "communication"]);
+    expect(groups.slice(1).map((group) => group.querySelector("p")?.textContent)).toEqual(["Portfolio", "Leasing", "People", "Money"]);
+    expect(Array.from(container.querySelectorAll("nav [data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(
       DEMO_TABS.manager.map((tab) => tab.label),
     );
-    expect(DEMO_TABS.manager.map((tab) => tab.id)).toEqual(["dashboard", "communication", "properties", "leases", "residents", "payments"]);
+    expect(DEMO_TABS.manager.map((tab) => tab.id)).toEqual(expect.arrayContaining(["dashboard", "properties", "tours", "applications", "leases", "forms", "residents", "vendors", "services", "payments", "outgoing", "financials", "documents"]));
   });
 
-  it("keeps every cursor target on its row, and a folded row is active on any of its tabs", () => {
+  it("keeps every cursor target on its own row, and only the active row is current", () => {
     const { container } = mount("manager", { active: "applications" });
     for (const tab of DEMO_TABS.manager) expect(container.querySelector(`[data-demo-target="nav-${tab.id}"]`), tab.id).not.toBeNull();
-    expect(container.querySelector('[data-demo-tab="leases"]')!.getAttribute("aria-current")).toBe("page");
+    expect(container.querySelector('[data-demo-tab="applications"]')!.getAttribute("aria-current")).toBe("page");
+    expect(container.querySelector('[data-demo-tab="leases"]')!.getAttribute("aria-current")).toBeNull();
     expect(container.querySelector('[data-demo-tab="communication"]')!.getAttribute("aria-current")).toBeNull();
   });
 
-  it("opens the real Leasing section strip and keeps its selected page and folded row in sync", async () => {
+  it("opens the Applications page from its own sidebar row, with no section tab strip", async () => {
     const { container } = render(<HomeDashboardPanel portal="manager" />);
-    fireEvent.click(within(container.querySelector(".rlp-nav") as HTMLElement).getByRole("button", { name: "Leasing", exact: true }));
-    const strip = container.querySelector("[data-portal-section-tabs]") as HTMLElement;
-    expect(within(strip).getAllByRole("button").map((button) => button.textContent)).toEqual(["Tours", "Applications", "Leases", "Forms"]);
-    fireEvent.click(within(strip).getByRole("button", { name: "Applications", exact: true }));
-    expect(container.querySelector('[data-demo-tab="leases"]')).toHaveAttribute("aria-current", "page");
-    expect(within(strip).getByRole("button", { name: "Applications", exact: true })).toHaveAttribute("aria-current", "page");
-    expect(within(strip).getByRole("button", { name: "Leases", exact: true })).not.toHaveAttribute("aria-current");
+    fireEvent.click(within(container.querySelector(".rlp-nav") as HTMLElement).getByRole("button", { name: "Applications", exact: true }));
+    expect(container.querySelector("[data-portal-section-tabs]")).toBeNull();
+    expect(container.querySelector('[data-demo-tab="applications"]')).toHaveAttribute("aria-current", "page");
     expect(await screen.findByRole("heading", { name: "Applications", exact: true }, { timeout: 10_000 })).toBeInTheDocument();
   });
 

@@ -10,7 +10,7 @@ const MODES: readonly TopicReplyMode[] = ["draft", "auto_review", "full_auto"];
 
 /** Every topic with the mode it runs in and the ceiling the manager picked (null = not picked: full auto, as before). */
 export async function GET() {
-  const auth = await requireKnowledgeActor();
+  const auth = await requireKnowledgeActor("read");
   if (!auth.ok) return auth.response;
   const rows = await loadTopicModes(auth.actor.db, auth.actor.workspaceId);
   return NextResponse.json({

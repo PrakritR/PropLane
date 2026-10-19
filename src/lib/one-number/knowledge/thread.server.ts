@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError } from "../config.server";
+import { draftHouseAllowed } from "./draft-scope";
 import { entryFromRow } from "./store.server";
 import { loadOwnedProperty } from "./scope.server";
 import type { KnowledgeEntry } from "./types";
@@ -36,7 +37,7 @@ export async function loadThreadKnowledge(
   try {
     const { data: drafts, error: draftError } = await db
       .from("sms_ai_reply_drafts")
-      .select("id, mode, topic, body, inbound_text, created_at")
+      .select("id, mode, topic, body, inbound_text, created_at, property_id")
       .eq("workspace_id", args.workspaceId)
       .eq("phone_key", args.phoneKey)
       .eq("status", "pending")
@@ -51,7 +52,9 @@ export async function loadThreadKnowledge(
       inboundText: String(row.inbound_text),
       createdAt: String(row.created_at),
     });
-    const draftRows = ((drafts ?? []) as Record<string, unknown>[]).map(toDraft);
+    const draftRows = ((drafts ?? []) as Record<string, unknown>[])
+      .filter((row) => draftHouseAllowed(typeof row.property_id === "string" ? row.property_id : null, args.allowedPropertyIds))
+      .map(toDraft);
 
     // The suggestion's origin is an escalated question or a draft of THIS person.
     const refs: string[] = [];

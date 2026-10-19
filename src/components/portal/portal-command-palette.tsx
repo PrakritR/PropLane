@@ -152,13 +152,13 @@ export function PortalCommandPalette({
       onClick: () => run(row),
       className: cn(
         "flex cursor-pointer items-center gap-2.5 px-4 py-2 text-[14px] text-foreground",
-        isSelected && "bg-[#f1f5ff]",
+        isSelected && "bg-[#f0f4fc]",
       ),
     };
     if (row.kind === "ask") {
       return (
         <div key={row.key} {...common}>
-          <MessageCircle className="size-4 shrink-0 text-[#2863f0]" strokeWidth={1.75} aria-hidden />
+          <MessageCircle className="size-4 shrink-0 text-[#2f5fd0]" strokeWidth={1.75} aria-hidden />
           <span className="min-w-0 flex-1 truncate">{row.label}</span>
           <span className="shrink-0 text-[12px] text-[#9ba1ac]" aria-hidden>
             ↵
@@ -202,12 +202,12 @@ export function PortalCommandPalette({
             askedRef.current = false;
             e.preventDefault();
           }}
-          className="fixed left-1/2 top-[72px] z-[10081] w-[600px] max-w-[calc(100%-40px)] -translate-x-1/2 overflow-hidden rounded-xl border border-[rgba(17,24,39,0.13)] bg-white text-[#15171c] shadow-[0_24px_60px_-12px_rgba(16,24,40,0.4)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
+          className="fixed left-1/2 top-[72px] z-[10081] w-[600px] max-w-[calc(100%-40px)] -translate-x-1/2 overflow-hidden rounded-xl border border-[rgba(17,24,39,0.13)] bg-white text-[#0c0d10] shadow-[0_24px_60px_-12px_rgba(16,24,40,0.4)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
           data-attr="portal-command-palette"
         >
           <Dialog.Title className="sr-only">Search</Dialog.Title>
           <div className="flex items-center gap-2.5 border-b border-[rgba(17,24,39,0.085)] px-4 py-3.5">
-            <Search className="size-4 shrink-0 text-[#2863f0]" strokeWidth={1.75} aria-hidden />
+            <Search className="size-4 shrink-0 text-[#2f5fd0]" strokeWidth={1.75} aria-hidden />
             <input
               ref={inputRef}
               value={query}
@@ -223,7 +223,7 @@ export function PortalCommandPalette({
               aria-activedescendant={`portal-palette-row-${selected}`}
               aria-label="Search"
               data-attr="portal-palette-input"
-              className="min-w-0 flex-1 border-0 bg-transparent text-[16px] text-[#15171c] outline-none placeholder:text-[#9ba1ac]"
+              className="min-w-0 flex-1 border-0 bg-transparent text-[16px] text-[#0c0d10] outline-none placeholder:text-[#9ba1ac]"
             />
           </div>
 
@@ -248,15 +248,15 @@ export function PortalCommandPalette({
 
           <div className="flex gap-3.5 border-t border-[rgba(17,24,39,0.085)] px-4 py-2 text-[12px] text-[#9ba1ac]">
             <span>
-              <kbd className="mr-1 rounded-[4px] border border-[rgba(17,24,39,0.13)] px-1 font-semibold text-[#6a707c]">↑↓</kbd>
+              <kbd className="mr-1 rounded-[4px] border border-[rgba(17,24,39,0.13)] px-1 font-semibold text-[#5f6269]">↑↓</kbd>
               move
             </span>
             <span>
-              <kbd className="mr-1 rounded-[4px] border border-[rgba(17,24,39,0.13)] px-1 font-semibold text-[#6a707c]">↵</kbd>
+              <kbd className="mr-1 rounded-[4px] border border-[rgba(17,24,39,0.13)] px-1 font-semibold text-[#5f6269]">↵</kbd>
               open
             </span>
             <span>
-              <kbd className="mr-1 rounded-[4px] border border-[rgba(17,24,39,0.13)] px-1 font-semibold text-[#6a707c]">esc</kbd>
+              <kbd className="mr-1 rounded-[4px] border border-[rgba(17,24,39,0.13)] px-1 font-semibold text-[#5f6269]">esc</kbd>
               close
             </span>
           </div>

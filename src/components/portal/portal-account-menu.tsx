@@ -29,7 +29,7 @@ export function accountInitials(name: string | null, email: string | null): stri
  * the workspace rail (the avatar, with its green presence dot) and keeps
  * exactly the items it had: name + email header, Settings, Appearance, the
  * portal switcher rows, Sign out; plus Help & feedback, which used to live in
- * the sidebar footer. Settings is reachable from here and nowhere in the nav (admin is the exception: its Settings is the first sidebar row, so the menu drops it).
+ * the sidebar footer. Settings is reachable from here and nowhere in the nav.
  */
 export function PortalAccountMenu({
   kind,
@@ -52,20 +52,20 @@ export function PortalAccountMenu({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className="relative grid size-[34px] place-items-center rounded-[9px] bg-[var(--portal-avatar-bg,#eaf0fe)] text-[11px] font-bold text-[var(--portal-avatar-fg,#1e4fd6)] outline-none transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-white/70"
+        className="relative grid size-[34px] place-items-center rounded-[9px] bg-[var(--portal-avatar-bg,#e7edfa)] text-[11px] font-bold text-[var(--portal-avatar-fg,#2249a8)] outline-none transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-white/70"
         aria-label="Account menu"
         data-attr="portal-account-menu"
       >
         {initials}
         <i
           aria-hidden
-          className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--portal-strip-bg,#101828)] bg-[#22a06b]"
+          className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--portal-strip-bg,#0c0d10)] bg-[#22a06b]"
         />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent side="right" align="end" sideOffset={10} className="w-max min-w-[236px] max-w-[300px]">
         <div className="flex items-center gap-2.5 border-b border-border px-[9px] pb-2.5 pt-1.5">
-          <span className="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--portal-avatar-bg,#eaf0fe)] text-[11px] font-bold text-[var(--portal-avatar-fg,#1e4fd6)]">
+          <span className="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--portal-avatar-bg,#e7edfa)] text-[11px] font-bold text-[var(--portal-avatar-fg,#2249a8)]">
             {initials}
           </span>
           <span className="min-w-0">
@@ -120,7 +120,7 @@ export function PortalAccountMenu({
 
         <PortalSignOutButton
           onRequestConfirm={() => setOpen(false)}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[14px] font-medium text-[#d92d20] transition hover:bg-accent/70 disabled:opacity-60 lg:rounded-[6px] lg:px-[9px] lg:py-[7px] lg:font-normal"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[14px] font-medium text-[#b42318] transition hover:bg-accent/70 disabled:opacity-60 lg:rounded-[6px] lg:px-[9px] lg:py-[7px] lg:font-normal"
         />
       </DropdownMenuContent>
     </DropdownMenu>

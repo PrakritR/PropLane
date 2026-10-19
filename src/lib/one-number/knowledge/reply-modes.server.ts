@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import type { SharedLineRole, TopicReplyMode } from "../contracts";
 import { isMissingSchemaError } from "../config.server";
+import { draftHouseAllowed } from "./draft-scope";
 import { recordReplyOutcome } from "./outcomes.server";
 import {
   applyManagerPick,
@@ -188,15 +189,19 @@ export async function gateAiReply(
 }
 
 /** A manager dismisses a held draft instead of sending it. */
-export async function rejectDraft(db: SupabaseClient, args: { workspaceId: string; draftId: string }): Promise<boolean> {
+export async function rejectDraft(
+  db: SupabaseClient,
+  args: { workspaceId: string; draftId: string; allowedPropertyIds?: readonly string[] | null },
+): Promise<boolean> {
   const { data } = await db
     .from("sms_ai_reply_drafts")
-    .select("id, topic, mode, status")
+    .select("id, topic, mode, status, property_id")
     .eq("id", args.draftId)
     .eq("workspace_id", args.workspaceId)
     .maybeSingle();
-  const row = data as { id: string; topic: string; mode: string; status: string } | null;
+  const row = data as { id: string; topic: string; mode: string; status: string; property_id?: string | null } | null;
   if (!row || row.status !== "pending") return false;
+  if (!draftHouseAllowed(row.property_id, args.allowedPropertyIds)) return false;
   const { error } = await db
     .from("sms_ai_reply_drafts")
     .update({ status: "rejected", decided_at: new Date().toISOString() })
@@ -216,17 +221,18 @@ export async function rejectDraft(db: SupabaseClient, args: { workspaceId: strin
 /** A manager reviews an auto_review reply: fine as sent, or it needed correcting. */
 export async function reviewAutoReply(
   db: SupabaseClient,
-  args: { workspaceId: string; draftId: string; verdict: "ok" | "corrected" },
+  args: { workspaceId: string; draftId: string; verdict: "ok" | "corrected"; allowedPropertyIds?: readonly string[] | null },
 ): Promise<boolean> {
   const { data } = await db
     .from("sms_ai_reply_drafts")
-    .select("id, topic, mode, status")
+    .select("id, topic, mode, status, property_id")
     .eq("id", args.draftId)
     .eq("workspace_id", args.workspaceId)
     .eq("mode", "auto_review")
     .maybeSingle();
-  const row = data as { id: string; topic: string; status: string } | null;
+  const row = data as { id: string; topic: string; status: string; property_id?: string | null } | null;
   if (!row || row.status !== "pending") return false;
+  if (!draftHouseAllowed(row.property_id, args.allowedPropertyIds)) return false;
   const { error } = await db
     .from("sms_ai_reply_drafts")
     .update({ status: "reviewed", decided_at: new Date().toISOString() })

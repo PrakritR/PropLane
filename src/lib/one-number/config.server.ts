@@ -27,30 +27,52 @@ export function isMissingSchemaError(error: { code?: string | null } | null | un
  * unknown mode, or a shared mode with no usable shared number.
  */
 export async function loadSharedLineConfig(db: SupabaseClient): Promise<SharedLineConfig> {
+  return (await readSharedLineConfig(db)).config;
+}
+
+/**
+ * The same read, but a FAILED read is reported instead of folded into `per_workspace`. A guard that
+ * must not fail open on "I could not tell whether this workspace is on the shared line" (the
+ * verified-phone-only writes) asks here and refuses on `ok: false`. A missing table or column
+ * (code running before the migration) and an absent row are not failures: they mean the line is off.
+ */
+export async function loadSharedLineConfigStrict(
+  db: SupabaseClient,
+): Promise<{ ok: true; config: SharedLineConfig } | { ok: false }> {
+  const read = await readSharedLineConfig(db);
+  return read.readFailed ? { ok: false } : { ok: true, config: read.config };
+}
+
+async function readSharedLineConfig(db: SupabaseClient): Promise<{ config: SharedLineConfig; readFailed: boolean }> {
+  const off = (readFailed: boolean) => ({ config: PER_WORKSPACE_CONFIG, readFailed });
   try {
     const { data, error } = await db
       .from("sms_runtime_config")
       .select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids")
       .eq("singleton", true)
       .maybeSingle();
-    if (error || !data) return PER_WORKSPACE_CONFIG;
+    if (error) return off(!isMissingSchemaError(error));
+    if (!data) return off(false);
     const row = data as Record<string, unknown>;
     const mode = MODES.find((m) => m === row.line_mode) ?? "per_workspace";
     const sharedNumber = normalizeE164(row.shared_number_e164);
     // Shadow only compares decisions and needs no number; a live shared line cannot exist without one.
-    if (mode === "shared" && !sharedNumber) return PER_WORKSPACE_CONFIG;
+    if (mode === "shared" && !sharedNumber) return off(false);
     const sid = typeof row.shared_messaging_service_sid === "string" ? row.shared_messaging_service_sid.trim() : "";
     const pilot = Array.isArray(row.shared_pilot_workspace_ids)
       ? row.shared_pilot_workspace_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
       : [];
     // Which workspaces hold their own number only matters while the shared line is live.
-    if (mode !== "shared") return { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot };
+    if (mode !== "shared") return { config: { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot }, readFailed: false };
     const dedicated = await loadDedicatedWorkspaceIds(db);
     // Unknown which workspaces hold their own number: stay on today's per-workspace lines.
-    if (dedicated === null) return PER_WORKSPACE_CONFIG;
-    return { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot, dedicatedWorkspaceIds: dedicated };
+    if (dedicated === null) return off(true);
+    return {
+      config: { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot, dedicatedWorkspaceIds: dedicated },
+      readFailed: false,
+    };
   } catch {
-    return PER_WORKSPACE_CONFIG;
+    return off(true);
   }
 }
 

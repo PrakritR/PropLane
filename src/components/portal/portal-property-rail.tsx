@@ -120,7 +120,7 @@ export function PortalRecordRail({
                   className={cn(
                     "flex min-h-8 items-center gap-1 rounded-[7px] px-2 text-[14px] transition group",
                     active
-                      ? "bg-[var(--portal-active-bg,#eaf0fe)] font-semibold text-[#1e4fd6]"
+                      ? "bg-[var(--portal-active-bg,#e7edfa)] font-semibold text-[#2249a8]"
                       : "font-medium text-foreground hover:bg-[var(--portal-sidebar-hover,rgba(17,24,39,0.05))]",
                   )}
                 >

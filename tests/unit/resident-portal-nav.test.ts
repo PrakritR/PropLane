@@ -386,7 +386,7 @@ describe("resident portal nav — Inspections lives inside My home", () => {
  * that rides on a form must be decided on the server.
  */
 describe("resident portal nav — the Forms section is consistent across every table", () => {
-  it("is registered, a tab of the My home row right after Lease, rendered, and on the native bar in the same place", async () => {
+  it("is registered, grouped under My home right after Lease, rendered, and on the native bar in the same place", async () => {
     const sections = await import("@/lib/portals/resident-sections");
     const groups = await import("@/lib/portals/nav-groups");
     const native = await import("@/lib/native/portal-bottom-nav");
@@ -395,18 +395,13 @@ describe("resident portal nav — the Forms section is consistent across every t
     }
     expect(sections.RESIDENT_RENDERED_SECTION_IDS as readonly string[]).toContain("forms");
     expect(sections.RESIDENT_FREE_TIER_SECTION_IDS as readonly string[]).toContain("forms");
-    // Portal simplification: My home is one sidebar row whose tabs are My home, Lease, Forms, Services.
-    const myHome = groups.NAV_FOLDS.resident["my-home"]!.sections;
+    const myHome = groups.PORTAL_NAV_GROUPS.resident.find((g) => g.id === "my-home")!.sections;
     expect(myHome.indexOf("forms")).toBe(myHome.indexOf("lease") + 1);
+    // Phase 1 shell regroup: the sidebar leads the group with the "My home" row, then Lease, Forms
+    // (the phone bar below keeps its own order: Forms sits just before My home).
     expect(myHome.indexOf("move-in")).toBe(0);
-    expect(groups.navRowSection("resident", "forms")).toBe("move-in");
-    // The sidebar lists the row key first and then its other members, so the unfolded shape buckets too.
-    const sidebar = groups.PORTAL_NAV_GROUPS.resident.flatMap((g) => g.sections);
-    expect(sidebar).toEqual(expect.arrayContaining(myHome));
-    expect(sidebar.indexOf("forms")).toBe(sidebar.indexOf("lease") + 1);
-    // The phone bar's order follows the same tab order.
     const order = native.NATIVE_BOTTOM_NAV_RESIDENT_ORDER as readonly string[];
-    expect(order.slice(order.indexOf("move-in"), order.indexOf("move-in") + myHome.length)).toEqual(myHome);
+    expect(order.indexOf("forms")).toBe(order.indexOf("move-in") - 1);
   });
 
   it("is unlocked at exactly the stages an approved application opens, and never promoted to the phone bar", () => {

@@ -6,7 +6,6 @@ import { PortalClientSessionGuard } from "@/components/portal/portal-client-sess
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
-import { PortalSectionTabs } from "@/components/portal/portal-section-tabs";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
@@ -79,7 +78,6 @@ export default async function VendorLayout({ children }: { children: React.React
                 name={profile?.full_name ?? null}
                 email={profile?.email ?? null}
               />
-              <PortalSectionTabs definition={vendorPortal} />
               {children}
             </div>
           </main>

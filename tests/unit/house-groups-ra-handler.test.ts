@@ -138,6 +138,14 @@ describe("handleGroupMessage: answers", () => {
     expect(h.sent).toEqual([{ toPhone: SAM, body: expect.stringContaining("hunter2") }]);
   });
 
+  it("never posts an approved knowledge answer that holds a door code: the asker gets it in a private text", async () => {
+    const h = harness(groupRows(), { found: true, mustEscalate: null, answers: [{ question: "How do I get in?", answer: "The front door code is 4821." }], houseDetails: [] });
+    await handleGroupMessage(h.db, incoming(SAM, "PropLane, what is the door code?"), h.deps);
+    expect(h.gateway.posted).toHaveLength(1);
+    expect(h.gateway.posted[0].body).not.toContain("4821");
+    expect(h.sent).toEqual([{ toPhone: SAM, body: expect.stringContaining("4821") }]);
+  });
+
   it("says so, and tells the team, when no approved answer covers the question", async () => {
     const h = harness(groupRows(), { found: false, mustEscalate: null, answers: [], houseDetails: [] });
     await handleGroupMessage(h.db, incoming(SAM, "PropLane, is there a gym nearby?"), h.deps);

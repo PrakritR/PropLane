@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { vendorPortal, VENDOR_PORTAL_SMOKE_PATHS } from "@/lib/portals/vendor";
-import { NAV_FOLDS, PORTAL_NAV_GROUPS, navRowSection } from "@/lib/portals/nav-groups";
+import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { NATIVE_BOTTOM_NAV_VENDOR_ORDER } from "@/lib/native/portal-bottom-nav";
 import {
   vendorDocumentsHref,
@@ -11,7 +11,7 @@ import {
 
 /**
  * Vendor Money group (vendor-portal-ia-1007): Incoming payments · Outgoing payments · Finances ·
- * Documents, tabs of the one Money sidebar row, and every old URL still landing on its new home.
+ * Documents, each its own sidebar row, and every old URL still landing on its new home.
  */
 class RedirectError extends Error {
   constructor(public readonly to: string) {
@@ -45,17 +45,11 @@ async function landing(section: string, tabs?: string[], search?: Record<string,
 }
 
 describe("vendor Money group registry", () => {
-  it("is one Money row whose tabs are Incoming payments, Outgoing payments, Finances and Documents", () => {
-    const money = NAV_FOLDS.vendor.money!;
-    expect(money.label).toBe("Money");
+  it("lists Incoming payments, Outgoing payments, Finances and Documents, each its own row", () => {
+    const money = PORTAL_NAV_GROUPS.vendor.find((group) => group.id === "money")!;
     expect(money.sections).toEqual(["payments", "outgoing", "financials", "documents"]);
     const label = (section: string) => vendorPortal.sections.find((s) => s.section === section)?.label;
     expect(money.sections.map(label)).toEqual(["Incoming payments", "Outgoing payments", "Finances", "Documents"]);
-    // The row is keyed on its first tab and sits in the one sidebar group, after Communication.
-    expect(navRowSection("vendor", "documents")).toBe("payments");
-    const main = PORTAL_NAV_GROUPS.vendor.find((group) => group.id === "main")!;
-    for (const section of money.sections) expect(main.sections).toContain(section);
-    expect(main.sections.indexOf("payments")).toBeGreaterThan(main.sections.indexOf("communication"));
   });
 
   it("Finances has no registry tabs (Overview · Payouts · Refunds are in-page); Documents has the five tabs", () => {

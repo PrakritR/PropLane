@@ -124,7 +124,7 @@ type CashflowSeries = "all" | "rev" | "exp" | "net";
 type SeriesKey = Exclude<CashflowSeries, "all">;
 
 const SERIES_COLOR: Record<SeriesKey, string> = {
-  rev: "var(--color-primary, #2863f0)",
+  rev: "var(--color-primary, #2f5fd0)",
   exp: "#ea6a0a",
   net: "#0f9d6e",
 };

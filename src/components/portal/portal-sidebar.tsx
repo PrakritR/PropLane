@@ -13,7 +13,7 @@ import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
 import { useIsSmallPortalViewport, useNativeChrome } from "@/hooks/use-is-native-app";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
 import { usePortalSession } from "@/hooks/use-portal-session";
-import { portalBottomBarShowsSection, portalNavLockKind, portalNavRowLockKind } from "@/lib/portals/nav-locks";
+import { portalBottomBarShowsSection, portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
 import {
   residentNavLockReason,
   residentNavSectionVisibleInNav,
@@ -59,11 +59,11 @@ import {
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import {
-  collapseNavItems,
+  adminNavRowSection,
+  collapseAdminNavItems,
   groupNavItems,
   isHiddenFromMobileNav,
-  mergeGroupCounts,
-  navRowSection,
+  mergeAdminGroupCounts,
 } from "@/lib/portals/nav-groups";
 import {
   buildPortalNavItems,
@@ -104,7 +104,7 @@ function navLinkClass(active: boolean, locked?: boolean, unread?: boolean) {
   return cn(
     "group relative flex h-8 items-center justify-between gap-2 rounded-[7px] px-2 text-[15px] leading-5 tracking-[-0.003em] transition-colors duration-100",
     active
-      ? "bg-[var(--portal-sidebar-active-bg,#e9effe)] font-semibold text-[var(--portal-sidebar-active-fg,#1f55e0)]"
+      ? "bg-[var(--portal-sidebar-active-bg,#e9effe)] font-semibold text-[var(--portal-sidebar-active-fg,#2249a8)]"
       : locked
         ? "font-normal text-[#3c414b]/50 hover:bg-[rgba(17,24,39,0.045)]"
         : unread
@@ -147,8 +147,11 @@ export function PortalSidebar({
     session.userId,
   );
   const rawNavCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
-  // Every portal folds sections into rows (nav-groups `NAV_FOLDS`); a row carries its tabs' counts.
-  const navCounts = useMemo(() => mergeGroupCounts(definition.kind, rawNavCounts), [definition.kind, rawNavCounts]);
+  // Admin folds Accounts / Money / Support into one row each; the row carries its tabs' counts.
+  const navCounts = useMemo(
+    () => (definition.kind === "admin" ? mergeAdminGroupCounts(rawNavCounts) : rawNavCounts),
+    [definition.kind, rawNavCounts],
+  );
   // The collapse control lives in the top strip; both read one shared store.
   const collapsed = useSyncExternalStore(
     subscribePortalSidebarCollapsed,
@@ -187,40 +190,13 @@ export function PortalSidebar({
     const parts = pathname.split("/").filter(Boolean);
     return parts[1] ?? "dashboard";
   }, [pathname]);
-  // A folded section (Promo codes, Leases, Calendar) is active on its group's row (Money, Leasing, Home).
-  const activeSection = navRowSection(definition.kind, pathSection);
-
-  // A TAB is locked on its own section (`portalNavLockKind`); a folded ROW is locked only when every one of its
-  // tabs is (`portalNavRowLockKind`), so a free tab is never hidden behind a sibling's paywall.
-  const lockParams = useCallback(
-    (section: string) => ({
-      kind: definition.kind,
-      section,
-      subscriptionTier,
-      residentNavStage,
-      coManagerRestricted: restrictedSections.has(section),
-    }),
-    [definition.kind, residentNavStage, subscriptionTier, restrictedSections],
-  );
-  const isTabLocked = useCallback(
-    (section: string) => portalNavLockKind(lockParams(section)) !== "none",
-    [lockParams],
-  );
+  // A grouped admin section (Promo codes) is active on its group's row (Money).
+  const activeSection = definition.kind === "admin" ? adminNavRowSection(pathSection) : pathSection;
 
   const navItems = useMemo(() => {
     const built = buildPortalNavItems(definition, visibleSections, showNativeChrome, residentNavStage);
-    return collapseNavItems(definition.kind, built, { isLocked: isTabLocked });
-  }, [definition, residentNavStage, visibleSections, showNativeChrome, isTabLocked]);
-
-  // Row key -> the sections folded into it (only for a folded row).
-  const rowMembers = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const item of navItems) {
-      const members = (item as { groupSections?: string[] }).groupSections;
-      if (members?.length) map.set(item.section, members);
-    }
-    return map;
-  }, [navItems]);
+    return definition.kind === "admin" ? collapseAdminNavItems(built) : built;
+  }, [definition, residentNavStage, visibleSections, showNativeChrome]);
 
   const activeSectionSubTab = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -281,28 +257,30 @@ export function PortalSidebar({
   // Every surface below — desktop list, collapsed rail, mobile strip, bottom
   // bar, More sheet — must honour the same split.
   const isSectionLocked = useCallback(
-    (section: string) => {
-      const members = rowMembers.get(section);
-      const kind = members
-        ? portalNavRowLockKind(lockParams(section), members)
-        : portalNavLockKind(lockParams(section));
-      return kind !== "none";
-    },
-    [lockParams, rowMembers],
+    (section: string) =>
+      portalNavSectionLocked({
+        kind: definition.kind,
+        section,
+        subscriptionTier,
+        residentNavStage,
+        coManagerRestricted: restrictedSections.has(section),
+      }),
+    [definition.kind, residentNavStage, subscriptionTier, restrictedSections],
   );
 
   // Must take the SAME inputs as `isSectionLocked`. If one sees the co-manager
   // restriction and the other does not, a locked row still renders as a live
   // link into a section the server bounces — which reads as a broken tab.
   const isSectionLockNavigable = useCallback(
-    (section: string) => {
-      const members = rowMembers.get(section);
-      const kind = members
-        ? portalNavRowLockKind(lockParams(section), members)
-        : portalNavLockKind(lockParams(section));
-      return kind === "upsell" || kind === "notice";
-    },
-    [lockParams, rowMembers],
+    (section: string) =>
+      portalNavLockNavigable({
+        kind: definition.kind,
+        section,
+        subscriptionTier,
+        residentNavStage,
+        coManagerRestricted: restrictedSections.has(section),
+      }),
+    [definition.kind, residentNavStage, subscriptionTier, restrictedSections],
   );
 
   const nativeBottomNavSplit = useMemo(
@@ -319,13 +297,15 @@ export function PortalSidebar({
     // Lease / Payments before approval and Services after signing; a section the
     // manager's plan locks never takes a slot (`portalBottomBarShowsSection`).
     return primary.filter((item) =>
-      portalBottomBarShowsSection(
-        lockParams(item.section),
-        // A folded row takes its slot when ANY of its tabs is usable.
-        rowMembers.get(item.section),
-      ),
+      portalBottomBarShowsSection({
+        kind: definition.kind,
+        section: item.section,
+        subscriptionTier,
+        residentNavStage,
+        coManagerRestricted: restrictedSections.has(item.section),
+      }),
     );
-  }, [nativeBottomNavSplit, lockParams, rowMembers]);
+  }, [definition.kind, nativeBottomNavSplit, subscriptionTier, residentNavStage, restrictedSections]);
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
   // A record page no longer has a bottom bar of its own (PLAN-0921-1029) —
   // this bar is never hidden on its account any more.
@@ -814,7 +794,7 @@ export function PortalSidebar({
     <aside
       aria-hidden={collapsed || undefined}
       className={cn(
-        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,#f6f7f9)]",
+        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,#f7f7f4)]",
         // Collapsed sidebar = rail + content only.
         collapsed ? "lg:hidden" : "lg:flex",
       )}

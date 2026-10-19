@@ -16,7 +16,7 @@ import {
   withoutConditionalResidentSections,
 } from "@/lib/portals/resident-sections";
 import { portalNavLockKind } from "@/lib/portals/nav-locks";
-import { PORTAL_NAV_GROUPS, collapseNavItems } from "@/lib/portals/nav-groups";
+import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { NATIVE_BOTTOM_NAV_RESIDENT_ORDER, splitNativeBottomNavItems } from "@/lib/native/portal-bottom-nav";
 import { routeResolves } from "../helpers/route-resolves";
 
@@ -50,14 +50,12 @@ describe("Stays across the resident stage tables", () => {
     expect(residentBottomNavPrimarySections("short_stay_guest")).toEqual(["stays", "payments", "dashboard", "communication"]);
     // Payments carries the stay's charge, so it is open for them although they never applied.
     expect(residentSectionUnlockedForStage("payments", "short_stay_guest")).toBe(true);
-    // The native bar is derived from the one table, never copied, and maps each primary onto its sidebar ROW:
-    // Stays is a tab of the Home row, so it shares Home's slot with Dashboard (one slot, not two).
-    const rows = collapseNavItems("resident", RESIDENT_UNIFIED_PORTAL_SECTIONS);
-    const home = rows.find((r) => r.section === "dashboard");
-    expect(home?.groupSections).toEqual(["dashboard", "stays"]);
-    const split = splitNativeBottomNavItems(rows, "resident", "short_stay_guest");
-    expect(split.primary.map((i) => i.section)).toEqual(["dashboard", "payments", "communication"]);
-    expect(split.primary.flatMap((i) => i.groupSections ?? [i.section])).toEqual(["dashboard", "stays", "payments", "documents", "communication"]);
+    // The native bar is derived from the one table, never copied.
+    const items = withoutConditionalResidentSections(RESIDENT_UNIFIED_PORTAL_SECTIONS).concat(
+      RESIDENT_UNIFIED_PORTAL_SECTIONS.filter((s) => s.section === "stays"),
+    );
+    const split = splitNativeBottomNavItems(items, "resident", "short_stay_guest");
+    expect(split.primary.map((i) => i.section)).toEqual(["stays", "payments", "dashboard", "communication"]);
   });
 
   it("an applicant, a booking resident and a signed resident keep their own stage even when they have stays", () => {

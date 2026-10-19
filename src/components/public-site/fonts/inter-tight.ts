@@ -3,7 +3,7 @@ import localFont from "next/font/local";
 /**
  * Inter Tight (SIL OFL, `OFL.txt` beside it), the face of the approved homepage (concept A, Oct 18 2026).
  * Self-hosted like `src/app/fonts.ts` so the native shell never opens a third-party connection.
- * Only the prospect journey pages (`.ps`) read `--font-public-site`; the portals keep Schibsted Grotesk.
+ * The public pages read `--font-public-site`; the portals load the same file as `--font-brand-sans` (`src/app/fonts.ts`).
  */
 export const publicSiteFont = localFont({
   src: "./inter-tight-variable.woff2",

@@ -344,6 +344,10 @@ Development defaults to the local challenge flow. It resolves existing verified 
 
 The standard-webhooks signed `/api/auth/hooks/send-sms` path uses our `phone_verification` transport, the shared sender/service when enabled, and the platform verification sender otherwise. A shared-mode hook must claim a pending native challenge before sending, so direct Auth calls cannot bypass the application's send budget. `SUPABASE_PHONE_AUTH_HOOK_ENABLED=true` opts existing canonical Auth phone accounts into Supabase OTP; first-time/legacy attachment still uses local challenges. Hosted setup is documented in `supabase/config.toml`; keep public phone signup disabled. No hosted Auth configuration is changed by this work.
 
+Abuse limits on phone sign-in (security pass, 2026-10-18): `POST /api/auth/phone/start` is limited to 5 sends per IP per hour and 300 per hour for the whole endpoint (`rateLimit`, same generic refusal as every other failure), and texts only to US/Canada `+1` numbers with a real NANP shape (`isAllowedPhoneAuthDestination`; widen with a comma list in `PHONE_AUTH_ALLOWED_CALLING_CODES`, e.g. `1,44`). The Supabase Send SMS hook fails closed: off the shared line it sends nothing unless `SUPABASE_PHONE_AUTH_HOOK_ENABLED=1` (`true` is read the same, via `src/lib/auth/phone-hook-flag.ts`), and even then it must claim a pending reservation (`phone_auth_claim_hook_delivery`). A phone with 10 wrong codes in any 24 hours is locked (no new text, no code accepted, right or wrong): `phone_auth_failed_code_count` in `20261018310100_phone_auth_failure_cap.sql` feeds `phone_auth_start` / `phone_auth_consume`, and `phoneLockedOut` in `phone-otp.server.ts` applies the same count to link-unlock and public-bind codes. `requestPhoneOtp` still counts then inserts without a lock (a rare double-send inside one hour is bounded by the route and IP limits).
+
+Public texting endpoints: `POST /api/public/text-demo-link` texts a code first (a message containing only the code) and the demo link only after the visitor enters it; the shared hourly link budget is spent only on a verified send, never on invalid input. `POST /api/public/phone-bind` keeps send and verify in separate buckets (send: 8 per IP and 20 per entry code per hour, 200 per workspace per day).
+
 `POST /api/auth/phone/reset` lets the verified owner of the active workspace release an established resident/vendor's lost phone. Both the helper and SQL re-derive the relationship and refuse self-reset, manager/admin targets, wrong workspace and conflicts. It clears phone proofs and credentials atomically and audits the release; it never chooses a replacement or mints a session. The person must then verify their replacement phone.
 
 The resident/vendor Communication projection reader accepts shared rows with no legacy work line only after verifying the phone, role and stamped workspace owner; turns remain scoped to that workspace. Prior SMS is read through that projection, never copied to another tenant.
@@ -876,50 +880,6 @@ Captain (Oct 18): "design owner portal better, work on full design for it to mat
   `owner-portal-scope.test.ts` (narrowing, tiles, overview extras, house detail, photo and cost parsing, owner sees only their houses),
   `owner-statements-held.test.ts`, `owner-portal-guards.test.ts` (no pills, no subtext, no list titles, no sparkle, shared shell classes),
   plus the updated `property-owner-sections`, `-review-fixes`, `-membership-decides` and `owner-finances` suites.
-
-## W19 - Portal simplification (fold rows, tab strips, merged Settings pages)
-
-Captain: "keep the portal heavy but not too many tabs; simplify; nothing should look too AI". Nothing is dropped:
-every section id, URL, handler, tier gate, stage guard and push deep link is unchanged. Only the sidebar rows, the
-labels, the icons and the Settings grouping changed.
-
-- **One mechanism, every portal.** `src/lib/portals/nav-groups.ts` `NAV_FOLDS` / `NAV_ROW_ORDER` fold sections into
-  sidebar rows (generalising the admin pattern). `collapseNavItems`, `mergeGroupCounts`, `navRowSection`,
-  `navSectionTabsFor` are the only derivations. A row is keyed on `key` (default: its first section) and remembers
-  its members in `groupSections`. The admin names (`collapseAdminNavItems` ...) are thin wrappers.
-- **Rows.** Manager 18 to 6 (Home: Dashboard, Calendar, Tasks · Communication · Properties: Properties, Bookings,
-  Promotion · Leasing: Tours, Applications, Leases, Forms · People: Residents, Vendors, Services · Money: Incoming,
-  Outgoing, Finances, Documents). Resident 11 to 5 (Home: Dashboard, Stays · Communication · My home: My home,
-  Lease, Forms, Services · Applying: Tour, Application · Money: Payments, Documents). Vendor 9 to 4 (Home · Work:
-  Services, Calendar, Reviews · Communication · Money). Admin 8 to 7 (Settings · Dashboard with Feedback, Meetings,
-  Health · Communication · Properties · Accounts · Money · Growth; Settings is the first sidebar row and no longer
-  in the account menu; `portalDashboardPath("admin")` is `/admin/profile`).
-- **Tab strip.** `PortalSectionTabs` (mounted in the four layouts) draws a folded row's tabs along the top of the
-  LIST pages of its sections only (`isSectionListPath`: fail closed, a record page never gets a strip). Every tab is a
-  real link to its own section.
-- **Locks are per tab.** A tab is locked on its own section (`portalNavLockKind`: Free-plan upsell, resident
-  `notice` / `inert`); a row is locked only when every tab is (`portalNavRowLockKind`), so a free tab is never hidden
-  behind a sibling's paywall. A row opens on its first unlocked tab. A locked tab shows a padlock; an inert one does
-  not navigate. `portalBottomBarShowsSection` takes the row's members.
-- **Phone bar.** The curated primary lists stay per SECTION (`RESIDENT_BOTTOM_NAV_PRIMARY` and
-  `STAGE_UNLOCKED_SECTIONS` are untouched and still agree); `splitNativeBottomNavItems` maps each primary onto its
-  ROW and drops the duplicates (Lease and Services both take the My home slot).
-- **Demo.** `demo-nav.ts` folds the same way; the workspace marks a row active on any member and the cursor's
-  `nav-<id>` target resolves through `demoRowFor`.
-- **Settings.** Manager 10 to 8 pages (Billing & plan and Balance & payouts are "Billing & payouts" with id `payments`;
-  `?tab=billing` and `?tab=payouts` open it; Account is a section of Login & security, `?tab=account` opens it).
-  Vendor 14 to 10 (Quick replies and Work number & email are sections of Phone & notifications, Account is a section
-  of Login & security; `feedback` lands on Profile). Resident drops the Feedback page (Help & feedback is in the
-  account menu). Old `?tab=` ids all still resolve.
-- **Dead and stale.** Tasks registry tabs are the real four (Open, Assigned, Scheduled, Completed); the Documents
-  registry lists all ten routable tabs; the report documents (Rent, Expense, Occupancy, 1099, Tax summary) are also
-  rows in Finances > Reports (URLs stay under `/documents`), which has a search field.
-  `MANAGER_PORTAL_SETTINGS_TABS` is NOT dead (the Settings modal and `settings-module-page` read it): kept.
-- **AI-look chrome.** Sparkle icons became search/chat/pencil/book/pin glyphs, the "Ask PropLane" pill is an
-  icon-only chat button and the search placeholder says "Search", "PropLane pick" is "Suggested", "Draft with AI" is
-  "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
-  AI-review legal disclaimers are untouched.
-- Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.
 
 ## Completeness audit fixes (messaging checklist, Oct 18)
 

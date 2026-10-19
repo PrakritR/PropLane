@@ -8,9 +8,8 @@
 //      the ONLY entry points, so a category dropped from the catalog takes its
 //      controls with it.
 //   2. A control that disappears from a pane that is supposed to keep it —
-//      Login & security must still carry the Account rows (portal switch /
-//      sign out / delete), and Billing & payouts the plan surface and the
-//      payouts surface, since both were folded in (Oct 18) and nothing may be lost. Preferences and Notifications left manager
+//      Account must still carry the portal switch / sign out / delete rows
+//      and nothing may be lost. Preferences and Notifications left manager
 //      Settings entirely (S019, captain 2026-09-27): an old bookmark to
 //      either one must land on Profile, never render blank.
 //   3. Back. The category push is `history.pushState`, so the in-page chevron
@@ -103,18 +102,18 @@ import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { REPLY_TOPICS } from "@/lib/one-number/knowledge/topics";
 
-// The manager Settings nav after the studio redesign and the Oct 18 merge:
-// Application form and Lease documents leave this nav, Payouts and Billing &
-// plan fold into ONE "Billing & payouts" page (`payments`), and Account is a
-// section of Login & security (`?tab=billing` / `?tab=account` still open them). Applications,
+// The manager Settings nav after the studio redesign: Application form and
+// Lease documents leave this nav, and Payouts folds into Payments. Applications,
 // Leases, Forms, Tours, Residents, Services, Tasks, Reminders, Notifications,
 // and Preferences are also absent — see `portal-settings-group-split.test.ts` and
 // `settings-account-tags.test.tsx` for the removal and classification
 // coverage; this file only checks the panes manager Settings still has.
 const CATEGORIES = [
   "profile",
+  "billing",
   "security",
   "developer",
+  "account",
   "workspaces",
   "messaging",
   "payments",
@@ -197,7 +196,7 @@ describe("manager settings categories", () => {
 
   it.each([
     ["profile", () => screen.getByText("Personal information")],
-    ["billing", () => screen.getByTestId("pane-module-payments")],
+    ["billing", () => screen.getByTestId("pane-manager-plan")],
     ["messaging", () => screen.getByTestId("pane-messaging")],
     ["security", () => screen.getByTestId("pane-change-password")],
     ["developer", () => screen.getByTestId("pane-api-keys")],
@@ -210,30 +209,7 @@ describe("manager settings categories", () => {
 
     expect(expectPane()).toBeTruthy();
     // Only the selected pane is mounted.
-    // Billing & payouts is the one page that carries the plan surface too.
-    const isBillingPage = ["billing", "payments"].includes(tab);
-    if (isBillingPage) expect(screen.getByTestId("pane-manager-plan")).toBeTruthy();
-    else expect(screen.queryByTestId("pane-manager-plan")).toBeNull();
-  });
-
-  it("opens the merged pages from their old ids: billing -> Billing & payouts, account -> Login & security", async () => {
-    goto("?tab=billing");
-    renderSettings();
-    expect(document.querySelector('[data-attr="settings-nav-payments"]')?.getAttribute("aria-current")).toBe("page");
-    expect(screen.getByTestId("pane-manager-plan")).toBeTruthy();
-    cleanup();
-    goto("?tab=account");
-    renderSettings();
-    expect(document.querySelector('[data-attr="settings-nav-security"]')?.getAttribute("aria-current")).toBe("page");
-    expect(screen.getByTestId("pane-change-password")).toBeTruthy();
-    expect(screen.getByText("Sign out")).toBeTruthy();
-  });
-
-  it("has no rail entry of its own for Billing & plan or Account", async () => {
-    goto("?tab=profile");
-    renderSettings();
-    expect(document.querySelector('[data-attr="settings-nav-billing"]')).toBeNull();
-    expect(document.querySelector('[data-attr="settings-nav-account"]')).toBeNull();
+    if (tab !== "billing") expect(screen.queryByTestId("pane-manager-plan")).toBeNull();
   });
 
   it("drops Preferences and Notifications from manager Settings entirely (S019)", async () => {
@@ -250,8 +226,8 @@ describe("manager settings categories", () => {
     expect(screen.getByText("Personal information")).toBeTruthy();
   });
 
-  it("keeps every pre-existing Account control after the regroup (now inside Login & security)", async () => {
-    goto("?tab=security");
+  it("keeps every pre-existing Account control after the regroup", async () => {
+    goto("?tab=account");
     renderSettings();
     await waitFor(() => expect(screen.getByText("Switch to Resident portal")).toBeTruthy());
     expect(screen.getByText("Sign out")).toBeTruthy();

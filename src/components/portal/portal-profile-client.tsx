@@ -28,6 +28,7 @@ import {
   SlidersHorizontal,
   Table2,
   UserRound,
+  Wallet,
   ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -528,14 +529,21 @@ export function PortalProfileClient({
         group: "Profile",
       });
     }
-    // Manager: Account (switch portals, sign out, delete) is a section of Login & security, one page fewer
-    // (portal simplification, Oct 18). `?tab=account` opens Login & security. Admin keeps its own pane.
-    if (variant !== "manager") {
+    list.push({
+      id: "account",
+      label: "Account",
+      description: "Switch portals, sign out, or delete your account.",
+      icon: Settings,
+      group: "Profile",
+    });
+    // Billing & plan sits in the Profile group (captain, 2026-10-03) but still
+    // bills the workspace selected in the sidebar switcher.
+    if (!demo && variant === "manager") {
       list.push({
-        id: "account",
-        label: "Account",
-        description: "Switch portals, sign out, or delete your account.",
-        icon: Settings,
+        id: "billing",
+        label: "Billing & plan",
+        description: "Subscription and payment details.",
+        icon: CreditCard,
         group: "Profile",
       });
     }
@@ -554,9 +562,7 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
-        // Billing & plan and Balance & payouts are ONE page (Oct 18): what the workspace pays PropLane, and what
-        // PropLane pays the workspace. `?tab=billing` and `?tab=payouts` open it too.
-        { id: "payments", label: "Billing & payouts", description: "Plan, usage, invoices, PropLane balance, bank accounts, and withdrawals.", icon: CreditCard, group: "Workspace" },
+        { id: "payments", label: "Balance & payouts", description: "PropLane balance, bank accounts, and withdrawals.", icon: Wallet, group: "Workspace" },
         // Captain, Oct 6: Automations (Applications + Leases). The old Forms item left Settings; its URL lands here.
         { id: "applicationsLeases", label: "Automations", description: "Application and lease automations for this workspace.", icon: ClipboardList, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Messages, bookings, posting, and Google.", icon: Table2, group: "Workspace" },
@@ -572,24 +578,16 @@ export function PortalProfileClient({
   const [billingOverride, setBillingOverride] = useState(false);
   // Captain, Oct 6: the workspace Forms item left Settings; its old URL opens Automations.
   const rawTabParam = searchParams.get(SETTINGS_TAB_PARAM);
-  // Merged pages (Oct 18): Billing & plan folded into Billing & payouts, Account into Login & security.
-  const rawTab =
-    rawTabParam === "leasingForms"
-      ? "applicationsLeases"
-      : variant === "manager" && rawTabParam === "billing"
-        ? "payments"
-        : variant === "manager" && rawTabParam === "account"
-          ? "security"
-          : rawTabParam;
+  const rawTab = rawTabParam === "leasingForms" ? "applicationsLeases" : rawTabParam;
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
     const wantsBilling =
-      rawTabParam === "billing" ||
+      rawTab === "billing" ||
       window.location.hash === MANAGER_PLAN_PORTAL_HASH ||
       q.has("checkout");
     if (wantsBilling) setBillingOverride(true);
-  }, [rawTab, rawTabParam, searchParams]);
+  }, [rawTab, searchParams]);
   useEffect(() => {
     if (rawTab === "vendors") router.replace("/portal/vendors");
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
@@ -605,7 +603,7 @@ export function PortalProfileClient({
     // so it lands on Profile rather than a pane that no longer exists.
     if (REMOVED_SETTINGS_TAB_IDS.has(rawTab ?? "")) router.replace("/portal/profile?tab=profile");
   }, [rawTab, rawTabParam, router]);
-  const billingGroup = groups.find((g) => g.id === (variant === "manager" ? "payments" : "billing")) ?? null;
+  const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const settingsHome = (searchParams.get("settingsHome") === "1" || (!rawTab && searchParams.get("profileHome") !== "1" && !billingOverride)) && variant === "manager";
   const profileHome = searchParams.get("profileHome") === "1" && variant === "manager";
   const activeGroup = settingsHome || profileHome ? null :
@@ -800,13 +798,6 @@ export function PortalProfileClient({
       case "payments":
         return (
           <>
-            {/* Billing & plan: `ManagerPlan` owns the whole plan surface (Plan, Usage, Extra usage, Add-ons,
-                Payment, Cancellation), then the workspace's balance and payouts. */}
-            {variant === "manager" && !demo ? (
-              <div className="min-w-0">
-                <ManagerPlan embedded showCurrentPlan={false} showInvoices={false} />
-              </div>
-            ) : null}
             <HubSettingsModulePane tab="payments" />
             <RentAndFeesSettingsSection />
           </>
@@ -839,13 +830,7 @@ export function PortalProfileClient({
           </>
         );
       case "security":
-        return (
-          <>
-            <PortalChangePasswordPanel accountEmail={dashToEmpty(initialEmail) || initialEmail} />
-            {/* Manager: the Account pane (switch portals, sign out, delete) is part of this page. */}
-            {variant === "manager" ? <PortalSettingsExtras currentKind={portalKind} variant="session" /> : null}
-          </>
-        );
+        return <PortalChangePasswordPanel accountEmail={dashToEmpty(initialEmail) || initialEmail} />;
       case "developer":
         return <ManagerApiKeysPanel />;
       case "feedback":
@@ -914,7 +899,7 @@ export function PortalProfileClient({
   );
   const linkRow = (g: SettingsGroup) => (
     <PortalSettingsLinkRow key={g.id} icon={locked(g.id) ? <Lock className="h-4 w-4" /> : <g.icon className="h-4 w-4" />} label={g.label}
-      value={g.id === "payments" ? workspacePlanTierLabel(workspaces?.plan?.tier) || undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
+      value={g.id === "billing" ? workspacePlanTierLabel(workspaces?.plan?.tier) || undefined : undefined} onClick={() => openGroup(g.id)} dataAttr={`settings-open-${g.id}`} />
   );
   const homeVisible = activeGroup === null;
   return (

@@ -27,8 +27,6 @@ export const adminPortal: PortalDefinition = {
     { section: "service", label: "Service", tabs: [] },
     { section: "proplane-line", label: "PropLane line", tabs: [] },
     { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
-    // PropLane-held owner and vendor funds: platform cash, what is owed, fee policies per managed workspace (owner management).
-    { section: "managed-finance", label: "Managed funds", tabs: [] },
     // SOFTWARE (the subscriptions PropLane sells): Accounts, Subscribers, Payments, Promo codes, Finances.
     { section: "axis-users", label: "Accounts", tabs: [] },
     // Who pays, who is on a trial, who came in on a promo code - decided by the resolvers
@@ -41,6 +39,8 @@ export const adminPortal: PortalDefinition = {
     { section: "payments", label: "Payments", tabs: [] },
     { section: "promo-codes", label: "Promo codes", tabs: [] },
     { section: "finances", label: "Finances", tabs: [] },
+    // PropLane-held owner and vendor funds: platform cash, what is owed, fee policies per managed workspace (owner management).
+    { section: "managed-finance", label: "Managed funds", tabs: [] },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },
     { section: "events", label: "Meetings", tabs: [] },
     // Failed deliveries and stuck work, grouped by kind (GET /api/admin/health).

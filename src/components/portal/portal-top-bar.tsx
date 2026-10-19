@@ -139,7 +139,7 @@ export function PortalTopBar({
 
   return (
     <header
-      className="hidden h-10 shrink-0 items-center gap-2 bg-[var(--portal-strip-bg,#101828)] px-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
+      className="hidden h-10 shrink-0 items-center gap-2 bg-[var(--portal-strip-bg,#0c0d10)] px-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
       data-slot="portal-top-strip"
     >
       <button

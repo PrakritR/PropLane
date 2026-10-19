@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
-import { NAV_FOLDS, PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
+import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 
 describe("Vendors section (Teams page removed)", () => {
@@ -18,9 +18,8 @@ describe("Vendors section (Teams page removed)", () => {
     expect(vendors?.tabs ?? []).toEqual([]);
     const ids = proPortal.sections.map((s) => s.section);
     expect(ids.indexOf("vendors")).toBe(ids.indexOf("services") + 1);
-    // People is a folded row: Residents, Vendors, Services are its tabs, in that order.
-    expect(NAV_FOLDS.pro.people).toMatchObject({ label: "People", sections: ["residents", "vendors", "services"] });
-    expect(PORTAL_NAV_GROUPS.pro.flatMap((g) => g.sections)).toEqual(expect.arrayContaining(["residents", "vendors", "services"]));
+    const people = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "people");
+    expect(people?.sections).toEqual(["residents", "vendors", "services"]);
   });
 
   it("Teams is not a manager nav section — team is Settings → Workspaces", () => {
@@ -46,14 +45,11 @@ describe("Vendors section (Teams page removed)", () => {
 });
 
 describe("Calendar and Bookings are separate sidebar entries", () => {
-  it("lists Calendar (Home row) and Bookings (Properties row) as separate tabs", () => {
-    expect(NAV_FOLDS.pro.home).toMatchObject({ label: "Home", sections: ["dashboard", "calendar", "tasks"] });
-    expect(NAV_FOLDS.pro.properties).toMatchObject({
-      label: "Properties",
-      sections: ["properties", "bookings", "promotion"],
-    });
-    const all = PORTAL_NAV_GROUPS.pro.flatMap((g) => g.sections);
-    for (const id of ["calendar", "bookings"]) expect(all.filter((s) => s === id)).toHaveLength(1);
+  it("lists Calendar (home group) and Bookings (Portfolio) as separate entries", () => {
+    const home = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "home");
+    const portfolio = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "portfolio");
+    expect(home?.sections).toEqual(["dashboard", "tasks", "calendar", "communication"]);
+    expect(portfolio?.sections).toEqual(["properties", "bookings", "promotion"]);
   });
 
   it("Calendar is schedule-only — no in-page tabs", () => {

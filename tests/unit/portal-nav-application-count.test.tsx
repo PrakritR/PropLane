@@ -181,12 +181,12 @@ describe("Application is a quiet pending count; Communication stays the alert pi
     const application = screen.getByRole("link", { name: "Application" });
     const appBadge = application.querySelector("[data-attr='nav-count']");
     expect(appBadge?.textContent).toBe("1");
-    expect(appBadge?.className).toContain("bg-[#d92d20]");
+    expect(appBadge?.className).toContain("bg-[#b42318]");
 
     const properties = screen.getByRole("link", { name: "Properties" });
     const propBadge = properties.querySelector("[data-attr='nav-count']");
     expect(propBadge?.textContent).toBe("3");
-    expect(propBadge?.className).not.toContain("bg-[#d92d20]");
+    expect(propBadge?.className).not.toContain("bg-[#b42318]");
   });
 
   it("Application stays alert in More even when countTone is omitted", () => {
@@ -194,6 +194,6 @@ describe("Application is a quiet pending count; Communication stays the alert pi
       { section: "applications", label: "Application", href: "/portal/applications/pending", count: 2 },
     ]);
     const row = screen.getByRole("link", { name: "Application" });
-    expect(row.querySelector("[data-attr='nav-count']")?.className).toContain("bg-[#d92d20]");
+    expect(row.querySelector("[data-attr='nav-count']")?.className).toContain("bg-[#b42318]");
   });
 });

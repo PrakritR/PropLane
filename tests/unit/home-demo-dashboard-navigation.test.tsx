@@ -18,7 +18,7 @@ describe("dashboard navigation stays inside the fixture frame", () => {
     const onNavigate = vi.fn();
     const { container } = render(<DemoPanel portal={portal} tab="dashboard" story={residentStory("pay")} onNavigate={onNavigate} />);
     await waitFor(() => expect(container.querySelectorAll("a").length).toBeGreaterThan(2), { timeout: 15000 });
-    const allowed = DEMO_TABS[portal].flatMap((tab) => tab.members);
+    const allowed = DEMO_TABS[portal].map((tab) => tab.id);
     for (const anchor of container.querySelectorAll("a")) {
       expect(anchor.getAttribute("href")).toMatch(/^#/);
       onNavigate.mockClear();

@@ -77,7 +77,7 @@ export function PortalWorkspaceRail({
       const fallback = ctx.active?.name ?? "My workspace";
       return (
         <span
-          className={cn(TILE, "bg-white text-[#101828] shadow-[0_0_0_2px_#101828,0_0_0_4px_#fff]")}
+          className={cn(TILE, "bg-white text-[#0c0d10] shadow-[0_0_0_2px_#0c0d10,0_0_0_4px_#fff]")}
           title={fallback}
           aria-label={fallback}
           data-attr="portal-rail-workspace"
@@ -107,7 +107,7 @@ export function PortalWorkspaceRail({
             TILE,
             "hover:-translate-y-px",
             active
-              ? "bg-white text-[#101828] shadow-[0_0_0_2px_#101828,0_0_0_4px_#fff]"
+              ? "bg-white text-[#0c0d10] shadow-[0_0_0_2px_#0c0d10,0_0_0_4px_#fff]"
               : "bg-[#2b3448] text-white",
           )}
         >
@@ -122,7 +122,7 @@ export function PortalWorkspaceRail({
       <nav
         aria-label="Workspaces"
         data-slot="portal-workspace-rail"
-        className="hidden w-[60px] shrink-0 flex-col items-center gap-2.5 bg-[var(--portal-strip-bg,#101828)] py-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
+        className="hidden w-[60px] shrink-0 flex-col items-center gap-2.5 bg-[var(--portal-strip-bg,#0c0d10)] py-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
       >
         {isWorkspacePortal ? (
           <>
@@ -143,7 +143,7 @@ export function PortalWorkspaceRail({
           </>
         ) : (
           <span
-            className={cn(TILE, "bg-white shadow-[0_0_0_2px_#101828,0_0_0_4px_#fff]")}
+            className={cn(TILE, "bg-white shadow-[0_0_0_2px_#0c0d10,0_0_0_4px_#fff]")}
             title="PropLane"
             data-attr="portal-rail-brand"
           >

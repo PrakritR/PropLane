@@ -6,7 +6,7 @@ import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { normalizeE164 } from "@/lib/twilio";
 import { buildVendorAcceptedPaymentMethods } from "@/lib/vendor-payment-methods";
 import { resolveOwnVendorRecord } from "@/lib/vendor-own-record";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
 import { legacyPhoneWriteDecision, PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
@@ -99,7 +99,9 @@ export async function PATCH(req: Request) {
       }
     }
     let clearPhoneVerification = false;
-    if (normalizedPhone !== undefined && (await loadSharedLineConfig(auth.db)).mode === "shared") {
+    const line = normalizedPhone !== undefined ? await loadSharedLineConfigStrict(auth.db) : null;
+    if (line && !line.ok) return NextResponse.json({ error: "Could not verify your phone settings. Try again." }, { status: 503 });
+    if (normalizedPhone !== undefined && line?.ok && line.config.mode === "shared") {
       const { data: current, error } = await auth.db.from("profiles").select("phone, phone_verified_at").eq("id", auth.userId).maybeSingle();
       if (error) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
       const decision = legacyPhoneWriteDecision(current, normalizedPhone, true);
