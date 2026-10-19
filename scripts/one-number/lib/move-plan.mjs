@@ -224,7 +224,7 @@ async function readPropertyRows(db, table, owner, prop, houseIds) {
 
 /** Everything the move must leave unchanged (per house), plus who owns each row (checked separately). */
 export async function readSnapshot(db, { workspaceId, houseIds, now = new Date() }) {
-  const snap = { workspaceId, houses: [], tables: {}, workspaceKeyed: {}, members: [], numbers: [], emails: [], holds: [], missingTables: [] };
+  const snap = { workspaceId, asOf: now.toISOString(), houses: [], tables: {}, workspaceKeyed: {}, members: [], numbers: [], emails: [], holds: [], missingTables: [] };
 
   const ws = await db
     .from("portal_workspaces")
