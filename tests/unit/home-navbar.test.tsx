@@ -33,13 +33,15 @@ const update = (id: string, isIntersecting: boolean, bottom: number) => act(() =
 });
 
 describe("simple public navigation", () => {
-  it("uses five direct links, then the configured number and Portal at the far right without auth or menus", () => {
+  it("uses five direct links, then Start free and Portal at the far right on the homepage, without auth or menus", () => {
     render(<PublicNavbar texting={texting} />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(desktopPaths);
+    // The homepage cover's own button texts the number (captain #19), so the bar offers Start free.
     const text = document.querySelector('[data-attr="home-nav-text-desktop"]')!;
-    expect(text).toHaveAttribute("href", texting.smsHref);
-    expect(text).toHaveTextContent("(202) 555-0123");
+    expect(text).toHaveAttribute("href", "/auth/create-account");
+    expect(text).toHaveTextContent("Start free");
+    expect(document.querySelector('[data-attr="home-nav-text-mobile"]')).toHaveTextContent("Start free");
     expect(text.nextElementSibling).toHaveTextContent("Portal");
     expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /search|pricing|why proplane|product|resources/i })).not.toBeInTheDocument();
@@ -50,6 +52,8 @@ describe("simple public navigation", () => {
     route.pathname = "/blog";
     render(<PublicNavbar texting={texting} />);
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/#pricing");
+    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveAttribute("href", texting.smsHref);
+    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("(202) 555-0123");
     expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /resources|product/i })).not.toBeInTheDocument();
   });
@@ -67,7 +71,7 @@ describe("simple public navigation", () => {
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
     update("home-hero", false, -1);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("aria-label", "Text (202) 555-0123");
-    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("(202) 555-0123");
+    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("Start free");
     update("home-close", true, 700);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("href", texting.smsHref);

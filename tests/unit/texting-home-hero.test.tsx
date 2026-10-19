@@ -25,11 +25,12 @@ describe("housing texting cover", () => {
   it("shows the headline, number, decorative housing scene and role strip", () => {
     const { container } = render(<TextingHomeHero config={config} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(HOME_HEADLINE);
-    const pill = screen.getByRole("link", { name: "Text PropLane (202) 555-0123" });
-    expect(pill).toHaveAttribute("href", config.smsHref);
-    expect(pill).toHaveTextContent("Text PropLane");
-    expect(pill.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(container.querySelector(".home-text-number")).toHaveTextContent("(202) 555-0123");
+    // Captain #19: the big blue button texts the configured number; Start free stays in the top bar.
+    const text = screen.getByRole("link", { name: "Text (202) 555-0123" });
+    expect(text).toHaveAttribute("href", config.smsHref);
+    expect(text).toHaveClass("home-number-start");
+    expect(screen.queryByRole("link", { name: "Start free" })).not.toBeInTheDocument();
+    expect(container.querySelector(".home-text-pill")).toBeNull();
     expect(screen.getAllByRole("link")).toHaveLength(5);
     expect(screen.getByRole("link", { name: "Residents" })).toHaveAttribute("href", RESIDENT_GET_STARTED_HREF);
     expect(screen.getByRole("link", { name: "Vendors" })).toHaveAttribute("href", VENDOR_GET_STARTED_HREF);

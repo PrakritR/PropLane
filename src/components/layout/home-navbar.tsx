@@ -139,7 +139,10 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   }, [pathname]);
 
   const onHome = pathname === "/";
-  const textLabel = configured ? phone : "Start free";
+  // On the homepage the cover's own button texts the number, so the bar offers Start free (captain #19).
+  const navTexts = configured && !onHome;
+  const navHref = navTexts ? textHref : GET_STARTED_HREF;
+  const textLabel = navTexts ? phone : "Start free";
   return (
     <>
       <div className={styles.spacer} aria-hidden="true" />
@@ -173,7 +176,7 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           </nav>
           <div className={styles.desktopActions}>
             <a
-              href={textHref}
+              href={navHref}
               className={styles.textAction}
               data-attr="home-nav-text-desktop"
             >
@@ -190,11 +193,11 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           </div>
           <div className={styles.mobileActions}>
             <a
-              href={textHref}
+              href={navHref}
               className={styles.textAction}
               data-attr="home-nav-text-mobile"
             >
-              {configured ? "Text us" : "Start free"}
+              {navTexts ? "Text us" : "Start free"}
             </a>
             <button
               ref={menuTrigger}
