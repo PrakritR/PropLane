@@ -78,7 +78,7 @@ export async function loadHouseDirectory(
  */
 export async function loadLeaseSubjects(
   db: SupabaseClient,
-  opts: { onlyOwner?: string; houses?: Map<string, HouseSubject> } = {},
+  opts: { onlyOwner?: string; houses?: Map<string, HouseSubject>; now?: Date } = {},
 ): Promise<LeaseSubject[]> {
   let query = db.from("portal_lease_pipeline_records").select("manager_user_id, row_data").limit(MAX_ROWS);
   if (opts.onlyOwner) query = query.eq("manager_user_id", opts.onlyOwner);
@@ -111,8 +111,13 @@ export async function loadLeaseSubjects(
     if (!record.row_data) continue;
     const tenancy = tenancyRowFromRecord(record);
     const moveOut = localDateKey(tenancy?.moveOut ?? null);
-    if (tenancy && moveOut) moveOutByResident.set(`${tenancy.managerUserId}|${tenancy.residentEmail}`, moveOut);
+    if (!tenancy || !moveOut) continue;
+    // A resident with an old tenancy row and a new one keeps the LATER date, so a past move-out never hides a current stay.
+    const key = `${tenancy.managerUserId}|${tenancy.residentEmail}`;
+    const known = moveOutByResident.get(key);
+    if (!known || moveOut > known) moveOutByResident.set(key, moveOut);
   }
+  const todayKey = pacificTodayKey(opts.now ?? new Date());
 
   const userIds = [...new Set(raws.map((r) => str(r.row.residentUserId)).filter(Boolean))];
   const phones = new Map<string, string>();
@@ -132,6 +137,10 @@ export async function loadLeaseSubjects(
     const email = str(row.residentEmail).toLowerCase();
     const userId = str(row.residentUserId);
     const signedAt = str(row.fullySignedAt);
+    const moveOut = moveOutByResident.get(`${ownerUserId}|${email}`) ?? null;
+    // Someone who has already moved out is not a house audience (house-wide notices, announcements).
+    // Today's move-out stays in: that is the day the move-out moment fires.
+    if (moveOut && moveOut < todayKey) continue;
     out.push({
       leaseId: str(row.id),
       ownerUserId,
@@ -146,7 +155,7 @@ export async function loadLeaseSubjects(
       phoneKey: userId ? (phones.get(userId) ?? null) : null,
       signedKey: signedAt ? pacificTodayKey(new Date(signedAt)) : null,
       moveIn: localDateKey(parseFlexibleLocalDate(str(application.leaseStart))),
-      moveOut: moveOutByResident.get(`${ownerUserId}|${email}`) ?? null,
+      moveOut,
     });
   }
   return out;
