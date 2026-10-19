@@ -66,4 +66,23 @@ describe("user-visible copy", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("never says work order in the quoted strings of the dispatch, one-number and automation libraries", () => {
+    const offenders: string[] = [];
+    const files = [
+      ...walk(join("src", "lib", "vendor-dispatch"), [".ts"]),
+      ...walk(join("src", "lib", "one-number"), [".ts"]),
+      ...walk(join("src", "lib", "automations"), [".ts"]),
+      join("src", "lib", "tools", "domains", "vendor-dispatch.ts"),
+    ];
+    for (const file of files) {
+      const code = readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+        .replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+      for (const m of code.matchAll(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g)) {
+        if (/work orders?/i.test(m[0]) && !/work_order|workOrder|work-order/.test(m[0])) offenders.push(`${file}: ${m[0].slice(0, 90)}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
