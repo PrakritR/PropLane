@@ -40,7 +40,7 @@ describe("home demo script", () => {
 
   it("opens only tabs that the panel contract lists, for every beat of every portal", () => {
     for (const portal of PORTAL_ORDER) {
-      const ids = new Set(DEMO_TABS[portal].flatMap((tab) => tab.members));
+      const ids = new Set(DEMO_TABS[portal].map((tab) => tab.id));
       for (const beat of STORIES[portal]) expect(ids.has(beat.tab), `${portal}:${beat.tab}`).toBe(true);
     }
   });
@@ -123,7 +123,7 @@ describe("home demo script", () => {
     });
 
     it("clicks only controls the panels mark, and opens only tabs the sidebar has", () => {
-      const tabs = new Set(DEMO_TABS.manager.flatMap((tab) => tab.members));
+      const tabs = new Set(DEMO_TABS.manager.map((tab) => tab.id));
       const marked = new Set(["comm-approve", "applications-send", "sheet-primary", "application-row", "lease-row", "payment-row", "service-row"]);
       for (const step of steps) {
         if (step.kind === "nav") expect(tabs.has(step.target!), `tab ${step.target}`).toBe(true);
