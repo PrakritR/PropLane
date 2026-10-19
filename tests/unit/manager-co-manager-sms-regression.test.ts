@@ -6,6 +6,12 @@ import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { getEffectiveManagerSmsEntitlement, getStoredManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
 import { agentRegistry, buildManagerSmsRegistry } from "@/lib/tools";
+
+// The memory db has no workspace tables; the managed view-only lock has its own tests (managed-read-only-tool-scope).
+vi.mock("@/lib/auth/managed-read-only.server", () => ({
+  isManagedReadOnly: async () => false,
+  managedReadOnlyWorkspaceIds: async () => [],
+}));
 import { scopeManagerTool } from "@/lib/tools/manager-co-manager-tool-scope";
 import type { AgentContext } from "@/lib/tools/context";
 import { z } from "zod";
