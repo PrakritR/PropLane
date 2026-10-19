@@ -272,13 +272,11 @@ export function PortalNativeMoreNavButton({
       {active ? (
         <span className="absolute inset-x-[18%] top-0 h-0.5 rounded-full bg-primary" aria-hidden />
       ) : null}
-      <span
-        className={`${PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} transition-opacity duration-200 ${
-          active ? "opacity-100" : "opacity-60"
-        }`}
-        aria-hidden
-      >
-        <MoreGridIcon />
+      <span className={PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} aria-hidden>
+        {/* The dim sits on the glyph only, so the alert badge keeps full contrast. */}
+        <span className={`inline-flex transition-opacity duration-200 ${active ? "opacity-100" : "opacity-60"}`}>
+          <MoreGridIcon />
+        </span>
         {count > 0 ? (
           <span className="absolute -top-1 left-1/2 ml-1.5">
             <PortalNavCountBadge count={count} tone="alert" />
