@@ -51,6 +51,7 @@ const REVIEWED: Record<string, string> = {
   "lib/property-owner/access.server.ts": "the owner readers",
   // Owner management: the owner of record of a managed workspace is a workspace member, owner-role members included, on purpose.
   "lib/owner-management/policies.server.ts": "membership check: the owner of record is a workspace member and may hold the Property owner role",
+  "lib/service/service-workspaces.server.ts": "admin-only (the caller proves a platform admin): lists a service workspace's members, owner-of-record rows shown on purpose, and adds Admin-role members; grants nothing to a reader",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
 };
 
