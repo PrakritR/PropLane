@@ -597,7 +597,7 @@ async function loadWorkspaceApplicationFormsByWorkspaceId(
  * housing-search tool (server-side, no HTTP round-trip). Keep both callers on
  * this function so "what the search sees" never drifts from "what the AI sees".
  */
-export async function getPublicListings(opts?: { testWorkspaceId?: string | null }): Promise<MockProperty[]> {
+export async function getPublicListings(opts?: { testWorkspaceId?: string | null; workspaceIds?: readonly string[] }): Promise<MockProperty[]> {
   const db = createSupabaseServiceRoleClient();
   let query = db
     .from("manager_property_records")
@@ -608,6 +608,12 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
   query = opts?.testWorkspaceId
     ? query.eq("test_workspace_id", opts.testWorkspaceId)
     : query.is("test_workspace_id", null);
+  // The PropLane line's catalog: only the homes of the workspaces named here (PropLane-managed ones). An empty list is
+  // an empty catalog, never "everything".
+  if (opts?.workspaceIds) {
+    if (opts.workspaceIds.length === 0) return [];
+    query = query.in("workspace_id", [...opts.workspaceIds]);
+  }
   const { data, error } = await query;
 
   if (error) throw new Error(error.message);

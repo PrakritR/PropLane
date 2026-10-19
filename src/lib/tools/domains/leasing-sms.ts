@@ -48,6 +48,8 @@ import { getNearbyTransit, type TransitMode } from "@/lib/nearby-transit.server"
 import { researchPropertyLocation } from "@/lib/property-location-research.server";
 import { exactListingIdentityMatch, normalizeListingIdentity, normalizeListingWords } from "@/lib/listing-identity";
 import { isStandaloneSmsAcknowledgment } from "@/lib/sms/standalone-acknowledgment";
+import { compareAreaMatches, matchHomeToPlace, resolveSeattlePlace, type AreaMatch, type ResolvedPlace } from "@/lib/places/seattle-places";
+import { getServicePublicListings } from "@/lib/service/service-catalog.server";
 import { updateAuditResult, writeAuditLog } from "../audit";
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
@@ -460,10 +462,24 @@ function isCrossCatalog(ctx: AgentContext): boolean {
 }
 
 /**
- * Listings the agent may browse this turn: the whole public catalog on the
- * shared line (any owner), else only this manager's own live/listed listings.
+ * True on the PropLane line in per-workspace mode: the prospect texted a number the platform service owner holds, so the
+ * only homes in play are the live homes of PropLane-managed (`is_service`) workspaces, never the owner's own other workspaces.
+ */
+function isServiceCatalog(ctx: AgentContext): boolean {
+  return ctx.leasingScope?.serviceCatalog === true;
+}
+
+/** Service homes as raw rows. Throws when the catalog cannot be read: the caller must not answer from anything else. */
+async function loadServiceCatalogRows(): Promise<RawPropertyRecord[]> {
+  return (await getServicePublicListings()).map(mockPropertyToRecord);
+}
+
+/**
+ * Listings the agent may browse this turn: PropLane-managed homes on the PropLane line, the whole public catalog on the
+ * retired shared Claw line, else only this manager's own live/listed listings.
  */
 async function loadBrowsableListings(ctx: AgentContext): Promise<RawPropertyRecord[]> {
+  if (isServiceCatalog(ctx)) return loadServiceCatalogRows();
   if (isCrossCatalog(ctx)) return loadPublicCatalogRows();
   const owned = await loadOwnedLiveListings(ctx);
   if (!ctx.listingPublicOnly) return owned;
@@ -478,6 +494,7 @@ async function loadBrowsableListings(ctx: AgentContext): Promise<RawPropertyReco
  * Resolve one listing by id. Always tries the manager's own listings first (so a
  * per-manager line and a manager testing their own not-yet-fully-live listing
  * keep working); on the shared line, falls back to any public-catalog listing.
+ * On the PropLane line only PropLane-managed homes resolve.
  */
 async function loadResolvableListing(
   ctx: AgentContext,
@@ -485,6 +502,7 @@ async function loadResolvableListing(
 ): Promise<RawPropertyRecord | null> {
   const id = propertyId.trim();
   if (!id) return null;
+  if (isServiceCatalog(ctx)) return (await loadServiceCatalogRows()).find((row) => row.id === id) ?? null;
   const owned = await loadOwnedListing(ctx, id);
   if (owned) {
     if (!ctx.listingPublicOnly) return owned;
@@ -634,10 +652,19 @@ export function listingSummaryMatches(
   return hits >= 2;
 }
 
+/** The coordinates, zip and neighborhood a home was published with (public projection fields only). */
+function areaFactsOf(rec: RawPropertyRecord) {
+  const src = propertySource(rec);
+  const num = (key: string) => (typeof src?.[key] === "number" && Number.isFinite(src[key]) ? (src[key] as number) : null);
+  return { lat: num("mapLat"), lng: num("mapLng"), neighborhood: str(src, "neighborhood"), zip: str(src, "zip") };
+}
+
+type ListedHome = { listing: ReturnType<typeof summarizeListingRecord>; rec: RawPropertyRecord; rank: number; area: AreaMatch | null };
+
 export const listLiveListingsTool = defineTool({
   name: "list_live_listings",
   description:
-    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Joined/spaced names, case, Unicode, and punctuation are normalized; exact identity ranks before fuzzy marketing terms. The resolution field says exact, ranked, ambiguous, none, or browsing. Ask a short clarifying question for ambiguous results. Returns canonical property and room ids plus public facts. Use first when matching a prospect's house or room question.",
+    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Joined/spaced names, case, Unicode, and punctuation are normalized; exact identity ranks before fuzzy marketing terms. The resolution field says exact, ranked, ambiguous, none, or browsing. Ask a short clarifying question for ambiguous results. Returns canonical property and room ids plus public facts, and each home's own listingUrl. For a place the prospect names (a campus, a landmark, a neighborhood, a zip, \"near downtown\"), pass it as `area` exactly as they said it: the homes come back nearest first with areaMatch.distanceMiles, and `area.resolved` says whether the place was understood. Use first when matching a prospect's house or room question.",
   kind: "read",
   inputSchema: z
     .object({
@@ -645,26 +672,68 @@ export const listLiveListingsTool = defineTool({
         .string()
         .optional()
         .describe("Optional free-text filter (address fragment, house name, room name, or the title of an ad the prospect saw)."),
+      area: z
+        .string()
+        .optional()
+        .describe("A place the prospect named, in their words: \"University of Washington campus\", \"U District\", \"Capitol Hill\", \"98105\", \"near downtown\". Homes are ranked by distance from it."),
     })
     .strict(),
   handler: async (ctx, input) => {
     const needle = (input.query ?? "").trim();
+    const areaText = (input.area ?? "").trim();
     const rows = await loadBrowsableListings(ctx);
-    const ranked = rows
-      .map(summarizeListingRecord)
-      .map((listing) => ({ listing, rank: listingSummaryMatchRank(listing, needle) }))
-      .filter(({ rank }) => rank > 0)
-      .sort((a, b) => b.rank - a.rank);
+    const origin = publicOrigin();
+    const all: ListedHome[] = rows.map((rec) => {
+      const listing = summarizeListingRecord(rec);
+      return { listing, rec, rank: listingSummaryMatchRank(listing, needle), area: null };
+    });
+    // A query that is only a place ("near the UW campus") is an area, not a name: it would otherwise rank nothing.
+    const bestNameRank = Math.max(0, ...all.map((home) => home.rank));
+    const place: ResolvedPlace | null = resolveSeattlePlace(areaText) ?? (needle && bestNameRank < 3 ? resolveSeattlePlace(needle) : null);
+    const nameFilterApplies = needle !== "" && !(place && bestNameRank < 3);
+
+    let ranked = all.filter((home) => (nameFilterApplies ? home.rank > 0 : true));
+    if (nameFilterApplies) ranked.sort((a, b) => b.rank - a.rank);
+    let areaSummary: Record<string, unknown> | undefined;
+    if (place) {
+      for (const home of ranked) home.area = matchHomeToPlace(areaFactsOf(home.rec), place);
+      const measured = ranked.filter((home) => home.area !== null) as (ListedHome & { area: AreaMatch })[];
+      const near = measured.filter((home) => home.area.near).sort((a, b) => compareAreaMatches(a.area, b.area));
+      const closest = near.length > 0 ? near : measured.sort((a, b) => compareAreaMatches(a.area, b.area)).slice(0, 3);
+      ranked = closest;
+      areaSummary = {
+        resolved: true,
+        place: place.label,
+        radiusMiles: place.radiusMiles,
+        nearCount: near.length,
+        ...(near.length === 0 ? { note: "No home is inside this area. These are the closest, listed with their distance; say so plainly." } : {}),
+      };
+    } else if (areaText) {
+      areaSummary = { resolved: false, requested: areaText, note: "That place is not one I can locate. Ask which Seattle neighborhood or landmark they mean, or offer the homes below." };
+    }
     const bestRank = ranked[0]?.rank ?? 0;
-    const bestCount = ranked.filter(({ rank }) => rank === bestRank).length;
+    const bestCount = ranked.filter((home) => home.rank === bestRank).length;
     const listings = ranked
-      .map(({ listing }) => listing)
       // Cap the payload the model sees (large catalogs); a needle narrows first.
-      .slice(0, 40);
+      .slice(0, 40)
+      .map(({ listing, area }) => {
+        const rents = listing.rooms.map((room) => room.monthlyRent).filter((rent): rent is number => typeof rent === "number" && rent > 0);
+        return {
+          ...listing,
+          // The home's own link, from the tool: the only link a reply may carry for this home.
+          listingUrl: buildManagerListingUrl(origin, listing.propertyId),
+          roomCount: listing.rooms.length,
+          lowestRoomRent: rents.length > 0 ? Math.min(...rents) : null,
+          ...(area ? { areaMatch: area } : {}),
+        };
+      });
     return {
       count: listings.length,
       listings,
-      resolution: !needle
+      // The browse-all page, from the tool, so "see everything" needs no second lookup.
+      browseUrl: `${origin}/rent/browse`,
+      ...(areaSummary ? { area: areaSummary } : {}),
+      resolution: !nameFilterApplies
         ? "browsing"
         : listings.length === 0
           ? "none"
@@ -728,7 +797,7 @@ export const getListingDetailsTool = defineTool({
     try {
       const submission = asObject(src?.listingSubmission);
       if (submission?.v === 1) {
-        occupancy = await loadListingOccupancyForSms(rec, submission, isCrossCatalog(ctx) ? undefined : ctx.landlordId);
+        occupancy = await loadListingOccupancyForSms(rec, submission, isCrossCatalog(ctx) || isServiceCatalog(ctx) ? undefined : ctx.landlordId);
       }
     } catch {
       // A failed read cannot turn a saved label into verified current availability.
@@ -826,7 +895,7 @@ export const checkRoomAvailabilityTool = defineTool({
     if (submission?.v !== 1) {
       return { found: true as const, ok: false as const, error: "listing_unreadable" as const, message: "This listing's rooms could not be read." };
     }
-    const ownerId = isCrossCatalog(ctx) ? undefined : ctx.landlordId;
+    const ownerId = isCrossCatalog(ctx) || isServiceCatalog(ctx) ? undefined : ctx.landlordId;
     const result = await roomAvailabilityForRange(
       { propertyId: rec.id, roomId: input.roomId, moveIn: input.moveIn, moveOut: input.moveOut },
       { submission, loadOccupancy: () => loadListingOccupancyForSms(rec, submission, ownerId) },
@@ -904,7 +973,33 @@ export const buildProspectLinksTool = defineTool({
     // Minting links for a house is the agent committing to it: tag the thread
     // so the teammates who hold that house can see it. Owned listings only —
     // `loadOwnedListing` is what resolved, or it is another manager's catalog.
-    if (ctx.leasingScope && (await loadOwnedListing(ctx, input.propertyId))) {
+    if (ctx.leasingScope && isServiceCatalog(ctx)) {
+      // The PropLane line: the home belongs to a PropLane-managed workspace. The thread is tagged to the home (its workspace's
+      // team reads it by house), and a home held by a DIFFERENT account (an attached client workspace) is told once.
+      const homeOwner = String(propertySource(rec)?.managerUserId ?? "").trim();
+      const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");
+      await tagProspectThreadFromAgent(ctx.db, {
+        landlordId: ctx.landlordId,
+        prospectPhoneE164: ctx.leasingScope.prospectPhoneE164,
+        channel: ctx.leasingScope.channel ?? "sms",
+        propertyId: rec.id,
+        propertyOwnerUserId: homeOwner || ctx.landlordId,
+        source: "leasing",
+      });
+      if (homeOwner && homeOwner !== ctx.landlordId) {
+        const phoneKey = (ctx.leasingScope.prospectPhoneE164 ?? "").replace(/\D/g, "").slice(-10);
+        await notifyManagerFromAgent(ctx.db, {
+          landlordId: homeOwner,
+          propertyId: rec.id,
+          subject: "A prospect asked about your home on the PropLane line",
+          text: `A prospect texted the PropLane line about ${propertyLabel(propertySource(rec)) ?? "your home"} (${ctx.leasingScope.prospectPhoneE164}). They were sent the listing, tour and apply links. Any tour or application lands in your workspace.`,
+          threadType: "leasing_sms_service_line",
+          url: "/portal/communication/sms",
+          notify: { push: true, sms: false },
+          idempotencyKey: `svcline:${phoneKey}:${rec.id}:${new Date().toISOString().slice(0, 10)}`,
+        }).catch(() => undefined);
+      }
+    } else if (ctx.leasingScope && (await loadOwnedListing(ctx, input.propertyId))) {
       const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");
       await tagProspectThreadFromAgent(ctx.db, {
         landlordId: ctx.landlordId,

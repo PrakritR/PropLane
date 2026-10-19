@@ -38,6 +38,9 @@ import {
   schedulingContextPrompt,
 } from "@/lib/prospect-tour-scheduling-context.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
+import { proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
+import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 
 type Db = SupabaseClient;
 
@@ -464,6 +467,11 @@ export async function runLeasingSmsAgentTurn(
   }
 
   const prospectPhone = normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim();
+  // The PropLane line in per-workspace mode (a number the platform service owner holds): the catalog is the homes PropLane
+  // manages, not this account's own other workspaces. Any other number keeps its workspace's homes only.
+  const serviceLine = !args.testActor && args.crossCatalog !== true && channel === "sms"
+    ? await isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber })
+    : false;
   const recentDeliveredReplies = args.testActor ? [] : await loadRecentDeliveredReplies(db, {
     landlordId: session.landlord_id,
     phone: prospectPhone,
@@ -482,6 +490,7 @@ export async function runLeasingSmsAgentTurn(
       prospectEmail: args.testActor?.email ?? null,
       workNumber: args.workNumber?.trim() || null,
       crossCatalog: args.crossCatalog === true,
+      ...(serviceLine ? { serviceCatalog: true } : {}),
       channel,
       currentInboundText: text,
       recentDeliveredReplies,
@@ -549,6 +558,9 @@ export async function runLeasingSmsAgentTurn(
     if (args.testActor && args.testTarget) {
       system += `\n\nThis authenticated test conversation is scoped to the selected listing ${JSON.stringify(args.testTarget.title)} (canonical property id ${JSON.stringify(args.testTarget.listingId)}). Resolve and reuse that listing unless the person explicitly asks to discuss another listing owned by this manager.`;
     }
+    if (serviceLine) {
+      system += `\n\nYou are answering on the PropLane line. The only homes you know are the ones list_live_listings returns: homes PropLane manages. Never name or suggest a home a tool did not return. For any place the prospect names (a campus, a landmark, a neighborhood, a zip, "near downtown"), call list_live_listings ONCE with area set to their words, then answer from that one result: list up to three homes with name, rent and the distance the tool gave, and put each home's own listingUrl from the tool next to it. Use the tool's browseUrl for "see everything". If the tool says no home is in the area, say so and give the closest ones it returned. If the lookup fails, say a teammate will follow up. When they pick a home, call build_prospect_links and send the tour or apply link.`;
+    }
     shadowSystem = system;
     turnPromptMeta = resolvePromptMeta(PROMPT_IDS.leasingSmsAgent, system);
     let inlineActionAuthorized = false;
@@ -613,6 +625,21 @@ export async function runLeasingSmsAgentTurn(
           readOnly: true,
           allowWriteTools: args.prospectBurst && channel === "sms" ? LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS : LEASING_SMS_INLINE_WRITE_TOOLS,
           suppressionTools: ["suppress_redundant_reply"],
+          // A prospect never receives the portal's "I can't verify that link" sentence: a link no lookup returned is redone
+          // once without links, then answered from the tool results alone. The site links are constants, so always allowed.
+          ...(channel === "sms"
+            ? {
+                linkRecovery: {
+                  allowedUrls: Object.values(proplaneSiteLinks(publicOrigin())).filter((value) => value.startsWith("http")),
+                  summarize: summarizeLeasingEvidence,
+                  replaceWhen: (trace: { tool: string; ok: boolean }[]) => {
+                    if (!serviceLine) return false;
+                    const lists = trace.filter((entry) => entry.tool === "list_live_listings");
+                    return lists.length > 0 && !lists[lists.length - 1].ok;
+                  },
+                },
+              }
+            : {}),
           authorizeInlineWrite: args.prospectBurst
             ? async (call) => {
                 if (inlineActionAuthorized) return false;

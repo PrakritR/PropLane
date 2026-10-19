@@ -4,10 +4,10 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 
 const URL_TOKEN = /https?:\/\/[^\s<>)\]]+|(?<![\w:/])\/[A-Za-z][^\s<>)\]]*/g;
-const UNSUPPORTED_LINK = "I can't verify that link from the available records. Please ask me to check the relevant page or document.";
+export const UNSUPPORTED_LINK = "I can't verify that link from the available records. Please ask me to check the relevant page or document.";
 type MarkdownNode = { type: string; url?: string; children?: MarkdownNode[] };
 
-function linkTargets(value: string): string[] {
+export function linkTargets(value: string): string[] {
   const linked = Array.from(value.matchAll(URL_TOKEN), (match) => cleanUrl(match[0]));
   const visit = (node: MarkdownNode): void => {
     if ((node.type === "link" || node.type === "image" || node.type === "definition") && node.url) linked.push(node.url);
@@ -66,11 +66,22 @@ function collectToolUrls(value: unknown, urls: Set<string>): void {
   }
 }
 
-export function guardLunaReplyLinks(reply: string, successfulToolOutputs: unknown[]): string {
+/** Every link the tool results of this turn vouch for. */
+export function allowedLinksFromToolOutputs(successfulToolOutputs: unknown[]): Set<string> {
   const allowed = new Set<string>();
   for (const output of successfulToolOutputs) collectToolUrls(output, allowed);
-  const linked = linkTargets(reply);
-  if (linked.some((url) => !allowed.has(url))) {
+  return allowed;
+}
+
+/** The links in `reply` that no tool result (or `extraAllowed`) vouches for. Empty = the reply may be sent. */
+export function unsupportedReplyLinks(reply: string, successfulToolOutputs: unknown[], extraAllowed: Iterable<string> = []): string[] {
+  const allowed = allowedLinksFromToolOutputs(successfulToolOutputs);
+  for (const url of extraAllowed) allowed.add(url);
+  return linkTargets(reply).filter((url) => !allowed.has(url));
+}
+
+export function guardLunaReplyLinks(reply: string, successfulToolOutputs: unknown[], extraAllowed: Iterable<string> = []): string {
+  if (unsupportedReplyLinks(reply, successfulToolOutputs, extraAllowed).length > 0) {
     return UNSUPPORTED_LINK;
   }
   return reply;

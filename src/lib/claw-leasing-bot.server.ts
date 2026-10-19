@@ -72,6 +72,8 @@ export {
   type LeasingIntent,
 } from "@/lib/claw-leasing-links";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { isGreetingOnly, PROPLANE_FIRST_TEXT_REPLY } from "@/lib/sms/propline-first-text";
+import { TEAM_FOLLOW_UP_REPLY } from "@/lib/agent/leasing-sms-fallback";
 
 export { clawMappedManagerEmails } from "@/lib/claw-resident-messaging.server";
 
@@ -1179,6 +1181,49 @@ export async function handleClawLeasingInbound(args: {
     }
   }
 
+  // The PropLane line in per-workspace mode (a number the platform service owner holds). Its prospects are always answered:
+  // a first text that is only a greeting gets one fixed line AT ONCE (it never waits behind the burst window, where the next
+  // text superseded it and left it unanswered), and a worker turn that produced nothing falls back to a fixed line below.
+  let serviceLine = false;
+  if (landlordId && scopedManagerId && workNumber && !args.routingReply) {
+    const { isPropLaneServiceLine } = await import("@/lib/service/service-catalog.server");
+    serviceLine = await isPropLaneServiceLine(createSupabaseServiceRoleClient(), { ownerUserId: landlordId, workNumber }).catch(() => false);
+  }
+  const sendServiceLineReply = async (replyBody: string): Promise<HandleClawInboundResult> => {
+    const body = stripLongDashes(replyBody);
+    const prepared = args.onPreparedReply ? await args.onPreparedReply({ routeKind: "leasing_template", replyBody: body }) : true;
+    if (!prepared) {
+      releaseInboundMessageClaims(claimedMessageIds);
+      return { ok: false, intent, replied: false, error: "Reply preparation failed." };
+    }
+    const send = await replySms({
+      to: from,
+      text: body,
+      managerUserId: landlordId,
+      workNumber,
+      counterpartyRole: "prospect",
+      conversationKey: buildConversationKey({ ownerManagerUserId: landlordId!, role: "prospect", counterpartyPhone: from }),
+      dedupeKey: messageId ? `inbound_reply_${messageId}` : null,
+      prospectBurst: args.prospectBurst,
+    });
+    return {
+      ok: send.ok || Boolean(send.durablyAccepted),
+      intent,
+      replied: send.ok || Boolean(send.durablyAccepted),
+      error: send.ok || send.durablyAccepted ? undefined : send.error,
+      outboxId: send.outboxId,
+      durablyAccepted: send.durablyAccepted,
+    };
+  };
+  if (serviceLine && !args.durableBurstWorker && !args.prospectBurst && isGreetingOnly(text) && landlordId) {
+    const { count } = await createSupabaseServiceRoleClient()
+      .from("sms_outbox")
+      .select("id", { count: "exact", head: true })
+      .eq("manager_user_id", landlordId)
+      .eq("recipient_phone", from);
+    if (!count) return sendServiceLineReply(PROPLANE_FIRST_TEXT_REPLY);
+  }
+
   // A reschedule reply is a narrow, durable tour transition. The ordinary
   // leasing agent must never interpret YES or an alternate time after we have
   // matched it to one exact accepted proposal.
@@ -1425,6 +1470,16 @@ export async function handleClawLeasingInbound(args: {
           revision: args.prospectBurst?.revision,
           agentReturned: Boolean(agent),
         });
+        // The PropLane line never leaves a prospect in silence: a turn that produced nothing (a model outage, an empty
+        // answer) answers with a fixed line instead of failing the burst.
+        if (serviceLine) {
+          const { count } = await createSupabaseServiceRoleClient()
+            .from("sms_outbox")
+            .select("id", { count: "exact", head: true })
+            .eq("manager_user_id", landlordId)
+            .eq("recipient_phone", from);
+          return sendServiceLineReply(count ? TEAM_FOLLOW_UP_REPLY : PROPLANE_FIRST_TEXT_REPLY);
+        }
       }
     } catch (e) {
       console.error("leasing SMS agent path failed", e);

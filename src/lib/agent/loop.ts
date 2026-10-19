@@ -19,7 +19,7 @@ import {
 import { MANAGER_SYSTEM_PROMPT } from "./system-prompts";
 import { selectModel, selectLunaTaskModel, type ModelTier, type AgentProvider, type AgentRoute, type AgentModelSelection } from "./model";
 import { completeAgentModel } from "./provider";
-import { guardLunaFailedLookupClaim, guardLunaReplyLinks } from "./luna-link-guard";
+import { guardLunaFailedLookupClaim, guardLunaReplyLinks, linkTargets, unsupportedReplyLinks } from "./luna-link-guard";
 import { withPropertyResearchBudget } from "@/lib/property-research-budget.server";
 
 const MAX_ITERATIONS = 8;
@@ -154,6 +154,18 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   authorizeInlineWrite?: (call: { id: string; name: string; input: unknown }) => Promise<boolean>;
   /** Releases a claim only when the tool returned a known no-side-effect rejection. */
   releaseInlineWrite?: (call: { id: string; name: string; input: unknown }) => Promise<boolean>;
+  /**
+   * Prospect-facing link grounding (the leasing SMS agent). The canned "I can't verify that link" sentence is a portal
+   * answer for a signed-in person who can ask again; a prospect must never receive it. With this set, a reply whose link
+   * no tool result of this turn, no earlier assistant message, no system-prompt URL and no `allowedUrls` entry vouches for is
+   * redone ONCE without links; if that fails too, `summarize` builds the reply from the tool results alone.
+   */
+  linkRecovery?: {
+    allowedUrls?: readonly string[];
+    summarize: (evidence: ToolEvidenceEntry[]) => string;
+    /** True when a read the answer depends on failed (the catalog): the reply is replaced by `summarize([])`, never a guess. */
+    replaceWhen?: (trace: ToolTraceEntry[]) => boolean;
+  };
 }): Promise<AgentTurnResult> {
   const system = opts.system ?? MANAGER_SYSTEM_PROMPT;
   const allowWrite = opts.allowWriteTools ?? [];
@@ -189,6 +201,57 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   // portal routes' 120-second platform ceiling.
   const lunaDeadline = selection.route === "luna_primary" ? performance.now() + (selection.turnBudgetMs ?? 100_000) : undefined;
   const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 };
+
+  /** Links earlier assistant messages (already guarded when they went out) and the system prompt may repeat. */
+  const priorLinks = new Set<string>(opts.linkRecovery?.allowedUrls ?? []);
+  if (opts.linkRecovery) {
+    for (const url of linkTargets(system)) priorLinks.add(url);
+    for (const message of opts.messages) {
+      if (message.role !== "assistant") continue;
+      const text = typeof message.content === "string"
+        ? message.content
+        : message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+      for (const url of linkTargets(text)) priorLinks.add(url);
+    }
+  }
+  /**
+   * The text the person receives. Portal routes keep the Luna guard (canned sentence on a bad link); a prospect
+   * surface (`linkRecovery`) never sees a canned sentence: bad link -> one retry without links -> a summary built from
+   * the tool results.
+   */
+  const finalizeReply = async (draft: string, hasUnresolvedReadError: boolean, evidence: ToolEvidenceEntry[]): Promise<string> => {
+    const recovery = opts.linkRecovery;
+    if (!recovery) {
+      return selection.route === "luna_primary"
+        ? guardLunaReplyLinks(guardLunaFailedLookupClaim(draft || "I couldn't find an answer to that.", hasUnresolvedReadError), evidence.map((entry) => entry.output))
+        : draft || "I couldn't find an answer to that.";
+    }
+    const outputs = evidence.map((entry) => entry.output);
+    if (recovery.replaceWhen?.(toolTrace)) return recovery.summarize([]);
+    const text = draft.trim();
+    if (text && unsupportedReplyLinks(text, outputs, priorLinks).length === 0) return text;
+    if (text) {
+      // One retry with no tools and an explicit no-links instruction.
+      try {
+        const redo = await completeAgentModel({
+          selection: { ...selection, timeoutMs: Math.min(selection.timeoutMs ?? 20_000, 20_000) },
+          system,
+          tools: [],
+          messages: [
+            ...messages,
+            { role: "assistant", content: text },
+            { role: "user", content: "Your last reply contained a link that no lookup returned. Send the same answer again with no links or URLs at all, one short text." },
+          ],
+        });
+        totalLatencyMs += redo.latencyMs;
+        usage.inputTokens += redo.usage.inputTokens;
+        usage.outputTokens += redo.usage.outputTokens;
+        const second = redo.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("").trim();
+        if (second && linkTargets(second).length === 0) return second;
+      } catch { /* fall through to the deterministic summary */ }
+    }
+    return recovery.summarize(evidence.filter((entry) => !failedBusinessRead(entry.output)));
+  };
 
   const observer = opts.observer;
   let lastStopReason: string | null = null;
@@ -310,9 +373,7 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
         toolEvidence.some((entry) => opts.registry.get(entry.tool)?.kind === "read" && failedBusinessRead(entry.output));
       const successfulEvidence = toolEvidence.filter((entry) => !failedBusinessRead(entry.output));
       return {
-        reply: selection.route === "luna_primary"
-          ? guardLunaReplyLinks(guardLunaFailedLookupClaim(reply || "I couldn't find an answer to that.", hasUnresolvedReadError), successfulEvidence.map((entry) => entry.output))
-          : reply || "I couldn't find an answer to that.",
+        reply: await finalizeReply(reply, hasUnresolvedReadError, successfulEvidence),
         toolTrace,
         toolEvidence,
         model: effectiveModel,
@@ -362,9 +423,11 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
         const hasUnresolvedReadError = toolTrace.some((entry) => !entry.ok && opts.registry.get(entry.tool)?.kind === "read") ||
           toolEvidence.some((entry) => opts.registry.get(entry.tool)?.kind === "read" && failedBusinessRead(entry.output));
         return {
-          reply: selection.route === "luna_primary"
-            ? guardLunaReplyLinks(guardLunaFailedLookupClaim(reply, hasUnresolvedReadError), toolEvidence.filter((entry) => !failedBusinessRead(entry.output)).map((entry) => entry.output))
-            : reply,
+          reply: opts.linkRecovery
+            ? await finalizeReply(reply, hasUnresolvedReadError, toolEvidence.filter((entry) => !failedBusinessRead(entry.output)))
+            : selection.route === "luna_primary"
+              ? guardLunaReplyLinks(guardLunaFailedLookupClaim(reply, hasUnresolvedReadError), toolEvidence.filter((entry) => !failedBusinessRead(entry.output)).map((entry) => entry.output))
+              : reply,
           toolTrace,
           toolEvidence,
           model: effectiveModel,
