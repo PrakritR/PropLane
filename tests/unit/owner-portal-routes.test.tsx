@@ -315,6 +315,16 @@ describe("Documents, Messages and Settings", () => {
     expect(container.querySelector('[data-attr="owner-message-input"]')).not.toBeNull();
   });
 
+  it("reads a workspace with Messages off as an empty thread, not an error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => (String(input).startsWith("/api/owner/messages") ? json(404, { error: "Not found." }) : json(200, {}))),
+    );
+    render(withWorkspaces(<OwnerMessagesPage />));
+    expect(await screen.findByText("No messages yet")).toBeTruthy();
+    expect(screen.queryByText("Couldn't load your messages.")).toBeNull();
+  });
+
   it("shows who is signed in under Settings", () => {
     render(<OwnerProfile name="Dana Whitfield" email="dana@example.test" />);
     expect(screen.getByText("Settings")).toBeTruthy();

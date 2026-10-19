@@ -42,6 +42,9 @@ export function OwnerMessagesPage() {
     <div data-attr="owner-messages">
       {loading && !data ? (
         <OwnerLoading />
+      ) : error === "Not found." ? (
+        // Messages is off for the workspace the switcher is on (it can be on for another one).
+        <OwnerEmpty title="No messages yet" />
       ) : error ? (
         <OwnerError message="Couldn't load your messages." onRetry={reload} />
       ) : !data || data.conversations.length === 0 ? (
