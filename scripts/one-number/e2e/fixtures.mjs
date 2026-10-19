@@ -33,11 +33,18 @@ export class World {
     this.next = 60 + Math.floor(Math.random() * 20);
   }
 
-  /** A fixture phone: +1206555 01nn (reserved fictional range), unique within the run. */
+  /**
+   * A fixture phone: <area> 555 01nn, the reserved fictional range, in a random area code from a short list. Another run (or a
+   * leftover) can hold the same number, and a number claimed by two verified accounts routes nobody, so every pick is random and
+   * checked against the profiles table and this run's own numbers.
+   */
   phone() {
-    const p = `+1206555${String(100 + this.next++).padStart(4, "0")}`;
-    this.phones.push(p);
-    return p;
+    const areas = ["206", "425", "253", "360", "509", "415", "212", "617", "312", "404"];
+    for (let i = 0; i < 40; i += 1) {
+      const p = `+1${areas[Math.floor(Math.random() * areas.length)]}5550${100 + Math.floor(Math.random() * 100)}`;
+      if (!this.phones.includes(p)) { this.phones.push(p); return p; }
+    }
+    throw new Error("no free fixture phone");
   }
 
   async createUser({ label, role, phone = null, fullName }) {
