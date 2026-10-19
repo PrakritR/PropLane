@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Lock, Pencil, Phone, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
+import { Lock, MessageSquareText, Pencil, Phone, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Input } from "@/components/ui/input";
@@ -359,8 +359,12 @@ export function ResidentProfilePanel({
         description: "Password and sign-in options.",
         icon: Lock,
       },
-      // Feedback left Settings (portal simplification, Oct 18): Help & feedback in the account menu is the one
-      // path. `?tab=feedback` lands on the Settings home.
+      {
+        id: "feedback",
+        label: "Feedback",
+        description: "Report issues or share product feedback.",
+        icon: MessageSquareText,
+      },
       {
         id: "account",
         label: "Account",

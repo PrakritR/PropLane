@@ -30,8 +30,7 @@ export function portalDashboardPath(role: AuthRole): string {
   if (role === "resident") return "/resident";
   if (role === "manager") return "/portal/dashboard";
   if (role === "vendor") return "/vendor/dashboard";
-  // Admin lands on Settings, the first sidebar row (`/admin` redirects there too).
-  return "/admin/profile";
+  return "/admin/dashboard";
 }
 
 export function parseAuthRole(value: string | null): AuthRole {

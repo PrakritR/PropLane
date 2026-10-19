@@ -56,7 +56,7 @@ const ROLE_HOME: Record<NonNullable<typeof mockRole>, string> = {
   resident: "/resident",
   manager: "/portal/dashboard",
   vendor: "/vendor/dashboard",
-  admin: "/admin/profile",
+  admin: "/admin/dashboard",
 };
 
 describe("public navbar signed-in portal link", () => {

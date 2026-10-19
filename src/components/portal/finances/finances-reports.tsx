@@ -12,8 +12,6 @@ import {
   Building2,
   ClipboardList,
   FileSpreadsheet,
-  FileText,
-  Home,
   Landmark,
   PiggyBank,
   Receipt,
@@ -37,11 +35,6 @@ type ReportCard = {
   label: string;
   description: string;
   icon: LucideIcon;
-  /**
-   * A report that is a DOCUMENT (rent, expense, occupancy, 1099, tax summary): it opens in Documents at this
-   * path under the portal base path, and has no export of its own here. Its URL is unchanged.
-   */
-  to?: string;
 };
 
 const REPORT_GROUPS: Array<{ label: string; reports: ReportCard[] }> = [
@@ -84,45 +77,16 @@ const REPORT_GROUPS: Array<{ label: string; reports: ReportCard[] }> = [
       { id: "financial-diagnostics", label: "Diagnostics", description: "Rows that do not add up, and why.", icon: Stethoscope },
     ],
   },
-  {
-    // The tax and report documents. They live in Documents (their addresses are bookmarked), and are listed
-    // here because "what do I hand my accountant" is a Finances question, not a filing-cabinet one.
-    label: "Documents",
-    reports: [
-      { id: "income-documents", label: "Rent documents", description: "", icon: FileText, to: "documents/income-documents" },
-      { id: "expense-documents", label: "Expense documents", description: "", icon: Receipt, to: "documents/expense-documents" },
-      { id: "occupancy", label: "Occupancy", description: "", icon: Home, to: "documents/occupancy" },
-      { id: "1099", label: "1099 forms", description: "", icon: FileSpreadsheet, to: "documents/1099" },
-      { id: "tax-summary", label: "Tax summary", description: "", icon: Scale, to: "documents/tax-summary" },
-    ],
-  },
 ];
 
-/** The report ids that are Finances routes (`/financials/<id>`); the Documents group above is not. */
-export const FINANCES_REPORT_TAB_IDS = new Set(
-  REPORT_GROUPS.flatMap((g) => g.reports.filter((r) => !r.to).map((r) => r.id)),
-);
+export const FINANCES_REPORT_TAB_IDS = new Set(REPORT_GROUPS.flatMap((g) => g.reports.map((r) => r.id)));
 
-/** The Reports hub search: a report matches when every word of the query is in its name. */
-export function matchesReportQuery(report: { label: string }, query: string): boolean {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return true;
-  const label = report.label.toLowerCase();
-  return words.every((word) => label.includes(word));
-}
-
-export function ManagerFinancesReports({ basePath, query = "" }: { basePath: string; query?: string }) {
+export function ManagerFinancesReports({ basePath }: { basePath: string }) {
   const navigate = usePortalNavigate();
   const specialPanels = new Set(["bills", "security-deposits", "owner-distributions", "bank-reconciliation"]);
   const reportIds: Record<string, string> = { "income-statement": "monthly-profit-loss", "security-deposits": "trust-account-balance", bills: "ap-aging", "owner-distributions": "owner-statement", "bank-reconciliation": "general-ledger" };
-  return <div data-attr="finances-reports"><PortalRecordListSurface dataAttr="finances-reports-list">{REPORT_GROUPS.flatMap(g => g.reports).filter(report => matchesReportQuery(report, query)).map(report => {
+  return <div data-attr="finances-reports"><PortalRecordListSurface dataAttr="finances-reports-list">{REPORT_GROUPS.flatMap(g => g.reports).map(report => {
     const exportId = reportIds[report.id] ?? report.id;
-    if (report.to) {
-      const openDocument = () => navigate(`${basePath}/${report.to}`);
-      return <div key={report.id} data-attr={`finances-report-${report.id}`}>
-        <PortalPropertyRecordRow title={report.label} leading={<PortalRowIconTile icon={report.icon} />} leadingShape="square" onOpen={openDocument} dataAttr="finances-report-row" />
-      </div>;
-    }
     const download = (format: string) => report.id === "profitability" ? `/api/reports/property-worksheet?format=${format}` : specialPanels.has(report.id) ? `/api/reports/operational-export?kind=${report.id}&format=${format}` : `/api/reports/${exportId}/export?format=${format}`;
     const href = report.id === "financial-activity" ? download("csv") : `${basePath}/financials/${report.id}`;
     const open = () => (report.id === "financial-activity" ? window.location.assign(href) : navigate(href));

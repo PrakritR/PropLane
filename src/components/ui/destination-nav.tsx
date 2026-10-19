@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { NavLockIcon } from "@/components/portal/portal-nav-count-badge";
 import { PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
 import { PhoneStripOrPicker, PhoneStripPicker, usePhoneStripAsPicker } from "@/components/ui/phone-strip-picker";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
@@ -156,12 +155,6 @@ export type DestinationNavItem = {
   /** Highlight when this destination has urgent work (overdue, etc.). */
   alert?: boolean;
   dataAttr?: string;
-  /** Locked by plan or stage: drawn with a padlock. Still a live link unless `inert` (the upgrade page). */
-  locked?: boolean;
-  /** Locked with nowhere to go (a resident stage not reached yet): the tab does not navigate. */
-  inert?: boolean;
-  /** The word for assistive tech when the tab is locked ("Lease: available after your lease is signed"). */
-  lockLabel?: string;
 };
 
 /**
@@ -234,17 +227,8 @@ function DestinationNavStrip({
         return (
           <Link
             key={item.id}
-            href={item.inert ? "#" : item.href}
+            href={item.href}
             data-attr={item.dataAttr}
-            aria-disabled={item.inert ? true : undefined}
-            aria-label={item.locked && item.lockLabel ? item.lockLabel : undefined}
-            onClick={
-              item.inert
-                ? (event) => {
-                    event.preventDefault();
-                  }
-                : undefined
-            }
             ref={commandEnabled ? (registerItem(item.id) as never) : undefined}
             className={cn(
               itemLayout === "equal"
@@ -272,8 +256,6 @@ function DestinationNavStrip({
                   ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
                   : "text-muted hover:bg-card/60 hover:text-foreground",
               item.alert && !active && "text-[var(--status-overdue-fg)]",
-              item.locked && !active && "opacity-60",
-              item.inert && "cursor-not-allowed",
             )}
             aria-current={active ? "page" : undefined}
           >
@@ -295,8 +277,7 @@ function DestinationNavStrip({
                 item.label
               )}
             </span>
-            {item.locked ? <NavLockIcon className="size-3 shrink-0" /> : null}
-            {appearance === "command" && item.count != null && !item.locked ? (
+            {appearance === "command" && item.count != null ? (
               <span
                 className={cn(
                   "inline-flex items-center justify-center rounded-md px-1 text-[11px] font-medium tabular-nums lg:px-0 lg:text-[12px]",

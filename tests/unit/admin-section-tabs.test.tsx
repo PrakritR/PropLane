@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Admin's sidebar is seven rows, and the grouped rows (Dashboard with Feedback · Meetings · Health, Properties,
- * Accounts, Money) show their sections as a tab strip (`PortalSectionTabs`, the strip every portal's folded rows use).
+ * Portal sweep 1012, round 1: admin's sidebar is seven rows, and the grouped rows
+ * (Accounts, Money, Support) show their sections as a Properties-style tab strip.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -27,7 +27,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/hooks/use-portal-nav-counts", () => ({ usePortalNavCounts: () => state.counts }));
 
-import { PortalSectionTabs } from "@/components/portal/portal-section-tabs";
+import { AdminSectionTabs } from "@/components/portal/admin-section-tabs";
 
 afterEach(() => {
   cleanup();
@@ -42,7 +42,7 @@ function rowsFor(definition: typeof adminPortal) {
 }
 
 describe("admin sidebar rows", () => {
-  it("lists seven rows for the operator, Settings first, in order, with no section reachable twice", () => {
+  it("lists eight rows for the operator, Settings first, in order, with no section reachable twice", () => {
     const rows = rowsFor(operator);
     expect(rows.map((r) => r.label)).toEqual([
       "Settings",
@@ -51,6 +51,7 @@ describe("admin sidebar rows", () => {
       "Properties",
       "Accounts",
       "Money",
+      "Support",
       "Growth",
     ]);
     const reach = rows.flatMap((r) => r.groupSections ?? [r.section]);
@@ -65,7 +66,7 @@ describe("admin sidebar rows", () => {
     const hrefOf = (label: string) => rows.find((r) => r.label === label)?.href;
     expect(hrefOf("Accounts")).toBe("/admin/axis-users");
     expect(hrefOf("Money")).toBe("/admin/payments");
-    expect(hrefOf("Dashboard")).toBe("/admin/dashboard");
+    expect(hrefOf("Support")).toBe("/admin/bugs-feedback");
   });
 
   it("is idempotent: folding an already folded list changes nothing", () => {
@@ -83,9 +84,9 @@ describe("admin sidebar rows", () => {
     ["payments", "payments"],
     ["promo-codes", "payments"],
     ["finances", "payments"],
-    ["bugs-feedback", "dashboard"],
-    ["events", "dashboard"],
-    ["health", "dashboard"],
+    ["bugs-feedback", "bugs-feedback"],
+    ["events", "bugs-feedback"],
+    ["health", "bugs-feedback"],
     ["dashboard", "dashboard"],
     ["communication", "communication"],
     ["properties", "properties"],
@@ -123,13 +124,13 @@ describe("admin sidebar rows", () => {
     expect(row?.groupSections).toEqual(["subscribers", "test-accounts"]);
   });
 
-  it("puts the Meetings and Feedback counts on the Dashboard row", () => {
+  it("puts the Meetings count on the Support row", () => {
     const merged = mergeAdminGroupCounts({
       events: { count: 3, tone: "muted" },
       "bugs-feedback": { count: 2, tone: "muted" },
       communication: { count: 5, tone: "alert" },
     });
-    expect(merged.dashboard).toEqual({ count: 5, tone: "muted" });
+    expect(merged["bugs-feedback"]).toEqual({ count: 5, tone: "muted" });
     expect(merged.communication).toEqual({ count: 5, tone: "alert" });
     expect(merged["axis-users"]).toEqual({ count: 0, tone: "muted" });
   });
@@ -140,12 +141,11 @@ describe("adminSectionTabsFor", () => {
 
   it("returns the group's tabs in order for a grouped section", () => {
     expect(adminSectionTabsFor("promo-codes", all)?.sections).toEqual(["payments", "promo-codes", "finances"]);
-    expect(adminSectionTabsFor("health", all)).toMatchObject({ groupId: "dashboard", label: "Dashboard" });
-    expect(adminSectionTabsFor("dashboard", all)?.sections).toEqual(["dashboard", "bugs-feedback", "events", "health"]);
+    expect(adminSectionTabsFor("health", all)).toMatchObject({ groupId: "support", label: "Support" });
   });
 
-  it("returns nothing for Communication, Growth and Settings", () => {
-    for (const section of ["communication", "growth", "profile"]) {
+  it("returns nothing for Dashboard, Communication and Growth", () => {
+    for (const section of ["dashboard", "communication", "growth", "profile"]) {
       expect(adminSectionTabsFor(section, all)).toBeNull();
       expect(adminTabGroupIdFor(section)).toBeNull();
     }
@@ -163,12 +163,12 @@ describe("adminSectionTabsFor", () => {
   });
 });
 
-describe("PortalSectionTabs strip (admin)", () => {
+describe("AdminSectionTabs strip", () => {
   const labels = () => screen.queryAllByRole("link").map((a) => a.textContent);
 
   it("renders Accounts · Subscribers · Test accounts for the operator, as links, with the page's tab active", () => {
     state.pathname = "/admin/subscribers";
-    render(<PortalSectionTabs definition={operator} />);
+    render(<AdminSectionTabs definition={operator} />);
     expect(labels()).toEqual(["Accounts", "Subscribers", "Test accounts"]);
     expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Accounts" }).getAttribute("href")).toBe("/admin/axis-users");
@@ -177,45 +177,45 @@ describe("PortalSectionTabs strip (admin)", () => {
 
   it("renders Properties · Service · PropLane line · Unassigned leads · Managed funds as one strip with the page's tab active", () => {
     state.pathname = "/admin/proplane-line";
-    render(<PortalSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Properties", "Service", "PropLane line", "Unassigned leads", "Managed funds"]);
+    render(<AdminSectionTabs definition={operator} />);
+    expect(labels()).toEqual(["Properties", "Service", "PropLane line", "Unassigned leads"]);
     expect(screen.getByRole("link", { name: "PropLane line" }).getAttribute("aria-current")).toBeTruthy();
   });
 
   it("omits Test accounts for a non-operator", () => {
     state.pathname = "/admin/axis-users";
-    render(<PortalSectionTabs definition={nonOperator} />);
+    render(<AdminSectionTabs definition={nonOperator} />);
     expect(labels()).toEqual(["Accounts", "Subscribers"]);
   });
 
   it("renders Payments · Promo codes · Finances · Managed funds on a Money page", () => {
     state.pathname = "/admin/promo-codes";
-    render(<PortalSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Payments", "Promo codes", "Finances"]);
+    render(<AdminSectionTabs definition={operator} />);
+    expect(labels()).toEqual(["Payments", "Promo codes", "Finances", "Managed funds"]);
     expect(screen.getByRole("link", { name: "Promo codes" }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("renders Dashboard · Feedback · Meetings · Health on the Dashboard row, with the Meetings count on its tab", () => {
+  it("renders Feedback · Meetings · Health on Support, with the Meetings count on its tab", () => {
     state.pathname = "/admin/health";
     state.counts = { events: { count: 4, tone: "muted" } };
-    render(<PortalSectionTabs definition={operator} />);
+    render(<AdminSectionTabs definition={operator} />);
     expect(screen.getByRole("link", { name: "Health" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: /Meetings/ }).textContent).toContain("4");
     expect(screen.getByRole("link", { name: "Feedback" }).textContent).toBe("Feedback");
   });
 
-  it.each(["communication", "growth", "profile"])(
+  it.each(["dashboard", "communication", "growth", "profile"])(
     "renders nothing on /admin/%s",
     (section) => {
       state.pathname = `/admin/${section}`;
-      const { container } = render(<PortalSectionTabs definition={operator} />);
+      const { container } = render(<AdminSectionTabs definition={operator} />);
       expect(container.innerHTML).toBe("");
     },
   );
 
   it("renders nothing on a record page under a grouped section", () => {
     state.pathname = "/admin/axis-users/manager-123";
-    const { container } = render(<PortalSectionTabs definition={operator} />);
+    const { container } = render(<AdminSectionTabs definition={operator} />);
     expect(container.innerHTML).toBe("");
   });
 
@@ -227,14 +227,14 @@ describe("PortalSectionTabs strip (admin)", () => {
       ),
     };
     state.pathname = "/admin/subscribers/active";
-    render(<PortalSectionTabs definition={tabbed} />);
+    render(<AdminSectionTabs definition={tabbed} />);
     expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("href")).toBe(
       hrefForSection(tabbed, "subscribers"),
     );
     expect(screen.getByRole("link", { name: "Subscribers" }).getAttribute("aria-current")).toBe("page");
     cleanup();
     state.pathname = "/admin/subscribers/sub-123";
-    const { container } = render(<PortalSectionTabs definition={tabbed} />);
+    const { container } = render(<AdminSectionTabs definition={tabbed} />);
     expect(container.innerHTML).toBe("");
   });
 });

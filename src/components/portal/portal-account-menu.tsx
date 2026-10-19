@@ -29,7 +29,7 @@ export function accountInitials(name: string | null, email: string | null): stri
  * the workspace rail (the avatar, with its green presence dot) and keeps
  * exactly the items it had: name + email header, Settings, Appearance, the
  * portal switcher rows, Sign out; plus Help & feedback, which used to live in
- * the sidebar footer. Settings is reachable from here and nowhere in the nav (admin is the exception: its Settings is the first sidebar row, so the menu drops it).
+ * the sidebar footer. Settings is reachable from here and nowhere in the nav.
  */
 export function PortalAccountMenu({
   kind,
@@ -74,19 +74,16 @@ export function PortalAccountMenu({
           </span>
         </div>
 
-        {/* Admin Settings is the first sidebar row, so the menu does not repeat it. */}
-        {kind === "admin" ? null : (
-          <DropdownMenuItem
-            data-attr="portal-top-bar-settings"
-            onSelect={(event) => {
-              event.preventDefault();
-              router.push(`${basePath}/profile`);
-            }}
-          >
-            <Settings aria-hidden />
-            Settings
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem
+          data-attr="portal-top-bar-settings"
+          onSelect={(event) => {
+            event.preventDefault();
+            router.push(`${basePath}/profile`);
+          }}
+        >
+          <Settings aria-hidden />
+          Settings
+        </DropdownMenuItem>
 
         {DARK_MODE_ENABLED ? (
           <div className="flex items-center justify-between gap-3 px-[9px] py-1.5">
