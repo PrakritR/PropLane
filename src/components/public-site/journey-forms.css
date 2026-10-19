@@ -1,0 +1,562 @@
+/*
+ * Tour and apply pages of the prospect journey (concept A). Scoped under `.ps`, built on public-site.css.
+ * Class names are `ps-j-*`; colors come from the ps vars only.
+ */
+.ps-j-page {
+  padding-block: clamp(28px, 4vw, 56px) clamp(56px, 7vw, 104px);
+}
+.ps-j-col {
+  width: 100%;
+  max-width: 1000px;
+  margin-inline: auto;
+  padding-inline: var(--ps-gut);
+}
+.ps-j-col-wide {
+  max-width: 1120px;
+}
+.ps-j-title {
+  display: grid;
+  gap: 10px;
+  margin-bottom: clamp(24px, 3vw, 40px);
+}
+.ps-j-title .ps-h1 {
+  font-size: clamp(40px, 5.2vw, 72px);
+}
+.ps-j-sub {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ps-mute);
+}
+.ps-j-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+}
+.ps-j-grid > * {
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .ps-j-grid {
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: clamp(40px, 5vw, 72px);
+    align-items: start;
+  }
+  .ps-j-grid > aside {
+    position: sticky;
+    top: calc(var(--ps-h) + 24px);
+  }
+}
+.ps-j-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+}
+
+/* house summary */
+.ps-j-house {
+  border: 1px solid var(--ps-rule);
+  background: var(--ps-white);
+}
+.ps-j-house-photo {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  background: var(--ps-paper);
+  border-bottom: 1px solid var(--ps-rule);
+}
+@media (max-width: 899px) {
+  .ps-j-house {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .ps-j-house-photo {
+    aspect-ratio: auto;
+    min-height: 104px;
+    border-bottom: 0;
+    border-right: 1px solid var(--ps-rule);
+  }
+}
+.ps-j-house-body {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+}
+.ps-j-house-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.ps-j-house-area {
+  margin: 0;
+  color: var(--ps-mute);
+  font-size: 14px;
+}
+.ps-j-house-price {
+  margin: 8px 0 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+/* tabs: two plain buttons on a hairline */
+.ps-j-tabs {
+  display: flex;
+  gap: 28px;
+  border-bottom: 1px solid var(--ps-rule);
+}
+.ps-j-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 4px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 0 12px;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ps-mute);
+  cursor: pointer;
+}
+.ps-j-tab:hover {
+  color: var(--ps-ink);
+}
+.ps-j-tab[aria-selected="true"] {
+  color: var(--ps-ink);
+  border-bottom-color: var(--ps-blue);
+}
+
+/* step row: 01 Room / 02 Time / 03 Details */
+.ps-j-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ps-j-step {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ps-mute);
+  cursor: pointer;
+}
+.ps-j-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ps-j-step .ps-j-step-i {
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.ps-j-step[aria-current="step"] {
+  color: var(--ps-ink);
+}
+.ps-j-step[aria-current="step"] .ps-j-step-i {
+  color: var(--ps-blue);
+}
+
+/* day cells */
+.ps-j-days {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.ps-j-day {
+  appearance: none;
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 68px;
+  padding: 10px 8px;
+  border: 1px solid var(--ps-rule-d);
+  margin-left: -1px;
+  background: var(--ps-white);
+  color: var(--ps-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.ps-j-day:first-child {
+  margin-left: 0;
+}
+.ps-j-day-w {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ps-mute);
+}
+.ps-j-day-d {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.ps-j-day[aria-pressed="true"] {
+  background: var(--ps-blue);
+  border-color: var(--ps-blue);
+  color: #fff;
+  position: relative;
+}
+.ps-j-day[aria-pressed="true"] .ps-j-day-w {
+  color: rgba(255, 255, 255, 0.82);
+}
+.ps-j-month {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* time buttons */
+.ps-j-times {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.ps-j-time {
+  appearance: none;
+  min-height: 44px;
+  border: 1px solid var(--ps-rule-d);
+  border-radius: 3px;
+  background: var(--ps-white);
+  color: var(--ps-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ps-j-time:hover {
+  border-color: var(--ps-ink);
+}
+.ps-j-time[aria-pressed="true"] {
+  background: var(--ps-blue);
+  border-color: var(--ps-blue);
+  color: #fff;
+}
+
+/* skeleton */
+.ps-j-skel {
+  display: flex;
+  gap: 0;
+}
+.ps-j-skel i {
+  display: block;
+  width: 68px;
+  height: 64px;
+  border: 1px solid var(--ps-rule);
+  margin-left: -1px;
+  background: var(--ps-paper);
+}
+.ps-j-skel i:first-child {
+  margin-left: 0;
+}
+
+/* a plain notice with an action */
+.ps-j-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  border: 1px solid var(--ps-rule);
+  border-left: 4px solid var(--ps-ink);
+  background: var(--ps-white);
+  padding: 14px 16px;
+  font-size: 15px;
+}
+.ps-j-note > p {
+  margin: 0;
+  flex: 1 1 220px;
+  font-weight: 600;
+}
+.ps-j-note-bad {
+  border-left-color: var(--ps-red);
+  color: var(--ps-red);
+}
+.ps-j-note .ps-btn {
+  min-height: 40px;
+}
+
+/* picker: a hairline list with search */
+.ps-j-search {
+  margin-bottom: 4px;
+}
+.ps-j-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--ps-ink);
+}
+.ps-j-row {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ps-rule);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--ps-ink);
+  cursor: pointer;
+}
+.ps-j-row:hover .ps-j-row-t {
+  color: var(--ps-blue);
+}
+.ps-j-row-t {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ps-j-row-s {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--ps-mute);
+}
+.ps-j-row-r {
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 600;
+}
+.ps-j-row[aria-pressed="true"] {
+  box-shadow: inset 4px 0 0 var(--ps-blue);
+  padding-left: 14px;
+}
+.ps-j-empty {
+  padding: 18px 0;
+  color: var(--ps-mute);
+  border-bottom: 1px solid var(--ps-rule);
+}
+
+/* consent block and notice sit flat, hairlines only */
+.ps-j-consent {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 0;
+  border-block: 1px solid var(--ps-rule);
+  cursor: pointer;
+}
+.ps-j-consent input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ps-blue);
+  flex: 0 0 auto;
+}
+.ps-j-consent span {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ps-mute);
+}
+.ps-j-consent a {
+  color: var(--ps-blue);
+  font-weight: 600;
+}
+
+/* radio rows for tour format */
+.ps-j-radios {
+  display: grid;
+  gap: 8px;
+}
+@media (min-width: 560px) {
+  .ps-j-radios {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ps-j-radio {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--ps-rule-d);
+  border-radius: 3px;
+  padding: 12px;
+  cursor: pointer;
+  background: var(--ps-white);
+}
+.ps-j-radio[data-on="true"] {
+  border-color: var(--ps-blue);
+  box-shadow: 0 0 0 1px var(--ps-blue);
+}
+.ps-j-radio input {
+  margin-top: 3px;
+  accent-color: var(--ps-blue);
+}
+.ps-j-radio b {
+  display: block;
+  font-size: 15px;
+}
+.ps-j-radio small {
+  display: block;
+  color: var(--ps-mute);
+  font-size: 13px;
+}
+
+/* sections inside done / gate states */
+.ps-j-sect {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--ps-ink);
+  padding-top: 18px;
+}
+.ps-j-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ps-j-actions > * {
+  flex: 1 1 180px;
+}
+.ps-j-gate {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+  border-top: 1px solid var(--ps-ink);
+  padding-top: 18px;
+}
+.ps-j-gate p {
+  margin: 0;
+}
+.ps-j-eyebrow {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ps-blue);
+}
+.ps-j-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ps-j-btn-row > * {
+  flex: 1 1 160px;
+}
+.ps-j-contact {
+  display: grid;
+  gap: 4px;
+  font-size: 15px;
+}
+.ps-j-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ps-j-nav-end {
+  justify-content: flex-end;
+}
+
+/* apply wizard sits flush inside the page; keep its columns inside 390 */
+.ps-j-apply {
+  min-width: 0;
+}
+
+@media (max-width: 559px) {
+  .ps-j-btn-block {
+    width: 100%;
+  }
+}
+
+.ps-btn-block {
+  width: 100%;
+}
+
+.ps-j-grid2 {
+  display: grid;
+  gap: 18px;
+}
+@media (min-width: 560px) {
+  .ps-j-grid2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ps textarea.ps-input {
+  min-height: 112px;
+  line-height: 1.45;
+}
+
+.ps-j-err {
+  outline: 1px solid var(--ps-red);
+  outline-offset: 8px;
+}
+
+/*
+ * The apply wizard is shared with the resident portal and the manager preview, so it is restyled from
+ * out here, only where `.ps-j-apply` wraps it: square corners, no depth, no second page title.
+ */
+.ps-j-apply .rental-wizard {
+  max-width: none;
+  padding: 0;
+}
+.ps-j-apply .rental-wizard-page-title {
+  display: none;
+}
+.ps-j-apply [class*="rounded"] {
+  border-radius: 3px !important;
+}
+.ps-j-apply [class*="shadow"] {
+  box-shadow: none !important;
+}
+.ps-j-apply input[type="checkbox"],
+.ps-j-apply input[type="radio"] {
+  border-radius: revert !important;
+}
+.ps-j-apply input[type="radio"] {
+  border-radius: 50% !important;
+}
+.ps-j-apply .rental-wizard-progress,
+.ps-j-apply .rental-wizard-progress > div {
+  border-radius: 0 !important;
+  height: 4px;
+}
+
+/* The default gate cards (used by the wizard and portal) redrawn as the journey's flat gate inside `.ps`. */
+.ps .ps-gate-card {
+  max-width: 640px;
+  margin: 0;
+  padding: 18px 0 0;
+  border: 0;
+  border-top: 1px solid var(--ps-ink);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+.ps .ps-gate-card > p:first-child {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ps-blue);
+}
+.ps .ps-gate-card > h2 {
+  font-size: clamp(20px, 1.8vw, 26px);
+  letter-spacing: -0.03em;
+  color: var(--ps-ink);
+}
+.ps .ps-gate-card > p {
+  font-size: 16px;
+  color: var(--ps-ink);
+}
+.ps .ps-gate-card dt {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  color: var(--ps-mute);
+}

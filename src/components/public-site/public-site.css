@@ -1,0 +1,429 @@
+/*
+ * The approved homepage look (concept A, Swiss / International, Oct 18 2026) for the prospect journey:
+ * Inter Tight, tight tracking, ONE blue, hairline rules, flat white cards, generous whitespace.
+ * Everything is scoped under `.ps` so nothing leaks into the portals. Reuse these classes; do not
+ * restate the tokens in a component.
+ */
+.ps {
+  --ps-paper: #f7f7f4;
+  --ps-white: #ffffff;
+  --ps-ink: #0c0d10;
+  --ps-mute: #6a6d74;
+  --ps-rule: #d6d7d2;
+  --ps-rule-d: #b9bab5;
+  --ps-blue: #2f5fd0;
+  --ps-blue-d: #2249a8;
+  --ps-blue-t: #e7edfa;
+  --ps-red: #b42318;
+  --ps-green: #1e7a4a;
+  --ps-h: 64px;
+  --ps-gut: clamp(16px, 2.8vw, 40px);
+  --ps-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  font-family: var(--font-public-site), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--ps-ink);
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+/*
+ * Shared product components (the apply wizard, the tour flow, inputs, Button) render inside `.ps` too.
+ * Re-point the app palette at the homepage's so they pick up the one blue, the ink and the hairlines
+ * without a second copy of each component. Portals never carry `.ps`, so nothing changes there.
+ */
+.ps {
+  --pl-blue: var(--ps-blue);
+  --pl-blue-soft: var(--ps-blue-d);
+  --pl-ink: var(--ps-ink);
+  --pl-muted-fg: var(--ps-mute);
+  --pl-line: var(--ps-rule);
+  --pl-surface-raised: var(--ps-white);
+  --pl-accent-soft: var(--ps-blue-t);
+  --primary: var(--ps-blue);
+  --primary-alt: var(--ps-blue-d);
+  --foreground: var(--ps-ink);
+  --muted: var(--ps-mute);
+  --border: var(--ps-rule);
+  --card: var(--ps-white);
+  --accent: var(--ps-blue-t);
+  --color-foreground: var(--ps-ink);
+  --color-muted: var(--ps-mute);
+  --color-border: var(--ps-rule);
+  --color-card: var(--ps-white);
+  --radius-control: 3px;
+  --radius-menu: 3px;
+  --radius-card: 2px;
+  --font-sans: var(--font-public-site), "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+/* Shared fields arrive rounded-2xl on a tinted fill; on the journey pages every field is the
+   homepage's square, white, hairline box. Unlayered, so it outranks the layered utilities. */
+.ps {
+  --color-auth-input-bg: var(--ps-white);
+}
+.ps :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  border-radius: 3px;
+  box-shadow: none;
+}
+.ps :focus-visible {
+  outline: 3px solid var(--ps-blue);
+  outline-offset: 3px;
+}
+
+/* ---------- layout ---------- */
+.ps-wrap {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: var(--ps-gut);
+}
+.ps-narrow {
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+  padding-inline: var(--ps-gut);
+}
+.ps-page {
+  padding-block: clamp(28px, 4vw, 64px) clamp(56px, 7vw, 112px);
+}
+
+/* ---------- type ---------- */
+.ps-h1 {
+  font-weight: 600;
+  font-size: clamp(40px, 6.4vw, 104px);
+  line-height: 0.93;
+  letter-spacing: -0.052em;
+  margin: 0;
+}
+.ps-h2 {
+  font-weight: 600;
+  font-size: clamp(28px, 3.4vw, 52px);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  margin: 0;
+}
+.ps-h3 {
+  font-weight: 600;
+  font-size: clamp(20px, 1.8vw, 26px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.ps-mute {
+  color: var(--ps-mute);
+}
+.ps-figure {
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+/* Numbered section header: "01  Photos ............ 8" over a 1px ink rule. */
+.ps-sh {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  border-top: 1px solid var(--ps-ink);
+  padding-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ps-sh .ps-sh-i {
+  color: var(--ps-blue);
+  font-variant-numeric: tabular-nums;
+}
+.ps-sh .ps-sh-s {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--ps-mute);
+}
+
+/* ---------- actions ---------- */
+.ps-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s var(--ps-ease);
+}
+.ps-btn:active {
+  transform: translateY(1px);
+}
+.ps-btn:disabled,
+.ps-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ps-btn-blue {
+  background: var(--ps-blue);
+  color: #fff;
+}
+.ps-btn-blue:hover {
+  background: var(--ps-blue-d);
+}
+.ps-btn-line {
+  border-color: var(--ps-ink);
+  color: var(--ps-ink);
+  background: transparent;
+}
+.ps-btn-line:hover {
+  background: var(--ps-ink);
+  color: #fff;
+}
+.ps-btn-wide {
+  width: 100%;
+  justify-content: space-between;
+}
+.ps-link {
+  color: var(--ps-blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+.ps-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- surfaces ---------- */
+.ps-card {
+  background: var(--ps-white);
+  border: 1px solid var(--ps-ink);
+}
+.ps-card-soft {
+  background: var(--ps-white);
+  border: 1px solid var(--ps-rule);
+}
+.ps-slab {
+  background: var(--ps-blue);
+  color: #fff;
+}
+.ps-rule {
+  border: 0;
+  border-top: 1px solid var(--ps-rule);
+  margin: 0;
+}
+
+/* Fact rows: label left, value right, hairline between. */
+.ps-facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--ps-ink);
+}
+.ps-facts > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--ps-rule);
+  font-size: 15px;
+}
+.ps-facts > li > :first-child {
+  color: var(--ps-mute);
+}
+.ps-facts > li > :last-child {
+  font-weight: 600;
+  /* Only money columns line up; Inter Tight's tnum also widens commas and periods in prose. */
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---------- form fields ---------- */
+.ps-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ps-input,
+.ps-select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--ps-rule-d);
+  border-radius: 3px;
+  background: var(--ps-white);
+  color: var(--ps-ink);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+}
+.ps-input:focus,
+.ps-select:focus {
+  outline: none;
+  border-color: var(--ps-blue);
+  box-shadow: 0 0 0 1px var(--ps-blue);
+}
+.ps-error {
+  color: var(--ps-red);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ---------- top bar ---------- */
+.ps-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: var(--ps-h);
+  background: var(--ps-paper);
+  border-bottom: 1px solid var(--ps-ink);
+}
+.ps-bar-in {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: clamp(20px, 3vw, 48px);
+}
+.ps-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: -0.03em;
+  color: var(--ps-ink);
+  text-decoration: none;
+}
+.ps-logo svg {
+  width: 28px;
+  height: 28px;
+  color: var(--ps-blue);
+}
+.ps-nav {
+  display: flex;
+  height: 100%;
+  gap: clamp(18px, 2.4vw, 40px);
+}
+.ps-nav a {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ps-mute);
+  text-decoration: none;
+}
+.ps-nav a:hover {
+  color: var(--ps-ink);
+}
+.ps-bar-r {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ps-bar .ps-menu-btn {
+  display: none;
+}
+.ps-sheet {
+  position: fixed;
+  inset: var(--ps-h) 0 0 0;
+  z-index: 49;
+  background: var(--ps-paper);
+  padding: 20px var(--ps-gut) 40px;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.ps-sheet a {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--ps-ink);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--ps-ink);
+  text-decoration: none;
+}
+@media (max-width: 860px) {
+  .ps-nav,
+  .ps-bar .ps-bar-portal {
+    display: none;
+  }
+  .ps-bar .ps-menu-btn {
+    display: inline-flex;
+  }
+}
+
+/* ---------- sticky phone action bar ---------- */
+.ps-dock {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 40;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  padding: 10px var(--ps-gut) calc(10px + env(safe-area-inset-bottom));
+  background: var(--ps-paper);
+  border-top: 1px solid var(--ps-ink);
+}
+.ps-dock .ps-btn {
+  min-height: 48px;
+  padding-inline: 10px;
+}
+.ps-dock-spacer {
+  height: calc(76px + env(safe-area-inset-bottom));
+}
+@media (min-width: 861px) {
+  .ps-dock,
+  .ps-dock-spacer {
+    display: none;
+  }
+}
+
+/* ---------- footer ---------- */
+.ps-foot {
+  border-top: 1px solid var(--ps-ink);
+  padding-block: 28px 36px;
+  font-size: 14px;
+}
+.ps-foot-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+}
+.ps-foot a {
+  color: var(--ps-mute);
+  text-decoration: none;
+}
+.ps-foot a:hover {
+  color: var(--ps-ink);
+}
+.ps-foot .ps-foot-copy {
+  margin-left: auto;
+  color: var(--ps-mute);
+}
+@media (max-width: 860px) {
+  .ps-foot-in {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 24px;
+  }
+  .ps-foot .ps-foot-copy {
+    grid-column: 1 / -1;
+    margin-left: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--ps-rule);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps * {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

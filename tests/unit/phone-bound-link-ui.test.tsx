@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const nav = vi.hoisted(() => ({ refresh: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: nav.refresh, push: nav.push }) }));
 
+import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
 import { LinkCodeGate, LinkExpiredView, PublicPhoneBindForm, RentLinkCard } from "@/components/public/phone-bound-link-ui";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -17,9 +18,25 @@ afterEach(() => {
 });
 
 describe("LinkExpiredView", () => {
-  it("says one thing and nothing about why", () => {
+  it("says it has expired and what to do, nothing about why", () => {
     const { container } = render(<LinkExpiredView />);
-    expect(container.textContent).toBe("This link has expired");
+    expect(container.querySelector("h1")?.textContent).toBe("This link has expired");
+    // No number configured in this render: a plain line, never a hard-coded number.
+    expect(container.textContent).toBe("This link has expiredAsk for a new link.Find a home");
+    expect(container.querySelector("a[href='/rent/browse']")?.textContent).toBe("Find a home");
+    expect(container.textContent).not.toMatch(/\d{3}[-\s)]*\d{3}[-\s]?\d{4}/);
+  });
+
+  it("links the configured number when the line is live", () => {
+    const { container } = render(
+      <PublicTextingProvider value={{ phone: "+12065550142", smsHref: null }}>
+        <LinkExpiredView />
+      </PublicTextingProvider>,
+    );
+    const link = container.querySelector("[data-attr='phone-link-expired-text']") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toMatch(/^sms:\+12065550142/);
+    expect(link.textContent).toBe("(206) 555-0142");
+    expect(container.textContent).toContain("for a new one.");
   });
 });
 
@@ -29,6 +46,7 @@ describe("LinkCodeGate", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { container } = render(<LinkCodeGate token={"T".repeat(43)} />);
     expect(container.textContent).not.toMatch(/\d{3}[-\s]?\d{3}[-\s]?\d{4}/);
+    expect(container.querySelector("h1")?.textContent).toBe("Confirm it's you");
     fireEvent.click(screen.getByText("Text me a code"));
     await waitFor(() => expect(screen.getByLabelText("Code")).toBeTruthy());
     expect(fetchMock.mock.calls[0]![0]).toBe(`/api/l/${"T".repeat(43)}/code`);
@@ -47,10 +65,10 @@ describe("LinkCodeGate", () => {
     fireEvent.change(input, { target: { value: "12ab34" } });
     expect((input as HTMLInputElement).value).toBe("1234");
     fireEvent.change(input, { target: { value: "123456" } });
-    fireEvent.click(screen.getByText("Continue"));
+    fireEvent.click(screen.getByText("Verify"));
     await screen.findByText("That code did not work.");
     expect(nav.refresh).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("Continue"));
+    fireEvent.click(screen.getByText("Verify"));
     await waitFor(() => expect(nav.refresh).toHaveBeenCalled());
   });
 });
@@ -63,8 +81,8 @@ describe("RentLinkCard", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<RentLinkCard token={"R".repeat(43)} charges={charges} />);
     expect(screen.getByText("October rent")).toBeTruthy();
-    expect(screen.getByText("$1,200.00")).toBeTruthy();
-    fireEvent.click(screen.getByText("Pay"));
+    expect(screen.getAllByText("$1,200.00").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("Pay $1,200.00"));
     await screen.findByText("Card is not accepted for this charge.");
     expect(fetchMock.mock.calls[0]![0]).toBe(`/api/l/${"R".repeat(43)}/rent-checkout`);
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({});
@@ -86,7 +104,7 @@ describe("PublicPhoneBindForm", () => {
     const code = await screen.findByLabelText("Code");
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({ code: "BROOKLYN5", kind: "apply", action: "send" });
     fireEvent.change(code, { target: { value: "654321" } });
-    fireEvent.click(screen.getByText("Continue"));
+    fireEvent.click(screen.getByText("Verify"));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/l/${"B".repeat(43)}`));
     expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ action: "verify", otp: "654321" });
   });
@@ -101,7 +119,7 @@ describe("PublicPhoneBindForm", () => {
     fireEvent.click(screen.getByText("Text me a code"));
     const code = await screen.findByLabelText("Code");
     fireEvent.change(code, { target: { value: "654321" } });
-    fireEvent.click(screen.getByText("Continue"));
+    fireEvent.click(screen.getByText("Verify"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(nav.push).not.toHaveBeenCalled();
   });

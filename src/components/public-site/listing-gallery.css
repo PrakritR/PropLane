@@ -1,0 +1,610 @@
+/*
+ * The public listing page (/rent/listings/<id>): gallery, viewer, title block, hairline rows, action card and the phone dock.
+ * Scoped under `.ps` / `.ps-ld`; colors come from the `.ps` tokens in public-site.css. The page decides phone vs desktop
+ * by its own width (container queries on `.ps-ld`), so the manager's preview, which is narrower than the window,
+ * draws the same layout the renter would get at that width.
+ */
+
+/* ---------- shared bits ---------- */
+.ps-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ps-ink);
+  border-radius: 3px;
+  background: var(--ps-white);
+  color: var(--ps-ink);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.ps-icon-btn:hover {
+  background: var(--ps-ink);
+  color: #fff;
+}
+
+/* ---------- gallery ---------- */
+.ps-gal-strip-wrap {
+  position: relative;
+  margin-inline: calc(var(--ps-gut) * -1);
+}
+.ps-gal-strip {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.ps-gal-strip::-webkit-scrollbar {
+  display: none;
+}
+.ps-gal-slide {
+  position: relative;
+  flex: 0 0 100%;
+  aspect-ratio: 4 / 3;
+  scroll-snap-align: center;
+  padding: 0;
+  border: 0;
+  background: var(--ps-rule);
+  cursor: zoom-in;
+}
+.ps-gal-img {
+  object-fit: cover;
+}
+.ps-gal-plate {
+  position: absolute;
+  right: var(--ps-gut);
+  bottom: 12px;
+  margin: 0;
+  padding: 6px 9px;
+  background: var(--ps-ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  pointer-events: none;
+}
+.ps-gal-grid {
+  display: none;
+  position: relative;
+  gap: 8px;
+  height: clamp(320px, 36vw, 540px);
+  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.ps-gal-cell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--ps-rule);
+  cursor: zoom-in;
+}
+.ps-gal-lead {
+  grid-row: 1 / 3;
+}
+.ps-gal-cell:hover .ps-gal-img {
+  opacity: 0.9;
+}
+.ps-gal-grid[data-n="1"] {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  height: clamp(280px, 30vw, 460px);
+}
+.ps-gal-grid[data-n="1"] .ps-gal-lead {
+  grid-row: 1;
+}
+.ps-gal-grid[data-n="2"] {
+  grid-template-columns: 2fr 1fr;
+}
+.ps-gal-grid[data-n="2"] .ps-gal-cell:nth-child(2) {
+  grid-row: 1 / 3;
+}
+.ps-gal-grid[data-n="3"] {
+  grid-template-columns: 2fr 1fr;
+}
+.ps-gal-grid[data-n="4"] .ps-gal-cell:nth-child(4) {
+  grid-column: 2 / 4;
+}
+.ps-gal-all {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  background: var(--ps-paper);
+}
+.ps-gal-all:hover {
+  background: var(--ps-ink);
+}
+.ps-gal-empty {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  margin-inline: calc(var(--ps-gut) * -1);
+  background: var(--ps-rule);
+  overflow: hidden;
+}
+.ps-gal-video {
+  margin: 12px 0 0;
+  font-size: 15px;
+}
+@container (min-width: 900px) {
+  .ps-gal-strip-wrap {
+    display: none;
+  }
+  .ps-gal-grid {
+    display: grid;
+  }
+  .ps-gal-empty {
+    margin-inline: 0;
+    aspect-ratio: 21 / 6;
+  }
+}
+
+/* ---------- full-screen viewer ---------- */
+.ps-view {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--ps-paper);
+}
+.ps-view-top,
+.ps-view-bot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px var(--ps-gut);
+}
+.ps-view-top {
+  border-bottom: 1px solid var(--ps-ink);
+}
+.ps-view-bot {
+  border-top: 1px solid var(--ps-ink);
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+.ps-view-count {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ps-view-cap {
+  margin: 0;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ps-view-nav {
+  display: flex;
+  gap: 8px;
+}
+.ps-view-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  touch-action: pan-y;
+}
+.ps-view-img {
+  object-fit: contain;
+}
+
+/* ---------- page ---------- */
+.ps-ld {
+  background: var(--ps-paper);
+}
+.ps-ld-in {
+  padding-block: 16px 56px;
+}
+.ps-ld-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+.ps-ld-titlerow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ps-ld-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.ps-ld-copied {
+  font-size: 13px;
+  color: var(--ps-mute);
+}
+.ps-ld-place {
+  margin: 10px 0 0;
+  font-size: 16px;
+  color: var(--ps-mute);
+}
+.ps-ld-price {
+  margin: 22px 0 0;
+  font-size: clamp(34px, 5vw, 48px);
+}
+.ps-ld-unit {
+  font-size: 0.42em;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ps-mute);
+}
+.ps-ld-avail {
+  margin: 10px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.ps-ld-meta {
+  margin: 4px 0 0;
+  font-size: 15px;
+  color: var(--ps-mute);
+}
+.ps-ld-title {
+  margin-top: 28px;
+}
+@container (min-width: 900px) {
+  .ps-ld-titleprice,
+  .ps-ld-titleavail {
+    display: none;
+  }
+}
+.ps-ld-grid {
+  margin-top: 40px;
+}
+.ps-ld-sec {
+  margin-top: clamp(36px, 4.5vw, 64px);
+}
+.ps-ld-sec:first-child {
+  margin-top: 0;
+}
+.ps-ld-sec > .ps-sh {
+  margin-bottom: 20px;
+}
+.ps-ld-sec > .ps-sh h2 {
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.ps-ld-prose {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 16px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.ps-ld-more {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ps-blue);
+  cursor: pointer;
+}
+.ps-ld-more:hover {
+  text-decoration: underline;
+}
+.ps-ld-empty {
+  margin: 0;
+  color: var(--ps-mute);
+}
+.ps-ld-facts {
+  margin-top: 24px;
+}
+.ps-amen {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  column-gap: 32px;
+  border-top: 1px solid var(--ps-ink);
+}
+.ps-amen > li {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--ps-rule);
+  font-size: 15px;
+}
+.ps-ld-map [class*="rounded"] {
+  border-radius: 2px !important;
+}
+.ps-ld-map p {
+  margin: 0;
+  color: var(--ps-mute);
+}
+
+/* The shared short-stay block and sheets keep their own markup; give their buttons the page's square corners. */
+.ps-ld .btn-cobalt {
+  background: var(--ps-blue);
+  background-image: none;
+  border: 1px solid var(--ps-blue);
+  border-radius: 3px;
+  box-shadow: none;
+  color: #fff;
+  transform: none;
+}
+.ps-ld .btn-cobalt:hover {
+  background: var(--ps-blue-d);
+  transform: none;
+}
+.ps-ld .btn-metallic {
+  background: transparent;
+  background-image: none;
+  border: 1px solid var(--ps-ink);
+  border-radius: 3px;
+  box-shadow: none;
+  color: var(--ps-ink);
+  transform: none;
+}
+.ps-ld .btn-metallic:hover {
+  background: var(--ps-ink);
+  color: #fff;
+  transform: none;
+}
+
+/* ---------- rows: rooms, bathrooms, shared spaces, packages ---------- */
+.ps-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--ps-ink);
+}
+.ps-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main fig"
+    "av more";
+  gap: 4px 16px;
+  align-items: baseline;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ps-rule);
+}
+.ps-row[data-dim] {
+  opacity: 0.55;
+}
+.ps-room-plain {
+  grid-template-areas: "main more";
+  align-items: center;
+}
+.ps-row-main {
+  grid-area: main;
+  min-width: 0;
+}
+.ps-row-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ps-row-sub {
+  margin: 3px 0 0;
+  font-size: 14px;
+  color: var(--ps-mute);
+}
+.ps-row-strong {
+  color: var(--ps-ink);
+  font-weight: 600;
+}
+.ps-row-av {
+  grid-area: av;
+  margin: 0;
+  font-size: 14px;
+  align-self: center;
+}
+.ps-row-fig {
+  grid-area: fig;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: right;
+  white-space: nowrap;
+}
+.ps-row-more {
+  grid-area: more;
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ps-blue);
+  cursor: pointer;
+}
+.ps-row-more:hover {
+  text-decoration: underline;
+}
+.ps-row-select {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ps-blue);
+  cursor: pointer;
+}
+.ps-row-select[aria-pressed="true"] {
+  color: var(--ps-ink);
+}
+.ps-sub {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin: 36px 0 0;
+  padding-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ps-sub-n {
+  color: var(--ps-mute);
+  font-weight: 500;
+}
+.ps-sub + .ps-rows {
+  border-top: 1px solid var(--ps-rule);
+}
+.ps-pack-lines {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--ps-mute);
+}
+@container (min-width: 680px) {
+  .ps-row {
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) auto auto;
+    grid-template-areas: "main av fig more";
+    align-items: center;
+    gap: 16px 24px;
+  }
+  .ps-room-plain {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main more";
+  }
+}
+
+/* ---------- action card ---------- */
+.ps-ld-card {
+  padding: 22px;
+}
+.ps-ld-card .ps-ld-price {
+  margin-top: 0;
+  font-size: clamp(30px, 2.6vw, 38px);
+  white-space: nowrap;
+}
+.ps-ld-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
+  border: 1px solid var(--ps-ink);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ps-ld-seg button {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ps-mute);
+  cursor: pointer;
+}
+.ps-ld-seg button + button {
+  border-left: 1px solid var(--ps-ink);
+}
+.ps-ld-seg button[aria-pressed="true"] {
+  background: var(--ps-ink);
+  color: #fff;
+}
+.ps-ld-fields {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+.ps-ld-fields label {
+  display: block;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ps-ink);
+}
+.ps-ld-acts {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+.ps-ld-acts .ps-btn {
+  width: 100%;
+}
+.ps-ld-inline {
+  padding: 18px;
+}
+.ps-ld-inline .ps-ld-seg {
+  margin-top: 0;
+}
+.ps-ld-inline .ps-ld-fields {
+  margin-top: 0;
+}
+.ps-ld-inline .ps-ld-seg + .ps-ld-fields {
+  margin-top: 16px;
+}
+
+/* ---------- loading and not found ---------- */
+.ps-sk {
+  background: var(--ps-rule);
+  opacity: 0.6;
+  animation: ps-sk 1.4s ease-in-out infinite alternate;
+}
+@keyframes ps-sk {
+  to {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-sk {
+    animation: none;
+  }
+}
+.ps-nf {
+  min-height: 52vh;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 16px;
+  padding-block: 64px;
+  background: var(--ps-paper);
+}
+.ps-nf-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* ---------- phone dock ---------- */
+@media (min-width: 861px) and (max-width: 899px) {
+  /* The page switches to its two-column layout at 900px; keep the dock until then. */
+  .ps-ld .ps-dock {
+    display: grid;
+  }
+  .ps-ld .ps-dock-spacer {
+    display: block;
+  }
+}
+.ps-dock .ps-btn {
+  text-align: center;
+  line-height: 1.15;
+}
+/* The floating "Ask PropLane" button rides above the dock instead of under it. */
+html[data-ps-dock] [data-attr="general-assistant-fab"] {
+  bottom: calc(84px + env(safe-area-inset-bottom)) !important;
+}
+@media (min-width: 900px) {
+  html[data-ps-dock] [data-attr="general-assistant-fab"] {
+    bottom: 1.5rem !important;
+  }
+}

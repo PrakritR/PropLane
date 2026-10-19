@@ -13,16 +13,16 @@ import { LISTING_ATTRIBUTION_PARTNER_PATH } from "@/lib/listing-attribution";
  */
 export function ListedWithProPlaneBand({ propertyId }: { propertyId: string }) {
   return (
-    <div className="border-t border-border bg-background" data-attr="listed-with-proplane-band">
-      <div className="mx-auto flex min-h-14 max-w-6xl items-center justify-between gap-4 px-4 py-3">
-        <span className="flex min-w-0 items-center gap-2.5 text-sm font-medium text-foreground">
+    <div className="ps border-t border-[var(--ps-ink)] bg-[var(--ps-paper)]" data-attr="listed-with-proplane-band">
+      <div className="ps-wrap flex min-h-14 items-center justify-between gap-4 py-3">
+        <span className="flex min-w-0 items-center gap-2.5 text-sm font-medium">
           <AxisLogoGlyph size="compact" />
           <span className="truncate">Listed with PropLane</span>
         </span>
         <Link
           href={LISTING_ATTRIBUTION_PARTNER_PATH}
           data-attr="listed-with-proplane-cta"
-          className="shrink-0 whitespace-nowrap text-sm font-semibold text-primary hover:underline"
+          className="ps-link shrink-0 whitespace-nowrap text-sm"
           onClick={() => track("landlord_cta_clicked", { source: "listing_page", listing_id: propertyId })}
         >
           Free for landlords →

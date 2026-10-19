@@ -47,15 +47,15 @@ const COPY: Record<
 };
 
 function gateButtonRowClass() {
-  return "flex flex-wrap gap-2.5";
+  return "ps-j-btn-row";
 }
 
 function gatePrimaryBtnClass() {
-  return "btn-cobalt inline-flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-full px-5 text-[15px] font-semibold sm:px-6";
+  return "ps-btn ps-btn-blue";
 }
 
 function gateSecondaryBtnClass() {
-  return "inline-flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-full border border-border px-5 text-[15px] font-semibold text-foreground hover:bg-accent/30 sm:px-6";
+  return "ps-btn ps-btn-line";
 }
 
 /**
@@ -102,11 +102,11 @@ export function ProspectGuestAccountGate({
   const copy = COPY[action];
 
   return (
-    <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">{copy.eyebrow}</p>
-      <h2 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">{copy.title}</h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">{copy.body(listing)}</p>
-      <div className={`mt-4 ${gateButtonRowClass()}`}>
+    <div className="ps-j-gate">
+      <p className="ps-j-eyebrow">{copy.eyebrow}</p>
+      <h2 className="ps-h3">{copy.title}</h2>
+      <p>{copy.body(listing)}</p>
+      <div className={gateButtonRowClass()}>
         <Link
           href={prospectCreateAccountHref(action, gateKey, returnPath)}
           className={gatePrimaryBtnClass()}
@@ -138,16 +138,16 @@ export function ProspectResidentPortalTourPrompt({
   const portalPath = residentPortalTourSchedulePath(propertyId);
 
   return (
-    <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Resident account</p>
-      <h2 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
+    <div className="ps-j-gate">
+      <p className="ps-j-eyebrow">Resident account</p>
+      <h2 className="ps-h3">
         Schedule your tour in the resident portal
       </h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">
+      <p>
         You already have a resident account — pick a room and time for {listing} from your tour schedule in the
         resident portal.
       </p>
-      <div className={`mt-4 ${gateButtonRowClass()}`}>
+      <div className={gateButtonRowClass()}>
         <Link
           href={portalPath}
           className={gatePrimaryBtnClass()}
@@ -179,16 +179,16 @@ export function ProspectResidentPortalMessagePrompt({
   const portalPath = residentPortalListingMessagePath(propertyId);
 
   return (
-    <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Resident account</p>
-      <h2 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
+    <div className="ps-j-gate">
+      <p className="ps-j-eyebrow">Resident account</p>
+      <h2 className="ps-h3">
         Message your manager in Communication
       </h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">
+      <p>
         You already have a resident account — send questions about {listing} from PropLane Communication so manager
         replies stay in one place with your applications, lease, and payments.
       </p>
-      <div className={`mt-4 ${gateButtonRowClass()}`}>
+      <div className={gateButtonRowClass()}>
         <Link
           href={portalPath}
           className={gatePrimaryBtnClass()}
@@ -232,20 +232,20 @@ export function ProspectSignedInResidentGate({
           : "send your message";
 
   return (
-    <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">You&apos;re signed in</p>
-      <h2 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
+    <div className="ps-j-gate">
+      <p className="ps-j-eyebrow">You&apos;re signed in</p>
+      <h2 className="ps-h3">
         Create a resident account to {actionLabel}
       </h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">
+      <p>
         To {actionLabel} for {listing}, add a separate resident account on your existing login — same email, no new
         password, and its own resident portal kept separate from your current account.
       </p>
-      <div className={`mt-4 ${gateButtonRowClass()}`}>
+      <div className={gateButtonRowClass()}>
         <AddResidentRoleButton
           returnPath={returnPath}
           contactEmail={autofill.email || undefined}
-          className={gatePrimaryBtnClass()}
+          className="ps-btn ps-btn-blue !rounded-[3px] !bg-[var(--ps-blue)] lg:!h-11 lg:!px-[18px] lg:!text-[15px]"
           dataAttr={`signed-in-prospect-${action}-create-account`}
         />
       </div>

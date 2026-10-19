@@ -116,9 +116,10 @@ describe("price rows", () => {
         })}
       />,
     );
-    const rows = Array.from(card().querySelectorAll('[data-attr="listing-price-rows"] > div')).map((r) => r.textContent);
+    // The rent is the page's price figure; the Costs section lists everything else, in order.
+    const rows = Array.from(document.querySelectorAll('[data-attr="listing-price-rows"] > li')).map((r) => r.textContent);
+    expect(card().querySelector('[data-attr="listing-price-rows"]')).toBeNull();
     expect(rows).toEqual([
-      "Rent$1,050/mo",
       "Security deposit$1,000",
       "Deposit · Room 9$1,500",
       "Application fee$45",
@@ -208,12 +209,12 @@ describe("segments", () => {
     expect(card().querySelector('[data-attr="short-stay-message"]')!.textContent).toMatch(/^Text /);
   });
 
-  it("the monthly segment has Move-in, Apply, Schedule tour and a Text link, and no Email door", () => {
+  it("the monthly segment has Move-in, Apply, Book a tour and Text us, and no Email door", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
     expect(card().querySelector('[data-attr="listing-move-in"]')).not.toBeNull();
     expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
-    expect(card().querySelector('[data-attr="listing-web-tour"]')!.textContent).toBe("Schedule tour");
-    expect(card().querySelector('[data-attr="listing-text-tour"]')!.textContent).toMatch(/^Text /);
+    expect(card().querySelector('[data-attr="listing-web-tour"]')!.textContent).toBe("Book a tour");
+    expect(card().querySelector('[data-attr="listing-text-tour"]')!.textContent).toBe("Text us");
     expect(document.body.textContent).not.toContain("Email the manager");
     expect(document.body.textContent).not.toContain("Apply long term");
     expect(document.body.textContent).not.toContain("Apply short term");

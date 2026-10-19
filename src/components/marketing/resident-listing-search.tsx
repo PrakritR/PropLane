@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw, Sparkles } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 
 import Link from "next/link";
 import posthog from "posthog-js";
@@ -394,11 +394,6 @@ export function ResidentHousingChat({
       <div className="min-w-0 max-w-full">
         <form onSubmit={handleSubmit} className="flex min-w-0 items-center gap-2">
           <div className="relative min-w-0 flex-1">
-            <Sparkles
-              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-primary"
-              strokeWidth={2}
-              aria-hidden
-            />
             <input
               type="text"
               value={query}
@@ -407,7 +402,7 @@ export function ResidentHousingChat({
               disabled={status === "loading"}
               aria-label="Describe the home you're looking for"
               data-attr="resident-search-ai-chat-input"
-              className={`${inputCls} min-h-[44px] w-full pl-10`}
+              className={`${inputCls} min-h-[44px] w-full`}
             />
           </div>
           <Button
@@ -416,7 +411,7 @@ export function ResidentHousingChat({
             loading={status === "loading"}
             disabled={status === "loading"}
             data-attr="resident-search-ai-chat-submit"
-            className="min-h-[44px] shrink-0 rounded-xl px-4"
+            className="min-h-[44px] shrink-0 rounded-[var(--radius-control)] px-4"
           >
             Ask
           </Button>

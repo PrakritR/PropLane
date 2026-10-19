@@ -4,6 +4,8 @@ import { PublicNavbar } from "@/components/layout/public-navbar";
 import { HideOnNative } from "@/components/native/hide-on-native";
 import { PublicMainTransition } from "@/components/motion/public-main-transition";
 import { PublicLightThemeLock } from "@/components/providers/public-light-theme-lock";
+import { publicSiteFont } from "@/components/public-site/fonts/inter-tight";
+import "@/components/public-site/public-site.css";
 import type { Metadata } from "next";
 import { IOS_APP_STORE_APP_ID } from "@/lib/ios-app-download";
 import { siteDisplayFont } from "@/components/marketing/fonts/site-display-font";
@@ -44,7 +46,7 @@ export default async function PublicLayout({
   return (
     <PublicTextingProvider value={texting}>
       <div
-        className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable} ${homeSwissFont.variable} ${homeSwissCoverFont.variable}`}
+        className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable} ${homeSwissFont.variable} ${homeSwissCoverFont.variable} ${publicSiteFont.variable}`}
       >
         <PublicLightThemeLock />
         <HideOnNative>

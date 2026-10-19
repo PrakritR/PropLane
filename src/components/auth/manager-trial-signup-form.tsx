@@ -317,7 +317,7 @@ export function ManagerTrialSignupForm({
             />
           </div>
 
-          <AuthDivider label="or enter your details" />
+          <AuthDivider label="or" />
 
           <SignupFieldStack
             values={{ fullName, email, phone, password }}

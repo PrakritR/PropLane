@@ -429,7 +429,7 @@ export function PortalAuthForm() {
                 label={
                   prospectHandoff
                     ? "or enter the same details you used on your tour"
-                    : "or enter your details"
+                    : "or"
                 }
               />
               {fields}
