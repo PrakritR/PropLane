@@ -109,6 +109,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Use a workspace name of 1–80 characters." }, { status: 400 });
     }
     if (action === "create") {
+      // A client of PropLane Service without a self-paid plan cannot open a second workspace to
+      // add houses around the view-only lock; buying a plan clears the lock and this refusal.
+      const locked = await managedReadOnlyWorkspaceIdsOrAll(db, user.id);
+      if (locked === "all" || locked.length > 0) {
+        return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
+      }
       // The plan's cap sits under the database ceiling; an unknown plan refuses
       // rather than guessing Free or Business. The RPC repeats the owner count
       // under the same advisory lock as the database trigger.
