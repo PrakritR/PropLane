@@ -89,7 +89,7 @@ function SectionTabStrip({
     };
   });
   return (
-    <div className="mb-3 min-w-0 max-w-full" data-attr="portal-section-tabs" data-portal-section-tabs data-fold-section={section}>
+    <div className="mb-3 min-w-0 max-w-full shrink-0" data-attr="portal-section-tabs" data-portal-section-tabs data-fold-section={section}>
       <DestinationNav items={items} activeId={section} ariaLabel={label} appearance="command" />
     </div>
   );
