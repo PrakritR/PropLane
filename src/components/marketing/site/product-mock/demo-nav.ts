@@ -8,7 +8,7 @@
  */
 
 import { buildPortalNavItems, type PortalSidebarNavItem } from "@/components/portal/portal-nav-model";
-import { collapseNavItems, groupNavItems, navRowSection } from "@/lib/portals/nav-groups";
+import { groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 import {
   RESIDENT_PORTAL_BASE_PATH,
@@ -30,14 +30,7 @@ export type DemoTab = {
   groupId?: string;
   /** A row the real sidebar nests (vendor Finances): drawn with the real chevron and sub-rows. */
   subItems?: DemoSubTab[];
-  /** The sections folded into this row (the real tab strip's tabs), row key first. A row is active on any of them. */
-  members: string[];
 };
-
-/** The demo row a section is shown under: its fold's key (`lease` is a tab of the My home row), else itself. */
-export function demoRowFor(portal: DemoPortal, section: string): string {
-  return navRowSection(SOURCES[portal].kind, section);
-}
 
 const RESIDENT_DEFINITION: PortalDefinition = {
   kind: "resident",
@@ -57,16 +50,14 @@ const SOURCES: Record<DemoPortal, { kind: PortalKind; definition: PortalDefiniti
 /** The real sidebar's rows for one portal, in the real order, each carrying its real group. */
 export function demoNavFor(portal: DemoPortal): DemoTab[] {
   const { kind, definition } = SOURCES[portal];
-  // The same fold the real sidebar draws (`NAV_FOLDS`): six manager rows, five resident, four vendor.
-  const items = collapseNavItems(kind, buildPortalNavItems(definition, definition.sections, false, undefined));
-  return groupNavItems(kind, items as PortalSidebarNavItem[]).flatMap((group) =>
+  const items: PortalSidebarNavItem[] = buildPortalNavItems(definition, definition.sections, false, undefined);
+  return groupNavItems(kind, items).flatMap((group) =>
     group.items.map((item) => ({
       id: item.section,
       label: item.label,
       group: group.label ?? undefined,
       groupId: group.id,
       subItems: item.subItems?.map((sub) => ({ id: sub.sectionTabId, label: sub.label })),
-      members: item.groupSections?.length ? item.groupSections : [item.section],
     })),
   );
 }

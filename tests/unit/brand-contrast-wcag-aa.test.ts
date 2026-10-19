@@ -28,7 +28,7 @@ describe("brand colour WCAG AA for small text (PRP-392)", () => {
   });
 
   it("keeps light brand blue deep enough for selected tab labels on white", () => {
-    expect(css).toMatch(/--pl-blue:\s*#2863f0/);
-    expect(contrastRatio("#2863f0", "#fefefe")).toBeGreaterThanOrEqual(4.5);
+    expect(css).toMatch(/--pl-blue:\s*#2f5fd0/);
+    expect(contrastRatio("#2f5fd0", "#fefefe")).toBeGreaterThanOrEqual(4.5);
   });
 });

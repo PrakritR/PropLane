@@ -13,14 +13,15 @@
   --pl-purple-soft: #9a9cf5;
   /* Deep enough for white-on-primary WCAG AA (≥4.5:1) in dark theme filled controls (PRP-392). */
   --pl-purple-deep: #5b5fd4;
-  /* Slightly deeper than the prior #2f6bff so selected tab labels clear 4.5:1 on white (PRP-392). */
-  --pl-blue: #2863f0;
-  --pl-blue-soft: #5a8cff;
-  --pl-blue-deep: #1e4fd6;
+  /* The homepage's one blue (public-site.css --ps-blue, concept A, Oct 18 2026): 5.7:1 on white, so selected tab
+     labels and white-on-primary buttons clear 4.5:1 (PRP-392). Deep is the homepage's hover blue. */
+  --pl-blue: #2f5fd0;
+  --pl-blue-soft: #6d8fe0;
+  --pl-blue-deep: #2249a8;
   --pl-black: #08090b;
   --pl-white: #ffffff;
   /* Cool off-white (not cream) for large light planes */
-  --pl-white-muted: #f7f8fa;
+  --pl-white-muted: #f7f7f4;
   /* Single blueprint/lattice square pitch shared by the landing hero grid and
    * the flow-band blueprint so the squares never change size between sections. */
   --lp-grid-size: 56px;
@@ -37,13 +38,13 @@
   /* Light: white/off-white + blue brand only (no purple). */
   --pl-surface: #fcfcfd;
   --pl-surface-raised: #ffffff;
-  --pl-surface-muted: #f4f5f8;
-  --pl-ink: #17181a;
-  --pl-muted-fg: #4a4e56;
-  --pl-line: rgba(8, 9, 11, 0.09);
-  --pl-line-strong: rgba(8, 9, 11, 0.14);
+  --pl-surface-muted: #f7f7f4;
+  --pl-ink: #0c0d10;
+  --pl-muted-fg: #5f6269;
+  --pl-line: #d6d7d2;
+  --pl-line-strong: #b9bab5;
   --pl-accent: var(--pl-blue);
-  --pl-accent-soft: rgba(40, 99, 240, 0.08);
+  --pl-accent-soft: #e7edfa;
   --pl-accent-soft-hex: var(--pl-blue-soft);
   --pl-accent-deep: var(--pl-blue-deep);
   --pl-ai: var(--pl-blue);
@@ -62,10 +63,10 @@
   --primary-foreground: var(--pl-white);
   --accent: var(--pl-accent-soft);
   --auth-input-bg: var(--pl-white);
-  --ring: rgba(47, 107, 255, 0.35);
-  --danger: #dc2626;
+  --ring: rgba(47, 95, 208, 0.35);
+  --danger: #b42318;
   --announce: var(--pl-ink);
-  --steel-light: #bcd4ff;
+  --steel-light: #c9d6f2;
   --cobalt-deep: var(--pl-blue-deep);
   --sky: var(--pl-blue-soft);
   --glass-fill: var(--pl-white);
@@ -76,11 +77,11 @@
   --portal-canvas: #ffffff;
   --status-pending-fg: #a34a06; /* 5.3:1 on --status-pending-bg (PRP-184 #2) */
   --status-pending-bg: #fdf0d5;
-  --status-approved-fg: #2456d6; /* 5.3:1 on --status-approved-bg; --pl-blue measured 3.8 (PRP-184 #2) */
-  --status-approved-bg: #e6edff;
-  --status-confirmed-fg: #15803d;
+  --status-approved-fg: #2249a8; /* 6.9:1 on --status-approved-bg (PRP-184 #2) */
+  --status-approved-bg: #e7edfa;
+  --status-confirmed-fg: #1e7a4a;
   --status-confirmed-bg: #dcfce7;
-  --status-overdue-fg: #dc2626;
+  --status-overdue-fg: #b42318;
   --status-overdue-bg: #fde4e2;
   --status-warning-fg: #a16207; /* yellow-700, 4.9:1 on white: a decision is waiting, not an error */
   --shadow-sm: 0 1px 2px rgba(8, 9, 11, 0.04);
@@ -94,7 +95,7 @@
   --input: var(--pl-line-strong);
   --secondary: var(--pl-surface-muted);
   --secondary-foreground: var(--pl-ink);
-  --destructive: #dc2626;
+  --destructive: #b42318;
   --destructive-foreground: var(--pl-white);
   --color-background: var(--pl-surface);
   --color-foreground: var(--pl-ink);
@@ -545,7 +546,7 @@ html [data-surface="light"] .btn-metallic {
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
-  /* Schibsted Grotesk (see src/app/fonts.ts). The former system stack stays
+  /* Inter Tight, the homepage's face (see src/app/fonts.ts). The former system stack stays
      behind it as the fallback, so a failed font load degrades to exactly the
      previous rendering rather than to a default serif. */
   --font-sans: var(--font-brand-sans), -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
@@ -3921,7 +3922,7 @@ html[data-communication-surface] .portal-communication-inbox .portal-list-page-b
 }
 
 /*
- * Schibsted Grotesk's tabular figures also make "," and "." full figure width,
+ * Tabular figures also make "," and "." full figure width,
  * so "$1,050.00" read as "$1 , 050 . 00" wherever `tabular-nums` was used.
  * Keep the digits lining but proportional — money reads as one word.
  */
@@ -3939,34 +3940,34 @@ html[data-communication-surface] .portal-communication-inbox .portal-list-page-b
 html[data-theme="light"] .portal-shell {
   /* Phase 1 shell redesign (approved plan dashboard-redesign-1007): ink, grey,
    * hairline, flat white canvas, #f6f7f9 sidebar, #eaf0fe soft blue. */
-  --pl-ink: #15171c;
-  --pl-muted-fg: #6a707c;
-  --pl-line: rgba(17, 24, 39, 0.085);
-  --pl-line-strong: rgba(17, 24, 39, 0.13);
-  --foreground: #15171c;
-  --muted: #6a707c;
-  --border: rgba(17, 24, 39, 0.085);
-  --input: rgba(17, 24, 39, 0.13);
+  --pl-ink: #0c0d10;
+  --pl-muted-fg: #5f6269;
+  --pl-line: #d6d7d2;
+  --pl-line-strong: #b9bab5;
+  --foreground: #0c0d10;
+  --muted: #5f6269;
+  --border: #d6d7d2;
+  --input: #b9bab5;
   --background-solid: #ffffff;
-  --secondary: #f4f5f7;
+  --secondary: #f2f2ef;
   --portal-canvas: #ffffff;
-  --portal-sidebar-bg: #f6f7f9;
-  --portal-active-bg: #eaf0fe;
-  --portal-selected-row: #f1f5ff;
-  --portal-count-bg: #eaf0fe;
-  --portal-avatar-bg: #eaf0fe;
-  --portal-avatar-fg: #1e4fd6;
-  --portal-strip-bg: #101828;
-  --portal-strip-fg: #c7ccd6;
-  --portal-sidebar-active-bg: #e9effe;
-  --portal-sidebar-active-fg: #1f55e0;
-  --primary: #2863f0;
-  --primary-hover: #1e4fd6;
-  --pl-blue-soft-bg: #eaf0fe;
-  --red: #d92d20;
-  --green: #12805c;
+  --portal-sidebar-bg: #f7f7f4;
+  --portal-active-bg: #e7edfa;
+  --portal-selected-row: #f0f4fc;
+  --portal-count-bg: #e7edfa;
+  --portal-avatar-bg: #e7edfa;
+  --portal-avatar-fg: #2249a8;
+  --portal-strip-bg: #0c0d10;
+  --portal-strip-fg: #c9cacd;
+  --portal-sidebar-active-bg: #e7edfa;
+  --portal-sidebar-active-fg: #2249a8;
+  --primary: #2f5fd0;
+  --primary-hover: #2249a8;
+  --pl-blue-soft-bg: #e7edfa;
+  --red: #b42318;
+  --green: #1e7a4a;
   --amber: #b25e09;
-  --danger: #d92d20;
+  --danger: #b42318;
   --shadow-card: none;
   --radius-xl: 0.625rem;
   --radius-2xl: 0.75rem;

@@ -10,7 +10,6 @@ import { PortalClientSessionGuard } from "@/components/portal/portal-client-sess
 import { ResidentPreApplicationGuard } from "@/components/portal/resident-pre-application-guard";
 import { ResidentTourLinkOnMount } from "@/components/portal/resident-tour-link-on-mount";
 import { ResidentProspectHandoffOnMount } from "@/components/portal/resident-prospect-handoff-on-mount";
-import { PortalSectionTabs } from "@/components/portal/portal-section-tabs";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
@@ -131,11 +130,6 @@ export default async function ResidentLayout({ children }: { children: React.Rea
                 <ResidentProspectHandoffOnMount />
               </Suspense>
               <ResidentPreApplicationGuard access={access}>
-                <PortalSectionTabs
-                  definition={residentPortal}
-                  subscriptionTier={managerSubscriptionTier}
-                  residentNavStage={residentNavStage}
-                />
                 {children}
               </ResidentPreApplicationGuard>
             </div>

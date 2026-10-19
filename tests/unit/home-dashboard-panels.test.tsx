@@ -37,7 +37,7 @@ describe("the guided dashboard uses real fixture panels", () => {
     fireEvent.click(navigation.getByRole("button", { name: "Communication", exact: true }));
     expect(navigation.getByRole("button", { name: "Communication", exact: true })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(container.querySelector(".rlp-panel-frame")?.textContent).toMatch(/Active/), { timeout: 15000 });
-    const homeLabel = DEMO_TABS[portal].find((row) => row.members.includes("dashboard"))!.label;
+    const homeLabel = (DEMO_TABS[portal].find((row) => row.id === "dashboard") ?? DEMO_TABS[portal].find((row) => row.id !== "communication"))!.label;
     fireEvent.click(navigation.getByRole("button", { name: homeLabel, exact: true }));
     expect(navigation.getByRole("button", { name: homeLabel, exact: true })).toHaveAttribute("aria-current", "page");
     expect(fetch).not.toHaveBeenCalled();

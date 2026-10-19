@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // Settings is one place (captain, 2026-10-03, C2-CP1..CP5): the avatar menu has a
-// single Settings row; the nav has PROFILE (Profile, Login & security with Account
-// as a section, API & MCP) and WORKSPACE (Workspace, Billing & payouts, Automations,
-// Communication, Integrations) groups (Billing & plan and Account folded in, Oct 18); Settings follows the workspace picked in the
+// single Settings row; the nav has PROFILE (Profile, Login & security, API & MCP,
+// Account, Billing & plan) and WORKSPACE (Workspace, Balance & payouts,
+// Communication, Integrations) groups; Settings follows the workspace picked in the
 // sidebar switcher and shows its name read-only instead of carrying a switcher.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 describe("Settings is one place", () => {
-  it("orders the rail as PROFILE then WORKSPACE, Billing & payouts one page in Workspace", () => {
+  it("orders the rail as PROFILE then WORKSPACE, Billing & plan in Profile", () => {
     renderSettings();
     const nav = document.querySelector('nav[aria-label="Settings sections"]')!;
     const order = [...nav.querySelectorAll("[data-attr]")].map((el) => el.getAttribute("data-attr"));
@@ -76,6 +76,8 @@ describe("Settings is one place", () => {
       "settings-nav-profile",
       "settings-nav-security",
       "settings-nav-developer",
+      "settings-nav-account",
+      "settings-nav-billing",
       "settings-group-workspace",
       "settings-workspace-name",
       "settings-nav-workspaces",
@@ -87,9 +89,8 @@ describe("Settings is one place", () => {
     const labels = (id: string) => nav.querySelector(`[data-attr="${id}"]`)?.textContent;
     expect(labels("settings-group-profile")).toBe("Profile");
     expect(labels("settings-group-workspace")).toBe("Workspace");
-    expect(labels("settings-nav-payments")).toBe("Billing & payouts");
-    expect(nav.querySelector('[data-attr="settings-nav-billing"]')).toBeNull();
-    expect(nav.querySelector('[data-attr="settings-nav-account"]')).toBeNull();
+    expect(labels("settings-nav-payments")).toBe("Balance & payouts");
+    expect(labels("settings-nav-billing")).toBe("Billing & plan");
     expect(labels("settings-nav-applicationsLeases")).toBe("Automations");
     expect(labels("settings-nav-spreadsheets")).toBe("Integrations");
     expect(nav.textContent).not.toContain("Forms");
@@ -124,14 +125,14 @@ describe("Settings is one place", () => {
     expect(document.querySelector('[data-attr="workspace-switcher"], [data-attr="workspace-switcher-item"]')).toBeNull();
   });
 
-  it("titles the Workspace pane 'Workspace settings' and the payments pane 'Billing & payouts'", () => {
+  it("titles the Workspace pane 'Workspace settings' and the payouts pane 'Balance & payouts'", () => {
     window.history.replaceState(null, "", "/portal/profile?tab=workspaces");
     const view = renderSettings();
     expect(view.container.querySelector('[data-attr="settings-layout"] h1')?.textContent).toBe("Workspace settings");
     cleanup();
     window.history.replaceState(null, "", "/portal/profile?tab=payments");
     const payments = renderSettings();
-    expect(payments.container.querySelector('[data-attr="settings-layout"] h1')?.textContent).toBe("Billing & payouts");
+    expect(payments.container.querySelector('[data-attr="settings-layout"] h1')?.textContent).toBe("Balance & payouts");
   });
 
   it("has no Profile row in either avatar menu — one Settings row", () => {

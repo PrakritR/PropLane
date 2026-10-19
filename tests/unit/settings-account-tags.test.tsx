@@ -20,19 +20,14 @@ import {
   type SettingsGroupId,
 } from "@/components/portal/portal-profile-client";
 
-/**
- * Every nav id the manager hub can show, non-demo. `payments` is the merged
- * "Billing & payouts" page and Account is a section of `security`, so there is
- * no `billing` or `account` nav entry for the manager any more (portal
- * simplification, Oct 18). Those two ids stay in the classification sets below
- * because the admin variant still has its own Account pane and `?tab=billing`
- * resolves to the merged page.
- */
+/** Every nav id the manager hub can show, non-demo. */
 const ALL_NAV_IDS: SettingsGroupId[] = [
   "profile",
   "workspaces",
+  "billing",
   "security",
   "developer",
+  "account",
   "messaging",
   "payments",
   "spreadsheets",
@@ -71,7 +66,7 @@ describe("manager settings nav entries: bar / Account tag / Device tag, exactly 
     }
   });
 
-  it("Billing & payouts (payments) carries the Applies-to bar with the properties picker", () => {
+  it("Payments carries the Applies-to bar with the properties picker", () => {
     expect([...WORKSPACE_SCOPED_PANES]).toEqual(["payments"]);
   });
 
@@ -79,12 +74,9 @@ describe("manager settings nav entries: bar / Account tag / Device tag, exactly 
     expect(WORKSPACE_ONLY_SCOPED_PANES.size).toBe(0);
   });
 
-  it("Profile, Login & security, and API & MCP carry the Account tag", () => {
-    const expected: SettingsGroupId[] = ["profile", "security", "developer"];
+  it("Profile, Billing, Login & security, API & MCP, and Account carry the Account tag", () => {
+    const expected: SettingsGroupId[] = ["profile", "billing", "security", "developer", "account"];
     for (const id of expected) expect(ACCOUNT_TAG_PANES.has(id)).toBe(true);
-    // Retired manager pages keep their classification (the admin variant still has Account, and billing is an alias).
-    expect(ACCOUNT_TAG_PANES.has("billing")).toBe(true);
-    expect(ACCOUNT_TAG_PANES.has("account")).toBe(true);
     // Feedback stays in the set for the admin variant, which still shows that pane.
     expect(ACCOUNT_TAG_PANES.has("feedback")).toBe(true);
   });

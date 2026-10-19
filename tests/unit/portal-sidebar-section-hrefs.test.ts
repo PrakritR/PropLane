@@ -5,8 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { hrefForSection } from "@/components/portal/portal-nav-model";
-import { MANAGER_PORTAL_SMOKE_PATHS, proPortal } from "@/lib/portals/pro";
+import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 
 describe("portal sidebar section hrefs", () => {
   const sidebarSrc = readFileSync(
@@ -16,12 +15,7 @@ describe("portal sidebar section hrefs", () => {
 
   it("does not append /pending to tab-only manager sections", () => {
     expect(sidebarSrc).not.toContain("${meta.tabs[0].id}/pending");
-    // Tasks has real tabs now (Open · Assigned · Scheduled · Completed): it links to its first tab like any
-    // other tabbed section, with no special case.
-    expect(sidebarSrc).not.toContain('if (section === "tasks")');
-    expect(hrefForSection(proPortal, "tasks")).toBe("/portal/tasks/open");
-    expect(hrefForSection(proPortal, "financials")).toBe("/portal/financials/overview");
-    expect(hrefForSection(proPortal, "documents")).toBe("/portal/documents/applications");
+    expect(sidebarSrc).toContain('if (section === "tasks") return `${def.basePath}/tasks`');
   });
 
   it("matches smoke paths for Finances and Documents", () => {

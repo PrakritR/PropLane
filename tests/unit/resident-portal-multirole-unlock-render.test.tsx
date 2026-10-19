@@ -66,10 +66,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
-  residentSectionUnlockedForStage,
   resolveResidentPortalNavStage,
 } from "@/lib/resident-portal-nav";
-import { portalNavLockKind } from "@/lib/portals/nav-locks";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 
@@ -180,10 +178,7 @@ function makeMultiRoleDb() {
   };
 }
 
-// Portal simplification: Lease and Services are tabs of the My home row, Payments and Documents tabs of Money.
-// A row is locked only when every tab is, and a tab keeps its own lock, so both are asserted.
-const PREVIOUSLY_LOCKED = ["My home", "Money"] as const;
-const PREVIOUSLY_LOCKED_SECTIONS = ["lease", "payments", "documents", "services"] as const;
+const PREVIOUSLY_LOCKED = ["Lease", "Payments", "Documents", "Services"] as const;
 
 afterEach(cleanup);
 
@@ -193,7 +188,7 @@ describe("manager+resident dogfood account sees an unlocked resident portal", ()
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeMultiRoleDb() as never);
   });
 
-  it("renders the My home and Money rows (Lease / Payments / Documents / Services tabs) as live, not padlocks", async () => {
+  it("renders Lease / Payments / Documents / Services as live rows, not padlocks", async () => {
     // Exactly what src/app/resident/layout.tsx does.
     const access = await loadResidentPortalAccessState({
       userId: RESIDENT_USER_ID,
@@ -264,13 +259,5 @@ describe("manager+resident dogfood account sees an unlocked resident portal", ()
       expect(row.getAttribute("href")).not.toBe("#");
     }
     expect(sidebar.queryByRole("link", { name: /\(locked\)/ })).toBeNull();
-    // ...and each tab inside those rows is unlocked on its own section.
-    for (const section of PREVIOUSLY_LOCKED_SECTIONS) {
-      expect({
-        section,
-        lock: portalNavLockKind({ kind: "resident", section, subscriptionTier: "paid", residentNavStage: stage }),
-      }).toEqual({ section, lock: "none" });
-      expect(residentSectionUnlockedForStage(section, stage)).toBe(true);
-    }
   });
 });

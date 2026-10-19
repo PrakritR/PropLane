@@ -268,7 +268,7 @@ describe("calendarOccupancyOnDay and status contrast", () => {
     return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
   };
   const contrast = (a: string, b: string) => { const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (hi! + 0.05) / (lo! + 0.05); };
-  const HEX: Record<string, string> = { "bg-slate-500": "#64748b", "bg-[#3d7d46]": "#3d7d46", "bg-[#9a4b1a]": "#9a4b1a", "bg-primary": "#2863f0", "bg-amber-100": "#fef3c7", "text-white": "#ffffff", "text-amber-900": "#78350f" };
+  const HEX: Record<string, string> = { "bg-slate-500": "#64748b", "bg-[#3d7d46]": "#3d7d46", "bg-[#9a4b1a]": "#9a4b1a", "bg-primary": "#2f5fd0", "bg-amber-100": "#fef3c7", "text-white": "#ffffff", "text-amber-900": "#78350f" };
 
   it("every status class clears WCAG AA (4.5:1) for its own text", () => {
     for (const status of ["Hold", "Confirmed", "In-house", "Checked out", "Cancelled", "Blocked", "Airbnb", "Booking.com", "Houfy"]) {
