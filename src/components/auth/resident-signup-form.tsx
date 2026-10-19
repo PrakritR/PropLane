@@ -251,7 +251,7 @@ export function ResidentSignupForm({
 
         {socialBlock}
 
-        <AuthDivider label="or enter your details" />
+        <AuthDivider label="or" />
 
         {fieldsCompact}
 
@@ -276,7 +276,7 @@ export function ResidentSignupForm({
   return (
     <div className="space-y-4">
       {socialBlock}
-      <AuthDivider label="or enter your details" />
+      <AuthDivider label="or" />
       {fieldsDefault}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       <Button

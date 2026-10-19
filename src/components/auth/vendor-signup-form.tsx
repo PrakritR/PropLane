@@ -329,7 +329,7 @@ export function VendorSignupForm({
 
         {socialBlock}
 
-        <AuthDivider label="or enter your details" />
+        <AuthDivider label="or" />
 
         {passwordFieldsCompact}
 
@@ -362,7 +362,7 @@ export function VendorSignupForm({
     <div className="space-y-4">
       {showAddRoleBanner ? <AuthSignedInRoleBanner role="vendor" email={signedInEmail} /> : null}
       {socialBlock}
-      <AuthDivider label="or enter your details" />
+      <AuthDivider label="or" />
       {passwordFieldsDefault}
       {businessBasicsFields}
       {error ? <p className="text-sm text-danger">{error}</p> : null}

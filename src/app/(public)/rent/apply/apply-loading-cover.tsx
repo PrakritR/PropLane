@@ -31,16 +31,16 @@ export function ApplyLoadingCover({ children }: { children?: React.ReactNode }) 
         .animate-page-enter { animation: none !important; opacity: 1 !important; transform: none !important; }
       `}</style>
       <div
-        className="flex min-h-[100svh] w-full flex-col items-center justify-center gap-4 bg-[var(--pl-surface)] px-6 text-center"
+        className="ps flex min-h-[100svh] w-full flex-col items-center justify-center gap-4 bg-[var(--ps-paper)] px-6 text-center"
         role="status"
         aria-live="polite"
         data-testid="apply-loading-cover"
       >
-        <svg className="h-6 w-6 animate-spin text-primary" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <svg className="h-6 w-6 animate-spin text-[var(--ps-blue)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
           <path d="M14.5 8A6.5 6.5 0 0 0 8 1.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
         </svg>
-        <p className="text-sm font-semibold text-foreground">Loading application…</p>
+        <p className="text-sm font-semibold text-[var(--ps-ink)]">Loading application…</p>
         {children}
       </div>
     </>

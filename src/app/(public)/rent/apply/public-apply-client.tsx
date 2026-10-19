@@ -14,6 +14,7 @@ import { getPropertyForPublicLink } from "@/lib/rental-application/data";
 import { propertyAcceptingOnlineApplications } from "@/lib/property-application-template-sync";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import { BROWSE_IDS_PARAM, parseBrowseIdsParam } from "@/lib/manager-property-links";
+import "@/components/public-site/journey-forms.css";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import {
@@ -41,8 +42,10 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
   const sessionId = searchParams.get("session_id")?.trim();
   if ((feeCheckout === "return" || feeCheckout === "success") && sessionId) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
-        <ApplicationFeeReturnPanel sessionId={sessionId} />
+      <div className="ps ps-j-page">
+        <div className="ps-j-col">
+          <ApplicationFeeReturnPanel sessionId={sessionId} />
+        </div>
       </div>
     );
   }
@@ -139,11 +142,15 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
 
   if (portfolioPickerBlocks) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Rental application</h1>
-        <div className="mt-8">
+      <div className="ps ps-j-page">
+       <div className="ps-j-col">
+        <div className="ps-j-title">
+          <h1 className="ps-h1">Apply</h1>
+        </div>
+        <div>
           {view === "signed-in-create-resident" ? (
             <SignedInResidentAccountPrompt
+              ps
               applyReturnPath={applyReturnPath}
               propertyTitle={
                 portfolioProperties.length === 1
@@ -153,6 +160,7 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
             />
           ) : view === "account-prompt" ? (
             <PublicApplyAccountPrompt
+              ps
               gateKey={applyGateKey}
               applyReturnPath={applyReturnPath}
               propertyTitle={
@@ -163,6 +171,7 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
             />
           ) : portfolioProperties.length === 0 ? (
             <ManagerLinkGate
+              ps
               title="Open your manager’s application link"
               body="This application link is invalid or no longer active. Ask your property manager for a new link."
             />
@@ -179,33 +188,52 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
             />
           )}
         </div>
+       </div>
       </div>
     );
   }
 
+  const homeArea = linkedProperty?.neighborhood?.trim() || linkedProperty?.address?.trim() || "";
+
   return (
-    <div className={`mx-auto ${view === "wizard" ? "max-w-5xl" : "max-w-3xl"} px-4 py-8 sm:py-12`}>
+    <div className="ps ps-j-page">
+     <div className={`ps-j-col${view === "wizard" ? " ps-j-col-wide" : ""}`}>
+      <div className="ps-j-title">
+        <h1 className="ps-h1">Apply</h1>
+        {propertyTitle ? (
+          <p className="ps-j-sub" data-attr="apply-home-line">
+            {propertyTitle}
+            {homeArea && homeArea !== propertyTitle ? ` · ${homeArea}` : ""}
+          </p>
+        ) : null}
+      </div>
       {view === "signed-in-create-resident" ? (
         <SignedInResidentAccountPrompt
+          ps
           applyReturnPath={applyReturnPath}
           propertyTitle={propertyTitle}
           purpose="apply"
         />
       ) : view === "account-prompt" ? (
         <PublicApplyAccountPrompt
+          ps
           gateKey={applyGateKey}
           applyReturnPath={applyReturnPath}
           propertyTitle={propertyTitle}
         />
       ) : !applicationsAvailable ? (
         <ApplicationUnavailableContactManager
+          ps
           propertyTitle={linkedProperty?.title}
           managerEmail={linkedProperty?.managerContactEmail}
           managerPhone={linkedProperty?.contactSmsPhone}
         />
       ) : (
-        <RentalApplicationWizard showToast={showToast} mode="public" exitPath="/rent/browse" />
+        <div className="ps-j-apply">
+          <RentalApplicationWizard showToast={showToast} mode="public" exitPath="/rent/browse" />
+        </div>
       )}
+     </div>
     </div>
   );
 }

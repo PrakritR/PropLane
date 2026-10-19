@@ -2,53 +2,34 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { CalendarDays, Heart, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Heart, Search } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   RESIDENT_BATHROOM_OPTIONS,
   RESIDENT_HOUSING_BUDGET_MAX,
   RESIDENT_HOUSING_BUDGET_MIN,
   RESIDENT_HOUSING_BUDGET_STEP,
-  RESIDENT_HOUSING_INPUT_CLS,
   RESIDENT_ROOM_TYPE_OPTIONS,
   ResidentHousingChat,
 } from "@/components/marketing/resident-listing-search";
 import { browseStateFromChatFilters, type HousingChatAppliedFilters } from "@/lib/housing-chat-filters";
 import { LEASE_TYPES, leaseTypeLabel, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { usePublicListings } from "@/hooks/use-public-listings";
 import {
   buildPropertyBrowseCards,
-  filterRoomListings,
   demoOnlyBrowseCardPlaceholderImage,
   type BrowseSortId,
   type PropertyBrowseCard,
   browseCardMatchesQuery,
-  browseCardNextOpeningLabel,
 } from "@/lib/room-listings-catalog";
-import { pacificTodayKey } from "@/lib/room-availability-range";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
-import {
-  PortalFilterSortSheet,
-  portalFilterActiveCount,
-} from "@/components/portal/portal-filter-sort-sheet";
-import {
-  PORTAL_FILTER_BROWSE_MOBILE_SHEET_CLASS,
-  PORTAL_FILTER_BROWSE_PANEL_CLASS,
-} from "@/components/portal/filter-field-lists";
-import {
-  BrowseBudgetRange,
-  formatBudgetChipLabel,
-  formatBudgetRangeLabel,
-} from "@/components/marketing/browse-budget-range";
+import { formatBudgetRangeLabel } from "@/components/marketing/browse-budget-range";
 import { SignedOutOnly } from "@/components/marketing/signed-out-only";
-import { residentCreateAccountHref } from "@/lib/resident-public-nav";
-import { usePortalFilterDraft, usePortalFilterDraftValues } from "@/lib/portal-filter-draft";
-import type { MockProperty } from "@/data/types";
+import { residentCreateAccountHref, residentSignInHref } from "@/lib/resident-public-nav";
+import "@/components/public-site/browse.css";
 
 const SORT_OPTIONS: { id: BrowseSortId; label: string }[] = [
   { id: "price-asc", label: "Price · low to high" },
@@ -57,76 +38,71 @@ const SORT_OPTIONS: { id: BrowseSortId; label: string }[] = [
   { id: "next-opening", label: "Next opening" },
 ];
 
+/** The Budget dropdown's steps (the ceiling a renter will pay a month). */
+const BUDGET_STEPS = [1000, 1250, 1500, 2000, 2500, 3500] as const;
+
+/** `listingPlaceCategoryId` as the listing stores it; "any" is the unset filter. */
+type PlaceKind = "any" | "private_room" | "shared_home" | "entire_home";
+const PLACE_KIND_LABELS: Record<Exclude<PlaceKind, "any">, string> = {
+  private_room: "Private room",
+  shared_home: "Room in a shared home",
+  entire_home: "Whole home",
+};
+
+const BROWSE_BUDGET_BOUNDS = {
+  min: RESIDENT_HOUSING_BUDGET_MIN,
+  max: RESIDENT_HOUSING_BUDGET_MAX,
+  step: RESIDENT_HOUSING_BUDGET_STEP,
+};
+
 function formatRent(card: PropertyBrowseCard): string {
   const display = card.headlineRent ?? card.rentNumeric;
-  if (display !== null) {
-    return formatRoomPriceAmount(display);
-  }
+  if (display !== null) return formatRoomPriceAmount(display);
   const stripped = card.priceLabel.replace(/\/month/i, "").replace(/\/day/i, "").trim();
   return stripped || "—";
 }
 
 function periodSuffix(card: PropertyBrowseCard): string {
-  if (card.pricePeriod === "day") return "/day";
-  if (card.pricePeriod === "week") return "/week";
-  return "/mo";
+  if (card.pricePeriod === "day") return "/ day";
+  if (card.pricePeriod === "week") return "/ week";
+  return "/ mo";
 }
 
 function formatBaths(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-/** Keeps card rows aligned when a listing has no neighborhood. */
-function browseCardNeighborhoodLine(card: PropertyBrowseCard): string {
-  return card.neighborhood.trim() || " ";
-}
-
-function formatMoveInChip(iso: string): string | null {
+function formatShortDate(iso: string): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
   if (!m) return null;
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   if (Number.isNaN(d.getTime())) return null;
-  return `Move in ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-const GRID_CLASS = "grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4";
+/** "Available now", "Available Oct 24", or the listing's own wording when it has no dated opening. */
+function availabilityText(card: PropertyBrowseCard): string {
+  if (card.availabilityKind === "now") return "Available now";
+  const date = card.nextOpening ? formatShortDate(card.nextOpening) : null;
+  if (date) return `Available ${date}`;
+  const raw = card.availabilityLabel.trim();
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
+}
 
 function BrowseSkeleton() {
   return (
-    <div className={GRID_CLASS} aria-hidden>
-      {Array.from({ length: 4 }, (_, i) => (
-        <div key={i} className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="aspect-[3/2] w-full animate-pulse bg-accent/30" />
-          <div className="space-y-2 p-3.5">
-            <div className="h-5 w-2/5 animate-pulse rounded bg-accent/40" />
-            <div className="h-3 w-3/4 animate-pulse rounded bg-accent/30" />
-            <div className="h-3 w-1/2 animate-pulse rounded bg-accent/30" />
+    <div className="ps-bgrid" aria-hidden data-attr="resident-browse-skeleton">
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="ps-card-soft">
+          <span className="ps-bskel block aspect-[4/3] w-full" />
+          <div className="grid gap-2 p-4">
+            <span className="ps-bskel h-6 w-2/5" />
+            <span className="ps-bskel h-4 w-3/4" />
+            <span className="ps-bskel h-4 w-1/2" />
           </div>
         </div>
       ))}
     </div>
-  );
-}
-
-function AvailabilityPill({ card }: { card: PropertyBrowseCard }) {
-  // A dated opening is a plain calendar-glyph fact on the card's facts line, not a pill.
-  if (card.availabilityKind !== "now" && card.nextOpening) return null;
-  const tone =
-    card.availabilityKind === "now"
-      ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-      : card.availabilityKind === "later"
-        ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
-        : "bg-card text-muted";
-  const raw = card.availabilityLabel.trim();
-  const label = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "";
-  if (!label) return null;
-  return (
-    <span
-      className={`absolute left-2.5 top-2.5 max-w-[calc(100%-4rem)] truncate rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm ${tone}`}
-      data-attr="resident-browse-card-availability"
-    >
-      {label}
-    </span>
   );
 }
 
@@ -139,63 +115,53 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
   const resolvedImageUrl =
     card.imageUrl || (isDemoModeActive() ? demoOnlyBrowseCardPlaceholderImage(card.propertyId) : "");
   const isDataUrl = resolvedImageUrl.startsWith("data:");
-  const hasPhoto = Boolean(resolvedImageUrl);
   const facts = [
     `${card.roomCount} room${card.roomCount === 1 ? "" : "s"}`,
     card.bathCount > 0 ? `${formatBaths(card.bathCount)} ba` : null,
     card.petFriendly ? "Pets OK" : card.bathHint || null,
     ...card.leaseTypes.map(leaseTypeLabel),
   ].filter((f): f is string => Boolean(f));
-  const dotCount = Math.min(5, card.photoUrls.length);
-  const nextOpeningLabel = card.availabilityKind !== "now" ? browseCardNextOpeningLabel(card, pacificTodayKey()) : null;
+  const avail = availabilityText(card);
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition duration-200 ease-(--spring-snappy) hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[var(--shadow-card-hover)] active:translate-y-0 active:scale-[.985] active:duration-75">
+    <article className="ps-card-soft ps-bcard">
       <Link
         href={`/rent/listings/${encodeURIComponent(card.propertyId)}`}
         data-attr="resident-browse-listing-card"
-        className="flex flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="ps-bcard-link"
       >
-        <div className="relative aspect-[3/2] w-full overflow-hidden bg-accent/20">
-          {hasPhoto ? (
+        <div className="ps-bcard-photo">
+          {resolvedImageUrl ? (
             <Image
               src={resolvedImageUrl}
               alt=""
               fill
-              className="object-cover transition duration-500 group-hover:scale-[1.03]"
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 320px"
+              className="object-cover"
+              sizes="(max-width: 640px) 100vw, (max-width: 1100px) 50vw, (max-width: 1400px) 33vw, 25vw"
               unoptimized={isDataUrl}
             />
           ) : (
             <NoImagePlaceholder variant="compact" />
           )}
-          <AvailabilityPill card={card} />
-          {dotCount > 1 ? (
-            <span className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center gap-1" aria-hidden>
-              {Array.from({ length: dotCount }, (_, i) => (
-                <i key={i} className={`h-1.5 w-1.5 rounded-full ${i === 0 ? "bg-white" : "bg-white/55"}`} />
-              ))}
-            </span>
-          ) : null}
         </div>
-        <div className="flex flex-1 flex-col p-3.5">
-          <p className="text-lg font-bold tracking-tight text-foreground">
+        <div className="ps-bcard-body">
+          <p className="ps-figure ps-bcard-price">
             {rent}
-            {rangeMax ? <span className="text-sm font-semibold text-muted"> – {rangeMax}</span> : null}
-            <span className="ml-1 text-xs font-medium text-muted">{periodSuffix(card)}</span>
+            {rangeMax ? `–${rangeMax}` : ""} <small>{periodSuffix(card)}</small>
           </p>
-          <p className="mt-0.5 text-[13px] font-medium text-foreground" data-attr="resident-browse-card-facts">
+          <p className="ps-bcard-title">{card.headlineAddress}</p>
+          <p className="ps-bcard-line">{card.neighborhood.trim() || " "}</p>
+          <p className="ps-bcard-line" data-attr="resident-browse-card-facts">
             {facts.join(" · ")}
-            {nextOpeningLabel ? (
-              <span className="inline-flex items-center gap-1 text-[var(--status-pending-fg)]" data-attr="resident-browse-card-next-opening">
-                {facts.length > 0 ? <span aria-hidden> · </span> : null}
-                <CalendarDays className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                {nextOpeningLabel}
-              </span>
-            ) : null}
           </p>
-          <p className="mt-1.5 line-clamp-1 text-sm font-semibold text-foreground">{card.headlineAddress}</p>
-          <p className="line-clamp-1 text-xs text-muted">{browseCardNeighborhoodLine(card)}</p>
+          {avail ? (
+            <p
+              className="ps-bcard-avail"
+              data-attr={card.availabilityKind === "now" ? "resident-browse-card-availability" : "resident-browse-card-next-opening"}
+            >
+              {avail}
+            </p>
+          ) : null}
         </div>
         <span className="sr-only">
           {card.headlineAddress}, {card.neighborhood}, {rent}
@@ -206,8 +172,9 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
         <Link
           href={residentCreateAccountHref()}
           aria-label="Save this home"
+          title="Save this home"
           data-attr="resident-browse-save"
-          className="absolute right-2.5 top-2.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition hover:border-primary/40 hover:text-primary"
+          className="ps-bcard-save"
         >
           <Heart className="h-4 w-4" strokeWidth={2} aria-hidden />
         </Link>
@@ -216,347 +183,340 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
   );
 }
 
-/**
- * Every section of the Filters sheet is one bold label with its control — beside
- * it for a single field, under it for a block like the budget range — and a
- * hairline between sections. Nothing explanatory under any label.
- */
-function FilterSection({
-  label,
-  aside,
-  children,
-  inline = false,
-}: {
-  label: string;
-  /** A live readout on the label row (the budget range's "$500 – $1,500"). */
-  aside?: React.ReactNode;
-  children: React.ReactNode;
-  /** The control sits on the label row (a Select, a date, a switch). */
-  inline?: boolean;
-}) {
+function Cell({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <section className="border-b border-border/60 py-4 last:border-b-0 sm:py-5">
-      {inline ? (
-        <div className="flex min-w-0 items-center justify-between gap-4">
-          <span className="shrink-0 text-[15px] font-bold text-foreground">{label}</span>
-          <div className="flex min-w-0 max-w-[60%] justify-end">{children}</div>
-        </div>
-      ) : (
-        <>
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[15px] font-bold text-foreground">{label}</span>
-            {aside}
-          </div>
-          <div className="mt-3">{children}</div>
-        </>
-      )}
-    </section>
+    <label className={`ps-bf-cell ${className}`}>
+      <span className="ps-bf-label">{label}</span>
+      {children}
+    </label>
   );
 }
 
-const FILTER_CONTROL_CLS = `${RESIDENT_HOUSING_INPUT_CLS} min-h-[44px] w-[12rem] max-w-full`;
-const FILTER_PAIR_CONTROL_CLS = `${RESIDENT_HOUSING_INPUT_CLS} min-h-[44px] w-full`;
-
-/** Two label + control pairs sharing one section row (Move-in / Move-out, Room type / Bathroom). */
-function FilterPair({
-  left,
-  right,
-}: {
-  left: { label: string; control: React.ReactNode };
-  right: { label: string; control: React.ReactNode };
-}) {
-  return (
-    <section className="border-b border-border/60 py-4 last:border-b-0 sm:py-5">
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        {[left, right].map((pair) => (
-          <div key={pair.label} className="flex min-w-0 flex-col gap-2">
-            <span className="text-[15px] font-bold text-foreground">{pair.label}</span>
-            {pair.control}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-const BROWSE_BUDGET_BOUNDS = {
-  min: RESIDENT_HOUSING_BUDGET_MIN,
-  max: RESIDENT_HOUSING_BUDGET_MAX,
-  step: RESIDENT_HOUSING_BUDGET_STEP,
-};
-
-/**
- * Every control below is drafted, not applied live: `usePortalFilterDraft` reads/writes a
- * PENDING value scoped to the surrounding `PortalFilterSortSheet` while it is open, and only
- * calls the applied setter (the `onApply*` props) when the sheet commits — the header ✕, the
- * backdrop, or "Show homes" (C180). Outside an open sheet the hook is a pass-through, so this
- * panel behaves identically if ever rendered standalone.
- */
-function BrowseFilterPanel({
-  sort: appliedSort,
-  setSort: onApplySort,
-  moveIn: appliedMoveIn,
-  setMoveIn: onApplyMoveIn,
-  moveOut: appliedMoveOut,
-  setMoveOut: onApplyMoveOut,
-  budgetMin: appliedBudgetMin,
-  budgetMax: appliedBudgetMax,
-  setBudget: onApplyBudget,
-  budgetRents,
-  bathroom: appliedBathroom,
-  setBathroom: onApplyBathroom,
-  roomType: appliedRoomType,
-  setRoomType: onApplyRoomType,
-  petsOnly: appliedPetsOnly,
-  setPetsOnly: onApplyPetsOnly,
-  leaseTypes: appliedLeaseTypes,
-  setLeaseTypes: onApplyLeaseTypes,
-  onApplyChatFilters,
-}: {
-  sort: BrowseSortId;
-  setSort: (v: BrowseSortId) => void;
-  moveIn: string;
-  setMoveIn: (v: string) => void;
-  moveOut: string;
-  setMoveOut: (v: string) => void;
+type FilterModel = {
   budgetMin: number;
   budgetMax: number;
-  setBudget: (next: { min: number; max: number }) => void;
-  budgetRents: number[];
-  bathroom: string;
-  setBathroom: (v: string) => void;
-  roomType: string;
-  setRoomType: (v: string) => void;
-  petsOnly: boolean;
-  setPetsOnly: (v: boolean) => void;
-  leaseTypes: LeaseTypeId[];
-  setLeaseTypes: (v: LeaseTypeId[]) => void;
-  onApplyChatFilters: (filters: HousingChatAppliedFilters) => void;
-}) {
-  const [sort, setSort] = usePortalFilterDraft(appliedSort, onApplySort, "price-asc" as BrowseSortId, "sort");
-  const [moveIn, setMoveIn] = usePortalFilterDraft(appliedMoveIn, onApplyMoveIn, "", "moveIn");
-  const [moveOut, setMoveOut] = usePortalFilterDraft(appliedMoveOut, onApplyMoveOut, "", "moveOut");
-  const [{ min: budgetMin, max: budgetMax }, setBudget] = usePortalFilterDraft(
-    { min: appliedBudgetMin, max: appliedBudgetMax },
-    onApplyBudget,
-    { min: RESIDENT_HOUSING_BUDGET_MIN, max: RESIDENT_HOUSING_BUDGET_MAX },
-    "budget",
-  );
-  const [bathroom, setBathroom] = usePortalFilterDraft(appliedBathroom, onApplyBathroom, "any", "bathroom");
-  const [roomType, setRoomType] = usePortalFilterDraft(appliedRoomType, onApplyRoomType, "any", "roomType");
-  const [petsOnly, setPetsOnly] = usePortalFilterDraft(appliedPetsOnly, onApplyPetsOnly, false, "petsOnly");
-  const [leaseTypes, setLeaseTypes] = usePortalFilterDraft(appliedLeaseTypes, onApplyLeaseTypes, [] as LeaseTypeId[], "leaseTypes");
-
-  /*
-   * The Ask sits INSIDE this drafted panel, so answering it has to move the drafts too.
-   * Applying only to the page leaves every control here holding what it held before the
-   * question, and the sheet's own "Show N homes" then commits those stale drafts straight
-   * back over the Ask's answer.
-   */
-  function applyChatFilters(applied: HousingChatAppliedFilters) {
-    const next = browseStateFromChatFilters(applied, BROWSE_BUDGET_BOUNDS);
-    setMoveIn(next.moveIn);
-    setMoveOut(next.moveOut);
-    setBudget({ min: next.budgetMin, max: next.budgetMax });
-    setRoomType(next.roomType);
-    setBathroom(next.bathroom);
-    setPetsOnly(next.petsOnly);
-    setLeaseTypes(next.leaseTypes);
-    onApplyChatFilters(applied);
-  }
-
-  return (
-    <div className="min-w-0 max-w-full overflow-x-hidden px-1">
-      <FilterSection label="Describe what you want">
-        <ResidentHousingChat variant="inline" onApplyFilters={applyChatFilters} showMatchListings={false} />
-      </FilterSection>
-
-      <FilterSection label="Sort" inline>
-        <Select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as BrowseSortId)}
-          aria-label="Sort homes"
-          data-attr="resident-browse-sort"
-          className={FILTER_CONTROL_CLS}
-        >
-          {SORT_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </Select>
-      </FilterSection>
-
-      <FilterSection label="Monthly budget" aside={<BudgetReadout min={budgetMin} max={budgetMax} />}>
-        <BrowseBudgetRange min={budgetMin} max={budgetMax} onChange={setBudget} rents={budgetRents} hideLabel />
-      </FilterSection>
-
-      <FilterPair
-        left={{
-          label: "Move-in",
-          control: (
-            <input
-              type="date"
-              value={moveIn}
-              onChange={(e) => setMoveIn(e.target.value)}
-              aria-label="Move-in date"
-              data-attr="resident-browse-move-in"
-              className={`${FILTER_PAIR_CONTROL_CLS} hero-search-date-input`}
-            />
-          ),
-        }}
-        right={{
-          label: "Move-out",
-          control: (
-            <input
-              type="date"
-              value={moveOut}
-              onChange={(e) => setMoveOut(e.target.value)}
-              aria-label="Move-out date"
-              data-attr="resident-browse-move-out"
-              className={`${FILTER_PAIR_CONTROL_CLS} hero-search-date-input`}
-            />
-          ),
-        }}
-      />
-      <FilterPair
-        left={{
-          label: "Room type",
-          control: (
-            <Select
-              value={roomType}
-              onChange={(e) => setRoomType(e.target.value)}
-              aria-label="Room type"
-              data-attr="resident-browse-room-type"
-              className={FILTER_PAIR_CONTROL_CLS}
-            >
-              {RESIDENT_ROOM_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </Select>
-          ),
-        }}
-        right={{
-          label: "Bathroom",
-          control: (
-            <Select
-              value={bathroom}
-              onChange={(e) => setBathroom(e.target.value)}
-              aria-label="Bathroom"
-              data-attr="resident-browse-bathroom"
-              className={FILTER_PAIR_CONTROL_CLS}
-            >
-              {RESIDENT_BATHROOM_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.id === "any" ? "Any setup" : opt.id === "private" ? "Private bath" : `Shared · ${opt.label}`}
-                </option>
-              ))}
-            </Select>
-          ),
-        }}
-      />
-      <FilterSection label="Lease type" inline>
-        <CheckboxMultiSelect
-          label="Lease type"
-          hideLabel
-          options={LEASE_TYPES.map((t) => ({ value: t.id, label: t.label }))}
-          selected={leaseTypes}
-          onChange={(next) => setLeaseTypes(next as LeaseTypeId[])}
-          emptyLabel="Any"
-          dataAttr="resident-browse-lease-type"
-          className="w-[12rem] max-w-full"
-        />
-      </FilterSection>
-      <FilterSection label="Pets allowed" inline>
-        <label className="relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center">
-          <input
-            type="checkbox"
-            role="switch"
-            checked={petsOnly}
-            onChange={(e) => setPetsOnly(e.target.checked)}
-            aria-label="Only homes that allow pets"
-            data-attr="resident-browse-pets"
-            className="peer sr-only"
-          />
-          <span className="absolute inset-0 rounded-full bg-border transition peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40" />
-          <span className="absolute left-1 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-        </label>
-      </FilterSection>
-    </div>
-  );
-}
-
-function BudgetReadout({ min, max }: { min: number; max: number }) {
-  return (
-    <span className="text-sm font-bold tabular-nums text-foreground" aria-live="polite">
-      {formatBudgetRangeLabel(min, max)}
-    </span>
-  );
-}
-
-type BrowseFilterApplied = {
-  sort: BrowseSortId;
+  setBudget: (min: number, max: number) => void;
   moveIn: string;
-  moveOut: string;
-  budget: { min: number; max: number };
-  bathroom: string;
-  roomType: string;
-  petsOnly: boolean;
-  leaseTypes: LeaseTypeId[];
+  setMoveIn: (v: string) => void;
+  neighborhood: string | undefined;
+  setNeighborhood: (v: string | undefined) => void;
+  areaOptions: string[];
+  placeKind: PlaceKind;
+  setPlaceKind: (v: PlaceKind) => void;
+  /** The room types some loaded home actually has; the dropdown is left out when there are none. */
+  placeKindOptions: Exclude<PlaceKind, "any">[];
 };
 
-/**
- * "Show N homes" on the filter sheet's commit button (C180).
- *
- * Rendered INSIDE the sheet's draft provider (via `PortalFilterSortSheet`'s `applyLabel`
- * prop and the mobile footer below), so it reads the PENDING filter values instead of the
- * page's own — deliberately stale until commit — applied state, and counts what pressing
- * the button will actually produce. Runs the exact same `buildPropertyBrowseCards` call as
- * the results grid, plus the live (non-drafted) search query and neighborhood, so the two
- * counts never disagree.
- */
-function BrowseFilterApplyLabel({
-  listings,
-  scopedIds,
-  loading,
-  query,
-  neighborhood,
-  applied,
-}: {
-  listings: MockProperty[];
-  scopedIds: string[] | null;
-  loading: boolean;
-  query: string;
-  neighborhood: string | undefined;
-  applied: BrowseFilterApplied;
-}) {
-  const draft = usePortalFilterDraftValues(applied);
-  const budgetMinActive = draft.budget.min > RESIDENT_HOUSING_BUDGET_MIN;
-  const budgetMaxActive = draft.budget.max < RESIDENT_HOUSING_BUDGET_MAX;
-  const count = loading
-    ? null
-    : buildPropertyBrowseCards(listings, {
-        sort: draft.sort,
-        filters: {
-          maxBudgetNum: budgetMaxActive ? draft.budget.max : null,
-          minBudgetNum: budgetMinActive ? draft.budget.min : null,
-          bathroom: draft.bathroom,
-          bedroom: draft.roomType,
-          moveIn: draft.moveIn,
-          moveOut: draft.moveOut,
-          petFriendly: draft.petsOnly || undefined,
-          leaseTypes: draft.leaseTypes,
-          neighborhood,
-          propertyIds: scopedIds,
-        },
-      }).filter((c) => !query.trim() || browseCardMatchesQuery(c, query)).length;
-  return <>{`Show ${count === null ? "homes" : `${count} home${count === 1 ? "" : "s"}`}`}</>;
+/** The four always-visible filters as bare controls: Budget, Move in, Area, Room type. */
+function FourFilters({ m, sheet = false }: { m: FilterModel; sheet?: boolean }) {
+  const minActive = m.budgetMin > RESIDENT_HOUSING_BUDGET_MIN;
+  const maxActive = m.budgetMax < RESIDENT_HOUSING_BUDGET_MAX;
+  const onLadder = (BUDGET_STEPS as readonly number[]).includes(m.budgetMax);
+  const budgetValue = minActive ? "custom" : !maxActive ? "any" : String(m.budgetMax);
+  const budgetOptions: { value: string; label: string }[] = [
+    { value: "any", label: "Any" },
+    ...BUDGET_STEPS.map((n) => ({ value: String(n), label: `Up to ${formatRoomPriceAmount(n)}` })),
+  ];
+  if (minActive) {
+    budgetOptions.push({ value: "custom", label: formatBudgetRangeLabel(m.budgetMin, m.budgetMax) });
+  } else if (maxActive && !onLadder) {
+    budgetOptions.push({ value: String(m.budgetMax), label: `Up to ${formatRoomPriceAmount(m.budgetMax)}` });
+  }
+  const areas = m.neighborhood && !m.areaOptions.includes(m.neighborhood) ? [...m.areaOptions, m.neighborhood] : m.areaOptions;
+
+  const wrap = (label: string, control: ReactNode) =>
+    sheet ? (
+      <div className="ps-bsheet-sec">
+        <label className="grid gap-2">
+          <span className="ps-bf-label">{label}</span>
+          {control}
+        </label>
+      </div>
+    ) : (
+      <Cell label={label}>{control}</Cell>
+    );
+
+  return (
+    <>
+      {wrap(
+        "Budget",
+        <select
+          className="ps-bf-ctl"
+          value={budgetValue}
+          aria-label="Budget, maximum monthly rent"
+          data-attr="resident-browse-budget"
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "custom") return;
+            m.setBudget(RESIDENT_HOUSING_BUDGET_MIN, v === "any" ? RESIDENT_HOUSING_BUDGET_MAX : Number(v));
+          }}
+        >
+          {budgetOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>,
+      )}
+      {wrap(
+        "Move in by",
+        <input
+          type="date"
+          className="ps-bf-ctl hero-search-date-input"
+          value={m.moveIn}
+          aria-label="Move in by"
+          data-attr="resident-browse-move-in"
+          onChange={(e) => m.setMoveIn(e.target.value)}
+        />,
+      )}
+      {wrap(
+        "Area",
+        <select
+          className="ps-bf-ctl"
+          value={m.neighborhood ?? "any"}
+          aria-label="Area"
+          data-attr="resident-browse-area"
+          onChange={(e) => m.setNeighborhood(e.target.value === "any" ? undefined : e.target.value)}
+        >
+          <option value="any">Any</option>
+          {areas.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>,
+      )}
+      {m.placeKindOptions.length > 0
+        ? wrap(
+            "Room type",
+            <select
+              className="ps-bf-ctl"
+              value={m.placeKind}
+              aria-label="Room type"
+              data-attr="resident-browse-place-kind"
+              onChange={(e) => m.setPlaceKind(e.target.value as PlaceKind)}
+            >
+              <option value="any">Any</option>
+              {m.placeKindOptions.map((id) => (
+                <option key={id} value={id}>
+                  {PLACE_KIND_LABELS[id]}
+                </option>
+              ))}
+            </select>,
+          )
+        : null}
+    </>
+  );
 }
 
-export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] } = {}) {
-  const { listings, loading, occupancyReady } = usePublicListings();
+type SheetExtras = {
+  sort: BrowseSortId;
+  setSort: (v: BrowseSortId) => void;
+  moveOut: string;
+  setMoveOut: (v: string) => void;
+  roomType: string;
+  setRoomType: (v: string) => void;
+  bathroom: string;
+  setBathroom: (v: string) => void;
+  leaseTypes: LeaseTypeId[];
+  setLeaseTypes: (v: LeaseTypeId[]) => void;
+  petsOnly: boolean;
+  setPetsOnly: (v: boolean) => void;
+  onApplyChatFilters: (filters: HousingChatAppliedFilters) => void;
+};
+
+/** Bottom sheet on a phone, centered panel on desktop. Controls apply as they change. */
+function FiltersSheet({
+  onClose,
+  model,
+  extras,
+  countLabel,
+  onClear,
+  canClear,
+}: {
+  onClose: () => void;
+  model: FilterModel;
+  extras: SheetExtras;
+  countLabel: string;
+  onClear: () => void;
+  canClear: boolean;
+}) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="ps">
+      <div
+        className="ps-bsheet-wrap"
+        data-attr="resident-browse-filter-sheet"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div className="ps-bsheet" role="dialog" aria-modal="true" aria-label="Filters">
+          <div className="ps-bsheet-head">
+            <h2 className="ps-h3">Filters</h2>
+            <button type="button" className="ps-bf-text" onClick={onClose} data-attr="resident-browse-filter-close">
+              Close
+            </button>
+          </div>
+          <div className="ps-bsheet-body">
+            <div className="ps-bsheet-sec">
+              <span className="ps-bf-label">Describe what you want</span>
+              <ResidentHousingChat variant="inline" onApplyFilters={extras.onApplyChatFilters} showMatchListings={false} />
+            </div>
+            <FourFilters m={model} sheet />
+            <div className="ps-bsheet-sec">
+              <label className="grid gap-2">
+                <span className="ps-bf-label">Sort</span>
+                <select
+                  className="ps-bf-ctl"
+                  value={extras.sort}
+                  aria-label="Sort homes"
+                  data-attr="resident-browse-sort"
+                  onChange={(e) => extras.setSort(e.target.value as BrowseSortId)}
+                >
+                  {SORT_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="ps-bsheet-sec">
+              <label className="grid gap-2">
+                <span className="ps-bf-label">Bedrooms</span>
+                <select
+                  className="ps-bf-ctl"
+                  value={extras.roomType}
+                  aria-label="Bedrooms"
+                  data-attr="resident-browse-room-type"
+                  onChange={(e) => extras.setRoomType(e.target.value)}
+                >
+                  {RESIDENT_ROOM_TYPE_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="ps-bsheet-sec">
+              <label className="grid gap-2">
+                <span className="ps-bf-label">Bathroom</span>
+                <select
+                  className="ps-bf-ctl"
+                  value={extras.bathroom}
+                  aria-label="Bathroom"
+                  data-attr="resident-browse-bathroom"
+                  onChange={(e) => extras.setBathroom(e.target.value)}
+                >
+                  {RESIDENT_BATHROOM_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.id === "any" ? "Any setup" : o.id === "private" ? "Private bath" : `Shared · ${o.label}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="ps-bsheet-sec">
+              <label className="grid gap-2">
+                <span className="ps-bf-label">Move out by</span>
+                <input
+                  type="date"
+                  className="ps-bf-ctl hero-search-date-input"
+                  value={extras.moveOut}
+                  aria-label="Move-out date"
+                  data-attr="resident-browse-move-out"
+                  onChange={(e) => extras.setMoveOut(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="ps-bsheet-sec" data-attr="resident-browse-lease-type">
+              <span className="ps-bf-label">Lease type</span>
+              <div className="ps-bchecks">
+                {LEASE_TYPES.map((t) => (
+                  <label key={t.id}>
+                    <input
+                      type="checkbox"
+                      checked={extras.leaseTypes.includes(t.id)}
+                      onChange={(e) =>
+                        extras.setLeaseTypes(
+                          e.target.checked ? [...extras.leaseTypes, t.id] : extras.leaseTypes.filter((x) => x !== t.id),
+                        )
+                      }
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="ps-bsheet-sec">
+              <div className="ps-bchecks">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={extras.petsOnly}
+                    aria-label="Only homes that allow pets"
+                    data-attr="resident-browse-pets"
+                    onChange={(e) => extras.setPetsOnly(e.target.checked)}
+                  />
+                  Pets allowed
+                </label>
+              </div>
+            </div>
+          </div>
+          <div className="ps-bsheet-foot">
+            <button
+              type="button"
+              className="ps-bf-text"
+              onClick={onClear}
+              disabled={!canClear}
+              style={canClear ? undefined : { opacity: 0.4, cursor: "default" }}
+              data-attr="resident-browse-clear-filters"
+            >
+              Clear
+            </button>
+            <button type="button" className="ps-btn ps-btn-blue" onClick={onClose} data-attr="resident-browse-filter-apply">
+              {countLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function ResidentHousingBrowse({
+  propertyIds,
+  heading = "Find a home",
+}: {
+  propertyIds?: string[];
+  /** The page title; the home count sits on its right. */
+  heading?: string;
+} = {}) {
+  const { listings: loadedListings, loading, occupancyReady, error, retry } = usePublicListings();
+  /*
+   * A stub row (an id and a title, no rent or rooms) cannot be drawn as a card and the catalog
+   * throws reading its rent, which blanked the whole page. Only a row that carries a rent label
+   * is browsable.
+   */
+  const listings = useMemo(
+    () => loadedListings.filter((p) => typeof p.rentLabel === "string"),
+    [loadedListings],
+  );
   const scopedIds = useMemo(
     () => (propertyIds && propertyIds.length > 0 ? propertyIds : null),
     [propertyIds],
@@ -571,34 +531,25 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
   const [petsOnly, setPetsOnly] = useState(false);
   const [leaseTypes, setLeaseTypes] = useState<LeaseTypeId[]>([]);
   const [neighborhood, setNeighborhood] = useState<string | undefined>(undefined);
+  const [placeKind, setPlaceKind] = useState<PlaceKind>("any");
   const [query, setQuery] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const budgetMinActive = budgetMin > RESIDENT_HOUSING_BUDGET_MIN;
   const budgetMaxActive = budgetMax < RESIDENT_HOUSING_BUDGET_MAX;
 
-  const activeFilterCount = [
-    moveIn.trim().length > 0,
-    moveOut.trim().length > 0,
-    budgetMinActive || budgetMaxActive,
-    bathroom !== "any",
-    roomType !== "any",
-    petsOnly,
-    leaseTypes.length > 0,
-    Boolean(neighborhood),
-  ].filter(Boolean).length;
-
-  const budgetRents = useMemo(
-    () =>
-      filterRoomListings(
-        scopedIds?.length ? listings.filter((property) => scopedIds.includes(property.id)) : listings,
-        { zipRaw: "", radiusMiles: 50, maxBudgetNum: null, bathroom: "any" },
-      )
-        .map((c) => c.rentNumeric)
-        .filter((n): n is number => typeof n === "number" && Number.isFinite(n)),
-    // `occupancyReady` is not read here, but the catalog reads occupancy from
-    // storage as it builds rows, so the rents must be rebuilt once it lands.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listings, scopedIds, occupancyReady],
+  /** Each property's own rental model (rent by the room, or the whole home). */
+  const placeKindById = useMemo(() => {
+    const map = new Map<string, PlaceKind>();
+    for (const p of listings) {
+      const raw = p.listingSubmission?.listingPlaceCategoryId;
+      if (raw === "private_room" || raw === "shared_home" || raw === "entire_home") map.set(p.id, raw);
+    }
+    return map;
+  }, [listings]);
+  const placeKindOptions = useMemo(
+    () => (["private_room", "shared_home", "entire_home"] as const).filter((k) => [...placeKindById.values()].includes(k)),
+    [placeKindById],
   );
 
   const filteredCards = useMemo(
@@ -618,7 +569,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
           propertyIds: scopedIds,
         },
       }),
-    // Same as above: availability comes from occupancy storage, not from props.
+    // Availability comes from occupancy storage, not from props, so it rebuilds once that lands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       listings,
@@ -640,9 +591,21 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
   );
 
   const cards = useMemo(() => {
-    if (!query.trim()) return filteredCards;
-    return filteredCards.filter((c) => browseCardMatchesQuery(c, query));
-  }, [filteredCards, query]);
+    let next = filteredCards;
+    if (placeKind !== "any") next = next.filter((c) => placeKindById.get(c.propertyId) === placeKind);
+    if (query.trim()) next = next.filter((c) => browseCardMatchesQuery(c, query));
+    return next;
+  }, [filteredCards, placeKind, placeKindById, query]);
+
+  /** Areas of every home in scope, before any filter narrows them. */
+  const areaOptions = useMemo(() => {
+    const all = buildPropertyBrowseCards(listings, {
+      sort: "neighborhood",
+      filters: { propertyIds: scopedIds },
+    });
+    return Array.from(new Set(all.map((c) => c.neighborhood.trim()).filter(Boolean)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listings, scopedIds, occupancyReady]);
 
   function applyChatFilters(applied: HousingChatAppliedFilters) {
     const next = browseStateFromChatFilters(applied, BROWSE_BUDGET_BOUNDS);
@@ -655,6 +618,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     setPetsOnly(next.petsOnly);
     setLeaseTypes(next.leaseTypes);
     setNeighborhood(next.neighborhood);
+    setPlaceKind("any");
   }
 
   function clearFilters() {
@@ -667,223 +631,179 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     setPetsOnly(false);
     setLeaseTypes([]);
     setNeighborhood(undefined);
+    setPlaceKind("any");
     setSort("price-asc");
+    setQuery("");
   }
 
-
-  const filterActiveCount = portalFilterActiveCount([
-    sort !== "price-asc" ? sort : "",
-    moveIn,
-    moveOut,
+  const activeFilterCount = [
+    sort !== "price-asc",
+    moveIn.trim().length > 0,
+    moveOut.trim().length > 0,
     budgetMinActive || budgetMaxActive,
-    bathroom !== "any" ? bathroom : "",
-    roomType !== "any" ? roomType : "",
+    bathroom !== "any",
+    roomType !== "any",
     petsOnly,
-    leaseTypes,
-    neighborhood,
-  ]);
+    leaseTypes.length > 0,
+    Boolean(neighborhood),
+    placeKind !== "any",
+    query.trim().length > 0,
+  ].filter(Boolean).length;
 
-  const roomTypeLabel =
-    roomType !== "any" ? (RESIDENT_ROOM_TYPE_OPTIONS.find((o) => o.id === roomType)?.label ?? null) : null;
-  const bathroomLabel =
-    bathroom === "any"
-      ? null
-      : bathroom === "private"
-        ? "Private bath"
-        : `Shared · ${RESIDENT_BATHROOM_OPTIONS.find((o) => o.id === bathroom)?.label ?? bathroom}`;
-  const countLabel = loading
-    ? "Loading homes…"
-    : cards.length === 0
-      ? "No homes"
-      : `${cards.length} home${cards.length === 1 ? "" : "s"}`;
-  // Fed to BrowseFilterApplyLabel's usePortalFilterDraftValues, which reads it back as the
-  // fallback for every registered field ("outside a panel there is no draft, and the applied
-  // value is then the honest answer") — the field names must match BrowseFilterPanel's own
-  // usePortalFilterDraft(...,  "name") calls exactly.
-  const browseFilterApplied: BrowseFilterApplied = useMemo(
-    () => ({
-      sort,
-      moveIn,
-      moveOut,
-      budget: { min: budgetMin, max: budgetMax },
-      bathroom,
-      roomType,
-      petsOnly,
-      leaseTypes,
-    }),
-    [sort, moveIn, moveOut, budgetMin, budgetMax, bathroom, roomType, petsOnly, leaseTypes],
+  const model: FilterModel = {
+    budgetMin,
+    budgetMax,
+    setBudget: (min, max) => {
+      setBudgetMin(min);
+      setBudgetMax(max);
+    },
+    moveIn,
+    setMoveIn,
+    neighborhood,
+    setNeighborhood,
+    areaOptions,
+    placeKind,
+    setPlaceKind,
+    placeKindOptions,
+  };
+
+  const homesLabel = loading ? "" : `${cards.length} home${cards.length === 1 ? "" : "s"}`;
+  const searchInput = (
+    <>
+      <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
+      <input
+        type="search"
+        className="ps-bf-ctl"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Neighborhood, city or address"
+        aria-label="Search homes by neighborhood, city or address"
+        data-attr="resident-browse-search"
+      />
+    </>
   );
 
   return (
     <div className="w-full">
+      <header className="ps-browse-head">
+        <h1 className="ps-h1 ps-browse-h1">{heading}</h1>
+        <p className="ps-figure ps-browse-count" data-attr="resident-browse-count" aria-live="polite">
+          {homesLabel}
+        </p>
+      </header>
+
       {scopedIds ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">
+        <div className="ps-browse-scope">
+          <p>
             Showing {cards.length} home{cards.length === 1 ? "" : "s"} shared with you
           </p>
-          <a
-            href="/rent/browse"
-            data-attr="resident-browse-view-all"
-            className="text-xs font-semibold text-primary hover:opacity-90"
-          >
+          <a href="/rent/browse" data-attr="resident-browse-view-all" className="ps-link">
             View all homes →
           </a>
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2.5">
-        <label className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full border border-border bg-card px-4 shadow-sm transition focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20">
-          <Search className="h-4 w-4 shrink-0 text-muted" strokeWidth={2} aria-hidden />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by neighborhood, city or address"
-            aria-label="Search homes by neighborhood, city or address"
-            data-attr="resident-browse-search"
-            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted/70 [&::-webkit-search-cancel-button]:appearance-none"
-          />
-        </label>
-        <PortalFilterSortSheet
-          activeCount={filterActiveCount}
-          className="shrink-0"
-          dataAttr="resident-browse-filter-open"
-          onReset={clearFilters}
-          compactPanel
-          title="Filters"
-          resetLabel="Clear all"
-          panelSizeClassName={PORTAL_FILTER_BROWSE_PANEL_CLASS}
-          mobileSheetClassName={PORTAL_FILTER_BROWSE_MOBILE_SHEET_CLASS}
-          /* The only filter sheet tall enough (82dvh) that raising it would push its top
-             off screen — it stays bottom-anchored, and is stationary either way. */
-          mobileSheetFillsViewport
-          mobileFlushBody={false}
-          desktopPresentation="panel"
-          applyLabel={
-            <BrowseFilterApplyLabel
-              listings={listings}
-              scopedIds={scopedIds}
-              loading={loading}
-              query={query}
-              neighborhood={neighborhood}
-              applied={browseFilterApplied}
-            />
-          }
-          mobileFooter={(close) => (
-            <div className="flex w-full items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={clearFilters}
-                data-attr="resident-browse-clear-filters"
-                className="text-sm font-semibold text-foreground underline underline-offset-2"
-              >
-                Clear all
-              </button>
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-full px-6"
-                data-attr="resident-browse-filter-apply"
-                onClick={close}
-              >
-                <BrowseFilterApplyLabel
-                  listings={listings}
-                  scopedIds={scopedIds}
-                  loading={loading}
-                  query={query}
-                  neighborhood={neighborhood}
-                  applied={browseFilterApplied}
-                />
-              </Button>
-            </div>
-          )}
-        >
-          <BrowseFilterPanel
-            sort={sort}
-            setSort={setSort}
-            moveIn={moveIn}
-            setMoveIn={setMoveIn}
-            moveOut={moveOut}
-            setMoveOut={setMoveOut}
-            budgetMin={budgetMin}
-            budgetMax={budgetMax}
-            setBudget={({ min, max }) => {
-              setBudgetMin(min);
-              setBudgetMax(max);
-            }}
-            budgetRents={budgetRents}
-            bathroom={bathroom}
-            setBathroom={setBathroom}
-            roomType={roomType}
-            setRoomType={setRoomType}
-            petsOnly={petsOnly}
-            setPetsOnly={setPetsOnly}
-            leaseTypes={leaseTypes}
-            setLeaseTypes={setLeaseTypes}
-            onApplyChatFilters={applyChatFilters}
-          />
-        </PortalFilterSortSheet>
+      <div className={`ps-bf ps-bf-desktop${placeKindOptions.length > 0 ? "" : " ps-bf-3"}`} role="search">
+        <FourFilters m={model} />
+        <div className="ps-bf-cell ps-bf-search">{searchInput}</div>
+        <div className="ps-bf-tools">
+          <button type="button" className="ps-bf-text" onClick={() => setSheetOpen(true)} data-attr="resident-browse-filter-open-desktop">
+            More
+          </button>
+          {activeFilterCount > 0 ? (
+            <button type="button" className="ps-bf-text" onClick={clearFilters} data-attr="resident-browse-clear-filters">
+              Clear
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="mb-4 mt-5 flex flex-wrap items-baseline justify-between gap-2 sm:mb-5">
-        <p className="text-sm text-foreground" data-attr="resident-browse-count">
-          <span className="font-bold">{countLabel}</span>
-          {neighborhood ? <span className="text-muted"> · {neighborhood}</span> : null}
-        </p>
-        {activeFilterCount > 0 ? (
+      <div className="ps-bf-phone">
+        <label className="ps-bf-search">{searchInput}</label>
+        <div className="ps-bf-phone-row">
           <button
             type="button"
-            onClick={clearFilters}
-            data-attr="resident-browse-clear-filters"
-            className="text-xs font-semibold text-primary hover:underline"
+            className="ps-btn ps-btn-line"
+            onClick={() => setSheetOpen(true)}
+            data-attr="resident-browse-filter-open"
           >
-            Clear filters ({activeFilterCount})
+            Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
           </button>
-        ) : null}
+          {activeFilterCount > 0 ? (
+            <button type="button" className="ps-bf-text" onClick={clearFilters} data-attr="resident-browse-clear-filters">
+              Clear
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {loading ? (
+      {sheetOpen ? (
+        <FiltersSheet
+          onClose={() => setSheetOpen(false)}
+          model={model}
+          extras={{
+            sort,
+            setSort,
+            moveOut,
+            setMoveOut,
+            roomType,
+            setRoomType,
+            bathroom,
+            setBathroom,
+            leaseTypes,
+            setLeaseTypes,
+            petsOnly,
+            setPetsOnly,
+            onApplyChatFilters: applyChatFilters,
+          }}
+          countLabel={loading ? "Show homes" : `Show ${cards.length} home${cards.length === 1 ? "" : "s"}`}
+          onClear={clearFilters}
+          canClear={activeFilterCount > 0}
+        />
+      ) : null}
+
+      {error && listings.length === 0 ? (
+        <div className="ps-bempty" role="alert">
+          <p className="ps-h3">Homes did not load.</p>
+          <button type="button" className="ps-btn ps-btn-line" onClick={retry} data-attr="resident-browse-retry">
+            Retry
+          </button>
+        </div>
+      ) : loading ? (
         <BrowseSkeleton />
       ) : cards.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border px-6 py-14 text-center">
-          <p className="text-base font-semibold text-foreground">No homes match</p>
-          {activeFilterCount > 0 || query.trim() ? (
-            <p className="mt-1.5 text-sm text-muted">
-              {[
-                formatBudgetChipLabel(budgetMin, budgetMax),
-                moveIn ? formatMoveInChip(moveIn) : null,
-                roomTypeLabel,
-                bathroomLabel,
-                petsOnly ? "Pets OK" : null,
-                leaseTypes.length > 0 ? leaseTypes.map(leaseTypeLabel).join(" / ") : null,
-                query.trim() ? `“${query.trim()}”` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          ) : null}
-          {activeFilterCount > 0 || query.trim() ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4 rounded-full"
-              data-attr="resident-browse-clear-filters"
-              onClick={() => {
-                clearFilters();
-                setQuery("");
-              }}
-            >
+        <div className="ps-bempty">
+          <p className="ps-h3">No homes match</p>
+          {activeFilterCount > 0 ? (
+            <button type="button" className="ps-btn ps-btn-line" data-attr="resident-browse-clear-filters" onClick={clearFilters}>
               Clear filters
-            </Button>
+            </button>
           ) : null}
         </div>
       ) : (
-        <div className={GRID_CLASS} aria-label="Available rental homes">
+        <div className="ps-bgrid" aria-label="Available rental homes">
           {cards.map((card) => (
             <HousingBrowseCard key={card.propertyId} card={card} />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+/** The one-row "Ready to apply?" band under the grid. */
+export function BrowseApplyBand() {
+  return (
+    <section className="ps-bband" aria-label="Create an account to apply">
+      <h2 className="ps-h3">Ready to apply?</h2>
+      <div className="ps-bband-act">
+        <Link href={residentSignInHref()} data-attr="resident-browse-sign-in" className="ps-link">
+          Sign in
+        </Link>
+        <Link href={residentCreateAccountHref()} data-attr="resident-browse-get-started" className="ps-btn ps-btn-blue">
+          Get started
+        </Link>
+      </div>
+    </section>
   );
 }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The listing price card offers three separate, differently-labelled doors:
- * Schedule tour, Apply, and — only when the manager has a real work number — Text.
+ * Book a tour, Apply, and — only when the manager has a real work number — Text.
  *
  * It used to SWAP instead of add: a work number replaced "Schedule a tour" with
  * "Text to tour" and "Apply online" with "Text to apply", so a prospect on a
@@ -76,9 +76,9 @@ afterEach(() => {
 });
 
 describe("listing price card CTAs", () => {
-  it("offers Schedule tour and Apply even when the manager can be texted", () => {
+  it("offers Book a tour and Apply even when the manager can be texted", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
-    expect(screen.getAllByText("Schedule tour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Book a tour").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
     expect(screen.queryByText("Apply long term")).toBeNull();
     expect(screen.queryByText("Text to tour")).toBeNull();
@@ -90,7 +90,7 @@ describe("listing price card CTAs", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
     const text = document.querySelector('[data-attr="listing-text-tour"]') as HTMLAnchorElement | null;
     expect(text).not.toBeNull();
-    expect(text!.textContent).toMatch(/^Text \+?[\d\s]*\(/);
+    expect(text!.textContent).toBe("Text us");
     expect(text!.getAttribute("href")?.startsWith("sms:")).toBe(true);
   });
 
@@ -98,7 +98,7 @@ describe("listing price card CTAs", () => {
     render(<ListingDetailSections property={property(null)} rich={rich} />);
     expect(screen.queryByText(/^Text\b/)).toBeNull();
     expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
-    expect(screen.getAllByText("Schedule tour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Book a tour").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
   });
 });

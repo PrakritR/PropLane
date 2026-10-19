@@ -1,0 +1,118 @@
+/*
+ * The phone-bound doors (/l, /apply, /tour, /start): one centered column, generous top space.
+ * Builds on the shared `.ps` classes; only what they do not cover lives here.
+ */
+.ps-door {
+  min-height: 60vh;
+  padding-top: clamp(40px, 9vw, 120px);
+}
+.ps-door-title {
+  margin-bottom: clamp(24px, 4vw, 40px);
+}
+.ps-door-title-sm {
+  font-size: clamp(26px, 5vw, 36px);
+}
+.ps-door-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: clamp(18px, 3vw, 28px);
+}
+.ps-door-card .ps-btn,
+.ps-door-actions .ps-btn {
+  width: 100%;
+}
+.ps-door-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+}
+.ps-door-line {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+}
+.ps-code {
+  min-height: 64px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.4em;
+  padding-left: calc(12px + 0.4em);
+}
+.ps-code::placeholder {
+  letter-spacing: 0.05em;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ps-mute);
+}
+.ps-text-btn {
+  align-self: center;
+  background: none;
+  border: 0;
+  padding: 8px 4px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ps-blue);
+  cursor: pointer;
+}
+.ps-text-btn:hover {
+  text-decoration: underline;
+}
+.ps-text-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ps-door-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.ps-door-total .ps-figure {
+  font-size: clamp(32px, 6vw, 44px);
+}
+/* The shared phone field (country select + number) sits on the same hairline as .ps-input. */
+.ps-door-card [data-attr$="phone"] {
+  width: 100%;
+}
+.ps-door-card .ps-facts {
+  border-top: 0;
+}
+.ps-door-card .ps-facts > li > .ps-facts-title {
+  color: var(--ps-ink);
+  font-weight: 500;
+  text-align: left;
+}
+.ps-door-card .ps-facts > li:last-child {
+  border-bottom: 0;
+}
+/* The shared phone field: country select + number, squared to the same 3px hairline as .ps-input. */
+.ps-door-card [data-attr$="phone"] button,
+.ps-door-card [data-attr$="phone-input"] button {
+  min-height: 46px;
+  border-radius: 3px 0 0 3px !important;
+  border: 1px solid var(--ps-rule-d) !important;
+  background: var(--ps-white) !important;
+  box-shadow: none !important;
+  color: var(--ps-ink);
+}
+.ps-door-card [data-attr$="phone"] input,
+.ps-door-card [data-attr$="phone-input"] input {
+  min-height: 46px;
+  border-radius: 0 3px 3px 0 !important;
+  border: 1px solid var(--ps-rule-d) !important;
+  background: var(--ps-white) !important;
+  box-shadow: none !important;
+  font-size: 16px;
+  font-weight: 500;
+}
+.ps-door-card [data-attr$="phone"] input:focus,
+.ps-door-card [data-attr$="phone-input"] input:focus {
+  border-color: var(--ps-blue) !important;
+  box-shadow: 0 0 0 1px var(--ps-blue) !important;
+}

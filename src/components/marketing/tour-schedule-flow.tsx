@@ -20,6 +20,7 @@ import {
   toLocalDateStr,
 } from "@/lib/demo-admin-scheduling";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
+import { JourneyPicker, type JourneyPickerOption } from "@/components/public-site/journey-picker";
 import {
   ProspectAccountHandoff,
   ProspectPublicSuccessBanner,
@@ -176,16 +177,52 @@ function openSlotIndicesForDateStr(availability: Set<string>, dateStr: string): 
   }
   return out.sort((a, b) => a - b);
 }
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** "Tuesday, October 21" for a calendar day the picker holds as year / month index / day. */
+function tourDayLabel(year: number, month: number, day: number): string {
+  const weekday = WEEKDAYS_LONG[new Date(year, month, day, 12, 0, 0, 0).getDay()] ?? "";
+  return `${weekday}, ${MONTHS[month]} ${day}`;
+}
+
+/** Dates (YYYY-MM-DD, soonest first) that have at least one open slot today or later, capped for the day row. */
+function upcomingOpenDates(availability: ReadonlySet<string>, todayDateStr: string, cap = 28): string[] {
+  const dates = new Set<string>();
+  for (const key of availability) {
+    const date = key.split(":")[0] ?? "";
+    if (date >= todayDateStr) dates.add(date);
+  }
+  return [...dates].sort().slice(0, cap);
+}
+
 function TourStepNavigationFooter({
   step,
   onBack,
   onContinue,
+  pub = false,
 }: {
   step: TourStep;
   onBack: () => void;
   onContinue: () => void;
+  pub?: boolean;
 }) {
   if (step >= 3) return null;
+  if (pub) {
+    return (
+      <div className={`ps-j-nav ${step > 1 ? "" : "ps-j-nav-end"}`}>
+        {step > 1 ? (
+          <button type="button" className="ps-btn ps-btn-line" onClick={onBack}>
+            Back
+          </button>
+        ) : null}
+        <button type="button" className="ps-btn ps-btn-blue" onClick={onContinue}>
+          Continue
+        </button>
+      </div>
+    );
+  }
   return (
     <div className={`flex w-full ${step > 1 ? "justify-between" : "justify-end"}`}>
       {step > 1 ? (
@@ -230,6 +267,8 @@ export function TourScheduleFlow({
   onSuccessDismiss?: () => void;
 }) {
   const { showToast } = useAppUi();
+  // The public tour page (not the resident portal's embedded flow) wears the journey look.
+  const pub = !embedded;
   const [step, setStep] = useState<TourStep>(1);
   const [maxStepReached, setMaxStepReached] = useState<TourStep>(1);
   const [submitted, setSubmitted] = useState(false);
@@ -417,7 +456,7 @@ export function TourScheduleFlow({
     applicationGate.status === "denied"
   ) {
     return (
-      <div className={embedded ? "space-y-6" : PUBLIC_PROSPECT_CANVAS_CLASS}>
+      <div className={embedded ? "space-y-6" : pub ? "ps-j-stack" : PUBLIC_PROSPECT_CANVAS_CLASS}>
         <TourApplicationFirstPanel propertyId={property.id} propertyTitle={property.title} reason={applicationGate.status} />
       </div>
     );
@@ -438,6 +477,112 @@ export function TourScheduleFlow({
       fullName: submittedContact?.name,
       phone: submittedContact?.phone,
     });
+
+    if (pub) {
+      const area = property.neighborhood?.trim() || property.address?.trim() || "";
+      return (
+        <div className="ps-j-stack" data-attr="tour-success">
+          <ProspectPublicSuccessBanner ps eyebrow="Tour request sent" title="Your tour request is in">
+            <ul className="ps-facts">
+              <li>
+                <span>Home</span>
+                <span>{property.title}</span>
+              </li>
+              {selectedDay && selectedSlotIndex != null ? (
+                <>
+                  <li>
+                    <span>Day</span>
+                    <span>{tourDayLabel(calYear, calMonth, selectedDay)}</span>
+                  </li>
+                  <li>
+                    <span>Time</span>
+                    <span>{formatAvailabilitySlotLabel(selectedSlotIndex)}</span>
+                  </li>
+                </>
+              ) : null}
+              {selectedRoomLabel ? (
+                <li>
+                  <span>Room</span>
+                  <span>{selectedRoomLabel}</span>
+                </li>
+              ) : null}
+              {area ? (
+                <li>
+                  <span>Area</span>
+                  <span>{area}</span>
+                </li>
+              ) : null}
+            </ul>
+            {/*
+              A requested time reads like a booked one, so this says the opposite plainly. A guest
+              who travels to the property on an unconfirmed request finds nobody there — the same
+              warning is in the acknowledgment email.
+            */}
+            <p style={{ margin: 0, fontWeight: 600 }} data-attr="tour-request-not-confirmed-notice">
+              This tour is not confirmed yet — please do not go to the property until you receive
+              your confirmation.
+            </p>
+          </ProspectPublicSuccessBanner>
+
+          <div className="ps-j-actions">
+            {onSuccessDismiss ? (
+              <button type="button" onClick={onSuccessDismiss} data-attr="tour-success-done" className="ps-btn ps-btn-blue">
+                Done
+              </button>
+            ) : null}
+            <Link
+              href={buildRentalApplyHref({ propertyId: property.id })}
+              data-attr="tour-success-apply"
+              className="ps-btn ps-btn-blue"
+            >
+              Apply for this property
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setSubmitted(false);
+                setSubmittedContact(null);
+                setStep(1);
+                setMaxStepReached(1);
+                setSelectedRoomKey(null);
+                setSelectedDay(null);
+                setSelectedSlotIndex(null);
+              }}
+              className="ps-btn ps-btn-line"
+            >
+              Request another tour
+            </button>
+            <Link href="/rent/browse" data-attr="tour-success-find-home" className="ps-btn ps-btn-line">
+              Find another home
+            </Link>
+          </div>
+
+          {!signedInUserId ? (
+            <ProspectAccountHandoff
+              ps
+              title="Create an account to see your tour in PropLane"
+              description="Track tour updates, read manager messages in Communication, and apply when you are ready."
+              createAccountHref={createAccountHref}
+              signInHref={signInHref}
+              createAccountDataAttr="tour-success-create-account"
+              signInDataAttr="tour-success-sign-in"
+            />
+          ) : (
+            <ProspectViewInPortalAction
+              ps
+              signedIn
+              hasResidentRole={hasResidentRole}
+              portalPath={
+                submittedContact?.inquiryId
+                  ? `/resident/tour?link_tour=${encodeURIComponent(submittedContact.inquiryId)}`
+                  : "/resident/tour/pending"
+              }
+              dataAttr="tour-success-view-in-portal"
+            />
+          )}
+        </div>
+      );
+    }
 
     return (
       <div className={embedded ? "space-y-6" : PUBLIC_PROSPECT_CANVAS_CLASS}>
@@ -524,7 +669,31 @@ export function TourScheduleFlow({
   }
 
   return (
-    <div className={embedded ? "space-y-6" : PUBLIC_PROSPECT_CANVAS_CLASS}>
+    <div className={embedded ? "space-y-6" : "ps-j-stack"}>
+      {pub ? (
+        <ol className="ps-j-steps" aria-label="Tour steps">
+          {steps.map((st) => {
+            const reachable = canNavigateToWizardStep(st.n, maxStepReached);
+            return (
+              <li key={st.n}>
+                <button
+                  type="button"
+                  className="ps-j-step"
+                  aria-current={step === st.n ? "step" : undefined}
+                  disabled={!reachable}
+                  onClick={() => {
+                    if (reachable) setStep(st.n as TourStep);
+                  }}
+                >
+                  <span className="ps-j-step-i">{String(st.n).padStart(2, "0")}</span>
+                  {st.label}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <>
       <div className="text-sm">
         <p className="font-semibold text-foreground">{property.title}</p>
         {property.address ? <p className="mt-1 text-muted">{property.address}</p> : null}
@@ -564,10 +733,13 @@ export function TourScheduleFlow({
         );
         })}
       </div>
+        </>
+      )}
 
-      <div className="mt-6">
+      <div className={pub ? undefined : "mt-6"}>
         {step === 1 && (
           <Step1
+            pub={pub}
             property={property}
             onSelectRoom={(roomKey) => {
               if (!roomKey) {
@@ -593,6 +765,7 @@ export function TourScheduleFlow({
         )}
         {step === 2 && (
           <Step2
+            pub={pub}
             property={property}
             availability={selectedAvailability}
             fieldErrors={fieldErrors}
@@ -611,6 +784,17 @@ export function TourScheduleFlow({
               setSelectedSlotIndex(null);
             }}
             selectedDay={selectedDay}
+            onSelectDate={(y, m, d) => {
+              setFieldErrors((prev) => {
+                const next = { ...prev };
+                delete next.tourSlot;
+                return next;
+              });
+              setCalYear(y);
+              setCalMonth(m);
+              setSelectedDay(d);
+              setSelectedSlotIndex(null);
+            }}
             onSelectDay={(day) => {
               setFieldErrors((prev) => {
                 const next = { ...prev };
@@ -637,6 +821,7 @@ export function TourScheduleFlow({
         )}
         {step === 3 && (
           <Step3
+            pub={pub}
             property={property}
             roomLabel={selectedRoomLabel}
             contactDefaults={contactAutofill}
@@ -778,8 +963,8 @@ export function TourScheduleFlow({
       </div>
 
       {!embeddedModalLayout && step < 3 ? (
-        <div className="mt-6">
-          <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />
+        <div className={pub ? undefined : "mt-6"}>
+          <TourStepNavigationFooter pub={pub} step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />
         </div>
       ) : null}
     </div>
@@ -787,12 +972,14 @@ export function TourScheduleFlow({
 }
 
 function Step1({
+  pub,
   property,
   onSelectRoom,
   selectedRoomKey,
   fieldErrors,
   occupancySyncEpoch,
 }: {
+  pub: boolean;
   property: MockProperty;
   onSelectRoom: (roomKey: string | null) => void;
   selectedRoomKey: string | null;
@@ -812,6 +999,48 @@ function Step1({
   const pickerValue = undecidedSelected ? null : selectedRoomKey;
   void occupancySyncEpoch;
   const roomAvailabilityWarning = tourRoomAvailabilityMessage(selectedRoomKey);
+
+  if (pub) {
+    const rowOptions: JourneyPickerOption[] = listedRooms.map((option) => ({
+      id: option.key,
+      title: option.label,
+      searchText: `${option.subtitle} ${property.address} ${property.neighborhood}`,
+    }));
+    return (
+      <div className="ps-j-stack" style={{ gap: 16 }}>
+        <h2 className="ps-h3">{showUndecided ? "Which room?" : "Room"}</h2>
+        <div data-wizard-field="room" className="ps-j-stack" style={{ gap: 12 }}>
+          <JourneyPicker
+            options={rowOptions}
+            value={pickerValue}
+            onChange={(id) => onSelectRoom(id)}
+            placeholder="Search rooms by name, floor, or rent"
+            ariaLabel="Search rooms to tour"
+            emptyMessage="No rooms match your search."
+            listEmptyMessage="No rooms listed for this property."
+          />
+          {showUndecided ? (
+            <button
+              type="button"
+              data-attr="tour-room-undecided"
+              aria-pressed={undecidedSelected}
+              onClick={() => onSelectRoom(TOUR_ROOM_UNDECIDED_KEY)}
+              className="ps-j-row"
+              style={{ borderTop: 0 }}
+            >
+              <span className="ps-j-row-t">{TOUR_ROOM_UNDECIDED_LABEL}</span>
+            </button>
+          ) : null}
+          {fieldErrors.room ? <p className="ps-error" style={{ margin: 0 }}>{fieldErrors.room}</p> : null}
+        </div>
+        {roomAvailabilityWarning ? (
+          <p role="status" data-attr="tour-room-unavailable" className="ps-j-note" style={{ margin: 0 }}>
+            {roomAvailabilityWarning}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -868,6 +1097,8 @@ function Step1({
 }
 
 function Step2({
+  pub,
+  onSelectDate,
   property,
   availability,
   fieldErrors,
@@ -878,6 +1109,8 @@ function Step2({
   availabilityError,
   onRetryAvailability,
 }: {
+  pub: boolean;
+  onSelectDate: (year: number, month: number, day: number) => void;
   property: MockProperty;
   availability: Set<string>;
   fieldErrors: Record<string, string>;
@@ -899,6 +1132,112 @@ function Step2({
   const todayPacific = pacificCalendarDateYmd();
   const selectedDateStr = selectedDay != null ? toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0)) : null;
   const openSlots = selectedDateStr ? openSlotIndicesForDateStr(availability, selectedDateStr) : [];
+
+  if (pub) {
+    const openDates = upcomingOpenDates(availability, todayPacific);
+    const noTimes =
+      !availabilityLoading && !availabilityError && !tourAvailabilityHasUpcoming(availability, todayPacific);
+    return (
+      <div className="ps-j-stack" style={{ gap: 22 }}>
+        {availabilityLoading ? (
+          <div role="status" aria-label="Loading tour windows">
+            <div className="ps-j-skel" aria-hidden>
+              {Array.from({ length: 7 }).map((_, i) => (
+                <i key={i} />
+              ))}
+            </div>
+            <span className="sr-only">Loading tour windows…</span>
+          </div>
+        ) : availabilityError ? (
+          <div data-attr="tour-availability-read-failed" className="ps-j-note ps-j-note-bad">
+            <p>{availabilityError}</p>
+            <button type="button" onClick={onRetryAvailability} className="ps-btn ps-btn-line">
+              Try again
+            </button>
+          </div>
+        ) : noTimes ? (
+          <div data-attr="tour-no-times-yet" className="ps-j-note">
+            <p>No tour times yet</p>
+            {property.contactSmsPhone?.trim() ? (
+              <a
+                href={`sms:${property.contactSmsPhone.trim()}`}
+                data-attr="tour-message-manager"
+                className="ps-btn ps-btn-line"
+              >
+                Message the manager
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div
+          data-wizard-field="tourSlot"
+          className={`ps-j-stack${fieldErrors.tourSlot ? " ps-j-err" : ""}`}
+          style={{ gap: 22 }}
+        >
+          {openDates.length > 0 ? (
+            <div>
+              <p className="ps-j-month">Day</p>
+              <div className="ps-j-days" role="group" aria-label="Open days">
+                {openDates.map((dateStr) => {
+                  const [y, m, d] = dateStr.split("-").map(Number) as [number, number, number];
+                  const selected = selectedDay === d && calMonth === m - 1 && calYear === y;
+                  const weekday = WEEKDAYS_SHORT[new Date(y, m - 1, d, 12, 0, 0, 0).getDay()];
+                  return (
+                    <button
+                      key={dateStr}
+                      type="button"
+                      className="ps-j-day"
+                      aria-pressed={selected}
+                      aria-label={`${tourDayLabel(y, m - 1, d)} — open for tours`}
+                      onClick={() => onSelectDate(y, m - 1, d)}
+                    >
+                      <span className="ps-j-day-w">{weekday}</span>
+                      <span className="ps-j-day-d">{d}</span>
+                      <span className="ps-j-day-w">{MONTHS_SHORT[m - 1]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {selectedDay ? (
+            <div>
+              <p className="ps-j-month">Time · {tourDayLabel(calYear, calMonth, selectedDay)}</p>
+              {openSlots.length === 0 ? (
+                <p className="ps-mute" style={{ margin: 0 }}>
+                  No tour windows on this day — pick another date above.
+                </p>
+              ) : (
+                <div className="ps-j-times">
+                  {openSlots.map((slotIndex) => (
+                    <button
+                      key={slotIndex}
+                      type="button"
+                      className="ps-j-time"
+                      aria-pressed={selectedSlotIndex === slotIndex}
+                      onClick={() => onSelectSlotIndex(slotIndex)}
+                    >
+                      {formatAvailabilitySlotLabel(slotIndex)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {selectedSlotIndex != null && managersAtSelectedSlot.length > 1 ? (
+            <p className="ps-mute" style={{ margin: 0 }}>
+              We&apos;ll send this request to every available manager for this house. The first manager to approve
+              gets the tour.
+            </p>
+          ) : null}
+          {fieldErrors.tourSlot ? <p className="ps-error" style={{ margin: 0 }}>{fieldErrors.tourSlot}</p> : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -1037,9 +1376,11 @@ function Step2({
 }
 
 function Step3({
+  pub,
   property, roomLabel, day, slotIndex, month, year, submitting, onSubmit, fieldErrors, onFieldChange,
   returnAfterAuth, contactDefaults, embeddedModalLayout, onEmbeddedBookFooterChange, signedIn,
 }: {
+  pub: boolean;
   property: MockProperty; roomLabel: string; day: number | null; slotIndex: number | null;
   month: number;
   year: number;
@@ -1103,6 +1444,137 @@ function Step3({
     submitting,
     tourFormat,
   ]);
+
+  if (pub) {
+    return (
+      <div className="ps-j-stack" style={{ gap: 22 }}>
+        <ul className="ps-facts" data-attr="tour-confirm-summary">
+          <li>
+            <span>Home</span>
+            <span>{property.title}</span>
+          </li>
+          {day != null ? (
+            <li>
+              <span>Day</span>
+              <span>{tourDayLabel(year, month, day)}</span>
+            </li>
+          ) : null}
+          {slotIndex != null ? (
+            <li>
+              <span>Time</span>
+              <span>{formatAvailabilitySlotLabel(slotIndex)}</span>
+            </li>
+          ) : null}
+          {roomLabel ? (
+            <li>
+              <span>Room</span>
+              <span>{roomLabel}</span>
+            </li>
+          ) : null}
+        </ul>
+
+        {/*
+          Only for a visitor with no account. Inside the resident portal the
+          person is already signed in — telling them no account is required, and
+          offering them a sign-in link, is copy about a situation they are not in.
+        */}
+        {signedIn ? null : (
+          <p style={{ margin: 0 }}>
+            No account is required to book a tour. Add your contact details below, or{" "}
+            <Link href={signInHref} data-attr="tour-step-sign-in" className="ps-link">
+              sign in
+            </Link>{" "}
+            if you already have one.
+          </p>
+        )}
+
+        <div className="ps-j-grid2">
+          <Field pub label="Name *" fieldKey="name" error={fieldErrors.name}>
+            <input
+              id="tour-name"
+              type="text"
+              value={name}
+              onChange={(e) => {
+                onFieldChange("name");
+                setName(e.target.value);
+              }}
+              placeholder="Jane Smith"
+              className={wizardFieldErrorClass(Boolean(fieldErrors.name), PS_INPUT_CLS)}
+            />
+          </Field>
+          <Field pub label="Email *" fieldKey="email" error={fieldErrors.email}>
+            <input
+              id="tour-email"
+              type="email"
+              value={email}
+              onChange={(e) => {
+                onFieldChange("email");
+                setEmail(e.target.value);
+              }}
+              placeholder="jane@email.com"
+              className={wizardFieldErrorClass(Boolean(fieldErrors.email), PS_INPUT_CLS)}
+            />
+          </Field>
+        </div>
+        <Field pub label="Phone *" fieldKey="phone" error={fieldErrors.phone}>
+          <PhoneNumberField
+            id="tour-phone"
+            value={phone}
+            onChange={(next) => {
+              onFieldChange("phone");
+              setPhone(next);
+            }}
+            inputClassName={wizardFieldErrorClass(Boolean(fieldErrors.phone), "")}
+            dataAttr="tour-phone"
+          />
+        </Field>
+        <Field pub label="Tour format">
+          <div role="radiogroup" aria-label="Tour format" className="ps-j-radios" data-attr="tour-format">
+            {TOUR_FORMAT_OPTIONS.map((option) => {
+              const selected = tourFormat === option.value;
+              return (
+                <label key={option.value} className="ps-j-radio" data-on={selected} title={option.hint}>
+                  <input
+                    type="radio"
+                    name="tour-format"
+                    value={option.value}
+                    checked={selected}
+                    onChange={() => setTourFormat(option.value)}
+                    data-attr={`tour-format-${option.value}`}
+                  />
+                  <b>{option.label}</b>
+                </label>
+              );
+            })}
+          </div>
+        </Field>
+        <Field pub label="Notes (optional)">
+          <textarea
+            id="tour-notes"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Anything we should prepare in advance?"
+            className={`${PS_INPUT_CLS} resize-none`}
+          />
+        </Field>
+
+        {signedIn ? null : (
+          <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="tour-sms-consent" ps />
+        )}
+
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={() => onSubmit({ name, email, phone, notes, smsConsent, tourFormat })}
+          className="ps-btn ps-btn-blue ps-btn-block"
+          data-attr="tour-book-submit"
+        >
+          {submitting ? "Booking..." : "Book tour"}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -1231,12 +1703,23 @@ function Field({
   children,
   fieldKey,
   error,
+  pub = false,
 }: {
   label: string;
   children: ReactNode;
   fieldKey?: string;
   error?: string;
+  pub?: boolean;
 }) {
+  if (pub) {
+    return (
+      <div className="ps-field" data-wizard-field={fieldKey}>
+        <span>{label}</span>
+        {children}
+        {error ? <span className="ps-error">{error}</span> : null}
+      </div>
+    );
+  }
   return (
     <div data-wizard-field={fieldKey}>
       <p className="mb-1.5 text-xs font-semibold text-muted">{label}</p>
@@ -1245,6 +1728,8 @@ function Field({
     </div>
   );
 }
+
+const PS_INPUT_CLS = "ps-input";
 
 const inputCls =
   "w-full rounded-xl border border-border bg-accent/30 px-3.5 py-2.5 text-sm text-foreground outline-none transition-all duration-150 placeholder:text-muted/70 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 hover:border-border";

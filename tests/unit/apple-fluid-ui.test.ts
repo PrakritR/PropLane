@@ -50,10 +50,9 @@ describe("press states", () => {
     expect(button).toContain("transition-[transform,scale,");
   });
 
-  it("rows highlight instantly on press and browse cards press to .985", () => {
+  it("rows highlight instantly on press", () => {
     const row = read("src/components/portal/portal-record-row.tsx");
     expect(row.match(/active:bg-\[rgba\(17,24,39,0\.07\)\] active:duration-75/g)?.length).toBe(2);
-    expect(read("src/components/marketing/resident-housing-browse.tsx")).toContain("active:scale-[.985]");
   });
 });
 
