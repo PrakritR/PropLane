@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Drawer } from "vaul";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import { OwnerSearchDialog, ownerSearchTargets } from "@/components/owner/owner-search-dialog";
@@ -307,29 +308,40 @@ function OwnerBottomBar({ messagesOn, active }: { messagesOn: boolean; active: O
           </button>
         </div>
       </nav>
-      {moreOpen ? (
-        <div className="fixed inset-x-0 bottom-[4.75rem] z-[60] mx-3 rounded-2xl border border-border bg-card p-2 shadow-lg lg:hidden" role="menu" data-attr="owner-more-sheet">
-          {moreItems.map((item) => {
-            const Icon = ICONS[item.id];
-            return (
-              <Link
-                key={item.id}
-                href={item.href}
-                role="menuitem"
-                onClick={() => setMoreOpen(false)}
-                data-attr={`owner-more-${item.id}`}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-3 text-sm font-medium text-foreground"
-              >
-                <Icon className="size-4" strokeWidth={1.75} aria-hidden />
-                {item.label}
-              </Link>
-            );
-          })}
-          <div className="px-3 py-3">
-            <PortalSignOutButton className="text-sm font-semibold text-red-600" onRequestConfirm={() => setMoreOpen(false)} />
-          </div>
-        </div>
-      ) : null}
+      {/* The same bottom sheet every other portal's More opens: a dimmed backdrop and a solid surface, never a card the page shows through. */}
+      <Drawer.Root open={moreOpen} onOpenChange={setMoreOpen} handleOnly>
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/50 motion-reduce:transition-none" />
+          <Drawer.Content
+            className="fixed inset-x-0 bottom-0 z-[71] flex !w-screen !max-w-none max-h-[min(85dvh,720px)] flex-col gap-0 rounded-none border-x-0 border-t border-border bg-background px-0 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pt-0 outline-none motion-reduce:transition-none lg:hidden"
+            data-slot="vaul-bottom-sheet"
+            data-attr="owner-more-sheet"
+          >
+            <Drawer.Handle className="mx-auto mt-3 h-1 w-10 shrink-0 rounded-full bg-border" aria-hidden />
+            <Drawer.Title className="sr-only">Owner sections</Drawer.Title>
+            <nav className="px-3 pb-2 pt-2" aria-label="More">
+              {moreItems.map((item) => {
+                const Icon = ICONS[item.id];
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    onClick={() => setMoreOpen(false)}
+                    data-attr={`owner-more-${item.id}`}
+                    className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-accent/70"
+                  >
+                    <Icon className="size-4" strokeWidth={1.75} aria-hidden />
+                    {item.label}
+                  </Link>
+                );
+              })}
+              <div className="px-3 py-3">
+                <PortalSignOutButton className="text-sm font-semibold text-red-600" onRequestConfirm={() => setMoreOpen(false)} />
+              </div>
+            </nav>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
     </>
   );
 }
@@ -378,6 +390,12 @@ function ShellFrame({
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={cn(PORTAL_MAIN_CONTENT_CLASS, "pb-24 lg:pb-0")}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
               <OwnerMobileBar name={name} email={email} />
+              {/* The anatomy puts no visible title on a dashboard or list page; the page still names itself for a screen reader. Settings draws its own title, and the phone bar is the h1 for the rest. */}
+              {active && active !== "settings" ? (
+                <h1 className={cn("sr-only", active !== "overview" && active !== "properties" && "max-lg:hidden")}>
+                  {ownerNavItems(messagesOn).find((item) => item.id === active)?.label ?? "Overview"}
+                </h1>
+              ) : null}
               <OwnerSectionTabs financesOn={financesOn} />
               {/* A switch throws the page's own state away (house tab, month) so nothing from the other workspace lingers. */}
               <div key={ctx?.activeId ?? "none"}>{children}</div>

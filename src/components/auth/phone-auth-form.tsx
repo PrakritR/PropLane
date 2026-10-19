@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { Input } from "@/components/ui/input";
 import { oauthContinuePath } from "@/lib/auth/oauth-redirect";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -30,6 +31,9 @@ export function PhoneAuthForm({
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  // /auth/verify-phone has no other client component to mark the document, so without this the auth shell
+  // draws the full public footer (wave art + giant mark) over the form on desktop. Sign-in already marks it.
+  useAuthWelcomeChrome(mode === "verify_phone");
   const [purpose, setPurpose] = useState<Purpose>(mode);
   const [phone, setPhone] = useState("");
   const [challengeId, setChallengeId] = useState<string | null>(null);

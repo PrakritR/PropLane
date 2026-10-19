@@ -87,7 +87,7 @@ function PhonePreview({ post }: { post: GrowthPostView }) {
       ) : (
         <div className="mx-auto w-[220px] rounded-[28px] border-4 border-foreground/80 bg-card p-1.5">
           <div
-            className="relative flex aspect-[9/16] items-end overflow-hidden rounded-[20px] bg-[#2863f0] p-3 text-white"
+            className="relative flex aspect-[9/16] items-end overflow-hidden rounded-[20px] bg-primary p-3 text-white"
             style={image ? { backgroundImage: `url(${image.publicUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
           >
             <div className="w-full rounded-lg bg-black/35 p-2 text-[10px] leading-snug backdrop-blur-sm">

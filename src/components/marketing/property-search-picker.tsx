@@ -40,12 +40,16 @@ function CheckSmIcon() {
   );
 }
 
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex rounded-full border border-border/60 bg-accent/50 px-2.5 py-0.5 text-[11px] font-medium text-muted">
-      {children}
-    </span>
-  );
+/**
+ * An option's tags read as ONE plain line of facts ("Green Lake · $3,200/mo"), never as pills: a row carries
+ * no chips (AGENTS.md "No pills on rows"). A tag that is empty or only a dash ("—", the missing-rent
+ * placeholder) is a fact the row does not have, so it is left out instead of drawn as an empty mark.
+ */
+export function propertyOptionFactLine(tags: readonly string[] | undefined): string {
+  return (tags ?? [])
+    .map((tag) => tag.trim())
+    .filter((tag) => tag && !/^[—–-]+$/.test(tag))
+    .join(" · ");
 }
 
 const inputCls =
@@ -151,12 +155,8 @@ export function PropertySearchPicker({
         <div className="glass-card rounded-2xl border border-primary/25 bg-primary/5 p-4 ring-2 ring-primary/10">
           <p className="text-sm font-semibold text-foreground">{selected.title}</p>
           {selected.subtitle ? <p className="mt-0.5 text-xs text-muted">{selected.subtitle}</p> : null}
-          {selected.tags && selected.tags.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {selected.tags.map((tag) => (
-                <Chip key={tag}>{tag}</Chip>
-              ))}
-            </div>
+          {propertyOptionFactLine(selected.tags) ? (
+            <p className="mt-1 text-xs text-muted" data-attr="property-picker-facts">{propertyOptionFactLine(selected.tags)}</p>
           ) : null}
         </div>
       ) : null}
@@ -215,12 +215,10 @@ export function PropertySearchPicker({
                               {option.subtitle ? (
                                 <p className="mt-0.5 truncate text-xs text-muted">{option.subtitle}</p>
                               ) : null}
-                              {option.tags && option.tags.length > 0 ? (
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {option.tags.map((tag) => (
-                                    <Chip key={tag}>{tag}</Chip>
-                                  ))}
-                                </div>
+                              {propertyOptionFactLine(option.tags) ? (
+                                <p className="mt-0.5 truncate text-xs text-muted" data-attr="property-picker-facts">
+                                  {propertyOptionFactLine(option.tags)}
+                                </p>
                               ) : null}
                             </div>
                             {/* Rendered as a span, not a button: the whole row is already the

@@ -515,7 +515,7 @@ export function PortalApplicantRecordRow({
           <div
             aria-hidden
             className={cn(
-              "grid size-[38px] place-items-center bg-[#f0f2f5] text-[12px] font-bold tracking-wide text-muted",
+              "grid size-[38px] place-items-center bg-[var(--secondary)] text-[12px] font-bold tracking-wide text-muted",
               tileRounding,
             )}
           >

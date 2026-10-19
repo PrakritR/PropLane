@@ -226,6 +226,13 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const actionClosingRef = useRef(false);
   const openedAtRef = useRef(0);
+  // True from the trigger's pointerdown until its pointerup (or a press inside the menu). Opening the menu
+  // selects the row (`activate`), which can reflow the list so the menu lands UNDER the still-held pointer;
+  // Radix then "clicks" the item beneath it on pointerup (a press that began on the trigger), which opened
+  // the record (View) instead of leaving the menu open. A click that arrives while this is still true is
+  // that stray release, never a choice.
+  const triggerHeldRef = useRef(false);
+  const strayReleaseRef = useRef(false);
   const open = Boolean(context && openScope === context.scope);
   if (!context) return null;
   const closeForAction = () => {
@@ -280,13 +287,21 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
       setOpenScope(next ? context.scope : null);
     }}>
       <DropdownMenuTrigger asChild>
-        <Button ref={triggerRef} type="button" variant="ghost" disabled={disabled && !onOpen} aria-label={`Actions for ${label}`} className={RECORD_ACTION_TRIGGER_BUTTON_CLASS} data-attr="record-actions-trigger">
+        <Button ref={triggerRef} type="button" variant="ghost" disabled={disabled && !onOpen} aria-label={`Actions for ${label}`} onPointerDown={() => { triggerHeldRef.current = true; }} onPointerUp={() => { triggerHeldRef.current = false; }} className={RECORD_ACTION_TRIGGER_BUTTON_CLASS} data-attr="record-actions-trigger">
           <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         onCloseAutoFocus={(event) => { if (actionClosingRef.current) event.preventDefault(); }}
+        onPointerDownCapture={() => { triggerHeldRef.current = false; strayReleaseRef.current = false; }}
+        onPointerUpCapture={() => { strayReleaseRef.current = triggerHeldRef.current; triggerHeldRef.current = false; }}
         onClickCapture={(event) => {
+          if (strayReleaseRef.current && event.target instanceof Element && event.target.closest('[role="menuitem"]')) {
+            strayReleaseRef.current = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (Date.now() - openedAtRef.current >= RECORD_ACTION_DESTRUCTIVE_SETTLE_MS) return;
           if (!(event.target instanceof Element)) return;
           if (!event.target.closest("[data-record-action-destructive]")) return;

@@ -25,7 +25,7 @@ import { normalizeWords } from "./captions.server";
 import { MissingKeyError } from "./driver-types";
 
 export { RENDER_FORMATS, RENDER_STATUSES };
-export const BRAND = { mark: "brand/proplane-mark.svg", blue: "#2863f0" } as const;
+export const BRAND = { mark: "brand/proplane-mark.svg", blue: "#2f5fd0" } as const;
 
 export type SceneAction = "reuse" | "generate" | "shoot" | "template";
 

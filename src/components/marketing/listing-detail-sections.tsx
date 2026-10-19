@@ -1,5 +1,6 @@
 "use client";
 
+import "@/components/public-site/public-site.css";
 import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
 import { Heart, Share2 } from "lucide-react";

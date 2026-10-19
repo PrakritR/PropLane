@@ -1,17 +1,26 @@
-## One Software frame (captain feedback 10–11, October 18)
+## One Software section (captain feedback 10-14, October 18)
 
-The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, after the number
-system. Desktop and mobile navigation call it Software. Its six-scene story and
-hands-on portal share `HomeDashboardPanel`, the canonical folded navigation and
-section tabs. The first scene already includes the phone’s incoming message in
-the manager inbox. Pausing or finishing hands the same mounted frame to the
-visitor; selecting a portal also pauses. Replay is explicit, and reduced motion
-keeps scenes static. There is no second dashboard/demo section on the homepage.
+The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, headed with the shared `HomeSectionHeader`
+("Software"). It is three chapters (01 Find a house, 02 Vendor gets work, 03 Photo by text) over the REAL manager
+portal: an iframe of `/demo/home-embed` at a fixed 1280x800 logical size, scaled to fit, with the phone that is
+texting beside it. The phone is drawn from what the iframe reports (`HomeIphonePhone`, plus listing cards and
+photos from `home-demo-phone-items.tsx`), so the two never disagree. A visible cursor clicks the real controls;
+inbound events (a text, a YES, a photo) are store writes. Hover, focus, a press inside the portal, leaving the
+screen or a hidden tab pause it and leave a Play control; chapters advance and loop. Reduced motion draws each
+chapter's finished state (no cursor, no autoplay). Photos are drawn sample SVGs, never stock or listing photos.
+Architecture and rules: `docs/agents/demo-sandbox.md`. There is no redrawn portal copy on the homepage, and no
+second dashboard/demo section.
 
 `public-footer-band.css` owns the shared footer’s opaque ink-blue surface. Do
 not restore transparent footer rules in the wave styles or a separate gradient
 in `site-display.css`. Verify actual painted links and text contrast in addition
 to geometry on both the homepage and public journey pages.
+
+The public secondary pages (`SitePage` / `MarketingPageShell`: blog, docs, partner, legal, about, app, vendors)
+wear the homepage's tokens through `site-display.css` alone: Inter Tight (`--font-public-site`, headings at 600 with
+tight tracking), ink `#0c0d10`, the one blue `#2f5fd0`, hairline `#d6d7d2`. The `--site-*` and `--lp-*` tokens
+there point at those values; do not hard-code the retired navy `#132b47` / blue `#1769bd` in a component, and
+do not reintroduce a separate display face (`site-display-font.ts` is gone).
 
 # Marketing mocks & guide art
 
@@ -36,21 +45,7 @@ resident details. Network captions describe the shipped public-listing router,
 approved vendor jobs, and keeping the PropLane number when moving homes; they
 make no claims about sharing a private workspace thread.
 
-`HomeSoftwareDemo` presents the real Manager, Resident, Vendor and Owner UI
-with sample data in one shared frame. The folded sidebar and section strip
-derive from the canonical portal navigation model; `PortalSectionTabsView` is
-shared with the live portal, with local callbacks in the preview. The guided story runs once, then the portal switch
-selects the same frame; pausing also allows hands-on exploration. The frame is interactive: sidebar navigation and in-page tabs, records and menus
-run on the existing fixture adapters in client state. There are no per-portal
-captions below the frame. Ask PropLane mounts the real assistant presentation
-(header, suggestions, messages, composer and chat history) with local answers
-from the same fixture snapshot as the active portal. It has no model or network
-connection. Account Settings opens the shared settings presentation; Sign out
-ends only that sample frame and Resume restores it. The owner portal preserves its real shell's absence of an assistant.
-Preview controls never fetch live data or persist a write. Owner examples contain only aggregate fixture data: statement income/expenses and
-property occupancy counts. The real overview, properties, statements and profile
-views accept local navigation callbacks. Sample statement downloads are generated
-as CSV in the browser; unknown year-to-date amounts show a dash.
+The Software section is documented in § One Software section above.
 
 The cover uses self-hosted Inter Tight and one blue (`#2F5FD0`), with the original
 `ResidentLifecycleAtmosphere` waves, blue gradients and dots behind the page.
@@ -71,12 +66,6 @@ from `MANAGED_INCLUDES`. The compact contact form
 requires an email because the existing contact route does, and preserves its
 inputs after a failed send. Marketing redirects, sitemap and crawl links share
 `src/lib/seo/marketing-routes.ts`.
-`HomeSoftwareDemo` follows the cover with six sample scenes: incoming text,
-manager inbox, draft, approval, booked tour and paid rent. Its lazy panels reuse
-the existing fixture adapters. One clock drives both the phone and portal;
-approval clicks the fixture composer's handler before advancing. Hover, focus,
-manual pause, offscreen visibility and a hidden document stop playback. Reduced
-motion leaves manually selectable static frames. There are no live writes.
 
 The active stages fit below the top bar and above the mobile text action at
 100% zoom. The compact pricing grid is four columns on desktop and two by two
@@ -113,7 +102,7 @@ purely presentational pieces instead of trying to mount the whole page tree.
 ## The home page demo: four beats, one phone, three portals
 
 Captain 2026-10-06, reshaped 2026-10-07: the top of `/` is Akhil's hero plus a
-demo window (`resident-lifecycle-prototypes.tsx`; it replaced `SiteHero`). There
+demo window (the lifecycle demo; it replaced `SiteHero`). There
 is no stage UI: no portal pill bar, stage tabs, "Sample demo" line or Activity
 row. The visitor changes portal from the window's own account menu (the real
 menu's "Switch to ... portal" rows, `portalSwitchTargets`), every portal draws
@@ -168,7 +157,7 @@ that tab.
   the demo and every row; rows draw no phone of their own. From `lg` the phone sits
   vertically centred in the viewport on the right (captain 2026-10-07: "keep the phone
   centered on screen, in the middle on the right side"): `.rlp-story-phone-slot` is sticky
-  with `top: max(header + 12px, 50svh - phone height / 2)` (`resident-lifecycle-hero.css`),
+  with `top: max(header + 12px, 50svh - phone height / 2)` (the lifecycle hero stylesheet),
   and nothing scroll-driven moves it. Captions are roles:
   "Resident's phone" (manager portal), "Manager's phone" (resident portal, the
   thread mirrored), "Vendor's phone".
@@ -244,13 +233,6 @@ viewport and the window's column is narrower than a real 1440px one. Every `data
 applications-send, sheet-primary, comm-approve, application-row) stays on its control; the cursor re-resolves a target
 a beat after finding it, because a freshly mounted real page can swap its toolbar for a fresh copy.
 
-The hero (`resident-lifecycle-prototypes.tsx`, `resident-lifecycle-hero.css`) is scroll-driven: a sticky frame pins the
-headline and the window while the window GROWS (transform only, 72% to 100%) over 70% of the viewport height of
-scrolling, then releases and the page scrolls on. The track is always frame + run, the window's height and the phone's
-resting top come from the headline's size in CSS, so there is no layout jump. The phone pins beside the window and then
-glides up to its usual place. Phones (under `md`) and `prefers-reduced-motion` get the static, full-size window.
-`tests/unit/home-hero-grow.test.ts` guards the pieces that must keep agreeing.
-
 ## The /app page's phones follow `app-store/screenshots`
 
 Captain 2026-10-07: the `/app` page shows the iPhone app as four equal phones side
@@ -268,8 +250,7 @@ free) is checked against `docs/mobile-app.md`; change them together.
 ## Marketing mocks must use portal-accurate copy
 
 Every OTHER hand-drawn product mock on the marketing site — the homepage
-Applications panel (`landing-applications-pipeline.tsx`), the ops task rows in
-`landing-home-sections.tsx`, the guide art under `public/marketing/` — depicts
+Applications panel, the ops task rows, the guide art under `public/marketing/` — depicts
 a screen a manager can actually open. Marketing-only slang that no portal
 surface ships ("lease packet", "lease draft") reads as a fake product and has
 been rejected in review twice.

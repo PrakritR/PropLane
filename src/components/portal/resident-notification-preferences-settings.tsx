@@ -293,14 +293,15 @@ export function ResidentNotificationPreferencesSettings() {
                 <PortalSettingsRow
                   key={category}
                   label={copy.label}
+                  controlClassName="shrink-0"
                 >
-                  <div className="flex items-center gap-5">
+                  <div className="flex items-center gap-3">
                     {rowMeta(category) ? (
                       <span aria-live="polite" className="text-[11.5px] font-semibold text-muted">
                         {rowMeta(category)}
                       </span>
                     ) : null}
-                    <label className="flex items-center gap-2 text-xs font-medium text-muted">
+                    <label className="flex w-[4.75rem] items-center justify-between gap-2 text-xs font-medium text-muted">
                       Email
                       <PortalSettingsToggle
                         checked={channelPref.email}
@@ -309,7 +310,7 @@ export function ResidentNotificationPreferencesSettings() {
                         dataAttr={`resident-notification-${category}-email`}
                       />
                     </label>
-                    <label className="flex items-center gap-2 text-xs font-medium text-muted">
+                    <label className="flex w-[4.75rem] items-center justify-between gap-2 text-xs font-medium text-muted">
                       Text
                       <PortalSettingsToggle
                         checked={channelPref.sms}

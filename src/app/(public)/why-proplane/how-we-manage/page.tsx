@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     "How PropLane Managed runs a home: leasing and tenant placement, rent collection, maintenance with vendors, short-term and room rentals, a 24/7 texting line and owner reporting.",
 };
 
-const CARD = "rounded-2xl border border-[var(--site-line,#dbe4ef)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
+const CARD = "rounded-2xl border border-[var(--site-line,#d6d7d2)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)]";
 
 const PRINCIPLES = [
   {

@@ -27,7 +27,7 @@ import {
 
 type Ctx = ReturnType<typeof useVendorBusinessProfile>;
 
-export function VendorAiInfoPane({ ctx }: { ctx: Ctx }) {
+export function VendorAiInfoPane({ ctx, trades: tradesOverride }: { ctx: Ctx; trades?: string[] }) {
   const [draft, setDraft] = useState<VendorAiInfo>(ctx.profile.aiInfo ?? EMPTY_VENDOR_AI_INFO);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -43,7 +43,8 @@ export function VendorAiInfoPane({ ctx }: { ctx: Ctx }) {
     else setError(result.error ?? "Could not save.");
   }
 
-  const trades = ctx.profile.trades ?? [];
+  // The page passes the one list the Trades picker shows, so the two never disagree.
+  const trades = tradesOverride ?? ctx.profile.trades ?? [];
   return (
     <PortalSettingsSection title="Answers">
       <PortalSettingsGroup>

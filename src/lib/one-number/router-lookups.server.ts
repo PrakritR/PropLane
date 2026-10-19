@@ -84,7 +84,7 @@ async function loadProperties(db: SupabaseClient, propertyIds: string[]): Promis
   );
 }
 
-type Placement = { managerUserId: string; propertyId: string };
+type Placement = { managerUserId: string; propertyId: string; live?: "offer" | "accepted" };
 
 /**
  * Turn "manager X, house H" placements into candidates. The house names the
@@ -110,7 +110,13 @@ async function candidatesForPlacements(
   for (const placement of placements) {
     const prop = props.get(placement.propertyId);
     const workspace = prop?.workspaceId ? workspaces.get(prop.workspaceId) : ownerFallback.get(placement.managerUserId);
-    if (!workspace?.id || !workspace.ownerUserId || out.has(workspace.id)) continue;
+    if (!workspace?.id || !workspace.ownerUserId) continue;
+    const already = out.get(workspace.id);
+    if (already) {
+      // Another placement in the same workspace: the house label stays the first one, but a waiting dispatch is remembered.
+      if (placement.live && !already.liveDispatch?.includes(placement.live)) already.liveDispatch = [...(already.liveDispatch ?? []), placement.live];
+      continue;
+    }
     out.set(workspace.id, {
       workspaceId: workspace.id,
       ownerUserId: workspace.ownerUserId,
@@ -118,6 +124,7 @@ async function candidatesForPlacements(
       reason,
       propertyId: prop?.id ?? null,
       label: prop?.label || workspace.name || "your property team",
+      ...(placement.live ? { liveDispatch: [placement.live] } : {}),
     });
   }
   return [...out.values()];
@@ -268,7 +275,9 @@ async function dispatchJobPlacements(db: SupabaseClient, e164: string, phone: st
     if (str(run.status) === "completed" && !(Date.parse(str(run.completed_at)) >= recent)) continue;
     seen.add(str(run.id));
     const owner = str(run.owner_user_id);
-    if (owner) placements.push({ managerUserId: owner, propertyId: str(run.property_id) });
+    // An offer still out to this phone, or a job it took that is open, is waiting on a bare YES / NO / DONE from it.
+    const waiting = offered ? (str(attempt.status) === "offered" && str(run.status) === "offering" ? "offer" : undefined) : str(run.status) === "accepted" ? "accepted" : undefined;
+    if (owner) placements.push({ managerUserId: owner, propertyId: str(run.property_id), ...(waiting ? { live: waiting } : {}) });
   }
   return placements;
 }

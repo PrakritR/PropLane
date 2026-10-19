@@ -5,8 +5,8 @@ import { Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export function OwnerPageTitle({ children }: { children: ReactNode }) {
-  return <h1 className="mb-4 text-xl font-semibold tracking-tight text-foreground md:text-2xl">{children}</h1>;
+export function OwnerPageTitle({ children, className }: { children: ReactNode; className?: string }) {
+  return <h1 className={cn("mb-4 text-xl font-semibold tracking-tight text-foreground md:text-2xl", className)}>{children}</h1>;
 }
 
 export function OwnerTile({ label, value, of, tone }: { label: string; value: string; of?: string; tone?: "good" | "bad" }) {

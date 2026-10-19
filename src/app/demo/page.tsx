@@ -21,8 +21,7 @@ function readRole(value: string | undefined): DemoPortalRole | undefined {
  * `DemoPortalShell`'s own hand-rolled chrome (role switcher, "Run demo",
  * floating chat bubble) — see `demo-manager-shell.tsx`.
  *
- * The home page's Codex-style hero window (site/hero.tsx,
- * site/codex-hero-window.tsx) also puts this exact page in an `<iframe>` —
+ * A page that puts this exact page in an `<iframe>` gets
  * a genuinely separate browsing context, so a click inside it can never
  * navigate the marketing page (no listener needed; iframes don't bubble
  * events to the parent document). No robots override here: `/demo` carries

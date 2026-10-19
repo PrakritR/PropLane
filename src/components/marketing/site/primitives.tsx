@@ -57,7 +57,7 @@ export function SiteSection({
 
 export function SiteEyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2863f0)]", className)}>{children}</p>
+    <p className={cn("text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2f5fd0)]", className)}>{children}</p>
   );
 }
 
@@ -163,19 +163,19 @@ export function SitePageHero({
 
 /**
  * The home hero's button set (captain 2026-10-07: every public page matches it):
- * 52px, 9px radius, a solid blue primary with a soft glow, an outlined blue
+ * 52px, 3px radius, a solid blue primary, an outlined ink
  * secondary. Labels stay whatever each page already says.
  */
 const BTN_BASE =
-  "inline-flex min-h-[52px] items-center justify-center gap-2 rounded-[9px] border px-[22px] text-[14px] font-[750] no-underline transition-[transform,box-shadow,background-color,border-color] duration-100 ease-out hover:-translate-y-0.5 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1769bd]/30";
+  "inline-flex min-h-[52px] items-center justify-center gap-2 rounded-[3px] border px-[22px] text-[14px] font-semibold no-underline transition-[transform,box-shadow,background-color,border-color] duration-100 ease-out hover:-translate-y-0.5 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f5fd0]/30";
 
 export const SITE_BTN_PRIMARY = cn(
   BTN_BASE,
-  "border-[#1769bd] bg-[#1769bd] text-white shadow-[0_12px_22px_#1769bd24] hover:bg-[#0f5aa8]",
+  "border-[#2f5fd0] bg-[#2f5fd0] text-white hover:bg-[#2249a8]",
 );
 export const SITE_BTN_SECONDARY = cn(
   BTN_BASE,
-  "border-[#b7cce3] bg-white/60 text-[#285887] hover:border-[#8fb0d4] hover:bg-white/90",
+  "border-[#0c0d10] bg-white/60 text-[#0c0d10] hover:border-[#0c0d10] hover:bg-white/90",
 );
 export const SITE_BTN_LARGE = "min-h-[56px] px-8 text-[15px]";
 

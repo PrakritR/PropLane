@@ -133,6 +133,12 @@ export type PortalWorkspace = {
   canAddProperties?: boolean;
   /** Viewer may invite, edit and remove members here (owner or admin). */
   canManageMembers?: boolean;
+  /**
+   * The viewer sees this workspace view-only: they own it, PropLane Service manages it
+   * (`is_service`), and they have no self-paid plan. Server-derived (`managedReadOnlyFor`);
+   * the UI hides every create/edit action, and the middleware and tool layer refuse the writes.
+   */
+  readOnly?: boolean;
 };
 export type WorkspacePayload = {
   workspaces: PortalWorkspace[];

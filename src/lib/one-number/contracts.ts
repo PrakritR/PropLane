@@ -56,6 +56,12 @@ export type SharedLineCandidate = {
   propertyId: string | null;
   /** Human label for a disambiguation question, e.g. "5259 Brooklyn". Never a person's name. */
   label: string;
+  /**
+   * A vendor candidate only: what this workspace is waiting on from the phone right now. `offer` = a dispatch
+   * offer out to them (a bare YES / NO is the answer), `accepted` = a job they took that is open (a bare DONE).
+   * A live one outranks the sticky thread; absent or empty = nothing is waiting.
+   */
+  liveDispatch?: Array<"offer" | "accepted">;
 };
 
 export type RoutingDecision =

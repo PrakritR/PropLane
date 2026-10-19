@@ -42,11 +42,6 @@ export const PORTAL_INLINE_UNLOCK_NOTICE_CLASS = `${PORTAL_INLINE_STATUS_NOTICE_
 /** Unlock notice flush against a stacked empty state below (no gap between banner and card). */
 export const PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS = `${PORTAL_INLINE_UNLOCK_NOTICE_CLASS} mb-0 rounded-b-none border-b-0`;
 
-/** Subtitle under the Dashboard heading — shared across all portal dashboards. */
-export function portalDashboardWelcomeSubtitle(displayName?: string | null): string {
-  const trimmed = displayName?.trim();
-  return trimmed ? `Welcome, ${trimmed}` : "Welcome";
-}
 
 /** Calendar week grid outer frame (matches manager calendar chrome). */
 export const PORTAL_CALENDAR_FRAME =

@@ -13,6 +13,7 @@ import {
   PUBLIC_SUPPORT_ADDRESS_LINE,
   PUBLIC_SUPPORT_EMAIL,
 } from "@/lib/marketing/public-contact";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 
 export const metadata: Metadata = {
@@ -39,7 +40,7 @@ export default async function SupportPage() {
             href={texting.smsHref}
             icon={<MessageSquareText strokeWidth={2} aria-hidden />}
             label="Text PropLane"
-            value={texting.phone}
+            value={formatPublicPhone(texting.phone) ?? texting.phone}
           /> : null}
           <ContactCard href="/contact" icon={<MessageSquareText strokeWidth={2} aria-hidden />} label="Send a message" value="Contact form" internal />
         </div>
@@ -61,7 +62,7 @@ export default async function SupportPage() {
           >
             {PUBLIC_SUPPORT_EMAIL}
           </a>
-          {texting.smsHref && texting.phone ? <> or text PropLane at <a href={texting.smsHref} className="font-medium text-[var(--lp-blue)] hover:opacity-90">{texting.phone}</a></> : null}.
+          {texting.smsHref && texting.phone ? <> or text PropLane at <a href={texting.smsHref} className="font-medium text-[var(--lp-blue)] hover:opacity-90">{formatPublicPhone(texting.phone) ?? texting.phone}</a></> : null}.
           {" "}Residents with lease or payment questions should
           also message their manager in the resident portal.
         </p>
@@ -105,7 +106,7 @@ function ContactCard({
     "lp-page-card lp-page-card-pad group flex flex-col items-center gap-2 text-center transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--lp-blue)_40%,transparent)]";
   const inner = (
     <>
-      <span className="mb-1 grid h-10 w-10 place-items-center rounded-xl bg-[#1769bd]/10 text-[#1769bd] [&>svg]:h-[18px] [&>svg]:w-[18px]">
+      <span className="mb-1 grid h-10 w-10 place-items-center rounded-xl bg-[#2f5fd0]/10 text-[#2f5fd0] [&>svg]:h-[18px] [&>svg]:w-[18px]">
         {icon}
       </span>
       <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--lp-muted)]">

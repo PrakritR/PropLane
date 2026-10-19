@@ -40,6 +40,12 @@ export type AdminAccountSearchResult = {
    * number that is too low.
    */
   countsComplete: boolean;
+  /**
+   * The same totals over ACTIVE accounts only. The list opens on its Active
+   * status, so the tab pills read this: a pill and the rows beneath it describe
+   * the same accounts (a disabled account is counted under Disabled instead).
+   */
+  activeCounts: { manager: number; resident: number; vendor: number };
 };
 
 export const ADMIN_ACCOUNT_SEARCH_LIMIT = 100;
@@ -109,11 +115,13 @@ export async function searchAdminAccounts(
   // holders (minus the sandbox accounts), never a tally of the scanned page.
   const [idsByKind, sandboxIds] = await Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]);
   const real = (ids: string[]) => ids.filter((id) => !sandboxIds.has(id));
-  const [manager, resident, vendor] = await Promise.all([
-    countMatchingAccounts(db, real(idsByKind.manager), match),
-    countMatchingAccounts(db, real(idsByKind.resident), match),
-    countMatchingAccounts(db, real(idsByKind.vendor), match),
+  const kinds = ["manager", "resident", "vendor"] as const;
+  const [allCounts, activeOnly] = await Promise.all([
+    Promise.all(kinds.map((kind) => countMatchingAccounts(db, real(idsByKind[kind]), match))),
+    Promise.all(kinds.map((kind) => countMatchingAccounts(db, real(idsByKind[kind]), match, { activeOnly: true }))),
   ]);
+  const [manager, resident, vendor] = allCounts as [number, number, number];
+  const activeCounts = { manager: activeOnly[0]!, resident: activeOnly[1]!, vendor: activeOnly[2]! };
 
   const page = await scanNewestProfiles<AdminProfileScanRow>(
     db,
@@ -160,5 +168,5 @@ export async function searchAdminAccounts(
     };
   });
 
-  return { rows, counts: { manager, resident, vendor }, countsComplete: true };
+  return { rows, counts: { manager, resident, vendor }, countsComplete: true, activeCounts };
 }

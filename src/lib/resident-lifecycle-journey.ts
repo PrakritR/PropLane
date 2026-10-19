@@ -148,12 +148,15 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
     };
   }
 
+  // The application fee is paid INLINE, inside the application wizard, before the application is
+  // submitted (`ApplicationFeeInlinePayment`); a submitted application has no pay surface, and the
+  // Applications page is the page this CTA already sits on. So an unpaid fee on a SUBMITTED application
+  // is settled with the property manager, never a button that links to itself.
   if (input.applicationFeeDeclined) {
-    const fee = input.applicationFeeLabel?.trim();
     return {
-      title: "Pay the application fee",
-      href: `${base}/applications`,
-      ctaLabel: fee ? `Pay ${fee}` : "Pay fee",
+      title: input.applicationSubmitted ? "Application fee unpaid" : "Pay the application fee",
+      href: input.applicationSubmitted ? `${base}/communication` : `${base}/applications`,
+      ctaLabel: input.applicationSubmitted ? "Message manager" : "Continue application",
       who: "You",
       urgent: true,
     };
@@ -170,11 +173,10 @@ export function resolveResidentLifecycleNextAction(input: ResidentLifecycleInput
   }
 
   if (input.applicationSubmitted && !input.applicationFeePaid) {
-    const fee = input.applicationFeeLabel?.trim();
     return {
-      title: "Pay the application fee",
-      href: `${base}/applications`,
-      ctaLabel: fee ? `Pay ${fee}` : "Pay fee",
+      title: "Application fee unpaid",
+      href: `${base}/communication`,
+      ctaLabel: "Message manager",
       who: "You",
       urgent: true,
     };

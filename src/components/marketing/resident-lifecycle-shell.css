@@ -1,22 +1,22 @@
 /*
  * The demo window drawn in the redesigned portal shell (plan dashboard-redesign-1007), matching the real
  * portal: dark 40px strip, ink rail, light 248px sidebar with collapsible groups, flat white content, the AI
- * assistant as the only right panel. Tokens are the plan's: rail #101828, side #F6F7F9, ink #15171C,
- * mute #6A707C, blue #2863F0, red #D92D20, green #12805C; radii 6 controls / 8 menus / 10 window.
+ * assistant as the only right panel. Tokens are the plan's: rail #0C0D10, side #F7F7F4, ink #0C0D10,
+ * mute #5F6269, blue #2F5FD0, red #B42318, green #1E7A4A; radii 6 controls / 8 menus / 10 window.
  *
  * Every selector is scoped `.rlp-page .pls` (specificity 0,3,0 and up) so it wins over the older window
  * rules in resident-lifecycle-prototypes.css without editing them.
  */
 .rlp-page .pls {
-  --pls-ink: #15171c;
-  --pls-mute: #6a707c;
-  --pls-line: rgba(17, 24, 39, 0.086);
-  --pls-rail: #101828;
-  --pls-strip-fg: #c7ccd6;
-  --pls-side: #f6f7f9;
-  --pls-blue: #2863f0;
-  --pls-active-bg: #e9effe;
-  --pls-active-fg: #1f55e0;
+  --pls-ink: #0c0d10;
+  --pls-mute: #5f6269;
+  --pls-line: #d6d7d2;
+  --pls-rail: #0c0d10;
+  --pls-strip-fg: #c9cacd;
+  --pls-side: #f7f7f4;
+  --pls-blue: #2f5fd0;
+  --pls-active-bg: #e7edfa;
+  --pls-active-fg: #2249a8;
   --pls-rail-w: 56px;
   --pls-side-w: 248px;
   position: relative;
@@ -196,7 +196,7 @@
 .rlp-page .pls .pls-tile-mark {
   width: 18px;
   height: 18px;
-  color: var(--pls-blue, #1f55e0);
+  color: var(--pls-blue, #2f5fd0);
 }
 /* The resident and vendor sidebars name the product, not a workspace (no switcher). */
 .rlp-page .pls .pls-brand-name {
@@ -355,7 +355,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #12805c;
+  background: #1e7a4a;
 }
 .rlp-page .pls .pls-nav {
   flex: 1 1 auto;
@@ -532,7 +532,7 @@
 }
 .rlp-page .pls .pls-main::after {
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232863f0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232f5fd0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
       center calc(100% - 9px) / 18px 18px no-repeat,
     linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 80%);
 }
@@ -1003,7 +1003,7 @@
 .rlp-page .pls .rlp-draft {
   margin: 0 16px 12px;
   padding: 12px 14px;
-  border: 1px solid rgba(40, 99, 240, 0.28);
+  border: 1px solid rgba(47, 95, 208, 0.28);
   border-radius: 8px;
   background: #f6f8ff;
   box-shadow: none;

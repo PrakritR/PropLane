@@ -541,15 +541,13 @@ export function PortalSidebar({
         >
           {/* The active tab is the FILLED glyph (PortalNavIcon `active`); no underline. */}
           {showNavIcons ? (
-            <span
-              className={`${PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} transition-opacity duration-200 ${
-                active ? "opacity-100" : locked ? "opacity-45" : "opacity-60"
-              }`}
-              aria-hidden
-            >
+            <span className={PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} aria-hidden>
+              {/* The dim sits on the glyph only, so an alert badge keeps full contrast. */}
               <PortalNavIcon
                 section={s.section}
-                className={PORTAL_NATIVE_BOTTOM_NAV_ICON_CLASS}
+                className={`${PORTAL_NATIVE_BOTTOM_NAV_ICON_CLASS} transition-opacity duration-200 ${
+                  active ? "opacity-100" : locked ? "opacity-45" : "opacity-60"
+                }`}
                 active={active}
               />
               {/* Only an alert-tone badge (unread mail, overdue) badges a bottom tab; quiet pending counts belong to the sidebar. */}
@@ -788,7 +786,7 @@ export function PortalSidebar({
   const showNewMessage = definition.kind !== "admin" && hasCommunication && !communicationLocked;
 
   const headingClass =
-    "flex w-full items-center gap-1 rounded-[6px] border-0 bg-transparent px-2 py-[3px] text-left text-[12px] font-semibold text-[#7a808b] transition-colors hover:bg-[rgba(17,24,39,0.045)]";
+    "flex w-full items-center gap-1 rounded-[6px] border-0 bg-transparent px-2 py-[3px] text-left text-[12px] font-semibold text-muted transition-colors hover:bg-[rgba(17,24,39,0.045)]";
 
   const desktopAside = (
     <aside
@@ -807,7 +805,7 @@ export function PortalSidebar({
           ) : (
             <p className="truncate text-[16px] font-bold tracking-[-0.02em] text-foreground">PropLane</p>
           )}
-          <p className="mt-0.5 flex items-center gap-[5px] text-[12px] text-[#7a808b]">
+          <p className="mt-0.5 flex items-center gap-[5px] text-[12px] text-muted">
             <b aria-hidden className="inline-block size-1.5 rounded-full bg-[#22a06b]" />
             <span className="min-w-0 truncate">{headerSubLine}</span>
           </p>

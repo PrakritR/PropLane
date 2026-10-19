@@ -11,6 +11,9 @@ vi.mock("@/lib/owner-management/policies.server", () => ({
 const financeViews = new Map<string, unknown>();
 vi.mock("@/lib/managed-finance/finances.server", () => ({
   loadOwnerFinances: vi.fn(async (_db: unknown, _stripe: unknown, input: { workspaceId: string }) => financeViews.get(input.workspaceId)),
+  loadOwnerMonthlyChart: vi.fn(async (_db: unknown, input: { months: string[] }) =>
+    input.months.map((month, i) => ({ month, incomeCents: i === input.months.length - 1 ? 215_000 : 0, expensesCents: i === input.months.length - 1 ? 21_500 : 0 })),
+  ),
 }));
 
 import { narrowGrantsToWorkspace, ownerWorkspaceKey, type OwnerGrant } from "@/lib/property-owner/access.server";
@@ -115,6 +118,9 @@ describe("overview extras", () => {
     const db = makeFakeDb({ owner_statements: [], managed_workspace_fee_policies: [], resident_inspections: [] });
     const out = await loadOwnerOverviewExtras(db, OWNER, grants.slice(0, 1), new Date("2026-10-18T12:00:00Z"));
     expect(out.managed).toEqual({ workspaceId: "ws-a", rentCents: 215_000, feeCents: -21_500, netCents: 193_500, availableCents: 150_000 });
+    // The chart reads the same ledger as the cards: twelve Pacific months ending now, the current one carrying the rent.
+    expect(out.managedChart).toHaveLength(12);
+    expect(out.managedChart?.at(-1)).toEqual({ month: "2026-10", incomeCents: 215_000, expensesCents: 21_500 });
     expect(out.attention).toEqual([{ kind: "repair", id: "exp-1", title: "Roof patch", amountCents: 40_000, workspaceId: "ws-a" }]);
     // The vendor is never named to the owner.
     expect(JSON.stringify(out)).not.toContain("Top Roofing");
@@ -127,6 +133,7 @@ describe("overview extras", () => {
     const db = makeFakeDb({ owner_statements: [], managed_workspace_fee_policies: [], resident_inspections: [] });
     const out = await loadOwnerOverviewExtras(db, OWNER, [grants[1]!], new Date("2026-10-18T12:00:00Z"));
     expect(out.managed).toBeNull();
+    expect(out.managedChart).toBeNull();
     expect(out.attention).toEqual([]);
   });
 
@@ -172,7 +179,7 @@ describe("overview extras", () => {
       { errors: { owner_statements: { message: "no table", code: "42P01" }, managed_workspace_fee_policies: { message: "no table", code: "42P01" }, resident_inspections: { message: "no table", code: "42P01" } } },
     );
     const out = await loadOwnerOverviewExtras(db, OWNER, grants.slice(0, 1));
-    expect(out).toEqual({ managed: null, attention: [], upcoming: [] });
+    expect(out).toEqual({ managed: null, managedChart: null, attention: [], upcoming: [] });
   });
 });
 

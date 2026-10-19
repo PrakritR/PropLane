@@ -210,18 +210,18 @@
   --muted: #4a5878;
   --border: #e6ebf3;
   --card: rgba(255, 255, 255, 0.94);
-  --accent: rgba(47, 107, 255, 0.08);
+  --accent: rgba(47,95,208, 0.08);
   --auth-input-bg: rgba(255, 255, 255, 0.55);
   --announce: #0b1b3a;
   --glass-fill: rgba(255, 255, 255, 0.62);
   --glass-border: rgba(255, 255, 255, 0.9);
   --btn-metallic: linear-gradient(135deg, #ffffff 0%, #bcd4ff 100%);
   --shadow-card: 0 20px 50px -38px rgba(15, 23, 42, 0.22), 0 2px 8px -4px rgba(15, 23, 42, 0.06);
-  --shadow-card-hover: 0 28px 56px -36px rgba(47, 107, 255, 0.18), 0 8px 24px -12px rgba(15, 23, 42, 0.1);
+  --shadow-card-hover: 0 28px 56px -36px rgba(47,95,208, 0.18), 0 8px 24px -12px rgba(15, 23, 42, 0.1);
   --status-pending-fg: #a34a06;
   --status-pending-bg: #fdeccb;
-  --status-approved-fg: #2456d6;
-  --status-approved-bg: #e2ebff;
+  --status-approved-fg: #2249a8;
+  --status-approved-bg: #e7edfa;
   --status-confirmed-fg: #1f8a5b;
   --status-confirmed-bg: #d8f3e4;
   --status-overdue-fg: #c0392b;
@@ -391,7 +391,7 @@
 }
 
 [data-theme="dark"] .portal-calendar-inactive-slot:hover {
-  background-color: rgba(47, 107, 255, 0.14);
+  background-color: rgba(47,95,208, 0.14);
   color: #dbeafe;
 }
 
@@ -647,8 +647,8 @@ html {
 /* ── Chrome substrate layers ── */
 .chrome-substrate-quiet-glow {
   background:
-    radial-gradient(ellipse 60% 50% at 100% 0%, rgba(47, 107, 255, 0.06) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 40% at 0% 100%, rgba(47, 107, 255, 0.04) 0%, transparent 50%);
+    radial-gradient(ellipse 60% 50% at 100% 0%, rgba(47,95,208, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 40% at 0% 100%, rgba(47,95,208, 0.04) 0%, transparent 50%);
 }
 
 .chrome-substrate-full {
@@ -666,7 +666,7 @@ html {
     from 0deg at 38% 46%,
     transparent 0deg,
     rgba(30, 79, 214, 0.55) 60deg,
-    rgba(47, 107, 255, 0.7) 95deg,
+    rgba(47,95,208, 0.7) 95deg,
     rgba(90, 140, 255, 0.6) 128deg,
     rgba(188, 212, 255, 0.45) 155deg,
     rgba(110, 160, 220, 0.3) 185deg,
@@ -683,7 +683,7 @@ html {
     transparent 0deg,
     rgba(14, 40, 160, 0.38) 60deg,
     rgba(30, 79, 214, 0.48) 95deg,
-    rgba(47, 107, 255, 0.42) 128deg,
+    rgba(47,95,208, 0.42) 128deg,
     rgba(20, 55, 180, 0.32) 155deg,
     rgba(10, 30, 120, 0.2) 185deg,
     transparent 230deg,
@@ -698,7 +698,7 @@ html {
   background: conic-gradient(
     from 110deg at 64% 34%,
     transparent 0deg,
-    rgba(47, 107, 255, 0.4) 45deg,
+    rgba(47,95,208, 0.4) 45deg,
     rgba(188, 212, 255, 0.25) 90deg,
     transparent 160deg,
     rgba(30, 60, 180, 0.3) 255deg,
@@ -712,7 +712,7 @@ html {
     from 110deg at 64% 34%,
     transparent 0deg,
     rgba(10, 30, 160, 0.3) 45deg,
-    rgba(47, 107, 255, 0.22) 90deg,
+    rgba(47,95,208, 0.22) 90deg,
     transparent 160deg,
     rgba(14, 40, 160, 0.2) 255deg,
     transparent 360deg
@@ -758,7 +758,7 @@ html {
     90deg,
     transparent 5%,
     rgba(90, 140, 255, 0.6) 30%,
-    rgba(47, 107, 255, 0.85) 50%,
+    rgba(47,95,208, 0.85) 50%,
     rgba(90, 140, 255, 0.6) 70%,
     transparent 95%
   );
@@ -895,7 +895,7 @@ html {
 }
 
 [data-theme="dark"] .field-dropdown-menu-option[aria-selected="true"] {
-  background-color: rgba(47, 107, 255, 0.22) !important;
+  background-color: rgba(47,95,208, 0.22) !important;
 }
 
 /* Vaul paints a `::after` of `height: 200%` below a bottom drawer so an overscroll drag
@@ -1162,11 +1162,11 @@ html {
 
 [data-theme="light"] .hero-chrome-scene .hero-cta-outline {
   color: var(--primary);
-  border-color: rgba(47, 107, 255, 0.35);
+  border-color: rgba(47,95,208, 0.35);
 }
 
 [data-theme="light"] .hero-chrome-scene .hero-cta-outline:hover {
-  background: rgba(47, 107, 255, 0.08);
+  background: rgba(47,95,208, 0.08);
 }
 
 .hero-search-panel {
@@ -1301,13 +1301,13 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
   border-radius: 9999px;
   background: #fff;
   border: 2.5px solid var(--primary);
-  box-shadow: 0 2px 8px rgba(47, 107, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(47,95,208, 0.3);
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 .budget-slider::-webkit-slider-thumb:hover {
   transform: scale(1.15);
-  box-shadow: 0 2px 14px rgba(47, 107, 255, 0.45);
+  box-shadow: 0 2px 14px rgba(47,95,208, 0.45);
 }
 .budget-slider::-moz-range-thumb {
   width: 18px;
@@ -1315,7 +1315,7 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
   border-radius: 9999px;
   background: #fff;
   border: 2.5px solid var(--primary);
-  box-shadow: 0 2px 8px rgba(47, 107, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(47,95,208, 0.3);
   cursor: pointer;
 }
 .budget-slider::-webkit-slider-runnable-track {
@@ -3621,7 +3621,7 @@ html[data-native] [data-listing-subnav] {
 .portal-inbox-assistant-bubble {
   background: color-mix(in srgb, var(--pl-blue) 16%, var(--pl-white));
   color: var(--pl-blue-deep);
-  box-shadow: 0 1px 2px rgba(47, 107, 255, 0.12);
+  box-shadow: 0 1px 2px rgba(47,95,208, 0.12);
 }
 
 [data-theme="dark"] .portal-inbox-assistant-bubble {

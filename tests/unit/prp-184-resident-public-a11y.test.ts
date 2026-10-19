@@ -22,10 +22,6 @@ describe("PRP-184 cursor-1 slice — public home + sign-in contrast hooks", () =
   const proplaneCss = flat(
     readFileSync(path.join(process.cwd(), "src/components/marketing/landing-proplane.css"), "utf8"),
   );
-  const dashDemo = readFileSync(
-    path.join(process.cwd(), "src/components/marketing/landing-dashboard-chat-demo.tsx"),
-    "utf8",
-  );
 
   it("keeps a legibility wash on the marketing hero text column", () => {
     expect(globalsCss).toContain(".landing-hero-wash");
@@ -42,10 +38,6 @@ describe("PRP-184 cursor-1 slice — public home + sign-in contrast hooks", () =
   it("raises web auth muted copy on the chrome substrate", () => {
     expect(globalsCss).toContain("html:not([data-native]) .auth-layout .auth-page-subtitle");
     expect(globalsCss).toContain("var(--pl-white) 92%, var(--pl-muted-fg)");
-  });
-
-  it("does not emit prohibited aria-hidden=false on the home dashboard demo", () => {
-    expect(dashDemo).not.toContain('aria-hidden={false}');
   });
 });
 
@@ -92,25 +84,8 @@ describe("PRP-184 — OpsSky tab strip holds contrast across the whole gradient"
   });
 });
 
-describe("PRP-184 #4 — scroll regions are keyboard-reachable", () => {
-  const dashDemo = readFileSync(
-    path.join(process.cwd(), "src/components/marketing/landing-dashboard-chat-demo.tsx"),
-    "utf8",
-  );
-  const inboxDemo = readFileSync(
-    path.join(process.cwd(), "src/components/marketing/landing-inbox-approve-demo.tsx"),
-    "utf8",
-  );
+describe("PRP-184 #4 — resident detail uses the list surface", () => {
   const residents = readFileSync(path.join(process.cwd(), "src/components/portal/pro-residents.tsx"), "utf8");
-
-  it("makes the dashboard demo's vertical and horizontal scroll regions tabbable", () => {
-    expect(flat(dashDemo)).toMatch(/className="lp-dash-inner space-y-5" tabIndex=\{0\} role="region"/);
-    expect(flat(dashDemo)).toMatch(/overflow-x-auto[^"]*"\s*tabIndex=\{0\}\s*role="region"/);
-  });
-
-  it("makes the inbox demo's message thread scroll region tabbable", () => {
-    expect(inboxDemo).toContain('className="lp-ibx-thread-body" tabIndex={0} role="region"');
-  });
 
   it("resident detail services uses the list surface instead of a hand-rolled table", () => {
     expect(flat(residents)).toContain("PortalRecordListSurface");

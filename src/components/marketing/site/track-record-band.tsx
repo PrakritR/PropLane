@@ -19,7 +19,7 @@ export function OccupancyDots({ className }: { className?: string }) {
           key={i}
           className={cn(
             "aspect-square rounded-[5px] border",
-            i < roomsOccupied ? "border-[#1769bd] bg-[#1769bd]" : "border-[#b7cce3] bg-white",
+            i < roomsOccupied ? "border-[#2f5fd0] bg-[#2f5fd0]" : "border-[#d6d7d2] bg-white",
           )}
         />
       ))}
@@ -34,7 +34,7 @@ export function OccupancyDots({ className }: { className?: string }) {
 export function TrackRecordBand({ className, attr = "track-record" }: { className?: string; attr?: string }) {
   const metrics = trackRecordMetrics();
   return (
-    <div className={cn("rounded-3xl border border-[#dbe4ef] bg-white/85 p-6 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)] sm:p-8", className)} data-attr={attr}>
+    <div className={cn("rounded-3xl border border-[#d6d7d2] bg-white/85 p-6 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)] sm:p-8", className)} data-attr={attr}>
       <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(0,1fr))]">
         {metrics.map((m) => (
           <div key={m.id} className="flex flex-col">
@@ -43,7 +43,7 @@ export function TrackRecordBand({ className, attr = "track-record" }: { classNam
           </div>
         ))}
       </dl>
-      <div className="mt-7 border-t border-[#dbe4ef] pt-6">
+      <div className="mt-7 border-t border-[#d6d7d2] pt-6">
         <OccupancyDots className="max-w-[26rem]" />
         <p className="mt-3 text-[13px] text-muted">
           {TRACK_RECORD.roomsOccupied} of {TRACK_RECORD.roomsTotal} rooms occupied across {TRACK_RECORD_HOMES.join(", ")}, Seattle.

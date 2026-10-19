@@ -12,8 +12,7 @@ import { cn } from "@/lib/utils";
  * PropLane workspace window on the page's wavy background, at one fixed size, with
  * the real portal panel for one tab inside it (`DemoPanel`,
  * `product-mock/demo-panels.tsx`); a long list scrolls inside the window and never
- * grows it. The phone is not drawn here: one phone stays on screen beside every row
- * (`resident-lifecycle-prototypes.tsx`). Rows alternate sides. Static fixtures only: no network
+ * grows it. The phone is not drawn here: one phone stays on screen beside every row. Rows alternate sides. Static fixtures only: no network
  * request, nothing saved (`docs/agents/marketing-mocks.md`).
  *
  * Every sentence below describes something the product does; check the area's

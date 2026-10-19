@@ -83,7 +83,7 @@ const SAFETY = [
   },
 ] as const;
 
-const CARD = "rounded-2xl border border-[var(--site-line,#dbe4ef)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
+const CARD = "rounded-2xl border border-[var(--site-line,#d6d7d2)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)]";
 
 function SwitchboardChain() {
   return (
@@ -94,13 +94,13 @@ function SwitchboardChain() {
           {i < SWITCHBOARD.length - 1 ? (
             <span
               aria-hidden
-              className="absolute left-[19px] top-11 h-[calc(100%-2.75rem)] w-px bg-[#b7cce3] lg:left-12 lg:top-[19px] lg:h-px lg:w-[calc(100%-3rem)]"
+              className="absolute left-[19px] top-11 h-[calc(100%-2.75rem)] w-px bg-[#d6d7d2] lg:left-12 lg:top-[19px] lg:h-px lg:w-[calc(100%-3rem)]"
             />
           ) : null}
           <span
             className={cn(
               "relative z-[1] grid h-10 w-10 shrink-0 place-items-center rounded-full border text-primary [&>svg]:h-[18px] [&>svg]:w-[18px]",
-              hop.you ? "border-[#1769bd] bg-[#1769bd] text-white" : "border-[#b7cce3] bg-white",
+              hop.you ? "border-[#2f5fd0] bg-[#2f5fd0] text-white" : "border-[#d6d7d2] bg-white",
             )}
           >
             {hop.icon}
@@ -213,7 +213,7 @@ export default function WhySoftwarePage() {
             <SiteEyebrow className="mb-3">How it stays safe</SiteEyebrow>
             <SiteHeading id="why-safe-title">Fast does not mean unsupervised.</SiteHeading>
           </div>
-          <dl className={cn(CARD, "divide-y divide-[#dbe4ef] px-5 sm:px-8")}>
+          <dl className={cn(CARD, "divide-y divide-[#d6d7d2] px-5 sm:px-8")}>
             {SAFETY.map((s) => (
               <div key={s.label} className="grid gap-1.5 py-6 sm:grid-cols-[230px_minmax(0,1fr)] sm:gap-10">
                 <dt className="text-[16px] font-bold leading-snug text-foreground">{s.label}</dt>

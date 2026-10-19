@@ -8,7 +8,6 @@ import { publicSiteFont } from "@/components/public-site/fonts/inter-tight";
 import "@/components/public-site/public-site.css";
 import type { Metadata } from "next";
 import { IOS_APP_STORE_APP_ID } from "@/lib/ios-app-download";
-import { siteDisplayFont } from "@/components/marketing/fonts/site-display-font";
 import {
   homeSwissFont,
   homeSwissCoverFont,
@@ -19,7 +18,6 @@ import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 // suspension otherwise exposes the short loading shell and shifts the footer.
 import "@/components/marketing/texting-home.css";
 import "@/components/marketing/home-scroll-stage.css";
-import "@/components/marketing/home-dashboard-stage.css";
 import "@/components/marketing/home-number-hero.css";
 import "@/components/marketing/resident-lifecycle-phone.css";
 import "@/components/marketing/resident-lifecycle-atmosphere.css";
@@ -50,7 +48,7 @@ export default async function PublicLayout({
   return (
     <PublicTextingProvider value={texting}>
       <div
-        className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable} ${homeSwissFont.variable} ${homeSwissCoverFont.variable} ${publicSiteFont.variable}`}
+        className={`axis-page-frame relative flex min-h-screen flex-col ${homeSwissFont.variable} ${homeSwissCoverFont.variable} ${publicSiteFont.variable}`}
       >
         <PublicLightThemeLock />
         <HideOnNative>

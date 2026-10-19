@@ -127,7 +127,7 @@ export default function ManagedServicePage() {
             <ul className="mt-8 space-y-5">
               {OWNER_POINTS.map((p) => (
                 <li key={p.title} className="flex gap-4">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#1769bd]/10 text-[#1769bd] [&>svg]:h-[18px] [&>svg]:w-[18px]">{p.icon}</span>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#2f5fd0]/10 text-[#2f5fd0] [&>svg]:h-[18px] [&>svg]:w-[18px]">{p.icon}</span>
                   <span>
                     <span className="block text-[16px] font-bold text-foreground">{p.title}</span>
                     <span className="mt-1 block text-[14.5px] leading-relaxed text-muted">{p.copy}</span>

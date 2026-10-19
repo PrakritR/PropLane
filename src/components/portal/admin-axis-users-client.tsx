@@ -201,7 +201,9 @@ function AdminAccountsList() {
 
   const [reloadTick, setReloadTick] = useState(0);
   const reload = useCallback(() => setReloadTick((n) => n + 1), []);
-  const [result, setResult] = useState<AdminAccountSearchResult | null>(null);
+  // `resultKind` is the kind the held rows were read for: switching tabs keeps the last
+  // answer's counts on screen, but never its rows (another kind's accounts).
+  const [result, setResult] = useState<(AdminAccountSearchResult & { kind: AdminAccountRowKind }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [billingById, setBillingById] = useState<Record<string, ManagerBillingSummary>>({});
@@ -246,11 +248,17 @@ function AdminAccountsList() {
         const res = await fetchWithTimeout(`/api/admin/accounts/search?${params.toString()}`, {}, ADMIN_FETCH_TIMEOUT_MS);
         const json = (await res.json().catch(() => ({}))) as Partial<AdminAccountSearchResult> & { error?: string };
         if (cancelled) return;
-        if (!res.ok || !json.rows || !json.counts) {
+        if (!res.ok || !json.rows || !json.counts || !json.activeCounts) {
           setLoadError(json.error ?? "Could not load accounts.");
           return;
         }
-        setResult({ rows: json.rows, counts: json.counts, countsComplete: json.countsComplete === true });
+        setResult({
+          kind,
+          rows: json.rows,
+          counts: json.counts,
+          activeCounts: json.activeCounts,
+          countsComplete: json.countsComplete === true,
+        });
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -300,7 +308,8 @@ function AdminAccountsList() {
     };
   }, [kind, reloadTick]);
 
-  const rows = useMemo(() => result?.rows ?? [], [result]);
+  const resultIsForKind = result?.kind === kind;
+  const rows = useMemo(() => (result && result.kind === kind ? result.rows : []), [result, kind]);
   const tierMatches = useCallback(
     (row: AdminAccountSearchRow) =>
       kind !== "manager" || tierFilter === "all" || (billingById[row.id]?.storedTier ?? "").toLowerCase() === tierFilter,
@@ -323,7 +332,17 @@ function AdminAccountsList() {
 
   // A total gets a pill; an answer that could not be totalled gets none, because
   // a number that is too low reads as the truth.
-  const counts = result?.countsComplete ? result.counts : undefined;
+  // The pill counts what the list beneath shows for the chosen Status: Active by default,
+  // so a Managers pill of 4 means four rows, not four plus the disabled ones.
+  const counts = result?.countsComplete
+    ? statusTab === "active"
+      ? result.activeCounts
+      : {
+          manager: result.counts.manager - result.activeCounts.manager,
+          resident: result.counts.resident - result.activeCounts.resident,
+          vendor: result.counts.vendor - result.activeCounts.vendor,
+        }
+    : undefined;
   const ROLE_TABS = [
     { id: "management", label: "Managers", count: counts?.manager },
     { id: "resident", label: "Residents", count: counts?.resident },
@@ -494,7 +513,7 @@ function AdminAccountsList() {
         the same data — which is two places for the same list to drift.
       */}
       <PortalRecordListSurface
-        loading={loading && !result}
+        loading={loading && !resultIsForKind}
         loadError={loadError ?? undefined}
         onRetry={reload}
         isEmpty={visible.length === 0}

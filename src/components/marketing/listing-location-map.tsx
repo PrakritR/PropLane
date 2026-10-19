@@ -40,7 +40,7 @@ export function ListingLocationMap({
 
       const icon = L.divIcon({
         className: "border-0 bg-transparent",
-        html: `<div style="width:22px;height:22px;border-radius:9999px;background:linear-gradient(135deg,#2f6bff,#5a8cff);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.28)"></div>`,
+        html: `<div style="width:22px;height:22px;border-radius:9999px;background:linear-gradient(135deg,#2f5fd0,#6d8fe0);border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.28)"></div>`,
         iconSize: [22, 22],
         iconAnchor: [11, 11],
       });

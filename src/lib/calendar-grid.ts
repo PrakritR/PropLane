@@ -29,9 +29,9 @@ export const GRID_DAY_END = 24 * 60;
 /** Inspections, move-ins/outs and every house task are `task` here: the calendar has three kinds. */
 export type CalendarItemKind = "tour" | "service" | "task" | "busy";
 
-/** Type colours (the tab dots are the legend). Hex so they read in light and dark. */
+/** Type colours (the tab dots are the legend). Hex (tour is the theme token) so they read in light and dark. */
 export const CALENDAR_KIND_COLOR: Record<CalendarItemKind, string> = {
-  tour: "#2863f0",
+  tour: "var(--primary)",
   service: "#e8890c",
   task: "#12805c",
   busy: "#94a3b8",

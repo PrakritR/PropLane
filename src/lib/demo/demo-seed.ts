@@ -52,8 +52,21 @@ import {
   buildDemoBlankSnapshot,
   buildDemoGuidedSnapshot,
   buildDemoIdleSnapshot,
+  buildHomeDemoSnapshot,
   type DemoDataSnapshot,
 } from "@/lib/demo/demo-guided-data";
+import { HOME_DEMO_EMBED_PATH } from "@/lib/demo/home-demo-embed";
+
+/** The homepage Software demo's iframe seeds its own fixture world, never the mirror or the guided tour. */
+function isHomeDemoEmbed(): boolean {
+  return typeof window !== "undefined" && window.location?.pathname === HOME_DEMO_EMBED_PATH;
+}
+
+/** Put the homepage demo's world back to its first frame (used between chapters). */
+export function seedHomeDemoData(): void {
+  if (typeof window === "undefined" || !isDemoModeActive()) return;
+  applyDemoSnapshot(buildHomeDemoSnapshot());
+}
 
 function applyDemoSnapshot(snapshot: DemoDataSnapshot): void {
   const managerScopeId = resolveDemoManagerScopeUserId();
@@ -91,6 +104,7 @@ function applyDemoSnapshot(snapshot: DemoDataSnapshot): void {
 
 /** Resolve which snapshot to seed based on guided tour state. */
 export function resolveDemoSnapshot(): DemoDataSnapshot {
+  if (isHomeDemoEmbed()) return buildHomeDemoSnapshot();
   hydrateDemoGuidedState();
   const { mode, step } = getDemoGuidedState();
   if (mode === "guided" && step > 0) {
@@ -154,6 +168,10 @@ function shouldSkipHomepageDemoSeed(): boolean {
 export async function seedDemoPortalIdleData(): Promise<void> {
   if (typeof window === "undefined" || !isDemoModeActive()) return;
   if (shouldSkipHomepageDemoSeed()) return;
+  if (isHomeDemoEmbed()) {
+    applyDemoSnapshot(buildHomeDemoSnapshot());
+    return;
+  }
   hydrateDemoGuidedState();
   const { mode, step } = getDemoGuidedState();
   if (mode === "guided" && step > 0) {
@@ -228,7 +246,7 @@ async function fetchIdleMirrorSnapshot(): Promise<DemoDataSnapshot | null> {
 export async function seedDemoPortalDataFromMirror(): Promise<boolean> {
   if (typeof window === "undefined" || !isDemoModeActive()) return false;
   if (!DEMO_PORTAL_MIRROR_ENABLED) return false;
-  if (shouldSkipHomepageDemoSeed()) return false;
+  if (shouldSkipHomepageDemoSeed() || isHomeDemoEmbed()) return false;
   hydrateDemoGuidedState();
   if (isGuidedDemoActive()) return false;
   const snapshot = await fetchIdleMirrorSnapshot();

@@ -249,7 +249,7 @@ export function PortalTextNotificationsBlock({
             <div className="flex flex-wrap items-center gap-2">
               <PhoneNumberField
                 id={`${dataAttrPrefix}-text-notifications-phone`}
-                className="max-w-80 min-w-0 flex-1"
+                className="min-w-[15rem] max-w-80 flex-1"
                 value={phoneInput}
                 onChange={setPhoneInput}
                 disabled={busy !== null || !smsConfigured}

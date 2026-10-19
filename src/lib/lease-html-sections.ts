@@ -325,7 +325,7 @@ export function applyLeaseSectionBodyEdits(
 }
 
 const LEASE_VISUAL_EDIT_EXTRA_STYLE = `
-.lease-visual-section-active { outline: 2px solid rgba(47, 107, 255, 0.75) !important; outline-offset: 4px; background: rgba(47, 107, 255, 0.06) !important; }
+.lease-visual-section-active { outline: 2px solid rgba(47,95,208, 0.75) !important; outline-offset: 4px; background: rgba(47,95,208, 0.06) !important; }
 body[contenteditable="true"] { outline: none; }
 body[contenteditable="true"]:focus { outline: none; }
 p[data-disclosure-rule] {

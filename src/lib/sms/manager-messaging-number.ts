@@ -296,3 +296,25 @@ export function workspaceWorkNumber(
   const shared = status.sharedLine?.onSharedLine ? String(status.sharedLine.number ?? "").trim() : "";
   return shared || null;
 }
+
+/**
+ * The numbers an OWNED workspace row lists in Settings. `numbers` is the held-numbers list; when it is
+ * empty but the workspace's own line is live (`phoneNumber`, which the status route only sets for an
+ * active home row), that line IS the workspace's work number - the same one the inbox card and
+ * Integrations read from `status.number` - so Settings must not call it "Set up".
+ */
+export function workspaceListedNumbers(
+  workspace: NonNullable<ManagerMessagingNumberStatus["workspaces"]>[number],
+): WorkspaceNumberEntry[] {
+  if (workspace.numbers?.length) return workspace.numbers;
+  const phone = workspace.phoneNumber?.trim();
+  if (!workspace.owned || !phone) return [];
+  return [{
+    numberId: `home:${workspace.workspaceId}`,
+    phoneNumber: phone,
+    isPrimary: true,
+    provisionState: workspace.provisionState,
+    sharedWithWorkspaceIds: [],
+    sharedWithWorkspaceNames: [],
+  }];
+}

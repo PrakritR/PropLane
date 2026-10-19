@@ -84,6 +84,26 @@ describe("RecordActionMenu destructive settle guard", () => {
   });
 });
 
+describe("RecordActionMenu stray release", () => {
+  it("ignores the pointerup that lands on an item after the press began on the trigger, and answers a real click", async () => {
+    const onDuplicate = vi.fn();
+    render(<Harness onDuplicate={onDuplicate} />);
+    const trigger = screen.getByRole("button", { name: "Actions for Test record" });
+    // Press on the ⋯ (the menu opens on pointerdown and may land under the held pointer)...
+    fireEvent.pointerDown(trigger);
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const item = await screen.findByRole("menuitem", { name: "Duplicate" });
+    // ...so the release lands on the item beneath it (Radix turns that into a click of its own): not a choice.
+    fireEvent.pointerUp(item);
+    expect(onDuplicate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    // A fresh press inside the menu is a real choice.
+    fireEvent.pointerDown(item);
+    fireEvent.click(item);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("record-action-menu destructive color token", () => {
   const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
 

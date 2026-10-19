@@ -82,7 +82,6 @@ const EXEMPT_PATHS = new Set([
   join("src", "lib", "portals", "vendor-sections.ts"),
   join("src", "components", "portal", "portal-detail-routes.ts"),
   join("src", "components", "portal", "portal-inbox-ui.tsx"), // internal renderer, legacy "Inbox" in comments OK
-  join("src", "components", "marketing", "site", "bento.tsx"), // demo/marketing only
   join("src", "components", "marketing", "mobile-app-preview.tsx"), // marketing mock
   join("src", "app", "(public)", "partner", "page.tsx"), // demo/marketing only
   join("src", "app", "(public)", "vendors", "page.tsx"), // marketing/public — "bid" is OK here

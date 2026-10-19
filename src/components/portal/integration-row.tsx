@@ -61,9 +61,10 @@ export function IntegrationRow({
         <Icon className={cn("size-5", tone ?? "text-muted")} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] text-foreground">{name}</p>
+        <p className="min-w-[6rem] truncate text-[15px] text-foreground">{name}</p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      {/* "Coming soon" and its action stack on a phone so the name keeps its width instead of shrinking to a letter. */}
+      <div className={cn("flex shrink-0 items-center gap-2", comingSoon && comingSoonAction ? "max-sm:flex-col max-sm:items-end max-sm:gap-0.5" : null)}>
         {fact && !comingSoon ? (
           <span className="text-xs text-muted" data-attr={factDataAttr}>
             {fact}

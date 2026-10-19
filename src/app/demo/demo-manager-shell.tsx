@@ -15,7 +15,7 @@ import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assis
 import { hydrateDemoGuidedState } from "@/lib/demo/demo-guided";
 import { seedDemoPortalIdleData } from "@/lib/demo/demo-seed";
 import { CANONICAL_DEMO_MANAGER_NAME, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
-import { DEMO_RESIDENT_EMAIL, DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, setDemoRole } from "@/lib/demo/demo-session";
+import { DEMO_NAVIGATE_EVENT, DEMO_RESIDENT_EMAIL, DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, setDemoRole } from "@/lib/demo/demo-session";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
   PORTAL_MAIN_CONTENT_ID,
@@ -84,14 +84,16 @@ const DEMO_RESIDENT_DISPLAY_LABEL = `${CANONICAL_DEMO_RESIDENT_NAME} · Alder Ho
  * switch instead, the same interception `DemoPortalShell` already used. */
 const DEMO_INTERCEPT_HREF = /^\/(portal|resident|vendor|admin|auth|rent)(\/|$)/;
 
-function parseDemoTarget(href: string): { role: DemoPortalRole; section: string; tab: string | null } | null {
+function parseDemoTarget(href: string): { role: DemoPortalRole; section: string; tab: string | null; rest: string[] } | null {
   const path = href.split(/[?#]/)[0] ?? "";
   const parts = path.split("/").filter(Boolean);
   if (parts.length < 2) return null;
   const [prefix, section, tab] = parts;
-  if (prefix === "portal") return { role: "manager", section: section!, tab: tab ?? null };
-  if (prefix === "resident") return { role: "resident", section: section!, tab: tab ?? null };
-  if (prefix === "vendor") return { role: "vendor", section: section!, tab: tab ?? null };
+  // `rest` is everything after the section (`work-orders/open/<id>/communication`): a record's own address.
+  const rest = parts.slice(2);
+  if (prefix === "portal") return { role: "manager", section: section!, tab: tab ?? null, rest };
+  if (prefix === "resident") return { role: "resident", section: section!, tab: tab ?? null, rest };
+  if (prefix === "vendor") return { role: "vendor", section: section!, tab: tab ?? null, rest };
   return null;
 }
 
@@ -253,7 +255,10 @@ export function DemoManagerShell({
   initialRole = "manager",
   initialSection = "dashboard",
   initialTab,
+  embed = false,
 }: {
+  /** The homepage Software demo's iframe: the same shell without the local role switch (manager only). */
+  embed?: boolean;
   initialRole?: DemoPortalRole;
   initialSection?: string;
   /** `?tab=` — a record id or sub-tab within `initialSection` (e.g. a lease id for "lease"). */
@@ -275,6 +280,7 @@ export function DemoManagerShell({
     isValidDemoSection(initialRole, initialSection) ? initialSection : "dashboard",
   );
   const [tab, setTab] = useState<string | null>(() => initialTab?.trim() || null);
+  const [path, setPath] = useState<string[]>([]);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
 
@@ -284,9 +290,10 @@ export function DemoManagerShell({
     [definition, section],
   );
 
-  const selectSection = useCallback((next: string, nextTab: string | null = null) => {
+  const selectSection = useCallback((next: string, nextTab: string | null = null, nextPath: string[] = []) => {
     setSection(next);
     setTab(nextTab);
+    setPath(nextPath);
   }, []);
 
   const switchRole = useCallback((next: DemoPortalRole) => {
@@ -294,6 +301,7 @@ export function DemoManagerShell({
     setDemoRole(next);
     setSection("dashboard");
     setTab(null);
+    setPath([]);
     setAssistantOpen(false);
   }, []);
 
@@ -313,10 +321,21 @@ export function DemoManagerShell({
         setDemoRole(target.role);
         setAssistantOpen(false);
       }
-      selectSection(target.section, target.tab);
+      selectSection(target.section, target.tab, target.rest);
     },
     [portalRole, selectSection],
   );
+
+  // Programmatic navigations (`usePortalNavigate`, `portalNavClick`) cannot be caught by a click handler, so in demo
+  // mode they dispatch this event instead of pushing a route (the same hand-off `DemoPortalShell` listens for).
+  useEffect(() => {
+    const onNavigate = (event: Event) => {
+      const href = (event as CustomEvent<{ href?: string }>).detail?.href;
+      if (typeof href === "string") navigateInDemo(href);
+    };
+    window.addEventListener(DEMO_NAVIGATE_EVENT, onNavigate);
+    return () => window.removeEventListener(DEMO_NAVIGATE_EVENT, onNavigate);
+  }, [navigateInDemo]);
 
   const onFrameClickCapture = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
@@ -378,7 +397,7 @@ export function DemoManagerShell({
             onClickCapture={onFrameClickCapture}
             className={PORTAL_SHELL_ROOT_CLASS}
           >
-            <DemoRoleSwitchControl role={portalRole} onChange={switchRole} />
+            {embed ? null : <DemoRoleSwitchControl role={portalRole} onChange={switchRole} />}
             <WorkspaceProvider>
               <PortalTopBar
                 kind={definition.kind}
@@ -395,7 +414,7 @@ export function DemoManagerShell({
                   <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
                     <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
                       <PortalMobileNavBar definition={definition} name={displayName} email={displayEmail} />
-                      <DemoSectionRenderer role={portalRole} section={section} tab={tab} meta={meta} />
+                      <DemoSectionRenderer role={portalRole} section={section} tab={tab} path={path} meta={meta} />
                     </div>
                   </main>
                 </div>

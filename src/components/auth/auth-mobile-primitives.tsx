@@ -90,7 +90,7 @@ export function AuthBrandHeader({
   const logo = (
     <AxisLogoMark
       size="default"
-      className="auth-brand-logo shadow-[0_14px_44px_-14px_rgba(47,107,255,0.5)]"
+      className="auth-brand-logo shadow-[0_14px_44px_-14px_rgba(47,95,208,0.5)]"
     />
   );
 
@@ -182,7 +182,7 @@ export function AuthRoleTabs({
         const iconWrap =
           option.tone === "steel"
             ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.4),rgba(188,212,255,0.3))] text-[#1a2f5c]"
-            : "bg-[linear-gradient(135deg,var(--primary),var(--sky))] text-white shadow-[0_8px_20px_-10px_rgba(47,107,255,0.55)]";
+            : "bg-[linear-gradient(135deg,var(--primary),var(--sky))] text-white shadow-[0_8px_20px_-10px_rgba(47,95,208,0.55)]";
         const isBusy = busyId === option.id;
 
         return (
@@ -269,7 +269,7 @@ export function AuthRoleCard({
   const iconWrap =
     tone === "steel"
       ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.35),rgba(188,212,255,0.25))] text-[#1a2f5c]"
-      : "bg-[linear-gradient(135deg,var(--primary),var(--sky))] text-white shadow-[0_8px_20px_-10px_rgba(47,107,255,0.65)]";
+      : "bg-[linear-gradient(135deg,var(--primary),var(--sky))] text-white shadow-[0_8px_20px_-10px_rgba(47,95,208,0.65)]";
 
   if (variant === "blend") {
     return (
@@ -308,7 +308,7 @@ export function AuthRoleCard({
       disabled={disabled}
       className="auth-choice-button group w-full rounded-[18px] text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]"
     >
-      <div className="rounded-[18px] bg-[linear-gradient(135deg,rgba(47,107,255,0.55),rgba(143,180,255,0.35))] p-[1.5px] shadow-[0_10px_28px_-14px_rgba(47,107,255,0.45)] transition group-hover:shadow-[0_14px_36px_-12px_rgba(47,107,255,0.5)] group-active:scale-[0.995]">
+      <div className="rounded-[18px] bg-[linear-gradient(135deg,rgba(47,95,208,0.55),rgba(143,180,255,0.35))] p-[1.5px] shadow-[0_10px_28px_-14px_rgba(47,95,208,0.45)] transition group-hover:shadow-[0_14px_36px_-12px_rgba(47,95,208,0.5)] group-active:scale-[0.995]">
         <div className="flex items-center gap-3 rounded-[16.5px] bg-[var(--glass-fill)] px-3.5 py-3 backdrop-blur-xl sm:gap-3.5 sm:px-4 sm:py-3.5">
           <span
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11 ${iconWrap}`}

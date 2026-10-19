@@ -4,6 +4,7 @@ import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import {
   PUBLIC_SUPPORT_ADDRESS_LINE,
 } from "@/lib/marketing/public-contact";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 import {
   MarketingHero,
@@ -117,7 +118,7 @@ export default async function AboutPage() {
             {texting.smsHref && texting.phone ? <div className="lp-page-card lp-page-card-pad">
               <dt className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--lp-blue)]">Text PropLane</dt>
               <dd className="mt-2 text-[15px] font-semibold tabular-nums text-[var(--lp-ink)]">
-                <a href={texting.smsHref}>{texting.phone}</a>
+                <a href={texting.smsHref}>{formatPublicPhone(texting.phone) ?? texting.phone}</a>
               </dd>
             </div> : null}
             <div className={`lp-page-card lp-page-card-pad ${texting.smsHref && texting.phone ? "sm:col-span-2" : ""}`}>

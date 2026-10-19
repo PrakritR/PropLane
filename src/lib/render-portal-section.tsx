@@ -668,9 +668,7 @@ export async function renderPortalSectionWith(
 
   if (kind === "admin" && section === "dashboard") {
     if (tabParts?.length) notFound();
-    const { profile } = await getServerSessionProfile();
-    const displayName = profile?.full_name?.trim() || profile?.email?.split("@")[0] || "there";
-    return <AdminDashboard displayName={displayName} />;
+    return <AdminDashboard />;
   }
 
   if (kind === "admin" && section === "create-manager") {

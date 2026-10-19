@@ -1,10 +1,12 @@
 /*
- * The public site's shared look: the home page's headline face, ink and
- * buttons, and the wavy atmosphere behind every page.
+ * The public site's shared look: the home page's Inter Tight, ink, one blue
+ * (#2f5fd0), hairlines and buttons (the `--ps-*` tokens in
+ * `public-site/public-site.css`), and the wavy atmosphere behind every page.
  *
- *   - Display face: Bricolage Grotesque (`--font-site-display`, set by
- *     `fonts/site-display-font.ts`) on every H1 and H2 under `.site-page`,
- *     `.site-display-scope` (legal / docs prose) and `.auth-layout`.
+ *   - Display face: Inter Tight (`--font-public-site`, set by
+ *     `public-site/fonts/inter-tight.ts`) on every H1 and H2 under `.site-page`,
+ *     `.site-display-scope` (legal / docs prose) and `.auth-layout`, set the way
+ *     the homepage sets its headlines (600, tight tracking).
  *   - Atmosphere: `SiteBackdrop` (the home hero's own `ResidentLifecycleAtmosphere`,
  *     not a copy). Inside `.site-page` it is a viewport-high sticky layer, so one
  *     continuous soft background runs behind the whole page without stretching
@@ -15,24 +17,28 @@
 .site-page,
 .site-display-scope,
 .auth-layout {
-  --site-ink: #132b47;
-  --site-ink-soft: #172d49;
-  --site-accent: #1f64a8;
-  --site-line: #dbe4ef;
-  --site-btn: #1769bd;
+  --site-ink: #0c0d10;
+  --site-ink-soft: #0c0d10;
+  --site-mute: #6a6d74;
+  --site-accent: #2f5fd0;
+  --site-accent-deep: #2249a8;
+  --site-line: #d6d7d2;
+  --site-line-strong: #b9bab5;
+  --site-btn: #2f5fd0;
 }
 
 .site-page :is(h1, h2),
 .site-display-scope :is(h1, h2),
 .auth-layout :is(h1, h2),
 .site-display {
-  font-family: var(--font-site-display), "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-public-site), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 600;
 }
 
 /* Unlayered, so it only goes on scopes whose headings carry no tracking utility. */
 .site-display-scope :is(h1, h2),
 .auth-layout :is(h1, h2) {
-  letter-spacing: -0.032em;
+  letter-spacing: -0.045em;
 }
 
 /* One continuous background, no white bands. */
@@ -88,11 +94,11 @@
   max-width: 17ch;
   color: var(--site-ink);
   font-size: clamp(2.7rem, 6.3vw, 5.4rem);
-  font-weight: 730;
-  line-height: 1.04;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.052em;
   text-wrap: balance;
-  text-shadow: 0 2px 22px #f7fbffb8;
+  text-shadow: 0 2px 22px #f7f7f4b8;
 }
 
 .site-hero h1.site-hero-wide {
@@ -101,7 +107,7 @@
 
 .site-hero h1 .site-accent,
 .site-accent {
-  color: #316da7;
+  color: var(--site-accent);
 }
 
 .site-hero h1 .site-accent {
@@ -111,7 +117,7 @@
 .site-hero-lede {
   margin: 22px auto 0;
   max-width: 54ch;
-  color: #3a4d68;
+  color: var(--site-mute);
   font-size: clamp(16px, 1.5vw, 19px);
   line-height: 1.55;
   text-wrap: pretty;
@@ -128,7 +134,7 @@
 
 .site-hero-note {
   margin: 16px auto 0;
-  color: #4a5d78;
+  color: var(--site-mute);
   font-size: 13.5px;
 }
 
@@ -136,7 +142,7 @@
 .site-prose-card {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--site-line);
-  box-shadow: 0 24px 60px -34px rgba(19, 43, 71, 0.28);
+  box-shadow: 0 24px 60px -34px rgba(12, 13, 16, 0.2);
 }
 
 @media (max-width: 640px) {
@@ -155,10 +161,10 @@
   background: transparent;
   overflow-x: clip;
   margin-top: 0;
-  --lp-blue: #1769bd;
+  --lp-blue: var(--site-accent);
   --lp-ink: var(--site-ink);
-  --lp-muted: #3f526c;
-  --lp-line: #cfdceb;
+  --lp-muted: var(--site-mute);
+  --lp-line: var(--site-line);
   --lp-card: rgba(255, 255, 255, 0.82);
   --lp-surface-2: rgba(255, 255, 255, 0.7);
 }
@@ -188,11 +194,11 @@
   max-width: 17ch;
   color: var(--site-ink);
   font-size: clamp(2.7rem, 6.3vw, 5.4rem);
-  font-weight: 730;
-  line-height: 1.04;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.052em;
   text-wrap: balance;
-  text-shadow: 0 2px 22px #f7fbffb8;
+  text-shadow: 0 2px 22px #f7f7f4b8;
 }
 
 .site-page .lp-page-hero--start .lp-page-title,
@@ -209,7 +215,7 @@
 .site-page .lp-page-lede {
   max-width: 54ch;
   margin: 22px auto 0;
-  color: #3a4d68;
+  color: var(--site-mute);
   font-size: clamp(16px, 1.5vw, 19px);
   line-height: 1.55;
   text-wrap: pretty;
@@ -231,9 +237,9 @@
 
 .site-page .lp-page-section h2 {
   font-size: clamp(1.9rem, 3.6vw, 3rem);
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.032em;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
   text-wrap: balance;
 }
 
@@ -248,7 +254,7 @@
   background: rgba(255, 255, 255, 0.88);
   border-color: var(--site-line);
   border-radius: 14px;
-  box-shadow: 0 18px 44px -30px rgba(19, 43, 71, 0.3);
+  box-shadow: 0 18px 44px -30px rgba(12, 13, 16, 0.2);
 }
 
 .site-page .lp-page-card h3 {
@@ -257,14 +263,14 @@
 
 .site-page .lp-page-card p,
 .site-page .lp-page-list li {
-  color: #3f526c;
+  color: var(--site-mute);
 }
 
 .site-page .lp-page-field input,
 .site-page .lp-page-field select,
 .site-page .lp-page-field textarea {
   background: rgba(255, 255, 255, 0.92);
-  border-color: #c3d4e6;
+  border-color: var(--site-line-strong);
 }
 
 /* The home button set on the legacy `lp-btn` buttons. */
@@ -272,36 +278,36 @@
 .site-page a.lp-btn.lp-lg {
   height: 52px;
   padding-inline: 22px;
-  border-radius: 9px;
+  border-radius: 3px;
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .site-page .lp-btn-blue,
 .site-page a.lp-btn-blue {
-  background: #1769bd;
-  border-color: #1769bd;
+  background: var(--site-btn);
+  border-color: var(--site-btn);
   color: #fff;
-  box-shadow: 0 12px 22px #1769bd24;
+  box-shadow: none;
 }
 
 .site-page .lp-btn-blue:hover,
 .site-page a.lp-btn-blue:hover {
-  background: #0f5aa8;
+  background: var(--site-accent-deep);
   filter: none;
 }
 
 .site-page .lp-btn-ghost,
 .site-page a.lp-btn-ghost {
   background: rgba(255, 255, 255, 0.6);
-  border-color: #b7cce3;
-  color: #285887;
+  border-color: var(--site-ink);
+  color: var(--site-ink);
 }
 
 .site-page .lp-btn-ghost:hover,
 .site-page a.lp-btn-ghost:hover {
   background: rgba(255, 255, 255, 0.9);
-  border-color: #8fb0d4;
+  border-color: var(--site-ink);
   filter: none;
 }
 

@@ -107,7 +107,7 @@ export function ManagerPlanTierCards({
               onClick={() => onSelectTier(tier.id)}
               className={`auth-plan-tier-card rounded-xl border p-2.5 text-center transition ${
                 isSelected
-                  ? "border-primary/50 bg-primary/[0.06] shadow-[0_0_0_1px_rgba(47,107,255,0.2)]"
+                  ? "border-primary/50 bg-primary/[0.06] shadow-[0_0_0_1px_rgba(47,95,208,0.2)]"
                   : "border-border bg-card/50 hover:border-primary/25"
               }`}
               aria-pressed={isSelected}
@@ -156,7 +156,7 @@ export function ManagerPlanTierCards({
             onClick={() => onSelectTier(tier.id)}
             className={`auth-plan-tier-card flex h-full w-full flex-col rounded-2xl border p-4 text-left transition sm:rounded-[1.35rem] sm:p-5 ${
               isSelected
-                ? "border-primary/50 bg-primary/[0.06] shadow-[0_0_0_1px_rgba(47,107,255,0.2)]"
+                ? "border-primary/50 bg-primary/[0.06] shadow-[0_0_0_1px_rgba(47,95,208,0.2)]"
                 : "border-border bg-card/50 hover:border-primary/25"
             }`}
             aria-pressed={isSelected}

@@ -228,3 +228,50 @@ describe("flag safety", () => {
     expect(lead).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("MessageSid claim (a retry during a slow turn)", () => {
+  it("a concurrent retry of the same MessageSid gets nothing while the first turn is still running, and the recorded turn after", async () => {
+    const f = leadFakeDb({}, { constraints: LEAD_CONSTRAINTS });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    lead.mockImplementationOnce(async () => {
+      await gate; // the slow model call
+      return { leadId: "lead-slow", reply: "LEAD: slow answer", assignedWorkspaceId: null };
+    });
+    lead.mockClear();
+    const sameSid = { ...text("Is Room 3 available?"), messageSid: "SM-slow" };
+
+    const first = handleUnknownSenderInbound(f.db, sameSid, deps);
+    await vi.waitFor(() => expect(lead).toHaveBeenCalledTimes(1));
+    const retry = await handleUnknownSenderInbound(f.db, sameSid, deps);
+    expect(retry).toEqual({ leadId: null, reply: null, assignedWorkspaceId: null });
+    expect(lead).toHaveBeenCalledTimes(1);
+
+    release();
+    const done = await first;
+    expect(done.reply).toBe("LEAD: slow answer");
+    const replay = await handleUnknownSenderInbound(f.db, sameSid, deps);
+    expect(replay.reply).toBe("LEAD: slow answer");
+    expect(lead).toHaveBeenCalledTimes(1);
+  });
+
+  it("a turn that throws frees the claim so the retry runs it", async () => {
+    const f = leadFakeDb({}, { constraints: LEAD_CONSTRAINTS });
+    lead.mockClear();
+    lead.mockImplementationOnce(async () => { throw new Error("model down"); });
+    const sameSid = { ...text("Is Room 3 available?"), messageSid: "SM-boom" };
+    await expect(handleUnknownSenderInbound(f.db, sameSid, deps)).rejects.toThrow("model down");
+    const retry = await handleUnknownSenderInbound(f.db, sameSid, deps);
+    expect(retry.reply).toBe("LEAD: budget?");
+    expect(lead).toHaveBeenCalledTimes(2);
+  });
+
+  it("a claim whose owner died is taken over after the stale window, by one retry only", async () => {
+    const f = leadFakeDb({}, { constraints: LEAD_CONSTRAINTS });
+    f.rows.sms_onboarding_replies = [{ message_sid: "SM-dead", phone_key: PHONE, turn: { __pending: true }, created_at: new Date(NOW.getTime() - 5 * 60 * 1000).toISOString() }];
+    lead.mockClear();
+    const turn = await handleUnknownSenderInbound(f.db, { ...text("Is Room 3 available?"), messageSid: "SM-dead" }, deps);
+    expect(turn.reply).toBe("LEAD: budget?");
+    expect(lead).toHaveBeenCalledTimes(1);
+  });
+});

@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 /**
  * List knowledge for the active workspace.
- * `?propertyId=<id>` = that house; `?scope=team` = team-wide answers; neither = everything.
+ * `?propertyId=<id>` = that house; `?scope=team` = team-wide answers; neither = everything the actor may see (a teammate: team-wide + their houses).
  */
 export async function GET(req: Request) {
   const auth = await requireKnowledgeActor("read");
@@ -30,7 +30,10 @@ export async function GET(req: Request) {
     propertyId: propertyId ? propertyId : team ? null : undefined,
     statuses: ["approved", "suggested"],
   });
-  return NextResponse.json({ entries, canManageTeam: actor.isOwner });
+  // A teammate sees team-wide answers and their own houses' answers, never another house's.
+  const allowed = actor.allowedPropertyIds;
+  const visible = allowed ? entries.filter((entry) => entry.propertyId === null || allowed.includes(entry.propertyId)) : entries;
+  return NextResponse.json({ entries: visible, canManageTeam: actor.isOwner });
 }
 
 /** Add an answer by hand. Approved straight away: the manager typed it. */

@@ -74,9 +74,8 @@ export function AssistantCustomInstructionsSetting({}: {
   }
 
   return (
-    <PortalSettingsSection
-      title="PropLane Assistant"
-    >
+    // No title: the pane's own heading (Preferences / PropLane Assistant) already names it.
+    <PortalSettingsSection>
       <PortalSettingsGroup>
         <PortalSettingsFormBody>
           <form

@@ -60,6 +60,30 @@ describe("knowledge routes", () => {
     expect(body.entries.map((e: { id: string }) => e.id).sort()).toEqual([ID1, ID3].sort());
   });
 
+  it("a teammate's unscoped list holds team-wide answers and their houses only, never another house's", async () => {
+    setup({
+      owner: false,
+      allowed: ["p1"],
+      rows: {
+        property_knowledge_entries: [
+          entry({ id: ID1 }),
+          entry({ id: ID3, property_id: "p9" }),
+          entry({ id: "44444444-4444-4444-8444-444444444444", property_id: null, status: "approved" }),
+        ],
+      },
+    });
+    const body = await (await listKnowledge(new Request("http://x"))).json();
+    expect(body.entries.map((e: { id: string }) => e.id).sort()).toEqual([ID1, "44444444-4444-4444-8444-444444444444"].sort());
+    // The owner is unchanged: every house plus team-wide.
+    setup({
+      rows: {
+        property_knowledge_entries: [entry({ id: ID1 }), entry({ id: ID3, property_id: "p9" }), entry({ id: "44444444-4444-4444-8444-444444444444", property_id: null, status: "approved" })],
+      },
+    });
+    const all = await (await listKnowledge(new Request("http://x"))).json();
+    expect(all.entries).toHaveLength(3);
+  });
+
   it("approve saves for the house; another workspace's id is a 404", async () => {
     const fake = setup();
     const ok = await patchKnowledge(json({ action: "approve", scope: "house" }), ctx(ID1));

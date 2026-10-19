@@ -191,6 +191,8 @@ export type OwnerUpcomingItem = {
 export type OwnerOverviewExtras = {
   /** Present only when the scope holds a PropLane-managed workspace. All cents. */
   managed: { rentCents: number; feeCents: number; netCents: number; availableCents: number; workspaceId: string } | null;
+  /** The twelve-month chart read from the ledger of the managed workspaces in scope (their rent never reaches the books the summary reads); null when none is. */
+  managedChart?: OwnerChartPoint[] | null;
   attention: OwnerAttentionItem[];
   upcoming: OwnerUpcomingItem[];
 };

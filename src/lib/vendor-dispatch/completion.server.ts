@@ -118,9 +118,9 @@ export async function recordVendorDone(
         senderEmail: sender.email,
         senderName: contact?.name || row.vendorName || sender.fullName,
         facts: {
-          reference: row.reference || "Work order",
+          reference: row.reference || "Service",
           propertyId: row.assignedPropertyId || row.propertyId || undefined,
-          title: row.title || "Work order",
+          title: row.title || "Service",
           propertyLabel: row.propertyName || undefined,
           vendorName: contact?.name || row.vendorName || undefined,
           confirmUrl: confirmation?.confirmUrl,
