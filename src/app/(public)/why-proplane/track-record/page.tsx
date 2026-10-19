@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   description: `We run ${TRACK_RECORD.homes} homes in Seattle on PropLane: ${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied, and an operation that produced six-figure profit.`,
 };
 
-const CARD = "rounded-2xl border border-[var(--site-line,#dbe4ef)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
+const CARD = "rounded-2xl border border-[var(--site-line,#d6d7d2)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)]";
 
 /** What running these homes made the software do. Each is a real PropLane capability. */
 const LEARNED = [
@@ -105,7 +105,7 @@ export default function TrackRecordPage() {
         <ul className="grid gap-4 md:grid-cols-2">
           {LEARNED.map((l) => (
             <li key={l.title} className={`${CARD} flex gap-4 p-6`}>
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#1769bd]/10 text-[#1769bd] [&>svg]:h-[18px] [&>svg]:w-[18px]">{l.icon}</span>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#2f5fd0]/10 text-[#2f5fd0] [&>svg]:h-[18px] [&>svg]:w-[18px]">{l.icon}</span>
               <span>
                 <span className="block text-[17px] font-bold tracking-tight text-foreground">{l.title}</span>
                 <span className="mt-1.5 block text-[14.5px] leading-relaxed text-muted">{l.copy}</span>

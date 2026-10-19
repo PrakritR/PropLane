@@ -62,7 +62,7 @@ export function SiteAppPage() {
                 src={shot.src}
                 alt={shot.alt}
                 sizes="(min-width: 1100px) 260px, (min-width: 768px) 24vw, 46vw"
-                className="block h-auto w-full rounded-[22px] border border-[#cfdceb] bg-white shadow-[0_24px_60px_-30px_rgba(19,43,71,0.35)] sm:rounded-[28px]"
+                className="block h-auto w-full rounded-[22px] border border-[#d6d7d2] bg-white shadow-[0_24px_60px_-30px_rgba(12,13,16,0.35)] sm:rounded-[28px]"
               />
             </li>
           ))}
@@ -72,7 +72,7 @@ export function SiteAppPage() {
           <SiteEyebrow className="mb-4 text-center">In the app</SiteEyebrow>
           <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {FEATURES.map((f) => (
-              <li key={f.title} className="rounded-2xl border border-[#dbe4ef] bg-white/85 p-5 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]">
+              <li key={f.title} className="rounded-2xl border border-[#d6d7d2] bg-white/85 p-5 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)]">
                 <h2 className="text-[15px] font-bold text-foreground">{f.title}</h2>
                 <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{f.body}</p>
               </li>

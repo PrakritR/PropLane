@@ -9,9 +9,10 @@ import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 import { ManagedServiceForm } from "@/components/marketing/site/managed-service-form";
 import { SiteEyebrow, SiteHeading, SiteLede, SiteSection } from "@/components/marketing/site/primitives";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { cn } from "@/lib/utils";
 
-const CARD = "rounded-2xl border border-[#dbe4ef] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
+const CARD = "rounded-2xl border border-[#d6d7d2] bg-white/85 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)]";
 
 /** Software | Managed service as two real links, so each tab is a URL a visitor can share. */
 export function PricingTabs({ active, tabHrefs }: { active: "software" | "service"; tabHrefs?: { software: string; service: string } }) {
@@ -47,7 +48,7 @@ export function ManagedHowItWorks({ id = "managed-how-title" }: { id?: string })
       <ol className="grid gap-4 md:grid-cols-3">
         {MANAGED_STEPS.map((s, i) => (
           <li key={s.id} className={cn(CARD, "p-6")}>
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-[#1769bd] text-[15px] font-bold text-white">{i + 1}</span>
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-[#2f5fd0] text-[15px] font-bold text-white">{i + 1}</span>
             <h3 className="mt-4 text-[18px] font-bold tracking-tight text-foreground">{s.title}</h3>
             <p className="mt-2 text-[14.5px] leading-relaxed text-muted">{s.copy}</p>
           </li>
@@ -100,7 +101,7 @@ export async function ManagedTalkSection({ headingId = "managed-talk-title", sho
               <li>
                 <a href={texting.smsHref} data-attr="managed-talk-phone" className="inline-flex items-center gap-3 font-semibold text-foreground hover:text-primary">
                   <MessageSquareText className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />
-                  <span>Text PropLane <span className="tabular-nums">{texting.phone}</span></span>
+                  <span>Text PropLane <span className="tabular-nums">{formatPublicPhone(texting.phone) ?? texting.phone}</span></span>
                 </a>
               </li>
             ) : null}

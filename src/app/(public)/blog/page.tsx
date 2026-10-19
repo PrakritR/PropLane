@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 /** Prerendered at build; nothing on this page reads a request. */
 export const dynamic = "force-static";
 
-const CARD = "rounded-2xl border border-[var(--site-line,#dbe4ef)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]";
+const CARD = "rounded-2xl border border-[var(--site-line,#d6d7d2)] bg-white/85 shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)]";
 
 export default function BlogIndexPage() {
   return (
@@ -43,7 +43,7 @@ export default function BlogIndexPage() {
                 data-attr={`blog-card-${post.slug}`}
                 className={cn(
                   CARD,
-                  "flex h-full flex-col p-6 transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[#8fb0d4] sm:p-7",
+                  "flex h-full flex-col p-6 transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[#b9bab5] sm:p-7",
                 )}
               >
                 <p className="text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2f5fd0)]">

@@ -10,6 +10,7 @@ import {
 } from "@/lib/marketing/public-contact";
 import { SITE_MEASURE } from "@/components/marketing/site/primitives";
 import { Building2, Mail, MessageSquareText } from "lucide-react";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -17,9 +18,9 @@ import "@/components/marketing/landing-proplane.css";
 import { Select } from "@/components/ui/input";
 
 const CONTACT_CARD =
-  "flex flex-col items-center rounded-2xl border border-[#dbe4ef] bg-white/85 p-6 text-center shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)] transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[#8fb0d4]";
+  "flex flex-col items-center rounded-2xl border border-[#d6d7d2] bg-white/85 p-6 text-center shadow-[0_18px_44px_-30px_rgba(12,13,16,0.3)] transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[#b9bab5]";
 const CONTACT_ICON =
-  "mb-3 grid h-10 w-10 place-items-center rounded-xl bg-[#1769bd]/10 text-[#1769bd] [&>svg]:h-[18px] [&>svg]:w-[18px]";
+  "mb-3 grid h-10 w-10 place-items-center rounded-xl bg-[#2f5fd0]/10 text-[#2f5fd0] [&>svg]:h-[18px] [&>svg]:w-[18px]";
 const CONTACT_LABEL = "text-[12px] font-bold uppercase tracking-[0.08em] text-[#1a47bd]";
 
 const TOPICS = [
@@ -79,7 +80,7 @@ function ContactInner() {
               <MessageSquareText strokeWidth={2} aria-hidden />
             </span>
             <p className={CONTACT_LABEL}>Text PropLane</p>
-            <p className="mt-2 text-[17px] font-bold tabular-nums tracking-tight text-foreground">{texting.phone}</p>
+            <p className="mt-2 text-[17px] font-bold tabular-nums tracking-tight text-foreground">{formatPublicPhone(texting.phone) ?? texting.phone}</p>
           </a> : null}
           <a href={`mailto:${PUBLIC_SUPPORT_EMAIL}`} data-attr="contact-card-email" className={CONTACT_CARD}>
             <span className={CONTACT_ICON}>
@@ -99,7 +100,7 @@ function ContactInner() {
 
         <section
           aria-label="Contact form"
-          className="mt-10 w-full min-w-0 max-w-[720px] rounded-2xl border border-[#dbe4ef] bg-white/88 p-4 shadow-[0_24px_60px_-34px_rgba(19,43,71,0.3)] sm:mt-12 sm:p-7"
+          className="mt-10 w-full min-w-0 max-w-[720px] rounded-2xl border border-[#d6d7d2] bg-white/88 p-4 shadow-[0_24px_60px_-34px_rgba(12,13,16,0.3)] sm:mt-12 sm:p-7"
         >
           <SegmentedTwo
             value={tab}

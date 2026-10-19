@@ -16,6 +16,12 @@ not restore transparent footer rules in the wave styles or a separate gradient
 in `site-display.css`. Verify actual painted links and text contrast in addition
 to geometry on both the homepage and public journey pages.
 
+The public secondary pages (`SitePage` / `MarketingPageShell`: blog, docs, partner, legal, about, app, vendors)
+wear the homepage's tokens through `site-display.css` alone: Inter Tight (`--font-public-site`, headings at 600 with
+tight tracking), ink `#0c0d10`, the one blue `#2f5fd0`, hairline `#d6d7d2`. The `--site-*` and `--lp-*` tokens
+there point at those values; do not hard-code the retired navy `#132b47` / blue `#1769bd` in a component, and
+do not reintroduce a separate display face (`site-display-font.ts` is gone).
+
 # Marketing mocks & guide art
 
 Moved out of the root `AGENTS.md` to keep it loadable; this is the

@@ -17,7 +17,7 @@ const RENTAL_KINDS = [
 ] as const;
 
 const FIELD =
-  "w-full rounded-[10px] border border-[#b7cce3] bg-white px-3.5 py-3 text-[15px] text-[#17181a] outline-none transition-[border-color,box-shadow] placeholder:text-[#7b8aa0] focus:border-[#1769bd] focus:ring-2 focus:ring-[#1769bd]/20";
+  "w-full rounded-[10px] border border-[#d6d7d2] bg-white px-3.5 py-3 text-[15px] text-[#17181a] outline-none transition-[border-color,box-shadow] placeholder:text-[#7b8aa0] focus:border-[#2f5fd0] focus:ring-2 focus:ring-[#2f5fd0]/20";
 const LABEL = "mb-1.5 block text-[13px] font-bold text-[#17181a]";
 
 /** Turns the form into the plain-text message the existing contact route stores. Exported for tests. */
@@ -112,7 +112,7 @@ export function ManagedServiceForm({
         role="status"
         data-attr={`${attrPrefix}-sent`}
         className={cn(
-          "rounded-2xl border border-[#dbe4ef] bg-white/90 p-8 text-center",
+          "rounded-2xl border border-[#d6d7d2] bg-white/90 p-8 text-center",
           className,
         )}
       >
@@ -220,7 +220,7 @@ export function ManagedServiceForm({
       noValidate
       data-attr={attrPrefix}
       className={cn(
-        "rounded-2xl border border-[#dbe4ef] bg-white/90 p-5 text-left shadow-[0_24px_60px_-34px_rgba(19,43,71,0.3)] sm:p-7",
+        "rounded-2xl border border-[#d6d7d2] bg-white/90 p-5 text-left shadow-[0_24px_60px_-34px_rgba(12,13,16,0.3)] sm:p-7",
         className,
       )}
     >

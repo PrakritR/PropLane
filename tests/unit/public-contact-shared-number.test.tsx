@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PublicTextingProvider, usePublicTexting } from "@/components/marketing/public-texting-context";
+import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { publicTextingConfig } from "@/lib/marketing/public-texting";
 import { PUBLIC_SUPPORT_PHONE_DISPLAY, PUBLIC_SUPPORT_PHONE_TEL } from "@/lib/marketing/public-contact";
 
@@ -42,7 +43,7 @@ describe("one configured number on public contact pages", () => {
     expect(smsLinks.length).toBeGreaterThan(0);
     for (const link of smsLinks) {
       expect(link.getAttribute("href")).toBe(configured.smsHref);
-      expect(link).toHaveTextContent(configured.phone!);
+      expect(link).toHaveTextContent(formatPublicPhone(configured.phone)!);
     }
     expect(container).not.toHaveTextContent(PUBLIC_SUPPORT_PHONE_DISPLAY);
     expect(container.querySelector(`a[href="tel:${PUBLIC_SUPPORT_PHONE_TEL}"]`)).toBeNull();
@@ -61,7 +62,7 @@ describe("one configured number on public contact pages", () => {
     const { container } = render(await ManagedTalkSection({}));
     const link = screen.getByRole("link", { name: /Text PropLane/ });
     expect(link).toHaveAttribute("href", configured.smsHref);
-    expect(link).toHaveTextContent(configured.phone!);
+    expect(link).toHaveTextContent(formatPublicPhone(configured.phone)!);
     expect(container.querySelector('a[href^="tel:"]')).toBeNull();
     expect(container).not.toHaveTextContent(PUBLIC_SUPPORT_PHONE_DISPLAY);
     expect(mocks.config).toHaveBeenCalledOnce();
@@ -85,7 +86,7 @@ describe("one configured number on public contact pages", () => {
   it("contact reads the layout snapshot without another request", () => {
     const { container } = render(<PublicTextingProvider value={configured}><ContactPage /></PublicTextingProvider>);
     expect(screen.getByRole("link", { name: /Text PropLane/ })).toHaveAttribute("href", configured.smsHref);
-    expect(container).toHaveTextContent(configured.phone!);
+    expect(container).toHaveTextContent(formatPublicPhone(configured.phone)!);
     expect(mocks.config).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });

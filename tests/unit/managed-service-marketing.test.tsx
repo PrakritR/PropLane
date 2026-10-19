@@ -98,7 +98,7 @@ describe("managed service never invents a price or a metric", () => {
     const cells = container.querySelectorAll("[role=img] > span");
     expect(cells.length).toBe(TRACK_RECORD.roomsTotal);
     expect(
-      [...cells].filter((c) => c.className.includes("bg-[#1769bd]")).length,
+      [...cells].filter((c) => c.className.includes("bg-[#2f5fd0]")).length,
     ).toBe(TRACK_RECORD.roomsOccupied);
     cleanup();
   });
