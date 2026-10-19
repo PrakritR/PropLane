@@ -107,6 +107,19 @@ export function setDemoRole(next: DemoPortalRole) {
   emit();
 }
 
+/**
+ * The homepage Software demo's resident is a particular person per chapter (a prospect who has not applied, a
+ * resident on a signed lease), not the canonical test resident. Set before the shell mounts; `null` restores the
+ * canonical one.
+ */
+let residentIdentity: { email: string } | null = null;
+
+export function setDemoResidentIdentity(next: { email: string } | null) {
+  if (residentIdentity?.email === next?.email) return;
+  residentIdentity = next;
+  emit();
+}
+
 export function subscribeDemoRole(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -118,7 +131,7 @@ export function demoSessionForRole(r: DemoPortalRole): DemoSessionSnapshot {
     return { userId: DEMO_GUIDED_USER_ID, email: DEMO_GUIDED_EMAIL, ready: true };
   }
   if (r === "resident") {
-    return { userId: DEMO_RESIDENT_USER_ID, email: DEMO_RESIDENT_EMAIL, ready: true };
+    return { userId: DEMO_RESIDENT_USER_ID, email: residentIdentity?.email ?? DEMO_RESIDENT_EMAIL, ready: true };
   }
   if (r === "vendor") {
     return { userId: DEMO_VENDOR_USER_ID, email: DEMO_VENDOR_EMAIL, ready: true };

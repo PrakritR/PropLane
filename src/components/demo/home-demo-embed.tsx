@@ -1,33 +1,38 @@
 "use client";
 
 /**
- * The homepage Software demo's iframe body (`/demo/home-embed`): the real manager portal over fixture data, a
- * visible cursor that clicks its real controls, and a postMessage line to the parent page, which draws the phone.
- * The script is data (`home-demo-script.ts`); this file only plays it. Reduced motion (`?static=1`) runs the same
- * steps instantly with no cursor and stops on the chapter's end state.
+ * The homepage Software demo's iframe body (`/demo/home-embed`): the real resident, manager and vendor portals over
+ * fixture data, a visible cursor that clicks their real controls, and a postMessage line to the parent page, which
+ * draws the phone. The script is data (`home-demo-script.ts`); this file only plays it. Reduced motion
+ * (`?static=1`) runs the same steps instantly with no cursor and stops on the journey's end state.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import "@/components/marketing/resident-lifecycle-engine.css";
 import { DemoManagerShell } from "@/app/demo/demo-manager-shell";
+import { preloadHomeDemoPanels } from "@/components/demo/demo-section-renderer";
 import { installHomeDemoGuards } from "@/components/demo/home-demo-fetch-guard";
 import { applyHomeDemoEffect, type HomeDemoEffectContext } from "@/components/demo/home-demo-effects";
-import { HOME_DEMO_CHAPTER_DATA, type HomeDemoStep, type HomeDemoTarget } from "@/components/demo/home-demo-script";
+import { HOME_DEMO_JOURNEY, type HomeDemoStep, type HomeDemoTarget } from "@/components/demo/home-demo-script";
 import { DemoCursor, sleep, type DemoCursorApi } from "@/components/marketing/resident-lifecycle-cursor";
+import { setDemoResidentIdentity, setDemoRole } from "@/lib/demo/demo-session";
 import {
   HOME_DEMO_CONTROL,
   HOME_DEMO_EVENT,
   HOME_DEMO_INTERACT,
+  HOME_DEMO_PORTAL_LABEL,
   HOME_DEMO_READY,
-  isHomeDemoChapterId,
-  type HomeDemoChapterId,
   type HomeDemoControl,
   type HomeDemoEvent,
+  type HomeDemoPortal,
 } from "@/lib/demo/home-demo-embed";
+import { HOME_DEMO_VENDOR_NAME } from "@/lib/demo/demo-guided-data";
+import type { ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 
 class Cancelled extends Error {}
 
 const TYPING_MS = 750;
-const PORTAL_PREFIX = "/portal/";
+/** Each real portal's address prefix: a `nav` target is the link into a section of whichever portal is on screen. */
+const PORTAL_PREFIX: Record<HomeDemoPortal, string> = { manager: "/portal/", resident: "/resident/", vendor: "/vendor/" };
 
 function isVisible(el: Element): boolean {
   const box = el.getBoundingClientRect();
@@ -35,9 +40,9 @@ function isVisible(el: Element): boolean {
 }
 
 /** Resolve a script target against the live portal. Nothing here knows the portal's markup beyond its routes and roles. */
-function resolveTarget(target: HomeDemoTarget): HTMLElement | null {
+function resolveTarget(target: HomeDemoTarget, portal: HomeDemoPortal): HTMLElement | null {
   if (target.kind === "nav") {
-    const links = [...document.querySelectorAll<HTMLAnchorElement>(`a[href^="${PORTAL_PREFIX}${target.section}"]`)].filter(isVisible);
+    const links = [...document.querySelectorAll<HTMLAnchorElement>(`a[href^="${PORTAL_PREFIX[portal]}${target.section}"]`)].filter(isVisible);
     return links.find((a) => a.closest("nav, aside")) ?? links[0] ?? null;
   }
   if (target.kind === "tab") {
@@ -56,10 +61,10 @@ function resolveTarget(target: HomeDemoTarget): HTMLElement | null {
 }
 
 /** When the section has no visible control (a navigation that folds it away), go there the way a link would. */
-function navigateLikeALink(section: string) {
+function navigateLikeALink(section: string, portal: HomeDemoPortal) {
   const host = document.getElementById("portal-main-content") ?? document.body;
   const anchor = document.createElement("a");
-  anchor.setAttribute("href", `${PORTAL_PREFIX}${section}`);
+  anchor.setAttribute("href", `${PORTAL_PREFIX[portal]}${section}`);
   anchor.style.display = "none";
   host.appendChild(anchor);
   anchor.click();
@@ -72,7 +77,13 @@ export function HomeDemoEmbed() {
   const pausedRef = useRef(false);
   const touchedRef = useRef(false);
   const staticRef = useRef(false);
-  const chapterRef = useRef<HomeDemoChapterId>("find");
+  const skipToRef = useRef<string | null>(null);
+  /** The real portal on screen, read by the steps (a `nav` target resolves against it). */
+  const portalRef = useRef<HomeDemoPortal>(HOME_DEMO_JOURNEY.portal);
+  const [portal, setPortal] = useState<HomeDemoPortal>(HOME_DEMO_JOURNEY.portal);
+  const [switchTo, setSwitchTo] = useState<{ role: HomeDemoPortal; section: string; tab?: string } | null>(null);
+  /** Where the resident is in the lifecycle: the resident sidebar is drawn (and unlocked) for this stage. */
+  const [stage, setStage] = useState<ResidentPortalNavStage>(HOME_DEMO_JOURNEY.resident.stage);
   const [run, setRun] = useState(0);
   const [started, setStarted] = useState(false);
   const [instant, setInstant] = useState(false);
@@ -85,11 +96,13 @@ export function HomeDemoEmbed() {
   }, []);
 
   const play = useCallback(
-    async (chapterId: HomeDemoChapterId, token: number, noMotion: boolean) => {
-      const chapter = HOME_DEMO_CHAPTER_DATA[chapterId];
+    async (token: number, staticMode: boolean) => {
+      const journey = HOME_DEMO_JOURNEY;
       const ctx: HomeDemoEffectContext = { nowMs: Date.now() };
-      const shown = chapter.phones.map(() => 0);
+      const shown = journey.phones.map((phone) => phone.initial ?? 0);
       let phoneIndex = 0;
+      // Reduced motion runs every step instantly; `?skipto=<mark>` does the same for the steps before that mark.
+      let noMotion = staticMode || skipToRef.current !== null;
       const guard = async () => {
         if (tokenRef.current !== token) throw new Cancelled();
         while (pausedRef.current && !noMotion) {
@@ -106,14 +119,14 @@ export function HomeDemoEmbed() {
         await guard();
       };
       const announce = (step: number, typing: "in" | "out" | null, done: boolean) => {
-        const phone = chapter.phones[phoneIndex]!;
+        const phone = journey.phones[phoneIndex]!;
         const event: HomeDemoEvent = {
           type: HOME_DEMO_EVENT,
-          chapter: chapterId,
           step,
           done,
           typing,
           phone: { label: phone.label, items: phone.items.slice(0, shown[phoneIndex]) },
+          portal: portalRef.current,
         };
         post(event);
       };
@@ -121,15 +134,15 @@ export function HomeDemoEmbed() {
       // shows its empty state first.
       const press = async (step: Extract<HomeDemoStep, { do: "click" | "hover" }>, onPress?: () => void) => {
         const deadline = Date.now() + (noMotion ? 2500 : 4000);
-        let el = resolveTarget(step.target);
+        let el = resolveTarget(step.target, portalRef.current);
         while (!el && Date.now() < deadline) {
           await sleep(100);
           await guard();
-          el = resolveTarget(step.target);
+          el = resolveTarget(step.target, portalRef.current);
         }
         if (!el) {
           onPress?.();
-          if (step.target.kind === "nav") navigateLikeALink(step.target.section);
+          if (step.target.kind === "nav") navigateLikeALink(step.target.section, portalRef.current);
           return;
         }
         if (noMotion && step.do === "hover") el.scrollIntoView({ block: "center" });
@@ -150,12 +163,17 @@ export function HomeDemoEmbed() {
 
       try {
         await guard();
-        for (const effect of chapter.prepare ?? []) applyHomeDemoEffect(effect, ctx);
         announce(-1, null, false);
-        for (let index = 0; index < chapter.steps.length; index += 1) {
-          const step = chapter.steps[index]!;
+        for (let index = 0; index < journey.steps.length; index += 1) {
+          const step = journey.steps[index]!;
           await guard();
-          if (step.do === "wait") {
+          if (step.do === "mark") {
+            if (noMotion && !staticMode && skipToRef.current === step.id) {
+              noMotion = false;
+              skipToRef.current = null;
+              await sleep(600);
+            }
+          } else if (step.do === "wait") {
             await wait(step.ms);
           } else if (step.do === "say") {
             if (step.phone !== undefined && step.phone !== phoneIndex) phoneIndex = step.phone;
@@ -163,20 +181,32 @@ export function HomeDemoEmbed() {
               announce(index - 1, step.typing, false);
               await wait(TYPING_MS);
             }
-            shown[phoneIndex] = Math.min(chapter.phones[phoneIndex]!.items.length, shown[phoneIndex]! + (step.count ?? 1));
+            shown[phoneIndex] = Math.min(journey.phones[phoneIndex]!.items.length, shown[phoneIndex]! + (step.count ?? 1));
             if (step.effect) applyHomeDemoEffect(step.effect, ctx);
             announce(index, null, false);
             await wait(450);
           } else if (step.do === "click" || step.do === "hover") {
             const effect = step.do === "click" ? step.effect : undefined;
             await press(step, effect ? () => applyHomeDemoEffect(effect, ctx) : undefined);
+          } else if (step.do === "stage") {
+            setStage(step.stage);
+          } else if (step.do === "portal") {
+            // The same shell and stores, another real portal: nothing the script wrote is lost, and the section it
+            // opens already has what it shows.
+            if (step.effect) applyHomeDemoEffect(step.effect, ctx);
+            portalRef.current = step.role;
+            setPortal(step.role);
+            setSwitchTo({ role: step.role, section: step.section, ...(step.tab ? { tab: step.tab } : {}) });
+            // The parent's "<Portal> portal" caption changes with the screen, not a beat after it.
+            announce(index, null, false);
+            await sleep(noMotion ? 350 : 250);
           } else {
             applyHomeDemoEffect(step.effect, ctx);
           }
           announce(index, null, false);
         }
         cursorRef.current?.hide();
-        announce(chapter.steps.length - 1, null, true);
+        announce(journey.steps.length - 1, null, true);
       } catch (error) {
         if (!(error instanceof Cancelled)) throw error;
       }
@@ -184,10 +214,17 @@ export function HomeDemoEmbed() {
     [post],
   );
 
-  /** Start a chapter from its first frame: a fresh shell re-seeds the fixture world, then the script runs. */
-  const select = useCallback((chapter: HomeDemoChapterId, noMotion: boolean) => {
+  /** Start the journey from its first frame: a fresh shell re-seeds the fixture world, then the script runs. */
+  const start = useCallback((noMotion: boolean) => {
     tokenRef.current += 1;
-    chapterRef.current = chapter;
+    // The journey opens in its own portal, as its own person, before the shell mounts.
+    const journey = HOME_DEMO_JOURNEY;
+    portalRef.current = journey.portal;
+    setPortal(journey.portal);
+    setSwitchTo(null);
+    setStage(journey.resident.stage);
+    setDemoRole(journey.portal);
+    setDemoResidentIdentity({ email: journey.resident.email });
     touchedRef.current = false;
     setInstant(noMotion);
     setStarted(true);
@@ -196,29 +233,33 @@ export function HomeDemoEmbed() {
 
   useEffect(() => {
     if (run === 0) return;
-    void play(chapterRef.current, tokenRef.current, staticRef.current);
+    void play(tokenRef.current, staticRef.current);
   }, [run, play]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const chapter = params.get("chapter");
     staticRef.current = params.get("static") === "1";
+    skipToRef.current = params.get("skipto");
     // The parent starts the iframe held when the section is not on screen yet.
     pausedRef.current = params.get("paused") === "1";
-    select(isHomeDemoChapterId(chapter) ? chapter : "find", staticRef.current);
+    // Every panel the journey opens is loaded before the first frame, so none is ever drawn as "Loading…".
+    let cancelled = false;
+    void preloadHomeDemoPanels().then(() => {
+      if (!cancelled) start(staticRef.current);
+    });
 
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== window.parent) return;
       const data = event.data as HomeDemoControl | undefined;
       if (!data || data.type !== HOME_DEMO_CONTROL) return;
       if (data.action === "pause") pausedRef.current = true;
-      else if (data.action === "play") {
+      else if (data.action === "restart") {
         pausedRef.current = false;
-        // A visitor who used the portal by hand has left the script's track: start the chapter over.
-        if (touchedRef.current) select(chapterRef.current, staticRef.current);
-      } else if (data.action === "select" && isHomeDemoChapterId(data.chapter)) {
+        start(staticRef.current);
+      } else if (data.action === "play") {
         pausedRef.current = false;
-        select(data.chapter, staticRef.current);
+        // A visitor who used the portal by hand has left the script's track: start the journey over.
+        if (touchedRef.current) start(staticRef.current);
       }
     };
     const onPointerDown = () => {
@@ -229,16 +270,27 @@ export function HomeDemoEmbed() {
     window.addEventListener("pointerdown", onPointerDown, true);
     post({ type: HOME_DEMO_READY });
     return () => {
+      cancelled = true;
       tokenRef.current += 1;
       window.removeEventListener("message", onMessage);
       window.removeEventListener("pointerdown", onPointerDown, true);
     };
-  }, [select, post]);
+  }, [start, post]);
 
   return (
-    <div className="relative h-dvh overflow-hidden" data-home-demo-static={instant}>
-      {started ? <DemoManagerShell key={`shell-${run}`} embed /> : null}
-      {started && !instant ? <DemoCursor key={`cursor-${run}`} label="Manager" apiRef={cursorRef} /> : null}
+    <div className="relative h-dvh overflow-hidden" data-home-demo-static={instant} data-home-demo-portal={portal}>
+      {started ? (
+        <DemoManagerShell
+          key={`shell-${run}`}
+          embed
+          initialRole={HOME_DEMO_JOURNEY.portal}
+          initialSection={HOME_DEMO_JOURNEY.section}
+          switchTo={switchTo}
+          residentProfile={{ ...HOME_DEMO_JOURNEY.resident, stage }}
+          vendorName={HOME_DEMO_VENDOR_NAME}
+        />
+      ) : null}
+      {started && !instant ? <DemoCursor key={`cursor-${run}`} label={HOME_DEMO_PORTAL_LABEL[portal]} apiRef={cursorRef} /> : null}
     </div>
   );
 }

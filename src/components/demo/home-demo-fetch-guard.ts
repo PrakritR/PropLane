@@ -8,7 +8,8 @@
  * the shell does not intercept) never resolves, so the sample can never leave itself for a sign-in page. Same
  * technique as the shell's own `portal-roles` shim.
  */
-import { homeDemoWorkspacePayload } from "@/lib/demo/demo-guided-data";
+import { readPlannedEvents } from "@/lib/demo-admin-scheduling";
+import { HOME_DEMO_TOUR_INQUIRY_ID, homeDemoResidentTourView, homeDemoWorkspacePayload } from "@/lib/demo/demo-guided-data";
 
 const PORTAL_PAGE = /^\/(portal|resident|vendor|admin|auth|rent|owner)(\/|$)/;
 
@@ -20,6 +21,10 @@ function answer(pathname: string, method: string): Response {
   if (method !== "GET") return json({ ok: true });
   if (pathname === "/api/demo/workspace") return json(homeDemoWorkspacePayload());
   if (pathname === "/api/manager/sms-conversations") return json({ residents: [] });
+  // The prospect's Tour page: the booked tour once the calendar has it (the tour effect writes the same event), else none.
+  if (pathname === "/api/portal-resident-tours") {
+    return json({ tours: readPlannedEvents().some((event) => event.id === HOME_DEMO_TOUR_INQUIRY_ID) ? [homeDemoResidentTourView()] : [] });
+  }
   // No linked Google Calendar in the sample: an empty, complete busy list (not "unavailable").
   if (pathname.endsWith("/google-calendar/events")) return json({ meetings: [] });
   return json({ error: "Sample portal" }, 503);

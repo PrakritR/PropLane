@@ -39,7 +39,7 @@ import { seedDemoUploadedOwnLeases } from "@/lib/resident-lease-upload";
 import {
   DEMO_RESIDENT_EMAIL,
   isDemoModeActive,
-  resolveDemoManagerScopeUserId,
+  resolveDemoPortfolioScopeUserId,
 } from "@/lib/demo/demo-session";
 import {
   getDemoGuidedState,
@@ -69,7 +69,9 @@ export function seedHomeDemoData(): void {
 }
 
 function applyDemoSnapshot(snapshot: DemoDataSnapshot): void {
-  const managerScopeId = resolveDemoManagerScopeUserId();
+  // The portfolio's scope never follows the role on screen: the homepage demo mounts in the resident's or the
+  // vendor's portal and the manager's rows must still land under the manager.
+  const managerScopeId = resolveDemoPortfolioScopeUserId();
   seedDemoManagerProperties(managerScopeId, snapshot.properties);
   seedDemoManagerApplicationRows(snapshot.applications, managerScopeId);
   seedDemoHouseholdCharges(snapshot.charges, snapshot.rentProfiles);

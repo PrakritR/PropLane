@@ -1,8 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import type { ReactNode } from "react";
-import { useMemo, useSyncExternalStore } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { parseResidentDocumentTab } from "@/lib/resident-documents-tabs";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -31,8 +30,10 @@ import {
   resolveDemoPortfolioScopeUserId,
   subscribeDemoRole,
 } from "@/lib/demo/demo-session";
+import type { ManagerLeaseTab } from "@/data/demo-portal";
 import type { PortalSection } from "@/lib/portal-types";
-import { parseResidentMoveInTab, parseServiceDetailTab } from "@/lib/portal-detail-routes";
+import { parseResidentMoveInTab, parseApplicationListTab, parseResidentTourBucket, parseServiceDetailTab } from "@/lib/portal-detail-routes";
+import { parseVendorWorkOrderTab } from "@/lib/vendor-work-order-tabs";
 import { parseServiceStage } from "@/lib/service-stage-ids";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 
@@ -40,57 +41,93 @@ const loading = () => (
   <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted">Loading…</div>
 );
 
+/**
+ * A code-split panel that, once its chunk has loaded, renders synchronously. `next/dynamic` suspends on every
+ * first render per mount and the fallback then lingers (React throttles revealing the content), so a section the
+ * homepage demo's cursor opens would flash "Loading…". The homepage embed preloads every panel before it starts
+ * (`preloadHomeDemoPanels`), so after that no panel ever shows a loading state.
+ */
+function panel<P extends object>(loader: () => Promise<ComponentType<P>>): ComponentType<P> & { preload: () => Promise<unknown> } {
+  let Resolved: ComponentType<P> | null = null;
+  let pending: Promise<unknown> | null = null;
+  const load = () => (pending ??= loader().then((component) => { Resolved = component; }));
+  function Panel(props: P) {
+    const [, rerender] = useState(0);
+    useEffect(() => {
+      if (!Resolved) void load().then(() => rerender((n) => n + 1));
+    }, []);
+    const Ready = Resolved;
+    return Ready ? <Ready {...props} /> : loading();
+  }
+  Panel.preload = load;
+  return Panel;
+}
+const preloaders: Array<() => Promise<unknown>> = [];
+function demoPanel<P extends object>(loader: () => Promise<ComponentType<P>>): ComponentType<P> {
+  const component = panel(loader);
+  preloaders.push(component.preload);
+  return component;
+}
+
 // Manager / pro panels
-const ManagerDashboard = dynamic(() => import("@/components/portal/pro-dashboard").then((m) => m.ManagerDashboard), { ssr: false, loading });
-const ManagerProperties = dynamic(() => import("@/components/portal/pro-properties").then((m) => m.ManagerProperties), { ssr: false, loading });
-const ManagerTours = dynamic(() => import("@/components/portal/pro-tours").then((m) => m.ManagerTours), { ssr: false, loading });
-const ManagerApplications = dynamic(() => import("@/components/portal/pro-applications").then((m) => m.ManagerApplications), { ssr: false, loading });
-const ManagerResidents = dynamic(() => import("@/components/portal/pro-residents").then((m) => m.ManagerResidents), { ssr: false, loading });
-const ManagerLeases = dynamic(() => import("@/components/portal/pro-leases").then((m) => m.ManagerLeases), { ssr: false, loading });
-const ManagerPayments = dynamic(() => import("@/components/portal/pro-payments").then((m) => m.ManagerPayments), { ssr: false, loading });
-const ManagerTaskList = dynamic(() => import("@/components/portal/pro-task-list").then((m) => m.ManagerTaskList), { ssr: false, loading });
+const ManagerDashboard = demoPanel(() => import("@/components/portal/pro-dashboard").then((m) => m.ManagerDashboard));
+const ManagerProperties = demoPanel(() => import("@/components/portal/pro-properties").then((m) => m.ManagerProperties));
+const ManagerTours = demoPanel(() => import("@/components/portal/pro-tours").then((m) => m.ManagerTours));
+const ManagerApplications = demoPanel(() => import("@/components/portal/pro-applications").then((m) => m.ManagerApplications));
+const ManagerResidents = demoPanel(() => import("@/components/portal/pro-residents").then((m) => m.ManagerResidents));
+const ManagerLeases = demoPanel(() => import("@/components/portal/pro-leases").then((m) => m.ManagerLeases));
+const ManagerPayments = demoPanel(() => import("@/components/portal/pro-payments").then((m) => m.ManagerPayments));
+const ManagerTaskList = demoPanel(() => import("@/components/portal/pro-task-list").then((m) => m.ManagerTaskList));
 // The SAME Communication wrapper the real portal's section map renders
 // (src/lib/render-portal-section.tsx) — not the bare inbox panel above, which
 // stayed a legacy path here (Unopened/Opened/Sent/Trash tabs the real portal
 // retired). Keeps `/demo` from drifting into a second, hand-maintained
 // Communication surface.
-const ManagerCommunication = dynamic(() => import("@/components/portal/pro-communication").then((m) => m.ManagerCommunication), { ssr: false, loading });
-const DemoImportReviewPanel = dynamic(() => import("@/components/demo/demo-import-review-panel").then((m) => m.DemoImportReviewPanel), { ssr: false, loading });
-const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/pro-all-services-panel").then((m) => m.ManagerAllServicesPanel), { ssr: false, loading });
-const ManagerFinancesPanel = dynamic(() => import("@/components/portal/pro-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
-const ManagerDocumentsPanel = dynamic(() => import("@/components/portal/pro-documents-panel").then((m) => m.ManagerDocumentsPanel), { ssr: false, loading });
-const PortalCalendar = dynamic(() => import("@/components/portal/portal-calendar").then((m) => m.PortalCalendar), { ssr: false, loading });
-const ManagerPromotion = dynamic(() => import("@/components/portal/pro-promotion").then((m) => m.ManagerPromotion), { ssr: false, loading });
-const ManagerMobileAppPanel = dynamic(
-  () => import("@/components/portal/pro-mobile-app-panel").then((m) => m.ManagerMobileAppPanel),
-  { ssr: false, loading },
-);
-const PortalBugFeedbackPanel = dynamic(() => import("@/components/portal/portal-bug-feedback-panel").then((m) => m.PortalBugFeedbackPanel), { ssr: false, loading });
-const PortalProfileClient = dynamic(() => import("@/components/portal/portal-profile-client").then((m) => m.PortalProfileClient), { ssr: false, loading });
+const ManagerCommunication = demoPanel(() => import("@/components/portal/pro-communication").then((m) => m.ManagerCommunication));
+const DemoImportReviewPanel = demoPanel(() => import("@/components/demo/demo-import-review-panel").then((m) => m.DemoImportReviewPanel));
+const ManagerAllServicesPanel = demoPanel(() => import("@/components/portal/pro-all-services-panel").then((m) => m.ManagerAllServicesPanel));
+const ManagerFinancesPanel = demoPanel(() => import("@/components/portal/pro-finances-panel").then((m) => m.ManagerFinancesPanel));
+const ManagerDocumentsPanel = demoPanel(() => import("@/components/portal/pro-documents-panel").then((m) => m.ManagerDocumentsPanel));
+const PortalCalendar = demoPanel(() => import("@/components/portal/portal-calendar").then((m) => m.PortalCalendar));
+const ManagerPromotion = demoPanel(() => import("@/components/portal/pro-promotion").then((m) => m.ManagerPromotion));
+const ManagerMobileAppPanel = demoPanel(() => import("@/components/portal/pro-mobile-app-panel").then((m) => m.ManagerMobileAppPanel));
+const PortalBugFeedbackPanel = demoPanel(() => import("@/components/portal/portal-bug-feedback-panel").then((m) => m.PortalBugFeedbackPanel));
+const PortalProfileClient = demoPanel(() => import("@/components/portal/portal-profile-client").then((m) => m.PortalProfileClient));
 
 // Resident panels
-const ResidentDashboard = dynamic(() => import("@/components/portal/resident-dashboard").then((m) => m.ResidentDashboard), { ssr: false, loading });
-const ResidentApplicationsPanel = dynamic(() => import("@/components/portal/resident-applications-panel").then((m) => m.ResidentApplicationsPanel), { ssr: false, loading });
-const ResidentLeasePanel = dynamic(() => import("@/components/portal/resident-lease-panel").then((m) => m.ResidentLeasePanel), { ssr: false, loading });
-const ResidentPaymentsPanel = dynamic(() => import("@/components/portal/resident-payments-panel").then((m) => m.ResidentPaymentsPanel), { ssr: false, loading });
-const ResidentServicesPanel = dynamic(() => import("@/components/portal/resident-services-panel").then((m) => m.ResidentServicesPanel), { ssr: false, loading });
+const ResidentDashboard = demoPanel(() => import("@/components/portal/resident-dashboard").then((m) => m.ResidentDashboard));
+const ResidentApplicationsPanel = demoPanel<{ applyMode?: boolean }>(() => import("@/components/portal/resident-applications-panel").then((m) => m.ResidentApplicationsPanel));
+const ResidentLeasePanel = demoPanel(() => import("@/components/portal/resident-lease-panel").then((m) => m.ResidentLeasePanel));
+const ResidentPaymentsPanel = demoPanel(() => import("@/components/portal/resident-payments-panel").then((m) => m.ResidentPaymentsPanel));
+const ResidentServicesPanel = demoPanel(() => import("@/components/portal/resident-services-panel").then((m) => m.ResidentServicesPanel));
 // Same reasoning as ManagerCommunication above — the real resident section
 // map renders this wrapper, never the bare panel.
-const ResidentCommunication = dynamic(() => import("@/components/portal/resident-communication").then((m) => m.ResidentCommunication), { ssr: false, loading });
-const ResidentDocumentsPanel = dynamic(() => import("@/components/portal/resident-documents-panel").then((m) => m.ResidentDocumentsPanel), { ssr: false, loading });
-const ResidentProfilePanel = dynamic(() => import("@/components/portal/resident-profile-panel").then((m) => m.ResidentProfilePanel), { ssr: false, loading });
+const ResidentTourPanel = demoPanel(() => import("@/components/portal/resident-tour-panel").then((m) => m.ResidentTourPanel));
+const ResidentCommunication = demoPanel(() => import("@/components/portal/resident-communication").then((m) => m.ResidentCommunication));
+const ResidentDocumentsPanel = demoPanel(() => import("@/components/portal/resident-documents-panel").then((m) => m.ResidentDocumentsPanel));
+const ResidentProfilePanel = demoPanel(() => import("@/components/portal/resident-profile-panel").then((m) => m.ResidentProfilePanel));
 
 // Vendor panels
-const VendorDashboard = dynamic(() => import("@/components/portal/vendor-dashboard").then((m) => m.VendorDashboard), { ssr: false, loading });
-const VendorWorkOrdersPanel = dynamic(() => import("@/components/portal/vendor-work-orders-panel").then((m) => m.VendorWorkOrdersPanel), { ssr: false, loading });
-const VendorCalendarPanel = dynamic(() => import("@/components/portal/vendor-calendar-panel").then((m) => m.VendorCalendarPanel), { ssr: false, loading });
+const VendorDashboard = demoPanel(() => import("@/components/portal/vendor-dashboard").then((m) => m.VendorDashboard));
+const VendorWorkOrdersPanel = demoPanel(() => import("@/components/portal/vendor-work-orders-panel").then((m) => m.VendorWorkOrdersPanel));
+const VendorCalendarPanel = demoPanel(() => import("@/components/portal/vendor-calendar-panel").then((m) => m.VendorCalendarPanel));
 // Same reasoning as ManagerCommunication above — the real vendor section map
 // renders this wrapper, never the bare panel.
-const VendorCommunication = dynamic(() => import("@/components/portal/vendor-communication").then((m) => m.VendorCommunication), { ssr: false, loading });
-const VendorPaymentsPanel = dynamic(() => import("@/components/portal/vendor-payments-panel").then((m) => m.VendorPaymentsPanel), { ssr: false, loading });
-const VendorFinancesPanel = dynamic(() => import("@/components/portal/vendor-finances-panel").then((m) => m.VendorFinancesPanel), { ssr: false, loading });
-const VendorDocumentsPanel = dynamic(() => import("@/components/portal/vendor-documents-panel").then((m) => m.VendorDocumentsPanel), { ssr: false, loading });
-const VendorSettingsPanel = dynamic(() => import("@/components/portal/vendor-settings-panel").then((m) => m.VendorSettingsPanel), { ssr: false, loading });
+const VendorCommunication = demoPanel(() => import("@/components/portal/vendor-communication").then((m) => m.VendorCommunication));
+const VendorPaymentsPanel = demoPanel(() => import("@/components/portal/vendor-payments-panel").then((m) => m.VendorPaymentsPanel));
+const VendorFinancesPanel = demoPanel(() => import("@/components/portal/vendor-finances-panel").then((m) => m.VendorFinancesPanel));
+const VendorDocumentsPanel = demoPanel(() => import("@/components/portal/vendor-documents-panel").then((m) => m.VendorDocumentsPanel));
+const VendorSettingsPanel = demoPanel(() => import("@/components/portal/vendor-settings-panel").then((m) => m.VendorSettingsPanel));
+
+/**
+ * Load every panel chunk, resolving once all are in (or after `timeoutMs`, so a slow chunk never holds the demo
+ * back). Only the homepage embed calls this, before it starts the journey.
+ */
+export function preloadHomeDemoPanels(timeoutMs = 12_000): Promise<void> {
+  const all = Promise.all(preloaders.map((load) => load().catch(() => undefined))).then(() => undefined);
+  const timeout = new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs));
+  return Promise.race([all, timeout]);
+}
 
 function Placeholder({ title, message }: { title: string; message: string }) {
   return (
@@ -135,7 +172,8 @@ export function DemoSectionRenderer({
       case "dashboard":
         return <VendorDashboard displayName={DEMO_VENDOR_NAME} />;
       case "work-orders":
-        return <VendorWorkOrdersPanel />;
+        // The tab rides in the address (`/vendor/work-orders/assigned`), as in the real route.
+        return <VendorWorkOrdersPanel tabId={parseVendorWorkOrderTab(tab)} />;
       case "calendar":
         return <VendorCalendarPanel />;
       case "inbox":
@@ -175,7 +213,8 @@ export function DemoSectionRenderer({
       case "calendar":
         return <PortalCalendar portal="manager" initialUserId={managerUserId} />;
       case "applications":
-        return <ManagerApplications />;
+        // The tab rides in the address (`/portal/applications/approved`), as in the real route.
+        return <ManagerApplications bucket={parseApplicationListTab(tab)} basePath={basePath} />;
       // The demo never writes: the page renders its empty state (no forms are ever loaded
       // or sent while demo mode is on).
       case "forms":
@@ -183,9 +222,10 @@ export function DemoSectionRenderer({
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":
-        return <ManagerLeases />;
+        return <ManagerLeases tab={(tab ?? "draft") as ManagerLeaseTab} basePath={basePath} />;
       case "payments":
-        return <ManagerPayments />;
+        // The bucket rides in the address (`/portal/payments/paid`), as in the real route.
+        return <ManagerPayments bucket={tab === "paid" || tab === "overdue" ? tab : "pending"} basePath={basePath} />;
       case "task-list":
         return <ManagerTaskList tabId={tabId === "completed" ? "completed" : "open"} basePath={basePath} />;
       case "services": {
@@ -261,6 +301,12 @@ export function DemoSectionRenderer({
           managerSubscriptionTier="paid"
         />
       );
+    case "tour": {
+      // The real /resident/tour route: `/tour/<bucket>` is the list, `/tour/<bucket>/<id>` one tour's own page.
+      const bucket = parseResidentTourBucket(tab);
+      const inquiryId = path[0] ? decodeURIComponent(path[0]) : undefined;
+      return <ResidentTourPanel bucket={bucket} basePath={basePath} {...(inquiryId ? { inquiryId } : {})} />;
+    }
     case "applications":
       // Same live-data component as the real portal: usePortalSession() and
       // readManagerApplicationRows() are both demo-aware, so it renders the
@@ -274,10 +320,12 @@ export function DemoSectionRenderer({
       // `leaseDetailId`) — otherwise the bare list only shows already-signed
       // document snapshots, which a lease still awaiting a signature has none
       // of yet.
-      return <ResidentLeasePanel leaseDetailId={tab ?? undefined} />;
+      // `/lease` opens on the first tab with a lease, `/lease/<pending|signed>` is that list, anything else a lease id.
+      if (tab === "pending" || tab === "signed") return <ResidentLeasePanel basePath={basePath} bucket={tab} />;
+      return <ResidentLeasePanel basePath={basePath} {...(tab ? { leaseDetailId: tab } : { bucketNamed: false })} />;
     case "payments":
       // Payments is Charges-only now — no sub-tabs to forward.
-      return <ResidentPaymentsPanel />;
+      return <ResidentPaymentsPanel bucket={tab === "paid" || tab === "overdue" ? tab : "pending"} basePath={basePath} />;
     case "move-in":
       return <ResidentMoveInDemo tabId={tabId} basePath={basePath} />;
     case "services":

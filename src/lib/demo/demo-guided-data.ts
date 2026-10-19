@@ -35,13 +35,14 @@ import type { LeasePipelineRow, LeaseSignature } from "@/lib/lease-pipeline-stor
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import type { ManagerPromotionRow } from "@/lib/promotion-flyer";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
-import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { formatInboxStamp, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { PortalBugFeedbackRow } from "@/lib/portal-bug-feedback";
 import type { InboxMessage } from "@/lib/demo-admin-partner-inbox";
 import type { UploadedOwnLease } from "@/lib/resident-lease-upload";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { VendorPayout } from "@/lib/vendor-payouts";
 import type { PartnerInquiry, PlannedEvent } from "@/lib/demo-admin-scheduling";
+import type { ResidentTourView } from "@/lib/tour-resident-link.server";
 import type { GuidedDemoStep } from "@/lib/demo/demo-guided";
 import { CANONICAL_DEMO_RESIDENT_EMAIL, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { DEMO_MANAGER_USER_ID, DEMO_RESIDENT_USER_ID } from "@/lib/demo/demo-session";
@@ -559,11 +560,9 @@ export const HOME_DEMO_PROPERTY_IDS = {
   fremont: "demo-prop-fremont",
   maple: "demo-prop-maple",
 } as const;
-/** Chapter 2: the leaking kitchen faucet at 61 Willow Court, offered to Pacific Plumbing. */
+/** The journey's last beat: the leaking kitchen faucet at 61 Willow Court, offered to Pacific Plumbing. */
 export const HOME_DEMO_VENDOR_WORK_ORDER_ID = "home-wo-willow-faucet";
 export const HOME_DEMO_VENDOR_NAME = "Pacific Plumbing";
-/** Chapter 3: the service the resident's photo text creates at 1412 Maple Ct. */
-export const HOME_DEMO_PHOTO_WORK_ORDER_ID = "home-wo-maple-leak";
 export const HOME_DEMO_PROSPECT_THREAD_ID = "home-thread-prospect";
 
 /**
@@ -586,6 +585,36 @@ export function homeDemoTourWindow(): { start: string; end: string } {
 /** The visit Pacific Plumbing books in chapter 2: that Thursday at 9:00 AM Pacific. */
 export function homeDemoVisitIso(): string {
   return pacificWallTimeIso(homeDemoThursdayAhead(), 9, 0);
+}
+
+export const HOME_DEMO_TOUR_INQUIRY_ID = "home-tour-willow";
+
+/** The booked tour as the prospect's Tour page lists it (what `/api/portal-resident-tours` answers in the real product). */
+export function homeDemoResidentTourView(): ResidentTourView {
+  const { start, end } = homeDemoTourWindow();
+  return {
+    inquiryId: HOME_DEMO_TOUR_INQUIRY_ID,
+    tourGroupId: null,
+    status: "confirmed",
+    propertyId: HOME_DEMO_PROPERTY_IDS.willow,
+    propertyTitle: "61 Willow Court",
+    roomLabel: "Room 3",
+    tourFormat: "in_person",
+    managerUserId: DEMO_MANAGER_USER_ID,
+    managerLabel: "Seattle Homes",
+    guestName: "Jordan Ellis",
+    guestEmail: "jordan.prospect@example.com",
+    guestPhone: null,
+    notes: null,
+    instructions: null,
+    proposedStart: start,
+    proposedEnd: end,
+    requestedWindows: [{ start, end }],
+    createdAt: new Date().toISOString(),
+    confirmed: true,
+    confirmedStart: start,
+    confirmedEnd: end,
+  };
 }
 
 /** The manager's other threads in the homepage demo (so the inbox reads as a working inbox). */
@@ -642,6 +671,45 @@ export function homeDemoProspectThread(lineCount: number, nowMs: number): Persis
   };
 }
 
+/**
+ * The same conversation from the prospect's side, as the resident portal's inbox stores it: what the prospect typed is
+ * outbound, PropLane's answers (and the listing cards, as plain text lines) are inbound.
+ */
+export function homeDemoResidentProspectThread(lineCount: number, nowMs: number): PersistedInboxThread {
+  const turns = DISCOVERY_LINES.slice(0, lineCount).flatMap((line) => {
+    const text = discoveryLineAsText(line);
+    return text === null ? [] : [{ text, outbound: line.kind === "prospect" }];
+  });
+  const first = turns[0] ?? { text: "", outbound: true };
+  const stampMs = (index: number) => nowMs - (turns.length - index) * 60 * 1000;
+  const stamp = (index: number) => new Date(stampMs(index)).toISOString();
+  const last = turns[turns.length - 1] ?? first;
+  return {
+    id: HOME_DEMO_PROSPECT_THREAD_ID,
+    folder: "inbox",
+    // The root turn is the prospect's own, and a root turn is signed with the thread's `from`.
+    from: "Jordan",
+    email: "text@proplane.com",
+    subject: "Looking for a house",
+    preview: last.text.split("\n")[0] ?? "",
+    body: first.text,
+    // The resident list prints `time` as it is: a formatted stamp, not an ISO string.
+    time: formatInboxStamp(new Date(stampMs(turns.length - 1))),
+    rootAt: stamp(0),
+    rootChannel: "sms",
+    rootOutbound: first.outbound,
+    unread: !last.outbound,
+    messages: turns.slice(1).map((turn, i) => ({
+      id: `home-resident-msg-${i + 1}`,
+      from: turn.outbound ? "Jordan" : "PropLane",
+      body: turn.text,
+      at: stamp(i + 1),
+      outbound: turn.outbound,
+      channel: "sms" as const,
+    })),
+  };
+}
+
 /** The one workspace the homepage demo's portal shell shows (answered locally by the embed, never fetched). */
 export function homeDemoWorkspacePayload(): WorkspacePayload {
   return {
@@ -673,7 +741,7 @@ export function homeDemoWorkspacePayload(): WorkspacePayload {
 
 /**
  * The world behind the homepage Software demo: three open listings (the same three the prospect is texted in
- * `home-discovery-script.ts`), Pacific Plumbing, and one open service. Chapters move it forward with the same store
+ * `home-discovery-script.ts`), Pacific Plumbing and one settled tenancy. The journey adds everything else. Chapters move it forward with the same store
  * writers the portal uses; nothing here reaches a server.
  */
 export function buildHomeDemoSnapshot(): DemoDataSnapshot {
@@ -727,25 +795,8 @@ export function buildHomeDemoSnapshot(): DemoDataSnapshot {
       propertyIds: Object.values(HOME_DEMO_PROPERTY_IDS),
     },
   ];
-  const workOrders: DemoManagerWorkOrderRow[] = [
-    {
-      id: HOME_DEMO_VENDOR_WORK_ORDER_ID,
-      reference: "WO-2041",
-      propertyName: "Willow Court",
-      propertyId: HOME_DEMO_PROPERTY_IDS.willow,
-      propertyAddress: "61 Willow Court",
-      unit: "Willow Court · Room 3",
-      title: "Leaking kitchen faucet",
-      priority: "Normal",
-      status: "Open",
-      bucket: "open",
-      description: "The kitchen faucet leaks at the base.",
-      scheduled: "",
-      cost: "",
-      category: "plumbing",
-      managerUserId,
-    },
-  ];
+  // No service yet: the renter's text about the faucet (the journey's last beat) is what opens it.
+  const workOrders: DemoManagerWorkOrderRow[] = [];
   // Maple Duplex is lived in until Nov 1 (its "Available Nov 1"): one resident, one signed lease. Chapter 3's
   // leaking faucet is hers, and a service only draws when its resident is still in the directory.
   const signedAt = daysAgo(200).toISOString();
@@ -794,7 +845,9 @@ export function buildHomeDemoSnapshot(): DemoDataSnapshot {
     leases,
     vendors,
     workOrders,
-    managerInbox: homeDemoOtherThreads(nowMs),
+    // The journey opens on the prospect's first text: it is already in both inboxes.
+    managerInbox: [homeDemoProspectThread(1, nowMs), ...homeDemoOtherThreads(nowMs)],
+    residentInbox: [homeDemoResidentProspectThread(1, nowMs)],
   };
 }
 

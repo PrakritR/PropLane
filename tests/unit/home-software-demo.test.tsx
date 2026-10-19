@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeSoftwareDemoPlayer } from "@/components/marketing/home-software-demo-player";
-import { HOME_DEMO_CONTROL, HOME_DEMO_EVENT, HOME_DEMO_INTERACT } from "@/lib/demo/home-demo-embed";
+import { HOME_DEMO_CONTROL, HOME_DEMO_EVENT, HOME_DEMO_INTERACT, HOME_DEMO_READY } from "@/lib/demo/home-demo-embed";
 
 class Observer {
   static instances: Observer[] = [];
@@ -35,45 +35,67 @@ function fromEmbed(frame: HTMLIFrameElement, data: unknown) {
   act(() => { window.dispatchEvent(new MessageEvent("message", { data, origin: window.location.origin, source: frame.contentWindow })); });
 }
 
+const portalLabel = (view: ReturnType<typeof render>) => view.container.querySelector('[data-attr="home-software-demo-portal"]')!.textContent;
+const event = (portal: string, extra: Record<string, unknown> = {}) => ({ type: HOME_DEMO_EVENT, step: 1, done: false, typing: null, portal, phone: { label: "Jordan’s phone", items: [] }, ...extra });
+
 describe("homepage Software demo", () => {
-  it("renders the section as #dashboard, titled Software, with three chapters and no iframe until near", () => {
+  it("renders the section as #dashboard, titled Software, with no chapter bar and no pause button, and no iframe until near", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     expect(view.container.querySelector("section#dashboard")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Software" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["01Find a house", "02Vendor gets work", "03Photo by text"]);
+    // The one flow plays by itself: nothing to pick, nothing to pause.
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("button", { name: /(Play|Pause) demo/ })).toBeNull();
     expect(view.container.querySelector("iframe")).toBeNull();
     preload().emit();
     const frame = view.container.querySelector("iframe")!;
-    expect(frame.getAttribute("src")).toMatch(/^\/demo\/home-embed\?chapter=find/);
+    expect(frame.getAttribute("src")).toMatch(/^\/demo\/home-embed\?/);
     expect(frame.getAttribute("src")).not.toContain("static=1");
+    expect(frame.getAttribute("src")).not.toContain("chapter=");
   });
 
-  it("draws the phone from what the embed reports, and ignores anything from another window or chapter", () => {
+  it("keeps the Phone | Portal switch for a phone-sized screen", () => {
+    render(<HomeSoftwareDemoPlayer />);
+    expect(screen.getByRole("button", { name: "Phone" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Portal" }));
+    expect(screen.getByRole("button", { name: "Portal" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("draws the phone from what the embed reports, and ignores anything from another window", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
     const { frame } = frameOf(view);
-    fromEmbed(frame, { type: HOME_DEMO_EVENT, chapter: "find", step: 3, done: false, typing: null, phone: { label: "Prospect’s phone", items: [{ kind: "out", text: "Hey, any houses?" }, { kind: "listings", ids: ["prop-willow"] }] } });
+    fromEmbed(frame, event("resident", { step: 3, phone: { label: "Jordan’s phone", items: [{ kind: "out", text: "Hey, any houses?" }, { kind: "listings", ids: ["prop-willow"] }] } }));
     expect(screen.getByText("Hey, any houses?")).toBeInTheDocument();
     expect(screen.getByText("Willow Court")).toBeInTheDocument();
-    fromEmbed(frame, { type: HOME_DEMO_EVENT, chapter: "photo", step: 1, done: false, typing: null, phone: { label: "Resident’s phone", items: [{ kind: "out", text: "Wrong chapter" }] } });
-    expect(screen.queryByText("Wrong chapter")).toBeNull();
-    act(() => { window.dispatchEvent(new MessageEvent("message", { data: { type: HOME_DEMO_EVENT, chapter: "find", step: 4, done: false, typing: null, phone: { label: "x", items: [{ kind: "out", text: "Forged" }] } }, origin: "https://evil.example", source: frame.contentWindow })); });
+    expect(screen.getAllByText("Jordan’s phone").length).toBeGreaterThan(0);
+    act(() => { window.dispatchEvent(new MessageEvent("message", { data: event("resident", { phone: { label: "x", items: [{ kind: "out", text: "Forged" }] } }), origin: "https://evil.example", source: frame.contentWindow })); });
     expect(screen.queryByText("Forged")).toBeNull();
   });
 
-  it("selects a chapter by message once the embed has loaded", () => {
+  it("names the portal on screen beside Sample data, from what the embed reports", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
-    const { spy } = frameOf(view);
-    fireEvent.click(screen.getByRole("tab", { name: /Vendor gets work/ }));
-    expect(spy).toHaveBeenCalledWith({ type: HOME_DEMO_CONTROL, action: "select", chapter: "vendor" }, window.location.origin);
-    expect(screen.getByRole("tab", { name: /Vendor gets work/ })).toHaveAttribute("aria-selected", "true");
+    const { frame } = frameOf(view);
+    // The journey opens in the prospect's own (resident) portal.
+    expect(portalLabel(view)).toBe("Resident portal · Sample data");
+    fromEmbed(frame, event("manager"));
+    expect(portalLabel(view)).toBe("Manager portal · Sample data");
+    fromEmbed(frame, event("vendor", { phone: { label: "Vendor’s phone", items: [] } }));
+    expect(portalLabel(view)).toBe("Vendor portal · Sample data");
+    expect(screen.getAllByText("Vendor’s phone").length).toBeGreaterThan(0);
+    // An event with a forged portal leaves the label alone.
+    fromEmbed(frame, event("owner"));
+    expect(portalLabel(view)).toBe("Vendor portal · Sample data");
   });
 
-  it("pauses the embed on hover and when it leaves the screen, and resumes", () => {
+  it("starts the embed and holds it on hover and when it leaves the screen, and resumes", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
-    const { spy } = frameOf(view);
+    const { frame, spy } = frameOf(view);
+    fromEmbed(frame, { type: HOME_DEMO_READY });
+    expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "play" }, window.location.origin);
     const section = view.container.querySelector("section")!;
     expect(section).toHaveAttribute("data-playing", "true");
     fireEvent.mouseEnter(section);
@@ -84,37 +106,37 @@ describe("homepage Software demo", () => {
     expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "pause" }, window.location.origin);
   });
 
-  it("a press inside the portal pauses and leaves a visible Play control that resumes", () => {
+  it("a press inside the portal pauses it, and moving off the section lets the journey go on (there is no pause button)", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
     const { frame, spy } = frameOf(view);
+    const section = view.container.querySelector("section")!;
     fromEmbed(frame, { type: HOME_DEMO_INTERACT });
-    const play = screen.getByRole("button", { name: "Play demo" });
-    expect(play).toBeVisible();
-    fireEvent.click(play);
+    expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "pause" }, window.location.origin);
+    expect(section).toHaveAttribute("data-playing", "false");
+    fireEvent.mouseLeave(section);
     expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "play" }, window.location.origin);
-    expect(screen.getByRole("button", { name: "Pause demo" })).toBeInTheDocument();
   });
 
-  it("moves to the next chapter after one finishes, and loops", () => {
+  it("loops: once the journey has finished and held, the embed is told to start it over", () => {
     vi.useFakeTimers();
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
     const { frame, spy } = frameOf(view);
-    fromEmbed(frame, { type: HOME_DEMO_EVENT, chapter: "find", step: 15, done: true, typing: null, phone: { label: "Prospect’s phone", items: [] } });
+    fromEmbed(frame, event("manager", { step: 60, done: true, phone: { label: "Vendor’s phone", items: [] } }));
     act(() => { vi.advanceTimersByTime(3300); });
-    expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "select", chapter: "vendor" }, window.location.origin);
+    expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "restart" }, window.location.origin);
     vi.useRealTimers();
   });
 
-  it("reduced motion: a static embed, no play button, no autoplay, chapters show their end state", () => {
+  it("reduced motion: a static embed, no autoplay, and the journey's end frame (manager portal, vendor's phone)", () => {
     motion = true;
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
     expect(view.container.querySelector("iframe")!.getAttribute("src")).toContain("static=1");
-    expect(screen.queryByRole("button", { name: /(Play|Pause) demo/ })).toBeNull();
     expect(view.container.querySelector("section")).toHaveAttribute("data-playing", "false");
-    // Before the embed reports, the phone already shows the chapter's finished thread.
-    expect(screen.getByText("Your tour at 61 Willow Court is tomorrow at 5:30 PM. Reply C to reschedule.")).toBeInTheDocument();
+    // Before the embed reports, the phone already shows the finished journey: the vendor's YES and the reply.
+    expect(screen.getByText("It’s yours. We’ll send you the details.")).toBeInTheDocument();
+    expect(portalLabel(view)).toBe("Manager portal · Sample data");
   });
 });

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { DemoSectionRenderer } from "@/components/demo/demo-section-renderer";
+import type { ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
@@ -256,9 +257,21 @@ export function DemoManagerShell({
   initialSection = "dashboard",
   initialTab,
   embed = false,
+  switchTo = null,
+  residentProfile,
+  vendorName,
 }: {
-  /** The homepage Software demo's iframe: the same shell without the local role switch (manager only). */
+  /** The homepage Software demo's iframe: the same shell without the local role switch; the script drives the portal. */
   embed?: boolean;
+  /**
+   * Embed only: move to another real portal (and section) WITHOUT remounting, so the fixture stores the script has
+   * written stay as they are. A new object is a new switch.
+   */
+  switchTo?: { role: DemoPortalRole; section: string; tab?: string } | null;
+  /** Embed only: who the resident portal belongs to, and the lifecycle stage its sidebar is drawn for. */
+  residentProfile?: { name: string; email: string; stage: ResidentPortalNavStage };
+  /** Embed only: the vendor's business name in the top bar. */
+  vendorName?: string;
   initialRole?: DemoPortalRole;
   initialSection?: string;
   /** `?tab=` — a record id or sub-tab within `initialSection` (e.g. a lease id for "lease"). */
@@ -295,6 +308,20 @@ export function DemoManagerShell({
     setTab(nextTab);
     setPath(nextPath);
   }, []);
+
+  // The script's portal switch: the same state `switchRole` sets, landing on the section it names.
+  const lastSwitchRef = useRef<typeof switchTo>(null);
+  useLayoutEffect(() => {
+    if (!switchTo || lastSwitchRef.current === switchTo) return;
+    lastSwitchRef.current = switchTo;
+    setPortalRole(switchTo.role);
+    setDemoRole(switchTo.role);
+    const valid = isValidDemoSection(switchTo.role, switchTo.section);
+    setSection(valid ? switchTo.section : "dashboard");
+    setTab(valid ? (switchTo.tab ?? null) : null);
+    setPath([]);
+    setAssistantOpen(false);
+  }, [switchTo]);
 
   const switchRole = useCallback((next: DemoPortalRole) => {
     setPortalRole(next);
@@ -385,8 +412,13 @@ export function DemoManagerShell({
   );
 
   const displayName =
-    portalRole === "resident" ? DEMO_RESIDENT_DISPLAY_LABEL : portalRole === "vendor" ? DEMO_VENDOR_NAME : CANONICAL_DEMO_MANAGER_NAME;
-  const displayEmail = portalRole === "resident" ? DEMO_RESIDENT_EMAIL : portalRole === "vendor" ? DEMO_VENDOR_EMAIL : "manager@test.proplane.local";
+    portalRole === "resident"
+      ? (residentProfile?.name ?? DEMO_RESIDENT_DISPLAY_LABEL)
+      : portalRole === "vendor"
+        ? (vendorName ?? DEMO_VENDOR_NAME)
+        : CANONICAL_DEMO_MANAGER_NAME;
+  const residentNavStage = portalRole === "resident" ? residentProfile?.stage : undefined;
+  const displayEmail = portalRole === "resident" ? (residentProfile?.email ?? DEMO_RESIDENT_EMAIL) : portalRole === "vendor" ? DEMO_VENDOR_EMAIL : "manager@test.proplane.local";
 
   return (
     <PortalAssistantConfigProvider endpoint={DEMO_ASSISTANT_ENDPOINT} managerName={CANONICAL_DEMO_MANAGER_NAME}>
@@ -406,10 +438,11 @@ export function DemoManagerShell({
                 subscriptionTier="paid"
                 name={displayName}
                 email={displayEmail}
+                residentNavStage={residentNavStage}
               />
               <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
                 <PortalWorkspaceRail kind={definition.kind} basePath={definition.basePath} name={displayName} email={displayEmail} />
-                <PortalSidebar definition={definition} subscriptionTier="paid" initialCollapsed={false} />
+                <PortalSidebar definition={definition} subscriptionTier="paid" initialCollapsed={false} residentNavStage={residentNavStage} />
                 <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                   <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
                     <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>

@@ -1,13 +1,18 @@
 ## One Software section (captain feedback 10-14, October 18)
 
 The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, headed with the shared `HomeSectionHeader`
-("Software"). It is three chapters (01 Find a house, 02 Vendor gets work, 03 Photo by text) over the REAL manager
-portal: an iframe of `/demo/home-embed` at a fixed 1280x800 logical size, scaled to fit, with the phone that is
-texting beside it. The phone is drawn from what the iframe reports (`HomeIphonePhone`, plus listing cards and
-photos from `home-demo-phone-items.tsx`), so the two never disagree. A visible cursor clicks the real controls;
-inbound events (a text, a YES, a photo) are store writes. Hover, focus, a press inside the portal, leaving the
-screen or a hidden tab pause it and leave a Play control; chapters advance and loop. Reduced motion draws each
-chapter's finished state (no cursor, no autoplay). Photos are drawn sample SVGs, never stock or listing photos.
+("Software"). It is ONE continuous journey (captain round #18, October 19) through the REAL resident, manager and
+vendor portals: Jordan books a tour by text (resident Tour + manager Tours), applies (resident Application, manager
+approves), pays (resident Payments, manager Incoming payments), signs the lease (manager Leases, resident Lease; the
+resident sidebar unlocks by stage for real), then a service goes to the vendor (vendor Services, manager Services
+Assigned). It is an iframe of `/demo/home-embed` at a fixed 1280x800 logical size, scaled to fit, with the phone of
+whoever is acting beside it and the portal named top right as plain text ("Resident portal · Sample data"). The
+phone is drawn from what the iframe reports (`HomeIphonePhone`, plus listing cards and photos from
+`home-demo-phone-items.tsx`), so the two never disagree. A visible cursor, labelled with the acting portal, clicks
+the real controls; inbound events (a text, a YES, a payment) are store writes, applied at the press that opens the
+tab they fill so no tab is ever shown empty. There is no chapter bar and no pause button: hover, focus, a press
+inside the portal, leaving the screen or a hidden tab hold it; it loops. Reduced motion draws the journey's end
+frame (no cursor, no autoplay). Photos are drawn sample SVGs, never stock or listing photos.
 Architecture and rules: `docs/agents/demo-sandbox.md`. There is no redrawn portal copy on the homepage, and no
 second dashboard/demo section.
 

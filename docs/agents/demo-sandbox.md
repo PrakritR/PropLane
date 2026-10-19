@@ -24,8 +24,9 @@ same-origin `/api/*` request in the browser (`home-demo-fetch-guard.ts`: sample 
 quiet success for writes, "unavailable" for other reads), keeps its own address (panels push `/portal/...`
 history entries that would otherwise switch demo mode off), and never loads analytics. It reaches the parent
 only by `postMessage` (`src/lib/demo/home-demo-embed.ts`, origin and source checked both ways); the parent draws
-the phone from what the embed reports. Chapter text comes from `home-discovery-script.ts`. A new chapter is a
-new entry in the script, never new UI. Verify: no non-GET request and no 401/403 from the iframe, no console error.
+the phone from what the embed reports. The journey (`HOME_DEMO_JOURNEY`) switches portals with `portal`
+steps on one mounted shell (never a remount, which would re-seed the stores); a new beat is a new entry in the
+script, never new UI. Verify: no non-GET request and no 401/403 from the iframe, no console error.
 
 **`/demo` is retired from the public site (captain 2026-09-26: "remove live
 demo no need").** `next.config.ts`'s `redirects()` and `src/middleware.ts`

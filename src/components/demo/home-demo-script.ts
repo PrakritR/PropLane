@@ -1,16 +1,25 @@
 /**
- * The homepage Software demo's three chapters, as data. The embed (`home-demo-embed.tsx`) plays the steps
- * against the REAL manager portal: `click` steps move the cursor to a real control and click it; `say` steps put
- * the next lines on the phone; `effect` steps are the INBOUND events (a text arriving, a vendor's YES, a photo)
- * written through the same store writers the app uses (`home-demo-effects.ts`). The parent page imports only this
- * file's data (no stores), to draw the end frame for reduced motion.
+ * The homepage Software demo as ONE continuous journey, data only. The embed (`home-demo-embed.tsx`) plays the
+ * steps against the REAL portals over fixture data and loops it: `click` steps move the cursor to a real control
+ * and press it; `say` steps put the next lines on a phone; `effect` steps (and the `effect` riding on a click or a
+ * portal switch) are the INBOUND events written through the same store writers the app uses
+ * (`home-demo-effects.ts`); `portal` steps switch which real portal is on screen (the same shell and stores, so
+ * what one portal wrote is there when the next opens); `stage` steps move the resident's lifecycle stage, so the
+ * resident sidebar unlocks the way the real product does. The parent page imports only this file's data (no
+ * stores), to draw the end frame for reduced motion.
+ *
+ * It follows one renter, Jordan: a text finds a house and books a tour (Resident, Manager), the application is
+ * submitted and approved, the first payments are made, the lease is sent and signed (the resident's Lease and My
+ * home unlock), and a leaking faucet goes from Jordan's text to the vendor's YES to the manager's Assigned tab.
+ * A tab or panel is never shown empty: the effect that fills it lands at the press that opens it.
  */
 import { DISCOVERY_LINES, type DiscoveryLine } from "@/components/marketing/home-discovery-script";
-import type { HomeDemoChapterId, HomeDemoPhone, HomeDemoPhoneItem } from "@/lib/demo/home-demo-embed";
+import type { HomeDemoPhone, HomeDemoPhoneItem, HomeDemoPortal } from "@/lib/demo/home-demo-embed";
+import type { ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 
 /** A real control the cursor goes to. Resolved against the live DOM, so it follows the portal as it changes. */
 export type HomeDemoTarget =
-  /** A sidebar (or any visible) link into a manager section, by its route segment. */
+  /** A sidebar (or any visible) link into a section of the CURRENT portal, by its route segment. */
   | { kind: "nav"; section: string }
   /** A tab (`role="tab"`, or a button in a tab `nav`) whose text starts with `label`. */
   | { kind: "tab"; label: string }
@@ -18,19 +27,28 @@ export type HomeDemoTarget =
   | { kind: "row"; text: string }
   /** A button by its accessible name, e.g. the calendar's "Next week". */
   | { kind: "button"; label: string }
-  /** A button or link whose text contains `text` (an event on the calendar grid). */
+  /** A button or link whose text contains `text`. */
   | { kind: "text"; text: string }
   /** The first visible element matching a selector (the last resort; prefer the kinds above). */
   | { kind: "css"; selector: string };
 
 export type HomeDemoEffect =
+  /** The prospect's text thread, as many lines in as `lines` (both inboxes). */
   | { id: "thread"; lines: number }
+  /** The tour is booked: on the manager's calendar and Tours, and the prospect's Tour page. */
   | { id: "tour" }
-  | { id: "assign"; workOrder: "vendor" | "photo" }
-  | { id: "schedule" }
-  | { id: "clearServices" }
-  | { id: "photoService" }
-  | { id: "complete" };
+  | { id: "applicationSubmit" }
+  | { id: "applicationApprove" }
+  | { id: "chargesCreate" }
+  | { id: "chargesPay" }
+  | { id: "leaseSend" }
+  | { id: "leaseSign" }
+  /** The renter's text opens the faucet service (with the photo). */
+  | { id: "serviceRequest" }
+  /** The service is offered to Pacific Plumbing, so it is on the vendor's Open tab. */
+  | { id: "offer" }
+  /** The vendor's YES: the service is theirs. */
+  | { id: "assign" };
 
 export type HomeDemoStep =
   | { do: "wait"; ms: number }
@@ -39,13 +57,26 @@ export type HomeDemoStep =
   | { do: "click"; target: HomeDemoTarget; effect?: HomeDemoEffect }
   /** Move the cursor onto a real control without pressing it (scrolls it into view). */
   | { do: "hover"; target: HomeDemoTarget }
-  | { do: "effect"; effect: HomeDemoEffect };
+  | { do: "effect"; effect: HomeDemoEffect }
+  /** Switch which real portal is on screen (same stores), landing on `section` (and its `tab`) with `effect` already written. */
+  | { do: "portal"; role: HomeDemoPortal; section: string; tab?: string; effect?: HomeDemoEffect }
+  /** Move the resident's lifecycle stage: what the resident sidebar unlocks. */
+  | { do: "stage"; stage: ResidentPortalNavStage }
+  /** A named beat of the journey (a no-op; `?skipto=<id>` plays everything before it instantly, for review). */
+  | { do: "mark"; id: string };
 
-export type HomeDemoChapter = {
-  id: HomeDemoChapterId;
-  /** Run once, before the first step, on top of the shared fixture world. */
-  prepare?: HomeDemoEffect[];
-  phones: HomeDemoPhone[];
+/** The signed-in resident the resident portal belongs to: their name, email and where they are in the lifecycle. */
+export type HomeDemoResident = { name: string; email: string; stage: ResidentPortalNavStage };
+
+/** A phone in the script: `initial` of its items are already on it when the journey starts. */
+export type HomeDemoScriptPhone = HomeDemoPhone & { initial?: number };
+
+export type HomeDemoJourney = {
+  /** The real portal the journey opens in, and the section it opens on. */
+  portal: HomeDemoPortal;
+  section: string;
+  resident: HomeDemoResident;
+  phones: HomeDemoScriptPhone[];
   steps: HomeDemoStep[];
 };
 
@@ -75,8 +106,6 @@ export const HOME_DEMO_PHOTOS = {
   ),
 } as const;
 
-/* ───────────── Chapter 1: a prospect finds a house by text (the #13 conversation) ───────────── */
-
 /** `DISCOVERY_LINES` as phone items: the divider and the tour card keep their own shapes. */
 function discoveryItems(lines: readonly DiscoveryLine[]): HomeDemoPhoneItem[] {
   return lines.map((line): HomeDemoPhoneItem => {
@@ -95,113 +124,125 @@ function discoveryItems(lines: readonly DiscoveryLine[]): HomeDemoPhoneItem[] {
   });
 }
 
-const FIND: HomeDemoChapter = {
-  id: "find",
-  // Each phone item is one DISCOVERY_LINES entry (8 of them), so `lines: n` on the manager side is `n` items here.
-  phones: [{ label: "Prospect’s phone", items: discoveryItems(DISCOVERY_LINES) }],
+/* ───────────── The journey ───────────── */
+
+/** Jordan's phone: the shared discovery conversation up to the booked tour, then the texts the rest of the journey adds. */
+const JORDAN_PHONE: HomeDemoScriptPhone = {
+  label: "Jordan’s phone",
+  initial: 1,
+  items: [
+    ...discoveryItems(DISCOVERY_LINES.slice(0, 6)),
+    { kind: "in", text: "Your application for 61 Willow Court is approved." },
+    { kind: "in", text: "Your lease is ready. Sign it in your portal." },
+    { kind: "out", text: "The kitchen faucet is leaking." },
+    { kind: "photo", from: "out", art: "leak" },
+    { kind: "in", text: "Thanks. I opened a service for 61 Willow Court and attached your photo." },
+  ],
+};
+
+const VENDOR_PHONE: HomeDemoScriptPhone = {
+  label: "Vendor’s phone",
+  items: [
+    { kind: "in", text: "New service at 61 Willow Court: leaking kitchen faucet. Reply YES to take it." },
+    { kind: "out", text: "YES" },
+    { kind: "in", text: "It’s yours. We’ll send you the details." },
+  ],
+};
+
+export const HOME_DEMO_JOURNEY: HomeDemoJourney = {
+  // Jordan, a prospect who has not applied: the resident portal opens on the conversation that is already under way.
+  portal: "resident",
+  section: "communication",
+  resident: { name: "Jordan Ellis", email: "jordan.prospect@example.com", stage: "pre_approval" },
+  phones: [JORDAN_PHONE, VENDOR_PHONE],
   steps: [
-    { do: "wait", ms: 1200 },
-    { do: "say", count: 1, typing: "out", effect: { id: "thread", lines: 1 } },
+    /* a. A text books a tour: it shows on the resident's Tour and on the manager's Tours. */
+    { do: "mark", id: "tour" },
+    { do: "wait", ms: 1000 },
     { do: "say", count: 3, typing: "in", effect: { id: "thread", lines: 4 } },
-    { do: "wait", ms: 600 },
-    { do: "click", target: { kind: "nav", section: "communication" } },
-    { do: "wait", ms: 900 },
-    { do: "click", target: { kind: "row", text: "Jordan" } },
-    { do: "wait", ms: 2200 },
     { do: "say", count: 1, typing: "out", effect: { id: "thread", lines: 5 } },
     { do: "say", count: 1, typing: "in", effect: { id: "thread", lines: 6 } },
-    { do: "effect", effect: { id: "tour" } },
-    { do: "wait", ms: 1800 },
-    { do: "click", target: { kind: "nav", section: "calendar" } },
-    { do: "wait", ms: 900 },
-    { do: "click", target: { kind: "button", label: "Next week" } },
     { do: "wait", ms: 700 },
-    { do: "hover", target: { kind: "text", text: "Tour · 61 Willow Court" } },
-    { do: "wait", ms: 1800 },
-    { do: "say", count: 2, typing: "in", effect: { id: "thread", lines: 8 } },
-    { do: "wait", ms: 2600 },
-  ],
-};
-
-/* ───────────── Chapter 2: a vendor gets work by text ───────────── */
-
-const VENDOR: HomeDemoChapter = {
-  id: "vendor",
-  phones: [
-    {
-      label: "Vendor’s phone",
-      items: [
-        { kind: "in", text: "New service at 61 Willow Court: leaking kitchen faucet. Reply YES to take it." },
-        { kind: "out", text: "YES" },
-        { kind: "in", text: "It’s yours. Visit booked for Thursday at 9:00 AM." },
-      ],
-    },
-  ],
-  steps: [
-    { do: "wait", ms: 1000 },
+    { do: "click", target: { kind: "nav", section: "tour" }, effect: { id: "tour" } },
+    { do: "wait", ms: 1900 },
+    { do: "portal", role: "manager", section: "tours", tab: "upcoming" },
+    { do: "wait", ms: 2200 },
+    /* b. The application: the resident submits, the manager approves. */
+    { do: "mark", id: "application" },
+    { do: "stage", stage: "application_submitted" },
+    { do: "portal", role: "resident", section: "applications", effect: { id: "applicationSubmit" } },
+    { do: "wait", ms: 2000 },
+    { do: "portal", role: "manager", section: "applications" },
+    { do: "wait", ms: 1400 },
+    { do: "click", target: { kind: "tab", label: "Approved" }, effect: { id: "applicationApprove" } },
     { do: "say", count: 1, typing: "in" },
-    { do: "click", target: { kind: "nav", section: "services" } },
-    { do: "wait", ms: 1500 },
-    // The vendor's YES assigns the service as the cursor opens Assigned, so the row is there when the tab is
-    // (never an empty Open tab beside "Assigned 1"); the booked visit does the same for Scheduled.
-    { do: "say", count: 1, typing: "out" },
-    { do: "click", target: { kind: "tab", label: "Assigned" }, effect: { id: "assign", workOrder: "vendor" } },
+    { do: "wait", ms: 1700 },
+    /* c. The first payments: the resident pays, the manager sees them under Incoming payments. */
+    { do: "mark", id: "payments" },
+    { do: "stage", stage: "post_approval_pre_lease" },
+    { do: "portal", role: "resident", section: "payments", effect: { id: "chargesCreate" } },
     { do: "wait", ms: 1800 },
+    { do: "click", target: { kind: "tab", label: "Paid" }, effect: { id: "chargesPay" } },
+    { do: "wait", ms: 1800 },
+    { do: "portal", role: "manager", section: "payments", tab: "paid" },
+    { do: "wait", ms: 2400 },
+    /* d. The lease: the manager sends it, the resident signs, Lease and My home unlock. */
+    { do: "mark", id: "lease" },
+    { do: "portal", role: "manager", section: "leases", tab: "resident", effect: { id: "leaseSend" } },
     { do: "say", count: 1, typing: "in" },
-    { do: "click", target: { kind: "tab", label: "Scheduled" }, effect: { id: "schedule" } },
-    { do: "wait", ms: 3000 },
-  ],
-};
-
-/* ───────────── Chapter 3: a photo by text becomes a service, and completion photos close it ───────────── */
-
-const PHOTO: HomeDemoChapter = {
-  id: "photo",
-  prepare: [{ id: "clearServices" }],
-  phones: [
-    {
-      label: "Resident’s phone",
-      items: [
-        { kind: "out", text: "The kitchen faucet is leaking." },
-        { kind: "photo", from: "out", art: "leak" },
-        { kind: "in", text: "Thanks. I opened a service for 1412 Maple Ct and attached your photo." },
-      ],
-    },
-    {
-      label: "Vendor’s phone",
-      items: [
-        { kind: "in", text: "New service at 1412 Maple Ct: leaking kitchen faucet. Text photos when it’s done." },
-        { kind: "out", text: "Done. New cartridge in." },
-        { kind: "photo", from: "out", art: "fixed" },
-        { kind: "in", text: "Thanks. Photos added and the service is completed." },
-      ],
-    },
-  ],
-  steps: [
-    { do: "wait", ms: 1000 },
-    { do: "click", target: { kind: "nav", section: "services" } },
-    { do: "wait", ms: 900 },
-    { do: "say", count: 2, phone: 0, typing: "out" },
-    { do: "say", count: 1, phone: 0, typing: "in", effect: { id: "photoService" } },
-    { do: "wait", ms: 900 },
-    { do: "click", target: { kind: "row", text: "Leaking kitchen faucet" } },
-    { do: "wait", ms: 700 },
-    { do: "hover", target: { kind: "css", selector: '[data-attr="work-order-photos"] a' } },
+    { do: "wait", ms: 2200 },
+    { do: "portal", role: "resident", section: "lease" },
     { do: "wait", ms: 1600 },
-    { do: "say", count: 1, phone: 1, typing: "in", effect: { id: "assign", workOrder: "photo" } },
-    { do: "wait", ms: 900 },
-    { do: "say", count: 2, phone: 1, typing: "out" },
-    { do: "say", count: 1, phone: 1, typing: "in", effect: { id: "complete" } },
+    { do: "click", target: { kind: "tab", label: "Signed" }, effect: { id: "leaseSign" } },
+    { do: "wait", ms: 1200 },
+    { do: "stage", stage: "post_lease" },
+    { do: "wait", ms: 2200 },
+    /* e. The vendor moment: Jordan's text opens a service, the vendor takes it, the manager sees it Assigned. */
+    { do: "mark", id: "vendor" },
+    { do: "say", count: 2, typing: "out" },
+    { do: "say", count: 1, typing: "in" },
     { do: "wait", ms: 500 },
-    { do: "hover", target: { kind: "css", selector: '[data-attr="work-order-photos"] a:last-child' } },
-    { do: "wait", ms: 3000 },
+    { do: "click", target: { kind: "nav", section: "services" }, effect: { id: "serviceRequest" } },
+    { do: "wait", ms: 1900 },
+    { do: "say", phone: 1, count: 1, typing: "in", effect: { id: "offer" } },
+    { do: "portal", role: "vendor", section: "work-orders" },
+    { do: "wait", ms: 2000 },
+    { do: "say", phone: 1, count: 1, typing: "out" },
+    { do: "click", target: { kind: "tab", label: "Assigned" }, effect: { id: "assign" } },
+    { do: "wait", ms: 1700 },
+    { do: "say", phone: 1, count: 1, typing: "in" },
+    { do: "wait", ms: 600 },
+    { do: "portal", role: "manager", section: "services" },
+    { do: "wait", ms: 3200 },
   ],
 };
 
-export const HOME_DEMO_CHAPTER_DATA: Record<HomeDemoChapterId, HomeDemoChapter> = { find: FIND, vendor: VENDOR, photo: PHOTO };
+/** The portal on screen once the journey has run (the last `portal` step's role), for the reduced-motion end frame. */
+export function homeDemoEndPortal(): HomeDemoPortal {
+  let role = HOME_DEMO_JOURNEY.portal;
+  for (const step of HOME_DEMO_JOURNEY.steps) if (step.do === "portal") role = step.role;
+  return role;
+}
 
-/** What each phone shows after the whole chapter (the still frame for reduced motion). */
-export function homeDemoEndPhone(chapter: HomeDemoChapterId): HomeDemoPhone {
-  const data = HOME_DEMO_CHAPTER_DATA[chapter];
-  return data.phones[data.phones.length - 1]!;
+/** The portal and phone on screen at the journey's first frame (what a visitor who gets motion sees first). */
+export function homeDemoStartPortal(): HomeDemoPortal {
+  return HOME_DEMO_JOURNEY.portal;
+}
+
+export function homeDemoStartPhone(): HomeDemoPhone {
+  const phone = HOME_DEMO_JOURNEY.phones[0]!;
+  return { label: phone.label, items: phone.items.slice(0, phone.initial ?? 0) };
+}
+
+/** The phone on screen once the journey has run: the last one it spoke on, with everything it showed. */
+export function homeDemoEndPhone(): HomeDemoPhone {
+  let index = 0;
+  const shown = HOME_DEMO_JOURNEY.phones.map((phone) => phone.initial ?? 0);
+  for (const step of HOME_DEMO_JOURNEY.steps) {
+    if (step.do !== "say") continue;
+    index = step.phone ?? index;
+    shown[index] = Math.min(HOME_DEMO_JOURNEY.phones[index]!.items.length, shown[index]! + (step.count ?? 1));
+  }
+  const phone = HOME_DEMO_JOURNEY.phones[index]!;
+  return { label: phone.label, items: phone.items.slice(0, shown[index]) };
 }
