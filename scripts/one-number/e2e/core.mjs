@@ -169,15 +169,15 @@ export class Harness {
     let lastChange = Date.now();
     let lastTick = 0;
     while (Date.now() - started < maxMs) {
-      await sleep(700);
+      await sleep(2500);
       // The burst is not due for ~10 s (reply debounce); the app also runs it inline. The cron tick is only the backstop.
       // Optional scheduler backstop (--tick): the cron routes sweep the WHOLE shared dev database (other lanes' queued bursts
       // and outbox rows too), so they are not called unless asked for.
       if (this.tick && Date.now() - started > 14_000 && Date.now() - lastTick > 6000) { lastTick = Date.now(); await this.cron("prospect-sms-bursts"); await this.cron("sms-outbox"); }
       const count = mine().length;
       if (count !== lastCount) { lastCount = count; lastChange = Date.now(); }
-      const receipt = await this.receiptStatus(sid);
       const idle = Date.now() - lastChange;
+      const receipt = idle >= quietMs ? await this.receiptStatus(sid) : "processing";
       const bursts = idle >= quietMs ? (await this.burstsPending(from)) + (await this.outboxPending(from)) : 0;
       if ((receipt === "completed" || receipt === null) && idle >= quietMs && bursts === 0) break;
       if (idle >= quietMs * 4 && bursts === 0) break;
