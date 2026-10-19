@@ -32,7 +32,24 @@ describe("residentLifecycleSteps", () => {
       applicationFeeDeclined: true,
       basePath: "/resident",
     });
-    expect(action.title).toBe("Pay the application fee");
+    expect(action.title).toBe("Application fee unpaid");
     expect(action.urgent).toBe(true);
+    // A submitted application has no pay surface: never link the CTA back to the page it sits on.
+    expect(action.href).toBe("/resident/communication");
+  });
+
+  it("never points an unpaid submitted fee at the Applications page the CTA already sits on", () => {
+    const action = resolveResidentLifecycleNextAction({
+      applicationFeePaid: false,
+      applicationSubmitted: true,
+      applicationApproved: false,
+      residentSignedLease: false,
+      managerCountersigned: false,
+      moveInChargesPaid: false,
+      movedIn: false,
+      basePath: "/resident",
+    });
+    expect(action.href).not.toBe("/resident/applications");
+    expect(action.href).toBe("/resident/communication");
   });
 });

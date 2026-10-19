@@ -52,3 +52,12 @@ describe("PropertySearchPicker select affordance", () => {
     expect(within(rows[0]).getByText("Select").className).not.toContain("bg-primary");
   });
 });
+
+describe("PropertySearchPicker facts are plain text, never pills", () => {
+  it("joins tags into one line and drops an empty or dash-only tag", async () => {
+    const { propertyOptionFactLine } = await import("@/components/marketing/property-search-picker");
+    expect(propertyOptionFactLine(["Fremont", "—"])).toBe("Fremont");
+    expect(propertyOptionFactLine(["Green Lake", "$3,200/mo", " "])).toBe("Green Lake · $3,200/mo");
+    expect(propertyOptionFactLine(undefined)).toBe("");
+  });
+});

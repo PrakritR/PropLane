@@ -273,7 +273,7 @@ export function OwnerOverviewView({
         <OwnerAttentionPanel items={extras?.attention ?? []} />
         <OwnerUpcomingPanel items={extras?.upcoming ?? []} />
       </div>
-      <OwnerIncomeChart points={data.chart} periodLabel={chartPeriodLabel} />
+      <OwnerIncomeChart points={extras?.managed && extras.managedChart ? extras.managedChart : data.chart} periodLabel={chartPeriodLabel} />
     </>
   );
 }

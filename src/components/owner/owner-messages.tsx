@@ -78,6 +78,7 @@ export function OwnerMessagesPage() {
             >
               <Input
                 aria-label="Message"
+                placeholder="Write a message"
                 value={drafts[conversation.conversationId] ?? ""}
                 onChange={(e) => setDrafts((cur) => ({ ...cur, [conversation.conversationId]: e.target.value }))}
                 maxLength={4000}

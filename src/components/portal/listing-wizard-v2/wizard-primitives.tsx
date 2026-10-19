@@ -671,6 +671,8 @@ export function WizardStepTabs({
       picker={
         <PhoneStripPicker
           title="Steps"
+          // The wizard's phone header has no side padding of its own: the picker keeps the 16px gutter every other row has.
+          className="px-4 py-2 sm:hidden"
           currentLabel={active?.label ?? "Steps"}
           items={steps.map((step, index) => {
             const on = index === current;

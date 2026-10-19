@@ -28,6 +28,7 @@
  *   (`buildDemoBlankSnapshot`) — unrelated to the idle baseline above.
  */
 import type { MockProperty } from "@/data/types";
+import type { WorkspacePayload } from "@/lib/workspaces/types";
 import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
 import type { LeasePipelineRow, LeaseSignature } from "@/lib/lease-pipeline-storage";
@@ -45,6 +46,7 @@ import type { GuidedDemoStep } from "@/lib/demo/demo-guided";
 import { CANONICAL_DEMO_RESIDENT_EMAIL, CANONICAL_DEMO_RESIDENT_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { DEMO_MANAGER_USER_ID, DEMO_RESIDENT_USER_ID } from "@/lib/demo/demo-session";
 import { TOUR_CALENDAR_TIME_ZONE, zonedWallTimeMs } from "@/lib/tour-slot-math";
+import { DISCOVERY_LINES, discoveryLineAsText } from "@/components/marketing/home-discovery-script";
 
 /** Calendar slice of a snapshot: tours, partner inquiries, manager availability. */
 export type DemoScheduleSeed = {
@@ -547,6 +549,252 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
     workOrderBids,
     managerInbox,
     schedule,
+  };
+}
+
+/* ───────────── The homepage Software demo's world (`/demo/home-embed`) ───────────── */
+
+export const HOME_DEMO_PROPERTY_IDS = {
+  willow: "demo-prop-willow",
+  fremont: "demo-prop-fremont",
+  maple: "demo-prop-maple",
+} as const;
+/** Chapter 2: the leaking kitchen faucet at 61 Willow Court, offered to Pacific Plumbing. */
+export const HOME_DEMO_VENDOR_WORK_ORDER_ID = "home-wo-willow-faucet";
+export const HOME_DEMO_VENDOR_NAME = "Pacific Plumbing";
+/** Chapter 3: the service the resident's photo text creates at 1412 Maple Ct. */
+export const HOME_DEMO_PHOTO_WORK_ORDER_ID = "home-wo-maple-leak";
+export const HOME_DEMO_PROSPECT_THREAD_ID = "home-thread-prospect";
+
+/**
+ * Days from today to the Thursday the demo books: the next Thursday, and always in the calendar week AFTER this one
+ * (the cursor pages the calendar forward to it), so Mon-Wed add a week.
+ */
+function homeDemoThursdayAhead(): number {
+  const pacificWeekday = new Intl.DateTimeFormat("en-US", { timeZone: TOUR_CALENDAR_TIME_ZONE, weekday: "short" }).format(new Date());
+  const today = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(pacificWeekday);
+  const ahead = (4 - today + 7) % 7 || 7;
+  return today >= 1 && today <= 3 ? ahead + 7 : ahead;
+}
+
+/** The demo's tour: that Thursday at 5:30 PM Pacific, as ISO start/end. */
+export function homeDemoTourWindow(): { start: string; end: string } {
+  const ahead = homeDemoThursdayAhead();
+  return { start: pacificWallTimeIso(ahead, 17, 30), end: pacificWallTimeIso(ahead, 18, 0) };
+}
+
+/** The visit Pacific Plumbing books in chapter 2: that Thursday at 9:00 AM Pacific. */
+export function homeDemoVisitIso(): string {
+  return pacificWallTimeIso(homeDemoThursdayAhead(), 9, 0);
+}
+
+/** The manager's other threads in the homepage demo (so the inbox reads as a working inbox). */
+export function homeDemoOtherThreads(nowMs: number): PersistedInboxThread[] {
+  return [
+    {
+      id: "home-thread-ethan",
+      folder: "inbox",
+      from: "Ethan Wright",
+      email: "ethan.wright@example.com",
+      subject: "Application fee",
+      preview: "Do you take card for the application fee?",
+      body: "Hi, do you take card for the application fee, or is it bank transfer only?",
+      time: new Date(nowMs - 26 * 60 * 60 * 1000).toISOString(),
+      unread: false,
+      rootChannel: "email",
+    },
+  ];
+}
+
+/**
+ * The prospect's SMS thread once `lineCount` of `DISCOVERY_LINES` have happened, the way the manager's inbox stores an
+ * SMS conversation: the prospect's turns inbound, PropLane's outbound, the listing cards as plain text lines.
+ */
+export function homeDemoProspectThread(lineCount: number, nowMs: number): PersistedInboxThread {
+  const turns = DISCOVERY_LINES.slice(0, lineCount).flatMap((line) => {
+    const text = discoveryLineAsText(line);
+    return text === null ? [] : [{ text, outbound: line.kind !== "prospect" }];
+  });
+  const first = turns[0] ?? { text: "", outbound: false };
+  const stamp = (index: number) => new Date(nowMs - (turns.length - index) * 60 * 1000).toISOString();
+  const last = turns[turns.length - 1] ?? first;
+  return {
+    id: HOME_DEMO_PROSPECT_THREAD_ID,
+    folder: "inbox",
+    from: "Jordan",
+    email: "jordan.prospect@example.com",
+    subject: "Looking for a house",
+    preview: last.text.split("\n")[0] ?? "",
+    body: first.text,
+    time: stamp(turns.length - 1),
+    rootAt: stamp(0),
+    rootChannel: "sms",
+    rootOutbound: first.outbound,
+    unread: !last.outbound,
+    messages: turns.slice(1).map((turn, i) => ({
+      id: `home-msg-${i + 1}`,
+      from: turn.outbound ? "PropLane" : "Jordan",
+      body: turn.text,
+      at: stamp(i + 1),
+      outbound: turn.outbound,
+      channel: "sms" as const,
+    })),
+  };
+}
+
+/** The one workspace the homepage demo's portal shell shows (answered locally by the embed, never fetched). */
+export function homeDemoWorkspacePayload(): WorkspacePayload {
+  return {
+    workspaces: [
+      {
+        id: "demo-workspace-seattle-homes",
+        name: "Seattle Homes",
+        ownerUserId: DEMO_MANAGER_USER_ID,
+        owned: true,
+        isDefault: true,
+        propertyIds: Object.values(HOME_DEMO_PROPERTY_IDS),
+        livePropertyCount: 3,
+        propertyLabels: {
+          [HOME_DEMO_PROPERTY_IDS.willow]: "Willow Court",
+          [HOME_DEMO_PROPERTY_IDS.fremont]: "Fremont Studio",
+          [HOME_DEMO_PROPERTY_IDS.maple]: "Maple Duplex",
+        },
+        propertyPermissions: {},
+        members: [],
+        viewerRole: "owner",
+        viewerHouseScope: "all",
+        canAddProperties: true,
+        canManageMembers: true,
+      },
+    ],
+    activeWorkspaceId: "demo-workspace-seattle-homes",
+  };
+}
+
+/**
+ * The world behind the homepage Software demo: three open listings (the same three the prospect is texted in
+ * `home-discovery-script.ts`), Pacific Plumbing, and one open service. Chapters move it forward with the same store
+ * writers the portal uses; nothing here reaches a server.
+ */
+export function buildHomeDemoSnapshot(): DemoDataSnapshot {
+  const managerUserId = DEMO_MANAGER_USER_ID;
+  const nowMs = Date.now();
+  const home = (
+    id: string,
+    title: string,
+    address: string,
+    zip: string,
+    neighborhood: string,
+    unitLabel: string,
+    beds: number,
+    rentLabel: string,
+    available: string,
+    tagline: string,
+  ): MockProperty => ({
+    id,
+    adminPublishLive: true,
+    title,
+    buildingId: id,
+    buildingName: title,
+    unitLabel,
+    tagline,
+    address,
+    zip,
+    neighborhood,
+    beds,
+    baths: 1,
+    rentLabel,
+    available,
+    petFriendly: false,
+    managerUserId,
+  });
+  const properties = [
+    home(HOME_DEMO_PROPERTY_IDS.willow, "Willow Court", "61 Willow Court", "98103", "Wallingford", "Room 3", 1, "$1,080/mo", "Now", "Shared house in Wallingford"),
+    home(HOME_DEMO_PROPERTY_IDS.fremont, "Fremont Studio", "3301 Fremont Ave N", "98103", "Fremont", "Studio", 0, "$1,400/mo", "Now", "Studio in the heart of Fremont"),
+    home(HOME_DEMO_PROPERTY_IDS.maple, "Maple Duplex", "1412 Maple Ct", "98107", "Ballard", "Unit A", 2, "$1,850/mo", "Nov 1", "Duplex near Ballard"),
+  ];
+  const vendors: ManagerVendorRow[] = [
+    {
+      id: "demo-vendor-pacific-plumbing",
+      managerUserId,
+      name: HOME_DEMO_VENDOR_NAME,
+      trade: "Plumbing",
+      trades: ["Plumbing"],
+      phone: "+1 (206) 555-0188",
+      email: "pacific.plumbing@example.com",
+      notes: "",
+      active: true,
+      propertyIds: Object.values(HOME_DEMO_PROPERTY_IDS),
+    },
+  ];
+  const workOrders: DemoManagerWorkOrderRow[] = [
+    {
+      id: HOME_DEMO_VENDOR_WORK_ORDER_ID,
+      reference: "WO-2041",
+      propertyName: "Willow Court",
+      propertyId: HOME_DEMO_PROPERTY_IDS.willow,
+      propertyAddress: "61 Willow Court",
+      unit: "Willow Court · Room 3",
+      title: "Leaking kitchen faucet",
+      priority: "Normal",
+      status: "Open",
+      bucket: "open",
+      description: "The kitchen faucet leaks at the base.",
+      scheduled: "",
+      cost: "",
+      category: "plumbing",
+      managerUserId,
+    },
+  ];
+  // Maple Duplex is lived in until Nov 1 (its "Available Nov 1"): one resident, one signed lease. Chapter 3's
+  // leaking faucet is hers, and a service only draws when its resident is still in the directory.
+  const signedAt = daysAgo(200).toISOString();
+  const applications: DemoApplicantRow[] = [
+    {
+      id: "home-app-dana",
+      name: "Dana Reyes",
+      email: "dana.reyes@example.com",
+      property: "Maple Duplex",
+      propertyId: HOME_DEMO_PROPERTY_IDS.maple,
+      assignedPropertyId: HOME_DEMO_PROPERTY_IDS.maple,
+      stage: "Approved",
+      bucket: "approved",
+      detail: "",
+      managerUserId,
+    },
+  ];
+  const leases: LeasePipelineRow[] = [
+    {
+      id: "home-lease-maple",
+      residentName: "Dana Reyes",
+      residentEmail: "dana.reyes@example.com",
+      residentUserId: null,
+      managerUserId,
+      propertyId: HOME_DEMO_PROPERTY_IDS.maple,
+      unit: "Maple Duplex · Unit A",
+      stageLabel: "Fully signed",
+      status: "Fully Signed",
+      updated: isoDate(daysAgo(200)),
+      updatedAtIso: signedAt,
+      signedAtIso: signedAt,
+      fullySignedAt: signedAt,
+      managerSignature: { name: "Seattle Homes", signedAtIso: signedAt, role: "manager" },
+      residentSignature: { name: "Dana Reyes", signedAtIso: signedAt, role: "resident" },
+      bucket: "signed",
+      pdfVersion: 1,
+      notes: "",
+      signedRentLabel: "$1,850/mo",
+      thread: [],
+    },
+  ];
+  return {
+    ...emptySnapshot(),
+    properties,
+    applications,
+    leases,
+    vendors,
+    workOrders,
+    managerInbox: homeDemoOtherThreads(nowMs),
   };
 }
 

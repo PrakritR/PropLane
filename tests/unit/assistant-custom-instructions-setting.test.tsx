@@ -42,7 +42,8 @@ describe("AssistantCustomInstructionsSetting", () => {
     render(<AssistantCustomInstructionsSetting role={role} />);
 
     expect(await screen.findByDisplayValue("Keep replies warm.")).toBeTruthy();
-    expect(screen.getByText("PropLane Assistant")).toBeTruthy();
+    // The pane's own heading names it; the section does not repeat it as a label.
+    expect(screen.queryByRole("heading", { name: "PropLane Assistant" })).toBeNull();
     expect(screen.getByLabelText("Custom instructions")).toHaveAttribute("data-attr", "assistant-custom-instructions-input");
     // A label and its control only: no example sentence, no explanatory line (any role).
     expect(screen.queryByText(/automated leasing text replies/i)).toBeNull();

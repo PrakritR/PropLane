@@ -403,7 +403,6 @@ html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-foo
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
 }
 
 .auth-brand-head {
@@ -435,12 +434,15 @@ html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-foo
 }
 
 /* The thread: two squared bubbles, the way the line reads on a phone. */
+/* Centered in the panel, and vertically in the space between the headline and the strip
+   (`margin-block: auto` takes the free space on both sides). */
 .auth-thread {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(100%, 520px);
-  padding: 0 clamp(32px, 3.4vw, 56px);
+  width: fit-content;
+  max-width: calc(100% - 2 * clamp(32px, 3.4vw, 56px));
+  margin: auto;
 }
 
 .auth-bubble {
@@ -464,14 +466,17 @@ html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-foo
   opacity: 0.6;
 }
 
+/* A subtle alternating offset: the pair is centred, each bubble leans 48px to its own side. */
 .auth-bubble-in {
   align-self: flex-start;
+  margin-right: 48px;
   background: #fff;
   color: var(--ps-ink);
 }
 
 .auth-bubble-out {
   align-self: flex-end;
+  margin-left: 48px;
   background: var(--ps-ink);
   color: #fff;
 }

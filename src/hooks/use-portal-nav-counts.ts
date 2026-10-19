@@ -3,6 +3,7 @@ import { publishManagerUnreadConversationCount } from "@/lib/manager-unread-conv
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useIsClient } from "@/hooks/use-is-client";
 import { RESIDENT_INBOX_THREAD_FALLBACK } from "@/components/portal/resident-inbox-panel";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { readInboxMessages } from "@/lib/demo-admin-partner-inbox";
@@ -123,6 +124,9 @@ export function usePortalNavCounts(
   smsUiEnabled = false,
 ): Partial<Record<string, PortalNavCountState>> {
   const { userId, email, ready } = useManagerUserId();
+  // The admin counts read browser storage during render: hold them until hydration so the server
+  // HTML (no storage) and the first client render agree, or every admin page fails to hydrate.
+  const isClient = useIsClient();
   const smsWorkspaceId = activeWorkspaceIdentity()?.id ?? null;
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((n) => n + 1), []);
@@ -303,6 +307,7 @@ export function usePortalNavCounts(
     }
 
     if (kind === "admin") {
+      if (!isClient) return {};
       const inboxUnread = readInboxMessages().filter((m) => m.folder === "inbox" && !m.read).length;
       const pendingMeetings = readPartnerInquiries().filter((r) => r.status === "pending" && r.kind !== "tour").length;
       const pendingTours = readPartnerInquiries().filter((r) => r.kind === "tour" && r.status === "pending").length;
@@ -432,7 +437,7 @@ export function usePortalNavCounts(
     }
 
     return {};
-  }, [kind, ready, tick, userId, email, smsUiEnabled, smsConversations, moveInUnread]);
+  }, [kind, ready, isClient, tick, userId, email, smsUiEnabled, smsConversations, moveInUnread]);
 
   // Publish the Communication number so the assistant's attention row and the
   // dashboard show this very count instead of a second one of their own.

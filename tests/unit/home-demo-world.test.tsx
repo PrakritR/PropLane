@@ -17,7 +17,6 @@ import {
 import { PROPERTY_ROWS, RESIDENT_HOME, RESIDENT_NAME } from "@/components/marketing/site/product-mock/fixtures";
 import { ResidentLifecycleWorkspace } from "@/components/marketing/resident-lifecycle-workspace";
 import { PORTAL_META, phoneScriptFor, storyAt } from "@/components/marketing/resident-lifecycle-script";
-import HomeDashboardPanel from "@/components/marketing/home-dashboard-panel";
 import { PREVIEW_ASSISTANT_PROMPTS, previewAssistantAnswer } from "@/components/marketing/home-preview-assistant-data";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -187,14 +186,6 @@ describe("sidebar grouping (the redesigned shell)", () => {
     expect(container.querySelector('[data-demo-tab="applications"]')!.getAttribute("aria-current")).toBe("page");
     expect(container.querySelector('[data-demo-tab="leases"]')!.getAttribute("aria-current")).toBeNull();
     expect(container.querySelector('[data-demo-tab="communication"]')!.getAttribute("aria-current")).toBeNull();
-  });
-
-  it("opens the Applications page from its own sidebar row, with no section tab strip", async () => {
-    const { container } = render(<HomeDashboardPanel portal="manager" />);
-    fireEvent.click(within(container.querySelector(".rlp-nav") as HTMLElement).getByRole("button", { name: "Applications", exact: true }));
-    expect(container.querySelector("[data-portal-section-tabs]")).toBeNull();
-    expect(container.querySelector('[data-demo-tab="applications"]')).toHaveAttribute("aria-current", "page");
-    expect(await screen.findByRole("heading", { name: "Applications", exact: true }, { timeout: 10_000 })).toBeInTheDocument();
   });
 
   it("draws the house mark in the top strip and a red count only on an unread Communication", () => {

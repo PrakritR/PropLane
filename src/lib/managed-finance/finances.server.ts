@@ -113,6 +113,20 @@ export async function loadOwnerFinances(
   };
 }
 
+/** Each month's owner statement totals for one managed workspace, from ONE read of the owner's ledger lines. */
+async function loadOwnerMonthlyStatements(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string; months: string[] },
+): Promise<Map<string, Statement["totals"]>> {
+  const lines = toStatementLines(await readPartyLines(db, { account: "owner_payable", partyId: ownerParty(input.ownerUserId), workspaceId: input.workspaceId }));
+  const out = new Map<string, Statement["totals"]>();
+  for (const month of input.months) {
+    const { fromIso, toIso } = monthWindow(month);
+    out.set(month, buildOwnerStatement(lines, fromIso, toIso).totals);
+  }
+  return out;
+}
+
 /**
  * Net to the owner per month for one managed workspace, from ONE read of the owner's ledger lines folded month by month with
  * the same builder the statement uses, so a list row and the month it opens always agree.
@@ -121,13 +135,28 @@ export async function loadOwnerMonthlyNets(
   db: SupabaseClient,
   input: { ownerUserId: string; workspaceId: string; months: string[] },
 ): Promise<Map<string, number>> {
-  const lines = toStatementLines(await readPartyLines(db, { account: "owner_payable", partyId: ownerParty(input.ownerUserId), workspaceId: input.workspaceId }));
-  const out = new Map<string, number>();
-  for (const month of input.months) {
-    const { fromIso, toIso } = monthWindow(month);
-    out.set(month, buildOwnerStatement(lines, fromIso, toIso).totals.netCents);
-  }
-  return out;
+  const totals = await loadOwnerMonthlyStatements(db, input);
+  return new Map([...totals].map(([month, t]) => [month, t.netCents]));
+}
+
+/**
+ * The Overview chart for a workspace PropLane holds the funds for: rent collected against what came out of it (PropLane's fee
+ * and services billed to the owner), month by month, from the same statements the Rent collected card reads. The manager's own
+ * books never see this rent, so the books-based chart is empty for such a workspace.
+ */
+export async function loadOwnerMonthlyChart(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string; months: string[] },
+): Promise<Array<{ month: string; incomeCents: number; expensesCents: number }>> {
+  const totals = await loadOwnerMonthlyStatements(db, input);
+  return input.months.map((month) => {
+    const t = totals.get(month);
+    return {
+      month,
+      incomeCents: Math.max(0, t?.rentGrossCents ?? 0),
+      expensesCents: Math.max(0, -((t?.feeCents ?? 0) + (t?.vendorChargesCents ?? 0))),
+    };
+  });
 }
 
 export type VendorFinancesView = {

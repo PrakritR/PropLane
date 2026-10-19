@@ -32,7 +32,8 @@ import {
   subscribeDemoRole,
 } from "@/lib/demo/demo-session";
 import type { PortalSection } from "@/lib/portal-types";
-import { parseResidentMoveInTab } from "@/lib/portal-detail-routes";
+import { parseResidentMoveInTab, parseServiceDetailTab } from "@/lib/portal-detail-routes";
+import { parseServiceStage } from "@/lib/service-stage-ids";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 
 const loading = () => (
@@ -109,11 +110,14 @@ export function DemoSectionRenderer({
   role,
   section,
   tab,
+  path = [],
   meta,
 }: {
   role: DemoPortalRole;
   section: string;
   tab: string | null;
+  /** Everything after the section in the address (`work-orders/open/<id>`): a record opened in place. */
+  path?: string[];
   meta: PortalSection | undefined;
 }): ReactNode {
   const session = useDemoSession(role);
@@ -184,13 +188,22 @@ export function DemoSectionRenderer({
         return <ManagerPayments />;
       case "task-list":
         return <ManagerTaskList tabId={tabId === "completed" ? "completed" : "open"} basePath={basePath} />;
-      case "services":
+      case "services": {
+        // `/portal/services/work-orders/<bucket>/<id>[/<tab>]` opens that service's own record, as the real route does.
+        const [kind, bucket, recordId, recordTab] = path;
+        const isRecord = Boolean(recordId) && (kind === "work-orders" || kind === "requests");
         return (
           <ManagerAllServicesPanel
             tabId={tabId === "work-orders" ? "work-orders" : "requests"}
             basePath={basePath}
+            {...(isRecord && kind === "work-orders"
+              ? { workOrderBucket: parseServiceStage(bucket), workOrderId: decodeURIComponent(recordId!) }
+              : {})}
+            {...(isRecord && kind === "requests" ? { serviceRequestId: decodeURIComponent(recordId!) } : {})}
+            {...(isRecord && recordTab ? { serviceDetailTab: parseServiceDetailTab(recordTab) } : {})}
           />
         );
+      }
       case "inbox":
       case "communication":
         return <ManagerCommunication />;

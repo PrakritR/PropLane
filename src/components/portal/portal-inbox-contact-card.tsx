@@ -177,7 +177,7 @@ export function PortalInboxContactCard({
           const inner = (
             <div
               className={cn(
-                "group/idbox relative min-w-0 rounded-lg border border-border px-2.5 py-1.5",
+                "group/idbox relative h-full min-w-0 rounded-lg border border-border px-2.5 py-1.5",
                 href && !disabled && "transition-colors hover:bg-foreground/[0.03]",
                 disabled && "cursor-not-allowed opacity-60",
               )}
@@ -228,9 +228,9 @@ export function PortalInboxContactCard({
                   <span className="min-w-0 truncate text-[11px] text-muted">{box.note}</span>
                 ) : null}
               </p>
-              {/* A status gets its own line, so it truncates on its own and never squeezes the address. */}
+              {/* A status gets its own line and wraps in full (never an ellipsis over the one sentence that says why), so it never squeezes the address. */}
               {box.note && box.noteTone === "warn" ? (
-                <p className="mt-0.5 truncate text-[11px] leading-tight text-[var(--status-pending-fg)]">{box.note}</p>
+                <p className="mt-0.5 text-[11px] leading-tight text-[var(--status-pending-fg)]">{box.note}</p>
               ) : null}
             </div>
           );
@@ -239,12 +239,12 @@ export function PortalInboxContactCard({
               key={box.label}
               href={href}
               data-attr={box.dataAttr}
-              className="block min-w-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              className="block h-full min-w-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
               {inner}
             </Link>
           ) : (
-            <div key={box.label} className="min-w-0" data-attr={box.dataAttr}>
+            <div key={box.label} className="h-full min-w-0" data-attr={box.dataAttr}>
               {inner}
             </div>
           );

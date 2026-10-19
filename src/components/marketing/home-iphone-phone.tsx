@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { BatteryFull, CalendarDays, ChevronLeft, ChevronRight, CreditCard, FileText, Mic, Plus, Signal, Video, Wifi, Wrench } from "lucide-react";
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
@@ -9,9 +9,12 @@ import type { PhoneIcon, PhoneItem } from "./resident-lifecycle-script";
 
 const cardIcons = { file: FileText, calendar: CalendarDays, wrench: Wrench, card: CreditCard } satisfies Record<PhoneIcon, typeof FileText>;
 
+/** A thread entry the Messages preview cannot draw itself (listing cards, a photo): the caller supplies the node. */
+export type HomePhoneItem = PhoneItem | { kind: "node"; node: ReactNode };
+
 /** Read-only Messages preview. The caller owns the scene and playback clock. */
 export function HomeIphonePhone({ items, typing = null, label = "Sample", className = "" }: {
-  items: PhoneItem[];
+  items: HomePhoneItem[];
   typing?: "in" | "out" | null;
   label?: string;
   className?: string;
@@ -43,6 +46,7 @@ export function HomeIphonePhone({ items, typing = null, label = "Sample", classN
       <div className="home-iphone-thread" ref={thread} aria-label="Conversation with PropLane">
         <div className="home-iphone-date">iMessage <span>Today 9:41 AM</span></div>
         {items.map((item, index) => {
+          if (item.kind === "node") return <div key={index} className="home-iphone-node">{item.node}</div>;
           if (item.kind === "time") return <div key={index} className="home-iphone-date">{item.text}</div>;
           if (item.kind === "card") {
             const Icon = cardIcons[item.icon];

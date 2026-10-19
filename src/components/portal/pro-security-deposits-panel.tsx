@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
+import { MoreHorizontal } from "lucide-react";
 import {Input, Select} from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PORTAL_DATA_TABLE,
@@ -16,7 +18,7 @@ import {
   PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
-import { centsToUsd } from "@/lib/reports/money";
+import { formatCentsAsUsd as centsToUsd } from "@/lib/money-label-totals";
 import {
   computeDispositionSplit,
   type SecurityDepositDispositionType,
@@ -24,12 +26,13 @@ import {
   type SecurityDepositStatus,
 } from "@/lib/reports/security-deposits";
 
-const STATUS_TONE: Record<SecurityDepositStatus, "pending" | "approved" | "confirmed" | "overdue"> = {
-  held: "pending",
-  partially_refunded: "approved",
-  refunded: "confirmed",
-  forfeited: "overdue",
-  applied_to_damages: "overdue",
+/** A plain fact, never a chip: rows carry no pills (AGENTS.md § Portal UI system). */
+const STATUS_LABEL: Record<SecurityDepositStatus, string> = {
+  held: "Held",
+  partially_refunded: "Partly refunded",
+  refunded: "Refunded",
+  forfeited: "Forfeited",
+  applied_to_damages: "Applied to damages",
 };
 
 type DisposeDraft = {
@@ -122,35 +125,41 @@ export function ManagerSecurityDepositsPanel() {
                   <th className={MANAGER_TABLE_TH}>Received</th>
                   <th className={MANAGER_TABLE_TH}>Held</th>
                   <th className={MANAGER_TABLE_TH}>Status</th>
-                  <th className={MANAGER_TABLE_TH}>Actions</th>
+                  <th className={MANAGER_TABLE_TH}><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {deposits.map((deposit) => (
                   <tr key={deposit.id} className={PORTAL_TABLE_TR}>
-                    <td className={PORTAL_TABLE_TD}>{deposit.residentEmail}</td>
+                    <td className={`${PORTAL_TABLE_TD} truncate`} title={deposit.residentEmail}>{deposit.residentEmail}</td>
                     <td className={PORTAL_TABLE_TD}>{deposit.receivedDate}</td>
                     <td className={`${PORTAL_TABLE_TD} tabular-nums`}>{centsToUsd(deposit.amountHeldCents)}</td>
                     <td className={PORTAL_TABLE_TD}>
-                      <Badge tone={STATUS_TONE[deposit.status]}>{deposit.status.replace(/_/g, " ")}</Badge>
+                      {STATUS_LABEL[deposit.status] ?? deposit.status.replace(/_/g, " ")}
                     </td>
-                    <td className={PORTAL_TABLE_TD}>
-                      <div className="flex flex-wrap gap-2">
-                        {deposit.status === "held" ? (
-                          <Button variant="outline" className="h-8 rounded-full px-3 text-xs" onClick={() => openDispose(deposit)} data-attr="deposit-dispose">
-                            Dispose
-                          </Button>
-                        ) : null}
-                        {deposit.dispositionType ? (
-                          <a
-                            href={`/api/reports/deposit-disposition/export?depositId=${encodeURIComponent(deposit.id)}`}
-                            className="inline-flex h-8 items-center rounded-full border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent/40"
-                            data-attr="deposit-disposition-pdf"
-                          >
-                            PDF
-                          </a>
-                        ) : null}
-                      </div>
+                    <td className={`${PORTAL_TABLE_TD} text-right`}>
+                      {deposit.status === "held" || deposit.dispositionType ? (
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild>
+                            <Button type="button" variant="ghost" aria-label={`${deposit.residentEmail} deposit actions`} className={RECORD_ACTION_TRIGGER_BUTTON_CLASS} data-attr="deposit-actions">
+                              <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {deposit.status === "held" ? (
+                              <DropdownMenuItem onSelect={() => openDispose(deposit)} data-attr="deposit-dispose">Dispose</DropdownMenuItem>
+                            ) : null}
+                            {deposit.dispositionType ? (
+                              <DropdownMenuItem
+                                onSelect={() => window.location.assign(`/api/reports/deposit-disposition/export?depositId=${encodeURIComponent(deposit.id)}`)}
+                                data-attr="deposit-disposition-pdf"
+                              >
+                                Download PDF
+                              </DropdownMenuItem>
+                            ) : null}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

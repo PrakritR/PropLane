@@ -102,13 +102,6 @@
 .swiss-contact {
   padding-block: clamp(48px, 7vw, 112px);
 }
-.home-swiss #home-pricing-title {
-  color: var(--home-ink);
-  font-size: clamp(38px, 4.8vw, 72px);
-  font-weight: 600;
-  letter-spacing: -0.045em;
-  line-height: 1.05;
-}
 .home-swiss .pl-pricing-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

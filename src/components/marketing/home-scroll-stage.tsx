@@ -176,7 +176,7 @@ export function HomeScrollStage({
         )}
         <div className="home-stage-body">
           <div className="home-stage-heading">
-            <h2 id={`${id}-title`}>{title}</h2>
+            <h2 id={`${id}-title`} className="home-section-head">{title}</h2>
             <nav
               ref={rail}
               className="home-stage-rail"

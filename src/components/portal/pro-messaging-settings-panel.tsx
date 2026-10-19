@@ -38,6 +38,7 @@ import { track } from "@/lib/analytics/track-client";
 import {
   formatManagerMessagingPhone,
   workNumberAwaitingCarrier,
+  workspaceListedNumbers,
   workspaceWorkNumber,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
@@ -536,7 +537,7 @@ export function ManagerMessagingSettingsPanel() {
   const visibleWorkspaces =
     ownedWorkspaces.filter((w) => w.workspaceId === channelFilter);
   const canAddNumberTo = (workspace: WorkspaceWithNumbers) => {
-    const numbers = workspace.numbers ?? [];
+    const numbers = workspaceListedNumbers(workspace);
     return !numbers.some((n) => n.isPrimary) && numbers.length < WORKSPACE_NUMBER_LIMIT;
   };
   /**
@@ -592,7 +593,7 @@ export function ManagerMessagingSettingsPanel() {
     <PortalSettingsSection title="Work identity">
       <PortalSettingsGroup>
         {visibleWorkspaces.map((workspace) => {
-          const numbers = workspace.numbers ?? [];
+          const numbers = workspaceListedNumbers(workspace);
           const canRequest = canAddNumberTo(workspace);
           return (
             <div key={workspace.workspaceId}>

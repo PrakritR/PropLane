@@ -29,6 +29,7 @@ import {
   Pencil,
   type LucideIcon,
   Landmark,
+  ArrowLeft,
   ArrowUpFromLine,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -71,6 +72,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   ClipboardCheck, // Add inspection (resident record: Move-in → Forms)
   Landmark, // Bank (vendor Finances band: payout destination)
   ArrowUpFromLine, // Withdraw (vendor Finances band)
+  ArrowLeft, // Back to reports (Money → a report's own page)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

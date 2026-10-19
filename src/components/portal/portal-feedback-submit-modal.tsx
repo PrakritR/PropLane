@@ -78,7 +78,6 @@ export function PortalFeedbackSubmitModal({
       preview={<PopupMessagePreview subject={form.kind} body={form.message} recipient="PropLane support" />}
       onClose={handleClose}
       panelClassName="max-w-lg"
-      description={form.submitted ? undefined : "Share an idea, ask a question, or report something broken."}
       footer={form.submitted ? undefined : (
         <ModalFooter>
           <PortalFeedbackFormFooterButton form={form} onDone={handleClose} />

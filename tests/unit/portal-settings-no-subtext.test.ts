@@ -53,3 +53,16 @@ describe("settings kit has no subtext props", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("Feedback has no subtext and no label repeating its heading", () => {
+  const read = (name: string) => readFileSync(join(PORTAL_DIR, name), "utf8");
+
+  it("the Send feedback pop-up passes no description under its title", () => {
+    expect(read("portal-feedback-submit-modal.tsx")).not.toMatch(/\bdescription=/);
+  });
+
+  it("the embedded Feedback and Assistant sections do not re-title the pane they sit in", () => {
+    expect(read("portal-bug-feedback-panel.tsx")).not.toMatch(/<PortalSettingsSection title="Feedback"/);
+    expect(read("assistant-custom-instructions-setting.tsx")).not.toMatch(/<PortalSettingsSection\s+title=/);
+  });
+});
