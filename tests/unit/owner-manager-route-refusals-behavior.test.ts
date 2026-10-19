@@ -121,9 +121,9 @@ describe("Property owner — HTTP contract transcript", () => {
     log();
   });
 
-  it("refuses an owner-only account on every manager surface it must not reach", async () => {
+  it("admits an owner-only account on the manager surfaces: it uses the Property portal, no owner refusal", async () => {
     session.userId = OWNER;
-    log("== manager surfaces, called by an owner-only account ==");
+    log("== manager surfaces, called by an owner-only account (admitted, not refused) ==");
 
     const surfaces: Array<[string, () => Promise<unknown>]> = [
       [
@@ -174,15 +174,15 @@ describe("Property owner — HTTP contract transcript", () => {
     }
     log();
 
-    // Every one of them must refuse. 403 is the designed answer and 503 the
-    // fail-closed one when the membership cannot be read. The manager inbox
-    // answers 401 instead: `withholdManagerSurface` runs inside
-    // `resolveInboxScopeUser`, so the scope never resolves and the route's own
-    // `refuseOwnerOnly` is never reached. Different status, same refusal —
-    // what matters is that no surface answers with manager data.
+    // The owner portal is retired: an owner-only account is a manager of the Property portal (view-only on a managed
+    // workspace, enforced elsewhere), so none of these answers the old 401/403/503 owner refusal. The write verbs
+    // answer their own validation status for the empty bodies sent here.
     for (const [label, status] of Object.entries(statuses)) {
-      expect([401, 403, 503], `${label} answered ${status}`).toContain(status);
+      expect([401, 403, 503], `${label} answered ${status}`).not.toContain(status);
     }
+    // The two plain reads are admitted outright, like any manager's.
+    expect(statuses["GET  /api/portal-vendors        (shared vendor directory)"]).toBe(200);
+    expect(statuses["GET  /api/portal-inbox-threads  (manager-scope inbox)"]).toBe(200);
   });
 
   it("hands the owner only allowlisted keys — no name, email, phone, vendor or ledger field", () => {

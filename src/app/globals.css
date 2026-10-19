@@ -4129,3 +4129,19 @@ html[data-view-as] [data-view-as-write] {
 html[data-view-as] input[type="file"] {
   pointer-events: none;
 }
+
+/*
+ * A PropLane-managed workspace the viewer owns is view-only (portal-read-only.tsx stamps data-read-only="managed" on
+ * <html>). The server refuses the writes; this is the same backstop as "View as": uploads and form submits read as
+ * unavailable. The team chat composer (`data-read-only-allow`) stays live: "Message the team" is the one write
+ * a view-only owner keeps.
+ */
+html[data-read-only="managed"] input[type="file"],
+html[data-read-only="managed"] #portal-main-content button[type="submit"]:not([data-read-only-allow]),
+html[data-read-only="managed"] [data-view-as-write] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+html[data-read-only="managed"] input[type="file"] {
+  pointer-events: none;
+}

@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadOwnerGrants, narrowGrantsToWorkspace, ownerAccessStateFor, type OwnerGrant } from "@/lib/property-owner/access.server";
+import { loadOwnerGrants, narrowGrantsToWorkspace, type OwnerGrant } from "@/lib/property-owner/access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -50,28 +50,12 @@ export async function requireOwnerRoute(req?: Request): Promise<OwnerRouteContex
 }
 
 /**
- * The opt-out a MANAGER route takes directly: an owner-only account holds the
- * manager role row only to host `/portal/owner`, so it gets 403 from any
- * manager-surface handler. Returns the 403 response, or null to continue. A
- * membership that cannot be read is a 503, never a pass.
- *
- * Most manager routes reach the same answer through their auth helper
- * (`requireManagerRouteUser`, `getReportsAuthContext`, `resolveAgentContext`),
- * each of which refuses an owner-only account itself.
- * `tests/unit/owner-only-manager-routes.test.ts` walks `src/app/api/**` and
- * fails a route that authenticates through a manager helper which is NOT
- * owner-aware unless the route calls this or is listed there as exempt; it
- * does not (and cannot) prove that every manager route is covered.
+ * The opt-out a MANAGER route takes directly. It used to return 403 for an owner-only account (a Property owner who
+ * held the manager role row only to host `/portal/owner`). That portal is retired: an owner uses the Property portal,
+ * view-only on a PropLane-managed workspace (the middleware and tool layer refuse the writes), so there is nothing to
+ * refuse here. Always `null` ("continue"); kept as the one seam the manager routes already call.
+ * `tests/unit/owner-only-manager-routes.test.ts` pins that each route still asks.
  */
-export async function refuseOwnerOnly(db: SupabaseClient, userId: string): Promise<NextResponse | null> {
-  let state: Awaited<ReturnType<typeof ownerAccessStateFor>>;
-  try {
-    state = await ownerAccessStateFor(db, userId);
-  } catch {
-    return NextResponse.json({ error: "Could not verify your account. Try again." }, { status: 503 });
-  }
-  if (state.ownerOnly) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-  }
+export async function refuseOwnerOnly(_db: SupabaseClient, _userId: string): Promise<NextResponse | null> {
   return null;
 }

@@ -1,6 +1,6 @@
 /**
- * An owner calling an existing manager report route (rent roll, profitability,
- * documents…) gets no manager context at all, so every one of them 401s.
+ * An owner-only account uses the normal Property portal, so the manager report
+ * routes (rent roll, profitability, documents…) hand it a manager context.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -33,10 +33,10 @@ const common = {
 };
 
 describe("getReportsAuthContext", () => {
-  it("returns no context for an owner-only account, so every manager report route refuses", async () => {
+  it("returns a manager context for an owner-only account, since it uses the Property portal", async () => {
     serviceDb = makeFakeDb({ ...common, account_link_invites: [ownerRow] });
-    expect(await getReportsAuthContext({ preferRole: "manager" })).toBeNull();
-    expect(await getReportsAuthContext()).toBeNull();
+    expect(await getReportsAuthContext({ preferRole: "manager" })).toMatchObject({ role: "manager", userId: OWNER });
+    expect(await getReportsAuthContext()).toMatchObject({ role: "manager", userId: OWNER });
   });
 
   it("still returns the manager context for a manager, including one who is also an owner elsewhere", async () => {

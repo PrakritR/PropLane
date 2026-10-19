@@ -16,6 +16,7 @@ import {
   TEAM_ROLE_IDS,
   TEAM_ROLE_INVITE_OPTIONS,
   TEAM_ROLE_LABELS,
+  TEAM_ROLE_SELECT_OPTIONS,
   applyRoleToPropertyPermissions,
   inferInviteTeamRole,
   inferTeamRoleFromPermissions,
@@ -31,8 +32,10 @@ import { canActOnMember, canManageWorkspaceMembers, roleAssignableBy, workspaceR
 const OFF = { notification: false } as const;
 
 describe("the Property owner role", () => {
-  it("is the first option in the Role dropdown, labelled Property owner", () => {
-    expect(TEAM_ROLE_INVITE_OPTIONS[0]).toEqual({ value: "property_owner", label: "Property owner" });
+  it("is no longer an invite option (Viewer is first), but the role and its label still exist", () => {
+    expect(TEAM_ROLE_INVITE_OPTIONS.map((o) => o.value)).not.toContain("property_owner");
+    expect(TEAM_ROLE_INVITE_OPTIONS[0]).toEqual({ value: "viewer", label: "Viewer" });
+    expect(TEAM_ROLE_SELECT_OPTIONS).toContainEqual({ value: "property_owner", label: "Property owner" });
     expect(TEAM_ROLE_IDS[0]).toBe("property_owner");
     expect(TEAM_ROLE_LABELS.property_owner).toBe("Property owner");
     expect(parseTeamRole("property_owner")).toEqual({ ok: true, role: "property_owner" });

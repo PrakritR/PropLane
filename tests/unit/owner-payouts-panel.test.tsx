@@ -5,11 +5,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 let search = "";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  usePathname: () => "/portal/owner/finances",
+  usePathname: () => "/portal/financials/owner-payouts",
   useSearchParams: () => new URLSearchParams(search),
 }));
 
-import { OwnerFinancesPage, shiftMonthKey } from "@/components/owner/owner-finances";
+import { OwnerPayoutsPanel, shiftMonthKey, useOwnerPayoutsAllowed } from "@/components/portal/finances/owner-payouts-panel";
+import { invalidateSharedGets } from "@/lib/shared-get-cache";
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -69,6 +70,7 @@ function installFetch(list: unknown = { workspaces: [{ id: "ws-1", name: "Maple 
 }
 
 beforeEach(() => {
+  invalidateSharedGets();
   search = "";
   currentView = view();
   writeResponses = {};
@@ -80,10 +82,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("OwnerFinancesPage", () => {
+describe("OwnerPayoutsPanel", () => {
   it("renders the tiles, statement totals and rows from the view", async () => {
     installFetch();
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     expect(await screen.findByText("Available to withdraw")).toBeTruthy();
     expect(screen.getByText("$2,500")).toBeTruthy();
     expect(screen.getByText("$2,400")).toBeTruthy();
@@ -96,7 +98,7 @@ describe("OwnerFinancesPage", () => {
     expect(screen.getByText("12 Maple St")).toBeTruthy();
     expect(screen.getByText("Leaky tap · Pipes Co")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Leaky tap · Pipes Co" })).toBeTruthy();
-    // The ledger's own link is the manager's service record, which an owner account cannot open: it is never followed.
+    // The ledger's own link is never followed: a service line opens the house in the Property portal.
     expect(document.body.innerHTML).not.toContain("/portal/services/abc");
     expect(screen.getByText("Completed")).toBeTruthy();
   });
@@ -104,7 +106,7 @@ describe("OwnerFinancesPage", () => {
   it("hides the occupancy tile when there is none and the approvals section when the list is empty", async () => {
     currentView = view({ occupancy: null, pendingApprovals: [] });
     installFetch();
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     expect(await screen.findByText("Available to withdraw")).toBeTruthy();
     expect(screen.queryByText("Rooms occupied")).toBeNull();
     expect(screen.queryByText("Repair approvals")).toBeNull();
@@ -114,7 +116,7 @@ describe("OwnerFinancesPage", () => {
   it("posts the withdrawal with the typed cents and a fresh client key, then reloads", async () => {
     installFetch();
     writeResponses["POST /api/owner/finances/withdraw"] = json(200, { ok: true, withdrawalId: "w9", payoutPending: true });
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Withdraw" }));
     const amount = (await screen.findByDisplayValue("2400.00")) as HTMLInputElement;
     fireEvent.change(amount, { target: { value: "$1,250.50" } });
@@ -131,7 +133,7 @@ describe("OwnerFinancesPage", () => {
   it("shows the server's words and a payouts link when payouts are not ready", async () => {
     installFetch();
     writeResponses["POST /api/owner/finances/withdraw"] = json(409, { error: "Finish your payout setup first.", code: "PAYOUTS_NOT_READY" });
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Withdraw" }));
     await screen.findByDisplayValue("2400.00");
     const submit = screen.getAllByRole("button", { name: "Withdraw" }).at(-1)!;
@@ -143,7 +145,7 @@ describe("OwnerFinancesPage", () => {
 
   it("posts approve and decline for a repair", async () => {
     installFetch();
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Approve Roof patch" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.method === "POST")).toMatchObject({ url: "/api/owner/finances/expenses/exp-1", body: { approve: true } });
@@ -155,7 +157,7 @@ describe("OwnerFinancesPage", () => {
   it("approves routine repairs up to the typed cap", async () => {
     installFetch();
     writeResponses["POST /api/owner/finances/expenses/approve-routine"] = json(200, { approved: 1 });
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Approve routine repairs" }));
     const cap = (await screen.findByDisplayValue("250.00")) as HTMLInputElement;
     fireEvent.change(cap, { target: { value: "500" } });
@@ -166,7 +168,7 @@ describe("OwnerFinancesPage", () => {
 
   it("saves settings as integer cents through the policy route", async () => {
     installFetch();
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     fireEvent.change(await screen.findByDisplayValue("250.00"), { target: { value: "300" } });
     fireEvent.change(screen.getByDisplayValue("100.00"), { target: { value: "0" } });
@@ -184,7 +186,7 @@ describe("OwnerFinancesPage", () => {
       workspaces: [{ id: "ws-1", name: "Maple Court", status: "active", feeLine: "x" }],
       waiting: [{ id: "pol-9", workspaceId: "ws-2", feeLine: "You receive 90%, PropLane keeps 10% of rent", terms: TERMS, effectiveFrom: "2026-10-18" }],
     });
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     expect(await screen.findByText("You receive 90%, PropLane keeps 10% of rent")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
@@ -193,7 +195,7 @@ describe("OwnerFinancesPage", () => {
 
   it("moves between months through the chevrons", async () => {
     installFetch();
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Previous month" }));
     await waitFor(() => expect(calls.some((c) => c.url.includes("month=2026-09"))).toBe(true));
   });
@@ -201,7 +203,7 @@ describe("OwnerFinancesPage", () => {
   it("opens the confirm pop-up for an ?approve= link", async () => {
     search = "workspace=ws-1&approve=exp-1";
     installFetch();
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     expect(await screen.findByRole("button", { name: "Decline" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
@@ -210,11 +212,12 @@ describe("OwnerFinancesPage", () => {
 
   it("says so when there is nothing managed, and offers a retry on an error", async () => {
     installFetch({ workspaces: [], waiting: [] });
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     expect(await screen.findByText("No managed workspaces yet")).toBeTruthy();
     cleanup();
+    invalidateSharedGets();
     vi.stubGlobal("fetch", vi.fn(async () => json(500, { error: "boom" })));
-    render(<OwnerFinancesPage />);
+    render(<OwnerPayoutsPanel />);
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
@@ -225,5 +228,24 @@ describe("shiftMonthKey", () => {
     expect(shiftMonthKey("2026-01", -1)).toBe("2025-12");
     expect(shiftMonthKey("2026-12", 1)).toBe("2027-01");
     expect(shiftMonthKey("2026-10", 0)).toBe("2026-10");
+  });
+});
+
+describe("useOwnerPayoutsAllowed (the tab gate)", () => {
+  function Probe() {
+    return <span data-attr="probe">{useOwnerPayoutsAllowed() ? "shown" : "hidden"}</span>;
+  }
+
+  it("shows the Owner payouts tab for the owner of record of a managed workspace", async () => {
+    installFetch();
+    render(<Probe />);
+    await waitFor(() => expect(screen.getByText("shown")).toBeTruthy());
+  });
+
+  it("hides it on a 403, so an ordinary manager never sees the tab", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(403, { error: "Forbidden." })));
+    render(<Probe />);
+    await waitFor(() => expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
+    expect(screen.getByText("hidden")).toBeTruthy();
   });
 });

@@ -1,13 +1,11 @@
 import "server-only";
 
-import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { hasCoManagerPermissionLevel, type OwnerPermissionId } from "@/lib/co-manager-permissions";
 import { stampTeamRoleOnProperties, withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { effectiveHouseIds } from "@/lib/workspaces/membership";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { listManagedWorkspacesForOwner } from "@/lib/owner-management/policies.server";
 
 /**
@@ -452,39 +450,20 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   return { hasOwnerAccess: hasActiveOwner, ownerOnly, messagesOn, financesOn };
 }
 
-/** Request-cached for server components (layout + page ask the same question). */
-export const getOwnerAccessState = cache(async (userId: string): Promise<OwnerAccessState> =>
-  resolveOwnerAccessState(createSupabaseServiceRoleClient(), userId),
-);
-
 /** Uncached form for API routes that already hold a service client. */
 export async function ownerAccessStateFor(db: SupabaseClient, userId: string): Promise<OwnerAccessState> {
   return resolveOwnerAccessState(db, userId);
 }
 
 /**
- * "Withhold the manager surface from this account?" - true for an owner-only
- * account AND for a membership that could not be read at all. Every
- * manager-side caller asks this instead of reading `ownerOnly` directly, so a
- * transient `account_link_invites` failure denies rather than either handing
- * over the manager surface or throwing an uncaught error into a page render.
- * The callers that must tell the two apart (`refuseOwnerOnly`: 403 vs 503)
- * catch `OwnerAccessUnavailableError` themselves.
+ * "Withhold the manager surface from this account?" - NEVER, since the owner portal was retired (captain, Oct 19):
+ * every account with manager access uses the Property portal, and an owner of a PropLane-managed workspace sees
+ * their workspace there view-only (`PortalWorkspace.readOnly`, enforced by the middleware and the tool layer, not
+ * by hiding the surface). Kept as the one seam every manager-side caller already asks, so no call site changes and a
+ * future "withhold" rule has one place to live. A Property-owner team row still carries no module keys and is
+ * filtered out of every teammate reader (`withoutOwnerLinks`), so lifting the old gate hands it nothing of the
+ * inviting manager's books.
  */
-export async function withholdManagerSurface(db: SupabaseClient, userId: string): Promise<boolean> {
-  try {
-    return (await ownerAccessStateFor(db, userId)).ownerOnly;
-  } catch (error) {
-    // Denying is right, but silently denying every manager route during an
-    // `account_link_invites` outage would present as a bare 401/404 with
-    // nothing to point at the cause. Class, message and the user id only.
-    console.error(
-      "[security] owner_membership_unreadable: withholding the manager surface",
-      JSON.stringify({
-        userId,
-        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-      }),
-    );
-    return true;
-  }
+export async function withholdManagerSurface(_db: SupabaseClient, _userId: string): Promise<boolean> {
+  return false;
 }

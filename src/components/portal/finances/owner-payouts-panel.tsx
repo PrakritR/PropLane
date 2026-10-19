@@ -21,20 +21,90 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
-import { formatOwnerUsd, ownerMonthLabel, ownerServiceHref, useOwnerFetch } from "@/components/owner/owner-data";
-import { OwnerBand, OwnerEmpty, OwnerError, OwnerLoading, OwnerTile, OwnerTiles } from "@/components/owner/owner-ui";
-import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
+import { PortalStatStrip } from "@/components/portal/portal-stat-strip";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS, Modal, ModalFooter, PORTAL_MODAL_FORM_FIELD_CLASS } from "@/components/ui/modal";
 import { centsToDollarsInput, parseDollarsToCents } from "@/lib/dollar-input";
 import { pacificCalendarMonthKey, formatPacificDate } from "@/lib/pacific-time";
 import type { OwnerFinancesView } from "@/lib/managed-finance/finances.server";
+import { formatManagedUsd, managedMonthLabel } from "@/lib/managed-finance/format";
+import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 import { cn } from "@/lib/utils";
+
+export const OWNER_PAYOUTS_LIST_URL = "/api/owner/finances";
+
+/** A statement line about a service opens that house in the Property portal. */
+function propertyHref(propertyId: string | null | undefined): string | null {
+  const id = (propertyId ?? "").trim();
+  return id ? `/portal/properties/all/${encodeURIComponent(id)}` : null;
+}
+
+type FetchState<T> = { data: T | null; loading: boolean; error: string | null; reload: () => void };
+
+/** One GET through the shared cache: loading and error are first-class; a refusal (403) is an error, never a crash. */
+function useJsonFetch<T>(url: string | null): FetchState<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(Boolean(url));
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!url) {
+      setLoading(false);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    setError(null);
+    void sharedGet(url, { force: tick > 0 }).then((res) => {
+      if (!live) return;
+      if (res.ok) setData(res.data as T);
+      else setError((res.data as { error?: string } | null)?.error ?? "Request failed.");
+      setLoading(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [url, tick]);
+  const reload = useCallback(() => setTick((n) => n + 1), []);
+  return { data, loading, error, reload };
+}
+
+/**
+ * Whether the signed-in account may open Owner payouts: the owner of record of a PropLane-managed workspace (or someone
+ * with a fee agreement waiting to sign). The server answers 403 for everyone else, so the tab simply never shows.
+ */
+export function useOwnerPayoutsAllowed(): boolean {
+  const [allowed, setAllowed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void sharedGet(OWNER_PAYOUTS_LIST_URL).then((res) => {
+      if (live) setAllowed(res.ok);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return allowed;
+}
+
+/** The label row above a block of rows: the name and a plain count on the left, icon chrome on the right. */
+function StatementBand({ children, label, count }: { children?: ReactNode; label: string; count?: number }) {
+  return (
+    <div className="mb-1 flex items-center justify-between gap-2 px-1">
+      <span className="text-[13px] font-semibold text-foreground">
+        {label}
+        {count !== undefined ? <span className="ml-1.5 font-medium tabular-nums text-muted">{count}</span> : null}
+      </span>
+      <div className="flex items-center gap-0.5">{children}</div>
+    </div>
+  );
+}
 
 type WorkspaceListItem = { id: string; name: string; status: string; feeLine: string };
 type WaitingAgreement = { id: string; workspaceId: string; feeLine: string; terms: unknown; effectiveFrom: string };
@@ -106,14 +176,14 @@ function moneyClass(cents: number): string {
 }
 
 export function AmountFigure({ cents }: { cents: number }) {
-  return <span className={cn("min-w-24 shrink-0 text-right text-[14px] font-semibold tabular-nums", moneyClass(cents))}>{formatOwnerUsd(cents)}</span>;
+  return <span className={cn("min-w-24 shrink-0 text-right text-[14px] font-semibold tabular-nums", moneyClass(cents))}>{formatManagedUsd(cents)}</span>;
 }
 
 export function TotalLine({ label, cents, strong = false }: { label: string; cents: number; strong?: boolean }) {
   return (
     <div className={cn("flex items-center justify-between gap-3 border-b border-border/60 px-4 py-2.5 text-sm last:border-b-0", strong && "font-semibold")}>
       <span className="text-foreground">{label}</span>
-      <span className={cn("tabular-nums", moneyClass(cents))}>{formatOwnerUsd(cents)}</span>
+      <span className={cn("tabular-nums", moneyClass(cents))}>{formatManagedUsd(cents)}</span>
     </div>
   );
 }
@@ -135,16 +205,16 @@ function ModalError({ children }: { children: ReactNode }) {
   );
 }
 
-/** `/portal/owner/finances`: balance, statement, repair approvals and withdrawals for the owner of record of a PropLane-managed workspace. */
-export function OwnerFinancesPage() {
+/** Finances › Owner payouts: balance, statement, repair approvals and withdrawals for the owner of record of a PropLane-managed workspace. */
+export function OwnerPayoutsPanel() {
   const params = useSearchParams();
   const paramWorkspace = params?.get("workspace") ?? "";
   const paramMonth = params?.get("month") ?? "";
   const reviewId = params?.get("review") ?? "";
   const approveId = params?.get("approve") ?? "";
 
-  const owner = useOwnerWorkspace();
-  const list = useOwnerFetch<WorkspaceList>("/api/owner/finances");
+  const workspaceContext = useWorkspaces();
+  const list = useJsonFetch<WorkspaceList>(OWNER_PAYOUTS_LIST_URL);
   const [month, setMonth] = useState<string | null>(MONTH_KEY.test(paramMonth) ? paramMonth : null);
   const [currentMonth] = useState(() => pacificCalendarMonthKey(Date.now()));
 
@@ -154,20 +224,21 @@ export function OwnerFinancesPage() {
   // that is held: Finances never dead-ends on a workspace with nothing to show.
   const workspaceId =
     (paramWorkspace && workspaces.some((w) => w.id === paramWorkspace) ? paramWorkspace : "") ||
-    (owner?.activeId && workspaces.some((w) => w.id === owner.activeId) ? owner.activeId : "") ||
+    (workspaceContext?.active?.id && workspaces.some((w) => w.id === workspaceContext.active?.id) ? workspaceContext.active.id : "") ||
     workspaces[0]?.id ||
     "";
 
   const viewUrl = workspaceId
     ? `/api/owner/finances?workspace=${encodeURIComponent(workspaceId)}${month ? `&month=${encodeURIComponent(month)}` : ""}`
     : null;
-  const viewFetch = useOwnerFetch<OwnerFinancesView>(viewUrl);
+  const viewFetch = useJsonFetch<OwnerFinancesView>(viewUrl);
   const view = viewFetch.data && viewFetch.data.workspace.id === workspaceId ? viewFetch.data : null;
 
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const reloadAll = () => {
+    invalidateSharedGets(OWNER_PAYOUTS_LIST_URL);
     list.reload();
     viewFetch.reload();
   };
@@ -307,22 +378,22 @@ export function OwnerFinancesPage() {
   const noneAtAll = !list.loading && !list.error && list.data !== null && workspaces.length === 0 && waiting.length === 0;
 
   return (
-    <div data-attr="owner-finances">
-      {headerIcons ? <div className="mb-3 flex items-center justify-end gap-2">{headerIcons}</div> : null}
+    <div data-attr="owner-finances" className="min-w-0 space-y-4 max-lg:space-y-3">
+      {headerIcons ? <div className="flex items-center justify-end gap-2">{headerIcons}</div> : null}
 
       {list.loading && !list.data ? (
-        <OwnerLoading />
+        <PortalRecordListSurface loading dataAttr="owner-finances-loading" />
       ) : list.error ? (
-        <OwnerError message="Couldn't load your finances." onRetry={list.reload} />
+        <PortalRecordListSurface loadError="Couldn't load your finances." onRetry={list.reload} dataAttr="owner-finances-error" />
       ) : noneAtAll ? (
-        <OwnerEmpty title="No managed workspaces yet" />
+        <PortalRecordListSurface isEmpty emptyCard={{ title: "No managed workspaces yet" }} dataAttr="owner-finances-empty" />
       ) : (
         <>
           {waiting.map((w) => (
             <div
               key={w.id}
               ref={reviewId === w.id ? reviewRef : undefined}
-              className={cn("mb-4 flex items-center justify-between gap-3 rounded-2xl border bg-card p-4", reviewId === w.id ? "border-primary ring-2 ring-primary/20" : "border-border")}
+              className={cn("flex items-center justify-between gap-3 rounded-xl border bg-card p-4", reviewId === w.id ? "border-primary ring-2 ring-primary/20" : "border-border")}
               data-attr="owner-finances-agreement"
             >
               <div className="min-w-0">
@@ -339,33 +410,38 @@ export function OwnerFinancesPage() {
           ))}
 
           {notice ? (
-            <p role="status" className="mb-3 text-sm font-medium text-foreground" data-attr="owner-finances-notice">
+            <p role="status" className="text-sm font-medium text-foreground" data-attr="owner-finances-notice">
               {notice}
             </p>
           ) : null}
           {actionError ? (
-            <p role="alert" className="mb-3 text-sm text-red-600">
+            <p role="alert" className="text-sm text-red-600">
               {actionError}
             </p>
           ) : null}
 
           {!workspaceId ? null : viewFetch.error && !view ? (
-            <OwnerError message="Couldn't load this workspace's finances." onRetry={viewFetch.reload} />
+            <PortalRecordListSurface loadError="Couldn't load this workspace's finances." onRetry={viewFetch.reload} dataAttr="owner-finances-view-error" />
           ) : !view ? (
-            <OwnerLoading />
+            <PortalRecordListSurface loading dataAttr="owner-finances-view-loading" />
           ) : (
             <div className={cn(viewFetch.loading && "opacity-60 transition-opacity")}>
-              <OwnerTiles>
-                <OwnerTile label="Balance" value={formatOwnerUsd(view.balance.balanceCents)} />
-                <OwnerTile label="Available to withdraw" value={formatOwnerUsd(view.balance.availableCents)} tone="good" />
-                <OwnerTile label="Pending" value={formatOwnerUsd(view.balance.pendingCents)} />
-                {view.occupancy ? <OwnerTile label="Rooms occupied" value={`${view.occupancy.occupied} of ${view.occupancy.units}`} /> : null}
-              </OwnerTiles>
+              <PortalStatStrip
+                size="lg"
+                dataAttr="owner-finances-balance-strip"
+                className="mb-4"
+                items={[
+                  { id: "balance", label: "Balance", value: formatManagedUsd(view.balance.balanceCents), dataAttr: "owner-finances-balance" },
+                  { id: "available", label: "Available to withdraw", value: formatManagedUsd(view.balance.availableCents), tone: "ok", dataAttr: "owner-finances-available" },
+                  { id: "pending", label: "Pending", value: formatManagedUsd(view.balance.pendingCents), dataAttr: "owner-finances-pending" },
+                  ...(view.occupancy ? [{ id: "rooms", label: "Rooms occupied", value: `${view.occupancy.occupied} of ${view.occupancy.units}` }] : []),
+                ]}
+              />
 
-              <OwnerBand label="Statement">
+              <StatementBand label="Statement">
                 <PortalIconAction icon={ChevronLeft} label="Previous month" data-attr="owner-finances-prev-month" onClick={() => setMonth(shiftMonthKey(view.month, -1))} />
                 <span className="px-1 text-sm font-semibold tabular-nums text-foreground" data-attr="owner-finances-month">
-                  {ownerMonthLabel(view.month)}
+                  {managedMonthLabel(view.month)}
                 </span>
                 <PortalIconAction
                   icon={ChevronRight}
@@ -374,8 +450,8 @@ export function OwnerFinancesPage() {
                   disabled={view.month >= currentMonth}
                   onClick={() => setMonth(shiftMonthKey(view.month, 1))}
                 />
-              </OwnerBand>
-              <div className="mb-3 overflow-hidden rounded-2xl border border-border bg-card" data-attr="owner-finances-totals">
+              </StatementBand>
+              <div className="mb-3 overflow-hidden rounded-xl border border-border bg-card" data-attr="owner-finances-totals">
                 <TotalLine label="Rent collected" cents={view.statement.totals.rentGrossCents} />
                 <TotalLine label="PropLane fee" cents={view.statement.totals.feeCents} />
                 <TotalLine label="Repairs and vendors" cents={view.statement.totals.vendorChargesCents} />
@@ -399,7 +475,7 @@ export function OwnerFinancesPage() {
                 />
                 {view.statement.rows.map((row) => {
                   const Icon = KIND_ICON[row.kind] ?? Receipt;
-                  const href = row.kind === "vendor_charge" ? ownerServiceHref(row.propertyId) : null;
+                  const href = row.kind === "vendor_charge" ? propertyHref(row.propertyId) : null;
                   return (
                     <PortalServiceRecordRow
                       key={row.id}
@@ -439,9 +515,9 @@ export function OwnerFinancesPage() {
 
               {view.pendingApprovals.length > 0 ? (
                 <div className="mt-5" data-attr="owner-finances-approvals">
-                  <OwnerBand label="Repair approvals" count={view.pendingApprovals.length}>
+                  <StatementBand label="Repair approvals" count={view.pendingApprovals.length}>
                     <PortalIconAction icon={ListChecks} label="Approve routine repairs" data-attr="owner-finances-approve-routine" onClick={openRoutine} />
-                  </OwnerBand>
+                  </StatementBand>
                   <PortalRecordListSurface dataAttr="owner-finances-approvals-list">
                     {view.pendingApprovals.map((p) => (
                       <PortalServiceRecordRow
@@ -453,7 +529,7 @@ export function OwnerFinancesPage() {
                             <CalendarDays className="size-3.5" aria-hidden /> {shortDate(p.requestedAt)}
                           </span>
                         }
-                        figure={formatOwnerUsd(p.amountCents)}
+                        figure={formatManagedUsd(p.amountCents)}
                         actions={
                           <span className="flex items-center">
                             <PortalIconAction icon={CheckCircle2} tone="primary" label="Approve" ariaLabel={`Approve ${p.title}`} data-attr={`owner-finances-approve-${p.id}`} onClick={() => decide(p.id, true)} />
@@ -470,7 +546,7 @@ export function OwnerFinancesPage() {
 
               {view.withdrawals.length > 0 ? (
                 <div className="mt-5" data-attr="owner-finances-withdrawals">
-                  <OwnerBand label="Withdrawals" count={view.withdrawals.length} />
+                  <StatementBand label="Withdrawals" count={view.withdrawals.length} />
                   <PortalRecordListSurface dataAttr="owner-finances-withdrawals-list">
                     {view.withdrawals.map((w) => {
                       const status = withdrawalStatus(w.status);
@@ -478,7 +554,7 @@ export function OwnerFinancesPage() {
                       return (
                         <PortalServiceRecordRow
                           key={w.id}
-                          title={formatOwnerUsd(w.amountCents)}
+                          title={formatManagedUsd(w.amountCents)}
                           useServiceTile={false}
                           leading={
                             <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
@@ -606,7 +682,7 @@ export function OwnerFinancesPage() {
         {confirming ? (
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-foreground">{confirming.vendorLabel}</span>
-            <span className="font-semibold tabular-nums text-foreground">{formatOwnerUsd(confirming.amountCents)}</span>
+            <span className="font-semibold tabular-nums text-foreground">{formatManagedUsd(confirming.amountCents)}</span>
           </div>
         ) : null}
       </Modal>

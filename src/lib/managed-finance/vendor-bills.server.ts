@@ -182,7 +182,7 @@ async function askOwnerToApprove(db: SupabaseClient, policy: PolicyRow, input: V
   await sendManagerNoticeEmail(db, {
     recipientUserId: policy.ownerUserId, ownerUserId: managerUserId, workspaceId: policy.workspaceId,
     subject: "Repair approval needed", text: `${body.replace(/ Approve\? Y\/N$/, "")}. Approve or decline in your PropLane Finances.`,
-    url: `/portal/owner/finances?workspace=${policy.workspaceId}&approve=${expenseId}`, idempotencyKey: `owner-expense-ask:${expenseId}`,
+    url: `/portal/financials/owner-payouts?workspace=${policy.workspaceId}&approve=${expenseId}`, idempotencyKey: `owner-expense-ask:${expenseId}`,
   }).catch(() => undefined);
 }
 

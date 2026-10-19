@@ -295,7 +295,7 @@ export async function sendPolicyForSignature(
   const policy = mapPolicyRow(data as Row);
 
   const workspaceOwner = await loadWorkspaceOwnerId(db, policy.workspaceId);
-  const path = `/portal/owner/finances?workspace=${encodeURIComponent(policy.workspaceId)}&review=${encodeURIComponent(policy.id)}`;
+  const path = `/portal/financials/owner-payouts?workspace=${encodeURIComponent(policy.workspaceId)}&review=${encodeURIComponent(policy.id)}`;
   const link = `${resolveEmailLinkBaseUrl()}${portalSignInHref(path)}`;
   const stamp = now.toISOString().slice(0, 13);
   const email = workspaceOwner

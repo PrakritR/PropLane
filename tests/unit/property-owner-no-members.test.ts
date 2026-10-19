@@ -112,10 +112,10 @@ describe("an owner-only account is not a manager to any manager API", () => {
     expect(await ownerAccessStateFor(db, OWNER)).toEqual({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false, financesOn: false });
   });
 
-  it("requireManagerRouteUser refuses it, and still admits a real manager", async () => {
+  it("requireManagerRouteUser admits it like a real manager (it uses the Property portal)", async () => {
     session.userId = OWNER;
     serviceDb = makeFakeDb({ ...base, account_link_invites: [ownerRow], manager_purchases: [] });
-    expect(await requireManagerRouteUser()).toBeNull();
+    expect(await requireManagerRouteUser()).toMatchObject({ userId: OWNER });
     serviceDb = makeFakeDb({ ...base, account_link_invites: [], manager_purchases: [] });
     expect(await requireManagerRouteUser()).toMatchObject({ userId: OWNER });
   });
