@@ -8,6 +8,7 @@ import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { effectiveHouseIds } from "@/lib/workspaces/membership";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { listManagedWorkspacesForOwner } from "@/lib/owner-management/policies.server";
 
 /**
  * Who is a Property owner, and over which houses.
@@ -284,9 +285,11 @@ export type OwnerAccessState = {
   ownerOnly: boolean;
   /** Messages is on for at least one granted house. */
   messagesOn: boolean;
+  /** Owner of record of at least one PropLane-managed workspace (shows Finances). False on any read error. */
+  financesOn: boolean;
 };
 
-const NONE: OwnerAccessState = { hasOwnerAccess: false, ownerOnly: false, messagesOn: false };
+const NONE: OwnerAccessState = { hasOwnerAccess: false, ownerOnly: false, messagesOn: false, financesOn: false };
 
 /** The owner membership could not be read, so nothing may be decided from it. */
 export class OwnerAccessUnavailableError extends Error {
@@ -346,7 +349,16 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   } catch {
     messagesOn = false;
   }
-  return { hasOwnerAccess: hasActiveOwner, ownerOnly, messagesOn };
+  // Finances shows in the owner shell only for an owner-only account; anyone else reaches it by its URL or the manager nav.
+  let financesOn = false;
+  if (hasActiveOwner || ownerOnly) {
+    try {
+      financesOn = (await listManagedWorkspacesForOwner(db, uid)).length > 0;
+    } catch {
+      financesOn = false;
+    }
+  }
+  return { hasOwnerAccess: hasActiveOwner, ownerOnly, messagesOn, financesOn };
 }
 
 /** Request-cached for server components (layout + page ask the same question). */

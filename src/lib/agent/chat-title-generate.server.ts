@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 
 import {
   agentChatThreadTitle,
@@ -6,7 +6,8 @@ import {
   isVagueAgentChatThreadTitle,
   normalizeGeneratedAgentChatThreadTitle,
 } from "@/lib/agent/chat-title";
-import { TIER_MODELS } from "@/lib/agent/model";
+import { hasAgentModelCredential, selectLunaTaskModel, TIER_MODELS } from "@/lib/agent/model";
+import { completeAgentModel } from "@/lib/agent/provider";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 
 const TITLE_SYSTEM_PROMPT = [
@@ -16,8 +17,8 @@ const TITLE_SYSTEM_PROMPT = [
 ].join(" ");
 
 /**
- * Use Haiku (the lowest-cost configured model) to turn the first useful prompt
- * into a meaningful archive title. Network/auth failures intentionally fall
+ * Use the lowest-cost task route to turn the first useful prompt into a
+ * meaningful archive title. Network/auth failures intentionally fall
  * back to the deterministic prompt label so saving a chat can never fail.
  */
 export async function generateAgentChatThreadTitle(
@@ -28,7 +29,11 @@ export async function generateAgentChatThreadTitle(
   const first = agentChatThreadTitle(prompts[0] ?? "");
   const source = isVagueAgentChatThreadTitle(first) ? prompts[1] : prompts[0];
   if (!source || isVagueAgentChatThreadTitle(fallback)) return fallback;
-  if (process.env.NODE_ENV === "test" || !process.env.ANTHROPIC_API_KEY?.trim()) return fallback;
+  const selection = selectLunaTaskModel(
+    { model: TIER_MODELS.simple, tier: "simple", provider: "anthropic", route: "anthropic", maxOutputTokens: 24, timeoutMs: 10_000 },
+    { maxOutputTokens: 1024, timeoutMs: 10_000 },
+  );
+  if (process.env.NODE_ENV === "test" || !hasAgentModelCredential(selection)) return fallback;
 
   const titleInput = source.replace(/^\[Context:[^\]]+\]\s*\n+/i, "").trim().slice(0, 1_000);
   if (!titleInput) return fallback;
@@ -38,21 +43,19 @@ export async function generateAgentChatThreadTitle(
       actor,
       [{ role: "user", content: titleInput }],
       async (observer) => {
-        const client = new Anthropic();
-        const model = TIER_MODELS.simple;
-        const startedAt = Date.now();
+        const model = selection.model;
         observer?.onStart?.({
           system: TITLE_SYSTEM_PROMPT,
           toolsAvailable: [],
           model,
           tier: "simple",
-          provider: "anthropic",
-          route: "anthropic",
+          provider: selection.provider,
+          route: selection.route,
         });
-        const response = await client.messages.create({
-          model,
-          max_tokens: 24,
+        const response = await completeAgentModel({
+          selection,
           system: TITLE_SYSTEM_PROMPT,
+          tools: [],
           messages: [{ role: "user", content: `<conversation_prompt>${titleInput}</conversation_prompt>` }],
         });
         const reply = response.content
@@ -60,23 +63,20 @@ export async function generateAgentChatThreadTitle(
           .map((block) => block.text)
           .join("")
           .trim();
-        const usage = {
-          inputTokens: response.usage?.input_tokens ?? 0,
-          outputTokens: response.usage?.output_tokens ?? 0,
-        };
+        const usage = response.usage;
         observer?.onLlmCall?.({
           iteration: 0,
-          model,
+          model: response.responseModel ?? model,
           usage,
-          stopReason: response.stop_reason ?? null,
+          stopReason: response.stopReason,
           toolsChosen: [],
-          provider: "anthropic",
-          route: "anthropic",
-          latencyMs: Date.now() - startedAt,
+          provider: response.provider,
+          route: selection.route,
+          latencyMs: response.latencyMs,
           input: [{ role: "user", content: titleInput }],
           assistantContent: response.content,
         });
-        return { reply, toolTrace: [], model, tier: "simple" as const, usage };
+        return { reply, toolTrace: [], model: response.responseModel ?? model, tier: "simple" as const, usage, provider: response.provider, route: selection.route };
       },
       { name: "axis-agent-chat-title", sessionId: actor.sessionId },
     );

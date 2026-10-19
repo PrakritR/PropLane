@@ -61,11 +61,11 @@ describe("automations routes need a signed-in manager", () => {
 });
 
 describe("GET /api/portal/automations", () => {
-  it("lists the ten visible presets at their defaults with the variables a group text may use", async () => {
+  it("lists the twelve visible presets at their defaults with the variables a group text may use", async () => {
     setup();
     const body = await (await getAutomations()).json();
-    expect(body.presets.map((p: { id: string }) => p.id)).toHaveLength(10);
-    expect(body.presets.map((p: { id: string }) => p.id)).not.toContain("arrival_guide");
+    expect(body.presets.map((p: { id: string }) => p.id)).toHaveLength(12);
+    expect(body.presets.find((p: { id: string }) => p.id === "arrival_guide")).toMatchObject({ mode: "auto" });
     const welcome = body.presets.find((p: { id: string }) => p.id === "welcome");
     expect(welcome).toMatchObject({ mode: "draft", audience: "resident", isDefaultTemplate: true });
     const group = body.presets.find((p: { id: string }) => p.id === "rent_due_day");

@@ -73,6 +73,14 @@ export type ManagerChannelBookingRange = {
   /** ISO timestamp the payout landed; absent while it is still due. */
   paidAt?: string;
   currency?: string;
+  /**
+   * The manager's override of the stay's times (`channel_stay_details.check_in_at` / `check_out_at`), as
+   * instants and as "HH:MM" on the property's wall clock. Absent = the property's default times.
+   */
+  checkInAt?: string;
+  checkOutAt?: string;
+  checkInTime?: string;
+  checkOutTime?: string;
 };
 
 export type ManagerChannelBookingRoom = {

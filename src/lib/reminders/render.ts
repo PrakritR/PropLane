@@ -123,6 +123,8 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   task_overdue: "task",
   resident_welcome: "account",
   inspection_acknowledge: "inspection report",
+  stay_arrival_guide: "arrival guide",
+  stay_checkout_reminder: "checkout",
 };
 
 function greeting(name?: string | null): string {

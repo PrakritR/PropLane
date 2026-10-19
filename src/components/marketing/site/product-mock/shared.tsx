@@ -31,7 +31,7 @@
 
 import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
-import { groupNavItems } from "@/lib/portals/nav-groups";
+import { collapseNavItems, groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 import { cn } from "@/lib/utils";
 
@@ -187,9 +187,13 @@ export function PortalSidebarFixture({
   counts?: Record<string, number>;
 }) {
   if (useContext(BarePanelChromeContext)) return null;
+  // The fold the real sidebar draws: six rows, a row active on any of its tabs.
   const groups = groupNavItems(
     "pro",
-    proPortal.sections.filter((s) => s.section !== "app" && s.section !== "bugs-feedback"),
+    collapseNavItems(
+      "pro",
+      proPortal.sections.filter((s) => s.section !== "app" && s.section !== "bugs-feedback"),
+    ),
   );
   return (
     <aside className="flex w-[240px] shrink-0 flex-col gap-4 border-r border-border bg-[var(--pl-surface-muted)] px-3 py-4">
@@ -209,8 +213,12 @@ export function PortalSidebarFixture({
               <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-[0.06em] text-muted">{group.label}</p>
             ) : null}
             {group.items.map((item) => {
-              const isActive = item.section === active;
-              const count = counts[item.section];
+              const members = (item as { groupSections?: string[] }).groupSections ?? [item.section];
+              const isActive = members.includes(active);
+              const count = members.reduce<number | undefined>(
+                (sum, id) => (counts[id] == null ? sum : (sum ?? 0) + counts[id]!),
+                undefined,
+              );
               return (
                 <span
                   key={item.section}

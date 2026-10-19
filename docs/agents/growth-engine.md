@@ -8,7 +8,7 @@ Meta Graph client). Plan of record: studio plan `claude-1/growth-engine-1007`.
 
 1. **Ideas** (`growth_ideas`): seeded from positioning/features/tips/local/founder angles; weights
    re-set nightly by the learn step.
-2. **Draft** (cron `growth-draft`, nightly): picks 3 ideas by weight, Claude writes hook, script,
+2. **Draft** (cron `growth-draft`, nightly): picks 3 ideas by weight, the selected task model writes hook, script,
    scenes, per-platform captions in the voice guide (below). Post → `drafted` → `review`.
 3. **Assets / render** (Phase 2, on the cockpit Mac via launchd): Veo clips, product shots, voice,
    Remotion render → `growth_assets` in the public storage bucket `growth`.
@@ -171,7 +171,7 @@ Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-onl
   query, so 3 requests total), nothing cached across runs beyond the stored items. `watchlist.server.ts`
   supplies active `engage` rows.
 - **Build** (`build.server.ts` `buildEngageList({forDate, limit=20})`): up to 12 Reddit threads plus up to 8
-  watchlist targets (rotated daily); one Claude call per batch of **5** (`max_tokens` 8000) drafts `why` (at most
+  watchlist targets (rotated daily); one selected-model call per batch of **5** (`max_tokens` 8000) drafts `why` (at most
   90 chars) and `draft` in the voice guide (product named at most once, only when the thread asks for tools).
 - **Dedupe is two different rules, and both matter.** A Reddit thread is listed once ever inside the
   `ENGAGE_DEDUPE_DAYS` (60) window; a watchlist account rotates, so it only has to be absent from **that exact
@@ -195,3 +195,12 @@ Reddit now 403s anonymous search from Vercel, so `reddit.server.ts` uses app-onl
   reads `N open · M done`), plus **Engage by hand** (`kind: engage` — the rows `watchlist.server.ts` feeds
   into the build, so this group is what makes that source reachable), Follow by hand, Comment-to-DM keywords
   and Collab shortlist groups. Each group adds, lists and removes its own kind.
+
+## Inference provider compatibility
+
+`AXIS_AI_LUNA_ENABLED=true` routes growth drafting and engagement copy through
+exact `gpt-6-luna`; rollback preserves the legacy provider. JSON validation,
+bounded retry/deadline and approval-before-publishing remain unchanged. The
+constrained `growth_posts.created_by = 'claude'` value is a legacy compatibility
+marker, not model provenance. Generation traces carry the actual returned model
+and provider. Veo/Kling video and specialized audio providers remain unchanged.

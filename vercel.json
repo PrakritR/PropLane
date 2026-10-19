@@ -39,6 +39,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/owner-management",
+      "schedule": "7 * * * *"
+    },
+    {
       "path": "/api/cron/listing-channel-posts",
       "schedule": "*/5 * * * *"
     },

@@ -57,10 +57,10 @@ async function main() {
 
   trace.generation({
     name: "axis-agent-llm",
-    model: "claude-haiku-4-5",
+    model: "synthetic-no-provider-call",
     input: [{ role: "user", content: "Remind Maya about rent." }],
     output: [{ type: "text", text: "I can send a rent reminder." }],
-    metadata: { iteration: 0, stopReason: "tool_use", synthetic: true },
+    metadata: { iteration: 0, stopReason: "tool_use", synthetic: true, providerCallMade: false, purpose: "transport-only verification fixture" },
   }).end();
 
   trace.span({
@@ -163,12 +163,17 @@ async function main() {
   );
   console.log(`verified action-approved score id=${approvalScore.id}`);
 
-  const rules = await langfuseFetch("/api/public/unstable/evaluation-rules", { query: { page: 1, limit: 20 } });
+  const rules = await langfuseFetch("/api/public/v2/evaluation-rules", { query: { limit: 100 } });
   const rule = (rules?.data || []).find((r) => r.name === "numeric-grounding");
-  if (!rule || rule.status !== "active") {
+  if (!rule || rule.enabled !== true) {
     throw new Error(`numeric-grounding rule missing/inactive: ${JSON.stringify(rule)}`);
   }
-  console.log(`verified evaluator rule id=${rule.id} status=${rule.status}`);
+  const evaluators = await Promise.all((rule.evaluatorAssignments ?? []).map(({ evaluatorId }) =>
+    langfuseFetch(`/api/public/v2/evaluators/${encodeURIComponent(evaluatorId)}`)));
+  const matches = evaluators.filter(evaluator => evaluator.name === "numeric-grounding" && evaluator.status === "active" && evaluator.modelConfig?.provider === "openai" && evaluator.modelConfig?.model === "gpt-6-luna");
+  if (matches.length !== 1) throw new Error(`Expected one active Luna numeric-grounding evaluator, found ${matches.length}`);
+  const evaluatorId = matches[0].id;
+  console.log(`verified evaluator rule id=${rule.id} evaluator=${evaluatorId} model=gpt-6-luna`);
 
   const groundingScore = await waitForScore(summaryTraceId, "numeric-grounding");
   console.log(`verified numeric-grounding score id=${groundingScore.id} value=${groundingScore.value}`);

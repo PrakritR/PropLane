@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, FileText, FolderOpen, LayoutDashboard, MessageSquare, MoreHorizontal, User } from "lucide-react";
+import { Building2, FileText, Landmark, FolderOpen, LayoutDashboard, MessageSquare, MoreHorizontal, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -14,6 +14,7 @@ const ICONS: Record<OwnerSectionId, typeof Building2> = {
   overview: LayoutDashboard,
   properties: Building2,
   statements: FileText,
+  finances: Landmark,
   documents: FolderOpen,
   messages: MessageSquare,
   profile: User,
@@ -32,11 +33,11 @@ function isActive(pathname: string, href: string, id: OwnerSectionId): boolean {
  * Documents, and Messages while it is on) and a More sheet holding Profile and
  * Sign out.
  */
-export function OwnerPortalShell({ messagesOn, children }: { messagesOn: boolean; children: ReactNode }) {
+export function OwnerPortalShell({ messagesOn, financesOn = false, children }: { messagesOn: boolean; financesOn?: boolean; children: ReactNode }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  const items = ownerNavItems(messagesOn);
-  const primary = ownerPrimaryNavItems(messagesOn);
+  const items = ownerNavItems(messagesOn, financesOn);
+  const primary = ownerPrimaryNavItems(messagesOn, financesOn);
 
   return (
     <div className={PORTAL_SHELL_ROOT_CLASS} data-attr="owner-shell">

@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AgentModelSelection } from "@/lib/agent/model";
+import { selectLunaTaskModel, type AgentModelSelection } from "@/lib/agent/model";
 
 /** True when the conversation includes image or PDF blocks the model must read. */
 export function messagesNeedVisionModel(messages: Anthropic.MessageParam[]): boolean {
@@ -21,5 +21,5 @@ export function visionPinnedModel(): AgentModelSelection {
     process.env.AXIS_AGENT_MODEL_VISION?.trim() ||
     process.env.AXIS_AGENT_MODEL_STANDARD?.trim() ||
     "claude-sonnet-4-6";
-  return { model, tier: "standard", provider: "anthropic", route: "anthropic" };
+  return selectLunaTaskModel({ model, tier: "standard", provider: "anthropic", route: "anthropic" }, { maxOutputTokens: 12_000, timeoutMs: 45_000 });
 }

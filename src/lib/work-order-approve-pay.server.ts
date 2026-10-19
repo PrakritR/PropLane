@@ -48,6 +48,8 @@ import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
 import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-revenue.server";
+import { gateAndPostManagedVendorBill, type VendorBillInput } from "@/lib/managed-finance/vendor-bills.server";
+import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -95,10 +97,19 @@ export type ApprovePayInsufficientBalanceFailure = WorkOrderActionFailure & {
   shortfallCents: number;
 };
 
+/** A PropLane-managed workspace's repair above the owner's approval amount: waiting for (or refused by) the owner. */
+export type ApprovePayOwnerApprovalFailure = {
+  ok: false;
+  status: 409;
+  code: "OWNER_APPROVAL_PENDING" | "OWNER_DECLINED";
+  error: string;
+};
+
 export type ApprovePayFailure =
   | WorkOrderActionFailure
   | ApprovePayExistingPayoutFailure
-  | ApprovePayInsufficientBalanceFailure;
+  | ApprovePayInsufficientBalanceFailure
+  | ApprovePayOwnerApprovalFailure;
 
 export type ApprovePaySuccess = {
   ok: true;
@@ -228,7 +239,19 @@ export async function approveAndPayWorkOrder(
     return { ok: false, status: 403, error: "Vendor payouts are unavailable for test accounts." };
   }
 
-  const paymentChannel: "card" | "ach" | "balance" = input.paymentChannel === "balance"
+  // A PropLane-managed workspace pays its vendors from PropLane's own funds: the vendor is owed and the owner is charged in the
+  // party ledger (docs/agents/owner-management.md). It rides the balance channel's claim -> move -> mark-paid sequence, with the
+  // ledger post as the move. A read that fails stops the payment: guessing "self-serve" could charge the manager's card instead.
+  let managedWorkspace: Awaited<ReturnType<typeof resolveManagedForProperties>> = null;
+  if (!input.settleOnly) {
+    try {
+      managedWorkspace = await resolveManagedForProperties(
+        db, [workOrder.propertyId || workOrder.assignedPropertyId], new Date().toISOString());
+    } catch {
+      return { ok: false, status: 503, error: "Could not confirm how this service is paid. Try again in a moment." };
+    }
+  }
+  const paymentChannel: "card" | "ach" | "balance" = managedWorkspace || input.paymentChannel === "balance"
     ? "balance" : input.paymentChannel === "card" ? "card" : "ach";
 
   let blocking = await findBlockingVendorPayout(db, workOrder.id);
@@ -293,6 +316,30 @@ export async function approveAndPayWorkOrder(
     return { ok: false, status: 400, error: "Service payment needs an assigned vendor and accepted labor cost of at least $1.00." };
   }
 
+  const managedBill: VendorBillInput | null = managedWorkspace ? {
+    workspaceId: managedWorkspace.workspaceId,
+    vendorUserId,
+    amountCents: invoiceCents,
+    title: existingRow.title || workOrder.title || "Service",
+    vendorLabel: String((existingRow as { vendorName?: string }).vendorName ?? "Vendor"),
+    propertyId: workOrder.propertyId || workOrder.assignedPropertyId || null,
+    sourceType: "work_order",
+    sourceId: workOrder.id,
+    jobHref: `/portal/services/${workOrder.id}`,
+    jobDate: new Date().toISOString().slice(0, 10),
+  } : null;
+  if (managedBill) {
+    // Above the owner's repair amount the bill waits for their yes; nothing is claimed or posted until it is given.
+    const gate = await gateAndPostManagedVendorBill(db, managedBill, new Date(), { gateOnly: true }).catch(() => null);
+    if (!gate) return { ok: false, status: 503, error: "Could not check the owner's repair approval. Try again in a moment." };
+    if (gate.status === "pending_owner") {
+      return { ok: false, status: 409, code: "OWNER_APPROVAL_PENDING", error: "Waiting for the owner to approve this repair. You will be told when they answer." };
+    }
+    if (gate.status === "declined") {
+      return { ok: false, status: 409, code: "OWNER_DECLINED", error: "The owner declined this repair." };
+    }
+  }
+
   // What this job has already expensed, read BEFORE any money moves. The posting below refuses to
   // double-post off this answer, so a read that fails has to refuse the whole request here rather
   // than after the balance debit — paying the vendor and then failing to record it is the one
@@ -312,7 +359,7 @@ export async function approveAndPayWorkOrder(
   // being off) leaves nothing half-done — the caller falls back to the card
   // (ACH) path, which stays exactly as it was.
   if (paymentChannel === "balance" && !input.settleOnly) {
-    if (!proplaneBalanceEnabled()) {
+    if (!managedBill && !proplaneBalanceEnabled()) {
       return { ok: false, status: 400, error: "The PropLane balance is not enabled." };
     }
     if (!vendorUserId || invoiceCents < 100) {
@@ -328,7 +375,15 @@ export async function approveAndPayWorkOrder(
       return isCrossRailPayoutRefusal(claimError) ? crossRailPayoutFailure(claimError.message)
         : { ok: false, status: 409, error: "A payment is already in progress for this service." };
     }
-    let move: Awaited<ReturnType<typeof payVendorFromBalance>>;
+    let move: Awaited<ReturnType<typeof payVendorFromBalance>> = { ok: true } as Awaited<ReturnType<typeof payVendorFromBalance>>;
+    if (managedBill) {
+      try {
+        // Idempotent on the work order: a retry after a lost response posts nothing twice.
+        await gateAndPostManagedVendorBill(db, managedBill);
+      } catch {
+        return { ok: false, status: 503, error: "Payment status is being reconciled. Do not retry with another method yet." };
+      }
+    } else {
     try {
       move = await payVendorFromBalance(db, {
       managerUserId: ownerManagerUserId,
@@ -361,6 +416,7 @@ export async function approveAndPayWorkOrder(
         requestedCents: move.requestedCents,
         shortfallCents: move.shortfallCents,
       };
+    }
     }
   }
 

@@ -21,9 +21,11 @@ import {
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
+  withResolvedStayTimes,
   type PropertyBookingEntry,
   type RoomDateBlock,
 } from "@/lib/channel-calendar/property-bookings";
+import { normalizePropertyStayTimes, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { ROOM_DATE_BLOCKS_CHANGED, fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
 import { STAY_META_CHANGED, applyStayMeta, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { fetchStayMetas } from "@/lib/channel-calendar/stay-meta-client";
@@ -220,6 +222,21 @@ export function useManagerBookingEntries({
     return labels;
   }, [propertyIds, propertyTick]);
 
+  // Each house's default check-in / check-out times (`listingSubmission.stayTimes`), so every entry reads
+  // the same exact times the Add/Edit sheets and the reminders do.
+  const stayTimesByProperty = useMemo(() => {
+    const times = new Map<string, PropertyStayTimes>();
+    void propertyTick;
+    for (const propertyId of propertyIds) {
+      times.set(propertyId, normalizePropertyStayTimes(getPropertyById(propertyId)?.listingSubmission?.stayTimes));
+    }
+    return times;
+  }, [propertyIds, propertyTick]);
+  const stayTimesForProperty = useCallback(
+    (propertyId: string) => stayTimesByProperty.get(propertyId) ?? normalizePropertyStayTimes(null),
+    [stayTimesByProperty],
+  );
+
   // N080: leases whose resident has no surviving Potential/Current/Past
   // application row are orphaned data (a completed delete, or a bug, left
   // them behind) and must not keep drawing a stay on Bookings.
@@ -307,9 +324,10 @@ export function useManagerBookingEntries({
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
         roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+        stayTimesForProperty,
       },
     );
-  }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels]);
+  }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels, stayTimesForProperty]);
 
   // Resident stays exactly as the snapshot sent them, scoped to the houses in the filter. The
   // calendar's primary source, and what the Block dates picker falls back on below.
@@ -473,9 +491,10 @@ export function useManagerBookingEntries({
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
         roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+        stayTimesForProperty,
       },
     );
-  }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels]);
+  }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels, stayTimesForProperty]);
 
   const residentEntries = useMemo<PropertyBookingEntry[]>(() => {
     let fromOccupancy = occupancyResidentEntries;
@@ -514,15 +533,18 @@ export function useManagerBookingEntries({
 
   const entries = useMemo(
     () =>
-      applyStayMeta(
-        withoutEchoedHostBlocks(
-          [...airbnbEntries, ...importedAirbnbEntries, ...residentEntries, ...blockEntries].filter(
-            (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+      withResolvedStayTimes(
+        applyStayMeta(
+          withoutEchoedHostBlocks(
+            [...airbnbEntries, ...importedAirbnbEntries, ...residentEntries, ...blockEntries].filter(
+              (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+            ),
           ),
+          stayMetas,
         ),
-        stayMetas,
+        stayTimesForProperty,
       ),
-    [airbnbEntries, importedAirbnbEntries, residentEntries, blockEntries, stayMetas],
+    [airbnbEntries, importedAirbnbEntries, residentEntries, blockEntries, stayMetas, stayTimesForProperty],
   );
 
   /**

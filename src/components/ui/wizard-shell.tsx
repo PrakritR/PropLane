@@ -79,7 +79,7 @@ export function WizardShell({
             className="h-full transition-all duration-300 ease-out"
             style={{
               width: `${progress}%`,
-              background: "linear-gradient(90deg, var(--primary) 0%, var(--sky) 100%)",
+              background: "var(--primary)",
             }}
           />
         </div>
@@ -147,7 +147,7 @@ export function WizardProgressStrip({
           className="h-full transition-all duration-300"
           style={{
             width: `${progress}%`,
-            background: "linear-gradient(90deg, var(--primary) 0%, var(--sky) 100%)",
+            background: "var(--primary)",
           }}
         />
       </div>

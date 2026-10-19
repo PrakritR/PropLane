@@ -267,9 +267,11 @@ describe("block_room_dates", () => {
     expect(written).toMatchObject({
       property_id: "prop_a",
       record_type: "room_date_block",
-      starts_at: "2026-12-01T00:00:00",
-      ends_at: "2026-12-04T00:00:00",
+      // Exact times: 3:00 pm check-in and 11:00 am check-out Pacific, stored as the real instants (was midnight).
+      starts_at: "2026-12-01T23:00:00.000Z",
+      ends_at: "2026-12-04T19:00:00.000Z",
     });
+    expect(written.row_data).toMatchObject({ checkInTime: "15:00", checkOutTime: "11:00" });
     expect(String(written.id)).toMatch(/^axis_room_block_manager_a_/);
     expect(written.row_data).toMatchObject({
       propertyId: "prop_a",
@@ -362,6 +364,32 @@ describe("update_room_block", () => {
     expect((await executeWrite(updateRoomBlockTool, ctx, { blockId: id, start: "2026-11-02", end: "2026-11-07", guestName: "Priya S.", phone: "2065550101", notes: "Late arrival" })).ok).toBe(true);
     const row = store.portal_schedule_records!.find((r) => r.id === id)!.row_data as Row;
     expect(row).toMatchObject({ checkIn: "2026-11-02", checkOut: "2026-11-07", residentName: "Priya S.", residentPhone: "+12065550101", reason: "Late arrival" });
+  });
+});
+
+describe("exact check-in and check-out times on the assistant's writes", () => {
+  it("block_room_dates stores an explicit time as the wall time and the real instant, and refuses a bad one", async () => {
+    const input = { propertyId: "prop_a", roomId: "room_2", start: "2026-12-01", end: "2026-12-04", residentName: "Pat", checkInTime: "12:30", checkOutTime: "13:00" };
+    expect(await previewWrite(blockRoomDatesTool, ctx, { ...input, checkInTime: "noon" })).toMatchObject({ ok: false, error: expect.stringContaining("24-hour time") });
+    const preview = await previewWrite(blockRoomDatesTool, ctx, input);
+    expect(preview.ok && preview.preview.fields).toEqual(expect.arrayContaining([{ label: "Times", value: "Check-in 12:30 pm, check-out 1:00 pm" }]));
+    expect((await executeWrite(blockRoomDatesTool, ctx, input)).ok).toBe(true);
+    const written = store.portal_schedule_records!.find((r) => r.manager_user_id === "manager_a")!;
+    expect(written.row_data).toMatchObject({ checkInTime: "12:30", checkOutTime: "13:00" });
+    expect(written).toMatchObject({ starts_at: "2026-12-01T20:30:00.000Z", ends_at: "2026-12-04T21:00:00.000Z" });
+  });
+
+  it("update_room_block restamps the instants from the new dates and keeps the stored times when none are named", async () => {
+    const id = "axis_room_block_manager_a_1";
+    const stored = store.portal_schedule_records!.find((r) => r.id === id)!;
+    Object.assign(stored.row_data as Row, { checkInTime: "13:00", checkOutTime: "12:00", stayDetails: { addOns: { early_check_in: { time: "12:00", priceCents: 2500, status: "paid" } } } });
+    expect((await executeWrite(updateRoomBlockTool, ctx, { blockId: id, start: "2026-11-02", end: "2026-11-07" })).ok).toBe(true);
+    expect(stored.row_data).toMatchObject({ checkInTime: "13:00", checkOutTime: "12:00", stayDetails: { addOns: { early_check_in: { status: "paid" } } } });
+    expect(stored).toMatchObject({ starts_at: "2026-11-02T21:00:00.000Z", ends_at: "2026-11-07T20:00:00.000Z" });
+    // A named time replaces the stored one; naming only a time is a change.
+    expect((await executeWrite(updateRoomBlockTool, ctx, { blockId: id, checkOutTime: "10:00" })).ok).toBe(true);
+    expect(stored.row_data).toMatchObject({ checkInTime: "13:00", checkOutTime: "10:00" });
+    expect(stored).toMatchObject({ ends_at: "2026-11-07T18:00:00.000Z" });
   });
 });
 

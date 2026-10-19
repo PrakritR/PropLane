@@ -4,7 +4,7 @@ import { primeSystemChartOfAccounts } from "@/lib/reports/chart-of-accounts-stor
 import { apAgingBucket } from "@/lib/manager-bills";
 import { centsToUsd } from "@/lib/reports/money";
 import type { ManagerReportFilters, ReportResult } from "@/lib/reports/types";
-import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
+import { applyReportPropertyScope, reportPropertyScope } from "@/lib/reports/workspace-scope";
 
 function defaultDateRange(from?: string, to?: string): { from: string; to: string } {
   const now = new Date();
@@ -130,6 +130,31 @@ export async function queryBudgetVsActual(
   };
 }
 
+/**
+ * PropLane's management fee inside the period, for houses of a PropLane-managed workspace (docs/agents/owner-management.md):
+ * the fee and leasing fee booked on the payments collected in the period, less what refunds gave back. Zero for every house that is
+ * not managed, and zero (never an error) where the table is not there yet. Read from the same rows the owner's Finances statement
+ * uses, so the formal statement and Finances cannot disagree.
+ */
+async function managedManagementFeeCents(db: SupabaseClient, filters: ManagerReportFilters, propertyId: string, from: string, to: string): Promise<number> {
+  const scope = reportPropertyScope(filters, propertyId);
+  if (!scope || scope.length === 0) return 0;
+  try {
+    const { data, error } = await db
+      .from("managed_rent_allocations")
+      .select("fee_cents, leasing_cents, refunded_fee_cents")
+      .in("property_id", scope)
+      .gte("paid_at", `${from}T00:00:00.000Z`)
+      .lte("paid_at", `${to}T23:59:59.999Z`)
+      .limit(5000);
+    if (error) return 0;
+    return ((data ?? []) as Array<{ fee_cents?: number; leasing_cents?: number; refunded_fee_cents?: number }>)
+      .reduce((sum, r) => sum + Math.max(0, Number(r.fee_cents ?? 0) + Number(r.leasing_cents ?? 0) - Number(r.refunded_fee_cents ?? 0)), 0);
+  } catch {
+    return 0;
+  }
+}
+
 export async function queryOwnerStatement(
   db: SupabaseClient,
   managerUserId: string,
@@ -171,7 +196,7 @@ export async function queryOwnerStatement(
   const cashIn = (incomeRows ?? []).reduce((s, r) => s + Number(r.amount_cents), 0);
   const cashOut = (expenseRows ?? []).reduce((s, r) => s + Number(r.amount_cents), 0);
   const billsDue = (billRows ?? []).reduce((s, r) => s + Number(r.amount_cents), 0);
-  const managementFee = 0;
+  const managementFee = await managedManagementFeeCents(db, filters, propertyId, from, to);
   const reserveHoldback = 0;
   const distribution = cashIn - cashOut - managementFee - reserveHoldback;
 

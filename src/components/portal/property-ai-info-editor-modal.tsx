@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Sparkles } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -86,8 +86,8 @@ export function PropertyAiInfoEditorModal({
           {previewAnswer ? (
             <div className="max-w-[92%] rounded-2xl rounded-bl-sm bg-[var(--secondary)] px-3.5 py-2.5 text-sm">
               <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-muted">
-                <Sparkles className="size-3.5 text-primary" aria-hidden />
-                PropLane assistant
+                <MessageCircle className="size-3.5 text-primary" aria-hidden />
+                Assistant
               </p>
               <p className="text-foreground">{previewAnswer}</p>
             </div>

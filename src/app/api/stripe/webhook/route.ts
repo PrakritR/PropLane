@@ -65,6 +65,7 @@ import {
   revertHouseholdChargeProcessingFromStripeSession,
 } from "@/lib/stripe-household-charge";
 import { releaseShortStayHold } from "@/lib/short-stay-booking.server";
+import { settleStayAddOnsForCharges } from "@/lib/short-stay/stay-add-on-settlement.server";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { runScreeningFromStripeSession, SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
 import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
@@ -420,6 +421,14 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
               await verifyExistingHistoricalHouseholdHold(db, stripe, session);
               await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session);
             }
+            // A paid early check-in / late checkout moves the stay's time (or, when it can no longer be
+            // honored, refunds itself). After the payment is credited, so the refund has its hold; a throw
+            // answers 500 and Stripe redelivers. Never reached for a payment still `processing`.
+            await settleStayAddOnsForCharges(db, {
+              chargeIds: householdChargeIdsFromMetadata(session.metadata),
+              stripe,
+              paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+            });
             const distinctId = session.client_reference_id ?? session.id;
             track("household_charge_paid", distinctId, { session_id: session.id });
           }
@@ -828,6 +837,11 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             },
             () => creditVerifiedHouseholdManualSource(db, stripe, current),
           );
+          await settleStayAddOnsForCharges(db, {
+            chargeIds: householdChargeIdsFromMetadata(current.metadata),
+            stripe,
+            paymentIntentId: current.id,
+          });
         }
       }
     }
@@ -851,6 +865,11 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           },
           () => creditVerifiedHouseholdManualSource(db, stripe, paymentIntent),
         );
+        await settleStayAddOnsForCharges(db, {
+          chargeIds: householdChargeIdsFromMetadata(paymentIntent.metadata),
+          stripe,
+          paymentIntentId: paymentIntent.id,
+        });
       } else if (paymentIntent.metadata?.source_arbitration_v === "1" &&
           paymentIntent.metadata.purpose === "household_charge") {
         if (paymentIntent.metadata.autopay_run_id) {

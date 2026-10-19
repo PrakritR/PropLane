@@ -1,3 +1,5 @@
+import { smsTaskModel } from "@/lib/agent/runtime-model";
+import { hasAgentModelCredential } from "@/lib/agent/model";
 import "server-only";
 
 /**
@@ -22,7 +24,6 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { runAgentTurn, type AgentTurnResult } from "@/lib/agent/loop";
-import { TIER_MODELS } from "@/lib/agent/model";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { composeAgentSystemPrompt } from "@/lib/agent/system-prompts";
 import { VENDOR_NUMBER_AI_SURFACE_PROMPT } from "@/lib/agent/vendor-number-ai-system-prompt";
@@ -196,7 +197,7 @@ const defaultTurn: VendorNumberAiTurn = async ({ ctx, messages }) => {
         messages,
         observer,
         system,
-        model: { model: TIER_MODELS.standard, tier: "standard" },
+        model: smsTaskModel(ctx.vendorUserId),
         readOnly: true,
         allowWriteTools: VENDOR_NUMBER_AI_WRITE_TOOLS,
       }),
@@ -250,7 +251,7 @@ export async function runVendorNumberAiReply(
   const dayTurns = await countRecentAiTurnsForVendor(db, { vendorUserId, since: new Date(now.getTime() - 86_400_000) });
   if (dayTurns >= VENDOR_AI_TURNS_PER_VENDOR_PER_DAY) return "daily_limit";
 
-  if (!deps.turn && !process.env.ANTHROPIC_API_KEY?.trim()) return "unavailable";
+  if (!deps.turn && !hasAgentModelCredential(smsTaskModel(vendorUserId))) return "unavailable";
   // Record the attempt BEFORE the model runs, so a failed, empty or undeliverable turn still counts.
   // An attempt that cannot be recorded is an attempt that cannot be limited: no model call.
   const { error: recordError } = await db.from("vendor_work_identity_usage_events").upsert({

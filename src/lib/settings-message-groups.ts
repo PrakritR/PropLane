@@ -1,11 +1,12 @@
 import type { AutomatedMessageCatalogEntry } from "@/lib/automated-messages-settings";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 
-export const SETTINGS_MESSAGE_GROUPS = ["Leasing", "Leases", "Payments", "Services", "Residents", "Vendors", "Account"] as const;
+export const SETTINGS_MESSAGE_GROUPS = ["Leasing", "Leases", "Bookings", "Payments", "Services", "Residents", "Vendors", "Account"] as const;
 export type SettingsMessageGroup = typeof SETTINGS_MESSAGE_GROUPS[number];
 
 export function eventSettingsGroup(entry: AutomatedMessageCatalogEntry): SettingsMessageGroup {
   if (entry.audiences.every((audience) => audience === "vendor")) return "Vendors";
+  if (entry.area === "tours" && /booking/i.test(entry.label)) return "Bookings";
   if (entry.area === "tours" || entry.area === "applications") return "Leasing";
   if (entry.area === "lease") return "Leases";
   if (entry.area === "payments") return "Payments";
@@ -15,10 +16,11 @@ export function eventSettingsGroup(entry: AutomatedMessageCatalogEntry): Setting
 }
 export function reminderSettingsGroup(kind: ReminderSubjectKind): SettingsMessageGroup {
   if (/^vendor_|^invoice_approval$/.test(kind)) return "Vendors";
+  if (/^booking$|^stay_/.test(kind)) return "Bookings";
   if (/^tour|^application|^cosigner|^group_application/.test(kind)) return "Leasing";
   if (/^lease|^move_|^deposit_|^renewal_|^countersign|^document_signature/.test(kind)) return "Leases";
   if (/payment|^delinquency/.test(kind)) return "Payments";
   if (/^work_order|^service_/.test(kind)) return "Services";
-  if (/^resident_|^inspection|^task|^booking/.test(kind)) return "Residents";
+  if (/^resident_|^inspection|^task/.test(kind)) return "Residents";
   return "Account";
 }

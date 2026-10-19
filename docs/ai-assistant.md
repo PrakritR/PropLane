@@ -175,7 +175,7 @@ signed-in person across devices:
   `kind = 'modal_chat'`, and keep their text-only local storage isolated from
   the archive. Existing old browser history is intentionally not imported,
   because it was not user-scoped and could reveal a prior shared-device user's
-  chat. Thread labels use the lowest-cost configured Claude model (Haiku) to
+  chat. Thread labels use the selected task model (legacy Haiku when the master switch is off) to
   produce a 2–4 word description of the first useful user prompt; a greeting or
   generic help request defers title generation to the next useful prompt. A
   deterministic prompt label is used only if title generation is unavailable.
@@ -242,25 +242,50 @@ shared conversation hook replays it. Details in
   `assistant_action_cancelled` — it died with the standalone confirm route;
   denials are `assistant_action_denied`.
 
+### All-surface model policy
+
+`AXIS_AI_LUNA_ENABLED=true` selects exact `gpt-6-luna` through the shared
+Responses completion boundary for portal/admin, SMS, voice text reasoning,
+inbox/email, public/demo/search, titles/drafts, promotion copy/reference images,
+property/resident imports, document parsing and growth copy. It overrides legacy
+model pins and fast-lane selection. Missing OpenAI credentials fail through the
+surface's controlled unavailable or fallback-copy path; paid turns never silently
+replay with Claude. Image and PDF inputs remain intact. Speech synthesis,
+transcription, video and image generation retain their specialized providers.
+
+`AXIS_AI_LUNA_ENABLED=false` restores legacy routing, overriding old Luna rollout
+flags. Malformed explicit master values also select legacy routing. Unset preserves the existing portal policy and opt-in, actor-stable
+`AXIS_SMS_AGENT_LUNA_ENABLED` / `AXIS_SMS_AGENT_LUNA_ROLLOUT_PERCENT` policy.
+Master activation requires a configured OpenAI key. SMS uses a 40-second whole
+model-loop budget and 8,000 output tokens; voice uses a 15-second budget. Each
+call shares the original deadline through the one transient-429 retry. Confirmation
+and precomputed replies bypass inference and remain available without model keys.
+
+Luna uses a stable developer prefix and 30-minute caching. Continuations replay
+one prefix and opaque prior outputs, including encrypted reasoning. Named tool
+choice enforces extraction functions without granting business-write authority.
+All role-scoped registries, server-derived identities, preview and confirmation
+boundaries, inline write allowlists, credit reservations and trace IDs remain in
+force. The optional prospect comparison shadow is disabled in all-on mode.
+
 ### Latency-aware model routing
 
-Interactive manager, resident, and vendor portal text turns use
+When the master switch is unset, interactive manager, resident, vendor and admin portal text turns use
 `gpt-6-luna` by default when the server has `OPENAI_API_KEY`. Set
 `AXIS_AGENT_LUNA_ENABLED=false` or `AXIS_AGENT_LUNA_ROLLOUT_PERCENT=0` to
 roll back. Explicit percentage values from 0 to 100 select an actor-stable
 cohort. Missing key or malformed settings retain the established
 Anthropic/OpenRouter route. Luna receives the full role-scoped catalog. It uses low reasoning by
 default and high for analytical, multi-question, long, or deep-history turns.
-Images stay on the separately pinned vision model. Disable the flag or set the
-percentage to zero for immediate rollback. This does not migrate SMS, title
-generation, parsers, or prospect shadow comparisons. The loop preserves the
+Without the master switch, images stay on the separately pinned vision model. Disable the flag or set the
+percentage to zero for immediate rollback. When the master switch is unset this portal-specific rollout does not select models for SMS, titles or parsers. The loop preserves the
 same preview/confirmation boundary for write tools. Luna portal replies block links
 not present in a successful tool result, and a failed read alone cannot support
 a claim that a record is absent. Langfuse and PostHog record
 the selected route, provider, model, effort, latency and fallback; Langfuse
 also records tokens and estimated cached-input-aware cost.
 
-Interactive text turns use a conservative two-provider route. When enabled,
+Legacy interactive text turns use a conservative two-provider route. When enabled,
 clear product questions use no tools and clear single-record lookups expose
 exactly one read tool to OpenRouter's `google/gemini-3.5-flash-lite` model.
 Attachments, writes, ambiguous/multi-step questions, SMS, and complex analysis

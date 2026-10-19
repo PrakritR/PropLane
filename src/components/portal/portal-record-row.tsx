@@ -535,6 +535,7 @@ export function PortalServiceRecordRow({
   facts,
   leading,
   figure,
+  figureTone,
   actions,
   selected = false,
   checked = false,
@@ -555,6 +556,8 @@ export function PortalServiceRecordRow({
   useServiceTile?: boolean;
   /** Plain stage or money figure — never a pill. */
   figure?: string;
+  /** "danger" draws the figure in the overdue red (a negative amount) - text colour only. */
+  figureTone?: "danger";
   actions?: ReactNode;
   selected?: boolean;
   checked?: boolean;
@@ -620,7 +623,11 @@ export function PortalServiceRecordRow({
         </div>
       </button>
       {figure ? (
-        <span className="min-w-24 shrink-0 text-right text-[14px] font-semibold text-foreground tabular-nums">{figure}</span>
+        <span
+          className={`min-w-24 shrink-0 text-right text-[14px] font-semibold tabular-nums ${figureTone === "danger" ? "text-[var(--status-overdue-fg)]" : "text-foreground"}`}
+        >
+          {figure}
+        </span>
       ) : null}
       {actions ? <div className="shrink-0">{actions}</div> : null}
       {menu ? <div className="shrink-0 self-center">{menu}</div> : null}

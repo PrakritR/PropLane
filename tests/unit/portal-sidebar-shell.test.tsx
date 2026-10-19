@@ -1,18 +1,22 @@
 // @vitest-environment jsdom
 //
 // Phase 1 shell redesign: the desktop sidebar is a 248px column with the
-// workspace header and four headed nav groups that collapse (no Conversations
-// list); the collapse control, help footer and account menu live elsewhere.
+// workspace header and the nav rows (no Conversations list); the collapse control,
+// help footer and account menu live elsewhere. Portal simplification (Oct 18): the
+// manager sidebar is six folded rows in one unheaded group; the headed, collapsible
+// groups that remain are admin's (Property management, Software).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import type { WorkspaceContextValue } from "@/components/portal/workspace-provider";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { adminPortal } from "@/lib/portals/admin";
 import { proPortal } from "@/lib/portals/pro";
 
 const navigateMock = vi.fn();
+const pathnameRef = { value: "/portal/properties/all" };
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/portal/properties/all",
+  usePathname: () => pathnameRef.value,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 vi.mock("@/hooks/use-is-native-app", () => ({
@@ -113,6 +117,11 @@ function renderManager() {
   return render(<PortalSidebar definition={proPortal} subscriptionTier="paid" subtitle="Pro" />);
 }
 
+function renderAdmin(path = "/admin/axis-users") {
+  pathnameRef.value = path;
+  return render(<PortalSidebar definition={adminPortal} subtitle="Admin" />);
+}
+
 function installMemoryStorage() {
   // Node's experimental global localStorage shadows jsdom's and is unusable without a file flag.
   const store = new Map<string, string>();
@@ -128,6 +137,7 @@ function installMemoryStorage() {
 }
 
 beforeEach(() => {
+  pathnameRef.value = "/portal/properties/all";
   setWorkspace();
   inboxRows.value = [];
   installMemoryStorage();
@@ -166,23 +176,31 @@ describe("sidebar header", () => {
 });
 
 describe("regrouped nav", () => {
-  it("shows the home rows then Portfolio, Leasing, People, Money in order", () => {
+  it("shows six folded rows in one unheaded group: Home, Communication, Properties, Leasing, People, Money", () => {
     renderManager();
     const side = aside();
     const groups = Array.from(side.querySelectorAll("[data-nav-group]")).map((g) => g.getAttribute("data-nav-group"));
-    expect(groups).toEqual(["home", "portfolio", "leasing", "people", "money"]);
-    const labelsIn = (id: string) =>
-      Array.from(side.querySelectorAll(`[data-nav-group="${id}"] a, [data-nav-group="${id}"] [role="link"]`)).map(
-        (a) => (a.getAttribute("aria-label") ?? a.textContent ?? "").trim(),
-      );
-    expect(labelsIn("home").map((l) => l.replace(/\d+$/, ""))).toEqual(["Dashboard", "Tasks", "Calendar", "Communication"]);
-    expect(labelsIn("portfolio").map((l) => l.replace(/\d+$/, ""))).toEqual(["Properties", "Bookings", "Promotion"]);
-    expect(labelsIn("money").map((l) => l.replace(/\d+$/, ""))).toEqual([
-      "Incoming payments",
-      "Outgoing payments",
-      "Finances",
-      "Documents",
-    ]);
+    expect(groups).toEqual(["main"]);
+    // A row IS the group: no heading button for any manager group.
+    expect(side.querySelectorAll("[data-nav-group] button[aria-expanded]")).toHaveLength(0);
+    const rows = Array.from(side.querySelectorAll(`[data-nav-group="main"] a, [data-nav-group="main"] [role="link"]`)).map(
+      (a) => (a.getAttribute("aria-label") ?? a.textContent ?? "").trim(),
+    );
+    expect(rows).toEqual(["Home", "Communication", "Properties", "Leasing", "People", "Money"]);
+    // The tabs of a row are not rows: they live in the strip along the top of the row's pages.
+    const side$ = within(side);
+    for (const tab of ["Dashboard", "Tasks", "Calendar", "Bookings", "Promotion", "Tours", "Documents", "Finances"]) {
+      expect(side$.queryByRole("link", { name: tab })).toBeNull();
+    }
+  });
+
+  it("a folded row carries the summed count of its tabs and is alert when any tab is", () => {
+    renderManager();
+    // Applications (2, alert) is a tab of Leasing.
+    const leasing = within(aside()).getByRole("link", { name: "Leasing" });
+    const badge = leasing.querySelector("[data-attr='nav-count']")!;
+    expect(badge.getAttribute("data-tone")).toBe("alert");
+    expect(badge.textContent).toBe("2");
   });
 
   it("an alert count is a solid red pill and bolds the row; a quiet count is a muted number", () => {
@@ -208,27 +226,31 @@ describe("regrouped nav", () => {
   });
 });
 
-describe("collapsible groups", () => {
-  it("clicking a heading hides the group's rows, keeps the active row, and persists", () => {
-    renderManager();
-    const side = within(aside());
-    expect(side.getByRole("link", { name: "Bookings" })).toBeTruthy();
-    fireEvent.click(side.getByRole("button", { name: "Portfolio" }));
-    // Bookings / Promotion collapse away; Properties is the active section, so it stays.
-    expect(side.queryByRole("link", { name: "Bookings" })).toBeNull();
-    expect(side.queryByRole("link", { name: "Promotion" })).toBeNull();
-    expect(side.getByRole("link", { name: "Properties" })).toBeTruthy();
-    expect(JSON.parse(window.localStorage.getItem(`portal-nav-closed-groups:${proPortal.kind}`)!)).toEqual(["portfolio"]);
+describe("collapsible groups (admin keeps two headed halves)", () => {
+  const closedKey = `portal-nav-closed-groups:${adminPortal.kind}`;
 
-    fireEvent.click(side.getByRole("button", { name: "Portfolio" }));
-    expect(side.getByRole("link", { name: "Bookings" })).toBeTruthy();
+  it("clicking a heading hides the group's rows, keeps the active row, and persists", () => {
+    renderAdmin("/admin/axis-users");
+    const side = within(aside());
+    expect(side.getByRole("link", { name: "Money" })).toBeTruthy();
+    expect(side.getByRole("link", { name: "Growth" })).toBeTruthy();
+    fireEvent.click(side.getByRole("button", { name: "Software" }));
+    // Money / Growth collapse away; Accounts is the active row (Accounts is a row of Software), so it stays.
+    expect(side.queryByRole("link", { name: "Money" })).toBeNull();
+    expect(side.queryByRole("link", { name: "Growth" })).toBeNull();
+    expect(side.getByRole("link", { name: "Accounts" })).toBeTruthy();
+    expect(JSON.parse(window.localStorage.getItem(closedKey)!)).toEqual(["software"]);
+
+    fireEvent.click(side.getByRole("button", { name: "Software" }));
+    expect(side.getByRole("link", { name: "Money" })).toBeTruthy();
   });
 
   it("restores a persisted closed group", async () => {
-    window.localStorage.setItem(`portal-nav-closed-groups:${proPortal.kind}`,JSON.stringify(["leasing"]));
-    renderManager();
+    window.localStorage.setItem(closedKey, JSON.stringify(["software"]));
+    renderAdmin("/admin/dashboard");
     await act(async () => {});
-    expect(within(aside()).queryByRole("link", { name: "Tours" })).toBeNull();
+    expect(within(aside()).queryByRole("link", { name: "Money" })).toBeNull();
+    expect(within(aside()).getByRole("link", { name: "Dashboard" })).toBeTruthy();
   });
 
   it("survives unavailable storage", () => {
@@ -243,12 +265,12 @@ describe("collapsible groups", () => {
         },
       },
     });
-    renderManager();
+    renderAdmin("/admin/dashboard");
     const side = within(aside());
-    expect(side.getByRole("link", { name: "Tours" })).toBeTruthy();
+    expect(side.getByRole("link", { name: "Money" })).toBeTruthy();
     // toggling still works in memory even though nothing can be persisted
-    fireEvent.click(side.getByRole("button", { name: "Leasing" }));
-    expect(side.queryByRole("link", { name: "Tours" })).toBeNull();
+    fireEvent.click(side.getByRole("button", { name: "Software" }));
+    expect(side.queryByRole("link", { name: "Money" })).toBeNull();
   });
 });
 

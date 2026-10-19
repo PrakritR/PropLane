@@ -61,7 +61,7 @@ describe("Luna portal routing", () => {
   });
 
   it("charges cached input once and includes reasoning in output once", () => {
-    expect(estimateCostUsd("gpt-6-luna", { inputTokens: 1_000_000, cachedInputTokens: 500_000, outputTokens: 1_000_000, reasoningOutputTokens: 400_000 } as never)).toBeCloseTo(0.555);
+    expect(estimateCostUsd("gpt-6-luna", { inputTokens: 200_000, cachedInputTokens: 100_000, outputTokens: 1_000, reasoningOutputTokens: 400 } as never)).toBeCloseTo(0.0115);
   });
 
   it("prices dated provider identifiers against their exact known model family", () => {

@@ -1,3 +1,5 @@
+import { selectModel } from "@/lib/agent/model";
+import { runtimeTaskModel } from "@/lib/agent/runtime-model";
 /**
  * Manager PropLane Assistant thread in Communication — the manager talks to the
  * same agent as the floating assistant, but messages live in the inbox thread.
@@ -109,6 +111,7 @@ export async function runManagerInboxAgentTurn(
           system: MANAGER_SYSTEM_PROMPT,
           messages: prior,
           observer,
+          model: runtimeTaskModel({}, { ...selectModel(prior), provider: "anthropic", route: "anthropic" }),
           allowWriteTools: [],
         }),
       {

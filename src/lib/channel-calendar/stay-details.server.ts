@@ -15,6 +15,9 @@ import {
   type ChannelStayDetails,
   type ChannelStayMoney,
 } from "@/lib/channel-calendar/stay-details";
+import { loadPropertyStayClock, type PropertyStayClock } from "@/lib/bookings/property-stay-times.server";
+import { stayInstants, wallTimeOfInstant } from "@/lib/bookings/stay-stamp";
+import { normalizeStayTime } from "@/lib/bookings/stay-times";
 import { importedRangeUid } from "@/lib/channel-calendar/stay-tombstones";
 import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
 
@@ -35,12 +38,12 @@ async function loadConnection(db: SupabaseClient, connectionId: string) {
  * STORED range, never from the dates the caller sent. A reservation still resolves on its UID
  * alone, with or without dates, so Mark paid and the Airbnb email intake are unchanged.
  */
-function resolveStayDetailsKey(
+function resolveStayRange(
   ranges: readonly ChannelCalendarImportedRange[],
   sourceUid: string,
   start: string,
   end: string,
-): string | null {
+): ChannelCalendarImportedRange | null {
   const candidates = ranges.filter((range) => importedRangeUid(range) === sourceUid);
   if (candidates.length === 0) return null;
   const rangeStart = (range: ChannelCalendarImportedRange) => (range.start ?? "").trim();
@@ -52,11 +55,29 @@ function resolveStayDetailsKey(
     dated
     ?? candidates.find((candidate) => !isHostBlockRange(candidate))
     ?? (candidates.length === 1 ? candidates[0]! : undefined);
+  return range ?? null;
+}
+
+function resolveStayDetailsKey(
+  ranges: readonly ChannelCalendarImportedRange[],
+  sourceUid: string,
+  start: string,
+  end: string,
+): string | null {
+  const range = resolveStayRange(ranges, sourceUid, start, end);
   if (!range) return null;
   return channelStayDetailsKey({ sourceUid, start: range.start, end: range.end, hostBlock: range.hostBlock, summary: range.summary });
 }
 
-const STAY_COLUMNS = "guest_name, notes, guest_phone, nightly_cents, payout_cents, paid_at, currency, source";
+/** The exclusive check-out DATE of an imported range, whose `end` is its last night. */
+function rangeCheckOutDate(range: ChannelCalendarImportedRange): string {
+  const end = (range.end ?? "").trim() || (range.start ?? "").trim();
+  const [y, m, d] = end.split("-").map(Number);
+  if (!y || !m || !d) return end;
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+const STAY_COLUMNS = "guest_name, notes, guest_phone, nightly_cents, payout_cents, paid_at, currency, source, check_in_at, check_out_at";
 
 type StayRow = {
   guest_name?: string | null;
@@ -67,6 +88,8 @@ type StayRow = {
   paid_at?: string | null;
   currency?: string | null;
   source?: string | null;
+  check_in_at?: string | null;
+  check_out_at?: string | null;
 };
 
 /** Only the money fields that are actually set, so an unset stay serialises exactly as before. */
@@ -80,7 +103,16 @@ export function moneyFromRow(row: StayRow | null | undefined): ChannelStayMoney 
     ...(row.paid_at ? { paidAt: row.paid_at } : {}),
     ...(row.currency && typeof row.payout_cents === "number" ? { currency: row.currency } : {}),
     ...(row.source && row.source !== "manual" ? { source: row.source } : {}),
+    ...(row.check_in_at ? { checkInAt: row.check_in_at } : {}),
+    ...(row.check_out_at ? { checkOutAt: row.check_out_at } : {}),
   };
+}
+
+/** The override's wall "HH:MM" on the property's clock, added beside its instants. */
+export function withStayWallTimes<T extends ChannelStayMoney>(money: T, timeZone: string): T {
+  const checkInTime = wallTimeOfInstant(money.checkInAt, timeZone);
+  const checkOutTime = wallTimeOfInstant(money.checkOutAt, timeZone);
+  return { ...money, ...(checkInTime ? { checkInTime } : {}), ...(checkOutTime ? { checkOutTime } : {}) };
 }
 
 export async function readChannelStayDetails(
@@ -106,7 +138,13 @@ export async function readChannelStayDetails(
     .maybeSingle();
   if (error) return { ok: false, status: 500, error: "Could not load stay details." };
   const row = data as StayRow | null;
-  return { ok: true, value: { guestName: row?.guest_name ?? "", notes: row?.notes ?? "", ...moneyFromRow(row) } };
+  const money = moneyFromRow(row);
+  // The wall times need the house's clock; a stay with no override reads nothing extra.
+  const clock = money.checkInAt || money.checkOutAt ? await loadPropertyStayClock(db, connection.property_id) : null;
+  return {
+    ok: true,
+    value: { guestName: row?.guest_name ?? "", notes: row?.notes ?? "", ...(clock ? withStayWallTimes(money, clock.timeZone) : money) },
+  };
 }
 
 /**
@@ -129,6 +167,9 @@ export async function saveChannelStayDetails(
     nightlyCents?: unknown;
     payoutCents?: unknown;
     paidAt?: unknown;
+    /** "HH:MM" on the property's wall clock. Left out = untouched; blank / null = back to the property's default. */
+    checkInTime?: unknown;
+    checkOutTime?: unknown;
   },
 ): Promise<StayDetailsResult<ChannelStayDetails & ChannelStayMoney>> {
   const connectionId = input.connectionId.trim();
@@ -141,9 +182,36 @@ export async function saveChannelStayDetails(
     return { ok: false, status: 403, error: "Forbidden." };
   }
   // Only a stay this connection actually carries can be named.
-  const detailsKey = resolveStayDetailsKey(connection.imported_ranges, sourceUid, (input.start ?? "").trim(), (input.end ?? "").trim());
-  if (!detailsKey) return { ok: false, status: 404, error: "That stay is no longer on the channel calendar." };
+  const stayRange = resolveStayRange(connection.imported_ranges, sourceUid, (input.start ?? "").trim(), (input.end ?? "").trim());
+  const detailsKey = stayRange
+    ? channelStayDetailsKey({ sourceUid, start: stayRange.start, end: stayRange.end, hostBlock: stayRange.hostBlock, summary: stayRange.summary })
+    : null;
+  if (!stayRange || !detailsKey) return { ok: false, status: 404, error: "That stay is no longer on the channel calendar." };
   const patch: Record<string, unknown> = {};
+  // Times are typed as wall "HH:MM" and stored as the real instants, on the stay's own dates and the house's clock.
+  let clock: PropertyStayClock | null = null;
+  const timePatch = async (value: unknown, column: "check_in_at" | "check_out_at", label: string): Promise<string | null> => {
+    if (value === null || (typeof value === "string" && value.trim() === "")) {
+      patch[column] = null;
+      return null;
+    }
+    const time = normalizeStayTime(value);
+    if (!time) return `${label} is not a valid time.`;
+    clock ??= await loadPropertyStayClock(db, connection.property_id);
+    const start = (stayRange.start ?? "").trim();
+    const instants = stayInstants(start, rangeCheckOutDate(stayRange), { checkInTime: time, checkOutTime: time }, clock.timeZone);
+    if (!instants) return `${label} could not be placed on the stay's dates.`;
+    patch[column] = column === "check_in_at" ? instants.startsAt : instants.endsAt;
+    return null;
+  };
+  if (input.checkInTime !== undefined) {
+    const error = await timePatch(input.checkInTime, "check_in_at", "Check-in time");
+    if (error) return { ok: false, status: 400, error };
+  }
+  if (input.checkOutTime !== undefined) {
+    const error = await timePatch(input.checkOutTime, "check_out_at", "Check-out time");
+    if (error) return { ok: false, status: 400, error };
+  }
   if (input.guestPhone !== undefined) patch.guest_phone = normalizeStayPhone(input.guestPhone) || null;
   if (input.nightlyCents !== undefined) {
     const cents = normalizeStayCents(input.nightlyCents);
@@ -195,7 +263,8 @@ export async function saveChannelStayDetails(
     { onConflict: "connection_id,source_uid" },
   );
   if (error) return { ok: false, status: 500, error: "Could not save stay details." };
-  return { ok: true, value: { guestName, notes, ...moneyAfter } };
+  const savedClock = moneyAfter.checkInAt || moneyAfter.checkOutAt ? (clock ?? (await loadPropertyStayClock(db, connection.property_id))) : null;
+  return { ok: true, value: { guestName, notes, ...(savedClock ? withStayWallTimes(moneyAfter, savedClock.timeZone) : moneyAfter) } };
 }
 
 /** Guest names for many connections in ONE query: connectionId -> sourceUid -> name. */

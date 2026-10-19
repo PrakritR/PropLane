@@ -196,6 +196,30 @@ describe("publicListingProjection", () => {
     expect(allKeys(projected).has("internalOwnerNote")).toBe(false);
   });
 
+  it("publishes the standard stay times and add-on prices but never the cleaning buffer", () => {
+    const listing = storedListing();
+    (listing.listingSubmission as unknown as Record<string, unknown>).stayTimes = {
+      checkInTime: "16:00",
+      checkOutTime: "10:30",
+      cleaningBufferMinutes: 240,
+      earliestEarlyCheckIn: "13:00",
+      latestLateCheckOut: "13:30",
+      earlyCheckInPriceCents: 3000,
+      lateCheckOutPriceCents: 3500,
+    };
+    const stayTimes = (publicListingProjection(listing).listingSubmission as unknown as Record<string, unknown>).stayTimes;
+    expect(stayTimes).toEqual({
+      checkInTime: "16:00",
+      checkOutTime: "10:30",
+      earliestEarlyCheckIn: "13:00",
+      latestLateCheckOut: "13:30",
+      earlyCheckInPriceCents: 3000,
+      lateCheckOutPriceCents: 3500,
+    });
+    // A listing that never set them publishes nothing, so old payloads stay byte-identical.
+    expect(allKeys(publicListingProjection(storedListing())).has("stayTimes")).toBe(false);
+  });
+
   it("keeps the building compliance inputs off the public payload", () => {
     // These landed on the submission AFTER the allowlist was written (the
     // disclosure-trigger work), and deny-by-default kept them private without

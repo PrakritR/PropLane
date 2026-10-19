@@ -5,6 +5,9 @@ import {
   selectModel,
   estimateCostUsd,
   TIER_MODELS,
+  selectLunaTaskModel,
+  selectPortalAgentRoute,
+  hasAgentModelCredential,
 } from "@/lib/agent/model";
 
 const userTurn = (content: string): Anthropic.MessageParam => ({ role: "user", content });
@@ -109,6 +112,37 @@ describe("estimateCostUsd", () => {
 
   it("returns 0 for an unknown model rather than throwing", () => {
     expect(estimateCostUsd("some-future-model", { inputTokens: 1000, outputTokens: 1000 })).toBe(0);
+  });
+});
+
+describe("all-surface Luna master switch", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const legacy = { model: "claude-sonnet-4-6", tier: "standard" as const, provider: "anthropic" as const, route: "anthropic" as const };
+
+  it("forces exact Luna despite a stale portal override or missing key", () => {
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "true");
+    vi.stubEnv("AXIS_AGENT_MODEL", "claude-opus-4-8");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    expect(selectLunaTaskModel(legacy, { timeoutMs: 4000, maxOutputTokens: 2000 })).toMatchObject({
+      model: "gpt-6-luna", provider: "openai", route: "luna_primary", timeoutMs: 4000, maxOutputTokens: 2000,
+    });
+    expect(hasAgentModelCredential(selectLunaTaskModel(legacy))).toBe(false);
+    expect(selectPortalAgentRoute({ messages: convo("show my listings"), actorKey: "actor", availableTools: [], hasAttachments: true })).toMatchObject({
+      model: "gpt-6-luna", provider: "openai", route: "luna_primary",
+    });
+  });
+
+  it("restores legacy when false and preserves task baseline when unset", () => {
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "false");
+    expect(selectLunaTaskModel(legacy)).toEqual(legacy);
+    expect(selectPortalAgentRoute({ messages: convo("hello"), actorKey: "actor", availableTools: [] }).provider).toBe("anthropic");
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "");
+    expect(selectLunaTaskModel(legacy)).toEqual(legacy);
+  });
+
+  it("clamps malformed usage and charges long-context rates per call", () => {
+    expect(estimateCostUsd("gpt-6-luna", { inputTokens: 300_000, outputTokens: 1000, cachedInputTokens: 100_000 })).toBeCloseTo(0.04275);
+    expect(estimateCostUsd("gpt-6-luna", { inputTokens: -1, outputTokens: Number.NaN, cachedInputTokens: 20 })).toBe(0);
   });
 });
 

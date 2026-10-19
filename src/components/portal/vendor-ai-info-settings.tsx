@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Settings > Business > AI info. The facts the AI on the vendor's PropLane number may
+ * Settings > Business > Answers. The facts the AI on the vendor's PropLane number may
  * state when a client texts it. Service area and trades are read from the business
  * details (shown, not edited here); the rest are labeled text areas and one Save.
  */
@@ -45,7 +45,7 @@ export function VendorAiInfoPane({ ctx }: { ctx: Ctx }) {
 
   const trades = ctx.profile.trades ?? [];
   return (
-    <PortalSettingsSection title="AI info">
+    <PortalSettingsSection title="Answers">
       <PortalSettingsGroup>
         {ctx.loading ? (
           <div className="px-4 py-4">

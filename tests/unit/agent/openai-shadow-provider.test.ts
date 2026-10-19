@@ -16,6 +16,105 @@ afterEach(() => {
 });
 
 describe("OpenAI Responses provider", () => {
+  it.each(["thinking", "redacted_thinking"])("rejects unsupported assistant %s before provider work", async (type) => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(completeOpenAIResponses({ ...base, messages: [{ role: "assistant", content: [{ type, thinking: "private reasoning", signature: "opaque" }] }] as unknown as Anthropic.MessageParam[] })).rejects.toThrow(/unsupported assistant content block/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["string", "text-blocks", "text-and-tool"] as const)("serializes %s assistant history as output text before a later multimodal user turn", async (format) => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "resp_history", status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: "red" }] }],
+      usage: { input_tokens: 20, output_tokens: 1 },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const assistant: Anthropic.MessageParam = { role: "assistant", content: format === "string" ? "READY" : [
+      { type: "text", text: "REA" }, { type: "text", text: "DY" },
+      ...(format === "text-and-tool" ? [{ type: "tool_use" as const, id: "call_prior", name: "lookup", input: { key: "synthetic" } }] : []),
+    ] };
+    await completeOpenAIResponses({ ...base, model: "gpt-6-luna", messages: [
+      { role: "user", content: "Reply READY" }, assistant,
+      ...(format === "text-and-tool" ? [{ role: "user" as const, content: [{ type: "tool_result" as const, tool_use_id: "call_prior", content: "synthetic result" }] }] : []),
+      { role: "user", content: "Next plain-text turn" },
+      { role: "user", content: [
+        { type: "text", text: "Read these fictional attachments" },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "aGVsbG8=" } },
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: "aGVsbG8=" } },
+      ] },
+    ] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const input = JSON.parse(String(fetchMock.mock.calls[0]![1].body)).input;
+    expect(input[1]).toEqual({ role: "user", content: [{ type: "input_text", text: "Reply READY" }] });
+    expect(input[2]).toEqual({ role: "assistant", content: [{ type: "output_text", text: "READY", annotations: [] }] });
+    if (format === "text-and-tool") {
+      expect(input.slice(3, 5)).toEqual([
+        { type: "function_call", call_id: "call_prior", name: "lookup", arguments: '{"key":"synthetic"}' },
+        { type: "function_call_output", call_id: "call_prior", output: "synthetic result" },
+      ]);
+    }
+    expect(input.at(-2)).toEqual({ role: "user", content: [{ type: "input_text", text: "Next plain-text turn" }] });
+    expect(input.at(-1).content).toEqual([
+      { type: "input_text", text: "Read these fictional attachments" },
+      { type: "input_image", image_url: "data:image/jpeg;base64,aGVsbG8=", detail: "auto" },
+      { type: "input_file", filename: "document.pdf", file_data: "data:application/pdf;base64,aGVsbG8=" },
+    ]);
+  });
+
+  it("forces a named function and keeps images, PDFs, and stable cache prefix", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "resp_media", model: "gpt-6-luna", status: "completed",
+      output: [{ type: "function_call", call_id: "call_1", name: "extract", arguments: "{}" }],
+      usage: { input_tokens: 120, output_tokens: 20 },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: [
+      { type: "text", text: "Read both" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: "aGVsbG8=" } },
+    ] }];
+    await completeOpenAIResponses({ ...base, model: "gpt-6-luna", system: "Exact prompt", messages,
+      tools: [{ name: "extract", description: "Extract", input_schema: { type: "object" } }],
+      toolChoice: { type: "tool", name: "extract" }, requireUsage: true });
+    const request = JSON.parse(String(fetchMock.mock.calls[0]![1].body));
+    expect(request.tool_choice).toEqual({ type: "function", name: "extract" });
+    expect(request.input[0]).toEqual({ role: "developer", content: [{ type: "input_text", text: "Exact prompt", prompt_cache_breakpoint: { mode: "explicit" } }] });
+    expect(request.input[1].content.map((part: { type: string }) => part.type)).toEqual(["input_text", "input_image", "input_file"]);
+    expect(request.input[1].content[1].image_url).toBe("data:image/png;base64,aGVsbG8=");
+    expect(request.input[1].content[2].file_data).toBe("data:application/pdf;base64,aGVsbG8=");
+    expect(request.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
+  });
+
+  it("replays one developer prefix and opaque outputs across three Responses calls", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const outputs = [
+      [{ type: "reasoning", encrypted_content: "opaque-1" }, { type: "function_call", call_id: "call-1", name: "lookup", arguments: "{}" }],
+      [{ type: "reasoning", encrypted_content: "opaque-2" }, { type: "function_call", call_id: "call-2", name: "lookup", arguments: "{}" }],
+      [{ type: "message", content: [{ type: "output_text", text: "Done" }] }],
+    ];
+    let count = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ id: `resp-${++count}`, status: "completed", output: outputs[count - 1], usage: { input_tokens: 50, output_tokens: 10 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const tools = [{ name: "lookup", description: "Lookup", input_schema: { type: "object" } }];
+    const first = await completeOpenAIResponses({ ...base, model: "gpt-6-luna", tools });
+    const messages2: Anthropic.MessageParam[] = [...base.messages,
+      { role: "assistant", content: first.content },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call-1", content: "one" }] }];
+    const second = await completeOpenAIResponses({ ...base, model: "gpt-6-luna", tools, messages: messages2, continuationState: first.continuationState });
+    const messages3: Anthropic.MessageParam[] = [...messages2,
+      { role: "assistant", content: second.content },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call-2", content: "two" }] }];
+    await completeOpenAIResponses({ ...base, model: "gpt-6-luna", tools, messages: messages3, continuationState: second.continuationState });
+    const request = JSON.parse(String(fetchMock.mock.calls[2]![1].body));
+    expect(request.input.filter((item: { role?: string }) => item.role === "developer")).toHaveLength(1);
+    expect(request.input.filter((item: { type?: string }) => item.type === "reasoning")).toEqual(outputs.flat().filter((item) => item.type === "reasoning"));
+    expect(request.input.filter((item: { type?: string }) => item.type === "function_call_output").map((item: { call_id: string }) => item.call_id)).toEqual(["call-1", "call-2"]);
+  });
+
   it("passes explicit reasoning only when selected and preserves cache and reasoning usage", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     const responseBody = JSON.stringify({

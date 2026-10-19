@@ -1,5 +1,8 @@
-import { bookingActiveOn, bookingCheckout, bookingLanes, calendarOccupancy, calendarRange, occupancyCell, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
-import { bookingEntryMatchesSearch } from "@/lib/channel-calendar/bookings-ui";
+import { bookingActiveOn, bookingCheckout, calendarOccupancy, calendarRange, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
+import { addDaysToDateKey, bookingEntryMatchesSearch } from "@/lib/channel-calendar/bookings-ui";
+import { entryTimedStay, formatGapDuration, type EntryStayTimes } from "@/components/portal/bookings-stay-times";
+import { DEFAULT_PROPERTY_STAY_TIMES, formatStayTime, halfDayBarSpan, stayEndWall, stayStartWall, staysOverlap, stayTimeMinutes, type PropertyStayTimes, type TimedStay } from "@/lib/bookings/stay-times";
+import { isAvailabilityBlockRow } from "@/lib/occupancy/snapshot";
 import { bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import type { OccupancyCapacities } from "@/lib/occupancy/snapshot";
@@ -47,7 +50,29 @@ export const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00
 
 export type TimelineRoom = { id: string; label: string; rent: string };
 
-export type PlacedBarSpec = { entry: PropertyBookingEntry; key: string; lane: number; start: number; end: number; conflict: boolean };
+/** `start` / `end` are fractional day-cell offsets from the range's first day: a check-in at or after noon starts mid-cell. */
+export type PlacedBarSpec = { entry: PropertyBookingEntry; key: string; lane: number; start: number; end: number; conflict: boolean; times?: EntryStayTimes };
+
+/**
+ * The gap between one guest checking out and the next checking in on a room. `start` / `end` are the same
+ * fractional day offsets as a bar (the strip runs from the bar's right edge to the next bar's left edge), `lane`
+ * the checking-out bar's lane. `short` = the next guest arrives before the property's cleaning buffer is up.
+ */
+export type TurnoverSpec = {
+  key: string;
+  entry: PropertyBookingEntry;
+  next: PropertyBookingEntry | null;
+  lane: number;
+  start: number;
+  end: number;
+  short: boolean;
+  /** Minutes from checkout to the next check-in; null when no guest follows within a day. */
+  gapMinutes: number | null;
+  bufferMinutes: number;
+  outTime: string;
+  /** "HH:MM" the cleaning window ends: the next check-in, else checkout + buffer. */
+  endTime: string;
+};
 
 export type RoomLayout = {
   room: TimelineRoom;
@@ -55,6 +80,8 @@ export type RoomLayout = {
   /** Per day index: any stay at all holds the room (a search never frees a night a hidden stay holds). */
   busy: boolean[];
   bars: PlacedBarSpec[];
+  /** Cleaning gaps between consecutive guests; the render draws one when a cleaning job exists or the gap is short. */
+  turnovers: TurnoverSpec[];
   /** Day view only: the stays active (or leaving) on the anchor day. */
   dayEntries: PropertyBookingEntry[];
   monthPercents: number[];
@@ -81,20 +108,24 @@ export function layoutRoom(args: {
   propertyId: string;
   capacities: OccupancyCapacities;
   entryKey: (entry: PropertyBookingEntry) => string;
+  /** The property's stay-time defaults (check-in, check-out, cleaning buffer); the 3 pm / 11 am / 3 h defaults when absent. */
+  times?: PropertyStayTimes;
 }): RoomLayout {
   const { room, all, view, days, anchor, propertyId, capacities, entryKey } = args;
+  const property = args.times ?? DEFAULT_PROPERTY_STAY_TIMES;
   const shown = args.shown ?? all;
   const capacity = capacities.roomCapacity(propertyId, room.id);
   if (view === "year") {
     const monthPercents = days.map(month => calendarOccupancy(all, calendarRange("month", month), propertyId, { bedsTotal: () => capacity, roomCapacity: () => capacity }));
-    return { room, all, busy: [], bars: [], dayEntries: [], monthPercents, height: ROOM_ROW_MIN_HEIGHT };
+    return { room, all, busy: [], bars: [], turnovers: [], dayEntries: [], monthPercents, height: ROOM_ROW_MIN_HEIGHT };
   }
   if (view === "day") {
     const dayEntries = shown.filter(entry => bookingActiveOn(entry, anchor) || bookingCheckout(entry) === anchor);
-    return { room, all, busy: [], bars: [], dayEntries, monthPercents: [], height: 64 };
+    return { room, all, busy: [], bars: [], turnovers: [], dayEntries, monthPercents: [], height: 64 };
   }
   const firstDay = days[0]!, lastDay = days.at(-1)!;
-  const inRange = (entry: PropertyBookingEntry) => entry.start <= lastDay && (entry.openEnded || entry.end >= firstDay);
+  // A stay that checks out on the first day still draws its morning half; one that checks in on the last day, its afternoon half.
+  const inRange = (entry: PropertyBookingEntry) => entry.start <= lastDay && (entry.openEnded || bookingCheckout(entry)! >= firstDay);
   const busy = new Array<boolean>(days.length).fill(false);
   for (const entry of all) {
     if (!inRange(entry)) continue;
@@ -102,17 +133,115 @@ export function layoutRoom(args: {
     const to = entry.openEnded ? days.length : Math.min(days.length, dayDiff(bookingCheckout(entry)!, firstDay));
     for (let index = from; index < to; index++) busy[index] = true;
   }
-  const lanes = bookingLanes(shown.filter(inRange));
-  // A room can only be overbooked when it holds more stays than beds; skip the per-day scan otherwise.
+  // Every stay of the room on its resolved wall times: lanes, conflicts and turnovers read the same intervals.
+  const timedByEntry = new Map<PropertyBookingEntry, TimedStay>();
+  all.forEach((entry, index) => timedByEntry.set(entry, entryTimedStay(entry, String(index), property)));
+  const timedOf = (entry: PropertyBookingEntry) => timedByEntry.get(entry) ?? entryTimedStay(entry, `x:${entryKey(entry)}`, property);
+  const visible = shown.filter(inRange).map(entry => ({ entry, timed: timedOf(entry) }));
+  const laned = timedLanes(visible);
+  // A room can only be overbooked when it holds more stays than beds; skip the overlap scan otherwise.
   const mayConflict = all.length > capacity;
-  const bars = lanes.map(({ entry, lane }) => {
-    const start = Math.max(0, dayDiff(entry.start, firstDay));
-    const end = entry.openEnded ? days.length : Math.min(days.length, dayDiff(bookingCheckout(entry)!, firstDay));
-    const conflict = mayConflict && days.some(day => bookingActiveOn(entry, day) && occupancyCell(all, day, capacity).conflicts);
-    return { entry, key: entryKey(entry), lane, start, end, conflict };
+  const timedAll = mayConflict ? [...timedByEntry.values()] : [];
+  const bars: PlacedBarSpec[] = laned.map(({ entry, timed, lane }) => {
+    const span = halfDayBarSpan(timed, firstDay);
+    const start = Math.max(0, span.start);
+    const end = entry.openEnded ? days.length : Math.min(days.length, span.end);
+    const conflict = mayConflict && exceedsCapacity(timed, timedAll, capacity);
+    return { entry, key: entryKey(entry), lane, start, end, conflict, times: { checkInTime: timed.checkInTime, checkOutTime: timed.checkOutTime } };
   });
+  // A 1 pm late checkout beside a 3 pm check-in are not a double booking, yet their half-day bars would overlap: meet at the join.
+  const lastInLane = new Map<number, PlacedBarSpec>();
+  for (const bar of bars) {
+    const previous = lastInLane.get(bar.lane);
+    if (previous && previous.end > bar.start) previous.end = Math.max(previous.start + 0.25, bar.start);
+    lastInLane.set(bar.lane, bar);
+  }
+  const turnovers = layoutTurnovers({ all, timedOf, bars, firstDay, lastDay, dayCount: days.length, property });
   const laneCount = bars.length ? Math.max(...bars.map(bar => bar.lane)) + 1 : 1;
-  return { room, all, busy, bars, dayEntries: [], monthPercents: [], height: roomRowHeight(laneCount) };
+  return { room, all, busy, bars, turnovers, dayEntries: [], monthPercents: [], height: roomRowHeight(laneCount) };
+}
+
+/** Lanes by real overlap: a stay shares a lane with the one before it unless their wall-time intervals intersect. */
+function timedLanes(items: { entry: PropertyBookingEntry; timed: TimedStay }[]): { entry: PropertyBookingEntry; timed: TimedStay; lane: number }[] {
+  const ends: number[] = [];
+  return [...items].sort((a, b) => stayStartWall(a.timed) - stayStartWall(b.timed)).map(item => {
+    const start = stayStartWall(item.timed);
+    let lane = ends.findIndex(end => end <= start);
+    if (lane < 0) lane = ends.length;
+    ends[lane] = stayEndWall(item.timed);
+    return { ...item, lane };
+  });
+}
+
+/** True when, at some moment of `self`'s stay, more than `capacity` stays (itself included) are in the room. */
+function exceedsCapacity(self: TimedStay, all: readonly TimedStay[], capacity: number): boolean {
+  const overlapping = all.filter(other => other.id !== self.id && staysOverlap(other, self));
+  if (overlapping.length < capacity) return false;
+  const events: [number, number][] = [];
+  for (const stay of [self, ...overlapping]) { events.push([stayStartWall(stay), 1], [stayEndWall(stay), -1]); }
+  // At an equal instant a departure frees the bed before an arrival takes it.
+  events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let live = 0;
+  for (const [, delta] of events) { live += delta; if (live > capacity) return true; }
+  return false;
+}
+
+const minutesToTime = (total: number) => {
+  const wrapped = ((Math.round(total) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
+};
+
+/** A turnover is the window between consecutive guests; past a day without a next guest it is just checkout + buffer. */
+const TURNOVER_NEXT_WITHIN_MINUTES = 24 * 60;
+
+function layoutTurnovers(args: { all: PropertyBookingEntry[]; timedOf: (entry: PropertyBookingEntry) => TimedStay; bars: PlacedBarSpec[]; firstDay: string; lastDay: string; dayCount: number; property: PropertyStayTimes }): TurnoverSpec[] {
+  const { all, timedOf, bars, firstDay, lastDay, dayCount, property } = args;
+  const drawn = new Map<PropertyBookingEntry, PlacedBarSpec>();
+  for (const bar of bars) drawn.set(bar.entry, bar);
+  if (!drawn.size) return [];
+  const limit = addDaysToDateKey(lastDay, 1);
+  // Guests only: a closed room or a channel's "Not available" has nobody to clean up after.
+  const guests = all.filter(entry => !isAvailabilityBlockRow(entry)).map(entry => ({ entry, timed: timedOf(entry) })).sort((a, b) => stayStartWall(a.timed) - stayStartWall(b.timed));
+  const out: TurnoverSpec[] = [];
+  const buffer = property.cleaningBufferMinutes;
+  for (let index = 0; index < guests.length; index++) {
+    const { entry, timed } = guests[index]!;
+    const bar = drawn.get(entry);
+    if (!bar || entry.openEnded || timed.checkOut < firstDay || timed.checkOut > limit) continue;
+    const endWall = stayEndWall(timed);
+    let next: (typeof guests)[number] | null = null;
+    for (let j = index + 1; j < guests.length; j++) { if (stayStartWall(guests[j]!.timed) >= endWall) { next = guests[j]!; break; } }
+    const gap = next ? stayStartWall(next.timed) - endWall : null;
+    const within = gap !== null && gap <= TURNOVER_NEXT_WITHIN_MINUTES;
+    const nextSpan = within ? halfDayBarSpan(next!.timed, firstDay) : null;
+    const startX = nextSpan ? Math.min(bar.end, nextSpan.start) : bar.end;
+    const endX = nextSpan ? nextSpan.start : bar.end + buffer / 1440;
+    if (endX < 0 || startX >= dayCount) continue;
+    out.push({
+      key: bar.key, entry, next: within ? next!.entry : null, lane: bar.lane, start: startX, end: Math.min(endX, dayCount),
+      short: within && gap! < buffer, gapMinutes: within ? gap : null, bufferMinutes: buffer,
+      outTime: timed.checkOutTime,
+      endTime: within ? next!.timed.checkInTime : minutesToTime(stayTimeMinutes(timed.checkOutTime) + buffer),
+    });
+  }
+  return out;
+}
+
+/** The tooltip / aria-label of a turnover strip: the short gap names itself, a cleaning names its window. */
+export function turnoverLabel(turnover: TurnoverSpec, hasJob: boolean): string {
+  if (turnover.short) return `Turnover ${formatGapDuration(turnover.gapMinutes ?? 0)} · shorter than the ${formatGapDuration(turnover.bufferMinutes)} cleaning buffer`;
+  return `${hasJob ? "Cleaning" : "Turnover"} · ${formatStayTime(turnover.outTime)} – ${formatStayTime(turnover.endTime)}`;
+}
+
+/** The gap between two bars at a turnover is never thinner than this; the cleaning block fills it. */
+export const TURNOVER_MIN_GAP_PX = 6;
+
+/** The cleaning block's px box: checkout x to next check-in x, widened to the minimum and centred on the boundary. */
+export function turnoverStripPx(turnover: Pick<TurnoverSpec, "start" | "end">, colPx: number): { left: number; width: number } {
+  const x0 = turnover.start * colPx;
+  const x1 = turnover.end * colPx;
+  if (x1 - x0 < TURNOVER_MIN_GAP_PX) return { left: (x0 + x1) / 2 - TURNOVER_MIN_GAP_PX / 2, width: TURNOVER_MIN_GAP_PX };
+  return { left: x0, width: x1 - x0 };
 }
 
 export type PixelBar = PlacedBarSpec & { left: number; width: number; top: number; narrow: boolean; labelWidth: number };
@@ -126,17 +255,33 @@ export const barDisplayName = (entry: PropertyBookingEntry) => entry.residentNam
  * Bars in px. A bar under `NARROW_BAR_PX` draws no text; its name goes right of it in the same lane, up to the
  * next bar's start (or the track's end), and is dropped when under `MIN_OUTSIDE_LABEL_PX` is free.
  */
-export function placeBars(bars: readonly PlacedBarSpec[], colPx: number, trackWidth: number): PixelBar[] {
-  const laneStarts = new Map<number, number[]>();
-  for (const bar of bars) {
-    const starts = laneStarts.get(bar.lane) ?? [];
-    starts.push(bar.start * colPx);
-    laneStarts.set(bar.lane, starts);
+export function placeBars(bars: readonly PlacedBarSpec[], colPx: number, trackWidth: number, turnovers: readonly TurnoverSpec[] = []): PixelBar[] {
+  // A whole-day edge keeps a 2px inset; a mid-cell edge (a half-day check-in / check-out) a 1px one.
+  const edges = bars.map(bar => ({ left: bar.start * colPx + (Number.isInteger(bar.start) ? 2 : 1), right: bar.end * colPx - (Number.isInteger(bar.end) ? 2 : 1) }));
+  // At a turnover the two bars give way to the cleaning block: it fills checkout x -> next check-in x (min 6px, centred on the boundary).
+  if (turnovers.length) {
+    const byEntry = new Map<PropertyBookingEntry, number>();
+    bars.forEach((bar, index) => byEntry.set(bar.entry, index));
+    for (const turnover of turnovers) {
+      if (!turnover.next) continue;
+      const from = byEntry.get(turnover.entry);
+      const to = byEntry.get(turnover.next);
+      if (from === undefined || to === undefined) continue;
+      const strip = turnoverStripPx(turnover, colPx);
+      edges[from]!.right = strip.left;
+      edges[to]!.left = strip.left + strip.width;
+    }
   }
+  const laneStarts = new Map<number, number[]>();
+  bars.forEach((bar, index) => {
+    const starts = laneStarts.get(bar.lane) ?? [];
+    starts.push(edges[index]!.left);
+    laneStarts.set(bar.lane, starts);
+  });
   for (const starts of laneStarts.values()) starts.sort((a, b) => a - b);
-  return bars.map(bar => {
-    const left = bar.start * colPx + 2;
-    const width = Math.max(4, (bar.end - bar.start) * colPx - 4);
+  return bars.map((bar, index) => {
+    const { left } = edges[index]!;
+    const width = Math.max(4, edges[index]!.right - left);
     const narrow = width < NARROW_BAR_PX;
     let labelWidth = 0;
     if (narrow) {

@@ -1,3 +1,5 @@
+import { selectModel } from "@/lib/agent/model";
+import { runtimeTaskModel } from "@/lib/agent/runtime-model";
 /**
  * Auto-reply to a resident's Communication message.
  *
@@ -119,6 +121,7 @@ export async function autoRespondToResidentInboxMessage(
           system: RESIDENT_INBOX_SYSTEM_PROMPT,
           messages: messages as Parameters<typeof runAgentTurn>[0]["messages"],
           observer,
+          model: runtimeTaskModel({}, { ...selectModel(messages as Parameters<typeof runAgentTurn>[0]["messages"]), provider: "anthropic", route: "anthropic" }),
           // Empty on purpose. Every write proposes.
           allowWriteTools: [],
         }),

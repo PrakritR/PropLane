@@ -215,10 +215,12 @@ async function sweepTurnovers(db: SupabaseClient, now: Date): Promise<{ created:
     propertyLabel: stay.propertyLabel,
     roomId: stay.roomId,
     roomLabel: stay.roomLabel,
+    checkInTime: stay.checkInTime,
+    checkOutTime: stay.checkOutTime,
   }));
   const todayKey = pacificCalendarDateYmd(now);
   const tomorrowKey = pacificCalendarDateYmd(new Date(now.getTime() + 24 * 3_600_000));
-  return dispatchCleaningForStays(db, stays, { todayKey, tomorrowKey }, bookings.bookingCheckInIso);
+  return dispatchCleaningForStays(db, stays, { todayKey, tomorrowKey });
 }
 
 export type DispatchSweepSummary = {

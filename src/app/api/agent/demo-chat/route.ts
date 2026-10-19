@@ -1,3 +1,6 @@
+import { traceAgentTurn } from "@/lib/observability/langfuse";
+import { runtimeTaskModel } from "@/lib/agent/runtime-model";
+import { hasAgentModelCredential, selectModel } from "@/lib/agent/model";
 import { NextResponse } from "next/server";
 import { agentRegistry } from "@/lib/tools";
 import { runAgentTurn } from "@/lib/agent/loop";
@@ -62,7 +65,8 @@ export async function POST(req: Request) {
   if (!attached.ok) return NextResponse.json({ error: attached.error }, { status: 400 });
   messages = attached.messages;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const model = messagesNeedVisionModel(messages) ? visionPinnedModel() : runtimeTaskModel({}, { ...selectModel(messages), provider: "anthropic", route: "anthropic" });
+  if (!hasAgentModelCredential(model)) {
     return NextResponse.json(
       { error: "The demo assistant isn't configured in this environment." },
       { status: 503 },
@@ -71,12 +75,12 @@ export async function POST(req: Request) {
 
   try {
     const ctx = buildDemoAgentContext();
-    const result = await runAgentTurn({
-      ctx,
-      registry: agentRegistry,
-      messages,
-      ...(messagesNeedVisionModel(messages) ? { model: visionPinnedModel() } : {}),
-    });
+    const result = await traceAgentTurn(
+      { userId: "anonymous:demo", metadata: { surface: "demo-chat", sandbox: true } },
+      messages as { role: string; content: string }[],
+      (observer) => runAgentTurn({ ctx, registry: agentRegistry, messages, model, observer }),
+      { name: "demo-chat", sessionId: `demo:${crypto.randomUUID()}`, emitTurnSummary: false },
+    );
     if (result.pendingAction) {
       // /demo never persists a proposal: the id is the literal "demo", which no
       // confirm path can ever claim, so the card is a preview and nothing else.

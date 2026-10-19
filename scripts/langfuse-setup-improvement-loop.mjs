@@ -13,12 +13,12 @@
  *   vercel env run -e production -- npm run langfuse:setup
  */
 import { createLangfuseClient, langfuseFetch } from "./lib/langfuse-ops.mjs";
+import { configureLunaJudge } from "./lib/langfuse-luna-setup.mjs";
 
 const DATASET = process.env.LANGFUSE_REJECTED_ACTIONS_DATASET?.trim() || "agent-rejected-actions";
 const EVALUATOR_NAME = "numeric-grounding";
 const SCORE_NAME = "numeric-grounding";
 const OBSERVATION_NAME = "axis-agent-turn-summary";
-const RULE_NAME = SCORE_NAME;
 
 export const NUMERIC_GROUNDING_JUDGE_PROMPT = `You are grading whether an AI property-management assistant's reply is numerically grounded in the tool evidence from the SAME turn.
 
@@ -58,163 +58,6 @@ async function ensureDataset(lf) {
   }
 }
 
-async function ensureAnthropicConnection() {
-  const secretKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!secretKey) {
-    console.warn("ANTHROPIC_API_KEY unset — cannot auto-configure Langfuse LLM connection.");
-    return null;
-  }
-  const existing = await langfuseFetch("/api/public/llm-connections", {
-    query: { page: 1, limit: 50 },
-  });
-  const data = Array.isArray(existing?.data) ? existing.data : [];
-  const already = data.find((c) => c?.adapter === "anthropic" || c?.provider === "anthropic");
-  if (already) {
-    console.log(`LLM connection already present provider=${already.provider} id=${already.id}`);
-    return already;
-  }
-  const created = await langfuseFetch("/api/public/llm-connections", {
-    method: "PUT",
-    body: {
-      provider: "anthropic",
-      adapter: "anthropic",
-      secretKey,
-      withDefaultModels: true,
-    },
-  });
-  console.log(`Created Anthropic LLM connection id=${created?.id ?? "?"}`);
-  return created;
-}
-
-async function ensureEvaluator() {
-  const body = {
-    type: "llm_as_judge",
-    name: EVALUATOR_NAME,
-    prompt: NUMERIC_GROUNDING_JUDGE_PROMPT,
-    outputDefinition: {
-      dataType: "BOOLEAN",
-      reasoning: {
-        description: "Short reason listing any ungrounded numeric claims (numbers only).",
-      },
-      score: {
-        description: "true if every applicable numeric claim is grounded in toolEvidence; false otherwise.",
-      },
-    },
-    modelConfig: {
-      provider: "anthropic",
-      model: "claude-haiku-4-5",
-    },
-  };
-  const listed = await langfuseFetch("/api/public/unstable/evaluators", {
-    query: { page: 1, limit: 100 },
-  }).catch(() => ({ data: [] }));
-  const evaluators = Array.isArray(listed?.data) ? listed.data : [];
-  const existing = evaluators.find(
-    (e) =>
-      e?.name === EVALUATOR_NAME &&
-      e?.scope === "project" &&
-      e?.type === body.type,
-  );
-  if (
-    existing &&
-    existing.prompt === body.prompt &&
-    existing.outputDefinition?.dataType === body.outputDefinition.dataType &&
-    existing.modelConfig?.provider === body.modelConfig.provider &&
-    existing.modelConfig?.model === body.modelConfig.model
-  ) {
-    console.log(
-      `Evaluator already current name=${EVALUATOR_NAME} version=${existing.version ?? "?"} id=${existing.id ?? "?"}`,
-    );
-    return existing;
-  }
-  try {
-    const created = await langfuseFetch("/api/public/unstable/evaluators", {
-      method: "POST",
-      body,
-    });
-    console.log(
-      `Evaluator ${EVALUATOR_NAME} version=${created?.version ?? "?"} id=${created?.id ?? "?"} scope=${created?.scope ?? "?"}`,
-    );
-    return created;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    // Preflight often fails when no default eval model is configured — surface that clearly.
-    if (/preflight|422|model/i.test(msg)) {
-      console.warn(`Evaluator create needs a project default eval model (or modelConfig): ${msg}`);
-      console.warn("Create the evaluator from the Langfuse UI once a judge model is configured, then re-run.");
-      return null;
-    }
-    throw e;
-  }
-}
-
-async function ensureEvaluationRule(evaluator) {
-  if (!evaluator) return;
-  const existing = await langfuseFetch("/api/public/unstable/evaluation-rules", {
-    query: { page: 1, limit: 50 },
-  }).catch(() => ({ data: [] }));
-  const rules = Array.isArray(existing?.data) ? existing.data : [];
-  const already = rules.find(
-    (r) =>
-      r?.name === RULE_NAME ||
-      r?.name === "numeric-grounding-on-turn-summary" ||
-      (r?.evaluator?.name === EVALUATOR_NAME && /turn-summary|axis-agent-turn-summary/i.test(JSON.stringify(r))),
-  );
-  if (already) {
-    if (already.name !== RULE_NAME) {
-      const updated = await langfuseFetch(
-        `/api/public/unstable/evaluation-rules/${encodeURIComponent(already.id)}`,
-        {
-          method: "PATCH",
-          body: { name: RULE_NAME },
-        },
-      );
-      console.log(`Renamed evaluation rule ${already.name} → ${RULE_NAME}`);
-      return updated;
-    }
-    console.log(`Evaluation rule already present id=${already.id} status=${already.status ?? "?"}`);
-    return already;
-  }
-
-  const ruleBody = {
-    name: RULE_NAME,
-    target: "observation",
-    enabled: true,
-    sampling: 1,
-    evaluator: {
-      name: EVALUATOR_NAME,
-      scope: evaluator.scope || "project",
-      type: "llm_as_judge",
-    },
-    filter: [
-      {
-        type: "stringOptions",
-        column: "name",
-        operator: "any of",
-        value: [OBSERVATION_NAME],
-      },
-    ],
-    mapping: [
-      { variable: "input", source: "input" },
-      { variable: "output", source: "output" },
-    ],
-  };
-
-  try {
-    const created = await langfuseFetch("/api/public/unstable/evaluation-rules", {
-      method: "POST",
-      body: ruleBody,
-    });
-    console.log(`Created evaluation rule id=${created?.id ?? "?"} status=${created?.status ?? "?"}`);
-    return created;
-  } catch (e) {
-    console.warn(`Evaluation rule API rejected payload: ${e instanceof Error ? e.message : e}`);
-    console.warn("Apply this rule in the Langfuse UI:");
-    console.warn(JSON.stringify(ruleBody, null, 2));
-    return null;
-  }
-}
-
 async function ensureDashboard() {
   const existing = await langfuseFetch("/api/public/unstable/dashboards", {
     query: { page: 1, limit: 50 },
@@ -243,6 +86,10 @@ async function ensureDashboard() {
 }
 
 async function main() {
+  const dryRun = process.argv.includes("--dry-run");
+  const judge = await configureLunaJudge({ request: langfuseFetch, secretKey: process.env.OPENAI_API_KEY, prompt: NUMERIC_GROUNDING_JUDGE_PROMPT, dryRun });
+  console.log(JSON.stringify(judge, null, 2));
+  if (dryRun) return;
   const lf = createLangfuseClient();
   await ensureDataset(lf);
   try {
@@ -251,9 +98,6 @@ async function main() {
     /* ignore */
   }
 
-  await ensureAnthropicConnection();
-  const evaluator = await ensureEvaluator();
-  await ensureEvaluationRule(evaluator);
   const dashboard = await ensureDashboard();
 
   console.log(`

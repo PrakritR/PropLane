@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTraceObserver, type TraceLike, type TraceActor } from "@/lib/observability/langfuse";
+import { buildTraceObserver, recordFailedAgentGeneration, type TraceLike, type TraceActor } from "@/lib/observability/langfuse";
 
 const ctx: TraceActor = {
   userId: "manager_a",
@@ -29,6 +29,50 @@ function fakeTrace() {
 }
 
 describe("buildTraceObserver", () => {
+  it("records native failed-call usage and cost without charging earlier calls again", () => {
+    const { trace, calls } = fakeTrace();
+    const error = Object.assign(new Error("Incomplete response"), {
+      responseModel: "gpt-6-luna", incompleteReason: "max_output_tokens",
+      responseUsage: { inputTokens: 1000, outputTokens: 500, cachedInputTokens: 600, cacheCreationInputTokens: 100, reasoningOutputTokens: 400 },
+    });
+    recordFailedAgentGeneration(trace, error);
+    expect(calls.generation).toHaveLength(1);
+    expect(calls.generation[0]).toMatchObject({
+      name: "axis-agent-llm-failed", model: "gpt-6-luna", level: "ERROR",
+      usageDetails: { input: 300, input_cached: 600, input_cache_write: 100, output: 500 },
+    });
+    expect((calls.generation[0] as { costDetails: { total: number } }).costDetails.total).toBeCloseTo(0.0002985, 10);
+    expect(calls.generationEnd).toBe(1);
+  });
+
+  it("does not invent native usage for failed calls without returned usage", () => {
+    const { trace, calls } = fakeTrace();
+    recordFailedAgentGeneration(trace, new Error("Network failed"));
+    expect(calls.generation).toHaveLength(0);
+  });
+
+  it("sums per-call Luna costs without applying a long-context rate to the accumulated turn", () => {
+    const { trace } = fakeTrace();
+    const built = buildTraceObserver(trace, ctx);
+    for (const iteration of [0, 1]) built.observer.onLlmCall!({
+      iteration, model: "gpt-6-luna", usage: { inputTokens: 200_000, outputTokens: 1_000 },
+      stopReason: "end_turn", toolsChosen: [], provider: "openai", route: "luna_primary",
+      latencyMs: 1, input: [], assistantContent: [],
+    });
+    expect(built.getEstimatedCost()).toBeCloseTo(0.041);
+  });
+
+  it("keeps unknown-model cost unknown", () => {
+    const { trace } = fakeTrace();
+    const built = buildTraceObserver(trace, ctx);
+    built.observer.onLlmCall!({
+      iteration: 0, model: "unknown-price", usage: { inputTokens: 100, outputTokens: 10 },
+      stopReason: "end_turn", toolsChosen: [], provider: "openai", route: "luna_primary",
+      latencyMs: 1, input: [], assistantContent: [],
+    });
+    expect(built.getEstimatedCost()).toBeUndefined();
+  });
+
   it("records tools-available, a costed per-call generation, and a tool span", () => {
     const { trace, calls } = fakeTrace();
     const { observer: obs, getEvidence } = buildTraceObserver(trace, ctx);
@@ -65,6 +109,7 @@ describe("buildTraceObserver", () => {
     };
     expect(gen.usage).toEqual({ input: 1_000_000, output: 1_000_000, unit: "TOKENS" });
     expect(gen.metadata.estimatedCostUsd).toBeCloseTo(6, 5);
+    expect(calls.generation[0]).toMatchObject({ costDetails: { input: 1, output: 5, total: 6 }, usageDetails: { input: 1_000_000, input_cached: 0, input_cache_write: 0, output: 1_000_000 } });
     expect(gen.metadata.landlordId).toBe("manager_a");
 
     const span = calls.span[0] as { name: string; input: unknown; output: unknown; metadata: { ok: boolean } };

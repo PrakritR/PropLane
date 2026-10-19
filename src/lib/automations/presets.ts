@@ -56,8 +56,8 @@ export type AutomationPreset = {
   /** Variables the template may use (the "Insert" dropdown offers exactly these). */
   variables: readonly AutomationVariable[];
   /**
-   * Booking presets are fired by the booking times code through `fireAutomation`, not by the
-   * sweep. They draw in Settings only once `EXTERNAL_PRESETS_LIVE` names them.
+   * Booking presets are sent by the booking times code (the reminder spine), not by this sweep.
+   * They draw in Settings only once `EXTERNAL_PRESETS_LIVE` names them.
    */
   external?: boolean;
   /** A group preset that must never name a person or carry money. Enforced on every render. */
@@ -134,11 +134,18 @@ export const GROUP_FORBIDDEN_VARIABLES: ReadonlySet<AutomationVariable> = new Se
 ]);
 
 /**
- * A booking preset lands in Settings only once its trigger exists. claude-2's check-in/out times
- * work adds its id here in the same change that calls `fireAutomation` for it; until then the row
- * would be a switch wired to nothing.
+ * A booking preset lands in Settings only once its trigger exists. Both booking presets are live:
+ * the guest's arrival guide and check-out reminder are sent by the reminder spine
+ * (`reminders/subjects/stay-times.server.ts`, docs/agents/bookings.md § Exact times), which reads
+ * this preset's on/off at send time through `loadOffPresetResolver`. They are `existing`-engine
+ * rows (auto or off, no editable text) because the text is built at send time from the house's
+ * facts and carries the door code: a held draft would store that code, and the held-run approval
+ * resolves a resident by lease, which a short-stay guest does not have.
  */
-export const EXTERNAL_PRESETS_LIVE: ReadonlySet<AutomationPresetId> = new Set<AutomationPresetId>();
+export const EXTERNAL_PRESETS_LIVE: ReadonlySet<AutomationPresetId> = new Set<AutomationPresetId>([
+  "arrival_guide",
+  "checkout_reminder",
+]);
 
 export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   {
@@ -272,12 +279,12 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   {
     id: "arrival_guide",
     required: ["first_name", "check_in_time"],
-    hasOwnText: true,
+    hasOwnText: false,
     label: "Arrival guide (24 hours before check-in)",
     audience: "resident",
-    engine: "automation",
-    defaultMode: "draft",
-    modes: AUTOMATION_MODES,
+    engine: "existing",
+    defaultMode: "auto",
+    modes: ["auto", "off"],
     template: "Hi {first_name}, check-in at {house} is {check_in_time}. Door code {door_code}. Your arrival guide: {arrival_link}",
     variables: ["first_name", "house", "check_in_time", "door_code", "arrival_link"],
     external: true,
@@ -285,12 +292,12 @@ export const AUTOMATION_PRESETS: readonly AutomationPreset[] = [
   {
     id: "checkout_reminder",
     required: ["first_name", "check_out_time"],
-    hasOwnText: true,
+    hasOwnText: false,
     label: "Check-out reminder (8 am on check-out day)",
     audience: "resident",
-    engine: "automation",
-    defaultMode: "draft",
-    modes: AUTOMATION_MODES,
+    engine: "existing",
+    defaultMode: "auto",
+    modes: ["auto", "off"],
     template: "Good morning {first_name}. Check-out at {house} is {check_out_time} today. Thank you for staying with us.",
     variables: ["first_name", "house", "check_out_time"],
     external: true,

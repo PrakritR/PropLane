@@ -1,6 +1,6 @@
 /**
- * The admin sidebar: seven rows (Dashboard, Communication, Accounts, Money, Properties, Support, Growth;
- * the grouped ones show their sections as a tab strip), and the Health
+ * The admin sidebar: seven rows (Settings, Dashboard, Communication, Properties, Accounts, Money, Growth;
+ * the grouped ones show their sections as a tab strip, Dashboard carrying Feedback, Meetings and Health), and the Health
  * section wired through the registry, the nav groups, the renderer and the route tree.
  *
  * A section that is in one of these and not the others is a live nav row that lands nowhere (the
@@ -29,7 +29,7 @@ describe("admin nav groups", () => {
   const rows = groups.flatMap((g) => g.sections);
   const registry = adminPortal.sections.map((s) => s.section);
 
-  it("folds into eight rows: Settings first, then Dashboard, Communication, Properties, Accounts, Money, Support, Growth", () => {
+  it("folds into seven rows: Settings first, then Dashboard, Communication, Properties, Accounts, Money, Growth", () => {
     expect(ADMIN_NAV_ROW_SECTIONS).toEqual([
       "profile",
       "dashboard",
@@ -37,38 +37,37 @@ describe("admin nav groups", () => {
       "properties",
       "axis-users",
       "payments",
-      "bugs-feedback",
       "growth",
     ]);
   });
 
-  it("is two headed halves (Property management, Software) after Settings and Dashboard/Communication and before Support/Growth, listing every section in row order so an unfolded caller buckets too", () => {
+  it("is two headed halves (Property management, Software) after Settings and Dashboard/Communication, listing every section in row order so an unfolded caller buckets too", () => {
     expect(groups.map((g) => [g.id, g.label] as const)).toEqual([
       ["settings", null],
       ["home", null],
       ["property-management", "Property management"],
       ["software", "Software"],
-      ["platform", null],
     ]);
-    expect(groups.find((g) => g.id === "property-management")?.sections).toEqual(["properties", "service", "proplane-line", "unassigned-leads"]);
-    expect(groups.find((g) => g.id === "software")?.sections).toEqual(["axis-users", "subscribers", "test-accounts", "payments", "promo-codes", "finances"]);
+    expect(groups.find((g) => g.id === "property-management")?.sections).toEqual(["properties", "service", "proplane-line", "unassigned-leads", "managed-finance"]);
+    expect(groups.find((g) => g.id === "software")?.sections).toEqual(["axis-users", "subscribers", "test-accounts", "payments", "promo-codes", "finances", "growth"]);
     expect(rows).toEqual([
       "profile",
       "dashboard",
+      "bugs-feedback",
+      "events",
+      "health",
       "communication",
       "properties",
       "service",
       "proplane-line",
       "unassigned-leads",
+      "managed-finance",
       "axis-users",
       "subscribers",
       "test-accounts",
       "payments",
       "promo-codes",
       "finances",
-      "bugs-feedback",
-      "events",
-      "health",
       "growth",
     ]);
   });
@@ -90,6 +89,12 @@ describe("admin nav groups", () => {
     expect(folded).toEqual(ADMIN_NAV_ROW_SECTIONS);
   });
 
+  it("keeps Settings out of the account menu: it is the first sidebar row, once", () => {
+    const menu = read("src/components/portal/portal-account-menu.tsx");
+    expect(menu).toContain('kind === "admin" ? null');
+    expect(adminPortal.sections[0]!.section).toBe("profile");
+  });
+
   it("groups the folded rows under Property management and Software headings", () => {
     const items = collapseAdminNavItems(
       adminPortal.sections.map((s) => ({ section: s.section, label: s.label })),
@@ -100,14 +105,12 @@ describe("admin nav groups", () => {
       ["home", null],
       ["property-management", "Property management"],
       ["software", "Software"],
-      ["platform", null],
     ]);
     expect(grouped.map((g) => g.items.map((i) => i.label))).toEqual([
       ["Settings"],
       ["Dashboard", "Communication"],
       ["Properties"],
-      ["Accounts", "Money"],
-      ["Support", "Growth"],
+      ["Accounts", "Money", "Growth"],
     ]);
   });
 

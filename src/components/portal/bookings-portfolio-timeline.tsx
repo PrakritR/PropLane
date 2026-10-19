@@ -13,11 +13,19 @@ import {
   lazyCache,
   narrowHouseBySearch,
   placeBars,
+  BAR_VISUAL_HEIGHT,
+  LANE_PITCH,
   ROOM_ROW_MIN_HEIGHT,
+  turnoverLabel,
+  turnoverStripPx,
   windowRows,
   type RoomLayout,
   type TimelineRoom,
+  type TurnoverSpec,
 } from "@/components/portal/bookings-timeline-layout";
+import { entryStayTimes, turnoverCleaningKey } from "@/components/portal/bookings-stay-times";
+import { propertyStayTimesFor } from "@/components/portal/bookings-stay-times-store";
+import type { PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { isResidentStay, BOOKING_CALENDAR_VIEWS, bookingCheckout, calendarOccupancy, calendarOccupancyDays, calendarOccupancyOnDay, calendarOccupancySummary, calendarRange, calendarStatusClass, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
@@ -61,6 +69,13 @@ export type BookingsPortfolioTimelineProps = {
   resolveRooms?: (propertyId: string, entries: PropertyBookingEntry[]) => TimelineRoom[];
   resolveHouse?: (propertyId: string, entries: PropertyBookingEntry[]) => TimelineHouseInfo;
   capacities?: OccupancyCapacities;
+  /** The property's stay-time defaults; defaults to the listing store's `listingSubmission.stayTimes`. */
+  resolveTimes?: (propertyId: string) => PropertyStayTimes;
+  /**
+   * Turnover cleaning jobs that exist (`turnoverCleaningKey` of the checking-out stay). A turnover with a job draws a
+   * hatched cleaning strip; one shorter than the property's cleaning buffer draws red whether or not a job exists.
+   */
+  cleaningKeys?: ReadonlySet<string>;
 };
 
 const subscribe = (notify: () => void) => { window.addEventListener("resize", notify); window.addEventListener("storage", notify); return () => { window.removeEventListener("resize", notify); window.removeEventListener("storage", notify); }; };
@@ -121,6 +136,7 @@ type HouseModel = {
   name: string;
   address: string;
   single: boolean;
+  times: PropertyStayTimes;
   rooms: TimelineRoom[];
   /** Every stay of the house: occupancy figures read these, never the search-narrowed set. */
   entries: PropertyBookingEntry[];
@@ -144,6 +160,7 @@ type RowContext = {
   anchor: string;
   focusLabel: string;
   handlers: BookingBarHandlers;
+  cleaningKeys?: ReadonlySet<string>;
   onOpenSheet?: (entry: PropertyBookingEntry) => void;
   onToggle: (propertyId: string) => void;
   onDrill: (day: string) => void;
@@ -154,13 +171,23 @@ type RowContext = {
 const OPAQUE = "bg-[var(--pl-surface-raised)]";
 const HOUSE_TINT = "bg-gradient-to-b from-accent/30 to-accent/30";
 
+const HATCH = "repeating-linear-gradient(135deg, rgb(100 116 139 / 0.8) 0 2px, rgb(100 116 139 / 0.16) 2px 6px)";
+const HATCH_SHORT = "repeating-linear-gradient(135deg, rgb(220 38 38) 0 2px, rgb(254 202 202) 2px 6px)";
+
+/** The cleaning block between two bars: full bar height, slate hatch with a job, red hatch when the gap is under the buffer. */
+function TurnoverStrip({ turnover, colPx, hasJob }: { turnover: TurnoverSpec; colPx: number; hasJob: boolean }) {
+  const { left, width } = turnoverStripPx(turnover, colPx);
+  const label = turnoverLabel(turnover, hasJob);
+  return <div role="img" aria-label={label} title={label} data-attr="bookings-turnover" data-turnover={turnover.short ? "short" : "cleaning"} className="absolute z-10 rounded-[3px]" style={{ left, width, top: 4 + turnover.lane * LANE_PITCH + (LANE_PITCH - BAR_VISUAL_HEIGHT) / 2, height: BAR_VISUAL_HEIGHT, backgroundImage: turnover.short ? HATCH_SHORT : HATCH }} />;
+}
+
 const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { row: TimelineRowModel; ctx: RowContext; stats?: HouseStats; expanded: boolean }) {
   const { meta, view, colPx, trackW, labelPx, todayKey, anchor } = ctx;
   const labelStyle = { width: labelPx, height: row.height };
   const labelBase = `sticky left-0 z-20 flex shrink-0 flex-col justify-center border-r border-border ${OPAQUE}`;
   const house = row.house;
   const title = [house.name, house.address].filter(Boolean).join(" · ");
-  const pixelBars = useMemo(() => (row.kind === "room" ? placeBars(row.layout.bars, colPx, trackW) : []), [row, colPx, trackW]);
+  const pixelBars = useMemo(() => (row.kind === "room" ? placeBars(row.layout.bars, colPx, trackW, row.layout.turnovers) : []), [row, colPx, trackW]);
   if (row.kind === "house") {
     const s = stats!;
     return <div className="flex border-b border-border" style={{ height: row.height, width: labelPx + trackW }} data-attr={`bookings-timeline-property-${house.propertyId}`}>
@@ -186,7 +213,7 @@ const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { r
   if (view === "year") {
     track = <div className="flex" style={{ width: trackW, height: row.height }}>{meta.map((m, index) => { const percent = layout.monthPercents[index]!; return <button type="button" key={m.day} onClick={() => ctx.onDrill(m.day)} title={`${room.label} · ${dateLabel(m.day, { month: "long" })}: ${percent}% occupied`} className="flex-none border-r border-border text-xs font-semibold tabular-nums" style={{ width: colPx, backgroundColor: percent ? `rgba(40,99,240,${.1 + .75 * percent / 100})` : undefined }}>{percent ? `${percent}%` : ""}</button>; })}</div>;
   } else if (view === "day") {
-    track = <div className="flex items-center gap-2 p-1.5" style={{ width: trackW, height: row.height }}>{layout.dayEntries.map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} className="h-auto min-h-11 min-w-0 flex-1" detail={<span className="block truncate px-2 text-xs">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span>} />)}{!layout.dayEntries.length ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div>;
+    track = <div className="flex items-center gap-2 p-1.5" style={{ width: trackW, height: row.height }}>{layout.dayEntries.map(entry => <BookingBar key={bookingEntryKey(entry)} entry={entry} today={todayKey} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} times={entryStayTimes(entry, house.times)} className="h-auto min-h-11 min-w-0 flex-1" detail={<span className="block truncate px-2 text-xs">{bookingCheckout(entry) === anchor ? "Checks out today" : entry.start === anchor ? "Checks in today" : `Night ${dayDiff(anchor, entry.start) + 1}${entry.openEnded ? " · open-ended" : ` of ${dayDiff(bookingCheckout(entry)!, entry.start)}`}`}</span>} />)}{!layout.dayEntries.length ? <span className="p-2 text-xs text-muted">Vacant</span> : null}</div>;
   } else {
     const reserve = ctx.onReserveRoomDay;
     const name = house.single ? house.name : room.label;
@@ -196,14 +223,15 @@ const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { r
         const free = !!reserve && m.day >= todayKey && !layout.busy[index];
         return free ? <button type="button" key={m.day} style={{ width: colPx }} className={`${cellClass} hover:bg-primary/10 focus-visible:bg-primary/10`} data-attr="bookings-calendar-empty-cell" data-day={m.day} data-room={room.id} aria-label={`Mark ${name} reserved on ${m.longLabel}`} onClick={() => reserve({ propertyId: house.propertyId, roomId: room.id, dayKey: m.day })} /> : <div key={m.day} style={{ width: colPx }} className={cellClass} />;
       })}</div>
-      {pixelBars.map(bar => <BookingBar key={bar.key} entry={bar.entry} today={todayKey} conflict={bar.conflict} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} placement={{ left: bar.left, top: bar.top, width: bar.width, nameInset: Math.max(0, Math.min(bar.width - 24, ctx.scrollLeft - bar.left)), narrow: bar.narrow, labelWidth: bar.labelWidth }} />)}
+      {pixelBars.map(bar => <BookingBar key={bar.key} entry={bar.entry} today={todayKey} conflict={bar.conflict} times={bar.times} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} placement={{ left: bar.left, top: bar.top, width: bar.width, nameInset: Math.max(0, Math.min(bar.width - 24, ctx.scrollLeft - bar.left)), narrow: bar.narrow, labelWidth: bar.labelWidth }} />)}
+      {layout.turnovers.map(turnover => { const jobKey = turnoverCleaningKey(turnover.entry); const hasJob = !!jobKey && !!ctx.cleaningKeys?.has(jobKey); return turnover.short || hasJob ? <TurnoverStrip key={`t:${turnover.key}`} turnover={turnover} colPx={colPx} hasJob={hasJob} /> : null; })}
     </div>;
   }
   return <div className="flex border-b border-border" style={{ height: row.height, width: labelPx + trackW }} data-attr={house.single ? `bookings-timeline-property-${house.propertyId}` : undefined} data-room-row="">{label}{track}</div>;
 });
 
 export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps) {
-  const { propertyIds, today, onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, onAddBooking, onReserveRoomDay, roomFilterId, canRemoveBooking, onOpenDay, resolveRooms, resolveHouse } = props;
+  const { propertyIds, today, cleaningKeys, resolveTimes, onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, onAddBooking, onReserveRoomDay, roomFilterId, canRemoveBooking, onOpenDay, resolveRooms, resolveHouse } = props;
   const phone = useIsPhoneWidth();
   const labelPx = labelWidthPx(phone);
   const entries = useMemo(() => props.entries.filter(entry => entry.bookingStatus !== "cancelled" && entry.statusLabel?.toLowerCase() !== "cancelled"), [props.entries]);
@@ -266,10 +294,10 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
       if (roomFilterId && !rooms.length) continue;
       const narrowed = narrowHouseBySearch({ propertyId, name: info.name, address: info.address ?? "", rooms, entries: mine }, needle);
       if (!narrowed) continue;
-      out.push({ propertyId, name: info.name, address: info.address ?? "", single, rooms: narrowed.rooms, entries: mine, entriesByRoom: narrowed.entriesByRoom, scopeEntries: narrowed.scopeEntries });
+      out.push({ propertyId, name: info.name, address: info.address ?? "", single, times: (resolveTimes ?? propertyStayTimesFor)(propertyId), rooms: narrowed.rooms, entries: mine, entriesByRoom: narrowed.entriesByRoom, scopeEntries: narrowed.scopeEntries });
     }
     return out;
-  }, [propertyIds, byProperty, resolveRooms, resolveHouse, roomFilterId, needle]);
+  }, [propertyIds, byProperty, resolveRooms, resolveHouse, resolveTimes, roomFilterId, needle]);
   const multiIds = useMemo(() => houses.filter(house => !house.single).map(house => house.propertyId), [houses]);
 
   // ---- Which houses are open. Collapsed by default past three houses; remembered per page; a filter or search opens its matches.
@@ -310,7 +338,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
         let layout = layoutCache.get(cacheKey);
         if (!layout) {
           const all = house.entries.filter(entry => entryBelongsToRoom(entry, room.id));
-          layout = layoutRoom({ room, all, shown: house.entriesByRoom?.get(room.id), view, days, anchor, propertyId: house.propertyId, capacities, entryKey: bookingEntryKey });
+          layout = layoutRoom({ room, all, shown: house.entriesByRoom?.get(room.id), view, days, anchor, propertyId: house.propertyId, capacities, entryKey: bookingEntryKey, times: house.times });
           layoutCache.set(cacheKey, layout);
         }
         push({ key: `r:${house.propertyId}:${room.id}`, kind: "room", top, height: Math.max(ROOM_ROW_MIN_HEIGHT, layout.height), house, layout });
@@ -401,7 +429,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
   const handlers = useMemo<BookingBarHandlers>(() => ({ onEdit: onEditBooking, onUnblock: onUnblockBooking, onDeleteBlock, onUnblockChannelStay, canRemove: canRemoveBooking }), [onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, canRemoveBooking]);
   const openDay = useCallback((day: string) => onOpenDay?.(day), [onOpenDay]);
 
-  const ctx = useMemo<RowContext>(() => ({ meta, view, colPx, trackW, labelPx, todayKey, anchor, focusLabel, scrollLeft, handlers, onOpenSheet: phone ? openSheet : undefined, onToggle: toggleHouse, onDrill: drill, onReserveRoomDay }), [meta, view, colPx, trackW, labelPx, scrollLeft, todayKey, anchor, focusLabel, handlers, phone, openSheet, toggleHouse, drill, onReserveRoomDay]);
+  const ctx = useMemo<RowContext>(() => ({ meta, view, colPx, trackW, labelPx, todayKey, anchor, focusLabel, scrollLeft, handlers, cleaningKeys, onOpenSheet: phone ? openSheet : undefined, onToggle: toggleHouse, onDrill: drill, onReserveRoomDay }), [meta, view, colPx, trackW, labelPx, scrollLeft, todayKey, anchor, focusLabel, handlers, cleaningKeys, phone, openSheet, toggleHouse, drill, onReserveRoomDay]);
   const houseCount = houses.length;
   const tileValue = "text-[17px] font-semibold leading-6 tabular-nums text-foreground";
   const tileLabel = "truncate text-xs text-muted";
@@ -439,6 +467,6 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
         </div>
       </div>
     </div>
-    <BookingBarSheet entry={sheet.entry} open={sheet.open} today={todayKey} onClose={closeSheet} {...handlers} />
+    <BookingBarSheet entry={sheet.entry} open={sheet.open} today={todayKey} times={sheet.entry ? entryStayTimes(sheet.entry, houses.find(house => house.propertyId === sheet.entry!.propertyId)?.times) : undefined} onClose={closeSheet} {...handlers} />
   </div>;
 }

@@ -97,6 +97,10 @@ export const REMINDER_SUBJECT_KINDS = [
   "task_overdue",
   "resident_welcome",
   "inspection_acknowledge",
+  // ---- Stay times (bookings-times-1018): guest-facing, timed off the stay's real
+  // check-in / check-out instants (`bookingTimeline`), not a whole-day anchor. ----
+  "stay_arrival_guide",
+  "stay_checkout_reminder",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -302,6 +306,8 @@ export const COMPACT_RULE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<Remi
   "lease_renewal_offer",
   "move_out_instructions",
   "deposit_return_notice",
+  "stay_arrival_guide",
+  "stay_checkout_reminder",
 ]);
 
 type RuleShape = {
@@ -400,6 +406,13 @@ const PLAN_0915_DEFAULT_RULES: Omit<
   task_overdue: rule({ timings: ["after:1440"], audience: { counterparty: true, manager: true } }),
   resident_welcome: rule({ enabled: false, timings: ["after:5", "after:2880", "after:10080"], audience: COUNTERPARTY }),
   inspection_acknowledge: rule({ timings: ["after:7200"], audience: COUNTERPARTY }),
+  // Stay times (bookings-times-1018). The guest of a confirmed short stay, never the manager.
+  // The timing here is nominal: the sweeper (`subjects/stay-times.server.ts`) anchors each row on
+  // the stay's own check-in / check-out instant and sets the exact lead from `bookingTimeline`
+  // (24 h before check-in; 08:00 on checkout day), so a paid early check-in or late checkout moves
+  // the send with it. Both ride the guest's own channel preferences (inbox always, email, text).
+  stay_arrival_guide: rule({ timings: ["before:1440"], audience: COUNTERPARTY, sms: true }),
+  stay_checkout_reminder: rule({ timings: ["before:180"], audience: COUNTERPARTY, sms: true }),
 };
 
 const PLAN_0915_SUBJECT_META: Record<keyof typeof PLAN_0915_DEFAULT_RULES, ReminderSubjectMeta> = {
@@ -439,6 +452,8 @@ const PLAN_0915_SUBJECT_META: Record<keyof typeof PLAN_0915_DEFAULT_RULES, Remin
   task_overdue: { kind: "task_overdue", label: "Overdue reminder", anchorLabel: "the task due date", counterpartyLabel: "assignee" },
   resident_welcome: { kind: "resident_welcome", label: "Welcome sequence", anchorLabel: "the account was created", counterpartyLabel: "resident" },
   inspection_acknowledge: { kind: "inspection_acknowledge", label: "Acknowledge reminder", anchorLabel: "the report was shared", counterpartyLabel: "resident" },
+  stay_arrival_guide: { kind: "stay_arrival_guide", label: "Arrival guide to the guest", anchorLabel: "the guest checks in", counterpartyLabel: "guest" },
+  stay_checkout_reminder: { kind: "stay_checkout_reminder", label: "Checkout reminder to the guest", anchorLabel: "the guest checks out", counterpartyLabel: "guest" },
 };
 
 export type ReminderSubjectMeta = {

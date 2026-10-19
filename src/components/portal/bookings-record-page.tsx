@@ -32,6 +32,8 @@ import { readHouseholdCharges } from "@/lib/household-charges";
 import { dateKey } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { entryMoments, entryStayTimes, paidAddOnFacts } from "@/components/portal/bookings-stay-times";
+import { propertyStayTimesFor } from "@/components/portal/bookings-stay-times-store";
 
 export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries, loading, residentOptions, propertyOptions, onSaveBlock, onSaveStayMeta, showToast, onRefresh, onRemoveBlock, channelLinks = [], canRemoveBooking }: {
   bookingId: string; tab?: string; basePath: string; entries: readonly PropertyBookingEntry[]; loading: boolean;
@@ -99,8 +101,10 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   };
   const place = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
   const channelLabel = channel ? [bookingSourceLabel(entry.source, entry.channelLabel), entry.sourceUid].filter(Boolean).join(" · ") : sourceTarget ? "" : entry.stayDetails?.source || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source, entry.channelLabel));
-  const stayDetailRows = Object.entries(entry.stayDetails ?? {}).filter(([key, value]) => key !== "source" && value);
-  const checkTimes = [entry.stayDetails?.earlyCheckIn && `Check-in ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Check-out ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ");
+  const stayDetailRows = (["linen", "baggage"] as const).flatMap((key) => (typeof entry.stayDetails?.[key] === "string" && entry.stayDetails[key] ? [[key, entry.stayDetails[key]] as const] : []));
+  // Check-in and check-out are a date AND a time (the stay's own, else the property's defaults).
+  const moments = entryMoments(entry, entryStayTimes(entry, propertyStayTimesFor(entry.propertyId)));
+  const addOnFacts = paidAddOnFacts(entry);
   const status = bookingStatusLabel(entry);
   const airbnbLink = airbnbLinkForRoom(channelLinks, entry.propertyId, entry.roomId);
 
@@ -142,7 +146,9 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         <RecordFactRow label="Where" value={place} />
         {channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
         {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? (entry.applicationId ? "Resident" : "Application") : bookingSourceLabel(entry.source, entry.channelLabel)}</Link>} /> : null}
-        {checkTimes ? <RecordFactRow label="Check-in / out" value={checkTimes} /> : null}
+        <RecordFactRow label="Check-in" value={moments.inLabel} />
+        {moments.outLabel ? <RecordFactRow label="Check-out" value={moments.outLabel} /> : null}
+        {addOnFacts.map((fact) => <RecordFactRow key={fact} label="Add-on" value={fact} />)}
         <RecordFactRow label="Status" value={status} />
         {entry.monthlyRent != null ? <RecordFactRow label="Rent" value={bookingRateLabel(entry)} /> : <RecordFactRow label="Rate" value={bookingRateLabel(entry)} />}
         {airbnbStay ? <RecordFactRow label="Nightly" value={typeof entry.nightlyCents === "number" ? formatCentsAsUsd(entry.nightlyCents) : "—"} /> : null}
@@ -154,7 +160,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {airbnbLink ? channelCheckFacts(airbnbLink).map((fact) => <RecordFactRow key={fact.label} label={fact.label} value={fact.value} />) : null}
         {entry.stayNotes ? <RecordFactRow label="Notes" value={<span className="whitespace-pre-line">{entry.stayNotes}</span>} /> : null}
         {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
-        {stayDetailRows.filter(([key]) => key !== "earlyCheckIn" && key !== "lateCheckOut").map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
+        {stayDetailRows.map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
         {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
       </RecordFactCard>
     );

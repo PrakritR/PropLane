@@ -17,11 +17,28 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertManagerCharges } from "@/lib/household-charges.server";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { stayBlockSlug } from "@/lib/short-stay/stay-add-ons";
 import { shortTermStayChargeTitle } from "@/lib/short-term-stay-pricing";
 
 export function guestStayChargeId(blockId: string): string {
-  const slug = blockId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+/, "").replace(/_+$/, "");
-  return `hc_mgr_stay_${slug || "unknown"}_stay_total`;
+  return `hc_mgr_stay_${stayBlockSlug(blockId)}_stay_total`;
+}
+
+/**
+ * The login a guest-stay charge is keyed on, or null: `row.residentUserId` and that login's own profile
+ * address (see the comment in `ensureGuestStayCharge`). The add-on charges use the same identity, so a
+ * stay and its early check-in can never land in two different people's Payments.
+ */
+export async function guestChargeIdentity(
+  db: SupabaseClient,
+  row: Record<string, unknown>,
+): Promise<{ residentUserId: string; residentEmail: string } | null> {
+  const residentUserId = typeof row.residentUserId === "string" ? row.residentUserId.trim() : "";
+  if (!residentUserId) return null;
+  const { data: profile } = await db.from("profiles").select("email").eq("id", residentUserId).maybeSingle();
+  const residentEmail = String(profile?.email ?? "").trim().toLowerCase();
+  if (!residentEmail) return null;
+  return { residentUserId, residentEmail };
 }
 
 type StayBlockFacts = {

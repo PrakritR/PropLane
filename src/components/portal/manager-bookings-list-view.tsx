@@ -1,5 +1,6 @@
 "use client";
 
+import { formatStayTime } from "@/lib/bookings/stay-times";
 import type { ComponentProps, ReactNode } from "react";
 import { CalendarDays, CircleCheck, Globe, Phone } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -128,7 +129,7 @@ export function ManagerBookingsListView({
                   <>
                     <PortalRowFact icon={CalendarDays} srLabel="Dates">{bookingDatesLabel(entry, true)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
-                    {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.stayDetails.earlyCheckIn || entry.stayDetails.lateCheckOut) ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source, entry.channelLabel), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
+                    {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.addOns?.early_check_in?.status === "paid" || entry.addOns?.late_check_out?.status === "paid") ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source, entry.channelLabel), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.addOns?.early_check_in?.status === "paid" && `Early ${formatStayTime(entry.addOns.early_check_in.time)}`, entry.addOns?.late_check_out?.status === "paid" && `Late ${formatStayTime(entry.addOns.late_check_out.time)}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
                     {entry.phoneLast4 ? <PortalRowFact icon={Phone} srLabel="Phone">{`Phone ending ${entry.phoneLast4}`}</PortalRowFact> : null}
                     {isChannelBookingSource(entry.source) ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source, entry.channelLabel)}</PortalRowFact> : null}
                   </>

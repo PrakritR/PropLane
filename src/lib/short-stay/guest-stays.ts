@@ -4,7 +4,9 @@
  * button wording the server's dry run decides, and the guest's texts. No server import, so the Stays
  * panel, the Book again sheet, the routes and the tests all read the same rules.
  */
+import type { StayAddOnKind, StayAddOns } from "@/lib/bookings/stay-times";
 import { addRangeDays, rangeDaysBetween } from "@/lib/room-availability-range";
+import type { StayAddOnOffer } from "@/lib/short-stay/stay-add-ons";
 import { formatShortStayMoney, shortStayCompactRange } from "@/lib/short-stay-request";
 
 /** Written on `stayDetails.source` by the public card's "Request to book". */
@@ -48,6 +50,13 @@ export type GuestStay = {
   nightly: number | null;
   /** True when the listing still takes short stays, so a past row can offer Book again. */
   canBookAgain: boolean;
+  /** The stay's CURRENT check-in / check-out wall times ("HH:MM", the property's clock): standard, or moved by a paid add-on. */
+  checkInTime?: string;
+  checkOutTime?: string;
+  /** "HH:MM" the guest said they would arrive; informational. */
+  estimatedArrival?: string | null;
+  /** Paid early check-in / late checkout on this stay (requested, pending, paid or refunded). */
+  addOns?: StayAddOns;
 };
 
 export type GuestStayBucket = "upcoming" | "past";
@@ -130,6 +139,10 @@ export type GuestRangeResult = {
   error?: string;
   /** Present once a row was written (not on a dry run). */
   stayId?: string;
+  /** Which paid add-ons these nights could carry (kind, time, price). Never says why one is not offered. */
+  addOns?: StayAddOnOffer[];
+  /** Add-ons the guest ticked that were not available when the stay was written, so they are not on it. */
+  addOnsSkipped?: StayAddOnKind[];
 };
 
 export type GuestBookAction = "confirm" | "request" | "mixed" | "none";

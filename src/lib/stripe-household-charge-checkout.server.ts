@@ -27,6 +27,7 @@ import {
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
 
@@ -301,6 +302,18 @@ export async function createHouseholdChargeCheckout(
     const resolved = await loadHouseholdChargesForCheckout(db, input);
     if (!resolved.ok) return resolved;
     const { loaded, managerUserId } = resolved;
+    // A paid early check-in / late checkout that the room can no longer honor would only be refunded
+    // automatically: re-run its availability BEFORE any Stripe session exists, and void it if it is gone.
+    for (const row of loaded) {
+      if (!(row.charge as { stayAddOn?: unknown }).stayAddOn) continue;
+      const { checkStayAddOnPayable, STAY_ADD_ON_UNAVAILABLE_CODE } = await import("@/lib/short-stay/stay-add-ons.server");
+      const payable = await checkStayAddOnPayable(db, row.charge as unknown as Record<string, unknown>);
+      if (!payable.ok) {
+        return payable.retry
+          ? { ok: false, status: 503, error: payable.message }
+          : { ok: false, status: 409, code: STAY_ADD_ON_UNAVAILABLE_CODE, error: payable.message };
+      }
+    }
     if (loaded.some(row => !row.acceptedPaymentMethods.includes(input.paymentMethod))) {
       return { ok: false, status: 422, code: "PAYMENT_METHOD_DISABLED",
         error: "A selected charge does not accept this payment method." };
@@ -317,6 +330,11 @@ export async function createHouseholdChargeCheckout(
     })).captured) {
       return { ok: false, status: 403, code: "TEST_WORKSPACE_PROVIDER_DISABLED", error: "Payments are unavailable for test accounts." };
     }
+
+    // One Checkout is one payee. A cart that mixes a PropLane-managed workspace's charges with another workspace's (or a
+    // house with no workspace) would need two allocations, so it is refused before any money moves.
+    const managedProblem = await managedCartProblem(db, loaded.map((row) => row.charge.propertyId));
+    if (managedProblem) return { ok: false, status: 422, code: "MIXED_PAYMENT_SETUP", error: managedProblem };
 
     const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);
     if (!feePayerResolved.ok) return feePayerResolved;
