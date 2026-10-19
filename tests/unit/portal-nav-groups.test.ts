@@ -28,7 +28,7 @@ const CASES = [
   {
     kind: "admin" as const,
     sections: adminPortal.sections.map((s) => s.section),
-    sidebarShowsProfile: false,
+    sidebarShowsProfile: true,
     sidebarShowsFeedback: true,
   },
   {
@@ -93,10 +93,10 @@ describe("portal nav groups cover the registry exactly", () => {
       for (const id of grouped) expect(known.has(id)).toBe(true);
     });
 
-    it(`${kind}: profile ${sidebarShowsProfile ? "surfaces at the bottom of" : "is excluded from"} the sidebar`, () => {
+    it(`${kind}: profile ${sidebarShowsProfile ? "is the first row of" : "is excluded from"} the sidebar`, () => {
       if (sidebarShowsProfile) {
         expect(grouped).toContain("profile");
-        expect(grouped.at(-1)).toBe("profile");
+        expect(grouped[0]).toBe("profile");
       } else {
         expect(grouped).not.toContain("profile");
       }

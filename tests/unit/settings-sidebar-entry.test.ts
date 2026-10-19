@@ -1,8 +1,12 @@
 /**
- * Settings (the `profile` section) has no row in ANY desktop sidebar — pro/
- * manager, resident, vendor, and admin all reach it only from the top-right
- * account menu (and, on a phone, the profile menu). See
- * `src/lib/portals/nav-groups.ts`'s `SIDEBAR_EXCLUDED_SECTIONS`.
+ * Settings (the `profile` section) has no row in the pro/manager, resident or
+ * vendor desktop sidebar — those reach it only from the account menu (and, on a
+ * phone, the profile menu). See `src/lib/portals/nav-groups.ts`'s
+ * `SIDEBAR_EXCLUDED_SECTIONS`.
+ *
+ * Admin is the one exception (portal simplification, Oct 18): Settings is the
+ * FIRST sidebar row, the `/admin` landing, and the account menu drops its
+ * duplicate Settings link for admin.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,8 +38,11 @@ const ALL_PORTALS = [
   },
 ];
 
-describe("Settings has no sidebar entry anywhere — account menu only", () => {
-  for (const { kind, sections } of ALL_PORTALS) {
+const NON_ADMIN_PORTALS = ALL_PORTALS.filter((p) => p.kind !== "admin");
+const ADMIN_PORTAL = ALL_PORTALS.find((p) => p.kind === "admin")!;
+
+describe("Settings has no sidebar entry except admin's first row — account menu otherwise", () => {
+  for (const { kind, sections } of NON_ADMIN_PORTALS) {
     it(`${kind}: no group config assigns profile`, () => {
       const groups = PORTAL_NAV_GROUPS[kind];
       expect(groups.some((g) => g.id === "settings")).toBe(false);
@@ -49,9 +56,24 @@ describe("Settings has no sidebar entry anywhere — account menu only", () => {
     });
   }
 
-  it("the account menu (rail avatar) keeps its own Settings link", () => {
+  it("admin: Settings is the first sidebar row, in its own group ahead of every other row", () => {
+    const groups = PORTAL_NAV_GROUPS.admin;
+    expect(groups[0]).toMatchObject({ id: "settings", sections: ["profile"] });
+    expect(groups.flatMap((g) => g.sections).filter((s) => s === "profile")).toHaveLength(1);
+    const items = ADMIN_PORTAL.sections.map((section) => ({ section }));
+    const rendered = groupNavItems("admin", items);
+    expect(rendered[0].id).toBe("settings");
+    expect(rendered.flatMap((g) => g.items).map((i) => i.section)[0]).toBe("profile");
+  });
+
+  it("admin: the account menu drops its Settings link so the row is the only entry", () => {
+    const menu = readFileSync(join(process.cwd(), "src/components/portal/portal-account-menu.tsx"), "utf8");
+    expect(menu).toMatch(/kind === "admin" \? null : \(\s*<DropdownMenuItem\s+data-attr="portal-top-bar-settings"/);
+  });
+
+  it("the account menu (rail avatar) keeps its own Settings link for manager, resident and vendor", () => {
     // The account menu moved from the old top bar to the workspace rail's avatar
-    // (portal-account-menu.tsx); Settings is still reachable only from there.
+    // (portal-account-menu.tsx); for those three portals Settings is reachable only from there.
     const topBarSrc = readFileSync(
       join(process.cwd(), "src/components/portal/portal-account-menu.tsx"),
       "utf8",

@@ -191,13 +191,13 @@ describe("regrouped nav", () => {
     const comm = side.getByRole("link", { name: "Communication" });
     const commBadge = comm.querySelector("[data-attr='nav-count']")!;
     expect(commBadge.getAttribute("data-tone")).toBe("alert");
-    expect(commBadge.className).toContain("bg-[#d92d20]");
+    expect(commBadge.className).toContain("bg-[#b42318]");
     expect(comm.className).toContain("font-[650]");
 
     const props = side.getByRole("link", { name: "Properties" });
     const propBadge = props.querySelector("[data-attr='nav-count']")!;
     expect(propBadge.getAttribute("data-tone")).toBe("muted");
-    expect(propBadge.className).not.toContain("bg-[#d92d20]");
+    expect(propBadge.className).not.toContain("bg-[#b42318]");
   });
 
   it("the active row uses the soft-blue active style", () => {

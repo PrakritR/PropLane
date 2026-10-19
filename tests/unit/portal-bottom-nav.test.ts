@@ -77,7 +77,8 @@ describe("orderNativeBottomNavItems", () => {
   it("preserves admin registry order", () => {
     const items = adminPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "admin").map((item) => item.section);
-    expect(ordered).toEqual(sectionIds(adminPortal.sections));
+    // Settings is the FIRST row of the admin sidebar registry; the native bar still pins it last.
+    expect(ordered).toEqual([...sectionIds(adminPortal.sections).filter((id) => id !== "profile"), "profile"]);
     expect(ordered.at(-1)).toBe("profile");
   });
 });

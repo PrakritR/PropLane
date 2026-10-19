@@ -74,16 +74,19 @@ export function PortalAccountMenu({
           </span>
         </div>
 
-        <DropdownMenuItem
-          data-attr="portal-top-bar-settings"
-          onSelect={(event) => {
-            event.preventDefault();
-            router.push(`${basePath}/profile`);
-          }}
-        >
-          <Settings aria-hidden />
-          Settings
-        </DropdownMenuItem>
+        {/* Admin Settings is the first sidebar row, so the menu does not repeat it. */}
+        {kind === "admin" ? null : (
+          <DropdownMenuItem
+            data-attr="portal-top-bar-settings"
+            onSelect={(event) => {
+              event.preventDefault();
+              router.push(`${basePath}/profile`);
+            }}
+          >
+            <Settings aria-hidden />
+            Settings
+          </DropdownMenuItem>
+        )}
 
         {DARK_MODE_ENABLED ? (
           <div className="flex items-center justify-between gap-3 px-[9px] py-1.5">
