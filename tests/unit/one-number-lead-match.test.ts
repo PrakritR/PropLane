@@ -7,7 +7,7 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.f
 vi.mock("server-only", () => ({}));
 
 import { publicListingProjection } from "@/lib/public-listings.server";
-import { buildOfferText, firstOfferPhoto, listingsInArea, matchRooms, offerFromRow, parseOfferPick } from "@/lib/one-number/lead-match";
+import { buildOfferBubbles, buildOfferText, firstOfferPhoto, listingsInArea, matchRooms, offerFromRow, parseOfferPick } from "@/lib/one-number/lead-match";
 import type { LeadOffer, LeadProfile } from "@/lib/one-number/lead-qualifying";
 
 const TODAY = "2026-10-18";
@@ -93,6 +93,31 @@ describe("the offer text", () => {
     const photoRows = matchRooms([withPhoto], profile({ area: "Ballard" }), TODAY);
     const found = firstOfferPhoto(photoRows);
     expect(found === null || found.startsWith("https://")).toBe(true);
+  });
+});
+
+describe("buildOfferBubbles", () => {
+  const found = matchRooms(CATALOG, profile({}), TODAY);
+  const offered = found.map((row, i) => offerFromRow(row, i + 1));
+  const photo = (url: string) => ({ kind: "photo" as const, src: url, alt: "" });
+
+  it("sends one text per room, each with its own real photo and listing link, then how to pick", () => {
+    const rowsWithPhotos = found.map((row, i) => ({ ...row, mediaSlides: [photo(`https://cdn.example.com/room-${i + 1}.jpg`)] }));
+    const bubbles = buildOfferBubbles(offered, rowsWithPhotos as never, "https://proplane.ai/");
+    expect(bubbles).toHaveLength(3);
+    expect(bubbles[0]).toMatchObject({ mediaUrl: "https://cdn.example.com/room-1.jpg" });
+    expect(bubbles[0]!.body).toContain("1) 4000 15th Ave NE, $900/mo");
+    expect(bubbles[0]!.body).toContain("https://proplane.ai/rent/listings/l-uw-a");
+    expect(bubbles[1]).toMatchObject({ mediaUrl: "https://cdn.example.com/room-2.jpg" });
+    expect(bubbles[1]!.body).toContain("2) 4200 17th Ave NE");
+    expect(bubbles[2]).toEqual({ body: "Reply 1 or 2 to pick one, or TOUR to see it." });
+  });
+
+  it("a room with no real https photo is a plain text, never a placeholder", () => {
+    const rowsMixed = found.map((row, i) => ({ ...row, mediaSlides: i === 0 ? [photo("http://insecure.example.com/a.jpg")] : [] }));
+    const bubbles = buildOfferBubbles(offered, rowsMixed as never, "https://proplane.ai");
+    expect(bubbles.every((b) => b.mediaUrl === undefined)).toBe(true);
+    for (const b of bubbles) expect(/^[\x20-\x7E]*$/.test(b.body)).toBe(true);
   });
 });
 

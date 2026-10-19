@@ -223,6 +223,8 @@ export type SharedLineRouteResult = {
   unassignedReplies?: string[];
   /** One real listing photo the reply carries (https), when the lead agent attached one. */
   unassignedMediaUrls?: string[];
+  /** The reply as separate texts, each with its own photo (the lead agent's room offers). */
+  unassignedBubbles?: Array<{ body: string; mediaUrl?: string }>;
   /**
    * Set when every match is a workspace with its own number: the caller tells the person to text that
    * number instead. `decision` is then a bare `unassigned` with no lead and no reply.
@@ -317,6 +319,7 @@ export async function routeSharedLineInboundWithReply(
     unassignedReply: turn.reply,
     ...(turn.replies && turn.replies.length > 1 ? { unassignedReplies: turn.replies } : {}),
     ...(turn.mediaUrls?.length ? { unassignedMediaUrls: turn.mediaUrls } : {}),
+    ...(turn.bubbles && turn.bubbles.length > 1 ? { unassignedBubbles: turn.bubbles } : {}),
   };
 }
 
