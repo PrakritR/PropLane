@@ -3,11 +3,17 @@
 
 # Sandbox accounts & the /demo mirror (one config, every environment)
 
+**Homepage text demo (captain Oct 18, 2026):** “Open the demo” opens a
+fullscreen chat at `/?demo=open`, served by `/api/agent/demo-chat` and
+`buildDemoAgentContext` over the bundled `buildDemoIdleSnapshot` dataset.
+The browser omits auth credentials; proposals and confirmations stay simulated
+on the demo route. It never executes a real account tool. The Room 3 hero and
+lower manager proof remain fixture-only; draft edits/sends stay in component state.
+
 **`/demo` is retired from the public site (captain 2026-09-26: "remove live
 demo no need").** `next.config.ts`'s `redirects()` and `src/middleware.ts`
 both bounce `/demo` and every `/demo/*` sub-path straight to `/`, so the page
-is unreachable by URL and the home page no longer embeds or links it
-anywhere — the marketing hero and lifecycle/import sections now render
+is unreachable by URL and the home page never embeds or links that route — the marketing hero and lifecycle/import sections now render
 STATIC, fixture-fed mockups built from the real portal presentational
 components instead of a live `<iframe src="/demo">` (see
 `docs/agents/marketing-mocks.md`).

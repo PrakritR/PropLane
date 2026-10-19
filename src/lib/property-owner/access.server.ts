@@ -159,6 +159,7 @@ async function loadOwnServiceWorkspaceGrants(db: SupabaseClient, uid: string): P
     if (error) throw new Error("Could not load owner houses.");
     grants.push({
       linkId: `workspace:${workspaceId}`,
+      workspaceId,
       managerUserId: uid,
       houses: (data ?? []).map((r) => ({ propertyId: String(r.id), performance: true, statements: true, documents: true, messages: false })),
     });

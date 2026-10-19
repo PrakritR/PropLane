@@ -1,57 +1,124 @@
+import type { Metadata } from "next";
+import { TextingHomeHero } from "@/components/marketing/texting-home-hero";
+import { HomeSoftwareDemo } from "@/components/marketing/home-software-demo";
+import { HomeNumberStage } from "@/components/marketing/home-number-stage";
+import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
+import { BigNumber } from "@/components/marketing/big-number";
+import { PricingCards } from "@/components/marketing/site/pricing-cards";
+import { ManagedServiceForm } from "@/components/marketing/site/managed-service-form";
+import { HOME_DESCRIPTION, HOME_HEADLINE } from "@/lib/marketing/home-copy";
+import { MANAGED_INCLUDES } from "@/lib/marketing/managed-service";
+import { TRACK_RECORD } from "@/lib/marketing/track-record";
+import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { homeJsonLd, jsonLdString } from "@/lib/seo/json-ld";
 import { llmsOrigin } from "@/lib/seo/llms";
-import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
-import { SiteFaq } from "@/components/marketing/site/faq";
-import { HOME_FAQ_ITEMS } from "@/components/marketing/site/home-faq-items";
-import { ResidentLifecyclePrototypes } from "@/components/marketing/resident-lifecycle-prototypes";
-import { SiteLifecycleRows } from "@/components/marketing/site/lifecycle-rows";
-import { SitePricingTeaser } from "@/components/marketing/site/pricing-teaser";
-import { SiteReplacesStrip } from "@/components/marketing/site/replaces-strip";
-import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";
 
-/**
- * Home page order (captain 2026-10-06, replacing the 2026-09-25 order):
- *
- *   1. Akhil's hero, headline "Your AI property / management assistant." on two
- *      lines with Start free, Book a demo and the App Store badge, and right under
- *      it the guided demo: it plays itself, the account menu in its top bar
- *      switches between the Manager, Resident and Vendor portals, and every
- *      sidebar tab opens its real panel. It replaces `SiteHero`.
- *
- *      The whole page sits on one continuous wavy background (captain 2026-10-07):
- *      `ResidentLifecycleAtmosphere variant="page"` behind every section, the
- *      sections themselves transparent, and the site top bar blending into it at
- *      the top (`public-navbar.tsx`).
- *      One phone stays on screen (sticky from `lg`) beside the demo, the strip and the
- *      lifecycle rows, always typing the next message, so those two sections are the
- *      demo's children (`ResidentLifecyclePrototypes`).
- *   2. Replaces strip.
- *   3. Lifecycle rows ("From first tour to fixed faucet.").
- *   4. Switching steps (the import).
- *   5. Pricing teaser.
- *   6. FAQ, deliberately the last section: no closing CTA band (captain
- *      2026-09-25), the pricing teaser and the hero's own "Start free" carry the
- *      ask.
- *
- * Sections 2 to 6 are unchanged from before the demo. They keep drawing the real,
- * static, fixture-fed portal panels described in `docs/agents/marketing-mocks.md`.
- */
+export const revalidate = 60;
+export const metadata: Metadata = {
+  title: HOME_HEADLINE,
+  description: HOME_DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: { title: HOME_HEADLINE, description: HOME_DESCRIPTION },
+  twitter: { title: HOME_HEADLINE, description: HOME_DESCRIPTION },
+};
+
+// The layout supplies the shared-line snapshot. Keep this page synchronous so
+// the complete cover and section heights are present in the first response.
 export default function HomePage() {
   return (
-    <div className="home-wavy min-h-0 flex-1">
+    <div className="texting-home home-swiss home-wavy">
+      <ResidentLifecycleAtmosphere variant="page" staticBelow={861} />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: jsonLdString(homeJsonLd(llmsOrigin(), iosAppDownloadUrl())) }}
+        dangerouslySetInnerHTML={{
+          __html: jsonLdString(homeJsonLd(llmsOrigin(), iosAppDownloadUrl())),
+        }}
       />
-      <ResidentLifecycleAtmosphere variant="page" />
-      <ResidentLifecyclePrototypes>
-        <SiteReplacesStrip />
-        <SiteLifecycleRows />
-      </ResidentLifecyclePrototypes>
-      <SiteSwitchSteps />
-      <SitePricingTeaser />
-      <SiteFaq items={HOME_FAQ_ITEMS} />
+      <section id="number" aria-label="The number">
+        <TextingHomeHero />
+        <HomeNumberStage />
+      </section>
+      <div className="home-editorial">
+        <HomeSoftwareDemo />
+        <section
+          id="service"
+          className="home-swiss-service"
+          aria-labelledby="home-service-title"
+        >
+          <div className="swiss-wrap">
+            <div className="swiss-section-label">
+              <span>03</span>Service
+            </div>
+            <div className="swiss-service-grid">
+              <h2 className="swiss-title" id="home-service-title">
+                We manage
+                <br />
+                it for you
+              </h2>
+              <ol className="swiss-service-list">
+                {MANAGED_INCLUDES.map((item, index) => (
+                  <li key={item.id}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    {item.title}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+          <div className="swiss-track-record">
+            <div className="swiss-wrap swiss-track-grid">
+              <div className="swiss-track-label">Track record</div>
+              <p>
+                We run {TRACK_RECORD.homes === 3 ? "three" : TRACK_RECORD.homes}{" "}
+                homes in Seattle — {TRACK_RECORD.roomsOccupied} of{" "}
+                {TRACK_RECORD.roomsTotal} rooms occupied — at a{" "}
+                {TRACK_RECORD.profit.toLowerCase()}.
+              </p>
+            </div>
+          </div>
+        </section>
+        <section
+          id="pricing"
+          className="swiss-wrap swiss-pricing"
+          aria-labelledby="home-pricing-title"
+        >
+          <h2 className="swiss-section-label" id="home-pricing-title">
+            <span>04</span>Software plans
+          </h2>
+          <PricingCards variant="overview" />
+        </section>
+        <section
+          id="contact"
+          className="swiss-wrap swiss-contact"
+          aria-labelledby="home-contact-title"
+        >
+          <div className="swiss-section-label">
+            <span>05</span>Contact
+          </div>
+          <div className="swiss-contact-grid">
+            <div className="home-contact-intro" id="home-close">
+              <h2 className="swiss-title" id="home-contact-title">
+                Talk
+                <br />
+                to us
+              </h2>
+              <BigNumber dataAttr="home-contact-text" label="Text us" />
+              <a
+                href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
+                data-attr="home-contact-email"
+              >
+                {PUBLIC_SUPPORT_EMAIL}
+              </a>
+            </div>
+            <ManagedServiceForm
+              className="home-contact-form"
+              attrPrefix="home-contact"
+              variant="swiss"
+            />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

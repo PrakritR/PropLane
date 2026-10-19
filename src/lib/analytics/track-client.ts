@@ -10,14 +10,18 @@
  * Convention: `object_action` names (e.g. `charge_created`), reuse existing
  * names, never pass PII or secrets. See the PostHog section in AGENTS.md.
  */
-import posthog from "posthog-js";
+import { isProductionAnalyticsHost } from "@/lib/analytics/browser-performance";
 
 export function track(
   event: string,
   properties?: Record<string, string | number | boolean | undefined>,
 ): void {
   try {
-    posthog.capture(event, properties);
+    if (typeof window === "undefined" || !isProductionAnalyticsHost(window.location.hostname)
+      || !process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN) return;
+    void import("posthog-js").then(({ default: posthog }) => {
+      posthog.capture(event, properties);
+    }).catch(() => { /* Analytics must never break the UI. */ });
   } catch {
     /* analytics must never break the UI */
   }

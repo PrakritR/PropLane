@@ -2,7 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
-import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
+import type { DestinationNavItem } from "@/components/ui/destination-nav";
+import { PortalSectionTabsView } from "./portal-section-tabs-view";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
 import { buildPortalNavItems } from "@/components/portal/portal-nav-model";
 import type { ManagerPortalNavTier } from "@/lib/manager-access";
@@ -89,9 +90,7 @@ function SectionTabStrip({
     };
   });
   return (
-    <div className="mb-3 min-w-0 max-w-full shrink-0" data-attr="portal-section-tabs" data-portal-section-tabs data-fold-section={section}>
-      <DestinationNav items={items} activeId={section} ariaLabel={label} appearance="command" />
-    </div>
+    <PortalSectionTabsView items={items} section={section} label={label} />
   );
 }
 

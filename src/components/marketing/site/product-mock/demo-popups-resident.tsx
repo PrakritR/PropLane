@@ -331,9 +331,9 @@ function DemoPlainPage({
 export type HomeChecklist = Array<{ label: string; done: boolean }>;
 
 const ChecklistHref: Record<string, string> = {
-  "Lease signed": "/resident/lease",
-  "Move-in charges paid": "/resident/payments",
-  "Move-in inspection photographed": "/resident/move-in/inspections",
+  "Lease signed": "#demo/lease",
+  "Move-in charges paid": "#demo/payments",
+  "Move-in inspection photographed": "#demo/move-in",
 };
 
 function DetailField({ label, value, sub }: { label: string; value: string; sub?: string }) {

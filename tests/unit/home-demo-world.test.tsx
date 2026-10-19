@@ -9,7 +9,6 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { DEMO_TABS, DemoPanel } from "@/components/marketing/site/product-mock/demo-panels";
 import {
   NO_STORY,
-  managerStory,
   residentConversations,
   residentStory,
   vendorStory,
@@ -18,6 +17,8 @@ import {
 import { PROPERTY_ROWS, RESIDENT_HOME, RESIDENT_NAME } from "@/components/marketing/site/product-mock/fixtures";
 import { ResidentLifecycleWorkspace } from "@/components/marketing/resident-lifecycle-workspace";
 import { PORTAL_META, phoneScriptFor, storyAt } from "@/components/marketing/resident-lifecycle-script";
+import HomeDashboardPanel from "@/components/marketing/home-dashboard-panel";
+import { PREVIEW_ASSISTANT_PROMPTS, previewAssistantAnswer } from "@/components/marketing/home-preview-assistant-data";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -185,6 +186,18 @@ describe("sidebar grouping (the redesigned shell)", () => {
     expect(container.querySelector('[data-demo-tab="communication"]')!.getAttribute("aria-current")).toBeNull();
   });
 
+  it("opens the real Leasing section strip and keeps its selected page and folded row in sync", async () => {
+    const { container } = render(<HomeDashboardPanel portal="manager" />);
+    fireEvent.click(within(container.querySelector(".rlp-nav") as HTMLElement).getByRole("button", { name: "Leasing", exact: true }));
+    const strip = container.querySelector("[data-portal-section-tabs]") as HTMLElement;
+    expect(within(strip).getAllByRole("button").map((button) => button.textContent)).toEqual(["Tours", "Applications", "Leases", "Forms"]);
+    fireEvent.click(within(strip).getByRole("button", { name: "Applications", exact: true }));
+    expect(container.querySelector('[data-demo-tab="leases"]')).toHaveAttribute("aria-current", "page");
+    expect(within(strip).getByRole("button", { name: "Applications", exact: true })).toHaveAttribute("aria-current", "page");
+    expect(within(strip).getByRole("button", { name: "Leases", exact: true })).not.toHaveAttribute("aria-current");
+    expect(await screen.findByRole("heading", { name: "Applications", exact: true }, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
   it("draws the house mark in the top strip and a red count only on an unread Communication", () => {
     const { container } = mount("manager", { badges: { tours: 2, communication: 2 } });
     expect(container.querySelector(".pls-strip svg.pls-strip-mark")).not.toBeNull();
@@ -193,23 +206,29 @@ describe("sidebar grouping (the redesigned shell)", () => {
     expect(container.querySelector('[data-demo-tab="leases"]')!.getAttribute("data-unread")).toBeNull();
   });
 
-  it("docks the assistant as the only right panel, with Needs attention counted from the rows it draws", () => {
-    const needs = [
-      { id: "a", title: "Review Sample Applicant", detail: "Maple Duplex" },
-      { id: "b", title: "Countersign a lease", detail: "Fremont Studio" },
-    ];
-    const { container } = mount("manager", { needs });
-    expect(screen.queryByLabelText("PropLane assistant")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Toggle assistant panel" }));
-    const panel = screen.getByLabelText("PropLane assistant");
-    expect(within(panel).getByText("Needs attention").textContent).toContain(String(needs.length));
-    expect(within(panel).getAllByRole("listitem")).toHaveLength(needs.length);
-    for (const name of ["New chat", "History", "Close assistant"]) expect(within(panel).getByRole("button", { name })).toBeTruthy();
-    fireEvent.click(within(panel).getByRole("button", { name: "Close assistant" }));
-    expect(container.querySelector(".pls-assistant")).toBeNull();
-    // A portal that is not handed rows has no assistant toggle at all.
-    cleanup();
-    mount("resident");
-    expect(screen.queryByRole("button", { name: "Toggle assistant panel" })).toBeNull();
+  it("docks one working Ask PropLane panel for each portal and answers from its sample world", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("The sample assistant must not fetch"); });
+    try {
+      for (const portal of ["manager", "resident", "vendor"] as const) {
+        const story = portal === "vendor" ? vendorStory("visit") : residentStory("pay");
+        const { container } = mount(portal, { story });
+        const entry = screen.getByRole("button", { name: /Ask PropLane or search/ });
+        expect(screen.queryByRole("complementary", { name: "PropLane assistant" })).toBeNull();
+        fireEvent.click(entry);
+        const panel = await screen.findByRole("complementary", { name: "PropLane assistant" }, { timeout: 15_000 });
+        expect(container.querySelectorAll(".pls-assistant")).toHaveLength(1);
+        const prompt = PREVIEW_ASSISTANT_PROMPTS[portal][0]!;
+        fireEvent.click(within(panel).getByRole("button", { name: prompt }));
+        expect(within(panel).getByRole("log")).toHaveTextContent(previewAssistantAnswer(portal, prompt, story));
+        for (const name of ["Start a new conversation", "Past conversations", "Close PropLane Assistant"]) expect(within(panel).getByRole("button", { name })).toBeInTheDocument();
+        fireEvent.click(within(panel).getByRole("button", { name: "Close PropLane Assistant" }));
+        expect(container.querySelector(".pls-assistant")).toBeNull();
+        expect(entry).toHaveFocus();
+        cleanup();
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

@@ -282,10 +282,14 @@ describe("the texted service-link number is shown back to the manager", () => {
 describe("the Statements house filter survives a failed filter", () => {
   it("the tab band renders above the loading / error / empty switch", () => {
     const src = read("src/components/owner/owner-statements.tsx");
-    const band = src.indexOf("<PortalListControlStack");
-    const branch = src.indexOf("{loading && !data ?");
+    const view = src.slice(src.indexOf("export function OwnerStatementsView"));
+    const band = view.indexOf("<PortalListControlStack");
+    const branch = view.indexOf("{status ??");
     expect(band).toBeGreaterThan(-1);
     expect(band).toBeLessThan(branch);
-    expect(src.indexOf("<OwnerError")).toBeGreaterThan(band);
+    expect(view.indexOf("emptyCard")).toBeGreaterThan(branch);
+    const page = src.slice(0, src.indexOf("export function OwnerStatementsView"));
+    expect(page).toContain("const status = loading && !data ? <OwnerLoading /> : error ? <OwnerError");
+    expect(page).toMatch(/<OwnerStatementsView[^>]+status=\{status\}/);
   });
 });

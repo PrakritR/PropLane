@@ -1,6 +1,6 @@
 "use client";
 
-import posthog from "posthog-js";
+import { track } from "@/lib/analytics/track-client";
 import { useEffect, useRef } from "react";
 
 import {
@@ -27,7 +27,7 @@ export function NavigationTiming() {
       if (Object.keys(timing).length === 0) return;
       reported.current = true;
       try {
-        posthog.capture("navigation_timing", {
+        track("navigation_timing", {
           ...timing,
           pathname,
           ...nativeRuntimeMetadata(document.documentElement.getAttribute("data-native")),

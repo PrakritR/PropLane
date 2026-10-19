@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BedDouble, CalendarRange, MessageSquareText, ShieldCheck } from "lucide-react";
-import { MANAGED_SERVICE_HREF } from "@/lib/marketing/managed-service";
+import { MANAGED_CONTACT_HREF } from "@/lib/marketing/managed-service";
 import { TRACK_RECORD, TRACK_RECORD_HOMES } from "@/lib/marketing/track-record";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import {
@@ -18,6 +18,7 @@ import { TrackRecordBand } from "@/components/marketing/site/track-record-band";
 import { WhySubnav } from "@/components/marketing/site/why-subnav";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/#service" },
   title: "Our track record",
   description: `We run ${TRACK_RECORD.homes} homes in Seattle on PropLane: ${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied, and an operation that produced six-figure profit.`,
 };
@@ -113,7 +114,7 @@ export default function TrackRecordPage() {
           ))}
         </ul>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3.5">
-          <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr="track-talk" className={SITE_BTN_PRIMARY}>
+          <Link href={MANAGED_CONTACT_HREF} data-attr="track-talk" className={SITE_BTN_PRIMARY}>
             Talk to us about your home
           </Link>
           <Link href="/why-proplane/how-we-manage" data-attr="track-how" className={SITE_BTN_SECONDARY}>
@@ -126,7 +127,7 @@ export default function TrackRecordPage() {
         title="Want this for your home?"
         primaryAttr="track-closing-talk"
         secondaryAttr="track-closing-software"
-        primaryHref={`${MANAGED_SERVICE_HREF}#talk`}
+        primaryHref={MANAGED_CONTACT_HREF}
         primaryLabel="Talk to us"
         secondaryHref="/pricing"
         secondaryLabel="See software pricing"

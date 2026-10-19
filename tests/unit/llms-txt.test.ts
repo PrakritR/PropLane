@@ -25,7 +25,7 @@ describe("/llms.txt", () => {
     expect(urls.length).toBeGreaterThan(10);
     for (const u of urls) expect(u.startsWith(`${origin}/`)).toBe(true);
     for (const p of BLOG_POSTS) expect(urls).toContain(`${origin}/blog/${p.slug}`);
-    expect(urls).toContain(`${origin}/pricing`);
+    expect(urls).toContain(`${origin}/#pricing`);
   });
 
   it("states plan prices from the rate card", async () => {

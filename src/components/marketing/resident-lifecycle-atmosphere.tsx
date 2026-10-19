@@ -55,7 +55,11 @@ function makeParticles(width: number, height: number): Particle[] {
   return particles;
 }
 
-export function ResidentLifecycleAtmosphere({ variant = "hero" }: { variant?: "hero" | "page" }) {
+export function ResidentLifecycleAtmosphere({ variant = "hero", staticBelow = 0 }: {
+  variant?: "hero" | "page";
+  /** Keep the same drawn production background without a frame loop on small screens. */
+  staticBelow?: number;
+}) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -68,7 +72,9 @@ export function ResidentLifecycleAtmosphere({ variant = "hero" }: { variant?: "h
     // Pointer effects listen on whatever the atmosphere sits behind: the hero, or the whole home page.
     const hero = outerRef.current?.parentElement;
 
-    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motionQuery = window.matchMedia(
+      `(prefers-reduced-motion: reduce)${staticBelow > 0 ? `, (max-width: ${staticBelow - 1}px)` : ""}`,
+    );
     let particles: Particle[] = [];
     let width = 0;
     let height = 0;
@@ -287,7 +293,7 @@ export function ResidentLifecycleAtmosphere({ variant = "hero" }: { variant?: "h
       hero?.removeEventListener("pointerup", onPointerEnd);
       hero?.removeEventListener("pointercancel", onPointerEnd);
     };
-  }, []);
+  }, [staticBelow]);
 
   return (
     <div className={variant === "page" ? "rlp-atmosphere rlp-atmosphere--page" : "rlp-atmosphere"} ref={outerRef} aria-hidden="true">

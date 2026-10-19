@@ -2,7 +2,7 @@
 
 import { CalendarDays, Download, Home } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { formatOwnerUsd, ownerMonthLabel, useOwnerFetch, withOwnerWorkspace } from "@/components/owner/owner-data";
 import { OwnerError, OwnerLoading } from "@/components/owner/owner-ui";
 import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
@@ -38,7 +38,6 @@ export function OwnerStatementsPage() {
   const router = useRouter();
   const workspace = useOwnerWorkspace();
   const [propertyId, setPropertyId] = useState<string>("");
-  const [query, setQuery] = useState("");
   // The whole-portfolio response is both the "All houses" rows and the tab list:
   // the houses come from the STATEMENTS grant, so a house granted Performance
   // but not Statements never shows a tab that 404s, and an owner with
@@ -49,12 +48,38 @@ export function OwnerStatementsPage() {
   );
   const { data, loading, error, reload } = propertyId ? filtered : all;
   const tabs: OwnerStatementHouse[] = all.data?.houses ?? [];
-  const rows = useMemo(() => filterOwnerStatementRows(data?.rows ?? [], query), [data, query]);
   const held = workspace?.active?.managed === true;
   // The ledger is per workspace, so a workspace PropLane holds the funds for has no per-house tabs.
   const houseTabs = held ? [] : tabs;
   const download = (month: string) => window.location.assign(ownerStatementPdfUrl(month, propertyId, workspace?.activeId ?? null, held));
   const open = (month: string) => router.push(`${OWNER_BASE_PATH}/statements/${encodeURIComponent(month)}${propertyId ? `?propertyId=${encodeURIComponent(propertyId)}` : ""}`);
+  const status = loading && !data ? <OwnerLoading /> : error ? <OwnerError message="Couldn't load your statements." onRetry={reload} /> : undefined;
+  return <OwnerStatementsView data={data} tabs={houseTabs} propertyId={propertyId} onPropertyChange={setPropertyId} onDownload={download} onOpen={open} status={status} />;
+}
+
+/**
+ * The statements screen over supplied data. The live page and the homepage's read-only owner sample both draw it, so the sample is
+ * the real screen: same header card, same rows, same menu. `status` replaces the rows while they load or fail.
+ */
+export function OwnerStatementsView({
+  data,
+  tabs,
+  propertyId,
+  onPropertyChange,
+  onDownload,
+  onOpen,
+  status,
+}: {
+  data: OwnerStatements | null;
+  tabs: OwnerStatementHouse[];
+  propertyId: string;
+  onPropertyChange(value: string): void;
+  onDownload(month: string): void;
+  onOpen(month: string): void;
+  status?: ReactNode;
+}) {
+  const [query, setQuery] = useState("");
+  const rows = useMemo(() => filterOwnerStatementRows(data?.rows ?? [], query), [data, query]);
   const latest = data?.rows[0]?.month ?? null;
   return (
     <div data-attr="owner-statements" className="space-y-2">
@@ -62,14 +87,14 @@ export function OwnerStatementsPage() {
         className="plp-header-card mb-2 max-lg:mb-1.5"
         variant="command"
         destinationRow={
-          houseTabs.length > 0 ? (
+          tabs.length > 0 ? (
             <LocalDestinationNav
               items={[
                 { id: "", label: "All houses", dataAttr: "owner-statements-tab-all" },
-                ...houseTabs.map((p) => ({ id: p.propertyId, label: p.label, dataAttr: `owner-statements-tab-${p.propertyId}` })),
+                ...tabs.map((p) => ({ id: p.propertyId, label: p.label, dataAttr: `owner-statements-tab-${p.propertyId}` })),
               ]}
               activeId={propertyId}
-              onChange={setPropertyId}
+              onChange={onPropertyChange}
               ariaLabel="Houses"
               appearance="command"
             />
@@ -80,15 +105,11 @@ export function OwnerStatementsPage() {
         search={{ value: query, onChange: setQuery, placeholder: "Search statements", ariaLabel: "Search statements", dataAttr: "owner-statements-search" }}
         actions={
           latest ? (
-            <PortalIconAction icon={Download} label="Download latest statement" data-attr="owner-statements-download" onClick={() => download(latest)} />
+            <PortalIconAction icon={Download} label="Download latest statement" data-attr="owner-statements-download" onClick={() => onDownload(latest)} />
           ) : undefined
         }
       />
-      {loading && !data ? (
-        <OwnerLoading />
-      ) : error ? (
-        <OwnerError message="Couldn't load your statements." onRetry={reload} />
-      ) : (
+      {status ?? (
         <PortalRecordListSurface
           dataAttr="owner-statements-list"
           isEmpty={rows.length === 0}
@@ -107,13 +128,13 @@ export function OwnerStatementsPage() {
               }
               amount={formatOwnerUsd(row.distributionCents)}
               amountTone={row.distributionCents < 0 ? "bad" : undefined}
-              onOpen={() => open(row.month)}
+              onOpen={() => onOpen(row.month)}
               actions={
                 <RowActionsMenu
                   label={`${ownerMonthLabel(row.month)} statement`}
                   items={[
-                    { id: "view", label: "View", onSelect: () => open(row.month) },
-                    { id: "download", label: "Download PDF", onSelect: () => download(row.month) },
+                    { id: "view", label: "View", onSelect: () => onOpen(row.month) },
+                    { id: "download", label: "Download PDF", onSelect: () => onDownload(row.month) },
                   ]}
                 />
               }

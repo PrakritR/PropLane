@@ -1,18 +1,29 @@
 import Link from "next/link";
-import { MANAGER_PLAN_TIERS, type ManagerPlanTierDefinition, type PlanTierId } from "@/data/manager-plan-tiers";
+import {
+  MANAGER_PLAN_TIERS,
+  managerPlanFeatureSummary,
+  type ManagerPlanTierDefinition,
+  type PlanTierId,
+} from "@/data/manager-plan-tiers";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
-import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
-import { formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
-import { MANAGED_INCLUDES, MANAGED_PRICE_HEADLINE, MANAGED_PRICE_NOTE, MANAGED_SERVICE_HREF, MANAGED_STEPS } from "@/lib/marketing/managed-service";
+import {
+  MANAGED_CONTACT_HREF,
+  MANAGED_INCLUDES,
+  MANAGED_PRICE_HEADLINE,
+  MANAGED_PRICE_NOTE,
+  MANAGED_SERVICE_HREF,
+  MANAGED_STEPS,
+} from "@/lib/marketing/managed-service";
 import { Check, Dash } from "@/components/marketing/site/pricing-compare-data";
-import { PricingSwitch } from "@/components/marketing/site/pricing-switch";
-import { SITE_BTN_PRIMARY, SITE_BTN_SECONDARY } from "@/components/marketing/site/primitives";
+import {
+  SITE_BTN_PRIMARY,
+  SITE_BTN_SECONDARY,
+} from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
 
 /**
- * The shared pricing cards: `/pricing` (software), `/pricing/service` and the
+ * The shared pricing cards: `/pricing`, `/pricing/service` and the
  * home page's pricing band all import from here, so the plans and the managed
  * service can never be listed differently on two surfaces. Every dollar figure
  * is read from `RATE_CARD`; the managed service has no price until the captain
@@ -34,121 +45,144 @@ const TIER_TAGLINE: Record<PlanTierId, string> = {
   business: "Pro at portfolio scale, with a team.",
 };
 
-/**
- * What each card lists. "Everything in X, plus" — a tier repeats nothing the
- * one before it already said, so the difference between two plans is the
- * whole list, not a diff a buyer has to run in their head. Door counts and
- * per-door overage come from `RATE_CARD` — the one enforced source of truth
- * (see its doc comment) — never the legacy, informational-only
- * `FREE_MAX_PROPERTIES`/`PRO_MAX_PROPERTIES`/`BUSINESS_MAX_PROPERTIES`
- * constants in `manager-access.ts`, which that file's own comment says not to
- * read as an enforced limit. Co-managers are unlimited on Pro and Business
- * (`manager-plan-tiers.ts`'s "unlimited co-managers" copy); only Free's door
- * cap is a hard limit. Credit comes from `allowances`, never retyped.
- */
-export function tierIncludes(id: PlanTierId): { heading: string; items: { text: string; included: boolean }[] } {
-  const credit = (t: PlanTierId) => formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS[t]!);
-  const perDoor = (t: "pro" | "business") => formatRateCardUsd(RATE_CARD[t].perExtraDoorMonthlyCents ?? 0);
-  if (id === "free") {
-    return {
-      heading: "What's included",
-      items: [
-        { text: `${RATE_CARD.free.includedDoors} residents`, included: true },
-        { text: "Applications & tour scheduling", included: true },
-        { text: "Rent collection & charges", included: true },
-        { text: "In-app inbox & email", included: true },
-        { text: "Work number, texting & calls", included: false },
-        { text: "Residents, leases & services", included: false },
-        { text: "Co-managers", included: false },
-      ],
-    };
-  }
-  if (id === "pro") {
-    return {
-      heading: "Everything in Free, plus",
-      items: [
-        { text: `${RATE_CARD.pro.includedDoors} residents included, then ${perDoor("pro")}/resident`, included: true },
-        { text: "Residents, leases & services", included: true },
-        { text: "AI drafts in Communication", included: true },
-        { text: "Unlimited co-managers", included: true },
-        { text: "1 work number — texting & calls", included: true },
-        { text: `${credit("pro")}/mo communication credit`, included: true },
-        { text: "Manager may cover processing fees", included: true },
-      ],
-    };
-  }
+/** All feature copy comes from the canonical advertised plan definitions. */
+export function tierIncludes(id: PlanTierId) {
+  const tier = MANAGER_PLAN_TIERS.find((plan) => plan.id === id)!;
   return {
-    heading: "Everything in Pro, plus",
-    items: [
-      { text: `${RATE_CARD.business.includedDoors} residents included, then ${perDoor("business")}/resident`, included: true },
-      { text: "Unlimited co-managers, per-module access", included: true },
-      { text: `${WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces} workspaces, a work number in each`, included: true },
-      { text: `${credit("business")}/mo communication credit`, included: true },
-      { text: "Priority admin support", included: true },
-    ],
+    heading:
+      id === "free"
+        ? "What’s included"
+        : id === "pro"
+          ? "Everything in Free, plus"
+          : "Everything in Pro, plus",
+    items: tier.features,
   };
 }
 
-export function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: boolean }) {
+export function PlanCard({
+  tier,
+  annual,
+  compact = false,
+}: {
+  tier: ManagerPlanTierDefinition;
+  annual: boolean;
+  compact?: boolean;
+}) {
   const featured = tier.id === "pro";
   const price = annual ? tier.annual : tier.monthly;
   const cta = TIER_CTA[tier.id];
   const includes = tierIncludes(tier.id);
-  const headline = tier.id === "free" ? "$0" : price.headline;
+  const headline =
+    tier.id === "free"
+      ? formatRateCardUsd(RATE_CARD.free.floorMonthlyCents)
+      : price.headline;
   const period = tier.id === "free" ? null : annual ? "/yr" : "/mo";
+  if (compact)
+    return (
+      <article
+        className={cn(
+          "pl-pricing-card pl-pricing-compact",
+          featured && "pl-pricing-featured",
+        )}
+        aria-label={tier.label}
+        data-attr={`pricing-plan-${tier.id}`}
+      >
+        <span className="pl-pricing-index" aria-hidden="true">
+          {String(
+            MANAGER_PLAN_TIERS.findIndex((plan) => plan.id === tier.id) + 1,
+          ).padStart(2, "0")}
+        </span>
+        <h3>{tier.label}</h3>
+        <p className="pl-pricing-includes-heading">{includes.heading}</p>
+        <ul className="pl-pricing-short-list">
+          {managerPlanFeatureSummary(tier).map((item) => (
+            <li key={item.text}>
+              <Check />
+              <span>{item.text}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="pl-pricing-price">
+          <strong>{headline}</strong>
+          {period && <span>{period}</span>}
+        </p>
+        <p className="pl-pricing-billing">
+          {tier.id === "free"
+            ? "No card required"
+            : annual
+              ? "Billed yearly"
+              : "Billed monthly"}
+        </p>
+        <Link
+          href={cta.href}
+          data-attr={`pricing-plan-${tier.id}-cta`}
+          className="pl-pricing-cta"
+        >
+          {cta.label}
+        </Link>
+      </article>
+    );
   return (
-    <div
+    <article
+      aria-label={tier.label}
       className={cn(
         "pricing-card relative flex flex-col rounded-3xl border bg-card p-6 sm:p-7",
-        featured ? "pricing-card-featured border-primary/50 pt-12 sm:pt-14" : "border-border",
+        featured
+          ? "pricing-card-featured border-foreground border-2"
+          : "border-border",
       )}
       data-attr={`pricing-plan-${tier.id}`}
     >
-      {featured ? (
-        <span className="absolute inset-x-0 top-0 rounded-t-[23px] bg-primary py-2 text-center text-[11.5px] font-bold uppercase tracking-[0.1em] text-white">
-          Most popular
-        </span>
-      ) : null}
-      <p className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">{tier.label}</p>
-      <p className="mt-2 min-h-[40px] text-[14px] leading-snug text-muted">{TIER_TAGLINE[tier.id]}</p>
+      <h3 className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">
+        {tier.label}
+      </h3>
+      <p className="mt-2 min-h-[40px] text-[14px] leading-snug text-muted">
+        {TIER_TAGLINE[tier.id]}
+      </p>
       <p className="mt-5 flex items-end gap-1.5">
-        <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">{headline}</span>
-        {period ? <span className="pb-1 text-[14px] text-muted">{period}</span> : null}
+        <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">
+          {headline}
+        </span>
+        {period ? (
+          <span className="pb-1 text-[14px] text-muted">{period}</span>
+        ) : null}
       </p>
       <p className="mt-1.5 text-[12.5px] text-muted">
-        {tier.id === "free" ? "forever · no card" : annual ? "billed yearly · two months free" : "billed monthly"}
+        {tier.id === "free"
+          ? "forever · no card"
+          : annual
+            ? "billed yearly · two months free"
+            : "billed monthly"}
       </p>
       <Link
         href={cta.href}
         data-attr={`pricing-plan-${tier.id}-cta`}
-        className={cn("mt-6 w-full", featured ? SITE_BTN_PRIMARY : SITE_BTN_SECONDARY)}
+        className={cn(
+          "mt-6 w-full",
+          featured ? SITE_BTN_PRIMARY : SITE_BTN_SECONDARY,
+        )}
       >
         {cta.label}
       </Link>
-      <p className="mt-7 border-t border-border/70 pt-6 text-[12px] font-bold uppercase tracking-[0.08em] text-foreground">{includes.heading}</p>
+      <p className="mt-7 border-t border-border/70 pt-6 text-[12px] font-bold uppercase tracking-[0.08em] text-foreground">
+        {includes.heading}
+      </p>
       <ul className="mt-4 flex flex-col gap-3">
         {includes.items.map((f) => (
-          <li key={f.text} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
-            <span className="mt-[2px] grid h-[18px] w-[18px] shrink-0 place-items-center">{f.included ? <Check /> : <Dash />}</span>
-            <span className={f.included ? "text-foreground" : "text-muted/70"}>{f.text}</span>
+          <li
+            key={f.text}
+            className="flex items-start gap-2.5 text-[13.5px] leading-snug"
+          >
+            <span className="mt-[2px] grid h-[18px] w-[18px] shrink-0 place-items-center">
+              {f.included ? <Check /> : <Dash />}
+            </span>
+            <span className={f.included ? "text-foreground" : "text-muted/70"}>
+              {f.text}
+            </span>
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/** The three software plans, monthly. `annual` mirrors the /pricing billing toggle. */
-export function SoftwarePricingCards({ annual = false }: { annual?: boolean }) {
-  return (
-    <div
-      className="flex flex-col gap-5 pt-3 md:grid md:grid-cols-3 md:items-stretch md:gap-6 md:pt-0"
-      data-attr="pricing-plan-stack"
-    >
-      {MANAGER_PLAN_TIERS.map((tier) => (
-        <PlanCard key={tier.id} tier={tier} annual={annual} />
-      ))}
-    </div>
+    </article>
   );
 }
 
@@ -175,27 +209,47 @@ export function ServicePricingCard({
       data-attr={attrPrefix}
     >
       <div className="flex flex-col">
-        <p className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">Managed service</p>
-        <p className="mt-2 text-[14px] leading-snug text-muted">We run your home on PropLane, so you do not have to.</p>
+        <p className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">
+          Managed service
+        </p>
+        <p className="mt-2 text-[14px] leading-snug text-muted">
+          We run your home on PropLane, so you do not have to.
+        </p>
         <p className="mt-5 flex items-end gap-1.5">
-          <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">{MANAGED_PRICE_HEADLINE}</span>
+          <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">
+            {MANAGED_PRICE_HEADLINE}
+          </span>
         </p>
         <p className="mt-1.5 text-[12.5px] text-muted">{MANAGED_PRICE_NOTE}</p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link href={`${MANAGED_SERVICE_HREF}#talk`} data-attr={`${attrPrefix}-talk`} className={SITE_BTN_PRIMARY}>
+          <Link
+            href={MANAGED_CONTACT_HREF}
+            data-attr={`${attrPrefix}-talk`}
+            className={SITE_BTN_PRIMARY}
+          >
             Talk to us
           </Link>
-          <Link href={MANAGED_SERVICE_HREF} data-attr={`${attrPrefix}-details`} className={SITE_BTN_SECONDARY}>
+          <Link
+            href={MANAGED_SERVICE_HREF}
+            data-attr={`${attrPrefix}-details`}
+            className={SITE_BTN_SECONDARY}
+          >
             See how it works
           </Link>
         </div>
         {showSteps ? (
           <ol className="mt-8 space-y-3 border-t border-border/70 pt-6">
             {MANAGED_STEPS.map((s, i) => (
-              <li key={s.id} className="flex items-start gap-3 text-[13.5px] leading-snug">
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-[12px] font-bold text-primary">{i + 1}</span>
+              <li
+                key={s.id}
+                className="flex items-start gap-3 text-[13.5px] leading-snug"
+              >
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-[12px] font-bold text-primary">
+                  {i + 1}
+                </span>
                 <span>
-                  <span className="font-bold text-foreground">{s.title}.</span> <span className="text-muted">{s.copy}</span>
+                  <span className="font-bold text-foreground">{s.title}.</span>{" "}
+                  <span className="text-muted">{s.copy}</span>
                 </span>
               </li>
             ))}
@@ -203,15 +257,23 @@ export function ServicePricingCard({
         ) : null}
       </div>
       <div>
-        <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-foreground">What is included</p>
+        <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-foreground">
+          What is included
+        </p>
         <ul className="mt-4 flex flex-col gap-3.5">
           {MANAGED_INCLUDES.map((f) => (
-            <li key={f.id} className="flex items-start gap-2.5 text-[14px] leading-snug">
+            <li
+              key={f.id}
+              className="flex items-start gap-2.5 text-[14px] leading-snug"
+            >
               <span className="mt-[2px] grid h-[18px] w-[18px] shrink-0 place-items-center">
                 <Check />
               </span>
               <span>
-                <span className="font-semibold text-foreground">{f.title}.</span> <span className="text-muted">{f.copy}</span>
+                <span className="font-semibold text-foreground">
+                  {f.title}.
+                </span>{" "}
+                <span className="text-muted">{f.copy}</span>
               </span>
             </li>
           ))}
@@ -221,18 +283,73 @@ export function ServicePricingCard({
   );
 }
 
-/**
- * The home page's pricing band: Software | Managed service tabs over the plan
- * cards and the service card. codex-1: import `PricingCards` and drop it in
- * `/`; it needs no props. Wrap it in your own section/heading.
- */
-export function PricingCards({ defaultView = "software" }: { defaultView?: "software" | "service" }) {
+/** A fourth plan in the same comparison row; the full service detail card above stays on /pricing/service. */
+function ManagedPlanCard({ compact }: { compact: boolean }) {
   return (
-    <PricingSwitch
-      attrPrefix="home-pricing-switch"
-      defaultView={defaultView}
-      software={<SoftwarePricingCards />}
-      service={<ServicePricingCard attrPrefix="home-pricing-service" />}
-    />
+    <article
+      className={cn(
+        "pl-pricing-card pl-pricing-managed",
+        compact && "pl-pricing-compact",
+      )}
+      aria-label="We manage it for you"
+      data-attr="pricing-plan-managed"
+    >
+      {compact && (
+        <span className="pl-pricing-index" aria-hidden="true">
+          04
+        </span>
+      )}
+      <h3>We manage it for you</h3>
+      <p className="pl-pricing-price">
+        <strong>{MANAGED_PRICE_HEADLINE}</strong>
+      </p>
+      <p className="pl-pricing-billing">
+        {compact ? "Quoted for your home" : MANAGED_PRICE_NOTE}
+      </p>
+      <p className="pl-pricing-includes-heading">Our team takes care of</p>
+      <ul className="pl-pricing-short-list">
+        {MANAGED_INCLUDES.map((item) => (
+          <li key={item.id}>
+            <Check />
+            <span>{item.title}</span>
+          </li>
+        ))}
+      </ul>
+      <Link
+        href={MANAGED_CONTACT_HREF}
+        prefetch={false}
+        className="pl-pricing-cta"
+        data-attr="pricing-plan-managed-cta"
+      >
+        Talk to us
+      </Link>
+    </article>
+  );
+}
+
+/** Four choices are always visible in the same row; billing changes only software prices. */
+export function PricingCards({
+  annual = false,
+  variant = "full",
+}: {
+  annual?: boolean;
+  variant?: "full" | "overview";
+}) {
+  const compact = variant === "overview";
+  return (
+    <>
+    <div
+      className={cn("pl-pricing-options", compact && "pl-pricing-overview")}
+      role="region"
+      aria-label="Pricing options"
+      data-attr="pricing-plan-stack"
+    >
+      {MANAGER_PLAN_TIERS.map((tier) => (
+        <PlanCard key={tier.id} tier={tier} annual={annual} compact={compact} />
+      ))}
+      <ManagedPlanCard compact={compact} />
+    </div>
+    {compact && <p className="pl-pricing-fee-note">{MANAGER_PLAN_TIERS[0].features[8].text}.</p>}
+    </>
   );
 }

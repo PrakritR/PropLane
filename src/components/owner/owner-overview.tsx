@@ -16,12 +16,12 @@ import type {
   OwnerUpcomingItem,
 } from "@/lib/property-owner/projection";
 
-export function OwnerIncomeChart({ points }: { points: OwnerChartPoint[] }) {
+export function OwnerIncomeChart({ points, periodLabel = "last 12 months" }: { points: OwnerChartPoint[]; periodLabel?: string }) {
   const max = Math.max(1, ...points.flatMap((p) => [p.incomeCents, p.expensesCents]));
   return (
     <div className="rounded-[10px] border border-border bg-card p-4" data-attr="owner-chart">
-      <p className="text-sm font-[650] text-foreground">Income and expenses · last 12 months</p>
-      <div className="mt-3 flex h-24 items-end gap-1.5" role="img" aria-label="Income and expenses for the last 12 months">
+      <p className="text-sm font-[650] text-foreground">Income and expenses · {periodLabel}</p>
+      <div className="mt-3 flex h-24 items-end gap-1.5" role="img" aria-label={`Income and expenses for the ${periodLabel}`}>
         {points.map((p) => (
           <div
             key={p.month}
@@ -53,7 +53,19 @@ export function OwnerIncomeChart({ points }: { points: OwnerChartPoint[] }) {
 }
 
 /** The five cards. A managed workspace shows PropLane's fee, the owner's net and what can be withdrawn; any other shows net income. */
-export function OwnerKpis({ summary, extras }: { summary: OwnerSummary; extras: OwnerOverviewExtras | null }) {
+export function OwnerKpis({
+  summary,
+  extras,
+  yearToDateKnown = true,
+  rentDueKnown = true,
+}: {
+  summary: OwnerSummary;
+  extras: OwnerOverviewExtras | null;
+  /** False where the year's figure is not supplied (the homepage sample): the card reads a dash, never a made-up zero. */
+  yearToDateKnown?: boolean;
+  /** False where rent due is not supplied (the homepage sample). */
+  rentDueKnown?: boolean;
+}) {
   const t = summary.totals;
   const occupancy = t.units > 0 ? Math.round((t.occupied / t.units) * 100) : 0;
   const month = ownerMonthLabel(summary.period, true);
@@ -71,7 +83,7 @@ export function OwnerKpis({ summary, extras }: { summary: OwnerSummary; extras: 
       label={`Rent collected · ${month}`}
       // PropLane-held rent never touches the manager's own books, so a managed workspace reads it from its ledger.
       value={formatOwnerUsd(extras?.managed ? extras.managed.rentCents : t.rentCollectedCents)}
-      unit={extras?.managed ? undefined : `of ${formatOwnerUsd(t.rentDueCents)} due`}
+      unit={extras?.managed || !rentDueKnown ? undefined : `of ${formatOwnerUsd(t.rentDueCents)} due`}
       href={`${OWNER_BASE_PATH}/statements`}
       dataAttr="owner-kpi-rent"
     />,
@@ -114,14 +126,14 @@ export function OwnerKpis({ summary, extras }: { summary: OwnerSummary; extras: 
       <KpiCard
         key="net-ytd"
         label={`Net income · ${summary.period.slice(0, 4)}`}
-        value={formatOwnerUsd(t.netYtdCents)}
+        value={yearToDateKnown ? formatOwnerUsd(t.netYtdCents) : "—"}
         href={`${OWNER_BASE_PATH}/statements`}
         dataAttr="owner-kpi-net-ytd"
       />,
       <KpiCard
         key="due"
         label="Rent due"
-        value={formatOwnerUsd(t.rentDueCents)}
+        value={rentDueKnown ? formatOwnerUsd(t.rentDueCents) : "—"}
         unit={month}
         href={`${OWNER_BASE_PATH}/statements`}
         dataAttr="owner-kpi-due"
@@ -237,6 +249,35 @@ export function OwnerUpcomingPanel({ items }: { items: readonly OwnerUpcomingIte
   );
 }
 
+/**
+ * The overview's successful-data presentation. The live page and the homepage's read-only owner sample both draw it, so the
+ * sample is the real screen over supplied data.
+ */
+export function OwnerOverviewView({
+  data,
+  extras,
+  chartPeriodLabel,
+  yearToDateKnown = true,
+  rentDueKnown = true,
+}: {
+  data: OwnerSummary;
+  extras: OwnerOverviewExtras | null;
+  chartPeriodLabel?: string;
+  yearToDateKnown?: boolean;
+  rentDueKnown?: boolean;
+}) {
+  return (
+    <>
+      <OwnerKpis summary={data} extras={extras} yearToDateKnown={yearToDateKnown} rentDueKnown={rentDueKnown} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <OwnerAttentionPanel items={extras?.attention ?? []} />
+        <OwnerUpcomingPanel items={extras?.upcoming ?? []} />
+      </div>
+      <OwnerIncomeChart points={data.chart} periodLabel={chartPeriodLabel} />
+    </>
+  );
+}
+
 /** Overview: the five cards, Needs attention and Upcoming side by side, then the twelve-month chart. */
 export function OwnerOverview() {
   const workspace = useOwnerWorkspace();
@@ -257,14 +298,7 @@ export function OwnerOverview() {
       ) : empty || !data ? (
         <OwnerEmpty />
       ) : (
-        <>
-          <OwnerKpis summary={data} extras={extras.data} />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <OwnerAttentionPanel items={extras.data?.attention ?? []} />
-            <OwnerUpcomingPanel items={extras.data?.upcoming ?? []} />
-          </div>
-          <OwnerIncomeChart points={data.chart} />
-        </>
+        <OwnerOverviewView data={data} extras={extras.data} />
       )}
     </div>
   );

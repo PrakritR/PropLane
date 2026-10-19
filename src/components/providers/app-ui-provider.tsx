@@ -10,9 +10,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Modal } from "@/components/ui/modal";
-import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
-import { applyDevResetEpoch } from "@/lib/dev/reset-epoch";
+import dynamic from "next/dynamic";
+
+const Modal = dynamic(() => import("@/components/ui/modal").then((module) => module.Modal), { ssr: false });
+const ConfirmDeleteModal = dynamic(() => import("@/components/portal/confirm-delete-modal").then((module) => module.ConfirmDeleteModal), { ssr: false });
 
 type Toast = { id: number; message: string; undo?: () => void | Promise<void>; actionLabel?: string };
 
@@ -57,7 +58,12 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
   // (PRP-195). No-ops entirely unless NEXT_PUBLIC_DEV_RESET_EPOCH is set, which
   // it never is in production.
   useEffect(() => {
-    applyDevResetEpoch();
+    if (!process.env.NEXT_PUBLIC_DEV_RESET_EPOCH) return;
+    let disposed = false;
+    void import("@/lib/dev/reset-epoch").then(({ applyDevResetEpoch }) => {
+      if (!disposed) applyDevResetEpoch();
+    });
+    return () => { disposed = true; };
   }, []);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -154,14 +160,14 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
           </div>
         ))}
       </div>
-      <Modal
+      {modal && <Modal
         open={Boolean(modal)}
         title={modal?.title ?? ""}
         onClose={closeModal}
       >
         <p className="text-sm text-muted">{modal?.body}</p>
-      </Modal>
-      <ConfirmDeleteModal
+      </Modal>}
+      {confirmRequest && <ConfirmDeleteModal
         open={Boolean(confirmRequest)}
         title={confirmRequest?.title ?? "Delete"}
         description={confirmRequest?.description ?? ""}
@@ -172,7 +178,7 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
         guard={confirmRequest?.guard ?? "confirm"}
         onClose={() => settleConfirm(false)}
         onConfirm={() => settleConfirm(true)}
-      />
+      />}
     </AppUiContext.Provider>
   );
 }

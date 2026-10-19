@@ -45,15 +45,6 @@
   overflow: clip;
 }
 
-/* The footer is always a readable solid surface, on the home page's wavy field too (the home
-   stylesheet makes it transparent, which left it near-invisible against the canvas). */
-.axis-page-frame footer[data-site-footer] {
-  position: relative;
-  z-index: 10;
-  background: linear-gradient(180deg, #eaf2fa 0%, #dae7f3 100%);
-  border-top-color: #c5d8ea;
-}
-
 .site-page > .rlp-atmosphere {
   position: sticky;
   inset: 0 auto auto auto;

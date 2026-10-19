@@ -16,7 +16,7 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
  */
 describe("PRP-125: marketing copy addresses managers AND landlords", () => {
   it("names both audiences in the Product dropdown", () => {
-    const navbar = read("src/components/layout/public-navbar.tsx");
+    const navbar = read("src/components/layout/legacy-public-navbar.tsx");
     // The mega menu's "Who it's for" column names both audiences (site round 2 §4).
     expect(navbar).toContain('title: "Managers & landlords"');
     // The residents/vendors entries sit beside it in the same column — this is not a blanket rename.
@@ -30,9 +30,8 @@ describe("PRP-125: marketing copy addresses managers AND landlords", () => {
     expect(partner).toContain("Built for how managers and landlords actually work");
   });
 
-  it("names both on the why-PropLane role card", () => {
+  it("keeps the former Why page on the single-page service section", () => {
     const why = read("src/app/(public)/why-proplane/page.tsx");
-    expect(why).toContain('title: "Managers & landlords"');
-    expect(why).toContain('cta: "For managers & landlords"');
+    expect(why).toContain('permanentRedirect("/#service")');
   });
 });

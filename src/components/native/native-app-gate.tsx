@@ -3,8 +3,6 @@
 import { isNativeAppAllowedPath } from "@/lib/auth/native-entry-paths";
 import { redirectNativeFromMarketing } from "@/lib/auth/native-welcome-redirect";
 import { detectNativePlatformSync, tagHtmlNativePlatform } from "@/lib/native/detect-native";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -16,7 +14,9 @@ export function NativeAppGate({ children }: { children: ReactNode }) {
   const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
-    void Promise.resolve().then(() => {
+    let disposed = false;
+    void Promise.resolve().then(async () => {
+      if (disposed) return;
       const platform = detectNativePlatformSync();
       if (platform) tagHtmlNativePlatform(platform);
 
@@ -31,12 +31,18 @@ export function NativeAppGate({ children }: { children: ReactNode }) {
       }
 
       setBlocked(true);
+      const [{ createSupabaseBrowserClient }, { safeBrowserGetSession }] = await Promise.all([
+        import("@/lib/supabase/browser"),
+        import("@/lib/supabase/safe-browser-session"),
+      ]);
+      if (disposed) return;
       const supabase = createSupabaseBrowserClient();
       void redirectNativeFromMarketing(async () => {
         const { session } = await safeBrowserGetSession(supabase);
         return { session };
       });
     });
+    return () => { disposed = true; };
   }, [pathname]);
 
   if (blocked) {

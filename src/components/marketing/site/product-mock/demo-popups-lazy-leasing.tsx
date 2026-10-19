@@ -9,6 +9,7 @@
  */
 
 import dynamic from "next/dynamic";
+import { DemoPopupLoading, DemoSampleLoading } from "./demo-sample-loading";
 import { Filter } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
@@ -29,15 +30,15 @@ export const DemoToursFilter = dynamic(() => leasing().then((m) => m.DemoToursFi
 export const DemoApplicationsFilter = dynamic(() => leasing().then((m) => m.DemoApplicationsFilter), { ssr: false, loading: filterFallback });
 export const DemoLeasesFilter = dynamic(() => leasing().then((m) => m.DemoLeasesFilter), { ssr: false, loading: filterFallback });
 
-export const DemoNotifyPopup = dynamic(() => leasing().then((m) => m.DemoNotifyPopup), { ssr: false });
+export const DemoNotifyPopup = dynamic(() => leasing().then((m) => m.DemoNotifyPopup), { ssr: false, loading: DemoPopupLoading });
 
-export const DemoTourAvailabilityPopup = dynamic(() => leasing().then((m) => m.DemoTourAvailabilityPopup), { ssr: false });
-export const DemoShareLinkPopup = dynamic(() => leasing().then((m) => m.DemoShareLinkPopup), { ssr: false });
-export const DemoAddTourPopup = dynamic(() => leasing().then((m) => m.DemoAddTourPopup), { ssr: false });
-export const DemoTourRecord = dynamic(() => leasing().then((m) => m.DemoTourRecord), { ssr: false });
+export const DemoTourAvailabilityPopup = dynamic(() => leasing().then((m) => m.DemoTourAvailabilityPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoShareLinkPopup = dynamic(() => leasing().then((m) => m.DemoShareLinkPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoAddTourPopup = dynamic(() => leasing().then((m) => m.DemoAddTourPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoTourRecord = dynamic(() => leasing().then((m) => m.DemoTourRecord), { ssr: false, loading: DemoSampleLoading });
 
-export const DemoAddApplicationPopup = dynamic(() => leasing().then((m) => m.DemoAddApplicationPopup), { ssr: false });
-export const DemoApplicationRecord = dynamic(() => leasing().then((m) => m.DemoApplicationRecord), { ssr: false });
+export const DemoAddApplicationPopup = dynamic(() => leasing().then((m) => m.DemoAddApplicationPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoApplicationRecord = dynamic(() => leasing().then((m) => m.DemoApplicationRecord), { ssr: false, loading: DemoSampleLoading });
 
-export const DemoSendLeasePopup = dynamic(() => leasing().then((m) => m.DemoSendLeasePopup), { ssr: false });
-export const DemoLeaseRecord = dynamic(() => leasing().then((m) => m.DemoLeaseRecord), { ssr: false });
+export const DemoSendLeasePopup = dynamic(() => leasing().then((m) => m.DemoSendLeasePopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoLeaseRecord = dynamic(() => leasing().then((m) => m.DemoLeaseRecord), { ssr: false, loading: DemoSampleLoading });

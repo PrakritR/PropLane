@@ -29,7 +29,18 @@ export function filterOwnerProperties(properties: readonly OwnerPropertySummary[
 }
 
 /** `held`: PropLane holds this workspace's funds, so the rent never reaches the manager's books and the row says only what is true there. */
-export function OwnerPropertyRow({ property, onOpen, held = false }: { property: OwnerPropertySummary; onOpen: () => void; held?: boolean }) {
+export function OwnerPropertyRow({
+  property,
+  onOpen,
+  held = false,
+  rentDueKnown = true,
+}: {
+  property: OwnerPropertySummary;
+  onOpen: () => void;
+  held?: boolean;
+  /** False where rent due is not supplied (the homepage sample): the row says what was collected, not "of $0". */
+  rentDueKnown?: boolean;
+}) {
   return (
     <PortalPropertyRecordRow
       title={property.label}
@@ -48,7 +59,8 @@ export function OwnerPropertyRow({ property, onOpen, held = false }: { property:
             ) : null
           ) : (
             <PortalRowFact icon={Banknote} srLabel="Rent collected">
-              {formatOwnerUsd(property.rentCollectedCents)} of {formatOwnerUsd(property.rentDueCents)} collected
+              {formatOwnerUsd(property.rentCollectedCents)}
+              {rentDueKnown ? ` of ${formatOwnerUsd(property.rentDueCents)}` : ""} collected
             </PortalRowFact>
           )}
         </>
@@ -66,9 +78,41 @@ export function OwnerPropertiesList() {
   const router = useRouter();
   const held = useOwnerWorkspace()?.active?.managed === true;
   const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>("/api/owner/summary");
+  return (
+    <OwnerPropertiesListView
+      properties={data?.properties ?? []}
+      loading={loading && !data}
+      error={error}
+      onRetry={reload}
+      held={held}
+      onOpenProperty={(id) => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(id)}`)}
+    />
+  );
+}
+
+/**
+ * The properties screen over supplied rows. The live page and the homepage's read-only owner sample both draw it, so the sample is
+ * the real list: same header card, tabs, search and rows.
+ */
+export function OwnerPropertiesListView({
+  properties,
+  loading = false,
+  error = null,
+  onRetry = () => {},
+  held = false,
+  rentDueKnown = true,
+  onOpenProperty,
+}: {
+  properties: readonly OwnerPropertySummary[];
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  held?: boolean;
+  rentDueKnown?: boolean;
+  onOpenProperty(propertyId: string): void;
+}) {
   const [tab, setTab] = useState<PropertyTab>("all");
   const [query, setQuery] = useState("");
-  const properties = data?.properties ?? [];
   const tabs = useMemo(() => ownerPropertyTabs(properties), [properties]);
   const rows = useMemo(() => filterOwnerProperties(properties, tab, query), [properties, tab, query]);
   const forbidden = error === "Forbidden.";
@@ -91,20 +135,19 @@ export function OwnerPropertiesList() {
         search={{ value: query, onChange: setQuery, placeholder: "Search properties", ariaLabel: "Search properties", dataAttr: "owner-properties-search" }}
       />
       {error && !forbidden ? (
-        <OwnerError message="Couldn't load your properties." onRetry={reload} />
+        <OwnerError message="Couldn't load your properties." onRetry={onRetry} />
       ) : (
         <PortalRecordListSurface
           dataAttr="owner-properties-list"
-          loading={loading && !data}
+          loading={loading}
           isEmpty={forbidden || rows.length === 0}
           emptyCard={{ title: forbidden ? "No properties are shared with you" : query ? "No matching properties" : tab === "vacancies" ? "No vacancies" : "No properties yet", section: "properties" }}
         >
           {rows.map((p) => (
-            <OwnerPropertyRow key={p.propertyId} property={p} held={held} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
+            <OwnerPropertyRow key={p.propertyId} property={p} held={held} rentDueKnown={rentDueKnown} onOpen={() => onOpenProperty(p.propertyId)} />
           ))}
         </PortalRecordListSurface>
       )}
     </div>
   );
 }
-

@@ -1,3 +1,4 @@
+import { HOME_DESCRIPTION } from "@/lib/marketing/home-copy";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGED_SERVICE_HREF, MANAGED_SERVICE_NAME } from "@/lib/marketing/managed-service";
@@ -36,10 +37,11 @@ export function llmsOrigin(env: NodeJS.ProcessEnv = process.env): string {
 const usd = formatRateCardUsd;
 
 export const LLMS_SUMMARY =
-  `PropLane is property management software for shared houses and room rentals. ` +
+  `${HOME_DESCRIPTION} ` +
+  `PropLane offers property management software and hands-on managed service for shared houses and room rentals. ` +
   `It runs listings, applications, tours, leases, rent collection and payments, bookings (including Airbnb calendar sync), ` +
-  `a work phone number and work email for each workspace, and separate resident and vendor portals, with an AI assistant ` +
-  `that drafts work and never sends without the manager's approval. Built in Seattle. ` +
+  `one shared texting number, workspace email, and separate resident and vendor portals. ` +
+  `Managers control drafts and enabled automations. Built in Seattle. ` +
   `Pricing: Free for ${RATE_CARD.free.includedDoors} residents, Pro at ${usd(RATE_CARD.pro.floorMonthlyCents)}/month ` +
   `(${RATE_CARD.pro.includedDoors} residents included), Business at ${usd(RATE_CARD.business.floorMonthlyCents)}/month ` +
   `(${RATE_CARD.business.includedDoors} residents included); ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day trial on paid plans, no card required. ` +
@@ -54,10 +56,11 @@ const DOCS: Entry[] = [
 
 const PRODUCT: Entry[] = [
   { title: "Home", path: "/", note: "What PropLane does, from first tour to fixed faucet." },
-  { title: "Why PropLane", path: "/why-proplane", note: "PropLane's founders manage Airbnb and room-rental homes in Seattle themselves, which produced six-figure profit; PropLane is the system they built to run them." },
-  { title: "Our track record", path: "/why-proplane/track-record", note: `The ${TRACK_RECORD.homes} Seattle homes PropLane runs itself: ${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied, and an operation that produced six-figure profit.` },
-  { title: "How we manage", path: "/why-proplane/how-we-manage", note: "How PropLane Managed runs a home: leasing, rent, maintenance, short-term and room rentals, a 24/7 texting line and owner reporting." },
-  { title: "The software", path: "/why-proplane/software", note: "The AI assistant does the relaying between residents, vendors and owners; you approve what matters." },
+  { title: "How it works", path: "/#how", note: "One PropLane number for prospects, residents, vendors and accepted workspace members." },
+  { title: "Why PropLane", path: "/#service", note: "PropLane's founders manage Airbnb and room-rental homes in Seattle themselves, which produced six-figure profit; PropLane is the system they built to run them." },
+  { title: "Our track record", path: "/#service", note: `The ${TRACK_RECORD.homes} Seattle homes PropLane runs itself: ${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied, and an operation that produced six-figure profit.` },
+  { title: "How we manage", path: "/#service", note: "How PropLane Managed runs a home: leasing, rent, maintenance, short-term and room rentals, a 24/7 texting line and owner reporting." },
+  { title: "The software", path: "/#dashboard", note: "The AI assistant does the relaying between residents, vendors and owners; you approve what matters." },
   { title: "For managers and landlords", path: "/partner", note: "List, screen, lease and collect from one queue on web and iPhone." },
   { title: "Vendors", path: "/vendors", note: "Get matched to jobs by text, bid from your phone, and get paid through PropLane." },
   { title: "PropLane for iPhone", path: "/app", note: "The approval queue on your phone." },
@@ -67,14 +70,12 @@ const PRODUCT: Entry[] = [
 
 const PRICING: Entry[] = [
   { title: MANAGED_SERVICE_NAME, path: MANAGED_SERVICE_HREF, note: "We manage your home on PropLane: leasing and tenant placement, rent collection, maintenance with vendors, short-term and room rentals, a 24/7 texting line and owner reporting. Custom, quoted per home." },
-  { title: "Pricing", path: "/pricing", note: `Free for ${RATE_CARD.free.includedDoors} residents; Pro ${usd(RATE_CARD.pro.floorMonthlyCents)}/mo; Business ${usd(RATE_CARD.business.floorMonthlyCents)}/mo.` },
+  { title: "Pricing", path: "/#pricing", note: `Free for ${RATE_CARD.free.includedDoors} residents; Pro ${usd(RATE_CARD.pro.floorMonthlyCents)}/mo; Business ${usd(RATE_CARD.business.floorMonthlyCents)}/mo.` },
 ];
 
 const OPTIONAL: Entry[] = [
   { title: "About", path: "/about", note: "Built by property managers in Seattle who run their own rentals on it." },
-  { title: "Contact", path: "/contact", note: "Talk to the team or book a demo." },
-  { title: "Support", path: "/support", note: "Help for residents and property managers." },
-  { title: "Reviews", path: "/reviews", note: "Reviews from managers, residents and vendors, with their permission." },
+  { title: "Contact", path: "/#contact", note: "Talk to the team about your home or get support." },
   { title: "Privacy Policy", path: "/privacy", note: "How information is collected, used and protected." },
   { title: "Terms of Service", path: "/tos", note: "Terms governing use of PropLane." },
 ];

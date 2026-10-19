@@ -50,7 +50,19 @@ import { MANAGER_DASHBOARD_SECTIONS } from "@/lib/dashboard-preferences";
 import { RESIDENT_DASHBOARD_SECTIONS } from "@/lib/resident-dashboard-preferences";
 import { DemoCustomizeDashboard } from "@/components/marketing/site/product-mock/demo-popups-lazy-resident";
 
-const NO_OP = () => undefined;
+type DashboardNavigationProps = { onNavigate?: (section: string) => void };
+
+/** Fragment-only destinations cannot prefetch authenticated portal routes. */
+function DashboardNavigation({ children, onNavigate }: DashboardNavigationProps & { children: ReactNode }) {
+  return <div className="contents" onClickCapture={(event) => {
+    const anchor = (event.target as Element).closest("a");
+    const href = anchor?.getAttribute("href");
+    if (!href?.startsWith("#")) return;
+    event.preventDefault();
+    const section = href.replace(/^#(?:demo)?\/?/, "").split(/[/?#]/)[0];
+    if (section) onNavigate?.(section === "sign-and-pay" ? "lease" : section);
+  }}>{children}</div>;
+}
 
 /** Which sections the Customize dashboard pop-up shows: every section at its default, then whatever the visitor toggles. */
 function defaultVisibility(sections: ReadonlyArray<{ id: string; defaultVisible: boolean }>): Record<string, boolean> {
@@ -88,7 +100,7 @@ const ACTIVATED = new Set(["res-liam", "res-priya", "res-maya"]);
 
 const placeLine = (place: string) => place;
 
-export function ManagerDashboardView({ story }: { story?: DemoStory }) {
+export function ManagerDashboardView({ story, scrollWithinWindow = true, onNavigate }: { story?: DemoStory; scrollWithinWindow?: boolean } & DashboardNavigationProps) {
   const [customizing, setCustomizing] = useState(false);
   const [vis, setVis] = useState(() => defaultVisibility(MANAGER_DASHBOARD_SECTIONS));
   const [nowMs] = useState(() => Date.now());
@@ -127,9 +139,9 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
   const rentOf = (place: string) => PROPERTY_ROWS.find((p) => place.includes(p.title))?.rentLabel.replace("/mo", " / month");
 
   return (
-    <ProductWindow path="/portal/dashboard" nativeHeight={900}>
+    <DashboardNavigation onNavigate={onNavigate}><ProductWindow path="/portal/dashboard" nativeHeight={900}>
       <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle>
+        <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle stickyPageChrome={scrollWithinWindow}>
           <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <KpiCard
@@ -140,7 +152,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                 series={dashboard.occupancy.series}
                 seriesLabels={labels}
                 format={(n) => `${n}%`}
-                href="#"
+                href="#demo/properties"
                 dataAttr="dashboard-metric-occupied"
               />
               <KpiCard
@@ -151,7 +163,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                 series={dashboard.rentCollected.series}
                 seriesLabels={labels}
                 format={usdWhole}
-                href="#"
+                href="#demo/payments"
                 dataAttr="dashboard-metric-collected"
               />
               <KpiCard
@@ -162,7 +174,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                 series={dashboard.openRequests.series}
                 seriesLabels={labels}
                 format={String}
-                href="#"
+                href="#demo/services"
                 dataAttr="dashboard-metric-requests"
               />
               <KpiCard
@@ -170,21 +182,21 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                 value={dashboard.applicationsReady.value}
                 unit={dashboard.applicationsReady.unit}
                 delta={null}
-                href="#"
+                href="#demo/applications"
                 dataAttr="dashboard-metric-applications"
               />
             </div>
 
             <div className="grid items-stretch gap-4 lg:grid-cols-2">
               <AttentionPanel rows={dashboard.attention} />
-              <UpcomingPanel rows={dashboard.upcoming as UpcomingRow[]} nowMs={nowMs} calendarHref="#" />
+              <UpcomingPanel rows={dashboard.upcoming.map((row) => ({ ...row, href: `#demo/${row.kind === "Tour" ? "tours" : row.kind === "Maintenance" ? "services" : "calendar"}` })) as UpcomingRow[]} nowMs={nowMs} calendarHref="#demo/calendar" />
             </div>
 
             <PortfolioPropertiesSection
               cards={cards}
-              basePath="/portal"
+              basePath="#demo"
               occupiedByProperty={occupiedByProperty}
-              addPropertyAction={<PortalPrimaryIconAction label="Create" data-attr="dashboard-create" onClick={NO_OP} />}
+              addPropertyAction={<PortalPrimaryIconAction label="Create" data-attr="dashboard-create" onClick={() => onNavigate?.("properties")} />}
             />
 
             <div data-dashboard-section="cashflow" className={vis.cashflow ? undefined : "hidden"}>
@@ -201,7 +213,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="tours" className={`border-b border-border last:border-b-0${vis.tours ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Tour requests"
-                  href="#"
+                  href="#demo/tours"
                   sectionId="tours"
                   icon={MapPin}
                   tone="pending"
@@ -211,7 +223,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   keyForItem={(tour) => tour.id}
                   renderRow={(tour, tone) => (
                     <IssueRow
-                      href="#"
+                      href="#demo/tours"
                       tone={tone}
                       title={tour.guest}
                       subtitle={tour.place}
@@ -225,7 +237,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="applications" className={`border-b border-border last:border-b-0${vis.applications ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Applications to approve"
-                  href="#"
+                  href="#demo/applications"
                   sectionId="applications"
                   icon={ClipboardList}
                   tone="pending"
@@ -235,7 +247,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   keyForItem={(app) => app.id}
                   renderRow={(app, tone) => (
                     <IssueRow
-                      href="#"
+                      href="#demo/applications"
                       tone={tone}
                       title={app.name}
                       subtitle={app.property}
@@ -248,7 +260,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="leases" className={`border-b border-border last:border-b-0${vis.leases ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Leases to sign"
-                  href="#"
+                  href="#demo/leases"
                   sectionId="leases"
                   icon={FileSignature}
                   tone="pending"
@@ -258,7 +270,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   keyForItem={(lease) => lease.id}
                   renderRow={(lease, tone) => (
                     <IssueRow
-                      href="#"
+                      href="#demo/leases"
                       tone={tone}
                       title={lease.resident}
                       subtitle={placeLine(lease.place)}
@@ -272,7 +284,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="residents" className={`border-b border-border last:border-b-0${vis.residents ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Residents"
-                  href="#"
+                  href="#demo/residents"
                   sectionId="residents"
                   icon={Users}
                   tone={currentResidents.every((r) => ACTIVATED.has(r.id)) ? "success" : "pending"}
@@ -285,7 +297,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                     const tone = activated ? "success" : "pending";
                     return (
                       <IssueRow
-                        href="#"
+                        href="#demo/residents"
                         tone={tone}
                         title={resident.name}
                         subtitle={placeLine(resident.place)}
@@ -300,7 +312,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="payments" className={`border-b border-border last:border-b-0${vis.payments ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Payments"
-                  href="#"
+                  href="#demo/payments"
                   sectionId="payments"
                   icon={Wallet}
                   tone={overdueCount > 0 ? "danger" : "pending"}
@@ -321,7 +333,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                     const tone = overdue ? "danger" : "pending";
                     return (
                       <IssueRow
-                        href="#"
+                        href="#demo/payments"
                         tone={tone}
                         title={charge.resident}
                         subtitle={`${charge.chargeTitle} · ${charge.due}`}
@@ -336,7 +348,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="services" className={`border-b border-border last:border-b-0${vis.services ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Services needed"
-                  href="#"
+                  href="#demo/services"
                   sectionId="services"
                   icon={Wrench}
                   tone="pending"
@@ -346,7 +358,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   keyForItem={(service) => service.id}
                   renderRow={(service) => (
                     <IssueRow
-                      href="#"
+                      href="#demo/services"
                       tone={service.state === "open" ? "danger" : "pending"}
                       title={service.title}
                       subtitle={service.property}
@@ -359,7 +371,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div data-dashboard-section="inbox" className={`border-b border-border last:border-b-0${vis.inbox ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Unread messages"
-                  href="#"
+                  href="#demo/communication"
                   sectionId="inbox"
                   icon={MessageSquare}
                   tone="danger"
@@ -370,7 +382,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   keyForItem={(thread) => thread.id}
                   renderRow={(thread, tone) => (
                     <IssueRow
-                      href="#"
+                      href="#demo/communication"
                       tone={tone}
                       title={thread.name}
                       subtitle={thread.preview}
@@ -393,13 +405,13 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
           onClose={() => setCustomizing(false)}
         />
       ) : null}
-    </ProductWindow>
+    </ProductWindow></DashboardNavigation>
   );
 }
 
 /* ───────────────────────────── Resident ───────────────────────────── */
 
-export function ResidentDashboardView({ story, stage }: { story: DemoStory; stage?: string }) {
+export function ResidentDashboardView({ story, stage, onNavigate }: { story: DemoStory; stage?: string } & DashboardNavigationProps) {
   const [customizing, setCustomizing] = useState(false);
   const [vis, setVis] = useState(() => defaultVisibility(RESIDENT_DASHBOARD_SECTIONS));
   const unread = residentConversations(story, phoneScriptFor("resident", stage ?? "pay").items).filter((c) => c.segment === "active" && c.unread);
@@ -418,7 +430,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
     managerCountersigned: leaseSigned,
     moveInChargesPaid: residentSigned && story.rentPaid,
     movedIn: leaseSigned && story.rentPaid,
-    basePath: "/resident",
+    basePath: "#demo",
     moveInTotalLabel: rentDue ? "$1,080.00" : undefined,
   };
   const steps = residentLifecycleSteps(input);
@@ -431,14 +443,14 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
     (pendingTour ? 1 : 0) + (pendingApplication ? 1 : 0) + (story.applicationApproved ? 1 : 0) + (leaseSigned ? 1 : 0) + (openService ? 1 : 0) + (rentDue ? 1 : 0) + unread.length;
 
   return (
-    <ProductWindow path="/resident/dashboard" nativeHeight={900}>
+    <DashboardNavigation onNavigate={onNavigate}><ProductWindow path="/resident/dashboard" nativeHeight={900}>
       <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title={leaseSigned ? `Welcome home, ${RESIDENT_NAME}.` : `Welcome, ${RESIDENT_NAME}.`} hideTitleOnNative hideTitleOnMobileNav>
           <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
             <ResidentJourneyBanner steps={steps} action={action} />
             {leaseSigned ? (
               <a
-                href="#"
+                href="#demo/move-in"
                 onClick={(event) => event.preventDefault()}
                 data-attr="resident-dashboard-move-in-hero"
                 className="flex w-full items-center justify-between gap-3 rounded-[10px] border border-primary/20 bg-accent px-4 py-3.5 transition-colors hover:border-primary/40"
@@ -454,22 +466,22 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
             ) : null}
             <PortalDashboardKpiRow>
               {showTourKpi ? (
-                <ResidentKpiTile label="Tour pending" value={pendingTour ? 1 : 0} tone={pendingTour ? "warning" : "neutral"} href="#" dataAttr="resident-dashboard-kpi-tour-pending" />
+                <ResidentKpiTile label="Tour pending" value={pendingTour ? 1 : 0} tone={pendingTour ? "warning" : "neutral"} href="#demo/tour" dataAttr="resident-dashboard-kpi-tour-pending" />
               ) : null}
               {showApplicationKpi ? (
                 <ResidentKpiTile
                   label="Application pending"
                   value={pendingApplication ? 1 : 0}
                   tone={pendingApplication ? "warning" : "neutral"}
-                  href="#"
+                  href="#demo/applications"
                   dataAttr="resident-dashboard-kpi-application-pending"
                 />
               ) : null}
               {showLeaseKpi ? (
-                <ResidentKpiTile label="Lease" value={story.leaseStep === 1 ? 1 : 0} tone={story.leaseStep === 1 ? "warning" : "neutral"} href="#" dataAttr="resident-dashboard-kpi-lease" />
+                <ResidentKpiTile label="Lease" value={story.leaseStep === 1 ? 1 : 0} tone={story.leaseStep === 1 ? "warning" : "neutral"} href="#demo/lease" dataAttr="resident-dashboard-kpi-lease" />
               ) : null}
               {leaseSigned ? (
-                <ResidentKpiTile label="Services" value={openService ? 1 : 0} tone={openService ? "warning" : "neutral"} href="#" dataAttr="resident-dashboard-kpi-services" />
+                <ResidentKpiTile label="Services" value={openService ? 1 : 0} tone={openService ? "warning" : "neutral"} href="#demo/services" dataAttr="resident-dashboard-kpi-services" />
               ) : null}
               {story.applicationApproved ? (
                 <div className="plp-stats">
@@ -477,13 +489,13 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                     label="Balance due"
                     value={rentDue ? "$1,080.00" : "$0.00"}
                     tone={rentDue ? "warning" : "neutral"}
-                    href="#"
+                    href="#demo/payments"
                     dataAttr="resident-dashboard-kpi-balance"
                   />
                 </div>
               ) : null}
               {unread.length > 0 ? (
-                <ResidentKpiTile label="Unread messages" value={unread.length} tone="warning" href="#" dataAttr="resident-dashboard-kpi-inbox" />
+                <ResidentKpiTile label="Unread messages" value={unread.length} tone="warning" href="#demo/communication" dataAttr="resident-dashboard-kpi-inbox" />
               ) : null}
             </PortalDashboardKpiRow>
 
@@ -497,7 +509,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
               <Visible on={vis.tours}>
               <ResidentAttentionGroup
                 title="Tour pending"
-                href="#"
+                href="#demo/tour"
                 sectionId="tours"
                 icon={MapPin}
                 tone="pending"
@@ -506,7 +518,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                 keyForItem={(item) => item.id}
                 renderRow={(_item, tone) => (
                   <ResidentIssueRow
-                    href="#"
+                    href="#demo/tour"
                     tone={tone}
                     title={`${RESIDENT_HOME.property}`}
                     subtitle="Thu, 5:30 PM"
@@ -519,7 +531,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
               <Visible on={vis.applications}>
               <ResidentAttentionGroup
                 title="Application pending"
-                href="#"
+                href="#demo/applications"
                 sectionId="applications"
                 icon={ClipboardList}
                 tone="pending"
@@ -528,7 +540,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                 keyForItem={(item) => item.id}
                 renderRow={(_item, tone) => (
                   <ResidentIssueRow
-                    href="#"
+                    href="#demo/applications"
                     tone={tone}
                     title={RESIDENT_HOME.property}
                     subtitle={RESIDENT_HOME.room}
@@ -541,7 +553,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
               <Visible on={vis.lease}>
               <ResidentAttentionGroup
                 title="Lease"
-                href="#"
+                href="#demo/lease"
                 sectionId="lease"
                 icon={FileSignature}
                 tone="info"
@@ -553,7 +565,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   const label = leaseSigned ? "Active ✓" : residentSigned ? "Awaiting manager" : sign ? "Sign now" : "Not started";
                   return (
                     <ResidentIssueRow
-                      href="#"
+                      href="#demo/lease"
                       tone={leaseSigned ? "success" : sign ? "info" : "pending"}
                       title={sign ? "Signature needed" : leaseSigned ? "Lease active" : "Lease status"}
                       subtitle={`${RESIDENT_HOME.property} · ${RESIDENT_HOME.room}`}
@@ -568,7 +580,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
               <Visible on={vis.houseDetails}>
               <ResidentAttentionGroup
                 title="House details"
-                href="#"
+                href="#demo/move-in"
                 sectionId="houseDetails"
                 icon={Home}
                 tone="info"
@@ -577,7 +589,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                 keyForItem={(item) => item.id}
                 renderRow={() => (
                   <ResidentIssueRow
-                    href="#"
+                    href="#demo/move-in"
                     tone="info"
                     title="House details"
                     subtitle={`${RESIDENT_HOME.property} · ${RESIDENT_HOME.room}`}
@@ -591,7 +603,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                 <Visible on={vis.services}>
                 <ResidentAttentionGroup
                   title="Services"
-                  href="#"
+                  href="#demo/services"
                   sectionId="services"
                   icon={Wrench}
                   tone="pending"
@@ -600,7 +612,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   keyForItem={(item) => item.id}
                   renderRow={(_item, tone) => (
                     <ResidentIssueRow
-                      href="#"
+                      href="#demo/services"
                       tone={tone}
                       title="Kitchen faucet"
                       subtitle={`${RESIDENT_HOME.property} · ${RESIDENT_HOME.room}`}
@@ -615,7 +627,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                 <Visible on={vis.payments}>
                 <ResidentAttentionGroup
                   title="Pending & overdue payments"
-                  href="#"
+                  href="#demo/payments"
                   sectionId="payments"
                   icon={Wallet}
                   tone="pending"
@@ -624,7 +636,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   keyForItem={(item) => item.id}
                   renderRow={(_item, tone) => (
                     <ResidentIssueRow
-                      href="#"
+                      href="#demo/payments"
                       tone={tone}
                       title="October rent"
                       subtitle="Due Oct 1"
@@ -639,7 +651,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
               <Visible on={vis.communication}>
               <ResidentAttentionGroup
                 title="Communication"
-                href="#"
+                href="#demo/communication"
                 sectionId="communication"
                 icon={MessageSquare}
                 tone="info"
@@ -649,7 +661,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                 keyForItem={(thread) => thread.id}
                 renderRow={(thread, tone) => (
                   <ResidentIssueRow
-                    href="#"
+                    href="#demo/communication"
                     tone={tone}
                     title={thread.name}
                     subtitle={thread.preview}
@@ -673,13 +685,13 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
           onClose={() => setCustomizing(false)}
         />
       ) : null}
-    </ProductWindow>
+    </ProductWindow></DashboardNavigation>
   );
 }
 
 /* ───────────────────────────── Vendor ───────────────────────────── */
 
-export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?: string }) {
+export function VendorDashboardDemo({ story, stage, onNavigate }: { story: DemoStory; stage?: string } & DashboardNavigationProps) {
   const [nowMs] = useState(() => Date.now());
   const jobs = vendorServices(story);
   const open = jobs.filter((job) => job.state !== "completed");
@@ -700,7 +712,7 @@ export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?
             title: `${bids.length} ${bids.length === 1 ? "service" : "services"} waiting on a bid`,
             detail: propertyLabel(bids[0]!),
             actionLabel: "Continue" as const,
-            href: "#",
+            href: "#demo/work-orders",
             tone: "pending" as const,
           },
         ]
@@ -712,7 +724,7 @@ export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?
             title: `${unread.length} unread ${unread.length === 1 ? "message" : "messages"}`,
             detail: unread[0]!.name,
             actionLabel: "Reply" as const,
-            href: "#",
+            href: "#demo/communication",
             tone: "info" as const,
           },
         ]
@@ -724,13 +736,14 @@ export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?
     title: job.title,
     detail: propertyLabel(job),
     at: new Date(nowMs).setHours(9, 0, 0, 0) + (index + 1) * 24 * 60 * 60 * 1000,
-    href: "#",
+    href: "#demo/calendar",
   }));
 
   return (
-    <ProductWindow path="/vendor/dashboard" nativeHeight={900}>
+    <DashboardNavigation onNavigate={onNavigate}><ProductWindow path="/vendor/dashboard" nativeHeight={900}>
       <div className={DEMO_PAGE_CLASS}>
         <VendorDashboardView
+          hrefForSection={(section) => `#demo/${section}`}
           openJobs={open.length}
           bidsDue={bids.length}
           upcomingVisits={visits.length}
@@ -746,11 +759,11 @@ export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?
             bidNeeded: !job.hired,
             scheduledLabel: job.fact,
           }))}
-          onAdd={NO_OP}
-          onOpenJob={NO_OP}
+          onAdd={() => onNavigate?.("work-orders")}
+          onOpenJob={() => onNavigate?.("work-orders")}
           belowKpis={<VendorDashboardBalanceDemo story={story} />}
         />
       </div>
-    </ProductWindow>
+    </ProductWindow></DashboardNavigation>
   );
 }

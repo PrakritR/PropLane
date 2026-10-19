@@ -876,7 +876,7 @@ Captain (Oct 18): "design owner portal better, work on full design for it to mat
   `owner-portal-scope.test.ts` (narrowing, tiles, overview extras, house detail, photo and cost parsing, owner sees only their houses),
   `owner-statements-held.test.ts`, `owner-portal-guards.test.ts` (no pills, no subtext, no list titles, no sparkle, shared shell classes),
   plus the updated `property-owner-sections`, `-review-fixes`, `-membership-decides` and `owner-finances` suites.
-=======
+
 ## W19 - Portal simplification (fold rows, tab strips, merged Settings pages)
 
 Captain: "keep the portal heavy but not too many tabs; simplify; nothing should look too AI". Nothing is dropped:
@@ -920,4 +920,3 @@ labels, the icons and the Settings grouping changed.
   "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
   AI-review legal disclaimers are untouched.
 - Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.
->>>>>>> claude-1
