@@ -174,40 +174,14 @@ The signature Blue Steel background. Implemented in `ChromeSubstrate` (`src/comp
 
 **Rule:** Never place dense fields, tables, or long forms over animated chrome.
 
-### Homepage hero background (PropLane grid + bloom)
+### Homepage hero background
 
-The homepage hero (`LandingDemoHero`, `landing-demo-hero.tsx`) does **not** use
-Blue Steel full chrome — it moved to the `--pl-*` purple/blue theme split. Its
-background is the `.landing-hero-glow` container holding four layers, styled in
-`globals.css` next to the hero block. Theme split is absolute: **purple family
-in dark, cobalt-blue family in light, never mixed** (base rules purple,
-`[data-theme="light"]` overrides blue), using `--pl-*` tokens only.
-
-1. **Architectural grid** (`.landing-hero-grid`) — a 1px lattice from two
-   `repeating-linear-gradient`s on the shared `--lp-grid-size` pitch (56px, in
-   `globals.css`), faded with a radial `mask-image` so it is crisp behind the
-   headline and gone by the edges.
-2. **Brand bloom** (`.landing-hero-bloom`) — one large radial glow behind the
-   product panel (`ApplicationsPipelinePanel`).
-3. **Lit cells** (`.landing-hero-cells`) — a few grid cells softly lit like
-   occupied units, breathing slowly (`hero-cells-breathe`, opacity only).
-4. **Legibility wash** (`.landing-hero-wash`) — a radial that darkens (dark) /
-   lightens (light) the left text column so `.landing-hero-sub` /
-   `.landing-hero-trust` hold ≥4.5:1. Mirrors `.chrome-substrate-full__wash`.
-
-The panel keeps its own opaque fill and sits strictly above the background;
-motion is `transform`/`opacity` only (compositor-safe for the Capacitor
-WebView), and the lit-cells animation holds a static frame under
-`prefers-reduced-motion`.
-
-**The lattice continues below the hero.** `.lp-blueprint`
-(`landing-proplane.css`) reads the same `--lp-grid-size`, so its squares are
-never a different size from the hero's — never hardcode a second pitch. It is
-applied once to the `.lp-flow-band` wrapper around the dashboard-demo,
-inbox-demo, and learn sections (`landing-home-sections.tsx`), not per section:
-a per-section background restarts its tiling origin at that section's top edge,
-so the squares appear to shift wherever a section height is not a multiple of
-the pitch. Sections inside the band stay transparent.
+The old `LandingDemoHero` (grid + bloom + lit cells + legibility wash, with the
+`.lp-flow-band` blueprint lattice below it) was deleted with the homepage
+takeover. The homepage is now `src/app/(public)/page.tsx` in the public-site
+look (`public-site.css`, `.ps`); it does not use Blue Steel full chrome. The
+leftover `.landing-hero-*` / `.lp-blueprint` rules in `globals.css` and
+`landing-proplane.css` have no consumer in the homepage.
 
 ---
 
@@ -447,7 +421,7 @@ Inherits portal shell. Differentiators:
 - **Page frame:** `.axis-page-frame` — light gradient stack or dark solid
 - **Portal sidebar:** 266px fixed; content scrolls independently
 - **Border radius scale:** 14px nav/cards, 18px cards/photo, 24px auth card, 9999px pills/buttons
-- **Grid gaps:** 14–18px component gaps; 40–54px section padding on marketing pages. Exception: the home hero + its portfolio stats strip run a deliberately tighter desktop-only rhythm (`lg:` padding, `lg:py-9`/36px on the stats strip, and a 32px `.landing-hero-bridge` at ≥1024px) so both fit one ~900px viewport — see `landing-demo-hero.tsx`.
+- **Grid gaps:** 14–18px component gaps; 40–54px section padding on marketing pages. Exception: the home hero + its portfolio stats strip run a deliberately tighter desktop-only rhythm (`lg:` padding, `lg:py-9`/36px on the stats strip, and a 32px `.landing-hero-bridge` at ≥1024px) so both fit one ~900px viewport.
 
 ---
 

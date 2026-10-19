@@ -36,18 +36,9 @@ describe("the generic Get started CTA lands on the role picker", () => {
     expect(VENDOR_GET_STARTED_HREF).toContain("role=vendor");
   });
 
-  it("the shared marketing CTA pair defaults to the picker", () => {
-    expect(read("src/components/marketing/marketing-cta.tsx")).toContain(
-      "primaryHref = GET_STARTED_HREF",
-    );
-  });
-
   it("no public marketing surface hard-codes manager signup behind a plain CTA", () => {
     for (const file of [
-      "src/components/marketing/landing-home-sections.tsx",
-      "src/components/marketing/landing-demo-hero.tsx",
       "src/components/marketing/site/primitives.tsx",
-      "src/components/marketing/site/hero.tsx",
       "src/components/marketing/site/final-cta.tsx",
       "src/app/(public)/docs/page.tsx",
       "src/app/(public)/reviews/page.tsx",

@@ -96,7 +96,7 @@ purely presentational pieces instead of trying to mount the whole page tree.
 ## The home page demo: four beats, one phone, three portals
 
 Captain 2026-10-06, reshaped 2026-10-07: the top of `/` is Akhil's hero plus a
-demo window (`resident-lifecycle-prototypes.tsx`; it replaced `SiteHero`). There
+demo window (the lifecycle demo; it replaced `SiteHero`). There
 is no stage UI: no portal pill bar, stage tabs, "Sample demo" line or Activity
 row. The visitor changes portal from the window's own account menu (the real
 menu's "Switch to ... portal" rows, `portalSwitchTargets`), every portal draws
@@ -151,7 +151,7 @@ that tab.
   the demo and every row; rows draw no phone of their own. From `lg` the phone sits
   vertically centred in the viewport on the right (captain 2026-10-07: "keep the phone
   centered on screen, in the middle on the right side"): `.rlp-story-phone-slot` is sticky
-  with `top: max(header + 12px, 50svh - phone height / 2)` (`resident-lifecycle-hero.css`),
+  with `top: max(header + 12px, 50svh - phone height / 2)` (the lifecycle hero stylesheet),
   and nothing scroll-driven moves it. Captions are roles:
   "Resident's phone" (manager portal), "Manager's phone" (resident portal, the
   thread mirrored), "Vendor's phone".
@@ -227,13 +227,6 @@ viewport and the window's column is narrower than a real 1440px one. Every `data
 applications-send, sheet-primary, comm-approve, application-row) stays on its control; the cursor re-resolves a target
 a beat after finding it, because a freshly mounted real page can swap its toolbar for a fresh copy.
 
-The hero (`resident-lifecycle-prototypes.tsx`, `resident-lifecycle-hero.css`) is scroll-driven: a sticky frame pins the
-headline and the window while the window GROWS (transform only, 72% to 100%) over 70% of the viewport height of
-scrolling, then releases and the page scrolls on. The track is always frame + run, the window's height and the phone's
-resting top come from the headline's size in CSS, so there is no layout jump. The phone pins beside the window and then
-glides up to its usual place. Phones (under `md`) and `prefers-reduced-motion` get the static, full-size window.
-`tests/unit/home-hero-grow.test.ts` guards the pieces that must keep agreeing.
-
 ## The /app page's phones follow `app-store/screenshots`
 
 Captain 2026-10-07: the `/app` page shows the iPhone app as four equal phones side
@@ -251,8 +244,7 @@ free) is checked against `docs/mobile-app.md`; change them together.
 ## Marketing mocks must use portal-accurate copy
 
 Every OTHER hand-drawn product mock on the marketing site — the homepage
-Applications panel (`landing-applications-pipeline.tsx`), the ops task rows in
-`landing-home-sections.tsx`, the guide art under `public/marketing/` — depicts
+Applications panel, the ops task rows, the guide art under `public/marketing/` — depicts
 a screen a manager can actually open. Marketing-only slang that no portal
 surface ships ("lease packet", "lease draft") reads as a fake product and has
 been rejected in review twice.

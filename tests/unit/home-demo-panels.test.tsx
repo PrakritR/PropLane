@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
 import { NO_STORY } from "@/components/marketing/site/product-mock/world";
-import { ManagerCommunication } from "@/components/marketing/resident-lifecycle-manager";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -128,16 +127,5 @@ describe("demo cursor targets", () => {
     fireEvent.click(target(services.container, "service-row")!.querySelector("button[data-attr='work-order-list-row']")!);
     await waitFor(() => expect(target(services.container, "sheet-primary")).not.toBeNull());
     expect(target(services.container, "sheet-primary")?.getAttribute("aria-label")).toBe("Dispatch vendor");
-  });
-
-  it("Communication: a drafted reply waits for the manager's Approve and nothing sends before", () => {
-    const onApprove = vi.fn();
-    const { container, rerender } = render(<ManagerCommunication messages={[]} draft={null} onApprove={onApprove} onReply={() => true} />);
-    expect(target(container, "comm-approve")).toBeNull();
-    rerender(<ManagerCommunication messages={[]} draft="Yes, it is." onApprove={onApprove} onReply={() => true} />);
-    expect(screen.getByText("Draft")).toBeInTheDocument();
-    expect(onApprove).not.toHaveBeenCalled();
-    fireEvent.click(target(container, "comm-approve")!);
-    expect(onApprove).toHaveBeenCalledTimes(1);
   });
 });

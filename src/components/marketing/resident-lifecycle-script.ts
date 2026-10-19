@@ -1,7 +1,7 @@
 /**
  * The home page demo's script (captain 2026-10-07): four beats per portal, each beat
  * one or two phone messages and the real panel that matches them. Pure data and pure
- * functions (no React) so the engine in `resident-lifecycle-prototypes.tsx` can derive
+ * functions (no React) so the demo engine can derive
  * everything on screen from one number, how many messages the phone has shown.
  *
  * Manager and resident tell the same story, and it is CAUSAL and manager-led (captain

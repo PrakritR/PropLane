@@ -8,9 +8,9 @@
  *
  * Each board is rendered in BOTH themes: `guide-messages.webp` /
  * `guide-tours.webp` (light) and `guide-messages-dark.webp` /
- * `guide-tours-dark.webp` (dark). The homepage swaps which pair it shows based on
- * `data-theme` (see `landing-home-sections.tsx`), so the site's default dark
- * theme gets dark portal mocks instead of light ones.
+ * `guide-tours-dark.webp` (dark). A page swaps which pair it shows based on
+ * `data-theme` (the `.lp-art-img-light` / `.lp-art-img-dark` rules in
+ * `landing-proplane.css`), so the dark theme gets dark portal mocks.
  *
  * THIS SCRIPT DOES NOT IMPORT FROM `src/`. It hand-authors a standalone HTML
  * replica of two portal screens: every colour is a literal value copied from the
