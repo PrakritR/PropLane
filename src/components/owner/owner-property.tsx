@@ -27,8 +27,8 @@ const SERVICE_STAGE_LABEL: Record<OwnerServiceRow["stage"], string> = { open: "O
 export function OwnerPhotoStrip({ photos, label }: { photos: readonly string[]; label: string }) {
   if (photos.length === 0) {
     return (
-      <div className="h-36 overflow-hidden rounded-[10px] border border-border" data-attr="owner-photos-empty">
-        <NoImagePlaceholder variant="compact" className="h-full w-full" />
+      <div className="relative h-36 overflow-hidden rounded-[10px] border border-border" data-attr="owner-photos-empty">
+        <NoImagePlaceholder variant="compact" />
       </div>
     );
   }
