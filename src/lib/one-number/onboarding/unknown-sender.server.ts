@@ -6,6 +6,9 @@ import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
 import { toGsm7, WELCOME } from "@/lib/one-number/lead-qualifying";
+import { asksForJobs } from "@/lib/one-number/vendor-jobs/intent";
+import { handlePropLaneVendorText, isPropLaneLineVendorLead } from "@/lib/one-number/vendor-jobs/vendor-line.server";
+import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
 import { handleVendorIntake } from "@/lib/one-number/onboarding/vendor-intake.server";
 import {
   extractHouseHints,
@@ -152,6 +155,17 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
 
   if (role === "landlord") return landlordTurn(db, inbound, state ?? { phoneKey: inbound.phoneKey, role: "landlord", askedAt: null, stage: null, hints: extractHouseHints(inbound.body) }, firstReply, deps);
   if (role === "vendor") {
+    // on/smsvendor (W24): "any jobs available in the area" gets the open jobs and the sign-up link, and a vendor who
+    // came in that way stays in that flow; "I do cleaning in Seattle" still gets the intake questions.
+    if (asksForJobs(inbound.body) || (await isPropLaneLineVendorLead(db, inbound.phoneKey))) {
+      const ownerUserId = await readPlatformServiceOwnerId(db).catch(() => null);
+      const jobs = await handlePropLaneVendorText(
+        db,
+        { ownerUserId, phoneE164: inbound.fromPhone, body: inbound.body, messageSid: inbound.messageSid, mode: "shared", force: true },
+        { now: deps.now, origin: deps.origin },
+      );
+      if (jobs.handled && jobs.reply) return { leadId: null, reply: jobs.reply, assignedWorkspaceId: null };
+    }
     const turn = await handleVendorIntake(db, { phoneKey: inbound.phoneKey, body: inbound.body, messageSid: inbound.messageSid, firstReply }, { now: deps.now, origin: deps.origin });
     return { leadId: null, reply: turn.reply, assignedWorkspaceId: null };
   }

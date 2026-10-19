@@ -192,6 +192,12 @@ const ZIP_CENTROIDS: Record<string, { lat: number; lng: number; label: string }>
   "98199": { lat: 47.650, lng: -122.399, label: "Magnolia (98199)" },
 };
 
+/** The neighborhood words for a Seattle zip ("Ballard (98107)"), or null when the table does not hold it. A general area, never a street. */
+export function zipAreaLabel(zip: string | null | undefined): string | null {
+  const key = String(zip ?? "").trim().slice(0, 5);
+  return ZIP_CENTROIDS[key]?.label ?? null;
+}
+
 const KNOWN_NEIGHBORHOODS = new Set(SEATTLE_PLACES.flatMap((p) => p.neighborhoods.map((n) => normalizePlaceText(n))));
 
 export type ResolvedPlace = {

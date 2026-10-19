@@ -21,6 +21,7 @@ import {
   handleVendorDispatchMedia,
   handleVendorDispatchReply,
 } from "@/lib/vendor-dispatch/inbound.server";
+import { handlePropLaneLineVendorInbound } from "@/lib/sms/vendor-line-inbound.server";
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
@@ -1576,6 +1577,39 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     }
     return twimlOk();
   }
+
+  // === on/smsvendor (W24): the vendor branch for the PropLane line. One block; the manager / resident forks above and
+  // the leasing fallback below are untouched. A vendor asking for work (or a known vendor / lead) is answered with the
+  // open jobs near them plus ONE link, saved to the lead list and the chat history; it never becomes a prospect.
+  {
+    const vendorLine = await handlePropLaneLineVendorInbound(db, {
+      managerUserId: managerId,
+      workspaceId,
+      fromPhone,
+      toPhone,
+      messageSid,
+      body,
+      projectInbound: (vendorUserId) => projectClassifiedInbound(db, {
+        managerUserId: managerId, role: "vendor", counterpartyUserId: vendorUserId, fromPhone, toPhone, messageSid, body, occurredAt, workspaceId: workspaceId ?? null,
+      }),
+    });
+    if (vendorLine.handled) {
+      mark("route:vendor-line");
+      await db.from("inbound_sms_log").update({
+        matched_sender_user_id: vendorLine.vendorUserId,
+        ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "vendor", counterpartyUserId: vendorLine.vendorUserId, fromPhone }),
+      }).eq("message_sid", messageSid).eq("manager_user_id", managerId).then(() => undefined, () => undefined);
+      if (!vendorLine.sent) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Vendor reply not delivered." }, { status: 503 });
+      }
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+  }
+  // === end on/smsvendor ===
 
   let handled;
   const preparedProspectReply: { text: string | null } = { text: null };

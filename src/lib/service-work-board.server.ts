@@ -189,6 +189,29 @@ export async function resolveBoardEligibility(db: Db, vendorUserId: string): Pro
   return { ok: true, profile };
 }
 
+export type OpenBoardCandidate = { id: string; manager_user_id: string | null; vendor_user_id: string | null; row_data: unknown };
+
+/**
+ * The published, unassigned services still open to new requests: the one read behind the Find work board and the
+ * "jobs near me" text on the PropLane line (`listOpenJobsNear`). Rows only; the caller filters and projects.
+ */
+export async function loadOpenBoardCandidates(db: Db): Promise<{ ok: true; candidates: OpenBoardCandidate[] } | BoardActionFailure> {
+  const { data: records, error } = await db
+    .from("portal_work_order_records")
+    .select("id, manager_user_id, vendor_user_id, row_data")
+    .eq("row_data->>published", "true")
+    .is("vendor_user_id", null)
+    .is("test_workspace_id", null)
+    .order("updated_at", { ascending: false })
+    .limit(200);
+  if (error) return { ok: false, status: 500, error: error.message };
+  const candidates = ((records ?? []) as OpenBoardCandidate[]).filter((record) => {
+    const row = (record.row_data ?? {}) as DemoManagerWorkOrderRow;
+    return row.published === true && serviceIsOpenToNewRequests(record, row);
+  });
+  return { ok: true, candidates };
+}
+
 export type FindWorkFilters = { trade?: string; radiusMi?: number };
 
 /**
@@ -206,20 +229,9 @@ export async function listBoardServices(
   if (!eligibility.ok) return { ok: true, services: [] };
   const { profile } = eligibility;
 
-  const { data: records, error } = await db
-    .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
-    .eq("row_data->>published", "true")
-    .is("vendor_user_id", null)
-    .is("test_workspace_id", null)
-    .order("updated_at", { ascending: false })
-    .limit(200);
-  if (error) return { ok: false, status: 500, error: error.message };
-
-  const candidates = (records ?? []).filter((record) => {
-    const row = (record.row_data ?? {}) as DemoManagerWorkOrderRow;
-    return row.published === true && serviceIsOpenToNewRequests(record, row);
-  });
+  const loaded = await loadOpenBoardCandidates(db);
+  if (!loaded.ok) return loaded;
+  const candidates = loaded.candidates;
   if (candidates.length === 0) return { ok: true, services: [] };
 
   // Already asked / offered: those are the vendor's Open tab, not new work.

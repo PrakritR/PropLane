@@ -148,7 +148,7 @@ export async function provisionResidentAgentNumber(
       .maybeSingle();
     if (existingError) throw new Error(existingError.message);
     const existing = existingData as Row | null;
-    if (existing) return await continueExisting(db, provider, existing);
+    if (existing) return await withLineHistory(db, residentUserId, await continueExisting(db, provider, existing));
 
     const webhookUrl = envUrl("VENDOR_WORK_IDENTITY_SMS_WEBHOOK_URL") ?? (dryRun ? "https://dry-run.invalid/api/twilio/inbound" : null);
     const callbackUrl = envUrl("VENDOR_WORK_IDENTITY_SMS_STATUS_CALLBACK_URL") ?? (dryRun ? "https://dry-run.invalid/api/twilio/events" : null);
@@ -180,11 +180,24 @@ export async function provisionResidentAgentNumber(
     }
     const rowId = String((claimed as Row | null)?.id ?? "");
     if (!rowId) return { status: "failed" };
-    return await purchaseAndAttach(db, provider, { rowId, operationId, phoneNumber, webhookUrl, callbackUrl });
+    return await withLineHistory(db, residentUserId, await purchaseAndAttach(db, provider, { rowId, operationId, phoneNumber, webhookUrl, callbackUrl }));
   } catch (error) {
     console.error("resident agent number provisioning failed", error instanceof Error ? error.message : "unknown");
     return { status: "failed" };
   }
+}
+
+/** W24: a ready number brings the resident's PropLane-line chat along (idempotent, never throws). */
+async function withLineHistory(
+  db: SupabaseClient,
+  residentUserId: string,
+  result: ProvisionResidentAgentNumberResult,
+): Promise<ProvisionResidentAgentNumberResult> {
+  if (result.status === "ready" || result.status === "already") {
+    const { carryOverPropLaneLineHistory } = await import("@/lib/one-number/vendor-jobs/history-transfer.server");
+    await carryOverPropLaneLineHistory(db, residentUserId, "resident");
+  }
+  return result;
 }
 
 async function purchaseAndAttach(
