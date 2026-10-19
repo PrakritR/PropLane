@@ -36,8 +36,11 @@ export function HomeScrollStage({
   sectionLabel,
   sectionNote,
   enhanceOnMobile = true,
+  rootId,
 }: {
   id: string;
+  /** The section element's own id when the section anchor belongs to a wrapper (step and title ids still derive from `id`). */
+  rootId?: string;
   title: ReactNode;
   steps: StageStep[];
   className?: string;
@@ -153,7 +156,7 @@ export function HomeScrollStage({
   return (
     <section
       ref={root}
-      id={id}
+      id={rootId ?? id}
       className={`home-scroll-stage home-scroll-${layout} ${className}`}
       data-enhanced={enhanced}
       aria-labelledby={`${id}-title`}

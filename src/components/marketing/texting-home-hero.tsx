@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { MouseEvent } from "react";
 import { HomeHousingScene } from "./home-housing-scene";
 import { RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
@@ -16,6 +17,21 @@ const WHO_TEXTS = [
   { role: "Vendors", href: VENDOR_GET_STARTED_HREF },
   { role: "Owners", href: "#how-owners" },
 ] as const;
+
+/**
+ * The How it works anchors: the desktop phones, or (up to 1024px) the role list whose items carry `<id>-list`. On a
+ * phone neither is drawn (the page is hero, Contact, Join free), so Owners goes to Contact, where the managed service lives.
+ */
+function followHowAnchor(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  if (!href.startsWith("#how-")) return;
+  const id = href.slice(1);
+  const drawn = (element: HTMLElement | null) => (element?.getClientRects().length ? element : null);
+  if (drawn(document.getElementById(id))) return;
+  const target = drawn(document.getElementById(`${id}-list`)) ?? drawn(document.getElementById("contact"));
+  if (!target) return;
+  event.preventDefault();
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 /** A one-screen cover; its number comes from the server-rendered public snapshot. */
 export function TextingHomeHero({ config: override }: { config?: PublicTextingConfig }) {
@@ -33,6 +49,6 @@ export function TextingHomeHero({ config: override }: { config?: PublicTextingCo
         ? <a href={config.smsHref!} className="home-number-start" aria-label={`Text ${phone}`} data-attr="home-text-proplane"><MessagesTile className="home-number-start-icon" />Text {phone}</a>
         : <Link href="/#contact" className="home-number-start" data-attr="home-text-proplane"><MessagesTile className="home-number-start-icon" />Text PropLane</Link>}
     </div>
-    <ul className="home-number-who" aria-label="Who texts PropLane">{WHO_TEXTS.map(({ role, href }) => <li key={role}><Link href={href} prefetch={false} data-attr={`home-who-${role.toLowerCase()}`}>{role}</Link></li>)}</ul>
+    <ul className="home-number-who" aria-label="Who texts PropLane">{WHO_TEXTS.map(({ role, href }) => <li key={role}><Link href={href} prefetch={false} onClick={(event) => followHowAnchor(event, href)} data-attr={`home-who-${role.toLowerCase()}`}>{role}</Link></li>)}</ul>
   </section>;
 }

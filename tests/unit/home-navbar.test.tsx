@@ -49,7 +49,8 @@ describe("simple public navigation", () => {
     expect(screen.queryByText("Start free")).not.toBeInTheDocument();
     const desktop = document.querySelector('[data-attr="home-nav-book-demo-desktop"]')!;
     expect(desktop.nextElementSibling).toHaveTextContent("Portal");
-    expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
+    // One Portal link per bar (desktop actions, and the phone bar where the Menu is gone); both go to sign-in.
+    for (const link of screen.getAllByRole("link", { name: "Portal" })) expect(link).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /search|pricing|why proplane|product|resources/i })).not.toBeInTheDocument();
     expect(document.querySelector("details")).toBeNull();
   });
@@ -59,7 +60,8 @@ describe("simple public navigation", () => {
     render(<PublicNavbar texting={texting} />);
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/#pricing");
     expect(document.querySelector('[data-attr="home-nav-book-demo-desktop"]')).toHaveAttribute("href", BOOK_DEMO_HREF);
-    expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
+    // One Portal link per bar (desktop actions, and the phone bar where the Menu is gone); both go to sign-in.
+    for (const link of screen.getAllByRole("link", { name: "Portal" })) expect(link).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /resources|product/i })).not.toBeInTheDocument();
   });
 
@@ -77,18 +79,15 @@ describe("simple public navigation", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("shows the sticky number after the hero, including while contact is in view", () => {
+  it("has no sticky bottom bar: the hero, Contact and the top bar's Book a demo carry the action at every scroll position", () => {
     render(<><section id="home-hero" /><section id="home-close" /><HomeNavbar texting={texting} /></>);
     expect(observe).toHaveBeenCalledWith(document.getElementById("home-hero"));
-    update("home-hero", false, 900);
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
-    update("home-hero", false, -1);
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("aria-label", "Text (202) 555-0123");
-    update("home-close", true, 700);
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("href", texting.smsHref);
-    update("home-hero", true, 500);
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
+    for (const [target, intersecting, bottom] of [["home-hero", false, 900], ["home-hero", false, -1], ["home-close", true, 700]] as const) {
+      update(target, intersecting, bottom);
+      expect(document.querySelector('[data-attr="home-sticky-text"], [data-attr="home-sticky-text-bar"]')).toBeNull();
+    }
+    expect(screen.getAllByRole("link", { name: "Book a demo" }).length).toBeGreaterThan(0);
+    expect(document.querySelector('a[href^="sms:"]')).toBeNull();
   });
 
   it("observes a streamed hero when it arrives", async () => {
@@ -100,12 +99,11 @@ describe("simple public navigation", () => {
     expect(disconnect).toHaveBeenCalledTimes(2);
   });
 
-  it("opens the section anchors and Blog in the phone sheet, hides the sticky bar, and closes after navigation", async () => {
+  it("opens the section anchors and Blog in the phone sheet and closes after navigation", async () => {
     render(<><section id="home-hero" /><section id="home-close" /><HomeNavbar texting={texting} /></>);
     update("home-hero", false, -1);
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     const sheet = await screen.findByRole("dialog", { name: "PropLane" }, { timeout: 5000 });
-    expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
     expect(within(within(sheet).getByRole("navigation")).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([...desktopPaths, "/blog", "/auth/sign-in"]);
     expect(within(sheet).getByRole("link", { name: "Text (202) 555-0123" })).toHaveAttribute("href", texting.smsHref);
     fireEvent.click(within(sheet).getByRole("link", { name: "Pricing" }));

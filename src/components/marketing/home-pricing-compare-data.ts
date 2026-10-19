@@ -104,3 +104,19 @@ export const HOME_COMPARE_ROWS: readonly HomeCompareRow[] = pickCompareRows(
       : MANAGED_INCLUDES.some((item) => item.id === covered);
   return { label: row.label, cells: [...row.cells, managed] };
 });
+
+/** How many key points a plan card on a small screen carries. */
+export const PLAN_CARD_POINTS = 3;
+
+/**
+ * The key points on a small-screen plan card, derived from the same rows the compare table draws (never retyped):
+ * the plan's resident allowance first, then what this plan has that the plan before it does not, then whatever else
+ * it includes, in row order. A row the plan lacks is never a point.
+ */
+export function planCardPoints(planIndex: number, count = PLAN_CARD_POINTS): string[] {
+  const included = HOME_COMPARE_ROWS.map((row, index) => ({ row, index, cell: row.cells[planIndex] })).filter(({ cell }) => cell !== false);
+  const changed = (entry: (typeof included)[number]) => planIndex === 0 || entry.row.cells[planIndex - 1] !== entry.cell;
+  const [first, ...rest] = included;
+  const ordered = [first, ...rest.filter(changed), ...rest.filter((entry) => !changed(entry))].filter(Boolean);
+  return ordered.slice(0, count).map(({ row, cell }) => (cell === true ? row.label : `${row.label}: ${cell}`));
+}

@@ -51,3 +51,9 @@
   .axis-page-frame:has(.texting-home) .public-simple-footer-legal { padding-right: 0; }
   .axis-page-frame:has(.texting-home) footer.public-simple-footer { padding-bottom: 28px; }
 }
+
+/* Tablet and phone: the legal line is 14px; the homepage no longer has a sticky bar, so the footer drops the space reserved under it. */
+@media (max-width: 1024px) { .public-simple-footer-legal { font-size: 14px; } }
+@media (max-width: 860px) {
+  .axis-page-frame:has(.texting-home) footer.public-simple-footer { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+}

@@ -1,0 +1,100 @@
+/* ── Tablet and phone (up to 1024px) ───────────────────────────────────────────────────────────────────────────
+   A purposeful small-screen homepage, not the desktop squeezed (captain #26): How it works is a list of roles with
+   one two-bubble exchange each, Software is three static portal cards (the live demo never loads), Pricing is plan
+   cards with the full compare table behind "Compare plans" (two or three columns). Phone (640 and below) shows none of
+   them: hero, Contact, Join free and footer only. Nothing here applies at 1025px and up, so the desktop is untouched. */
+
+/* Desktop: the small-screen blocks are not drawn. */
+.home-how-list,
+.home-software-compact,
+.home-plan-cards,
+.home-compare-toggle { display: none; }
+
+@media (max-width: 1024px) {
+  /* The desktop-only blocks are not rendered at all, so the Software iframe never mounts and no scroll stage runs. */
+  .texting-home.home-swiss .home-how-wide,
+  .texting-home.home-swiss .home-software-wide { display: none; }
+  .texting-home.home-swiss .home-how-list,
+  .texting-home.home-swiss .home-software-compact { display: block; padding: var(--home-sec-pt) var(--swiss-gutter) 8px; max-width: 1520px; margin-inline: auto; }
+  .texting-home.home-swiss .home-how-list { padding-bottom: 24px; }
+  .texting-home.home-swiss .home-how-list .home-section-head,
+  .texting-home.home-swiss .home-software-compact .home-section-head { margin: 0 0 var(--home-sec-gap); }
+
+  /* How it works: roles, each with its caption and one short exchange. */
+  .texting-home.home-swiss .home-how-roles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 24px; }
+  .texting-home.home-swiss .home-how-role { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 16px; border-top: 1px solid var(--swiss-rule); scroll-margin-top: 76px; }
+  .texting-home.home-swiss .home-how-role h3 { margin: 0; font-size: 26px; line-height: 1.1; font-weight: 600; letter-spacing: -0.03em; }
+  .texting-home.home-swiss .home-how-role > p { margin: 0; font-size: 16px; line-height: 1.4; color: #555852; }
+  .texting-home.home-swiss .home-how-chat { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 14px; border-radius: 18px; background: #f3f4f6; }
+  .texting-home.home-swiss .home-how-bubble { display: flex; }
+  .texting-home.home-swiss .home-how-bubble > span { max-width: 88%; padding: 10px 14px; border-radius: 18px; font-size: 15px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .texting-home.home-swiss .home-how-bubble--out { justify-content: flex-end; }
+  .texting-home.home-swiss .home-how-bubble--out > span { background: #0070e8; color: #fff; border-bottom-right-radius: 5px; }
+  .texting-home.home-swiss .home-how-bubble--in > span { background: #e9e9eb; color: #111113; border-bottom-left-radius: 5px; }
+
+  /* Software: three static portal cards. */
+  .texting-home.home-swiss .home-software-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .texting-home.home-swiss .home-software-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 22px; border: 1px solid var(--swiss-rule); border-radius: 18px; background: #fff; box-shadow: 0 2px 20px #172a420a; }
+  .texting-home.home-swiss .home-software-card-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 6px; border-radius: 14px; background: #eaf0fc; color: var(--home-accent); }
+  .texting-home.home-swiss .home-software-card h3 { margin: 0; font-size: 22px; line-height: 1.15; font-weight: 600; letter-spacing: -0.025em; }
+  .texting-home.home-swiss .home-software-card p { margin: 0; font-size: 16px; line-height: 1.4; color: #4a5059; }
+
+  /* Pricing: plan cards, billing switch, and the compare table behind a button. */
+  .texting-home.home-swiss .home-billing label { min-height: 44px; font-size: 14px; }
+  .texting-home.home-swiss .home-billing small { font-size: 14px; }
+  .texting-home.home-swiss .home-plan-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .texting-home.home-swiss .home-plan-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 22px; border-radius: 18px; background: #fff; box-shadow: 0 2px 20px #172a420d; }
+  .texting-home.home-swiss .home-plan-card[data-plan="managed"] { box-shadow: inset 0 2px 0 var(--home-accent), 0 2px 20px #172a420d; background: #f5f8fe; }
+  .texting-home.home-swiss .home-plan-card h3 { margin: 0; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; }
+  .texting-home.home-swiss .home-plan-price { display: flex; align-items: baseline; gap: 4px; margin: 0; }
+  .texting-home.home-swiss .home-plan-price strong { font-size: 38px; line-height: 1; font-weight: 600; letter-spacing: -0.05em; }
+  .texting-home.home-swiss .home-plan-price span { font-size: 16px; color: #5d646d; }
+  .texting-home.home-swiss .home-plan-price.is-annual { display: none; }
+  .texting-home.home-swiss .home-compare-wrap:has(#home-billing-annual:checked) .home-plan-price.is-annual { display: flex; }
+  .texting-home.home-swiss .home-compare-wrap:has(#home-billing-annual:checked) .home-plan-price.is-monthly { display: none; }
+  .texting-home.home-swiss .home-plan-points { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .texting-home.home-swiss .home-plan-points li { position: relative; padding-left: 24px; font-size: 15px; line-height: 1.35; color: #2b2f36; }
+  .texting-home.home-swiss .home-plan-points li::before { content: ""; position: absolute; left: 3px; top: 3px; width: 6px; height: 11px; border: solid var(--home-accent); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .texting-home.home-swiss .home-plan-cta { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 16px; border-radius: 12px; background: #2f5fd00f; color: var(--home-accent); font-size: 15px; font-weight: 600; text-decoration: none; }
+  .texting-home.home-swiss .home-plan-card[data-plan="managed"] .home-plan-cta { background: var(--home-accent); color: #fff; }
+
+  .texting-home.home-swiss .home-compare-toggle { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; margin-top: 16px; padding: 0 20px; border: 1px solid #cad2dc; border-radius: 14px; background: #fff; color: var(--home-ink); font: inherit; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; cursor: pointer; }
+  .texting-home.home-swiss .home-compare-toggle::after { content: ""; width: 8px; height: 8px; margin-top: -4px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform 0.15s; }
+  .texting-home.home-swiss .home-compare-reveal[data-open="true"] .home-compare-toggle::after { margin-top: 4px; transform: rotate(225deg); }
+  .texting-home.home-swiss .home-compare-reveal[data-open="false"] .home-compare-panel { display: none; }
+  .texting-home.home-swiss .home-compare-panel { margin-top: 16px; }
+  /* The table keeps its rows; at this width its text is 14px or more, and the cards above carry the sub-lines and actions. */
+  .texting-home.home-swiss .home-compare-panel .home-compare-actions,
+  .texting-home.home-swiss .home-compare-panel .home-compare-sub { display: none; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-plan h3 { font-size: 14px; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-price span { font-size: 14px; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-price strong { font-size: 20px; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-row { font-size: 14px; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-label { font-size: 14px; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-value { font-size: 14px; }
+  .texting-home.home-swiss .home-compare-panel .home-compare-note { font-size: 14px; }
+  }
+
+/* Text that was under 14px at these widths: the hero's role links and the Contact form's labels. */
+@media (max-width: 1024px) {
+  .texting-home.home-swiss .home-number-who { font-size: 14px; }
+  .texting-home.home-swiss .swiss-field label { font-size: 14px; }
+}
+
+/* Join free at tablet and phone: role and its line stack on the left, "Sign up free" stays on the right of the same row. */
+@media (max-width: 1024px) {
+  .texting-home.home-swiss .home-join-rows li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "role actions" "line actions"; column-gap: 16px; row-gap: 2px; align-items: center; }
+  .texting-home.home-swiss .home-join-role { grid-area: role; }
+  .texting-home.home-swiss .home-join-line { grid-area: line; font-size: 16px; }
+  .texting-home.home-swiss .home-join-actions { grid-area: actions; align-self: center; justify-content: flex-end; margin-top: 0; }
+  .texting-home.home-swiss .home-join-cta { min-height: 48px; padding-inline: 8px; }
+}
+
+/* Phone (640px and below): the page is the hero, Contact (Book a demo lands on its form), Join free and the footer.
+   How it works, Software, Service and Pricing are not drawn; the Software iframe never mounts. */
+@media (max-width: 640px) {
+  .texting-home.home-swiss .home-how,
+  .texting-home.home-swiss .home-software,
+  .texting-home.home-swiss #service,
+  .texting-home.home-swiss #pricing { display: none; }
+}

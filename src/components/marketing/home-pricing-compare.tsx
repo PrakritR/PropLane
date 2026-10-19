@@ -2,10 +2,12 @@ import Link from "next/link";
 import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 import type { CompareCell } from "@/components/marketing/site/pricing-compare-data";
 import { HomeSectionHeader } from "./home-section-header";
+import { HomePricingCompareReveal } from "./home-pricing-compare-reveal";
 import {
   ANNUAL_MONTHS_FREE,
   HOME_COMPARE_ROWS,
   HOME_PLAN_COLUMNS,
+  planCardPoints,
   type HomePlanColumn,
   type HomePlanPrice,
 } from "./home-pricing-compare-data";
@@ -59,6 +61,39 @@ function PlanPrice({ plan }: { plan: HomePlanColumn }) {
   );
 }
 
+/** A small-screen plan card's price: both periods when they differ, the toggle's CSS shows the selected one. */
+function CardPrice({ plan }: { plan: HomePlanColumn }) {
+  const same = plan.monthly.price === plan.annual.price && plan.monthly.period === plan.annual.period;
+  if (same)
+    return <p className="home-plan-price"><Price price={plan.monthly} /></p>;
+  return (
+    <>
+      <p className="home-plan-price is-monthly"><Price price={plan.monthly} /></p>
+      <p className="home-plan-price is-annual"><Price price={plan.annual} /></p>
+    </>
+  );
+}
+
+/** Tablet and phone: one card per plan (name, price, three key points). Shown up to 1024px only; the table is behind "Compare plans". */
+function PlanCards() {
+  return (
+    <ul className="home-plan-cards" data-attr="pricing-plan-cards">
+      {HOME_PLAN_COLUMNS.map((plan, index) => (
+        <li key={plan.id} className="home-plan-card" data-plan={plan.id}>
+          <h3>{plan.name}</h3>
+          <CardPrice plan={plan} />
+          <ul className="home-plan-points">
+            {planCardPoints(index).map((point) => <li key={point}>{point}</li>)}
+          </ul>
+          <Link href={plan.cta.href} prefetch={false} className="home-plan-cta" data-attr={`pricing-card-${plan.id}-cta`}>
+            {plan.cta.label}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * Apple-style plan comparison: plan, price and one action on top, then the same rows in the same order for every
  * plan. The Monthly | Annual switch is two radios (no script): annual shows the rate card's yearly floor as a
@@ -78,6 +113,8 @@ export function HomePricingCompare({ titleId }: { titleId?: string }) {
           </label>
         </div>
       </div>
+      <PlanCards />
+      <HomePricingCompareReveal>
       <div className="home-compare" role="table" aria-label="Compare plans" data-attr="pricing-plan-stack">
         <div className="home-compare-head" role="row">
           <div role="columnheader" className="home-compare-corner" aria-label="Feature" />
@@ -112,6 +149,7 @@ export function HomePricingCompare({ titleId }: { titleId?: string }) {
         </div>
         <p className="home-compare-note">{MANAGER_PLAN_TIERS[0].features[8].text}.</p>
       </div>
+      </HomePricingCompareReveal>
     </div>
   );
 }
