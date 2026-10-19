@@ -2,7 +2,6 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  EMERGENCY_SAFETY_REPLY,
   type SharedLineCandidate,
   type SharedLineConfig,
   type SharedLineInbound,
@@ -13,7 +12,7 @@ import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
 import { handleInviteCommand, inviteCommandApplies } from "@/lib/one-number/onboarding/invite.server";
-import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
+import { classifySharedLineKeyword, emergencyReplyFor } from "@/lib/one-number/keywords";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
 import { loadSharedLineSession, pauseThreadAi, saveSharedLineRoute } from "@/lib/one-number/session.server";
@@ -135,7 +134,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
         text: peopleText(input.fromPhone, `Emergency word in a text (${candidate.label}) sent to the PropLane line`), propertyId: candidate.propertyId,
         idempotencyKey: `emergency:${input.messageSid}:${candidate.workspaceId}`,
       }));
-      return { kind: "handled", twiml: `${EMERGENCY_SAFETY_REPLY} ${redirect}` };
+      return { kind: "handled", twiml: `${emergencyReplyFor(input.body)} ${redirect}` };
     }
     return { kind: "handled", twiml: redirect };
   }
@@ -160,7 +159,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     }
     if (decision.kind === "unassigned") {
       // No workspace to bill or sign off for: the reply rides the webhook's own TwiML.
-      const text = keyword === "EMERGENCY" ? EMERGENCY_SAFETY_REPLY : routed.unassignedReply;
+      const text = keyword === "EMERGENCY" ? emergencyReplyFor(input.body) : routed.unassignedReply;
       // The lead agent's one real listing photo rides the reply as TwiML <Media>; never an emergency text.
       const photo = keyword === "EMERGENCY" ? null : routed.unassignedMediaUrls?.[0];
       const offerBubbles = keyword !== "EMERGENCY" && routed.unassignedBubbles?.length ? routed.unassignedBubbles : undefined;
@@ -192,7 +191,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
       return { kind: "handled", twiml: null };
     }
     if (keyword === "EMERGENCY") {
-      await settle("reply", reply(db, decision.candidates[0], input, EMERGENCY_SAFETY_REPLY, "emergency"));
+      await settle("reply", reply(db, decision.candidates[0], input, emergencyReplyFor(input.body), "emergency"));
       for (const candidate of people) {
         await settle("alert", alertWorkspaceTeam(db, {
           workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, kind: "emergency", urgent: true,
@@ -229,7 +228,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     }));
     await settle("reply", reply(db, candidate, input, HUMAN_ACK_REPLY, "human"));
   } else if (keyword === "EMERGENCY" && person) {
-    await settle("reply", reply(db, candidate, input, EMERGENCY_SAFETY_REPLY, "emergency"));
+    await settle("reply", reply(db, candidate, input, emergencyReplyFor(input.body), "emergency"));
     await settle("alert", alertWorkspaceTeam(db, {
       workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, kind: "emergency", urgent: true,
       text: peopleText(input.fromPhone, `Emergency word in a text (${candidate.label})`), propertyId: candidate.propertyId, idempotencyKey: `emergency:${input.messageSid}:${candidate.workspaceId}`,
