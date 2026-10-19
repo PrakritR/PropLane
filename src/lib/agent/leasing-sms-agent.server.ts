@@ -2,6 +2,7 @@ import { smsTaskModel } from "@/lib/agent/runtime-model";
 import { hasAgentModelCredential } from "@/lib/agent/model";
 import { readCommsTurnResult, completeCommsTurn, commsTurnKey, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 import { toGsm7 } from "@/lib/one-number/segments";
+import { workspaceOwnedBy } from "@/lib/one-number/shared-line-number.server";
 import { finishCommsCredit, reserveCommsCredit, resolveWorkspaceIdForWorkNumber } from "@/lib/comms-billing/wallet.server";
 import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
 /**
@@ -335,6 +336,12 @@ export async function runLeasingSmsAgentTurn(
     prospectPhoneE164?: string;
     inboundText: string;
     workNumber?: string | null;
+    /**
+     * The workspace the shared-line router stamped on this text. The shared number has no
+     * `manager_sms_numbers` row to place it by, so without this a billed turn on the shared line was
+     * refused as "workspace unknown". Re-checked against `landlordId` below; never trusted as given.
+     */
+    workspaceId?: string | null;
     inboundMessageSid?: string | null;
     /** True on the shared Claw line — lets listing tools span the whole public catalog. */
     crossCatalog?: boolean;
@@ -802,7 +809,8 @@ export async function runLeasingSmsAgentTurn(
   // guessing; the legacy per-workspace wallet keeps its existing
   // default-workspace fallback when the number cannot be placed, so this is
   // never a behavior change while the pool is off.
-  const workspaceId = await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber);
+  const workspaceId = (await workspaceOwnedBy(db, session.landlord_id, args.workspaceId))
+    ?? (await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber));
   if (!workspaceId && isCommsCreditPoolEnabled()) {
     console.warn("leasing-sms turn skipped: workspace unknown", { sessionId: session.id, managerUserId: session.landlord_id });
     return null;

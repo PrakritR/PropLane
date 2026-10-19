@@ -1288,6 +1288,7 @@ export async function handleClawLeasingInbound(args: {
         prospectPhoneE164: from,
         inboundText: text,
         workNumber,
+        workspaceId: args.workspaceId ?? null,
         inboundMessageSid: messageId,
         // Shared Claw line (no single scoped manager) fronts every manager, so
         // the agent must be able to look up ANY live listing on PropLane, not
@@ -1309,7 +1310,7 @@ export async function handleClawLeasingInbound(args: {
         const { gateAiReply } = await import("@/lib/one-number/knowledge/reply-modes.server");
         const { workspaceForWorkNumber } = await import("@/lib/one-number/knowledge/scope.server");
         const gate = await gateAiReply(db, {
-          workspaceId: await workspaceForWorkNumber(db, landlordId, workNumber),
+          workspaceId: args.workspaceId?.trim() || (await workspaceForWorkNumber(db, landlordId, workNumber)),
           ownerUserId: landlordId,
           role: "prospect",
           phone: from,
