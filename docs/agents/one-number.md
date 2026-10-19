@@ -920,3 +920,32 @@ labels, the icons and the Settings grouping changed.
   "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
   AI-review legal disclaimers are untouched.
 - Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.
+
+## Completeness audit fixes (messaging checklist, Oct 18)
+
+Checklist of every spec line with its code and test: `~/.cockpit/briefs/one-number-completeness-1018.md`. Fixes found by the audit:
+
+- **A dispatched vendor reaches their team on the shared line.** `findVendorJobCandidates` (router step 3) matched only a
+  `vendor_work_order` agent session, so a rostered vendor with a dispatch offer but no login was asked "looking for a place, renting one
+  out, or a vendor?" and their YES / DONE never reached `handleVendorDispatchReply`. It now also matches through the manager vendor roster
+  (`manager_vendor_records.row_data.phone`, any typed format, compared as E.164) to an `offered | timed_out` attempt on an `offering |
+  exhausted` run, or an `accepted` attempt on an `accepted` run or one `completed` in the last 30 days. Inactive roster rows never match.
+- **Vendor photos land on the job.** `handleVendorDispatchReply` (DONE with `mediaCount`) and `handleVendorDispatchMedia` (a bare photo from
+  the vendor of an accepted job) attach the text's files: a work-order run gets `completionPhotoDataUrls` and `linked_type = 'vendor_job'`
+  (`attachVendorJobMedia`), any other run links the files to the run (`linkVendorRunMedia`). Audit event `vendor_photos`. Several accepted
+  jobs need `#N` in the text. The pipeline calls it before any other agent, so a login-less vendor's photo is never answered by the prospect agent.
+- **Hour-before reminder.** `sweepJobReminders` in the dispatch sweep: one text to the accepted vendor when the agreed time is within 75
+  minutes (not finished, not past, not accepted in the last 30 minutes). Once-only by outbox key `dispatch-job-reminder-<run>`; audit `vendor_reminded`.
+- **One photo per offered room.** The lead agent's offer is now one text per room (`buildOfferBubbles`: price, availability, listing link,
+  that room's first real https photo) plus a pick prompt; `UnassignedLeadTurn.bubbles` -> `unassignedBubbles` -> the seam's TwiML `bubbles`. The
+  joined `reply` is still what the retry record and the inbox log store.
+- **Photos on request.** Leasing tool `send_listing_photos` (shared line only, registered beside `send_my_link`): up to two real https photos
+  of one live listing as MMS from the PropLane line through `sendSharedLineMessage`, to the texting phone only. It is a `read` tool that
+  sends, on purpose (same shape as `send_my_link`: the prospect's own phone, public photos, asked for); a captain who wants a YES gate on it
+  makes it a `defineWriteTool`.
+- **The resident agent sees the photo.** `inboundImageBlocks` reads the current text's stored files (this owner's path, images only, 3.6 MB
+  and four at most) into image blocks; `runSmsAgentTurn` takes `inboundImages`, puts them on the last user message
+  (`attachImagesToLastUserMessage`) and pins a vision-capable model for that turn. History stays text.
+
+Tests: `tests/integration/one-number-e2e/{routing-and-safety,vendor-dispatch-chain,prospect-journey}.test.ts`, `tests/unit/one-number-{lead-match,
+mms-vision,listing-photos,feel-pipeline}.test.ts`.

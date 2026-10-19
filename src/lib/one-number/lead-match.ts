@@ -143,6 +143,12 @@ export function firstOfferPhoto(rows: readonly RoomListingRow[]): string | null 
   return null;
 }
 
+/** The first real https photo of one room (never a placeholder), or null. */
+export function roomPhoto(row: RoomListingRow): string | null {
+  const slide = row.mediaSlides.find((s) => s.kind === "photo" && /^https:\/\/[^\s]+$/i.test(s.src));
+  return slide ? slide.src : null;
+}
+
 const shortAvailability = (label: string) => {
   const t = label.replace(/\s+/g, " ").trim();
   if (!t) return "ask for dates";
@@ -158,6 +164,26 @@ export function buildOfferText(offers: readonly LeadOffer[], origin: string): st
   });
   const reply = offers.length === 1 ? "Reply 1 to pick it, or TOUR to see it." : `Reply ${offers.map((o) => o.n).join(", ").replace(/, (\d)$/, " or $1")} to pick one, or TOUR to see it.`;
   return toGsm7([offers.length === 1 ? "This room fits:" : "These rooms fit:", ...lines, reply].join("\n"));
+}
+
+export type OfferBubble = { body: string; mediaUrl?: string };
+
+/**
+ * The offer as one text per room, each with that room's own real photo and its listing link (the spec's
+ * "top 2-3, each with price, area, available date, one MMS photo and a gallery link"), then one text that
+ * says how to pick. `rows[i]` is the room behind `offers[i]`. A room with no real photo is a plain text.
+ */
+export function buildOfferBubbles(offers: readonly LeadOffer[], rows: readonly RoomListingRow[], origin: string): OfferBubble[] {
+  const base = origin.replace(/\/$/, "");
+  const bubbles: OfferBubble[] = offers.map((o, i) => {
+    const price = o.rent !== null ? `$${o.rent}/mo` : "price on listing";
+    const body = toGsm7(`${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}/rent/listings/${encodeURIComponent(o.propertyId)}`);
+    const photo = rows[i] ? roomPhoto(rows[i]!) : null;
+    return photo ? { body, mediaUrl: photo } : { body };
+  });
+  const reply = offers.length === 1 ? "Reply 1 to pick it, or TOUR to see it." : `Reply ${offers.map((o) => o.n).join(", ").replace(/, (\d)$/, " or $1")} to pick one, or TOUR to see it.`;
+  bubbles.push({ body: toGsm7(reply) });
+  return bubbles;
 }
 
 export const NO_MATCH_TEXT = "I do not have a room that fits right now. I will text you once if one opens up.";

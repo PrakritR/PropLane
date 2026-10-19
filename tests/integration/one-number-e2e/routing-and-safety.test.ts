@@ -72,6 +72,13 @@ const vendor: Record<string, FakeRow[]> = {
   portal_work_order_records: [{ id: "wo", property_id: "prop-b1", row_data: {} }],
 };
 
+// A vendor who only ever texts YES / DONE / a photo: on the roster of team B with an offer out, no login, no session.
+const dispatched = (over: { attempt?: string; run?: string; completedAt?: string | null; phone?: string } = {}): Record<string, FakeRow[]> => ({
+  manager_vendor_records: [{ id: "vd1", manager_user_id: "owner-b", row_data: { name: "Sam Locksmith", phone: over.phone ?? "(206) 555-0142", active: true } }],
+  vendor_dispatch_attempts: [{ run_id: "r1", vendor_directory_id: "vd1", status: over.attempt ?? "offered" }],
+  vendor_dispatch_runs: [{ id: "r1", owner_user_id: "owner-b", property_id: "prop-b1", status: over.run ?? "offering", completed_at: over.completedAt ?? null }],
+});
+
 let sid = 0;
 const text = (db: never, body: string, from = PHONE, key = KEY) =>
   handleSharedLineInbound(db, { config, fromPhone: from, body, messageSid: `SM${++sid}`, mediaCount: 0, phoneKey: key });
@@ -127,6 +134,47 @@ describe("one person in two teams", () => {
     await handleSharedLineInbound(db, input);
     await handleSharedLineInbound(db, input);
     expect(bodies()).toHaveLength(1);
+  });
+});
+
+describe("a vendor who works by dispatch text", () => {
+  it("YES, DONE and photos from a rostered vendor with an offer out reach the team that offered the job", async () => {
+    const { db } = world(dispatched());
+    expect(await text(db, "YES 2:30pm")).toMatchObject({ kind: "continue", owned: { workspaceId: "ws-b", managerId: "owner-b" } });
+    // Nobody is asked who they are; no onboarding question goes out.
+    expect(bodies()).toEqual([]);
+  });
+
+  it("an accepted job stays routed, and so does one finished within 30 days (a late photo or invoice)", async () => {
+    expect(await text(world(dispatched({ attempt: "accepted", run: "accepted" })).db, "DONE")).toMatchObject({ kind: "continue", owned: { workspaceId: "ws-b" } });
+    const recent = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    expect(await text(world(dispatched({ attempt: "accepted", run: "completed", completedAt: recent })).db, "INVOICE $240")).toMatchObject({ kind: "continue", owned: { workspaceId: "ws-b" } });
+  });
+
+  it("a job finished long ago, a declined offer, a canceled run or another number is not a tie", async () => {
+    const old = new Date(Date.now() - 45 * 86_400_000).toISOString();
+    for (const [label, data] of [
+      ["finished 45 days ago", dispatched({ attempt: "accepted", run: "completed", completedAt: old })],
+      ["declined", dispatched({ attempt: "declined" })],
+      ["canceled run", dispatched({ run: "canceled" })],
+      ["a different phone on the roster", dispatched({ phone: "(206) 555-0199" })],
+    ] as const) {
+      const out = await text(world(data).db, "YES");
+      expect(out, label).toEqual({ kind: "handled", twiml: "Hi, this is PropLane. Reply STOP to opt out. What is your monthly budget for rent?" });
+    }
+  });
+
+  it("a vendor on the roster of a team that deactivated them is not routed", async () => {
+    const data = dispatched();
+    (data.manager_vendor_records![0]!.row_data as Record<string, unknown>).active = false;
+    expect(await text(world(data).db, "YES")).toMatchObject({ kind: "handled" });
+  });
+
+  it("resident in A and dispatched vendor in B: an unclear text is asked about, never guessed", async () => {
+    const { db } = world({ ...resident, ...dispatched() });
+    expect(await text(db, "ok thanks")).toEqual({ kind: "handled", twiml: null });
+    expect(bodies()).toEqual(["Is this about 5259 Brooklyn or your job at 4709A 8th Ave?"]);
+    expect(await text(db, "2")).toMatchObject({ kind: "continue", owned: { workspaceId: "ws-b" } });
   });
 });
 

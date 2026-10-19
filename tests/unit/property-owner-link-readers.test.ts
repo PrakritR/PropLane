@@ -54,8 +54,6 @@ const REVIEWED: Record<string, string> = {
   // PropLane Service workspaces: admin-only (requireAdminRoute) team and workspace listing; the owner of record is a member (owner role included) and must be listed, and the read grants nothing.
   "lib/service/service-workspaces.server.ts": "admin-only: the Service tab lists every live member, the owner of record included, on purpose",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
-  // PropLane Service: the admin Service tab lists and edits a workspace's whole team, owner-role members included, on purpose.
-  "lib/service/service-workspaces.server.ts": "admin-only: lists every live member of a service workspace so the owner of record can be set",
 };
 
 describe("account_link_invites readers", () => {
