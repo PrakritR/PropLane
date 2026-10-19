@@ -32,6 +32,23 @@ export function normalizeE164(phone: unknown): string | null {
 }
 
 /**
+ * Countries a sign-in / verification TEXT may be sent to. US and Canada (+1, the NANP) only by
+ * default: an open country list is how SMS pumping bills us for premium-rate routes. Widen it with
+ * a comma-separated `PHONE_AUTH_ALLOWED_CALLING_CODES` (e.g. "1,44"); codes are digits only.
+ * A +1 number must also have a real NANP shape (area and exchange code start 2-9).
+ */
+export function isAllowedPhoneAuthDestination(phone: unknown, allowed = process.env.PHONE_AUTH_ALLOWED_CALLING_CODES): boolean {
+  const e164 = normalizeE164(phone);
+  if (!e164) return false;
+  const codes = (allowed ?? "").split(",").map((c) => c.trim()).filter((c) => /^[1-9]\d{0,2}$/.test(c));
+  const list = codes.length ? codes : ["1"];
+  const digits = e164.slice(1);
+  const match = list.find((code) => digits.startsWith(code));
+  if (!match) return false;
+  return match !== "1" || /^1[2-9]\d{2}[2-9]\d{6}$/.test(digits);
+}
+
+/**
  * Manager-facing phone label for Communication. Numbers are public knowledge
  * on this surface, so show a readable NANP form (or the E.164 when non-US).
  */

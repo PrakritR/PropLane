@@ -18,9 +18,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("phone auth transport", () => {
-  it("keeps existing hook delivery behavior outside shared mode", async () => {
-    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(true);
+  it("fails closed for the hook outside shared mode: no reservation lookup, no send", async () => {
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(false);
     expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "false", "yes", ""])("hook flag value %j does not enable the hook off the shared line", async (flag) => {
+    vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", flag);
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(false);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("with the hook flag on, an off-shared-line hook still needs the atomic reservation", async () => {
+    vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "1");
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(true);
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("phone_auth_claim_hook_delivery", { p_phone: "+12065550142" });
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    expect(await claimPhoneAuthHookDelivery("+12065550142")).toBe(false);
   });
 
   it("requires an atomic pending challenge claim for shared-mode hook delivery", async () => {

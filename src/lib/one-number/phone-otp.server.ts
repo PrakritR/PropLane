@@ -28,6 +28,29 @@ export type VerifyOtpResult =
   | { ok: false; reason: "no_challenge" | "expired" | "locked" | "wrong_code" };
 
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+/** Wrong codes allowed per phone in any 24 hours, across every purpose and link. The cap in SQL (`phone_auth_failed_code_count`) is the same number. */
+export const PHONE_LIFETIME_FAILED_CODE_CAP = 10;
+
+/**
+ * True when this phone has burned its failed-code budget for the last 24 hours. A failure is an
+ * attempt that did not verify its challenge; one attempt on a verified challenge is the success.
+ * Fails closed: a read that errors locks rather than lets a guess through (a missing table means
+ * there is no challenge to guess, which verify reports separately).
+ */
+async function phoneLockedOut(db: SupabaseClient, phoneKey: string, now: Date): Promise<boolean> {
+  const { data, error } = await db
+    .from("phone_otp_challenges")
+    .select("attempts, verified_at")
+    .eq("phone_key", phoneKey)
+    .gte("created_at", new Date(now.getTime() - DAY_MS).toISOString());
+  if (error) return !isMissingSchemaError(error);
+  let failures = 0;
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    failures += Math.max((Number(row.attempts) || 0) - (row.verified_at ? 1 : 0), 0);
+  }
+  return failures >= PHONE_LIFETIME_FAILED_CODE_CAP;
+}
 
 function otpSecret(): string {
   const configured = process.env.PHONE_OTP_HMAC_SECRET?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -82,6 +105,9 @@ export async function requestPhoneOtp(
   const now = input.now ?? new Date();
   const phoneKey = input.phoneKey.trim();
   if (!/^\d{10}$/.test(phoneKey)) return { ok: false, reason: "unavailable" };
+
+  // A phone that has burned its failed-code budget gets no more texts until the failures age out.
+  if (await phoneLockedOut(db, phoneKey, now)) return { ok: false, reason: "rate_limited" };
 
   // At most 3 sends per phone per rolling hour, across every purpose and subject.
   const since = new Date(now.getTime() - HOUR_MS).toISOString();
@@ -144,6 +170,9 @@ export async function verifyPhoneOtp(
   const now = input.now ?? new Date();
   const phoneKey = input.phoneKey.trim();
 
+  // Lifetime cap: ten wrong codes for this phone in 24 hours locks it, even for the right code.
+  if (await phoneLockedOut(db, phoneKey, now)) return { ok: false, reason: "locked" };
+
   let query = db
     .from("phone_otp_challenges")
     .select("id, code_hash, attempts, expires_at")
@@ -181,13 +210,15 @@ export async function verifyPhoneOtp(
     return { ok: false, reason: "wrong_code" };
   }
 
-  // One use only: whoever flips consumed_at wins.
-  const { data: consumed, error: consumeError } = await db
-    .from("phone_otp_challenges")
-    .update({ consumed_at: now.toISOString() })
-    .eq("id", id)
-    .is("consumed_at", null)
-    .select("id");
+  // One use only: whoever flips consumed_at wins. verified_at marks the success so the lifetime
+  // failure count does not charge it; a database that has not run the column's migration retries
+  // without it (the success then counts as one attempt, which is only ever stricter).
+  const consume = (patch: Record<string, string>) =>
+    db.from("phone_otp_challenges").update(patch).eq("id", id).is("consumed_at", null).select("id");
+  let { data: consumed, error: consumeError } = await consume({ consumed_at: now.toISOString(), verified_at: now.toISOString() });
+  if (consumeError && isMissingSchemaError(consumeError)) {
+    ({ data: consumed, error: consumeError } = await consume({ consumed_at: now.toISOString() }));
+  }
   if (consumeError || !consumed || consumed.length === 0) return { ok: false, reason: "wrong_code" };
   return { ok: true };
 }
