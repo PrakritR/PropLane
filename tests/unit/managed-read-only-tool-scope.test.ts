@@ -46,9 +46,14 @@ describe("scopeManagerTool on a view-only managed workspace", () => {
     const { scoped } = tool("read");
     await expect(scoped.handler(ctx(ws("ws-locked")), {})).resolves.toBe("ran");
   });
-  it("allows a write in an unlocked workspace and when no workspace scope applies", async () => {
+  it("allows a write in an unlocked workspace", async () => {
     const { scoped } = tool("write");
     await expect(scoped.handler(ctx(ws("ws-open")), {})).resolves.toBe("ran");
+  });
+  it("with no workspace scope (e.g. a text to her own line), refuses a user who has a view-only workspace", async () => {
+    const { scoped } = tool("write");
+    await expect(scoped.handler(ctx(undefined), {})).rejects.toThrow(MANAGED_READ_ONLY_TOOL_MESSAGE);
+    locked.ids = [];
     await expect(scoped.handler(ctx(undefined), {})).resolves.toBe("ran");
   });
   it("fails closed: a failed lookup, or an unresolved scope for a user with a locked workspace, refuses", async () => {
