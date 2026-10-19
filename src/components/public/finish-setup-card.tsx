@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useState } from "react";
+import { CodeInput, DoorButton, DoorShell } from "@/components/public/phone-bound-link-ui";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 
 /**
@@ -18,17 +17,6 @@ async function post(url: string, body: Record<string, unknown>): Promise<{ ok: b
   } catch {
     return { ok: false, status: 0, data: { error: "Could not reach PropLane. Check your connection." } };
   }
-}
-
-function Shell({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="mx-auto flex min-h-[55vh] w-full max-w-[460px] flex-col justify-center px-4 py-12" data-attr="finish-setup">
-      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-        <div className="mt-5 flex flex-col gap-4">{children}</div>
-      </div>
-    </div>
-  );
 }
 
 export function FinishSetupCard({ token, kind, boundPhoneLastFour }: { token: string; kind: "landlord" | "vendor"; boundPhoneLastFour: string | null }) {
@@ -74,63 +62,62 @@ export function FinishSetupCard({ token, kind, boundPhoneLastFour }: { token: st
 
   if (step === "done") {
     return (
-      <Shell title={kind === "vendor" ? "Your vendor profile is started" : "Your property account is ready"}>
-        <Button type="button" className="w-full rounded-full" data-attr="finish-setup-go" onClick={() => window.location.assign(portalHref)}>
+      <DoorShell dataAttr="finish-setup" title={kind === "vendor" ? "Your vendor profile is started" : "Your property account is ready"}>
+        <DoorButton dataAttr="finish-setup-go" onClick={() => window.location.assign(portalHref)}>
           {kind === "vendor" ? "Go to your vendor portal" : "Go to your portal"}
-        </Button>
-      </Shell>
+        </DoorButton>
+      </DoorShell>
     );
   }
   if (step === "waitlisted") {
     return (
-      <Shell title="You are on the list">
-        <p className="text-sm text-foreground" data-attr="finish-setup-waitlisted">We will text you the moment a spot opens.</p>
-      </Shell>
+      <DoorShell dataAttr="finish-setup" title="You are on the list">
+        <p className="ps-door-line" data-attr="finish-setup-waitlisted">We will text you the moment a spot opens.</p>
+      </DoorShell>
     );
   }
 
   return (
-    <Shell title={kind === "vendor" ? "Finish your vendor profile" : "Finish setup"}>
+    <DoorShell dataAttr="finish-setup" title={kind === "vendor" ? "Finish your vendor profile" : "Finish setup"} size="h1">
       {step === "phone" ? (
         <>
           {boundPhoneLastFour ? (
-            <p className="text-sm text-foreground" data-attr="finish-setup-phone">Number ending {boundPhoneLastFour}</p>
+            <ul className="ps-facts">
+              <li>
+                <span>Number</span>
+                <span data-attr="finish-setup-phone">Ending {boundPhoneLastFour}</span>
+              </li>
+            </ul>
           ) : (
             <PhoneNumberField value={phone} onChange={setPhone} dataAttr="finish-setup-phone-input" />
           )}
-          <Button type="button" className="w-full rounded-full" disabled={busy || (!boundPhoneLastFour && phone.length < 8)} data-attr="finish-setup-send" onClick={send}>
+          <DoorButton disabled={busy || (!boundPhoneLastFour && phone.length < 8)} dataAttr="finish-setup-send" onClick={send}>
             Text me a code
-          </Button>
+          </DoorButton>
         </>
       ) : (
         <>
-          <Input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
+          <CodeInput
             value={code}
-            placeholder="6-digit code"
-            aria-label="Code"
-            data-attr="finish-setup-code-input"
-            className="text-center text-lg tracking-[0.35em]"
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && code.length === 6) void verify();
+            onChange={setCode}
+            onEnter={() => {
+              if (code.length === 6) void verify();
             }}
+            dataAttr="finish-setup-code-input"
           />
-          <Button type="button" className="w-full rounded-full" disabled={busy || code.length !== 6} data-attr="finish-setup-verify" onClick={() => verify()}>
-            Continue
-          </Button>
-          <Button type="button" variant="ghost" className="w-full rounded-full" data-attr="finish-setup-resend" onClick={() => send()}>
-            Text a new code
-          </Button>
+          <DoorButton disabled={busy || code.length !== 6} dataAttr="finish-setup-verify" onClick={verify}>
+            Verify
+          </DoorButton>
+          <DoorButton tone="text" dataAttr="finish-setup-resend" onClick={send}>
+            Send a new code
+          </DoorButton>
         </>
       )}
       {error ? (
-        <p className="text-sm text-danger" role="alert" data-attr="finish-setup-error">
+        <p className="ps-error" role="alert" data-attr="finish-setup-error">
           {error}
         </p>
       ) : null}
-    </Shell>
+    </DoorShell>
   );
 }

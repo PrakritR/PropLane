@@ -372,7 +372,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
               disabled={locked}
               onError={(message) => setSignInError(message ? presentSignInError(message) : null)}
             />
-            <AuthDivider label="or enter your details" />
+            <AuthDivider label="or" />
             {/* A real <form> with NAMED fields, not loose inputs in a div.
                 iOS/iPadOS Password AutoFill and every password manager identify
                 credential fields by form membership and name; without it the

@@ -395,9 +395,9 @@ export function AuthAppleBottom({ children, className = "" }: { children: ReactN
 export function AuthDivider({ label = "or" }: { label?: string }) {
   return (
     <div className="auth-divider flex items-center gap-3">
-      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" aria-hidden />
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</span>
-      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" aria-hidden />
+      <div className="h-px flex-1 bg-border" aria-hidden />
+      <span className="text-[13px] font-medium text-muted">{label}</span>
+      <div className="h-px flex-1 bg-border" aria-hidden />
     </div>
   );
 }

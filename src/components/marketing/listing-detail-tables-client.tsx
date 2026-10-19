@@ -1787,3 +1787,196 @@ export function SpacesInteractive({
     </>
   );
 }
+
+/**
+ * The public page's spaces, as hairline rows (the approved homepage look): rooms, then bathrooms, then shared
+ * spaces. Same data, live availability, shared-bed counts, short-stay verdicts and Details sheet as
+ * `SpacesInteractive`; no table, no filter pills, no thumbnails (every photo is in the gallery above).
+ */
+export function SpacesHairlineList({
+  floorPlans,
+  bathrooms,
+  sharedSpaces,
+  listingPropertyId,
+  propertyLabel = null,
+  contactSmsPhone = null,
+  signingOrder = null,
+}: {
+  floorPlans: ListingFloorCard[];
+  bathrooms: ListingBathroomRow[];
+  sharedSpaces: ListingSharedRow[];
+  listingPropertyId: string;
+  propertyLabel?: string | null;
+  contactSmsPhone?: string | null;
+  signingOrder?: "application_first" | null;
+}) {
+  const [modal, setModal] = useState<ModalState>(null);
+  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(listingPropertyId);
+  const todayKey = pacificTodayKey();
+  const stay = useShortStay();
+  const rooms = useMemo(
+    () =>
+      floorPlans
+        .flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })))
+        .sort((a, b) => {
+          const byNum = roomNameSortKey(a.room.name) - roomNameSortKey(b.room.name);
+          if (byNum !== 0) return byNum;
+          return a.room.name.localeCompare(b.room.name, undefined, { numeric: true, sensitivity: "base" });
+        }),
+    [floorPlans],
+  );
+  const realBathrooms = bathrooms.filter((b) => !isListingFallbackBathroom(b));
+  const realShared = sharedSpaces.filter((r) => !isListingPlaceholderSharedSpace(r));
+  if (rooms.length === 0 && realBathrooms.length === 0 && realShared.length === 0) return null;
+
+  return (
+    <div className="ps-spaces" data-sr-rooms>
+      {rooms.length > 0 ? (
+        <ul className="ps-rows">
+          {rooms.map(({ room, floorLabel }) => {
+            const capacity = roomOccupancyCapacity(room);
+            const row = findPublicRoomOccupancy(occupancyRows, listingPropertyId, room.id);
+            const openBeds = publicRoomOpenBedCount(capacity, row?.spans ?? []);
+            const sharedHeadline = sharedRoomListingHeadline(capacity, openBeds);
+            const openLine = sharedRoomOpenBedsLine(capacity, openBeds);
+            const verdict = stay ? stay.verdictFor(room.id) : null;
+            const availability = roomAvailabilityDisplay(
+              room,
+              { rows: occupancyRows, loading: occupancyLoading, failed: occupancyFailed },
+              todayKey,
+              listingPropertyId,
+            );
+            const bath = roomBathLabel(room);
+            const facts = [floorLabel, bath !== "—" ? bath : null].filter(Boolean).join(" · ");
+            return (
+              <li
+                key={room.id}
+                className="ps-row ps-room"
+                data-stay-room={verdict ? (verdict.free ? "free" : "booked") : undefined}
+                data-dim={verdict && !verdict.free ? "" : undefined}
+              >
+                <div className="ps-row-main">
+                  <p className="ps-row-name">{room.name}</p>
+                  <p className="ps-row-sub">
+                    {facts}
+                    {capacity >= 2 ? `${facts ? " · " : ""}Up to ${capacity} residents` : ""}
+                  </p>
+                  {sharedHeadline ? (
+                    <p className="ps-row-sub" data-attr="listing-room-occupancy">
+                      {sharedHeadline}
+                    </p>
+                  ) : null}
+                  {openLine ? <p className="ps-row-sub ps-row-strong">{openLine}</p> : null}
+                  {verdict && !verdict.free ? (
+                    <p className="ps-row-sub" data-attr="listing-room-stay-booked">
+                      {verdict.label}
+                    </p>
+                  ) : null}
+                  {verdict?.free ? (
+                    <button
+                      type="button"
+                      data-attr="listing-room-stay-select"
+                      aria-pressed={stay?.roomId === room.id}
+                      onClick={() => stay?.setRoomId(room.id)}
+                      className="ps-row-select"
+                    >
+                      {stay?.roomId === room.id ? "Selected" : "Select this room"}
+                    </button>
+                  ) : null}
+                </div>
+                <p className="ps-row-av">
+                  {availability ? availability.text : <RoomAvailabilityLoading className="h-2.5 w-16" />}
+                </p>
+                <p className="ps-row-fig">
+                  {capacity >= 2
+                    ? sharedRoomRentCellLabel([room.priceMonthlyEquivalent ?? room.priceHeadlineAmount ?? 0])
+                    : roomRentCell(room)}
+                </p>
+                <button
+                  type="button"
+                  data-attr="listing-room-details"
+                  onClick={() => setModal({ kind: "room", room, floorLabel })}
+                  className="ps-row-more"
+                  aria-label={`Details for ${room.name}`}
+                >
+                  Details
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {realBathrooms.length > 0 ? (
+        <>
+          <h3 className="ps-sub" id="listing-bathrooms">
+            Bathrooms <span className="ps-sub-n">{realBathrooms.length}</span>
+          </h3>
+          <ul className="ps-rows">
+            {realBathrooms.map((row, index) => (
+              <li key={`${row.id}-${index}`} className="ps-row ps-room ps-room-plain">
+                <div className="ps-row-main">
+                  <p className="ps-row-name">{row.name}</p>
+                  <p className="ps-row-sub">
+                    {bathroomUsedBy(row)} · {bathroomFixtures(row)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-attr="listing-bath-details"
+                  onClick={() => setModal({ kind: "bathroom", row })}
+                  className="ps-row-more"
+                  aria-label={`Details for ${row.name}`}
+                >
+                  Details
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {realShared.length > 0 ? (
+        <>
+          <h3 className="ps-sub" id="listing-shared">
+            Shared spaces <span className="ps-sub-n">{realShared.length}</span>
+          </h3>
+          <ul className="ps-rows">
+            {realShared.map((row, index) => (
+              <li key={`${row.id}-${index}`} className="ps-row ps-room ps-room-plain">
+                <div className="ps-row-main">
+                  <p className="ps-row-name">{row.name}</p>
+                  <p className="ps-row-sub">
+                    {[row.detail !== "—" ? row.detail : null, row.useNote?.trim() || null].filter(Boolean).join(" · ") ||
+                      row.availability}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-attr="listing-shared-details"
+                  onClick={() => setModal({ kind: "shared", row })}
+                  className="ps-row-more"
+                  aria-label={`Details for ${row.name}`}
+                >
+                  Details
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      <ListingDetailModal
+        state={modal}
+        onClose={() => setModal(null)}
+        listingPropertyId={listingPropertyId}
+        propertyLabel={propertyLabel}
+        contactSmsPhone={contactSmsPhone}
+        signingOrder={signingOrder}
+      />
+    </div>
+  );
+}
