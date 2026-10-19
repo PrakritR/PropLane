@@ -24,6 +24,12 @@ const VENDOR_PATTERNS: RegExp[] = [
   new RegExp(`\\bmy (company|business|crew|team) (does|offers|provides|is)\\b[^.?!]{0,40}\\b(${VENDOR_TRADES})\\b`),
   /\b(looking for|need|want|get) (more )?(work|jobs|gigs|clients|customers)\b/,
   /\b(work orders?|service calls?) (from|for) (landlords?|property managers?)\b/,
+  // "any jobs available", "is there any work", "got any gigs near me": a vendor asking what work is open (on/smsvendor).
+  /\b(any|got any|have any|are there any|is there any)( (available|open|new|local))? (jobs?|gigs?|work (available|open|near|nearby|in (my|the) area|to do|for me))\b/,
+  /\b(jobs?|gigs?) (available|open|near me|around me|in (my|the) area|nearby)\b/,
+  /\bwork (available|near me|nearby|in (my|the) area)\b/,
+  /\bavailable (jobs?|work|gigs?)\b/,
+  /\b(job|work) (openings?|leads?|opportunit(y|ies))\b/,
   /\bi (clean|fix|repair|paint|mow|haul) (houses|homes|units|apartments|rentals)\b/,
 ];
 
