@@ -79,14 +79,24 @@ export function matchRooms(
   if (inArea.length === 0) return [];
   const moveIn = profile.moveInDate && profile.moveInDate >= today ? profile.moveInDate : undefined;
   const moveOut = moveIn && (profile.leaseMonths ?? 0) > 0 ? addMonths(moveIn, profile.leaseMonths!) : undefined;
-  const rows = filterRoomListings([...inArea], {
+  const filter = {
     zipRaw: "",
     radiusMiles: 50,
     maxBudgetNum: profile.budgetMax && profile.budgetMax > 0 && !skipped.has("budget") ? profile.budgetMax : null,
-    bathroom: profile.bathroom === "private" ? "private" : "any",
+    bathroom: profile.bathroom === "private" ? ("private" as const) : ("any" as const),
     moveIn,
     moveOut,
-  });
+  };
+  // One house at a time: a stored listing with a missing field (no rent label) must drop out of the
+  // search, never take every other team's rooms down with it (found by the end-to-end harness).
+  const rows: RoomListingRow[] = [];
+  for (const listing of inArea) {
+    try {
+      rows.push(...filterRoomListings([listing], filter));
+    } catch (error) {
+      console.error("lead match skipped a listing", listing.id, error instanceof Error ? error.name : "unknown");
+    }
+  }
   const fits = rows.filter((row) => {
     if (row.rentNumeric === null || row.rentNumeric <= 0) return false;
     if (classifyRoomAvailability(row.availabilityRaw) === "unavailable") return false;

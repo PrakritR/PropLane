@@ -321,7 +321,8 @@ export async function handleUnassignedLeadInbound(
     };
   } catch (error) {
     // Masked: neither a number nor the body reaches a log.
-    console.error("unassigned lead turn failed", error instanceof Error ? error.name : "unknown");
+    // Outside production the first stack frames are kept: a bare "TypeError" hid a broken offer step.
+    console.error("unassigned lead turn failed", error instanceof Error ? error.name : "unknown", process.env.NODE_ENV !== "production" && error instanceof Error ? error.stack?.split("\n").slice(0, 4).join(" | ") : "");
     return EMPTY_TURN;
   }
 }

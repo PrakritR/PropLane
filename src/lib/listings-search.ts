@@ -37,7 +37,7 @@ export function parseRadiusParam(raw: string | undefined): RadiusMiles {
  * Avoids treating the first `$` in a longer string (e.g. utilities in the same field) as rent.
  */
 export function parseMonthlyRent(rentLabel: string): number | null {
-  const normalized = rentLabel.replace(/,/g, "").trim();
+  const normalized = String(rentLabel ?? "").replace(/,/g, "").trim();
   if (!normalized) return null;
   const head = normalized.split("/")[0] ?? normalized;
   const amounts = [...head.matchAll(/\$(\d+)/g)]
