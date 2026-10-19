@@ -172,6 +172,77 @@ delete from portal_workspaces where name = 'PropLane Seattle' and is_service
   and not exists (select 1 from manager_property_records p where p.workspace_id = portal_workspaces.id);
 ```
 
+## 5b. Move existing owners into PropLane Service (one owner per run)
+
+Needs step 5's service owner and migrations `20261018260000` / `20261018260100` (step 2). Moves ONE owner's workspace
+into a service workspace owned by the service owner, through the app's own `transfer_portal_workspace_ownership`
+(the same call as Settings > Transfer ownership): the workspace, its houses, residents, leases, bookings, charges,
+applications, services, inbox, members, work number and work email follow together. The owner is kept as an **Admin**
+member of it with the full admin permission stamp and flagged **owner of record**. Nothing is copied or re-keyed by hand.
+
+Run it for each owner, one at a time. `OWNER` below is the owner's account email; the label is the new workspace name.
+
+```bash
+# 1. Pick the account (optional): lists accounts whose name or email matches, then stops.
+node scripts/one-number/move-houses-to-service.mjs $PROD --owner-name Ambika
+
+# 2. Back up the rows this move touches. --owner-email is required here: a production move refuses any other backup.
+node scripts/one-number/backup.mjs $PROD --owner-email ogambik2@gmail.com
+
+# 3. Dry run: prints every house with residents, leases, bookings, charges, services, conversations,
+#    and every row the app's transfer does NOT re-key ("LEFT BEHIND"). Read it. It writes nothing.
+node scripts/one-number/move-houses-to-service.mjs $PROD --owner-email ogambik2@gmail.com --label "1. Ambika"
+
+# 4. Apply, with the house count the dry run printed (and --acknowledge-unmoved if it listed left-behind rows).
+node scripts/one-number/move-houses-to-service.mjs $PROD --owner-email ogambik2@gmail.com --label "1. Ambika" \
+  --apply --expect-houses 3 --acknowledge-unmoved --reason "move Ambika's Seattle houses into PropLane Service" \
+  --backup <backup path from step 2> --journal-out ~/.cockpit/backups/move-ambika.json
+```
+
+Vinod's only workspace holds one draft with no address, so the Seattle gate cannot pass it; the captain's explicit
+`--workspace-id` is the override that skips the city check (the houses are still printed):
+
+```bash
+node scripts/one-number/backup.mjs $PROD --owner-email vinodvinod5@gmail.com
+node scripts/one-number/move-houses-to-service.mjs $PROD --owner-email vinodvinod5@gmail.com --label "2. Vinod" \
+  --workspace-id e8cb8455-555f-42c4-b909-d83935181fd1
+node scripts/one-number/move-houses-to-service.mjs $PROD --owner-email vinodvinod5@gmail.com --label "2. Vinod" \
+  --workspace-id e8cb8455-555f-42c4-b909-d83935181fd1 --apply --expect-houses 1 \
+  --reason "move Vinod's workspace into PropLane Service" --backup <backup path> --journal-out ~/.cockpit/backups/move-vinod.json
+```
+
+What it refuses (exit 2): a workspace that mixes cities or holds a house whose city it cannot read (it never splits a
+workspace; fix the addresses or pass `--workspace-id`), an owner with two Seattle workspaces (choose with
+`--workspace-id`), a missing service owner or migration, a label the service owner already uses, a missing
+`--expect-houses`, left-behind rows without `--acknowledge-unmoved`, and (production) a backup not taken with the same
+`--owner-email`. A re-run after a finished move finds it and writes nothing.
+
+Order of writes, each saved to the journal (`--journal-out`, default `~/.cockpit/backups/one-number-move-houses-<target>-<time>.json`, mode 0600)
+before the next: seat the service owner as an accepted member (the transfer only hands a workspace to a member) ->
+transfer -> mark `is_service`, `city`, name -> give the owner a fresh empty default workspace if this was their default
+(the app's `ensure_default_portal_workspace`) -> flag owner of record. It then reads everything back and compares it with the
+snapshot taken first (houses, every house-keyed table, lease statuses and residents, bookings, charges, members, work numbers
+and emails, who owns what). **Any difference, or any error, undoes the move automatically** and exits 1.
+
+Rollback (database only, and only until something new is written into the workspace you would not want to lose):
+
+```bash
+node scripts/one-number/move-houses-to-service.mjs $PROD --owner-email ogambik2@gmail.com --label "1. Ambika" \
+  --apply --undo ~/.cockpit/backups/move-ambika.json --reason "undo the Ambika move" --backup <fresh backup path>
+```
+
+It hands the workspace back (the owner's Admin membership is what lets the app do that: if it was removed, re-add them as
+Admin first), restores the name / city / service flag / default flag, removes the empty default it created, restores the cached
+work number, and proves the result equals the first snapshot. `--undo` without `--apply` prints what it would do.
+
+**Rows the app's transfer does not re-key.** The RPC re-keys twelve house-keyed tables (applications, leases, charges, rent
+profiles, work orders, schedule, screening, cosigners, ledger, expenses, scheduled messages, payment automation). Documents,
+bills, service requests, security deposits, move-in forms, inspections, owner/vendor settings and about thirty others keep the
+old owner's id on the row. The dry run counts them per table; apply refuses until you pass `--acknowledge-unmoved`. Whether
+a page still shows them under the new owner depends on the reader; extend the RPC (a new migration) before moving an owner who
+has such rows. Workspace-keyed history (messages, conversations, wallets) stays attached to the workspace id and is listed too.
+The app's transfer also sends no "you were promoted / demoted" email here: this script calls the RPC directly.
+
 ## 6. Shadow mode (old numbers keep working)
 
 ```bash
@@ -285,6 +356,7 @@ order by last_inbound nulls first;
 | migrations | none needed (inert) | always |
 | backfill | `backfill.mjs --undo <journal> --apply` | until a later legitimate write re-stamps a row (those are left alone) |
 | Seattle workspace | the SQL in step 5 | while it holds no property |
+| owner moved into Service (5b) | `move-houses-to-service.mjs --apply --undo <journal>` (also automatic on any failed check) | until something new that must not be lost is written into the moved workspace |
 | shadow / pilot / shared | `cutover.mjs --rollback --apply` (also cancels unsent notices) | until old numbers are released at the provider |
 | moved notices | `--rollback` deletes unsent ones; sent ones cannot be recalled | before dispatch |
 | old number release | `restoreManagerNumber` (database only) | until the provider release |
