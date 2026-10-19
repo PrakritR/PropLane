@@ -97,6 +97,8 @@ async function main() {
   }
 
   await waitForOtherRuns(console.log);
+  // No other run is alive now, so a non-baseline config is a dead run's leftover (--keep, a kill): put it back before snapshotting.
+  await restoreBaseline(db, console.log);
   const runId = hex(6);
   const dir = mkdtempSync(join(tmpdir(), `one-number-e2e-${runId}-`));
   const ledgerFile = join(dir, "ledger.json");

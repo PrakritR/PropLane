@@ -19,9 +19,10 @@ export async function readConfigState(db) {
 /** Put both values back to the baseline (a killed run may have left per_workspace / a fixture owner). Returns the verified state. */
 export async function restoreBaseline(db, log = console.log) {
   let state = await readConfigState(db);
-  const differs = () => state.line_mode !== DEV_BASELINE.line_mode || state.service_owner_user_id !== DEV_BASELINE.service_owner_user_id;
+  const differs = () => (state.pilot ?? []).length > 0 || state.line_mode !== DEV_BASELINE.line_mode || state.service_owner_user_id !== DEV_BASELINE.service_owner_user_id;
   for (let attempt = 0; attempt < 4 && differs(); attempt += 1) {
     log(`  config differs from baseline (${JSON.stringify({ line_mode: state.line_mode, service_owner_user_id: state.service_owner_user_id })}); restoring`);
+    if ((state.pilot ?? []).length > 0) await db.from("sms_runtime_config").update({ shared_pilot_workspace_ids: [] }).eq("singleton", true);
     if (state.line_mode !== DEV_BASELINE.line_mode) await db.from("sms_runtime_config").update({ line_mode: DEV_BASELINE.line_mode }).eq("singleton", true);
     if (state.service_owner_user_id !== DEV_BASELINE.service_owner_user_id) await db.from("platform_service_settings").update({ owner_user_id: DEV_BASELINE.service_owner_user_id }).eq("singleton", true);
     await sleep(1000 * (attempt + 1));
