@@ -409,7 +409,7 @@ export function houseSummaries(houses, snap) {
       charges: charge.total,
       openCharges: charge.open,
       services: per("portal_work_order_records") + per("portal_service_request_records"),
-      applications: per("manager_application_records"),
+      applications: per("manager_application_records") + per("manager_application_records#assigned"),
       conversations: per("manager_sms_conversation_houses"),
     };
   });

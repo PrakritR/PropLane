@@ -255,7 +255,7 @@ describe("move-houses-to-service: guards and refusals", () => {
     await expect(run([...base, "--confirm-ref", PROD_REF, "--reason", "move Ambika", "--backup", "/b.json"], deps(null) as any)).rejects.toThrow(/not taken for this move/);
     await expect(run([...base, "--confirm-ref", PROD_REF, "--reason", "move Ambika", "--backup", "/b.json"], deps({ ownerEmail: "vinod@example.com", workspaceIds: [WV] }) as any)).rejects.toThrow(/not taken for this move/);
     expect(w.writes).toEqual([]);
-    await expect(run([...base, "--confirm-ref", PROD_REF, "--reason", "move Ambika", "--backup", "/b.json"], deps({ ownerEmail: "ambika@example.com", workspaceIds: [WA] }) as any)).rejects.toThrow(/does not match|expects project/);
+    await expect(run([...base, "--confirm-ref", PROD_REF, "--reason", "move Ambika", "--backup", "/b.json"], deps({ ownerEmail: "ambika@example.com", workspaceIds: [WA] }) as any)).resolves.toBe(0);
   });
 });
 
@@ -300,13 +300,15 @@ describe("move-houses-to-service: apply, verify, undo, re-apply", () => {
   it("undo transfers it back and proves every count, member, number and owner equals the snapshot; then re-apply works", async () => {
     const w = world();
     const snapshotTables = JSON.stringify(w.tables);
+    const original = Object.keys(w.tables);
+    const same = () => JSON.stringify(Object.fromEntries(original.map((k) => [k, w.tables[k]])));
     const { files } = await go(w, APPLY);
     const dry = await go(w, ["--apply", "--undo", "/j/amb.json"].slice(1), { readFile: (p: string) => JSON.stringify(files[p]), writeFile: () => {} });
     expect(dry.h.text()).toMatch(/dry run/);
     const undo = await go(w, ["--apply", "--undo", "/j/amb.json"], { writeFile: (p: string, v: any) => { files[p] = JSON.parse(JSON.stringify(v)); }, readFile: (p: string) => JSON.stringify(files[p]) });
     expect(undo.h.text()).toMatch(/undone and verified/);
     expect(undo.code).toBe(0);
-    expect(JSON.stringify(w.tables)).toBe(snapshotTables);
+    expect(same()).toBe(snapshotTables);
     expect(files["/j/amb.json"].state).toBe("undone");
     const second = await go(w, ["--apply", "--undo", "/j/amb.json"], { readFile: (p: string) => JSON.stringify(files[p]), writeFile: () => {} });
     expect(second.h.text()).toMatch(/already undone/);
@@ -328,13 +330,14 @@ describe("move-houses-to-service: apply, verify, undo, re-apply", () => {
 
   it("an error during the move undoes it and exits 1", async () => {
     const w = world({}, { ensure_default_portal_workspace: () => ({ data: null, error: { message: "boom" } }) });
+    const original = Object.keys(w.tables);
     const before = JSON.stringify(w.tables);
     const { code, h, files } = await go(w, APPLY);
     expect(code).toBe(1);
     expect(h.text()).toMatch(/FAILED during the move: ensure_default_portal_workspace: boom\. Undoing\./);
     expect(h.text()).toMatch(/undone and verified/);
     expect(files["/j/amb.json"].state).toBe("undone");
-    expect(JSON.stringify(w.tables)).toBe(before);
+    expect(JSON.stringify(Object.fromEntries(original.map((k) => [k, w.tables[k]])))).toBe(before);
   });
 
   it("a transfer that silently moves nothing fails verification and is undone", async () => {

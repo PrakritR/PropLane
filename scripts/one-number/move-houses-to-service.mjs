@@ -217,7 +217,7 @@ async function applyMove(db, ctx) {
     .eq("owner_user_id", service.id)
     .select("id");
   if (marked.error || (marked.data ?? []).length !== 1) throw new Error(`portal_workspaces: could not mark the service workspace (${marked.error?.message ?? "no row"})`);
-  step(journal, "marked-service", { name: label, city });
+  step(journal, "marked-service", { workspaceName: label, city });
   save(journal);
 
   // The RPC clears is_default on the transferred workspace. If it was the owner's default, the owner now has none:
