@@ -55,7 +55,7 @@ const ACTIONS: Array<Record<string, unknown>> = [
   { action: "team-add", id: "x", userId: ADMIN_B },
   { action: "team-remove", id: "x", linkId: "y" },
   { action: "attach-candidates", query: "" },
-  { action: "attach", workspaceId: "cccccccc-1111-4111-8111-cccccccccccc", city: "Seattle", label: "L" },
+  { action: "attach", workspaceId: "cccccccc-1111-4111-8111-cccccccccccc", city: "Seattle", label: "L", reason: "Client asked" },
 ];
 
 describe("the admin gate", () => {
@@ -124,7 +124,7 @@ describe("attach", () => {
     db.tables.portal_workspaces.push({ id: CLIENT_WS, owner_user_id: MANAGER, name: "Ambika Homes", is_default: true, is_service: false });
     db.tables.manager_property_records.push({ id: "h1", manager_user_id: MANAGER, workspace_id: CLIENT_WS });
     db.tables.audit_log = [];
-    const attached = await post({ action: "attach", workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika" });
+    const attached = await post({ action: "attach", workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika", reason: "Client asked" });
     expect(attached.status).toBe(201);
     expect(db.tables.portal_workspaces[0]).toMatchObject({ owner_user_id: MANAGER, is_service: true, name: "Ambika" });
     expect(db.tables.manager_property_records).toEqual([{ id: "h1", manager_user_id: MANAGER, workspace_id: CLIENT_WS }]);
@@ -133,10 +133,19 @@ describe("attach", () => {
     expect(opened.headers.get("set-cookie")).toContain(`proplane-workspace=${CLIENT_WS}`);
   });
 
+  it("answers 400 without a reason and writes nothing", async () => {
+    db.tables.portal_workspaces.push({ id: CLIENT_WS, owner_user_id: MANAGER, name: "Mine", is_default: true, is_service: false });
+    db.tables.audit_log = [];
+    expect((await post({ action: "attach", workspaceId: CLIENT_WS, city: null, label: null })).status).toBe(400);
+    expect((await post({ action: "attach", workspaceId: CLIENT_WS, city: null, label: null, reason: " " })).status).toBe(400);
+    expect(db.tables.portal_workspaces[0]!.is_service).toBe(false);
+    expect(db.tables.audit_log).toHaveLength(0);
+  });
+
   it("a signed-in non-admin attaches nothing", async () => {
     signedIn = MANAGER;
     db.tables.portal_workspaces.push({ id: CLIENT_WS, owner_user_id: MANAGER, name: "Mine", is_default: true, is_service: false });
-    expect((await post({ action: "attach", workspaceId: CLIENT_WS, city: null, label: null })).status).toBe(403);
+    expect((await post({ action: "attach", workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked" })).status).toBe(403);
     expect(db.tables.portal_workspaces[0]!.is_service).toBe(false);
   });
 });

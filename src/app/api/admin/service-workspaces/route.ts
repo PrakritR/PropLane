@@ -67,6 +67,7 @@ export async function POST(request: Request) {
         workspaceId: body.workspaceId,
         city: body.city,
         label: body.label,
+        reason: body.reason,
       });
       if (!result.ok) return failure(result);
       return NextResponse.json({ id: result.id }, { status: 201, headers: NO_STORE });

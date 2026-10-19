@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { ensureProfileProplaneId } from "@/lib/manager-access-server";
@@ -28,6 +29,31 @@ export type ServiceFailure = { ok: false; status: number; error: string };
 export type ServiceResult<T> = ({ ok: true } & T) | ServiceFailure;
 
 const fail = (status: number, error: string): ServiceFailure => ({ ok: false, status, error });
+
+/**
+ * One audit row per admin Service change, under the workspace owner (so "everything ever done to this account" finds it).
+ * `required` changes (who sees a client's finances, who is on the team) refuse 503 when the row could not be recorded,
+ * so no audit row means no change; the rest log and carry on.
+ */
+async function auditServiceChange(
+  db: SupabaseClient,
+  operatorUserId: string,
+  workspaceOwnerId: string,
+  action: string,
+  summary: Record<string, unknown>,
+  required: boolean,
+): Promise<ServiceFailure | null> {
+  const audit = await writeAuditLog(
+    { db, landlordId: workspaceOwnerId, userId: operatorUserId },
+    { action, toolName: action, inputSummary: summary, resultSummary: { applied: false }, dedupeKey: `${action}:${randomUUID()}` },
+  );
+  if (audit.recorded) return null;
+  if (!required) {
+    console.error(`[service-workspaces] audit row for ${action} was not recorded`);
+    return null;
+  }
+  return fail(503, "Could not record the audit entry, so nothing was changed. Please retry.");
+}
 
 export const SERVICE_NOT_CONFIGURED = "The PropLane service owner is not set up yet.";
 const NOT_FOUND = "Service workspace not found.";
@@ -240,6 +266,7 @@ export async function createServiceWorkspace(
   const created = await db.rpc("create_portal_service_workspace", { p_owner: owner.ownerUserId, p_name: name, p_city: city });
   if (created.error || !created.data) return fail(503, "Could not create the workspace. Please retry.");
   const id = String(created.data);
+  await auditServiceChange(db, operatorUserId, owner.ownerUserId, "admin_service_create", { workspaceId: id, name, city, ownerOfRecordName: client ?? null }, false);
   if (client) {
     const named = await db.from("portal_workspaces").update({ owner_of_record_name: client }).eq("id", id).eq("owner_user_id", owner.ownerUserId);
     if (named.error) {
@@ -290,8 +317,10 @@ async function ensureAdminMember(db: SupabaseClient, workspaceOwnerId: string, w
 export async function attachWorkspaceToService(
   db: SupabaseClient,
   operatorUserId: string,
-  input: { workspaceId: unknown; city: unknown; label: unknown },
+  input: { workspaceId: unknown; city: unknown; label: unknown; reason?: unknown },
 ): Promise<ServiceResult<{ id: string }>> {
+  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  if (reason.length < 3 || reason.length > 500) return fail(400, "Give a reason of 3 to 500 characters.");
   const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(workspaceId)) return fail(400, "Choose a workspace.");
   const city = cleanServiceCity(input.city);
@@ -330,7 +359,7 @@ export async function attachWorkspaceToService(
   const audit = await writeAuditLog(actor, {
     action: ADMIN_SERVICE_ATTACH_AUDIT_ACTION,
     toolName: ADMIN_SERVICE_ATTACH_AUDIT_ACTION,
-    inputSummary: { workspaceId: workspace.id, workspaceOwnerUserId: workspaceOwnerId, serviceOwnerUserId: serviceOwner.ownerUserId, city, label, ownerIsOwnerOfRecord: !ownedByServiceOwner },
+    inputSummary: { workspaceId: workspace.id, workspaceOwnerUserId: workspaceOwnerId, serviceOwnerUserId: serviceOwner.ownerUserId, city, label, reason, ownerIsOwnerOfRecord: !ownedByServiceOwner },
     resultSummary: { applied: false },
     dedupeKey: auditKey,
   });
@@ -419,6 +448,7 @@ export async function renameServiceWorkspace(
   const who = await operatorStanding(db, operatorUserId, input.id);
   if (!who.ok) return who;
   if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can rename it.");
+  await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_rename", { workspaceId: who.workspace.id, name, city, ownerOfRecordName: client ?? undefined }, false);
   const res = await db
     .from("portal_workspaces")
     .update({
@@ -582,6 +612,8 @@ export async function inviteServiceClient(
     if (taken === null) return fail(503, "Could not send the invite. Please retry.");
     if (taken) return fail(409, "This workspace already has an owner of record.");
   }
+  const audited = await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_team_invite", { workspaceId: who.workspace.id, inviteeUserId: target, ownerOfRecord: flag }, flag);
+  if (audited) return audited;
   const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, target, { pending: true, ownerOfRecord: flag });
   if (!added.ok) return added;
   return { ok: true, linkId: added.linkId };
@@ -643,6 +675,15 @@ export async function setServiceOwnerOfRecord(
       };
     }
   }
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    who.workspace.ownerUserId,
+    "admin_service_team_owner_of_record",
+    { workspaceId: who.workspace.id, linkId, inviteeUserId: target.invitee_user_id, ownerOfRecord: input.value, previousTeamRole: target.team_role },
+    true,
+  );
+  if (audited) return audited;
   const res = await db
     .from("account_link_invites")
     .update(patch)
@@ -677,6 +718,8 @@ export async function addServiceTeamMember(
     .maybeSingle();
   if (existing.error) return fail(503, "Could not add the teammate. Please retry.");
   if (existing.data) return fail(409, "Already a member of this workspace.");
+  const audited = await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_team_add", { workspaceId: who.workspace.id, inviteeUserId: target }, true);
+  if (audited) return audited;
   const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, target);
   if (!added.ok) return added;
   return { ok: true, linkId: added.linkId };
@@ -712,6 +755,8 @@ export async function removeServiceTeamMember(
     });
     if (!verdict.ok) return fail(403, verdict.reason);
   }
+  const audited = await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_team_remove", { workspaceId: who.workspace.id, linkId, targetRole: targetRole, wasStatus: (link.data as { status?: string }).status }, true);
+  if (audited) return audited;
   const res = await db
     .from("account_link_invites")
     .update({ status: "cancelled", responded_at: new Date().toISOString() })

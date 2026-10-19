@@ -124,6 +124,7 @@ export function AdminServicePanel() {
   const [attachId, setAttachId] = useState("");
   const [attachCity, setAttachCity] = useState("");
   const [attachLabel, setAttachLabel] = useState("");
+  const [attachReason, setAttachReason] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -300,11 +301,11 @@ export function AdminServicePanel() {
   }, [attachOpen, attachQuery]);
 
   const attach = async () => {
-    if (!attachId) return;
+    if (!attachId || attachReason.trim().length < 3) return;
     setBusy(true);
     setFormError(null);
     try {
-      const { ok, json } = await post({ action: "attach", workspaceId: attachId, city: cleanServiceCity(attachCity), label: cleanOwnerOfRecord(attachLabel) });
+      const { ok, json } = await post({ action: "attach", workspaceId: attachId, city: cleanServiceCity(attachCity), label: cleanOwnerOfRecord(attachLabel), reason: attachReason.trim() });
       if (!ok) {
         setFormError(json.error ?? "Could not attach the workspace.");
         return;
@@ -391,7 +392,7 @@ export function AdminServicePanel() {
             ariaLabel="Attach existing workspace"
             data-attr="admin-service-attach"
             disabled={notConfigured || state.status === "loading"}
-            onClick={() => { setFormError(null); setAttachQuery(""); setAttachId(""); setAttachCity(""); setAttachLabel(""); setAttachCandidates([]); setAttachOpen(true); }}
+            onClick={() => { setFormError(null); setAttachQuery(""); setAttachId(""); setAttachCity(""); setAttachLabel(""); setAttachReason(""); setAttachCandidates([]); setAttachOpen(true); }}
           />
         }
         primary={
@@ -460,7 +461,7 @@ export function AdminServicePanel() {
         dataAttr="admin-service-attach-modal"
         footer={
           <ModalFooter>
-            <Button type="button" disabled={busy || !attachId || cleanServiceCity(attachCity) === undefined || cleanOwnerOfRecord(attachLabel) === undefined} data-attr="admin-service-attach-save" onClick={() => void attach()}>
+            <Button type="button" disabled={busy || !attachId || attachReason.trim().length < 3 || cleanServiceCity(attachCity) === undefined || cleanOwnerOfRecord(attachLabel) === undefined} data-attr="admin-service-attach-save" onClick={() => void attach()}>
               Attach
             </Button>
           </ModalFooter>
@@ -487,6 +488,10 @@ export function AdminServicePanel() {
           <label className="block text-[13px] font-semibold text-foreground">
             <span className="mb-1 block">Label</span>
             <Input value={attachLabel} onChange={(e) => setAttachLabel(e.target.value)} maxLength={80} data-attr="admin-service-attach-label" />
+          </label>
+          <label className="block text-[13px] font-semibold text-foreground">
+            <span className="mb-1 block">Reason</span>
+            <Input value={attachReason} onChange={(e) => setAttachReason(e.target.value)} maxLength={500} required data-attr="admin-service-attach-reason" />
           </label>
         </div>
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
