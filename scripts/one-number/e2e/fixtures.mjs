@@ -139,6 +139,14 @@ export class World {
       occupancy_start: new Date().toISOString().slice(0, 10),
     }, { onConflict: "id" }), `application ${label}`);
     await must(() => this.db.from("resident_workspace_bindings").upsert({ resident_user_id: user.id, manager_user_id: ownerId, application_id: applicationId }, { onConflict: "resident_user_id,manager_user_id" }), `binding ${label}`);
+    // A signed lease (both signatures) is what makes this a tenant with the full portal: Services, Payments, Lease.
+    const signedAt = NOW();
+    const leaseId = `e2e-lease-${this.runId}-${label}`;
+    await must(() => this.db.from("portal_lease_pipeline_records").upsert({
+      id: leaseId, manager_user_id: ownerId, resident_user_id: user.id, resident_email: user.email, property_id: house.id, status: "signed",
+      row_data: { id: leaseId, residentEmail: user.email, residentName: fullName, propertyId: house.id, propertyName: house.name, managerUserId: ownerId, status: "signed", applicationId,
+        managerSignature: { name: "Morgan Manager", signedAtIso: signedAt }, residentSignature: { name: fullName, signedAtIso: signedAt }, signatureName: fullName, signedAtIso: signedAt, testRunId: this.runId },
+    }, { onConflict: "id" }), `lease ${label}`);
     const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
     const label2 = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
     const charges = [{ id: `e2e-chg-${this.runId}-${label}-now`, title: "October rent", due: day(5), amount: room.monthlyRent }];
