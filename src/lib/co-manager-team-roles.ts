@@ -46,9 +46,12 @@ export const TEAM_ROLE_LABELS: Record<TeamRoleId, string> = {
   custom: "Custom",
 };
 
-/** The roles an invite offers. `full` is not offered; it reads as Admin on old rows. */
+/**
+ * The roles an invite offers. `full` is not offered (it reads as Admin on old rows) and neither is `property_owner`
+ * (retired from the picker: a house owner who should only look is invited as Viewer; existing owner rows keep working).
+ */
 export const TEAM_ROLE_INVITE_OPTIONS: { value: TeamRoleId; label: string }[] = TEAM_ROLE_IDS
-  .filter((id) => id !== "full")
+  .filter((id) => id !== "full" && id !== "property_owner")
   .map((id) => ({ value: id, label: TEAM_ROLE_LABELS[id] }));
 
 export const TEAM_ROLE_SELECT_OPTIONS: { value: TeamRoleId; label: string }[] = TEAM_ROLE_IDS.map((id) => ({

@@ -626,9 +626,10 @@ texts, and an inbound text's notice does not repeat the forward
 ## Property owner
 
 A **Property owner** is the investor who owns a house the manager runs. It is a
-team role in the manager's workspace (`property_owner`, first in the Role
-dropdown), not a portal: the invite, house picker and Edit permissions flow are
-the ones every other role uses. Plan: `property-owner-role-1006` (lane claude-2).
+team role in the manager's workspace (`property_owner`), not a portal. **Retired
+from the invite picker (captain, Oct 19): a house owner who should only look is
+invited as Viewer; existing owner rows keep working.** There is no owner portal: an
+owner of a PropLane-managed workspace uses the Property portal view-only (below).
 
 **What the role is.** A stamp plus a label, with its own permission vocabulary:
 four owner keys, `ownerPerformance` (Overview and Properties figures),
@@ -657,31 +658,21 @@ legacy NULL role still passes. `tests/unit/property-owner-link-readers.test.ts`
 fails a new reader that neither filters nor is reviewed on its list. The only
 code that reads owner rows is `src/lib/property-owner/*`.
 
-**Owner-only account (captain decision, plan #5).** An owner invite is redeemed
-without a manager account: `redeemInviteLink` provisions a profile and the
-`manager` `profile_roles` row (the property portal hosts the owner routes) and
-nothing else, with no `manager_purchases` row, so no plan, workspace, Add
-property or billing (`provisionOwnerOnlyAccess`). `getOwnerAccessState` decides
-`ownerOnly`: owner memberships and no houses of their own, no teammate seat, no
-plan, not an admin. An owner-only account:
+**The owner portal is retired (captain, Oct 19).** Every account with manager access renders the one manager shell; there is
+no `ownerOnly` branch in `src/app/portal/layout.tsx` or `renderPortalSection`, and `/portal/owner/*` is a permanent redirect to
+its Property-portal home (`src/lib/property-owner/legacy-redirects.ts`, read by `next.config.ts`). Invariants:
 
-- gets the owner shell (`OwnerPortalShell`: rail on desktop; bottom bar plus More
-  sheet on a phone) from `src/app/portal/layout.tsx`, and every other `/portal/*`
-  path, hard-loaded or through `renderPortalSection`, redirects to `/portal/owner`;
-- is refused by every manager API: `getReportsAuthContext` and
-  `requireManagerRouteUser` return no context (401), and the module readers
-  exclude its rows. The menu is not the security boundary
-  (`tests/unit/property-owner-reports-auth.test.ts`,
-  `tests/unit/property-owner-server-exclusion.test.ts`). A route that decides a
-  manager role **for itself** instead of through one of those helpers — the shape
-  `/api/portal-vendors` had when it leaked shared vendor contact rows — must call
-  `refuseOwnerOnly` (403) on its own. `tests/unit/owner-only-manager-routes.test.ts`
-  walks `src/app/api/**` and fails a new route that neither refuses nor carries a
-  reviewed `EXEMPT` reason, so that list is the enumeration — do not re-copy it here.
-
-**Owner portal shell (W21, [`one-number.md`](one-number.md) § W21).** The owner shell is the shared portal chrome with five rows
-(Overview, Properties, Money, Messages, Settings) and a workspace switcher; Money folds Statements, Finances and Documents into
-tabs. The switcher narrows every `/api/owner/*` read to one of the owner's own memberships through `requireOwnerRoute(req)`.
+- `withholdManagerSurface` is always `false` and `refuseOwnerOnly` always `null` (seams kept so no call site changes). A
+  Property-owner row still holds no module keys and is dropped from every teammate reader (`withoutOwnerLinks`), so lifting the
+  old gate hands it nothing of the inviting manager's books.
+- The owner of record of a PropLane-managed workspace sees it view-only: `PortalWorkspace.readOnly` (server-derived; the
+  middleware and tool layer refuse the writes). The UI only hides: no round +, no Edit/Delete/Archive icon actions, no write
+  entries in a row ⋯ menu (`PortalReadOnlyContext`, one seam each in `PortalPrimaryIconAction`, `PortalIconAction`,
+  `DropdownMenuItem`, `resolveAddPropertyWorkspaceAction`), `data-read-only="managed"` on the root, and one strip under the top
+  bar: "Managed by PropLane · View only" with Message the team (Team chat) and Get a plan (Billing & plan).
+  `tests/unit/managed-read-only-ui.test.tsx`.
+- Owner money lives in Finances › Owner payouts (`financials/owner-payouts`, `OwnerPayoutsPanel` over `/api/owner/finances/*`),
+  shown only when `GET /api/owner/finances` answers (403 hides the tab).
 
 **Owner APIs** (`/api/owner/*`, one gate: `requireOwnerRoute`). The owner and the
 manager come from the authenticated membership (`loadOwnerGrants`), read fresh on
@@ -717,24 +708,14 @@ from the membership too (`applyOwnerMessageInboxScope` →
 `OWNER_MESSAGE_INBOX_SCOPE`, on both send paths): `scopeForRole` reads the
 legacy singular `profiles.role`, so an owner whose account was created as a
 resident would have had the reply filed in their resident inbox, where the
-owner portal never looks. The re-scope runs for an `admin`-labelled sender too
+owner inbox never looks. The re-scope runs for an `admin`-labelled sender too
 — the scope belongs to the RECIPIENT, and the inviting manager of a membership
 can be a multi-role account — and the membership reads behind it are memoized
 per client (`loadOwnerGrantsOnce`), so the filter and the re-scope do not each
 pay for `loadOwnerGrants`.
 
-**A membership that cannot be read denies.** `getOwnerAccessState` throws
-`OwnerAccessUnavailableError` rather than answering "no owner row": that answer
-would hand an owner-only account the manager shell and wave it past
-`refuseOwnerOnly`, which turns the error into a 503. Every manager-side caller
-asks `withholdManagerSurface` instead of reading `ownerOnly`, so the error
-denies (no manager context) rather than throwing into a render, and logs
-`[security] owner_membership_unreadable` with the error class and the user id
-so a sustained outage is not a silent 401 everywhere; the two page
-shells (`src/app/portal/layout.tsx`, `renderPortalSection`) show
-`PortalAccessUnavailable` — neither portal — and `requireOwnerPage` stays on the
-owner page with Messages shut. The layout redirects to `/portal/owner` when it
-cannot see the requested path at all.
+**A membership that cannot be read.** `ownerAccessStateFor` still throws `OwnerAccessUnavailableError` rather than answering
+"no owner row"; `/api/owner/*` routes deny on it. It no longer gates the manager surface (see the retirement note above).
 
 **A delegate may not share what they cannot see.** Owner keys are not module
 grants, so the module cap carries neither a check nor a value for them and both
@@ -798,6 +779,13 @@ Do not "fix" these without asking:
   next request and the shell shows *No properties are shared with you*
   (`owner-overview.tsx`), so losing the last grant reads as an empty state, not
   a lockout.
+
+## Row note: view-only seats and managed workspaces
+
+`property_owner` is being retired into a view-only seat: `loadWorkspaces` stamps `readOnly: true` (and forces
+`canAddProperties` / `canManageMembers` false) for it, and `managed_read_only_workspace_ids()` locks the seat's workspace
+exactly like a PropLane-managed client's. A seat stays visible in the roster; only writes are refused. See
+`docs/agents/owner-management.md` invariant 8.
 
 ## Workspace code and the rail (+)
 

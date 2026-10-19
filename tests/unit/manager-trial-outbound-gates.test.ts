@@ -28,6 +28,12 @@ vi.mock("@/lib/manager-communication-access.server", async (importOriginal) => (
   },
 }));
 
+// This file's db is a stub; the managed view-only lock has its own tests (managed-read-only-tool-scope).
+vi.mock("@/lib/auth/managed-read-only.server", () => ({
+  isManagedReadOnly: async () => false,
+  managedReadOnlyWorkspaceIds: async () => [],
+}));
+
 import { UNRESOLVED_AGENT_WORKSPACE_SCOPE } from "@/lib/agent/manager-workspace-scope";
 import { MANAGER_COMMUNICATION_UNREADABLE_MESSAGE } from "@/lib/manager-communication-access.server";
 import { COMMUNICATION_SENDING_TOOLS, scopeManagerTool } from "@/lib/tools/manager-co-manager-tool-scope";

@@ -42,8 +42,6 @@ const ROLE_META: Record<
   },
 };
 
-const OWNER_ROLE_META = { ...ROLE_META.manager, label: "Owner", hint: "Your properties' results" };
-
 function choosePortalSignInNext(nextRaw: string): string {
   if (!nextRaw.trim()) return "/auth/choose-portal";
   const params = new URLSearchParams();
@@ -58,14 +56,13 @@ function ChoosePortalForm() {
   const nextRaw = searchParams.get("next") ?? "";
 
   const [roles, setRoles] = useState<AuthRole[] | null>(null);
-  const [ownerOnly, setOwnerOnly] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const autoChooseAttemptedRef = useRef(false);
 
   const loadRoles = useCallback(async (): Promise<
-    | { kind: "ok"; roles: AuthRole[]; ownerOnly: boolean }
+    | { kind: "ok"; roles: AuthRole[] }
     | { kind: "unauthorized" }
     | { kind: "error"; message: string }
   > => {
@@ -73,7 +70,6 @@ function ChoosePortalForm() {
     const body = (await res.json().catch(() => ({}))) as {
       roles?: AuthRole[];
       reachableRoles?: AuthRole[];
-      ownerOnly?: boolean;
       error?: string;
     };
     if (!res.ok) {
@@ -96,7 +92,6 @@ function ChoosePortalForm() {
     return {
       kind: "ok",
       roles: list.filter((role): role is AuthRole => role in ROLE_META),
-      ownerOnly: body.ownerOnly === true,
     };
   }, [nextRaw, router]);
 
@@ -113,7 +108,6 @@ function ChoosePortalForm() {
           setRoles([]);
           return;
         }
-        setOwnerOnly(result.ownerOnly);
         setRoles(result.roles);
       } catch {
         if (!cancelled) {
@@ -130,11 +124,10 @@ function ChoosePortalForm() {
   const stackOptions = useMemo(
     () =>
       (roles ?? []).map((role) => {
-        // An owner-only account's `manager` entry opens the owner portal.
-        const meta = role === "manager" && ownerOnly ? OWNER_ROLE_META : ROLE_META[role];
+        const meta = ROLE_META[role];
         return { id: role, label: meta.label, hint: meta.hint, icon: meta.icon, tone: meta.tone };
       }),
-    [roles, ownerOnly],
+    [roles],
   );
 
   const choose = useCallback(

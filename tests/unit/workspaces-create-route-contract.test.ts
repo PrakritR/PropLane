@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   loadWorkspacePlan: vi.fn(),
   businessAccess: vi.fn(),
   rpc: vi.fn(),
+  lockedIds: vi.fn(async () => [] as string[]),
 }));
 
 vi.mock("next/headers", () => ({
@@ -24,6 +25,9 @@ vi.mock("@/lib/auth/co-manager-invite-eligibility.server", () => ({
 vi.mock("@/lib/workspaces/server", () => ({
   loadWorkspaces: mocks.loadWorkspaces,
   loadWorkspacePlan: mocks.loadWorkspacePlan,
+}));
+vi.mock("@/lib/auth/managed-read-only.server", () => ({
+  managedReadOnlyWorkspaceIds: mocks.lockedIds,
 }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveAuthenticatedBusinessAccess: mocks.businessAccess,
@@ -153,6 +157,27 @@ describe("workspace create route owner and cap contract", () => {
       p_limit: plan.workspaceLimit,
     });
     expect(createCall?.[1]).not.toHaveProperty("owner_user_id");
+  });
+
+  it("refuses a PropLane Service client with a view-only workspace, before the create RPC", async () => {
+    setup();
+    mocks.lockedIds.mockResolvedValueOnce(["managed-workspace"]);
+
+    const response = await POST(request({ action: "create", name: "Side houses" }));
+
+    expect(response.status).toBe(403);
+    expect((await json(response)).code).toBe("read_only_managed");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the view-only lookup fails", async () => {
+    setup();
+    mocks.lockedIds.mockRejectedValueOnce(new Error("db down"));
+
+    const response = await POST(request({ action: "create", name: "Side houses" }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
   it("fails closed when the workspace plan is unknown after an add-on read failure", async () => {

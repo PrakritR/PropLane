@@ -386,6 +386,9 @@ export function ManagerProperties({
           showToast(e instanceof Error ? e.message : "Could not switch workspace.");
         });
         return false;
+      case "read-only":
+        // PropLane manages this workspace: it is view-only, so nothing opens (the + is not drawn either).
+        return false;
       case "ask-pick":
         // Several owned workspaces: the manager chooses which. The switcher in
         // the sidebar / top bar is the one picker — point them at it rather than

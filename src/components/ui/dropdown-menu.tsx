@@ -6,6 +6,8 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
 import { usePortalSurface } from "@/components/ui/portal-surface";
+import { usePortalReadOnly } from "@/components/portal/portal-read-only-context";
+import { readOnlyMenuLabelAllowed } from "@/lib/workspaces/read-only";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
@@ -139,11 +141,22 @@ export function DropdownMenuContent({
   );
 }
 
+/** The text a menu item shows, read off its children. Non-text nodes contribute nothing. */
+function menuItemLabel(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(menuItemLabel).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) return menuItemLabel(node.props.children);
+  return "";
+}
+
 export function DropdownMenuItem({
   className,
   inset,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }) {
+  // A view-only workspace keeps the looking actions (View, Open, Download, Copy…) and drops every change.
+  const readOnly = usePortalReadOnly();
+  if (readOnly && !readOnlyMenuLabelAllowed(menuItemLabel(props.children))) return null;
   return (
     <DropdownMenuPrimitive.Item
       className={cn(

@@ -196,8 +196,8 @@ export default function InviteLinkClient({ token }: { token: string }) {
         return;
       }
       if (isOwnerInvite) {
-        // An owner has no workspace to switch into: they land on their Overview.
-        router.replace("/portal/owner");
+        // An owner has no workspace to switch into: they land in the Property portal.
+        router.replace("/portal/dashboard");
         return;
       }
       await selectJoinedWorkspace(body.workspaceId);

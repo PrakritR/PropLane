@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as-guard";
+import { isManagedReadOnly } from "@/lib/auth/managed-read-only.server";
+import { MANAGED_READ_ONLY_CODE, MANAGED_READ_ONLY_MESSAGE } from "@/lib/auth/managed-read-only-policy";
 import { loadWorkspaces } from "./server";
 import { WORKSPACE_COOKIE, type PortalWorkspace } from "./types";
 
@@ -128,8 +130,25 @@ export async function resolveWorkspaceFromSettingsRequest(
     }
   }
   const selected = fromBody || fromQuery;
-  if (selected) return resolveActiveWorkspace(db, viewerUserId, selected);
-  return resolveActiveWorkspaceFromRequest(db, viewerUserId);
+  const active = selected
+    ? await resolveActiveWorkspace(db, viewerUserId, selected)
+    : await resolveActiveWorkspaceFromRequest(db, viewerUserId);
+  // A write may not name a view-only (PropLane-managed) workspace, whether the id came from the body
+  // or the cookie. Closes the bypass of a body `workspaceId` that differs from the cookie's workspace.
+  const method = request?.method?.toUpperCase();
+  if (method && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    if (await isManagedReadOnly(db, viewerUserId, active.id)) throw new ManagedReadOnlyError();
+  }
+  return active;
+}
+
+/** Thrown when a write resolves to a view-only (PropLane-managed) workspace. Routes may map it to 403. */
+export class ManagedReadOnlyError extends Error {
+  readonly code = MANAGED_READ_ONLY_CODE;
+  constructor() {
+    super(MANAGED_READ_ONLY_MESSAGE);
+    this.name = "ManagedReadOnlyError";
+  }
 }
 
 /**

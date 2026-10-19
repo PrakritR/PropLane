@@ -6,8 +6,8 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 
 /**
  * Give a person who redeemed a Property owner invite the one thing they need to
- * sign in and reach the owner portal: a profile and the `manager` portal role
- * row (the property portal is the only shell that hosts the owner routes).
+ * sign in and reach the Property portal: a profile and the `manager` portal role
+ * row.
  *
  * What it deliberately does NOT create, because an owner is not a manager:
  *   - no `manager_purchases` row, so no plan, trial or billing;
@@ -15,7 +15,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
  *     and nothing for the plan caps to count;
  *   - no manager id / work number provisioning.
  * Everything else (what they may open, what the APIs return) is decided by
- * `getOwnerAccessState` and the owner membership, not by this role row.
+ * `ownerAccessStateFor` and the owner membership, not by this role row.
  *
  * Idempotent. The user id comes from the authenticated redeemer, never a body.
  *

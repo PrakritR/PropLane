@@ -1,4 +1,7 @@
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { managedReadOnlyWorkspaceIds } from "@/lib/auth/managed-read-only.server";
+import { MANAGED_READ_ONLY_BODY } from "@/lib/auth/managed-read-only-policy";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -40,6 +43,14 @@ function actorFailureResponse(ctx: WorkspaceActor) {
     return NextResponse.json({ error: "Workspace access is unavailable for this account." }, { status: 403 });
   }
   return null;
+}
+
+async function managedReadOnlyWorkspaceIdsOrAll(db: SupabaseClient, userId: string): Promise<string[] | "all"> {
+  try {
+    return await managedReadOnlyWorkspaceIds(db, userId);
+  } catch {
+    return "all";
+  }
 }
 
 export async function GET() {
@@ -98,6 +109,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Use a workspace name of 1–80 characters." }, { status: 400 });
     }
     if (action === "create") {
+      // A client of PropLane Service without a self-paid plan cannot open a second workspace to
+      // add houses around the view-only lock; buying a plan clears the lock and this refusal.
+      const locked = await managedReadOnlyWorkspaceIdsOrAll(db, user.id);
+      if (locked === "all" || locked.length > 0) {
+        return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
+      }
       // The plan's cap sits under the database ceiling; an unknown plan refuses
       // rather than guessing Free or Business. The RPC repeats the owner count
       // under the same advisory lock as the database trigger.
@@ -147,6 +164,22 @@ export async function POST(request: Request) {
     }
     if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) {
       return NextResponse.json({ error: "A valid workspace is required." }, { status: 400 });
+    }
+    // Rename, delete and house moves change a workspace: refused for a view-only (PropLane-managed) one,
+    // including the workspace a house is moving OUT of. `select` (the switcher) stays open above.
+    {
+      const locked = await managedReadOnlyWorkspaceIdsOrAll(db, user.id);
+      let movingFrom = "";
+      if (action === "move-property" || action === "move-preview") {
+        const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
+        if (propertyId) {
+          const src = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
+          movingFrom = String(src.data?.workspace_id ?? "").trim();
+        }
+      }
+      if (locked === "all" || locked.includes(body.id) || (movingFrom && locked.includes(movingFrom))) {
+        return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
+      }
     }
     if (action === "move-property" || action === "move-preview") {
       if (typeof body.propertyId !== "string" || !body.propertyId.trim()) return NextResponse.json({ error: "Select a property." }, { status: 400 });

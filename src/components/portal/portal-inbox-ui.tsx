@@ -2084,6 +2084,7 @@ export function InboxComposer({
           ) : null}
           <button
             type="submit"
+            data-read-only-allow=""
             disabled={!canSend}
             aria-label={attachmentBlockReason ?? sendLabel}
             title={attachmentBlockReason ?? sendLabel}

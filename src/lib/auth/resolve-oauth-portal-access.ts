@@ -170,16 +170,15 @@ export async function resolveOAuthPortalRedirect(
     return finish(resolvePostOAuthPathFromRoles(roles, safeIntended));
   }
   if (soleRole === "manager") {
-    // An owner-only account (Property owner invite, no plan of its own) has the
-    // `manager` role row only as the host for /portal/owner. Never send it to
-    // the plan chooser: a generic sign-in lands on the owner Overview.
-    // Destination only, so a membership that cannot be read keeps the normal
-    // manager routing; the portal layout is what actually withholds the shell.
+    // An owner-only account (the owner of a PropLane-managed workspace, no plan of its own) lands in the
+    // Property portal like any manager. Never send it to the plan chooser: PropLane manages the workspace,
+    // so a generic sign-in lands on the dashboard (view-only). Destination only, so a membership that
+    // cannot be read keeps the normal manager routing.
     const ownerOnly = await ownerAccessStateFor(supabase, user.id)
       .then((state) => state.ownerOnly)
       .catch(() => false);
     if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
-      return finish("/portal/owner");
+      return finish("/portal/dashboard");
     }
     if (await managerNeedsPricingSelection(supabase, user.id, email)) {
       return finish(MANAGER_PRICING_ENTRY_PATH);

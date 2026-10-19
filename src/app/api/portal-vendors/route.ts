@@ -97,8 +97,8 @@ export async function GET(req: Request) {
     if (!admin && role !== "manager" && role !== "pro") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
-    // A Property owner carries the manager role row only to host /portal/owner;
-    // the vendor directory (own and shared rows) is not theirs to read or write.
+    // The owner-only refusal is a seam (always null since the owner portal was retired);
+    // the workspace scope, not this call, decides what the vendor directory shows.
     const ownerRefusal = await refuseOwnerOnly(db, user.id);
     if (ownerRefusal) return ownerRefusal;
 
@@ -255,8 +255,8 @@ export async function POST(req: Request) {
     // An admin's write from their own manager portal is a manager's write: it can never edit or
     // delete another owner's vendor. Only an explicit oversight request skips the ownership gates.
     const oversight = await resolveAdminOversight(req, user.id, admin);
-    // A Property owner carries the manager role row only to host /portal/owner;
-    // the vendor directory (own and shared rows) is not theirs to read or write.
+    // The owner-only refusal is a seam (always null since the owner portal was retired);
+    // the workspace scope, not this call, decides what the vendor directory shows.
     const ownerRefusal = await refuseOwnerOnly(db, user.id);
     if (ownerRefusal) return ownerRefusal;
 

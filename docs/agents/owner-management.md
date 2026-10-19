@@ -46,6 +46,17 @@ from a request. A workspace with no policy is not managed.
 7. **No flag changes behaviour for non-managed workspaces.** Code that reads a new table treats 42P01 / 42703 / PGRST205 as "not
    managed / nothing there" (production runs code before migrations).
 
+8. **A PropLane-managed workspace is view-only for its client.** `portal_workspaces.is_service` + owner = client, no
+   SELF-PAID plan (a Stripe subscription id, monthly/annual billing or an Apple anchor; admin grants, trials and waivers do
+   not count), and the client is neither a platform admin nor the platform service owner. The rule is
+   `public.managed_read_only_workspace_ids()` (migration `20261019100000`), mirrored in
+   `src/lib/auth/managed-read-only.server.ts`; it also locks an accepted `property_owner` seat. Enforced in the middleware
+   (non-allowlisted `/api/*` writes: `403 read_only_managed`, a failed lookup `503`; allowlist in
+   `managed-read-only-policy.ts`), `scopeManagerTool` (every write tool), `/api/portal-inbox-threads` (Team chat and the
+   Assistant thread only), `/api/workspaces` (rename/delete/move) and `resolveWorkspaceFromSettingsRequest`. The seated
+   admin member and platform staff keep write. Never hide it in the UI alone; deploy the migration BEFORE the code (a
+   missing function refuses every non-allowlisted write).
+
 ## Stripe model (docs.stripe.com, read Oct 18 2026)
 
 Separate charges and transfers. The charge is created on the platform account (no `transfer_data`); funds sit in the platform
@@ -104,7 +115,7 @@ Stripe. A failure records an `owner_ledger_flags` row and alerts admin; it never
 One *active* row per workspace (`owner_share_bps` default 9000 = owner 90 / PropLane 10, `applies_to` rent | all, `leasing_fee_bps`
 of the first month, `min_fee_cents` per month, `reserve_target_cents`, `repair_approval_threshold_cents`, `effective_from`).
 History is kept: editing a signed policy is not possible (trigger); a change is a new draft version that, once accepted,
-ends the previous one. The owner of record (`owner_user_id`) accepts it by signing in the owner portal, or an admin records an
+ends the previous one. The owner of record (`owner_user_id`) accepts it by signing in to the Property portal (Finances › Owner payouts), or an admin records an
 offline signed contract (`accepted_via = admin_attested`, with a note). Only an accepted policy makes a workspace managed.
 Only a platform admin sets or ends a policy (the fee is PropLane's revenue). Rounding, odd amounts, partial payments, minimum and
 leasing fees: `src/lib/owner-management/fee-math.ts`, tested.
@@ -121,7 +132,7 @@ vendors from their own balance through the existing rails.
 
 ## Owner experience
 
-`/portal/owner/finances` (owner of record of a managed workspace): Balance, Available to withdraw, Pending, History; statement by
+Finances › Owner payouts in the Property portal, `/portal/financials/owner-payouts` (owner of record of a managed workspace; the tab is hidden on a 403): Balance, Available to withdraw, Pending, History; statement by
 period (rent collected gross, PropLane fee, vendor charges each with job link, refunds and adjustments, net to owner,
 withdrawals, ending balance), PDF through the existing PDF path, Withdraw. Monthly statement on the 1st (Pacific) by email and
 text. On the PropLane line: "how's my house", "balance", "statement", Y/N repair approvals (pre-routing owner lane in the

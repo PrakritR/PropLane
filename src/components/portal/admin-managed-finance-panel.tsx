@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, CheckCircle2, Circle, FilePen, Flag, Landmark, Percent, Send, UserRound, XCircle, type LucideIcon } from "lucide-react";
-import { OwnerTile, OwnerTiles } from "@/components/owner/owner-ui";
-import { formatOwnerUsd, ownerMonthLabel } from "@/components/owner/owner-data";
+import { PortalStatStrip } from "@/components/portal/portal-stat-strip";
+import { formatManagedUsd, managedMonthLabel } from "@/lib/managed-finance/format";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalEntryRow, type PortalEntryRowFact } from "@/components/portal/portal-entry-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -297,14 +297,17 @@ export function AdminManagedFinancePanel() {
         </div>
       ) : null}
       {view ? (
-        <OwnerTiles>
-          <OwnerTile label="Platform cash" value={formatOwnerUsd(view.platformCashCents)} />
-          <OwnerTile label="Owed to owners" value={formatOwnerUsd(view.owedToOwnersCents)} />
-          <OwnerTile label="Owed to vendors" value={formatOwnerUsd(view.owedToVendorsCents)} />
-          <OwnerTile label="Fee revenue" value={formatOwnerUsd(view.feeRevenueCents)} tone="good" />
-          <OwnerTile label="Stripe available" value={view.stripeAvailableCents === null ? "Unknown" : formatOwnerUsd(view.stripeAvailableCents)} />
-          <OwnerTile label="Reconciliation" value={view.balanced ? "Balanced" : "Out of balance"} tone={view.balanced ? "good" : "bad"} />
-        </OwnerTiles>
+        <PortalStatStrip
+          dataAttr="admin-managed-finance-strip"
+          items={[
+            { id: "platform-cash", label: "Platform cash", value: formatManagedUsd(view.platformCashCents) },
+            { id: "owed-owners", label: "Owed to owners", value: formatManagedUsd(view.owedToOwnersCents) },
+            { id: "owed-vendors", label: "Owed to vendors", value: formatManagedUsd(view.owedToVendorsCents) },
+            { id: "fee-revenue", label: "Fee revenue", value: formatManagedUsd(view.feeRevenueCents), tone: "ok" },
+            { id: "stripe-available", label: "Stripe available", value: view.stripeAvailableCents === null ? "Unknown" : formatManagedUsd(view.stripeAvailableCents) },
+            { id: "reconciliation", label: "Reconciliation", value: view.balanced ? "Balanced" : "Out of balance", tone: view.balanced ? "ok" : "danger" },
+          ]}
+        />
       ) : null}
       {notice ? (
         <p role="status" className="mb-3 text-sm font-medium text-foreground" data-attr="admin-managed-notice">
@@ -347,8 +350,8 @@ export function AdminManagedFinancePanel() {
                 key={`${r.workspaceId ?? "none"}:${r.month}`}
                 tile={{ kind: "glyph", icon: CalendarDays }}
                 title={r.workspaceName}
-                place={ownerMonthLabel(r.month)}
-                figure={{ value: formatOwnerUsd(r.revenueCents) }}
+                place={managedMonthLabel(r.month)}
+                figure={{ value: formatManagedUsd(r.revenueCents) }}
                 dataAttr="admin-managed-revenue-row"
               />
             ))}

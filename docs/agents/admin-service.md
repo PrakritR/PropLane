@@ -11,7 +11,7 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
   lease or charge row.
 - The owner of record is the person who owns an attached workspace (no membership needed) or the member flagged
   `account_link_invites.is_owner_of_record` (a Property owner). `src/lib/property-owner/access.server.ts` gives them
-  owner access, so sign-in and "Property portal" land in the owner portal; the chooser names that entry "Owner".
+  owner access; sign-in and "Property portal" land in the Property portal, view-only (`workspace.readOnly`).
 - Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
 - Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
 - Work number column: the workspace's own active work number, else nothing.

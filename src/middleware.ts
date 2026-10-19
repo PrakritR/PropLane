@@ -24,6 +24,14 @@ import {
   type ViewAsPayload,
 } from "@/lib/auth/view-as-token";
 
+import {
+  managedReadOnlyBlocks,
+  managedReadOnlyCandidate,
+  MANAGED_READ_ONLY_BODY,
+  MANAGED_READ_ONLY_CODE,
+} from "@/lib/auth/managed-read-only-policy";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+
 const PROTECTED_PREFIXES = ["/portal", "/pro", "/manager", "/owner", "/resident", "/admin", "/vendor"];
 
 function stampCrawlPolicy(request: NextRequest, response: NextResponse): NextResponse {
@@ -60,6 +68,38 @@ async function viewAsGuard(request: NextRequest): Promise<{ payload: ViewAsPaylo
     };
   }
   return { payload, blocked: null };
+}
+
+/**
+ * Managed (PropLane Service) workspaces are view-only for their client. For a write to /api/* that is
+ * not on the allowlist, ask the database (`managed_read_only_workspace_ids()`, with the caller's own
+ * session so `auth.uid()` is the caller) which workspaces are locked for her. Nothing is cached across
+ * requests. A failed lookup (including the function missing) refuses the write: fail closed.
+ */
+async function managedReadOnlyGuard(
+  supabase: ReturnType<typeof createServerClient>,
+  request: NextRequest,
+): Promise<NextResponse | null> {
+  const headers = { "Cache-Control": "no-store" };
+  try {
+    const { data, error } = await supabase.rpc("managed_read_only_workspace_ids");
+    if (error) throw error;
+    const locked = Array.isArray(data) ? data.map(String) : [];
+    if (managedReadOnlyBlocks(locked, request.cookies.get(WORKSPACE_COOKIE)?.value)) {
+      return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403, headers });
+    }
+    return null;
+  } catch {
+    return NextResponse.json(
+      { error: "We could not verify this workspace's access. Please retry.", code: `${MANAGED_READ_ONLY_CODE}_unverified` },
+      { status: 503, headers },
+    );
+  }
+}
+
+/** A Supabase auth cookie is present (a signed-in browser); webhooks and API-key callers carry none. */
+function hasSupabaseAuthCookie(request: NextRequest): boolean {
+  return request.cookies.getAll().some((c) => /^sb-.+-auth-token/.test(c.name));
 }
 
 export async function middleware(request: NextRequest) {
@@ -142,8 +182,11 @@ export async function middleware(request: NextRequest) {
 
   const needsAuth = PROTECTED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 
+  // A non-allowlisted API write by a signed-in browser also needs the session, for the managed view-only lock.
+  const managedCandidate = managedReadOnlyCandidate(request.method, path) && hasSupabaseAuthCookie(request);
+
   // Public marketing pages: stamp noindex off-canonical and skip session work.
-  if (!needsAuth) {
+  if (!needsAuth && !managedCandidate) {
     const response = NextResponse.next(forwarded());
     response.headers.set("x-pathname", path);
     return stampCrawlPolicy(request, response);
@@ -195,6 +238,11 @@ export async function middleware(request: NextRequest) {
     const redirectUrl = new URL("/auth/sign-in", request.url);
     redirectUrl.searchParams.set("next", `${path}${request.nextUrl.search}`);
     return stampCrawlPolicy(request, NextResponse.redirect(redirectUrl));
+  }
+
+  if (managedCandidate && user) {
+    const refusal = await managedReadOnlyGuard(supabase, request);
+    if (refusal) return stampCrawlPolicy(request, refusal);
   }
 
   // A view-as cookie left in the browser by a different sign-in is dropped.
