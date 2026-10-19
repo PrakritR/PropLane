@@ -1097,6 +1097,10 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         }
       }
     }
+    // `finishPreparedDelivery` completes the claim once the reply is delivered. Completing it again below failed ("not
+    // processing") and answered 503 AFTER the manager had their reply, so Twilio retried every manager text (found by the
+    // end-to-end harness).
+    let managerClaimFinished = false;
     if (turn?.reply) {
       const prepared = await prepareInboundReply(db, {
         messageSid,
@@ -1143,6 +1147,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         delivered,
       );
       if (finished.status !== 200) return finished;
+      managerClaimFinished = true;
       await settleManagerDebounce();
       await recordAnswered({
         role: "manager",
@@ -1156,7 +1161,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     }
     if (turn) {
       if (!turn.reply) await settleManagerDebounce();
-      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+      if (!managerClaimFinished && !(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
         return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
       }
       return twimlOk();
