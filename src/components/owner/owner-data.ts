@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
+import { OWNER_BASE_PATH } from "@/lib/property-owner/sections";
 
 export function formatOwnerUsd(cents: number): string {
   const sign = cents < 0 ? "-" : "";
@@ -73,4 +74,13 @@ export function useOwnerFetch<T>(rawUrl: string | null): OwnerFetchState<T> {
 
   const reload = useCallback(() => setTick((n) => n + 1), []);
   return { data, loading, error, reload };
+}
+
+/**
+ * Where a statement line about a service goes: that house's Services history in the owner portal. The ledger's own link points
+ * at the manager's service record, which an owner account cannot open, so the owner is never sent there.
+ */
+export function ownerServiceHref(propertyId: string | null | undefined): string | null {
+  const id = (propertyId ?? "").trim();
+  return id ? `${OWNER_BASE_PATH}/properties/${encodeURIComponent(id)}?tab=services` : null;
 }

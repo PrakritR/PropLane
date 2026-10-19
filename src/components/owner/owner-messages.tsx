@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useOwnerFetch } from "@/components/owner/owner-data";
-import { OwnerEmpty, OwnerError, OwnerLoading, OwnerPageTitle } from "@/components/owner/owner-ui";
+import { OwnerEmpty, OwnerError, OwnerLoading } from "@/components/owner/owner-ui";
 import type { OwnerConversation } from "@/lib/property-owner/projection";
 import { cn } from "@/lib/utils";
 
@@ -40,7 +40,6 @@ export function OwnerMessagesPage() {
 
   return (
     <div data-attr="owner-messages">
-      <OwnerPageTitle>Messages</OwnerPageTitle>
       {loading && !data ? (
         <OwnerLoading />
       ) : error ? (

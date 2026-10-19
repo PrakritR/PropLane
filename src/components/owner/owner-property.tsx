@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, BedDouble, CalendarDays, DoorOpen, Hammer } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { formatOwnerUsd, ownerMonthLabel, useOwnerFetch } from "@/components/owner/owner-data";
 import { ownerShortDay } from "@/components/owner/owner-overview";
@@ -52,7 +52,8 @@ export function OwnerProperty({ propertyId }: { propertyId: string }) {
   const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>(`/api/owner/summary?propertyId=${encodeURIComponent(propertyId)}`);
   const detail = useOwnerFetch<OwnerPropertyDetail>(`/api/owner/properties/${encodeURIComponent(propertyId)}`);
   const router = useRouter();
-  const [tab, setTab] = useState<HouseTab>("rooms");
+  const params = useSearchParams();
+  const [tab, setTab] = useState<HouseTab>(params?.get("tab") === "services" ? "services" : "rooms");
   const property = data?.properties[0];
   const services = detail.data?.services ?? [];
   const units = property?.unitRows ?? [];
