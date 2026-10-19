@@ -30,21 +30,39 @@ export class World {
     this.workspaceIds = [];
     this.houseIds = [];
     this.phones = [];
-    this.next = 60 + Math.floor(Math.random() * 20);
+    this.pool = [];
   }
 
   /**
-   * A fixture phone: <area> 555 01nn, the reserved fictional range, in a random area code from a short list. Another run (or a
-   * leftover) can hold the same number, and a number claimed by two verified accounts routes nobody, so every pick is random and
-   * checked against the profiles table and this run's own numbers.
+   * Fixture phones are <area> 555 01nn (the reserved fictional range), drawn from a pool that `reservePhones` checked against the
+   * database first: a number held by two accounts routes nobody, and the seeded test accounts already use 555-01xx numbers.
    */
   phone() {
+    const p = this.pool.pop();
+    if (!p) throw new Error("fixture phone pool is empty: call reservePhones() first");
+    this.phones.push(p);
+    return p;
+  }
+
+  async reservePhones(count = 40) {
+    const taken = new Set();
+    const keyOf = (v) => String(v ?? "").replace(/\D/g, "").slice(-10);
+    const read = async (label, query) => {
+      const { data, error } = await query;
+      if (error) throw new Error(`reservePhones ${label}: ${error.message}`);
+      return data ?? [];
+    };
+    for (const row of await read("profiles", this.db.from("profiles").select("phone").ilike("phone", "%5550%"))) taken.add(keyOf(row.phone));
+    for (const row of await read("vendors", this.db.from("manager_vendor_records").select("row_data").ilike("row_data->>phone", "%555%"))) taken.add(keyOf(row.row_data?.phone));
+    for (const row of await read("leads", this.db.from("sms_unassigned_leads").select("phone_key").like("phone_key", "%5550%"))) taken.add(row.phone_key);
+    for (const row of await read("contacts", this.db.from("manager_sms_contacts").select("phone_e164").like("phone_e164", "%5550%"))) taken.add(keyOf(row.phone_e164));
     const areas = ["206", "425", "253", "360", "509", "415", "212", "617", "312", "404"];
-    for (let i = 0; i < 40; i += 1) {
-      const p = `+1${areas[Math.floor(Math.random() * areas.length)]}5550${100 + Math.floor(Math.random() * 100)}`;
-      if (!this.phones.includes(p)) { this.phones.push(p); return p; }
+    const pool = new Set();
+    for (let i = 0; i < 2000 && pool.size < count; i += 1) {
+      const key = `${areas[Math.floor(Math.random() * areas.length)]}5550${100 + Math.floor(Math.random() * 100)}`;
+      if (!taken.has(key)) pool.add(`+1${key}`);
     }
-    throw new Error("no free fixture phone");
+    this.pool = [...pool];
   }
 
   async createUser({ label, role, phone = null, fullName }) {

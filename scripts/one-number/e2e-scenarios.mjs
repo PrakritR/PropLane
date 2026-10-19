@@ -88,6 +88,7 @@ async function main() {
   const world = new World(db, runId);
   const h = new Harness({ env, resolved, port: Number(flags.port), captureFile });
   h.world = world;
+  await world.reservePhones(40);
   h.tick = Boolean(flags.tick);
   h.runId = runId;
 
