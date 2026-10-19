@@ -793,6 +793,19 @@ owner without that role, and refuses to seed one.
 the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
 admins directly and links to the portal for role invites.
 
+## W22 - Move existing owners' houses into PropLane Service
+
+No migration, no flag, no product code: one guarded operations script. Runbook (exact commands, undo): [`one-number-runbook.md`](one-number-runbook.md) section 5b.
+
+- `scripts/one-number/move-houses-to-service.mjs` (+ `lib/move-plan.mjs`, `backup.mjs --owner-email`). One owner per run. Dry run is the default and lists every house with residents, leases (open), bookings (upcoming), charges (open), services, applications and conversations.
+- The move is the app's own `transfer_portal_workspace_ownership` RPC (migrations 20260921000000 / 20261012121000), never hand-edited rows. The RPC only hands a workspace to an accepted member, so the script first seats the service owner (`platform_service_settings`) as a member, calls the RPC with the former owner kept as Admin (`ADMIN_STAMP` = `stampTeamRolePermissions("admin")`, pinned by a test), then sets `is_service`, `city` and the name (`--label`) on the workspace and flags the former owner's membership `is_owner_of_record`. The app's promoted/demoted emails are not sent (the RPC is called directly).
+- City gate: every house of the workspace must read as the city (an explicit city field, else `street, City, ST zip`). A mixed workspace, or a house whose city cannot be read, STOPS the run; it never splits. `--workspace-id` is the captain's explicit override that skips the gate (used for an empty draft with no address). Two Seattle workspaces need `--workspace-id` to choose.
+- Default workspace: the RPC clears `is_default`; if the moved workspace was the owner's default the script calls `ensure_default_portal_workspace` so the owner has a fresh empty one (journalled; undo deletes it only while still empty).
+- Proof: a snapshot (houses, 12 re-keyed and ~40 other house-keyed tables per house, lease statuses and residents, bookings, charges, members, numbers, emails, owners) is taken first and compared after; any difference or error undoes the move automatically (exit 1).
+- Journal (mode 0600, written before the first change and after each step); `--apply --undo <journal>` transfers back, restores name / city / service flag / default flag / cached work number / number holds, removes the empty default, and re-proves the snapshot. Apply needs `--expect-houses <n>`; production also needs the standard guards and a backup taken with the same `--owner-email` (`meta.move`).
+- Findings: the RPC re-keys only twelve house-keyed tables. About thirty others (documents, bills, service requests, deposits, move-in forms, inspections, owner settings, tour state) keep the old owner's id; the dry run counts them as LEFT BEHIND and apply refuses without `--acknowledge-unmoved`. Workspace-keyed history (messages, conversations, wallets, drafts) keeps its workspace id and old owner column. The embedded `property_data.managerUserId` is not rewritten (the app's own transfer does not either).
+- Tests: `tests/unit/one-number-migration-move-houses.test.ts` (fake db with a port of the RPC: city rules, every refusal, production guards, apply, verify, undo, idempotent re-run, auto-undo on error and on a lossy transfer, backup section); proven on dev with two fixture owners (apply, verify by SQL, undo, re-apply, override for a no-address draft), fixtures removed.
+
 ## W17 - Owner management: PropLane-held funds, party ledger, owner and vendor withdrawals
 
 Authoritative design, Stripe research, ledger and legal flag: [`owner-management.md`](owner-management.md). Migration `20261018270000_owner_management.sql` (dev applied, ledger row recorded). Dev proof: `scripts/prove-managed-finance.ts` (Stripe TEST mode only, dev database only; refuses anything else).

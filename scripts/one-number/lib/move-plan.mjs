@@ -204,22 +204,31 @@ function perHouse(rows, prop, summarize) {
 
 async function readPropertyRows(db, table, owner, prop, houseIds) {
   const extras = EXTRAS[table] ?? [];
-  const attempt = async (cols) => {
+  // Some tables have no `id` column, some lack an extra: a missing-column answer retries with fewer columns.
+  const attempts = [
+    [true, extras],
+    [true, []],
+    [false, extras],
+    [false, []],
+  ];
+  const seen = new Set();
+  for (const [withId, cols] of attempts) {
+    const select = [...new Set([...(withId ? ["id"] : []), owner, prop, ...cols])].join(", ");
+    if (seen.has(select)) continue;
+    seen.add(select);
     const rows = [];
+    let missing = false;
     for (const batch of chunk(houseIds, 50)) {
-      const res = await fetchAll(db, table, [...new Set(["id", owner, prop, ...cols])].join(", "), {
-        key: prop,
-        offsetPaging: true,
-        filter: (q) => q.in(prop, batch),
-      });
-      if (res.missing) return null;
+      const res = await fetchAll(db, table, select, { key: prop, offsetPaging: true, filter: (q) => q.in(prop, batch) });
+      if (res.missing) {
+        missing = true;
+        break;
+      }
       rows.push(...res.rows);
     }
-    return rows;
-  };
-  let rows = await attempt(extras);
-  if (rows === null && extras.length) rows = await attempt([]);
-  return rows;
+    if (!missing) return rows;
+  }
+  return null;
 }
 
 /** Everything the move must leave unchanged (per house), plus who owns each row (checked separately). */

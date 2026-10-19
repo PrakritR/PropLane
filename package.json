@@ -26,6 +26,7 @@
     "one-number:backfill": "node scripts/one-number/backfill.mjs",
     "one-number:verify": "node scripts/one-number/verify.mjs",
     "one-number:service-workspace": "node scripts/one-number/create-service-workspace.mjs",
+    "one-number:move-houses": "node scripts/one-number/move-houses-to-service.mjs",
     "one-number:cutover": "node scripts/one-number/cutover.mjs",
     "one-number:shadow-report": "node scripts/one-number/shadow-report.mjs",
     "one-number:migrations": "node scripts/one-number/list-migrations.mjs",
