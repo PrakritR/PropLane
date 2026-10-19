@@ -93,7 +93,7 @@ export const VENDOR_JOBS_SCENARIOS = [
         const sessions = (await db.from("agent_sessions").select("id, kind").eq("landlord_id", fx.owner.id).eq("vendor_phone_e164", stranger)).data ?? [];
         check("history: one vendor_line_sms session for the phone", sessions.length === 1 && sessions[0].kind === "vendor_line_sms", JSON.stringify(sessions));
         const msgs = (await db.from("agent_messages").select("role").eq("session_id", sessions[0]?.id ?? "00000000-0000-0000-0000-000000000000")).data ?? [];
-        check("history: both sides of both turns saved", msgs.length === 6, JSON.stringify(msgs));
+        check("history: both sides of both turns saved", msgs.length === 4, JSON.stringify(msgs));
         const inboundLog = (await db.from("inbound_sms_log").select("counterparty_role").eq("manager_user_id", fx.owner.id).eq("from_phone", stranger)).data ?? [];
         const outbox = (await db.from("sms_outbox").select("counterparty_role").eq("manager_user_id", fx.owner.id).eq("recipient_phone", stranger)).data ?? [];
         check("history: the service owner's inbox has both directions as a vendor", inboundLog.length >= 2 && inboundLog.every((m) => m.counterparty_role === "vendor") && outbox.length >= 2 && outbox.every((m) => m.counterparty_role === "vendor"), JSON.stringify({ inboundLog, outbox }));
