@@ -50,7 +50,7 @@ describe("public /security page (PRP-325)", () => {
   });
 
   it("is linked from the public footer", () => {
-    const footer = readFileSync("src/components/layout/public-footer.tsx", "utf8");
+    const footer = readFileSync("src/components/layout/legacy-public-footer.tsx", "utf8");
     expect(footer).toContain('href: "/security"');
   });
 });

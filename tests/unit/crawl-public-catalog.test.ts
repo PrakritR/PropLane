@@ -74,7 +74,7 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
     reads.fail = true;
     const sitemap = (await import("@/app/sitemap")).default;
     const entries = await sitemap();
-    expect(entries.some((e) => e.url === "https://proplane.ai/pricing")).toBe(true);
+    expect(entries.some((e) => e.url === "https://proplane.ai/")).toBe(true);
     expect(entries.some((e) => e.url.includes("/rent/listings/"))).toBe(false);
 
     reads.fail = false;
@@ -104,7 +104,7 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
       const pending = sitemap();
       await vi.advanceTimersByTimeAsync(CRAWL_CATALOG_WAIT_MS);
       const entries = await pending;
-      expect(entries.some((e) => e.url === "https://proplane.ai/pricing")).toBe(true);
+      expect(entries.some((e) => e.url === "https://proplane.ai/")).toBe(true);
       expect(entries.some((e) => e.url.includes("/rent/listings/"))).toBe(false);
 
       // Giving up is not cancelling: the read keeps going, and the next caller pays nothing for it.

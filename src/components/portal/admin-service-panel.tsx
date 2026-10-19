@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Home, Phone, Users } from "lucide-react";
+import { Building2, Home, Phone, Plug, Users } from "lucide-react";
 import { PortalListGroup } from "@/components/portal/portal-list-group";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -52,6 +52,8 @@ type TeamState = {
   canManage: boolean;
 };
 
+type AttachCandidate = { id: string; name: string; ownerName: string; ownerEmail: string };
+
 type State =
   | { status: "loading" }
   | { status: "ready"; configured: boolean; rows: ServiceRow[] }
@@ -96,9 +98,9 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
 }
 
 /**
- * Admin > Accounts > Service: PropLane's own managed-property workspaces (one per city), owned by the
- * service owner account. A row is name - city - houses - work number; the per-row menu opens the workspace in
- * the property portal, renames it, manages its team and sets up its own work number.
+ * Admin > Accounts > Service: every workspace on PropLane Service (a flag on the workspace, whoever owns it), per
+ * city. A row is name - city - houses - work number; the per-row menu opens the workspace in the property portal,
+ * renames it and manages its team. The plug attaches an existing client workspace; the + creates a new one.
  */
 export function AdminServicePanel() {
   const { showToast } = useAppUi();
@@ -117,6 +119,13 @@ export function AdminServicePanel() {
   const [inviteOwner, setInviteOwner] = useState(false);
   const [team, setTeam] = useState<TeamState | null>(null);
   const [candidateId, setCandidateId] = useState("");
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachQuery, setAttachQuery] = useState("");
+  const [attachCandidates, setAttachCandidates] = useState<AttachCandidate[]>([]);
+  const [attachId, setAttachId] = useState("");
+  const [attachCity, setAttachCity] = useState("");
+  const [attachLabel, setAttachLabel] = useState("");
+  const [attachReason, setAttachReason] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +276,51 @@ export function AdminServicePanel() {
     }
   };
 
+  // The Attach picker: workspaces not yet on PropLane Service, narrowed by what the admin types.
+  useEffect(() => {
+    if (!attachOpen) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const { ok, json } = await post<{ candidates?: AttachCandidate[] }>({ action: "attach-candidates", query: attachQuery });
+          if (cancelled) return;
+          if (!ok) {
+            setFormError(json.error ?? "Could not load workspaces.");
+            return;
+          }
+          setAttachCandidates(json.candidates ?? []);
+        } catch {
+          if (!cancelled) setFormError("Could not load workspaces.");
+        }
+      })();
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [attachOpen, attachQuery]);
+
+  const attach = async () => {
+    if (!attachId || attachReason.trim().length < 3) return;
+    setBusy(true);
+    setFormError(null);
+    try {
+      const { ok, json } = await post({ action: "attach", workspaceId: attachId, city: cleanServiceCity(attachCity), label: cleanOwnerOfRecord(attachLabel), reason: attachReason.trim() });
+      if (!ok) {
+        setFormError(json.error ?? "Could not attach the workspace.");
+        return;
+      }
+      setAttachOpen(false);
+      showToast("Workspace attached to PropLane Service.");
+      reload();
+    } catch {
+      setFormError("Could not attach the workspace.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeMember = async (linkId: string) => {
     if (!selected) return;
     setBusy(true);
@@ -332,6 +386,16 @@ export function AdminServicePanel() {
         destinations={[]}
         activeDestinationId=""
         destinationAriaLabel="Service"
+        actions={
+          <PortalIconAction
+            icon={Plug}
+            label="Attach existing workspace"
+            ariaLabel="Attach existing workspace"
+            data-attr="admin-service-attach"
+            disabled={notConfigured || state.status === "loading"}
+            onClick={() => { setFormError(null); setAttachQuery(""); setAttachId(""); setAttachCity(""); setAttachLabel(""); setAttachReason(""); setAttachCandidates([]); setAttachOpen(true); }}
+          />
+        }
         primary={
           <PortalPrimaryIconAction
             label="Add workspace"
@@ -390,6 +454,51 @@ export function AdminServicePanel() {
       />
 
       <Modal
+        open={attachOpen}
+        title="Attach workspace"
+        onClose={() => setAttachOpen(false)}
+        contextPanel={null}
+        preview={null}
+        dataAttr="admin-service-attach-modal"
+        footer={
+          <ModalFooter>
+            <Button type="button" disabled={busy || !attachId || attachReason.trim().length < 3 || cleanServiceCity(attachCity) === undefined || cleanOwnerOfRecord(attachLabel) === undefined} data-attr="admin-service-attach-save" onClick={() => void attach()}>
+              Attach
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block text-[13px] font-semibold text-foreground">
+            <span className="mb-1 block">Search</span>
+            <Input value={attachQuery} onChange={(e) => setAttachQuery(e.target.value)} maxLength={80} placeholder="Workspace or owner" data-attr="admin-service-attach-search" />
+          </label>
+          <FieldSingleSelect
+            label="Workspace"
+            options={attachCandidates.map((c) => ({ value: c.id, label: [c.name, c.ownerName || c.ownerEmail].filter(Boolean).join(" - ") }))}
+            value={attachId}
+            onChange={setAttachId}
+            placeholder="Choose a workspace"
+            searchPlaceholder="Search workspaces"
+            dataAttr="admin-service-attach-workspace"
+          />
+          <label className="block text-[13px] font-semibold text-foreground">
+            <span className="mb-1 block">City</span>
+            <Input value={attachCity} onChange={(e) => setAttachCity(e.target.value)} maxLength={80} data-attr="admin-service-attach-city" />
+          </label>
+          <label className="block text-[13px] font-semibold text-foreground">
+            <span className="mb-1 block">Label</span>
+            <Input value={attachLabel} onChange={(e) => setAttachLabel(e.target.value)} maxLength={80} data-attr="admin-service-attach-label" />
+          </label>
+          <label className="block text-[13px] font-semibold text-foreground">
+            <span className="mb-1 block">Reason</span>
+            <Input value={attachReason} onChange={(e) => setAttachReason(e.target.value)} maxLength={500} required data-attr="admin-service-attach-reason" />
+          </label>
+        </div>
+        {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
+      </Modal>
+
+      <Modal
         open={renameOpen}
         title="Rename workspace"
         onClose={() => setRenameOpen(false)}
@@ -435,7 +544,7 @@ export function AdminServicePanel() {
                       {m.name}
                       {m.status === "pending" ? " · Invited" : ""}
                     </span>
-                    <span className="block truncate text-[12.5px] text-muted">{m.email || "Admin"}</span>
+                    <span className="block truncate text-[12.5px] text-muted">{m.email || (m.role === "property_owner" ? "Owner" : "Admin")}</span>
                   </span>
                   <span className="flex shrink-0 items-center gap-3">
                     {team.canManage ? (

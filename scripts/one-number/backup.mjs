@@ -19,18 +19,28 @@
  *   sms_consent                 full rows (global STOP / START ledger)
  *   sms_consent_events          ids only (backfill appends revoked events at the shared scope)
  *   unstamped.<table>           ids of rows whose workspace_id was NULL (stamping only ever fills NULLs)
+ *
+ * With --owner-email <email> it also saves what move-houses-to-service.mjs touches for that one owner (W22):
+ *   move.profile                the owner's id / email / name / manager_id / sms_from_number
+ *   move.portal_workspaces      all of the owner's workspaces (full rows)
+ *   move.manager_property_records   every house in them (full rows)
+ *   move.account_link_invites   every membership of those workspaces, any status (full rows)
+ *   move.manager_assistant_emails   the workspaces' work emails (full rows)
+ *   move.owners.<table>         id + owner column + house column of every row the app's transfer re-keys for those houses
+ * and records meta.move = { ownerEmail, workspaceIds }; a production move refuses a backup without it.
  */
 import { join } from "node:path";
 import { chunk, countRows, fetchAll } from "./lib/db.mjs";
 import { BACKUP_DIR, timestamp, writeJsonFile } from "./lib/files.mjs";
 import { bootstrap, isMain, runMain } from "./lib/runtime.mjs";
 import { STAMP_TABLES } from "./lib/stamp-plan.mjs";
+import { MOVED_ASSIGNED_TABLES, MOVED_PROPERTY_TABLES } from "./lib/move-plan.mjs";
 import { BACKUP_KIND } from "./lib/target.mjs";
 
 const SCRIPT = "backup";
 
 export async function run(argv, deps = {}) {
-  const { flags, resolved, db, log } = bootstrap(SCRIPT, argv, { strings: ["out"] }, { write: false, deps });
+  const { flags, resolved, db, log } = bootstrap(SCRIPT, argv, { strings: ["out", "owner-email"] }, { write: false, deps });
   const startedAt = new Date(deps.now ?? Date.now());
   const tables = {};
   const unstamped = {};
@@ -94,6 +104,9 @@ export async function run(argv, deps = {}) {
     counts[`${spec.table}.unstamped`] = unstamped[spec.table].length;
   }
 
+  let move = null;
+  if (flags["owner-email"]) move = await moveSection(db, flags["owner-email"], tables, counts, missing);
+
   const meta = {
     kind: BACKUP_KIND,
     target: resolved.target,
@@ -102,6 +115,7 @@ export async function run(argv, deps = {}) {
     complete: true,
     counts,
     missingTables: [...new Set(missing)],
+    ...(move ? { move } : {}),
   };
   const path = flags.out ?? join(BACKUP_DIR, `one-number-${resolved.target}-${timestamp(startedAt)}.json`);
   (deps.writeFile ?? writeJsonFile)(path, { meta, tables, unstamped });
@@ -110,6 +124,57 @@ export async function run(argv, deps = {}) {
   if (meta.missingTables.length) log(`${SCRIPT}: not migrated here (skipped): ${meta.missingTables.join(", ")}`);
   log(`${SCRIPT}: use it with --backup ${path}`);
   return 0;
+}
+
+/** The rows move-houses-to-service.mjs touches for one owner. Adds `tables.move_*` and returns meta.move. */
+async function moveSection(db, ownerEmail, tables, counts, missing) {
+  const wanted = String(ownerEmail).trim().toLowerCase();
+  const found = await db.from("profiles").select("id, email, full_name, manager_id, sms_from_number").ilike("email", wanted);
+  if (found.error) throw new Error(`profiles: ${found.error.message}`);
+  const owners = (found.data ?? []).filter((r) => String(r.email ?? "").trim().toLowerCase() === wanted);
+  if (owners.length !== 1) throw new Error(`--owner-email ${wanted}: expected exactly one account, found ${owners.length}`);
+  const owner = owners[0];
+  const keep = async (name, table, columns, opts) => {
+    const { rows, missing: gone } = await fetchAll(db, table, columns, opts);
+    if (gone) missing.push(table);
+    tables[name] = rows;
+    counts[name] = rows.length;
+    return rows;
+  };
+  tables.move_profile = [owner];
+  const workspaces = await keep("move_portal_workspaces", "portal_workspaces", "*", { filter: (q) => q.eq("owner_user_id", owner.id) });
+  const ids = workspaces.map((w) => w.id);
+  const houses = ids.length ? await keep("move_manager_property_records", "manager_property_records", "*", { filter: (q) => q.in("workspace_id", ids) }) : [];
+  if (!ids.length) {
+    tables.move_manager_property_records = [];
+    counts.move_manager_property_records = 0;
+  }
+  tables.move_account_link_invites = [];
+  tables.move_manager_assistant_emails = [];
+  if (ids.length) {
+    await keep("move_account_link_invites", "account_link_invites", "*", { filter: (q) => q.in("workspace_id", ids) });
+    await keep("move_manager_assistant_emails", "manager_assistant_emails", "*", { filter: (q) => q.in("workspace_id", ids) });
+  }
+  const houseIds = houses.map((h) => h.id);
+  tables.move_owners = {};
+  const rekeyed = [
+    ...MOVED_PROPERTY_TABLES.map((table) => [table, "property_id"]),
+    ...MOVED_ASSIGNED_TABLES.map((table) => [table, "assigned_property_id"]),
+  ];
+  for (const [table, prop] of rekeyed) {
+    const rows = [];
+    for (const batch of chunk(houseIds, 50)) {
+      const res = await fetchAll(db, table, `id, manager_user_id, ${prop}`, { key: prop, offsetPaging: true, filter: (q) => q.in(prop, batch) });
+      if (res.missing) {
+        missing.push(table);
+        break;
+      }
+      rows.push(...res.rows);
+    }
+    tables.move_owners[`${table}#${prop}`] = rows;
+    counts[`move_owners.${table}#${prop}`] = rows.length;
+  }
+  return { ownerEmail: owner.email, ownerUserId: owner.id, workspaceIds: ids };
 }
 
 async function fullSettings(db, missing) {

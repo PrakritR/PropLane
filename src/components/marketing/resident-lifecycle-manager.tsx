@@ -27,7 +27,6 @@ import { usePublishTitleActions } from "@/components/portal/portal-title-actions
 import { Button } from "@/components/ui/button";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
-import { DEMO_PAGE_CLASS } from "@/components/marketing/site/product-mock/shared";
 import { COMM_CONVERSATIONS } from "@/components/marketing/site/product-mock/fixtures";
 import { ResidentLifecycleDialog } from "./resident-lifecycle-dialog";
 import { COMMUNICATION_THREADS, type SampleMessage } from "./resident-lifecycle-script";
@@ -97,6 +96,7 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
   const [segment, setSegment] = useState<"active" | "archived">("active");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string>(PROSPECT_ID);
+  const [rowChanges, setRowChanges] = useState<Record<string, Partial<Pick<Row, "segment" | "unread">>>>({});
   const [composer, setComposer] = useState("");
   const [local, setLocal] = useState<Record<string, SampleMessage[]>>({ "comm-mina": MINA_SEED });
   const [overlay, setOverlay] = useState<{ title: string; content: string; fields?: { label: string; value: string }[] } | null>(null);
@@ -109,12 +109,20 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
 
   const rows = useMemo<Row[]>(() => {
     const prospect: Row = { id: PROSPECT_ID, name: PROSPECT, subtitle: SUBTITLE[PROSPECT_ID]!, segment: "active", time: "9:14 AM", unread: false };
-    return [prospect, ...OTHER_ROWS];
-  }, [messages]);
+    return [prospect, ...OTHER_ROWS].map((row) => ({ ...row, ...rowChanges[row.id] }));
+  }, [rowChanges]);
   const counts = useMemo(() => ({ active: rows.filter((r) => r.segment === "active").length, archived: rows.filter((r) => r.segment === "archived").length }), [rows]);
   const needle = query.trim().toLowerCase();
   const visible = rows.filter((r) => r.segment === segment && (!needle || `${r.name} ${r.subtitle}`.toLowerCase().includes(needle)));
-  const selected = rows.find((r) => r.id === selectedId) ?? visible[0] ?? rows[0]!;
+  const selected = visible.find((r) => r.id === selectedId) ?? visible[0] ?? null;
+  const selectConversation = (id: string) => {
+    setSelectedId(id);
+    setRowChanges((current) => ({ ...current, [id]: { ...current[id], unread: false } }));
+  };
+  const moveConversation = (id: string, destination: Row["segment"]) => {
+    setRowChanges((current) => ({ ...current, [id]: { ...current[id], segment: destination } }));
+    if (selected?.id === id) { setSelectedId(""); setComposer(""); }
+  };
 
   const threadItems = (id: string): SampleMessage[] => {
     if (id === PROSPECT_ID) return messages;
@@ -143,13 +151,14 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
   useEffect(() => {
     const send = rootRef.current?.querySelector<HTMLButtonElement>(".portal-inbox-composer button[type='submit']");
     if (!send) return;
-    if (proposed && selectedId === PROSPECT_ID) send.setAttribute("data-demo-target", "comm-approve");
+    if (proposed && selected?.id === PROSPECT_ID) send.setAttribute("data-demo-target", "comm-approve");
     else send.removeAttribute("data-demo-target");
   });
 
   const open = useCallback((title: string, content: string, fields?: { label: string; value: string }[]) => setOverlay({ title, content, fields }), []);
 
   const send = () => {
+    if (!selected) return;
     const text = composer.trim();
     if (!text) return;
     if (selected.id === PROSPECT_ID) {
@@ -165,9 +174,9 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
     setComposer("");
   };
 
-  const channel: "sms" | "email" = selected.id === "comm-ethan" || selected.subtitle.includes("Resident") ? "email" : "sms";
-  const thread = bubbles({ name: selected.name, items: threadItems(selected.id), channel });
-  const showDraftBar = Boolean(proposed) && selected.id === PROSPECT_ID;
+  const channel: "sms" | "email" = selected?.id === "comm-ethan" || selected?.subtitle.includes("Resident") ? "email" : "sms";
+  const thread = selected ? bubbles({ name: selected.name, items: threadItems(selected.id), channel }) : [];
+  const showDraftBar = Boolean(proposed) && selected?.id === PROSPECT_ID;
 
   const list = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -195,8 +204,8 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
               previewPrefix={p.prefix}
               time={row.time}
               unread={row.unread}
-              selected={selected.id === row.id}
-              onOpen={() => setSelectedId(row.id)}
+              selected={selected?.id === row.id}
+              onOpen={() => selectConversation(row.id)}
               trailing={
                 <RecordActionContext.Provider
                   value={{
@@ -204,8 +213,8 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
                     clear: () => undefined,
                     actions: (
                       <>
-                        <Button variant="outline" onClick={() => setSegment(segment === "active" ? "archived" : "active")}>
-                          {segment === "active" ? "Archive" : "Restore"}
+                        <Button variant="outline" onClick={() => moveConversation(row.id, row.segment === "active" ? "archived" : "active")}>
+                          {row.segment === "active" ? "Archive" : "Restore"}
                         </Button>
                         <Button variant="outline" data-record-action-id="edit" onClick={() => open(`${row.name} · contact`, "Contact details, linked home and recent messages.")}>
                           Edit
@@ -227,7 +236,7 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
     </div>
   );
 
-  const threadPane = (
+  const threadPane = selected ? (
     <InboxThreadView
       title={selected.name}
       subtitle={selected.subtitle}
@@ -243,10 +252,10 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
           <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Contact information" title="Contact information" onClick={() => open(`${selected.name} · contact`, "Contact details.", [{ label: "Name", value: selected.name }, { label: "Channel", value: channel === "sms" ? "SMS" : "Email" }])}>
             <Info className="h-4 w-4" aria-hidden />
           </button>
-          <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Mark unread" title="Mark unread" onClick={() => undefined}>
+          <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Mark unread" title="Mark unread" onClick={() => setRowChanges((current) => ({ ...current, [selected.id]: { ...current[selected.id], unread: true } }))}>
             <MailOpen className="h-4 w-4" aria-hidden />
           </button>
-          <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Archive conversation" title="Archive" onClick={() => setSegment("archived")}>
+          <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label={selected.segment === "active" ? "Archive conversation" : "Restore conversation"} title={selected.segment === "active" ? "Archive" : "Restore"} onClick={() => moveConversation(selected.id, selected.segment === "active" ? "archived" : "active")}>
             <Archive className="h-4 w-4" aria-hidden />
           </button>
         </>
@@ -292,7 +301,7 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
         </>
       }
     />
-  );
+  ) : <div className="grid min-h-0 flex-1 place-items-center p-6 text-sm text-muted" role="status">Select a conversation</div>;
 
   return (
     <div className="rlp-panel-frame rlp-comm-frame" data-demo-panel="manager:communication" ref={rootRef}>
@@ -303,7 +312,7 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
             onNew={() => open("New message", "Compose a new conversation.", [{ label: "To", value: PROSPECT }, { label: "Channel", value: "SMS" }, { label: "Message", value: `Hello ${PROSPECT},` }])}
           />
           <div className="rlp-comm-body flex min-h-0 min-w-0 flex-1 flex-col">
-            <InboxTwoPane panes="flat" heightMode="viewport" fillParent threadOpen className="min-h-0 flex-1" list={list} thread={threadPane} />
+            <InboxTwoPane panes="flat" heightMode="viewport" fillParent threadOpen={Boolean(selected)} className="min-h-0 flex-1" list={list} thread={threadPane} />
           </div>
         </ManagerPortalPageShell>
       </div>

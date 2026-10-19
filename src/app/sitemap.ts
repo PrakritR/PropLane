@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { PUBLIC_MARKETING_PATHS } from "@/lib/seo/marketing-routes";
 import { BLOG_POSTS } from "@/lib/blog/posts";
 import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
 
@@ -8,42 +9,13 @@ const BASE = "https://proplane.ai";
 // response is cached for an hour like /llms.txt and the listing pages it advertises.
 export const revalidate = 3600;
 
-/** Public marketing URLs Google should index on the canonical host. */
-const PATHS = [
-  "",
-  "/about",
-  "/pricing",
-  "/pricing/service",
-  "/why-proplane",
-  "/why-proplane/track-record",
-  "/why-proplane/how-we-manage",
-  "/why-proplane/software",
-  "/contact",
-  "/book-a-demo",
-  "/reviews",
-  "/security",
-  "/support",
-  "/vendors",
-  "/partner",
-  "/partner/pricing",
-  "/partner/contact",
-  "/privacy",
-  "/tos",
-  "/sms-terms",
-  "/docs",
-  "/docs/mcp",
-  "/blog",
-  "/rent/browse",
-  "/app",
-] as const;
-
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lastModified = new Date();
-  const pages: MetadataRoute.Sitemap = PATHS.map((path) => ({
+  const pages: MetadataRoute.Sitemap = PUBLIC_MARKETING_PATHS.map((path) => ({
     url: path ? `${BASE}${path}` : `${BASE}/`,
     lastModified,
-    changeFrequency: path === "" || path === "/pricing" ? "weekly" : "monthly",
-    priority: path === "" ? 1 : path === "/pricing" || path === "/pricing/service" || path === "/about" ? 0.9 : 0.6,
+    changeFrequency: path === "" ? "weekly" : "monthly",
+    priority: path === "" ? 1 : path === "/about" ? 0.9 : 0.6,
   }));
   // A post's own date may be ahead of today (the publish calendar is staggered); a `lastmod` in the future is
   // distrusted by crawlers, so the stamp is never later than now.

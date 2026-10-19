@@ -32,6 +32,7 @@ const MANAGER = "manager-1";
 const grants: OwnerGrant[] = [
   {
     linkId: "link-1",
+    workspaceId: "ws-1",
     managerUserId: MANAGER,
     houses: [{ propertyId: "house-a", performance: false, statements: true, documents: false, messages: false }],
   },

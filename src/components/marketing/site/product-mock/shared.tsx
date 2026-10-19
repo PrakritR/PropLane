@@ -65,13 +65,17 @@ export function BarePanelChrome({ children }: { children: ReactNode }) {
  * `display: contents` so it is a handler and not a box: the panel's layout is
  * the real portal's, untouched.
  */
-export function InertDemoLinks({ children }: { children: ReactNode }) {
+export function InertDemoLinks({ children, onNavigate }: { children: ReactNode; onNavigate?: (section: string) => void }) {
   return (
     <div
       style={{ display: "contents" }}
       onClickCapture={(event) => {
         const anchor = (event.target as Element | null)?.closest?.("a");
-        if (anchor?.getAttribute("href") === "#") event.preventDefault();
+        const href = anchor?.getAttribute("href");
+        if (href?.startsWith("#")) {
+          event.preventDefault();
+          if (href.startsWith("#demo/")) onNavigate?.(href.slice(6).split(/[/?#]/)[0]!);
+        }
       }}
     >
       {children}

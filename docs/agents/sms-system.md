@@ -1206,7 +1206,10 @@ authenticated phone verification is the sole platform-funded exemption.
 Twilio Verify remains a separate transport; the pooled proxy relay is retired.
 
 `sendClass` ∈ `control | transactional | automated`; quiet hours defer only
-`automated` traffic. The **weekly rent reminder**
+`automated` traffic. The homepage's explicitly consented, one-message demo-link
+request uses `sendPlatformLeadText` with `purpose: "requested_demo_link"` as a
+transactional reply; the same sender's scheduled nudges remain automated.
+The **weekly rent reminder**
 (`src/lib/sms/weekly-rent-reminder.server.ts`, cron
 `/api/cron/weekly-rent-reminders`) sends `automated` from the manager's own
 number and is idempotent per owner/resident/ISO week through the durable outbox

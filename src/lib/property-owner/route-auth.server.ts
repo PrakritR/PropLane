@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadOwnerGrants, ownerAccessStateFor, type OwnerGrant } from "@/lib/property-owner/access.server";
+import { loadOwnerGrants, narrowGrantsToWorkspace, ownerAccessStateFor, type OwnerGrant } from "@/lib/property-owner/access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -18,7 +18,7 @@ export type OwnerRouteContext = { db: SupabaseClient; userId: string; grants: Ow
  * which is also what a revoked owner gets on their very next request: the
  * membership is read fresh on every call.
  */
-export async function requireOwnerRoute(): Promise<OwnerRouteContext | NextResponse> {
+export async function requireOwnerRoute(req?: Request): Promise<OwnerRouteContext | NextResponse> {
   const supabaseAuth = await createSupabaseServerClient();
   const {
     data: { user },
@@ -37,6 +37,14 @@ export async function requireOwnerRoute(): Promise<OwnerRouteContext | NextRespo
   }
   if (grants.every((g) => g.houses.length === 0)) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+  // The workspace switcher narrows every read to ONE of the owner's own workspaces. A key that is none of theirs is a 404,
+  // indistinguishable from one that does not exist; no key means every workspace.
+  const workspace = req ? (new URL(req.url).searchParams.get("workspace") ?? "").trim() : "";
+  if (workspace) {
+    const narrowed = narrowGrantsToWorkspace(grants, workspace);
+    if (narrowed.length === 0) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    grants = narrowed;
   }
   return { db, userId: user.id, grants };
 }

@@ -36,7 +36,7 @@ async function loadAgentIdentity(db: SupabaseClient, managerUserId: string) {
  * figure, not part of an owner's statement.
  */
 export async function GET(req: Request) {
-  const ctx = await requireOwnerRoute();
+  const ctx = await requireOwnerRoute(req);
   if (ctx instanceof NextResponse) return ctx;
   const url = new URL(req.url);
   const month = parseOwnerPeriod(url.searchParams.get("month"));

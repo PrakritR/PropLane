@@ -679,6 +679,10 @@ plan, not an admin. An owner-only account:
   walks `src/app/api/**` and fails a new route that neither refuses nor carries a
   reviewed `EXEMPT` reason, so that list is the enumeration — do not re-copy it here.
 
+**Owner portal shell (W21, [`one-number.md`](one-number.md) § W21).** The owner shell is the shared portal chrome with five rows
+(Overview, Properties, Money, Messages, Settings) and a workspace switcher; Money folds Statements, Finances and Documents into
+tabs. The switcher narrows every `/api/owner/*` read to one of the owner's own memberships through `requireOwnerRoute(req)`.
+
 **Owner APIs** (`/api/owner/*`, one gate: `requireOwnerRoute`). The owner and the
 manager come from the authenticated membership (`loadOwnerGrants`), read fresh on
 every call, so a revoked owner is refused on the very next request. A request may

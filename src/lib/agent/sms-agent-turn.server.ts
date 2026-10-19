@@ -1,5 +1,7 @@
 import { smsTaskModel } from "@/lib/agent/runtime-model";
 import { hasAgentModelCredential, selectModel } from "@/lib/agent/model";
+import { visionPinnedModel } from "@/lib/agent/assistant-vision-turn";
+import { attachImagesToLastUserMessage } from "@/lib/agent/images";
 /**
  * The SMS agent turn: one inbound text becomes one outbound reply, with a
  * portal's tool catalog behind it and the write gate intact.
@@ -504,6 +506,11 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     phoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
+    /**
+     * Photos the texter just sent (MMS), as image blocks for THIS turn's user message only; history stays
+     * text-only. The turn runs on a vision-capable model so the agent can read what the photo shows.
+     */
+    inboundImages?: Anthropic.ImageBlockParam[];
     /** Runs after the inbound turn is durable but before any model/tool work. */
     onInboundPersisted?: () => Promise<boolean>;
     /** Optional deterministic response for a scoped lookup miss/ambiguity. */
@@ -698,7 +705,11 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     history.push({ role: "user", content: text });
   }
 
-  const model = smsTaskModel(ctx.userId, messageChannel, { ...selectModel(history), provider: "anthropic", route: "anthropic" });
+  let model = smsTaskModel(ctx.userId, messageChannel, { ...selectModel(history), provider: "anthropic", route: "anthropic" });
+  // MMS photos ride the LAST user message only and need a vision-capable model; the trace keeps the text history.
+  const withImages = attachImagesToLastUserMessage(history as Anthropic.MessageParam[], args.inboundImages ?? []);
+  const turnMessages = withImages.messages;
+  if (withImages.attached) model = visionPinnedModel();
   if (!hasAgentModelCredential(model)) return null;
 
   let traceId: string | null = null;
@@ -717,7 +728,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         runAgentTurn<Ctx>({
           ctx,
           registry,
-          messages: history,
+          messages: turnMessages,
           observer,
           model,
           system,

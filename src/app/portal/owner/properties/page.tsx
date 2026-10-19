@@ -1,4 +1,4 @@
-import { OwnerPropertiesList } from "@/components/owner/owner-overview";
+import { OwnerPropertiesList } from "@/components/owner/owner-properties";
 import { requireOwnerPage } from "@/lib/property-owner/page-guard.server";
 
 export const metadata = { title: "Properties" };

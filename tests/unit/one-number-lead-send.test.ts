@@ -62,4 +62,31 @@ describe("sendPlatformLeadText", () => {
     mocks.sendSms.mockRejectedValueOnce(new Error("down"));
     expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hi", now: DAY })).toEqual({ ok: false, reason: "provider_error" });
   });
+
+  it("preserves requested transactional delivery through the consolidated transport at night", async () => {
+    expect(await sendPlatformLeadText(db, {
+      to: "+12065550142", body: "Requested link", now: NIGHT, purpose: "requested_demo_link",
+    })).toEqual({ ok: true, sid: "SM1" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+    expect(mocks.sendSms.mock.calls[0][3]).toMatchObject({ purpose: "platform_lead" });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("reports provider attempts with no confirmed SID as uncertain and never retries", async () => {
+    mocks.sendSms.mockResolvedValue({ sent: false, providerAttempted: true, error: "Timed out" });
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hi", now: DAY }))
+      .toEqual({ ok: false, reason: "delivery_unknown" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("answers an inbound message overnight without changing the automated default", async () => {
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hello", now: NIGHT, inboundReply: true }))
+      .toEqual({ ok: true, sid: "SM1" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Nudge", now: NIGHT }))
+      .toEqual({ ok: false, reason: "quiet_hours" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+  });
+
 });

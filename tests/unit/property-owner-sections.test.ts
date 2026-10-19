@@ -1,30 +1,53 @@
 /**
- * The owner-only account's section allow-list: Overview, Properties, Statements,
- * Documents (+ Messages only while on) and Profile. Everything else is sent to
- * Overview, whether it came from the menu, a bookmark or the address bar.
+ * The owner-only account's section allow-list: five rows (Overview, Properties, Money, Messages only while on, Settings),
+ * with Statements, Finances and Documents as Money's tabs. Everything else is sent to Overview, whether it came from the
+ * menu, a bookmark or the address bar.
  */
 import { describe, expect, it } from "vitest";
 
 import {
   OWNER_HOME_PATH,
+  ownerMoneyTabForPath,
+  ownerMoneyTabs,
   ownerNavItems,
   ownerPathAllowed,
   ownerPrimaryNavItems,
   ownerRedirectFor,
+  ownerSectionForPath,
 } from "@/lib/property-owner/sections";
 
 describe("owner nav", () => {
-  it("is Overview, Properties, Statements, Documents and Profile, and Messages only when on", () => {
-    expect(ownerNavItems(false).map((i) => i.label)).toEqual(["Overview", "Properties", "Statements", "Documents", "Profile"]);
-    expect(ownerNavItems(true).map((i) => i.label)).toEqual(["Overview", "Properties", "Statements", "Documents", "Messages", "Profile"]);
+  it("is at most five rows: Overview, Properties, Money, Settings, and Messages only when on", () => {
+    expect(ownerNavItems(false).map((i) => i.label)).toEqual(["Overview", "Properties", "Money", "Settings"]);
+    expect(ownerNavItems(true).map((i) => i.label)).toEqual(["Overview", "Properties", "Money", "Messages", "Settings"]);
+    expect(ownerNavItems(true).length).toBeLessThanOrEqual(5);
   });
 
-  it("keeps Profile off the phone bottom bar (it lives in More)", () => {
-    expect(ownerPrimaryNavItems(true).map((i) => i.id)).toEqual(["overview", "properties", "statements", "documents", "messages"]);
+  it("keeps Settings off the phone bottom bar (it lives in More)", () => {
+    expect(ownerPrimaryNavItems(true).map((i) => i.id)).toEqual(["overview", "properties", "money", "messages"]);
   });
 
   it("only links to owner routes", () => {
     for (const item of ownerNavItems(true)) expect(item.href.startsWith("/portal/owner")).toBe(true);
+  });
+
+  it("folds Statements, Finances and Documents into Money's tabs, Finances only when held", () => {
+    expect(ownerMoneyTabs(false).map((t) => t.label)).toEqual(["Statements", "Documents"]);
+    expect(ownerMoneyTabs(true).map((t) => t.label)).toEqual(["Statements", "Finances", "Documents"]);
+    expect(ownerNavItems(false).find((i) => i.id === "money")?.href).toBe("/portal/owner/statements");
+  });
+
+  it("maps every owner path to the one row that owns it", () => {
+    expect(ownerSectionForPath("/portal/owner")).toBe("overview");
+    expect(ownerSectionForPath("/portal/owner/properties/abc")).toBe("properties");
+    for (const path of ["/portal/owner/statements", "/portal/owner/statements/2026-10", "/portal/owner/finances", "/portal/owner/documents"]) {
+      expect(ownerSectionForPath(path), path).toBe("money");
+    }
+    expect(ownerSectionForPath("/portal/owner/messages")).toBe("messages");
+    expect(ownerSectionForPath("/portal/owner/profile")).toBe("settings");
+    expect(ownerSectionForPath("/portal/dashboard")).toBeNull();
+    expect(ownerMoneyTabForPath("/portal/owner/finances")).toBe("finances");
+    expect(ownerMoneyTabForPath("/portal/owner/properties")).toBeNull();
   });
 });
 
@@ -36,6 +59,7 @@ describe("ownerPathAllowed", () => {
       "/portal/owner/properties",
       "/portal/owner/properties/abc-123",
       "/portal/owner/statements",
+      "/portal/owner/statements/2026-10",
       "/portal/owner/documents",
       "/portal/owner/profile",
     ]) {
@@ -75,15 +99,10 @@ describe("ownerPathAllowed", () => {
 });
 
 describe("owner Finances section", () => {
-  it("is present only for the owner of record of a managed workspace", () => {
-    expect(ownerNavItems(false, false).map((i) => i.id)).not.toContain("finances");
-    expect(ownerNavItems(false, true).map((i) => i.label)).toEqual(["Overview", "Properties", "Statements", "Finances", "Documents", "Profile"]);
-    expect(ownerNavItems(true, true).find((i) => i.id === "finances")?.href).toBe("/portal/owner/finances");
-  });
-
-  it("keeps Finances on the phone bottom bar when on", () => {
-    expect(ownerPrimaryNavItems(false, true).map((i) => i.id)).toContain("finances");
-    expect(ownerPrimaryNavItems(false).map((i) => i.id)).not.toContain("finances");
+  it("is a Money tab for the owner of record of a managed workspace, never a row of its own", () => {
+    expect(ownerNavItems(false).map((i) => i.id)).not.toContain("finances");
+    expect(ownerMoneyTabs(false).map((t) => t.id)).not.toContain("finances");
+    expect(ownerMoneyTabs(true).find((t) => t.id === "finances")?.href).toBe("/portal/owner/finances");
   });
 
   it("opens the Finances page only while it is on, and sends everyone else to Overview", () => {

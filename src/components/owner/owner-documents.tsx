@@ -1,12 +1,15 @@
 "use client";
 
-import { Download, FileText } from "lucide-react";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { CalendarDays, FileText, HardDrive } from "lucide-react";
+import { useMemo, useState } from "react";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useOwnerFetch } from "@/components/owner/owner-data";
-import { OwnerEmpty, OwnerError, OwnerLoading, OwnerPageTitle } from "@/components/owner/owner-ui";
+import { OwnerError, OwnerLoading } from "@/components/owner/owner-ui";
 import { formatPacificDate } from "@/lib/pacific-time";
 import type { OwnerDocumentRow } from "@/lib/property-owner/projection";
 
@@ -16,10 +19,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Screen 6: Documents — only what the manager shared with owners, bytes via a signed URL. */
+/** Documents — only what the manager shared with owners, bytes via a signed URL. */
 export function OwnerDocumentsPage() {
   const { showToast } = useAppUi();
   const { data, loading, error, reload } = useOwnerFetch<{ documents: OwnerDocumentRow[] }>("/api/owner/documents");
+  const [query, setQuery] = useState("");
+  const documents = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.documents ?? []).filter((doc) => !q || doc.title.toLowerCase().includes(q));
+  }, [data, query]);
 
   const open = async (doc: OwnerDocumentRow) => {
     try {
@@ -33,34 +41,51 @@ export function OwnerDocumentsPage() {
   };
 
   return (
-    <div data-attr="owner-documents">
-      <OwnerPageTitle>Documents</OwnerPageTitle>
+    <div data-attr="owner-documents" className="space-y-2">
+      <PortalListControlStack
+        className="plp-header-card mb-2 max-lg:mb-1.5"
+        variant="command"
+        destinationRow={
+          <LocalDestinationNav
+            items={[{ id: "shared", label: "Shared with you", count: data?.documents.length, dataAttr: "owner-documents-tab-shared" }]}
+            activeId="shared"
+            onChange={() => undefined}
+            ariaLabel="Documents"
+            appearance="command"
+          />
+        }
+        activeDestinationId="shared"
+        destinationAriaLabel="Documents"
+        search={{ value: query, onChange: setQuery, placeholder: "Search documents", ariaLabel: "Search documents", dataAttr: "owner-documents-search" }}
+      />
       {loading && !data ? (
         <OwnerLoading />
       ) : error ? (
         <OwnerError message="Couldn't load your documents." onRetry={reload} />
-      ) : !data || data.documents.length === 0 ? (
-        <OwnerEmpty title="No documents yet" />
       ) : (
-        <PortalRecordListSurface dataAttr="owner-documents-list">
-          {data.documents.map((doc) => (
-            <PortalServiceRecordRow
+        <PortalRecordListSurface
+          dataAttr="owner-documents-list"
+          isEmpty={documents.length === 0}
+          emptyCard={{ title: query ? "No matching documents" : "No documents yet", section: "documents" }}
+        >
+          {documents.map((doc) => (
+            <PortalPropertyRecordRow
               key={doc.id}
               title={doc.title}
-              useServiceTile={false}
-              leading={
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
-                  <FileText className="size-5" />
-                </span>
-              }
+              leading={<PortalRowIconTile icon={FileText} />}
+              leadingShape="square"
               facts={
-                <span>
-                  {doc.mimeType === "application/pdf" ? "PDF" : "File"} · {formatBytes(doc.sizeBytes)} ·{" "}
-                  {formatPacificDate(doc.createdAt, { month: "short", day: "numeric", year: "numeric" })}
-                </span>
+                <>
+                  <PortalRowFact icon={HardDrive} srLabel="Size">
+                    {doc.mimeType === "application/pdf" ? "PDF" : "File"} · {formatBytes(doc.sizeBytes)}
+                  </PortalRowFact>
+                  <PortalRowFact icon={CalendarDays} srLabel="Added">
+                    {formatPacificDate(doc.createdAt, { month: "short", day: "numeric", year: "numeric" })}
+                  </PortalRowFact>
+                </>
               }
               onOpen={() => void open(doc)}
-              actions={<PortalIconAction icon={Download} label="Download" data-attr={`owner-document-download-${doc.id}`} onClick={() => void open(doc)} />}
+              actions={<RowActionsMenu label={doc.title} items={[{ id: "download", label: "Download", onSelect: () => void open(doc), dataAttr: `owner-document-download-${doc.id}` }]} />}
               dataAttr={`owner-document-row-${doc.id}`}
             />
           ))}

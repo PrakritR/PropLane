@@ -793,6 +793,18 @@ owner without that role, and refuses to seed one.
 the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
 admins directly and links to the portal for role invites.
 
+## W22 - Bring existing owners' workspaces under PropLane Service
+
+No migration, no flag, no product code: one guarded operations script. Runbook (exact commands, undo): [`one-number-runbook.md`](one-number-runbook.md) section 5b.
+
+- `scripts/one-number/move-houses-to-service.mjs` (+ `lib/move-plan.mjs`, `backup.mjs --owner-email`). One owner per run. Dry run is the default and lists every house with residents, leases (open), bookings (upcoming), charges (open), services, applications and conversations.
+- **`--mode attach` (default).** The workspace keeps its owner. Writes only `portal_workspaces` (`is_service`, `city`, `name`, `owner_of_record_name`, owner pinned in the `where`) and one `account_link_invites` row (service owner, accepted Admin, all houses, `ADMIN_STAMP` = `stampTeamRolePermissions("admin")`, pinned by a test). An existing accepted Admin row is kept (and not removed by undo); any other row refuses. Proof: a snapshot with a fingerprint of every row (all columns) of the houses and of ~50 house-keyed tables, compared after; only the workspace row and that membership may differ, owners unchanged. Any difference or error undoes the run (exit 1). Undo deletes the membership we added and restores the workspace columns.
+- **`--mode transfer`.** The app's `transfer_portal_workspace_ownership` RPC (migrations 20260921000000 / 20261012121000): the service owner is first seated as an accepted member (the RPC only hands a workspace to a member), the former owner stays as Admin and owner of record, `is_service`/`city`/name are set, and an owner whose default workspace this was gets a fresh one from `ensure_default_portal_workspace` (undo removes it only while empty). Refuses without `--acknowledge-unmoved`: the RPC re-keys only twelve house-keyed tables; ~30 others (documents, bills, service requests, deposits, move-in forms, inspections, owner settings, tour state) keep the old owner's id, and workspace-keyed history keeps its owner column. The dry run lists them as LEFT BEHIND. `property_data.managerUserId` is not rewritten (the app's own transfer does not either). No promoted/demoted emails (RPC called directly).
+- City gate: every house must read as the city (an explicit city field, else `street, City, ST zip`); a mixed workspace, or one with an unreadable city, STOPS the run (never splits). `--workspace-id` is the captain's explicit override that skips the gate (an empty draft with no address). Two Seattle workspaces need `--workspace-id` to choose.
+- Guards: `--expect-houses <n>` (the dry run's count) on apply; journal (mode 0600) written before the first change and after each step; production needs the standard guards plus a backup taken with the same `--owner-email` (`meta.move`).
+- Attach mode and the admin Service routes: `loadServiceWorkspace` still requires the workspace to be owned by the service owner, so an attached owner-held workspace is reachable through the manager workspace switcher (the service owner is an Admin member) and from Admin > Service only once the production port's attach action relaxes that check.
+- Tests: `tests/unit/one-number-migration-move-houses.test.ts` (fake db with a port of the RPC: city rules, refusals, production guards, attach apply / re-run / undo / stray-write detection, transfer apply / undo / auto-undo, backup section). Proven on dev with two fixture owners: attach, SQL row-fingerprint identical before and after, undo, override for a no-address draft, transfer refusal without the flag; fixtures removed.
+
 ## W17 - Owner management: PropLane-held funds, party ledger, owner and vendor withdrawals
 
 Authoritative design, Stripe research, ledger and legal flag: [`owner-management.md`](owner-management.md). Migration `20261018270000_owner_management.sql` (dev applied, ledger row recorded). Dev proof: `scripts/prove-managed-finance.ts` (Stripe TEST mode only, dev database only; refuses anything else).
@@ -810,6 +822,60 @@ Files:
 Invariants: see `owner-management.md` § Invariants. In one line: the ledger balances, every post is idempotent on a Stripe/source id, a party never withdraws more than the ledger says is matured and owed, ownership is re-derived from the policy / property / session at every write, and a managed capture that cannot be allocated throws (never falls back to a hold).
 
 Tests: `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`, `tests/unit/owner-finances.test.tsx`, `tests/unit/admin-managed-finance-panel.test.tsx`, `tests/unit/vendor-managed-balance.test.tsx`.
+
+## W21 - Owner portal: the shared shell, five rows, workspace switcher (`on/owner-portal`)
+
+Captain (Oct 18): "design owner portal better, work on full design for it to match resident, vendor, manager." The owner-only account
+(`src/lib/property-owner/*`, `src/components/owner/*`, `src/app/portal/owner/*`) now draws the same chrome as every other portal.
+
+- **Shell** (`owner-portal-shell.tsx`): the 40px dark top strip (sidebar toggle, Search, Cmd/Ctrl+K), the 60px workspace rail (one
+  tile per workspace the person is an owner in, Help, the shared `PortalAccountMenu`), the 248px sidebar (workspace heading with
+  "Owner · N houses", the same row class as `PortalSidebar`) and on a phone the header line, the shared bottom-bar classes and a More
+  sheet. It uses `PORTAL_SHELL_ROOT_CLASS`, the sidebar-collapse store and the `data-slot` hooks the other portals do; it carries no
+  assistant and no sparkle. Search is `owner-search-dialog.tsx` (pages only: the palette's Ask row needs an assistant an owner does
+  not have).
+- **Five rows** (`sections.ts`): Overview, Properties, Money, Messages (only while on), Settings. Money folds Statements, Finances
+  (only for the owner of record of a PropLane-managed workspace) and Documents into a tab strip (`owner-section-tabs.tsx`, the
+  `DestinationNav` command appearance, list level only). Routes are unchanged (`/portal/owner/statements|finances|documents|profile`);
+  `/portal/owner/statements/<YYYY-MM>` is new. Settings sits at the foot of the sidebar and in the account menu; on a phone it lives in More.
+- **Workspace switcher.** An owner of record in several workspaces gets a tile each. `OwnerWorkspaceProvider` keeps the active key
+  (localStorage, best effort); `useOwnerFetch` adds `?workspace=<key>` to every `/api/owner/*` read except the finances list. The
+  server re-derives it: `requireOwnerRoute(req)` narrows the membership grants to that workspace (`narrowGrantsToWorkspace`) and a key
+  that is none of the owner's own is a 404. Key = workspace id, or `link:<membership id>` for a legacy membership with none
+  (`ownerWorkspaceKey`). `GET /api/owner/workspaces` lists the tiles (label = the workspace's own name; `managed` = owner of record of an
+  accepted fee policy there). A switch remounts the page content so no state from the other workspace lingers.
+- **Overview** (`owner-overview.tsx`, `GET /api/owner/overview`): `KpiCard`s as on the manager dashboard. A managed workspace shows
+  Occupancy, Rent collected, PropLane fee, Net to you, Available to withdraw (rent, fee, net from the ledger statement of the current
+  Pacific month, available from the balance); any other shows Occupancy, Rent collected, Net income (month and year), Rent due. Then
+  Needs attention (repair approvals waiting on the owner, a statement that landed in the last 14 days, an agreement to sign; each
+  row links to the page that clears it) and Upcoming (move-in and move-out dates of the owner's own rooms in the next 30 days from
+  `resident_inspections`: a house, a room and a day, never a resident) and the twelve-month chart.
+- **Properties** (`owner-properties.tsx`): the manager's list surface, read-only (header card with All / Vacancies tabs, search, no +).
+  House page (`owner-property.tsx`, `GET /api/owner/properties/<id>`): the listing's real https photos or `NoImagePlaceholder` (never a
+  stock photo, a `data:` blob or a relative path), KPI cards, Rooms / Services / Months tabs. Services history is title, Open |
+  Scheduled | Completed, day and cost, with no resident, vendor or unit. A house outside the narrowed workspace is the same 404.
+- **Statements** (`owner-statements.tsx`, `owner-statement-detail.tsx`): a `PortalListControlStack` header (houses as tabs, search, icon
+  Download of the latest month) and a row per month (tile, month, houses line, net, ⋯ with View and Download PDF). A workspace PropLane
+  holds the funds for reads its months from the owner's ledger (`loadOwnerMonthlyNets`, one ledger read folded per month, the same
+  builder the month detail uses, so a row and the month it opens agree), has no per-house tabs (the ledger is per workspace) and
+  downloads through `/api/owner/finances/statement`; a request narrowed to one house keeps the manager's books. The month detail shows
+  gross rent, PropLane fee, repairs and vendors (each line goes to that house's Services history, never to the manager's service
+  record, which an owner account cannot open), adjustments, net to you, withdrawals and the ending balance; a non-managed workspace shows
+  the month's rent, other income, processing fees, repairs and services and net from the books.
+- **Finances / Documents / Messages / Settings** keep their behaviour; Finances drops its own workspace tabs (the switcher decides,
+  a `?workspace=` link wins, else the first held workspace), Documents moves onto the list surface, and no page carries a title above
+  its content (Settings keeps its own).
+- **Not changed:** the owner APIs' redaction (`assertOwnerPayloadRedacted` runs over every new payload), the manager APIs' refusal of
+  an owner-only account, flags, schema. No migration. PropLane-held rent is not split per house on the Properties list (the ledger is
+  per workspace), so those rows show occupancy only.
+- **Proof fixture:** `NODE_OPTIONS=--conditions=react-server npx tsx --env-file=.env.local scripts/seed-owner-portal-proof.ts` (dev project
+  and Stripe test key only; `SKIP_CAPTURE=1` on a re-run). Login `owner.w21@test.proplane.local`. It makes one owner in two workspaces (one
+  managed with a signed 90/10 policy), three houses, rent captured on the platform balance, a vendor bill under the approval threshold and
+  one waiting for the owner, services and upcoming inspections.
+- **Tests:** `tests/unit/owner-portal-routes.test.tsx` (every route has a page, the shell, tiles and scoped reads, each screen),
+  `owner-portal-scope.test.ts` (narrowing, tiles, overview extras, house detail, photo and cost parsing, owner sees only their houses),
+  `owner-statements-held.test.ts`, `owner-portal-guards.test.ts` (no pills, no subtext, no list titles, no sparkle, shared shell classes),
+  plus the updated `property-owner-sections`, `-review-fixes`, `-membership-decides` and `owner-finances` suites.
 
 ## W19 - Portal simplification (fold rows, tab strips, merged Settings pages)
 
@@ -854,3 +920,32 @@ labels, the icons and the Settings grouping changed.
   "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
   AI-review legal disclaimers are untouched.
 - Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.
+
+## Completeness audit fixes (messaging checklist, Oct 18)
+
+Checklist of every spec line with its code and test: `~/.cockpit/briefs/one-number-completeness-1018.md`. Fixes found by the audit:
+
+- **A dispatched vendor reaches their team on the shared line.** `findVendorJobCandidates` (router step 3) matched only a
+  `vendor_work_order` agent session, so a rostered vendor with a dispatch offer but no login was asked "looking for a place, renting one
+  out, or a vendor?" and their YES / DONE never reached `handleVendorDispatchReply`. It now also matches through the manager vendor roster
+  (`manager_vendor_records.row_data.phone`, any typed format, compared as E.164) to an `offered | timed_out` attempt on an `offering |
+  exhausted` run, or an `accepted` attempt on an `accepted` run or one `completed` in the last 30 days. Inactive roster rows never match.
+- **Vendor photos land on the job.** `handleVendorDispatchReply` (DONE with `mediaCount`) and `handleVendorDispatchMedia` (a bare photo from
+  the vendor of an accepted job) attach the text's files: a work-order run gets `completionPhotoDataUrls` and `linked_type = 'vendor_job'`
+  (`attachVendorJobMedia`), any other run links the files to the run (`linkVendorRunMedia`). Audit event `vendor_photos`. Several accepted
+  jobs need `#N` in the text. The pipeline calls it before any other agent, so a login-less vendor's photo is never answered by the prospect agent.
+- **Hour-before reminder.** `sweepJobReminders` in the dispatch sweep: one text to the accepted vendor when the agreed time is within 75
+  minutes (not finished, not past, not accepted in the last 30 minutes). Once-only by outbox key `dispatch-job-reminder-<run>`; audit `vendor_reminded`.
+- **One photo per offered room.** The lead agent's offer is now one text per room (`buildOfferBubbles`: price, availability, listing link,
+  that room's first real https photo) plus a pick prompt; `UnassignedLeadTurn.bubbles` -> `unassignedBubbles` -> the seam's TwiML `bubbles`. The
+  joined `reply` is still what the retry record and the inbox log store.
+- **Photos on request.** Leasing tool `send_listing_photos` (shared line only, registered beside `send_my_link`): up to two real https photos
+  of one live listing as MMS from the PropLane line through `sendSharedLineMessage`, to the texting phone only. It is a `read` tool that
+  sends, on purpose (same shape as `send_my_link`: the prospect's own phone, public photos, asked for); a captain who wants a YES gate on it
+  makes it a `defineWriteTool`.
+- **The resident agent sees the photo.** `inboundImageBlocks` reads the current text's stored files (this owner's path, images only, 3.6 MB
+  and four at most) into image blocks; `runSmsAgentTurn` takes `inboundImages`, puts them on the last user message
+  (`attachImagesToLastUserMessage`) and pins a vision-capable model for that turn. History stays text.
+
+Tests: `tests/integration/one-number-e2e/{routing-and-safety,vendor-dispatch-chain,prospect-journey}.test.ts`, `tests/unit/one-number-{lead-match,
+mms-vision,listing-photos,feel-pipeline}.test.ts`.

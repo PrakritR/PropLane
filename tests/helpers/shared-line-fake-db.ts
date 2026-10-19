@@ -1,6 +1,6 @@
 /**
  * A small stateful PostgREST fake for the shared-line router tests: select with
- * eq / in / not / is / order / limit, `row_data->>x` paths, upsert (with onConflict and
+ * eq / in / ilike / not / is / order / limit, `row_data->>x` paths, upsert (with onConflict and
  * ignoreDuplicates), insert and update. A table listed in `broken` answers with a
  * Postgres "relation does not exist" error, like code that runs before its migration.
  */
@@ -53,6 +53,12 @@ export function fakeSharedLineDb(
         select() { return query; },
         eq(column: string, value: unknown) { predicates.push((row) => read(row, column) === value); return query; },
         in(column: string, values: unknown[]) { predicates.push((row) => values.includes(read(row, column))); return query; },
+        ilike(column: string, pattern: string) {
+          const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+          const re = new RegExp(`^${escaped}$`, "i");
+          predicates.push((row) => re.test(String(read(row, column) ?? "")));
+          return query;
+        },
         is(column: string, value: unknown) { predicates.push((row) => (value === null ? read(row, column) == null : read(row, column) === value)); return query; },
         not(column: string, _op: string, value: unknown) { predicates.push((row) => (value === null ? read(row, column) != null : read(row, column) !== value)); return query; },
         order() { return query; },

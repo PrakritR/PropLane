@@ -50,7 +50,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {}, replace: () => {}, prefetch: () => {} }),
 }));
 
-import { PublicNavbar } from "@/components/layout/public-navbar";
+import { LegacyPublicNavbar as PublicNavbar } from "@/components/layout/legacy-public-navbar";
 
 const ROLE_HOME: Record<NonNullable<typeof mockRole>, string> = {
   resident: "/resident",

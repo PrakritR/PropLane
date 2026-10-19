@@ -2,18 +2,16 @@
 
 import { isNativeDeepLinkPath } from "@/lib/auth/native-entry-paths";
 import { redirectNativeFromMarketing } from "@/lib/auth/native-welcome-redirect";
-import { loadPublicExtraListingsFromServer } from "@/lib/demo-property-pipeline";
 import { detectNativePlatformSync, tagHtmlNativePlatform } from "@/lib/native/detect-native";
 import { installNativeZoomLock } from "@/lib/native/disable-native-zoom";
-import { handleNativeOAuthReturnUrl, isNativeOAuthInProgress } from "@/lib/native/open-url";
 import { markNativeSession } from "@/lib/native/native-session-marker";
 import { nativeOAuthMarketingSiteMessage } from "@/lib/auth/oauth-failure-messages";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { getNativeInfo, registerPushIfGranted, resendCachedToken } from "@/lib/native/push-client";
 import { recordAppLaunch } from "@/lib/native/app-review";
 import { useEffect } from "react";
 
 async function redirectNativeFromMarketingPage(): Promise<void> {
+  const { createSupabaseBrowserClient } = await import("@/lib/supabase/browser");
   const supabase = createSupabaseBrowserClient();
   await redirectNativeFromMarketing(async () => {
     const {
@@ -24,6 +22,7 @@ async function redirectNativeFromMarketingPage(): Promise<void> {
 }
 
 async function recoverFromMarketingDuringOAuth(): Promise<void> {
+  const { isNativeOAuthInProgress } = await import("@/lib/native/open-url");
   if (!isNativeOAuthInProgress()) return;
   const { pathname, search, hash } = window.location;
   if (pathname !== "/" && pathname !== "") return;
@@ -63,7 +62,9 @@ export function NativeBridge() {
         // the app, so middleware never bounces them to proplane.ai.
         markNativeSession();
         recordAppLaunch();
-        void loadPublicExtraListingsFromServer().catch(() => {});
+        void import("@/lib/demo-property-pipeline")
+          .then(({ loadPublicExtraListingsFromServer }) => { if (!disposed) return loadPublicExtraListingsFromServer(); })
+          .catch(() => {});
         const removeZoomLock = installNativeZoomLock();
         cleanups.push(removeZoomLock);
 
@@ -93,6 +94,8 @@ export function NativeBridge() {
 
         try {
           const { App } = await import("@capacitor/app");
+          const { handleNativeOAuthReturnUrl } = await import("@/lib/native/open-url");
+          if (disposed) return;
           const launch = await App.getLaunchUrl();
           if (launch?.url) {
             const handled = await handleNativeOAuthReturnUrl(launch.url);

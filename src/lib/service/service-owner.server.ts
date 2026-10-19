@@ -4,12 +4,12 @@ import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 
 /**
- * The PropLane SERVICE OWNER: the one designated account that owns every
- * "PropLane Service" workspace (admin Service tab). The workspaces are ordinary
- * `portal_workspaces` rows; other admin operators reach them as members with the
- * Admin role, so nothing about the manager portal changes.
+ * The PropLane SERVICE OWNER: the one designated account that owns the "PropLane Service" workspaces PropLane
+ * creates itself (admin Service tab) and is seated as an Admin member of every workspace attached to the service.
+ * The workspaces are ordinary `portal_workspaces` rows; admin operators reach them as members with the Admin
+ * role, so nothing about the manager portal changes.
  *
- * Ownership model (docs/agents/one-number.md § Admin service workspaces):
+ * Ownership model (docs/agents/admin-service.md):
  *   * `platform_service_settings` (singleton row) is the source of truth - the
  *     database trigger needs it to exempt the owner from the workspace ceiling.
  *   * `PROPLANE_SERVICE_OWNER_USER_ID` only SEEDS that row, once, and only when it
@@ -106,25 +106,20 @@ export type ServiceWorkspaceRow = {
   id: string;
   name: string;
   city: string | null;
+  /** The workspace's real owner: the service owner for one PropLane created, the client for an attached one. */
   ownerUserId: string;
   isDefault: boolean;
 };
 
 /**
- * The workspace when - and only when - it is a service workspace owned by the
- * stored service owner. The one test every Service route runs on the id it was
- * given: a body id of any other workspace, or of an ordinary manager's, is null.
+ * The workspace when - and only when - it carries the `is_service` flag. The one test every Service route runs on
+ * the id it was given: a body id of an ordinary workspace is null. PropLane Service is a flag on a workspace plus
+ * memberships, so the owner is whoever owns it (the service owner, or a client who stays the owner of an attached
+ * workspace); what an operator may do inside it is decided by their own membership, not by this row.
  */
 export async function loadServiceWorkspace(db: SupabaseClient, workspaceId: string): Promise<ServiceWorkspaceRow | null> {
   const id = workspaceId.trim();
   if (!UUID.test(id)) return null;
-  let owner: string | null;
-  try {
-    owner = await readStoredOwner(db);
-  } catch {
-    return null;
-  }
-  if (!owner) return null;
   const { data, error } = await db
     .from("portal_workspaces")
     .select("id, name, city, owner_user_id, is_default, is_service")
@@ -132,7 +127,9 @@ export async function loadServiceWorkspace(db: SupabaseClient, workspaceId: stri
     .maybeSingle();
   if (error || !data) return null;
   const row = data as Record<string, unknown>;
-  if (row.is_service !== true || String(row.owner_user_id ?? "") !== owner) return null;
+  if (row.is_service !== true) return null;
+  const owner = String(row.owner_user_id ?? "").trim();
+  if (!owner) return null;
   return {
     id: String(row.id),
     name: String(row.name ?? ""),

@@ -26,7 +26,7 @@ export function homeJsonLd(origin: string = PRODUCTION_APP_ORIGIN, appStoreUrl =
     name,
     price: money(cents),
     priceCurrency: "USD",
-    url: `${origin}/pricing`,
+    url: `${origin}/#pricing`,
   });
   return {
     "@context": "https://schema.org",

@@ -50,6 +50,8 @@ const EXEMPT: Record<string, keyof typeof REASONS> = {
   "admin/portal-users/route.ts": "notManagerSurface",
   "linked-form-requests/[id]/route.ts": "notManagerSurface",
   "public/cosigner-submissions/route.ts": "notManagerSurface",
+  // Reviewed: the manager role appears only as a refusal (403) - message credit is for vendor and resident numbers, so an owner-only account is refused too.
+  "number-subscription/credit-checkout/route.ts": "notManagerSurface",
   "manager-applications/route.ts": "ownAccountOnly",
   "manager/amend-lease/route.ts": "ownAccountOnly",
   "manager/app-download-email/route.ts": "ownAccountOnly",

@@ -7,8 +7,9 @@ import { isMissingSchemaError, loadSharedLineConfig } from "@/lib/one-number/con
 import type { SharedLineInbound } from "@/lib/one-number/contracts";
 import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server";
 import {
+  buildOfferBubbles,
   buildOfferText,
-  firstOfferPhoto,
+  type OfferBubble,
   matchRooms,
   NO_MATCH_TEXT,
   offerFromRow,
@@ -41,8 +42,10 @@ export type UnassignedLeadTurn = {
   reply: string | null;
   /** Set once the prospect picked or toured a room: the router re-routes them there. */
   assignedWorkspaceId: string | null;
-  /** At most one real listing photo, to ride the reply as MMS. */
+  /** Every real listing photo the reply carries (one per offered room), as MMS. */
   mediaUrls?: string[];
+  /** The reply as separate texts (one per offered room with its own photo, then how to pick); `reply` is them joined. */
+  bubbles?: OfferBubble[];
 };
 
 /** A lead's stored text never keeps a card, bank or SSN number (the one redaction, `redact.ts`). */
@@ -132,7 +135,7 @@ async function recordReply(db: SupabaseClient, leadId: string, messageSid: strin
 
 const PICK_PROMPT = (n: number) => `Reply ${n === 1 ? "1" : n === 2 ? "1 or 2" : "1, 2 or 3"} to pick a room, or TOUR to see one.`;
 
-type FlowResult = { profile: LeadProfile; reply: string; mediaUrls: string[]; assign?: { propertyId: string; roomId: string } };
+type FlowResult = { profile: LeadProfile; reply: string; mediaUrls: string[]; bubbles?: OfferBubble[]; assign?: { propertyId: string; roomId: string } };
 
 async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps, "now" | "listings" | "origin">>): Promise<FlowResult> {
   const today = pacificToday(deps.now());
@@ -152,11 +155,13 @@ async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps,
     return { profile: { ...profile, stage: "no_match", asked: null, offers: [] }, reply: NO_MATCH_TEXT, mediaUrls: [] };
   }
   const offers = rows.map((row, i) => offerFromRow(row, i + 1));
-  const photo = firstOfferPhoto(rows);
+  const bubbles = buildOfferBubbles(offers, rows, deps.origin());
   return {
     profile: { ...profile, stage: "offered", asked: "pick", offers },
+    // The joined text is what a retry and the inbox log show; the bubbles are what the prospect receives.
     reply: buildOfferText(offers, deps.origin()),
-    mediaUrls: photo ? [photo] : [],
+    mediaUrls: bubbles.flatMap((b) => (b.mediaUrl ? [b.mediaUrl] : [])),
+    bubbles,
   };
 }
 
@@ -228,7 +233,10 @@ async function runFlow(
   const question = nextQuestion(next);
   if (!question) {
     const offered = await matchAndOffer(next, deps);
-    return first ? { ...offered, reply: `${WELCOME} ${offered.reply}` } : offered;
+    if (!first) return offered;
+    // The very first reply carries the business name and the STOP notice, in front of the first room.
+    const bubbles = offered.bubbles?.map((b, i) => (i === 0 ? { ...b, body: toGsm7(`${WELCOME} ${b.body}`) } : b));
+    return { ...offered, reply: `${WELCOME} ${offered.reply}`, ...(bubbles ? { bubbles } : {}) };
   }
   next.asked = question.step;
   const parts: string[] = [];
@@ -304,7 +312,13 @@ export async function handleUnassignedLeadInbound(
     const reply = toGsm7(flow.reply);
     await saveProfile(db, lead, flow.profile);
     await recordReply(db, lead.id, inbound.messageSid, reply, flow.mediaUrls);
-    return { leadId: lead.id, reply, assignedWorkspaceId: null, ...(flow.mediaUrls.length ? { mediaUrls: flow.mediaUrls } : {}) };
+    return {
+      leadId: lead.id,
+      reply,
+      assignedWorkspaceId: null,
+      ...(flow.mediaUrls.length ? { mediaUrls: flow.mediaUrls } : {}),
+      ...(flow.bubbles && flow.bubbles.length > 1 ? { bubbles: flow.bubbles } : {}),
+    };
   } catch (error) {
     // Masked: neither a number nor the body reaches a log.
     console.error("unassigned lead turn failed", error instanceof Error ? error.name : "unknown");

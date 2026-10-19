@@ -122,6 +122,32 @@ describe("a prospect with no code", () => {
     expect(sim.sent).toEqual([]); // before a team owns the lead the replies ride the webhook, billed to nobody
   });
 
+  it("the offer reaches the prospect as one text per room, each with its own photo and listing link, then how to pick", async () => {
+    const photo = (owner: string, id: string, street: string, name: string, rent: number, url: string) =>
+      publicListingProjection(storedListing(id, { manager: owner, neighborhood: "University District", beds: 4, rent, street, name, photo: url }));
+    sim.listings = [
+      photo(OWNER_A, "prop-uw-a", "4000 15th Ave NE", "Brooklyn House", 900, "https://cdn.example.com/a.jpg"),
+      photo(OWNER_B, "prop-uw-d", "4200 17th Ave NE", "Seventeenth House", 950, "https://cdn.example.com/d.jpg"),
+    ];
+    const fake = world();
+    await say(fake, "hi");
+    await say(fake, "looking for a room");
+    for (const answer of ["$1000", "Nov 1 for 6 months", "University District", "private bath, furnished"]) await say(fake, answer);
+    const last = await say(fake, "just me");
+    expect(last.kind).toBe("handled");
+    const bubbles = last.kind === "handled" ? last.bubbles ?? [] : [];
+    // Two rooms + the pick prompt, welcome notice not repeated (it was sent with the first reply).
+    expect(bubbles).toHaveLength(3);
+    expect(bubbles[0]!.body).toContain("4000 15th Ave NE");
+    expect(bubbles[0]!.body).toContain("/rent/listings/prop-uw-a");
+    expect(bubbles[0]!.mediaUrl).toBe("https://cdn.example.com/a.jpg");
+    expect(bubbles[1]!.body).toContain("4200 17th Ave NE");
+    expect(bubbles[1]!.mediaUrl).toBe("https://cdn.example.com/d.jpg");
+    expect(bubbles[2]).toEqual({ body: "Reply 1 or 2 to pick one, or TOUR to see it." });
+    for (const b of bubbles) expect(/^[\x20-\x7E]*$/.test(b.body)).toBe(true);
+    expect(sim.sent).toEqual([]);
+  });
+
   it("a fair-housing question gets the neutral answer and changes nothing that is offered", async () => {
     const fake = world();
     await toOffers(fake);

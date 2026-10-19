@@ -10,7 +10,7 @@ const LINKED_FORM_TOKEN_PATH_GLOBAL = /\/f\/(?!open(?:[/?#&\s]|$))[A-Za-z0-9_-]{
 function containsBearerUrl(value: string): boolean {
   let decoded = value;
   for (let pass = 0; pass < 5; pass += 1) {
-    if (/[?&#](?:token|access_token|refresh_token|invite_token|code)=/i.test(decoded)) return true;
+    if (/[?&#](?:token|token_hash|access_token|refresh_token|invite_token|code)=/i.test(decoded)) return true;
     // The existing multi-use invite surface carries its secret in the path.
     if (/\/invite\/[^/?#\s]+/.test(decoded)) return true;
     if (LINKED_FORM_TOKEN_PATH.test(decoded)) return true;

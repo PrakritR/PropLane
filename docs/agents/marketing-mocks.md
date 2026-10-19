@@ -1,7 +1,92 @@
+## One Software frame (captain feedback 10–11, October 18)
+
+The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, after the number
+system. Desktop and mobile navigation call it Software. Its six-scene story and
+hands-on portal share `HomeDashboardPanel`, the canonical folded navigation and
+section tabs. The first scene already includes the phone’s incoming message in
+the manager inbox. Pausing or finishing hands the same mounted frame to the
+visitor; selecting a portal also pauses. Replay is explicit, and reduced motion
+keeps scenes static. There is no second dashboard/demo section on the homepage.
+
+`public-footer-band.css` owns the shared footer’s opaque ink-blue surface. Do
+not restore transparent footer rules in the wave styles or a separate gradient
+in `site-display.css`. Verify actual painted links and text contrast in addition
+to geometry on both the homepage and public journey pages.
+
 # Marketing mocks & guide art
 
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
+
+## Public homepage: one scroll story (captain, 2026-10-18)
+
+The public front is one page with four distinct stories: the number (cover +
+`#how`), the software (`#dashboard`), the managed service (`#service`), and
+software plans (`#pricing`), followed by the contact form. The cover says
+“Your Housing Assistant”. The top bar links to How it works, Software, Service, Pricing
+and Contact, with the configured number and Portal at the right. Phones get
+an accessible menu and a sticky text action after the cover. There is no QR. `HomeScrollStage` uses native scroll and midpoint sentinels; rail links
+scroll to scenes, with no wheel interception. Reduced motion and no JavaScript
+keep the conversations readable.
+
+`HomeNumberStage` reuses shared sample scripts in `HomeIphonePhone`: an iOS
+Messages frame with a Dynamic Island, status bar and the configured PropLane
+number in its contact header. No phone number is hard-coded. Its owner scene reads the aggregate `owner-statement` fixture, never
+resident details. Network captions describe the shipped public-listing router,
+approved vendor jobs, and keeping the PropLane number when moving homes; they
+make no claims about sharing a private workspace thread.
+
+`HomeSoftwareDemo` presents the real Manager, Resident, Vendor and Owner UI
+with sample data in one shared frame. The folded sidebar and section strip
+derive from the canonical portal navigation model; `PortalSectionTabsView` is
+shared with the live portal, with local callbacks in the preview. The guided story runs once, then the portal switch
+selects the same frame; pausing also allows hands-on exploration. The frame is interactive: sidebar navigation and in-page tabs, records and menus
+run on the existing fixture adapters in client state. There are no per-portal
+captions below the frame. Ask PropLane mounts the real assistant presentation
+(header, suggestions, messages, composer and chat history) with local answers
+from the same fixture snapshot as the active portal. It has no model or network
+connection. Account Settings opens the shared settings presentation; Sign out
+ends only that sample frame and Resume restores it. The owner portal preserves its real shell's absence of an assistant.
+Preview controls never fetch live data or persist a write. Owner examples contain only aggregate fixture data: statement income/expenses and
+property occupancy counts. The real overview, properties, statements and profile
+views accept local navigation callbacks. Sample statement downloads are generated
+as CSV in the browser; unknown year-to-date amounts show a dash.
+
+The cover uses self-hosted Inter Tight and one blue (`#2F5FD0`), with the original
+`ResidentLifecycleAtmosphere` waves, blue gradients and dots behind the page.
+`HomeHousingScene` is inline architectural line art connecting homes with message
+threads below the real number. Its subtle message motion stops under reduced
+motion; the atmosphere draws statically on phones. Whitespace and subtle
+product-frame shadows keep the four sections distinct. It reads the cached shared
+line supplied by the layout, including the captain-approved `shadow` mode;
+this does not change SMS transport routing. When unavailable, the cover shows
+Start free and no invented number.
+The five texting beats are Prospects, Residents, Vendors, Owners and Every home.
+Each phone uses only its own beat's messages, not a cumulative prospect thread.
+The rail and visible scene share one scroll index in both directions.
+All operating claims derive from `TRACK_RECORD`. Pricing comes from the rate
+card, and each software card selects five included lines from
+`MANAGER_PLAN_TIERS` via `managerPlanFeatureSummary`. Service inclusions come
+from `MANAGED_INCLUDES`. The compact contact form
+requires an email because the existing contact route does, and preserves its
+inputs after a failed send. Marketing redirects, sitemap and crawl links share
+`src/lib/seo/marketing-routes.ts`.
+`HomeSoftwareDemo` follows the cover with six sample scenes: incoming text,
+manager inbox, draft, approval, booked tour and paid rent. Its lazy panels reuse
+the existing fixture adapters. One clock drives both the phone and portal;
+approval clicks the fixture composer's handler before advancing. Hover, focus,
+manual pause, offscreen visibility and a hidden document stop playback. Reduced
+motion leaves manually selectable static frames. There are no live writes.
+
+The active stages fit below the top bar and above the mobile text action at
+100% zoom. The compact pricing grid is four columns on desktop and two by two
+on phones, with five canonical software feature lines and all six managed
+service inclusions. Processing-fee disclosure appears once below the grid.
+Text zoom may grow static sections rather than clip their contents.
+The closing footer is a full-width ink-blue band with faint waves, the configured
+number as a text link, the existing six-link grid and a current-year copyright.
+
+The older reusable lifecycle engine below remains available to other surfaces.
 
 ## The home page's product rows reuse REAL portal components, statically
 
@@ -227,3 +312,17 @@ internal-inconsistency failure as a Pending tab showing an `Approved` badge.
 ## App Store screenshots: a showcase account, a fixed frame, and live routes
 
 `app-store/screenshots/**` are real captures of the real portal (Apple guideline 2.3.7), framed by `scripts/ios-app-store-screenshots.mjs`, never drawn. They are shot as a dedicated **showcase manager** created by `npm run app-store:seed` (`scripts/app-store-seed.mjs`: dev/test project only, idempotent, rewrites only that manager's rows, never `manager2@` or the e2e seed; `SHOT_EMAIL` / `SHOT_PASSWORD` land in the gitignored `.env.local`). The books are small-landlord realistic (6 houses, 15 rooms, 87% let, rent ~96% collected, 0 overdue, applicants, tours, leases in four stages, a work number on file) and money is rent only: a listing that configures an application fee, deposit, move-in fee or utilities makes the app bill each of them itself the moment it loads a signed lease, which is how 92 overdue charges appeared on the first dashboard shot. No photo is invented; a room with no upload keeps the house glyph. Frame rules: brand blue and deep navy alternating by slot (the install sheet reads blue, navy, blue), the product's own mark from `src/app/icon.svg`, a two-line white headline with **no subtext** (shrunk to fit, never three lines; the unit test fails a third line or "work order"), the device bleeding off the bottom edge, and the app captured without `.portal-mobile-nav-bar` and `.axis-assistant-fab`. Slots 02 and 05 are a zoomed crop card of the one element that sells them. The generator fails the run, rather than shooting a wrong page, when a route redirects elsewhere, an expected element is missing, or the page text contains a fixture string (`FORBIDDEN_TEXT`). Lesson: two slots were silently broken for months. `/portal/move-in/inspections/*` now redirects to the Residents list (slot 08 is a resident's **Move in** section, `/portal/residents/current/<id>/move-in`), and on a phone the listing editor has no side rail (slot 10 reaches Rooms through the Steps picker, `phone-strip-picker-toggle` then `workspace-step-rooms-picker`). Re-run the generator after any change to a gallery screen and look at all twenty PNGs. `npm run test:seed` prunes the showcase account, so re-run `app-store:seed` after a full reseed.
+
+## Public homepage assets and pricing
+
+The Swiss page above supersedes the earlier text-first prototypes. The shared
+`PricingCards` component shows Free, Pro, Business and “We manage it for you.”
+Its compact overview is four aligned desktop cards and stacked phone cards. Software amounts come from the rate card; the service is Custom.
+Both offerings use the same configured PropLane line. The public layout supplies
+that snapshot to the synchronous homepage, avoiding a loading-shell
+layout shift. The homepage preloads a small Inter Tight cover subset (OFL license beside
+the font); regenerate it with `scripts/generate-home-swiss-cover.py` when the
+headline changes. The same generator produces the Latin-1 variable UI subset,
+preserving all weights and shaping features while keeping the full licensed
+source font committed. Older Bricolage assets and their generator remain for reusable
+lifecycle artwork; they are no longer preloaded by the public layout.

@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 /** One snapshot per instance for as long as the CDN would hold it (`s-maxage=60`). */
 const snapshotCache = createTtlCache<PublicRoomOccupancy[]>(60_000);
 
-export async function GET(request?: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     const fresh = request?.nextUrl.searchParams.get("fresh") === "1";
     // The CDN keys the shared snapshot on the full URL, so `?x=<random>` would miss it every time and

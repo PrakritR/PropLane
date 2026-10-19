@@ -107,10 +107,10 @@ describe("the manager's reply lands where the owner reads", () => {
     // What one send does: the recipient filter decides, then the re-scope does.
     expect(await managerMayMessageOwner(db, MANAGER, OWNER)).toBe(true);
     expect([...(await ownerMessagingRecipientIdsForManager(db, MANAGER, [OWNER]))]).toEqual([OWNER]);
-    // `loadOwnerGrants` is 2 + one-per-link reads; memoized it runs once, and
-    // the candidate list is one query however often it is asked.
+    // `loadOwnerGrants` is 3 + one-per-link reads (the candidate list, the owner-of-record flag, the
+    // recipient filter); memoized it runs once, and the candidate list is one query however often it is asked.
     expect(reads.manager_property_records).toBe(1);
-    expect(reads.account_link_invites).toBe(2);
+    expect(reads.account_link_invites).toBe(3);
     expect(await loadOwnerGrantsOnce(db, OWNER)).toHaveLength(1);
     expect(reads.manager_property_records).toBe(1);
     // A different client starts clean.
@@ -282,10 +282,14 @@ describe("the texted service-link number is shown back to the manager", () => {
 describe("the Statements house filter survives a failed filter", () => {
   it("the tab band renders above the loading / error / empty switch", () => {
     const src = read("src/components/owner/owner-statements.tsx");
-    const band = src.indexOf("<OwnerBand");
-    const branch = src.indexOf("{loading && !data ?");
+    const view = src.slice(src.indexOf("export function OwnerStatementsView"));
+    const band = view.indexOf("<PortalListControlStack");
+    const branch = view.indexOf("{status ??");
     expect(band).toBeGreaterThan(-1);
     expect(band).toBeLessThan(branch);
-    expect(src.indexOf("<OwnerError")).toBeGreaterThan(band);
+    expect(view.indexOf("emptyCard")).toBeGreaterThan(branch);
+    const page = src.slice(0, src.indexOf("export function OwnerStatementsView"));
+    expect(page).toContain("const status = loading && !data ? <OwnerLoading /> : error ? <OwnerError");
+    expect(page).toMatch(/<OwnerStatementsView[^>]+status=\{status\}/);
   });
 });

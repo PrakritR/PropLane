@@ -7,11 +7,12 @@ export const runtime = "nodejs";
 
 /** GET /api/owner/statements — one row per month over the houses the owner may see statements for. */
 export async function GET(req: Request) {
-  const ctx = await requireOwnerRoute();
+  const ctx = await requireOwnerRoute(req);
   if (ctx instanceof NextResponse) return ctx;
   try {
     const statements = await loadOwnerStatements(ctx.db, ctx.grants, {
       propertyId: new URL(req.url).searchParams.get("propertyId"),
+      ownerUserId: ctx.userId,
     });
     assertOwnerPayloadRedacted(statements);
     return NextResponse.json(statements, { headers: { "Cache-Control": "private, no-store" } });

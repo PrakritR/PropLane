@@ -368,7 +368,7 @@ function DesktopMenuItem({ item }: { item: NavbarMenuItem }) {
                     <Link
                       href={subItem.url}
                       className={cn(
-                        "flex select-none gap-4 rounded-xl p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground",
+                        "flex min-h-[44px] select-none items-center gap-4 rounded-xl p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground",
                         isActive && "bg-accent text-primary",
                       )}
                       aria-label={subItem.description ? `${subItem.title} — ${subItem.description}` : undefined}

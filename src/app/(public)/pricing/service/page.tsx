@@ -25,6 +25,7 @@ import { TrackRecordBand } from "@/components/marketing/site/track-record-band";
 import "@/components/marketing/site/page-polish.css";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/#service" },
   title: "PropLane Managed",
   description:
     "We manage your home on PropLane: leasing and tenant placement, rent collection, maintenance with vendors, short-term and room rentals, a 24/7 texting line and owner reporting. Quoted per home.",
@@ -59,11 +60,11 @@ export default function ManagedServicePage() {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
-    "@id": `${origin}/pricing/service#service`,
+    "@id": `${origin}/#service`,
     name: MANAGED_SERVICE_NAME,
     serviceType: "Residential property management",
     description: metadata.description,
-    url: `${origin}/pricing/service`,
+    url: `${origin}/#service`,
     provider: { "@type": "Organization", name: "PropLane", url: `${origin}/` },
     areaServed: "Seattle, WA",
   };
@@ -89,7 +90,7 @@ export default function ManagedServicePage() {
               <a href="#talk" data-attr="managed-hero-talk" className={SITE_BTN_PRIMARY}>
                 Talk to us
               </a>
-              <Link href="/why-proplane/track-record" data-attr="managed-hero-track-record" className={SITE_BTN_SECONDARY}>
+              <Link href="/#service" data-attr="managed-hero-track-record" className={SITE_BTN_SECONDARY}>
                 See our track record
               </Link>
             </div>
@@ -105,7 +106,7 @@ export default function ManagedServicePage() {
         </div>
         <TrackRecordBand attr="managed-track-record" />
         <p className="mt-6 text-center">
-          <Link href="/why-proplane/track-record" data-attr="managed-proof-link" className="text-[15px] font-bold text-primary hover:underline">
+          <Link href="/#service" data-attr="managed-proof-link" className="text-[15px] font-bold text-primary hover:underline">
             Read how we run these homes →
           </Link>
         </p>

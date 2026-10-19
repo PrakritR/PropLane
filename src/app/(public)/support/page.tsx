@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Mail, MessageSquareText, Phone } from "lucide-react";
+import { Mail, MessageSquareText } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -12,9 +12,8 @@ import {
 import {
   PUBLIC_SUPPORT_ADDRESS_LINE,
   PUBLIC_SUPPORT_EMAIL,
-  PUBLIC_SUPPORT_PHONE_DISPLAY,
-  PUBLIC_SUPPORT_PHONE_TEL,
 } from "@/lib/marketing/public-contact";
+import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 
 export const metadata: Metadata = {
   title: "Help & Support",
@@ -22,25 +21,26 @@ export const metadata: Metadata = {
     "Get help with PropLane: contact our team, find answers for residents and property managers, and learn how to reach support.",
 };
 
-export default function SupportPage() {
+export default async function SupportPage() {
+  const texting = await getPublicTextingConfig();
   return (
     <MarketingPageShell>
       <MarketingHero title="Help & Support" />
 
       <MarketingSection>
-        <div className="mx-auto grid max-w-[60rem] gap-4 sm:grid-cols-3">
+        <div className={`mx-auto grid max-w-[60rem] gap-4 ${texting.smsHref && texting.phone ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
           <ContactCard
             href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
             icon={<Mail strokeWidth={2} aria-hidden />}
             label="Email us"
             value={PUBLIC_SUPPORT_EMAIL}
           />
-          <ContactCard
-            href={`tel:${PUBLIC_SUPPORT_PHONE_TEL}`}
-            icon={<Phone strokeWidth={2} aria-hidden />}
-            label="Call us"
-            value={PUBLIC_SUPPORT_PHONE_DISPLAY}
-          />
+          {texting.smsHref && texting.phone ? <ContactCard
+            href={texting.smsHref}
+            icon={<MessageSquareText strokeWidth={2} aria-hidden />}
+            label="Text PropLane"
+            value={texting.phone}
+          /> : null}
           <ContactCard href="/contact" icon={<MessageSquareText strokeWidth={2} aria-hidden />} label="Send a message" value="Contact form" internal />
         </div>
       </MarketingSection>
@@ -60,8 +60,9 @@ export default function SupportPage() {
             className="font-medium text-[var(--lp-blue)] hover:opacity-90"
           >
             {PUBLIC_SUPPORT_EMAIL}
-          </a>{" "}
-          or call {PUBLIC_SUPPORT_PHONE_DISPLAY}. Residents with lease or payment questions should
+          </a>
+          {texting.smsHref && texting.phone ? <> or text PropLane at <a href={texting.smsHref} className="font-medium text-[var(--lp-blue)] hover:opacity-90">{texting.phone}</a></> : null}.
+          {" "}Residents with lease or payment questions should
           also message their manager in the resident portal.
         </p>
         <p className="mt-4 text-[13px] text-[color-mix(in_srgb,var(--lp-muted)_80%,transparent)]">

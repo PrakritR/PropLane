@@ -48,6 +48,8 @@ export type OwnerPropertySummary = {
   netYtdCents: number;
   /** Oldest to newest, ending at the selected month. */
   months: OwnerMonthRow[];
+  /** Monthly rent of the occupied rooms, cents (the Properties list shows it). */
+  rentRollCents?: number;
   /** Present only on a single-house request. */
   unitRows?: OwnerUnitRow[];
 };
@@ -159,4 +161,53 @@ export type OwnerConversation = {
   /** The owner's own membership id: opaque, and only ever resolved against the owner's grants. */
   conversationId: string;
   messages: OwnerMessage[];
+};
+
+/** One workspace the owner is a member of: a tile in the rail. `label` is the workspace's own name, never a person's. */
+export type OwnerWorkspaceTile = {
+  /** The workspace id, or `link:<membership id>` for a legacy membership. Only ever resolved against the owner's own grants. */
+  id: string;
+  label: string;
+  houses: number;
+  /** PropLane holds the funds for this workspace (the owner is its owner of record): Money shows Finances. */
+  managed: boolean;
+};
+
+export type OwnerAttentionItem =
+  | { kind: "repair"; id: string; title: string; amountCents: number; workspaceId: string }
+  | { kind: "statement"; id: string; month: string; workspaceId: string }
+  | { kind: "agreement"; id: string; workspaceId: string };
+
+export type OwnerUpcomingItem = {
+  id: string;
+  /** A move-in or move-out inspection of a room: the date a room changes hands. */
+  kind: "move-in" | "move-out";
+  /** YYYY-MM-DD */
+  date: string;
+  house: string;
+  unit: string;
+};
+
+export type OwnerOverviewExtras = {
+  /** Present only when the scope holds a PropLane-managed workspace. All cents. */
+  managed: { rentCents: number; feeCents: number; netCents: number; availableCents: number; workspaceId: string } | null;
+  attention: OwnerAttentionItem[];
+  upcoming: OwnerUpcomingItem[];
+};
+
+/** Everything a house page adds to the summary: real listing photos and the services history, no person and no vendor. */
+export type OwnerServiceRow = {
+  id: string;
+  title: string;
+  stage: "open" | "scheduled" | "completed";
+  /** YYYY-MM-DD or null when nothing is scheduled. */
+  date: string | null;
+  costCents: number | null;
+};
+
+export type OwnerPropertyDetail = {
+  propertyId: string;
+  /** Public https image URLs from the listing; an empty list means no real photo (render the placeholder, never a stock one). */
+  photos: string[];
+  services: OwnerServiceRow[];
 };

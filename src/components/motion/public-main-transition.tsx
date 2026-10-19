@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 export function PublicMainTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   return (
-    <div key={pathname} className="animate-page-enter flex-1">
+    <div key={pathname} className={pathname === "/" ? "flex-1" : "animate-page-enter flex-1"}>
       {children}
     </div>
   );

@@ -163,15 +163,17 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
       const text = keyword === "EMERGENCY" ? EMERGENCY_SAFETY_REPLY : routed.unassignedReply;
       // The lead agent's one real listing photo rides the reply as TwiML <Media>; never an emergency text.
       const photo = keyword === "EMERGENCY" ? null : routed.unassignedMediaUrls?.[0];
-      const messages = keyword !== "EMERGENCY" && routed.unassignedReplies?.length ? routed.unassignedReplies : undefined;
-      const bubbles = messages
-        ? messages.map((body, index) => (index === 0 && photo ? { body, mediaUrl: photo } : { body }))
-        : undefined;
+      const offerBubbles = keyword !== "EMERGENCY" && routed.unassignedBubbles?.length ? routed.unassignedBubbles : undefined;
+      const messages = offerBubbles
+        ? offerBubbles.map((b) => b.body)
+        : keyword !== "EMERGENCY" && routed.unassignedReplies?.length ? routed.unassignedReplies : undefined;
+      const bubbles = offerBubbles
+        ?? (messages ? messages.map((body, index) => (index === 0 && photo ? { body, mediaUrl: photo } : { body })) : undefined);
       return {
         kind: "handled",
         twiml: text,
         ...(messages ? { messages, bubbles } : {}),
-        ...(photo && text ? { mediaUrl: photo } : {}),
+        ...(photo && text && !offerBubbles ? { mediaUrl: photo } : {}),
       };
     }
   }
