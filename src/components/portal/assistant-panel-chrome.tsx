@@ -8,7 +8,7 @@ import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
 import {
   AssistantMessageRating,
   AssistantSuggestionChips,
-  AxisAssistantSparkleIcon,
+  AxisAssistantChatIcon,
   type AssistantSuggestion,
 } from "@/components/portal/assistant-shared";
 import { useManagerAttentionQueue } from "@/hooks/use-manager-attention-queue";
@@ -59,7 +59,7 @@ export function AssistantPanelHeader({
     <div className={cn("relative flex h-14 shrink-0 items-center gap-0.5 border-b border-border px-3.5", className)}>
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--portal-active-bg,#eaf0fe)] text-primary">
-          <AxisAssistantSparkleIcon className="h-4 w-4" />
+          <AxisAssistantChatIcon className="h-4 w-4" />
         </span>
         <p className="min-w-0 truncate text-[15px] font-[650] tracking-[-0.01em] text-foreground">
           <span aria-hidden>PropLane</span>

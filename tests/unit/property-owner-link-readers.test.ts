@@ -49,6 +49,9 @@ const REVIEWED: Record<string, string> = {
   "lib/admin/admin-account-detail.server.ts": "admin record shows all accepted links, owner rows included, grants nothing",
   // Owner readers.
   "lib/property-owner/access.server.ts": "the owner readers",
+  // Owner management: the owner of record of a managed workspace is a workspace member, owner-role members included, on purpose.
+  "lib/owner-management/policies.server.ts": "membership check: the owner of record is a workspace member and may hold the Property owner role",
+  "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
 };
 
 describe("account_link_invites readers", () => {

@@ -233,7 +233,7 @@ describe("an unreadable owner membership denies", () => {
 
   it("the portal layout redirects when it cannot see the path", () => {
     const src = read("src/app/portal/layout.tsx");
-    expect(src).toContain('ownerRedirectFor(pathname, owner.messagesOn) : OWNER_HOME_PATH');
+    expect(src).toContain('ownerRedirectFor(pathname, owner.messagesOn, owner.financesOn) : OWNER_HOME_PATH');
   });
 });
 

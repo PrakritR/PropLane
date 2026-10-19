@@ -92,10 +92,14 @@ describe("admin Settings", () => {
   });
 
   it("offers admin only the groups it actually has", () => {
-    // Billing is a manager subscription, the work number is a manager's, and
-    // API keys authorize against the manager tool layer.
+    // The work number is a manager's and API keys authorize against the manager
+    // tool layer: both stay behind the demo-gated manager check. Billing & payouts
+    // (plan + PropLane balance) is one manager-only page behind its own check, and
+    // Account is a manager section of Login & security, so admin keeps its own pane.
     expect(src).toContain('if (!demo && variant === "manager") {');
-    expect(src.match(/if \(!demo && variant === "manager"\) \{/g)?.length).toBe(3);
+    expect(src.match(/if \(!demo && variant === "manager"\) \{/g)?.length).toBe(2);
+    expect(src).toMatch(/if \(variant === "manager"\) \{\s*list\.push\(\s*(\/\/[^\n]*\s*)*\{ id: "payments"/);
+    expect(src).toMatch(/if \(variant !== "manager"\) \{\s*list\.push\(\{\s*id: "account"/);
   });
 
   it("files an admin's own feedback as admin", () => {

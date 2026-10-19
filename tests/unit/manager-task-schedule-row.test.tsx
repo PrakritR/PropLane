@@ -48,7 +48,7 @@ describe("Add task — Schedule row", () => {
   it("shows the PropLane pick as label text, fills the slot, and has no Next open", async () => {
     suggestion.current = { iso: "2026-09-21T21:00:00.000Z", source: "proplane-pick" };
     render(<ManagerTaskFormModal open onClose={() => {}} managerUserId="mgr-1" />);
-    await waitFor(() => expect(source()?.textContent).toBe("✦ PropLane pick"));
+    await waitFor(() => expect(source()?.textContent).toBe("Suggested"));
     expect(screen.getByLabelText("Schedule date")).toHaveValue("2026-09-21");
     expect(screen.getByLabelText("Start time")).not.toHaveValue("");
     expect(screen.getByLabelText("End time")).not.toHaveValue("");

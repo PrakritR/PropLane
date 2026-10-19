@@ -57,9 +57,12 @@ export const proPortal: PortalDefinition = {
     {
       section: "tasks",
       label: "Tasks",
+      // The service vocabulary, the same four stages as Services (`MANAGER_TASK_LIST_TABS`). Old slugs
+      // (in-progress, overdue, done) redirect onto these in render-portal-section.
       tabs: [
-        { id: "in-progress", label: "In progress" },
-        { id: "overdue", label: "Overdue" },
+        { id: "open", label: "Open" },
+        { id: "assigned", label: "Assigned" },
+        { id: "scheduled", label: "Scheduled" },
         { id: "completed", label: "Completed" },
       ],
     },
@@ -96,10 +99,20 @@ export const proPortal: PortalDefinition = {
     {
       section: "documents",
       label: "Documents",
+      // Every routable tab (`DOCUMENTS_TABS` in render-portal-section). The first three are the strip
+      // the page draws; the rest are the report documents Finances > Reports links to and the older
+      // bookmarks that still resolve.
       tabs: [
         { id: "applications", label: "Applications" },
         { id: "leases", label: "Leases" },
         { id: "other", label: "Other" },
+        { id: "library", label: "All files" },
+        { id: "templates", label: "Templates" },
+        { id: "income-documents", label: "Rent documents" },
+        { id: "expense-documents", label: "Expense documents" },
+        { id: "occupancy", label: "Occupancy" },
+        { id: "1099", label: "1099 forms" },
+        { id: "tax-summary", label: "Tax summary" },
       ],
     },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },

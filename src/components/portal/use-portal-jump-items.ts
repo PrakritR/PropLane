@@ -7,7 +7,7 @@ import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
 import { useNativeChrome } from "@/hooks/use-is-native-app";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
-import { groupNavItems } from "@/lib/portals/nav-groups";
+import { groupNavItems, NAV_FOLDS, navFoldIdFor } from "@/lib/portals/nav-groups";
 import type { ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import type { PortalDefinition } from "@/lib/portal-types";
 
@@ -56,7 +56,13 @@ export function usePortalJumpItems({
           section: item.section,
           label: item.label,
           href: item.subItems?.length ? item.subItems[0]!.href : item.href,
-          group: group.label,
+          // A section folded into a row is listed under that row's name (Leasing, Money...).
+          group:
+            group.label ??
+            (() => {
+              const foldId = navFoldIdFor(definition.kind, item.section);
+              return foldId ? NAV_FOLDS[definition.kind][foldId]!.label : null;
+            })(),
         });
       }
     }

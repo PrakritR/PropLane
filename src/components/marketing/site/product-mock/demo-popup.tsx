@@ -23,7 +23,7 @@ import { DemoPopupHostContext } from "@/components/marketing/site/product-mock/d
 import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
 import { Sparkles } from "lucide-react";
 import {
   ListingWorkspace,
@@ -84,7 +84,7 @@ export function DemoAskPropLane() {
   return (
     <PortalIconAction
       icon={Sparkles}
-      iconSlot={<AxisAssistantSparkleIcon className="size-[18px]" />}
+      iconSlot={<AxisAssistantChatIcon className="size-[18px]" />}
       label="Ask PropLane"
       ring
       data-attr="modal-assistant-strip"

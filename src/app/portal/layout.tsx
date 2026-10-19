@@ -10,6 +10,7 @@ import { ManagerPlanBanner } from "@/components/portal/pro-plan-banner";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
 import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
+import { PortalSectionTabs } from "@/components/portal/portal-section-tabs";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
@@ -71,9 +72,9 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
       // requested manager page must not render inside the owner chrome: send
       // them to their Overview instead (middleware stamps the header on every
       // matched request, so this is the never-happens branch failing closed).
-      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn) : OWNER_HOME_PATH;
+      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn, owner.financesOn) : OWNER_HOME_PATH;
       if (target) redirect(target);
-      return <OwnerPortalShell messagesOn={owner.messagesOn}>{children}</OwnerPortalShell>;
+      return <OwnerPortalShell messagesOn={owner.messagesOn} financesOn={owner.financesOn}>{children}</OwnerPortalShell>;
     }
   }
 
@@ -161,6 +162,11 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
                   <div className="lg:hidden empty:hidden">
                     <ManagerMessagingSetupBanner />
                   </div>
+                  <PortalSectionTabs
+                    definition={nav.definition}
+                    subscriptionTier={nav.subscriptionTier}
+                    smsUiEnabled={isSmsCommUiEnabled()}
+                  />
                   {children}
                 </div>
               </PortalHorizontalScrollRoot>

@@ -25,7 +25,6 @@ export function hrefForSection(def: PortalDefinition, section: string) {
   // Most tabbed sections use `/section/tab` only. Bucketed queues (applications,
   // tours, payments) declare `tabs: []` in the registry and own their own href
   // builders — do not append `/pending` here or Finances/Documents 404.
-  if (section === "tasks") return `${def.basePath}/tasks`;
   return `${def.basePath}/${section}/${meta.tabs[0].id}`;
 }
 

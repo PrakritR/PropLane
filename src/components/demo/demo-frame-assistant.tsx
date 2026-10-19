@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { MessageCircle } from "lucide-react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -37,15 +38,8 @@ const SUGGESTIONS: Suggestion[] = [
   { label: "Overdue balance", prompt: "What's the total overdue balance across the portfolio?" },
 ];
 
-function SparkleIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <path
-        d="M12 4.5l2.2 5.3 5.3 2.2-5.3 2.2L12 19.5l-2.2-5.3-5.3-2.2 5.3-2.2L12 4.5Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+function ChatIcon({ className }: { className?: string }) {
+  return <MessageCircle className={className} aria-hidden="true" />;
 }
 
 function useOpen() {
@@ -204,7 +198,7 @@ export function DemoFrameAssistant() {
               <div className="relative flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-                    <SparkleIcon className="h-4 w-4" />
+                    <ChatIcon className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
                     <p id="demo-assistant-title" className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">

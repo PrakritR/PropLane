@@ -17,7 +17,7 @@ import {
   Scale,
   Server,
   Smartphone,
-  Sparkles,
+  Cpu,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -72,7 +72,7 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   hosting: Server,
   database: Database,
   messaging: MessageSquare,
-  ai_models: Sparkles,
+  ai_models: Cpu,
   email: Mail,
   domains: Globe,
   app_store: Smartphone,

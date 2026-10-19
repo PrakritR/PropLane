@@ -19,9 +19,13 @@ describe("settings rail", () => {
     expect(VENDOR_SETTINGS_RAIL.map((g) => g.label)).toEqual(["Profile", "Business", "Money", "Communication"]);
     const labels = (group: string) => VENDOR_SETTINGS_RAIL.find((g) => g.label === group)!.pages.map((p) => p.label);
     expect(labels("Profile")).toEqual(expect.arrayContaining(["Profile", "Login & security"]));
-    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "AI info", "Integrations"]));
+    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "Answers", "Integrations"]));
     expect(labels("Money")).toEqual(["Payouts", "Invoicing"]);
-    expect(labels("Communication")).toEqual(["Phone & notifications", "Quick replies", "Work number & email"]);
+    // Quick replies and Work number & email are sections of Phone & notifications (Oct 18), not pages.
+    expect(labels("Communication")).toEqual(["Phone & notifications"]);
+    expect(labels("Profile")).toEqual(["Profile", "Login & security", "Preferences"]);
+    expect(labels("Business")).toEqual(["Business details", "Trades & service area", "Answers", "Integrations"]);
+    expect(VENDOR_SETTINGS_RAIL.flatMap((g) => g.pages)).toHaveLength(10);
   });
 
   it("Availability is not a Settings page any more: it lives on the Calendar", () => {
@@ -54,6 +58,10 @@ describe("settings rail", () => {
     expect(resolveVendorSettingsTab("work-email")).toBe("business");
     expect(resolveVendorSettingsTab("workspace-access")).toBe("business");
     expect(resolveVendorSettingsTab("notifications")).toBe("messaging");
+    expect(resolveVendorSettingsTab("quick-replies")).toBe("messaging");
+    expect(resolveVendorSettingsTab("work-number-email")).toBe("messaging");
+    expect(resolveVendorSettingsTab("account")).toBe("security");
+    expect(resolveVendorSettingsTab("feedback")).toBe("profile");
     expect(resolveVendorSettingsTab("nope")).toBeNull();
     expect(resolveVendorSettingsTab(null)).toBeNull();
   });
@@ -65,20 +73,22 @@ describe("the gear in every vendor list band", () => {
       services: "capabilities",
       payments: "payouts",
       reviews: "profile",
-      communication: "quick-replies",
+      communication: "messaging",
     });
     expect(vendorListGearHref("services")).toBe("/vendor/profile?tab=capabilities");
     expect(vendorListGearHref("payments")).toBe("/vendor/profile?tab=payouts");
     expect(vendorListGearHref("reviews")).toBe("/vendor/profile?tab=profile");
-    expect(vendorListGearHref("communication")).toBe("/vendor/profile?tab=quick-replies");
+    expect(vendorListGearHref("communication")).toBe("/vendor/profile?tab=messaging");
+    // The old id is still a valid link and still opens Phone & notifications.
     expect(vendorSettingsHref("quick-replies", "/vendor")).toBe("/vendor/profile?tab=quick-replies");
+    expect(resolveVendorSettingsTab("quick-replies")).toBe("messaging");
   });
 
   it("targets are real rail pages with the labels the plan names", () => {
     expect(vendorSettingsPageLabel(VENDOR_LIST_GEAR_TARGETS.services)).toBe("Trades & service area");
     expect(vendorSettingsPageLabel(VENDOR_LIST_GEAR_TARGETS.payments)).toBe("Payouts");
     expect(vendorSettingsPageLabel(VENDOR_LIST_GEAR_TARGETS.reviews)).toBe("Profile");
-    expect(vendorSettingsPageLabel(VENDOR_LIST_GEAR_TARGETS.communication)).toBe("Quick replies");
+    expect(vendorSettingsPageLabel(VENDOR_LIST_GEAR_TARGETS.communication)).toBe("Phone & notifications");
   });
 
   it("Reviews, Payments and Communication render the gear link, not a local pop-up", () => {

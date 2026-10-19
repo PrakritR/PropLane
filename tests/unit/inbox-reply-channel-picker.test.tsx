@@ -154,7 +154,7 @@ describe("InboxReplyChannelPicker", () => {
 });
 
 describe("AiDraftReplyCard", () => {
-  it("labels the generate control Draft with PropLane", () => {
+  it("labels the generate control Draft", () => {
     render(
       <AiDraftReplyCard
         onApprove={vi.fn()}
@@ -162,7 +162,7 @@ describe("AiDraftReplyCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Draft with PropLane" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Draft" })).toHaveAttribute(
       "data-attr",
       "inbox-ai-draft-generate",
     );

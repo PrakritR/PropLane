@@ -5,6 +5,7 @@ import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 import { payVendorFromBalance } from "@/lib/proplane-balance/ledger.server";
 import { canTransitionVendorInvoice, isVendorInvoicePaymentRefusal, mapVendorInvoiceRow, VENDOR_INVOICE_SELECT, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
 import { track } from "@/lib/analytics/posthog";
+import { gateAndPostManagedVendorBill, resolveManagedForVendorInvoice, type VendorBillInput } from "@/lib/managed-finance/vendor-bills.server";
 
 export const runtime = "nodejs";
 
@@ -22,9 +23,6 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    if (!proplaneBalanceEnabled()) {
-      return NextResponse.json({ error: "The PropLane balance is not enabled." }, { status: 404 });
-    }
     const { id } = await ctx.params;
     const auth = await getReportsAuthContext({ preferRole: "manager" });
     if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -50,6 +48,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     const vendorUserId = String(existing.vendor_user_id ?? "").trim();
     if (!vendorUserId) return NextResponse.json({ error: "Invoice has no vendor." }, { status: 400 });
+
+    // A PropLane-managed workspace pays from PropLane's own funds: the vendor is owed, the owner is charged, in the party ledger.
+    // Anything else needs the PropLane balance to be on, exactly as before.
+    let managedBill: VendorBillInput | null = null;
+    try {
+      const managed = await resolveManagedForVendorInvoice(auth.db, existing as { work_order_id?: string | null; bill_id?: string | null });
+      if (managed.resolution) {
+        managedBill = {
+          workspaceId: managed.resolution.workspaceId, vendorUserId, amountCents: totalCents,
+          title: `Invoice ${id.slice(0, 8)}`, vendorLabel: "Vendor", propertyId: managed.propertyId,
+          sourceType: "invoice", sourceId: id, jobHref: `/portal/finances/vendor-invoices/${id}`, jobDate: new Date().toISOString().slice(0, 10),
+        };
+      }
+    } catch {
+      return NextResponse.json({ error: "Could not confirm how this invoice is paid. Try again in a moment." }, { status: 503 });
+    }
+    if (!managedBill && !proplaneBalanceEnabled()) {
+      return NextResponse.json({ error: "The PropLane balance is not enabled." }, { status: 404 });
+    }
+    if (managedBill) {
+      const gate = await gateAndPostManagedVendorBill(auth.db, managedBill, new Date(), { gateOnly: true }).catch(() => null);
+      if (!gate) return NextResponse.json({ error: "Could not check the owner's repair approval. Try again in a moment." }, { status: 503 });
+      if (gate.status === "pending_owner") {
+        return NextResponse.json({ error: "Waiting for the owner to approve this invoice. You will be told when they answer.", code: "OWNER_APPROVAL_PENDING" }, { status: 409 });
+      }
+      if (gate.status === "declined") return NextResponse.json({ error: "The owner declined this invoice.", code: "OWNER_DECLINED" }, { status: 409 });
+    }
 
     // Only a deliberate refusal is a 409: the job is already paid through another rail, the
     // invoice is in the wrong state, or it is not this manager's. The same call also reads the
@@ -79,8 +104,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (error) throw new Error(error.message);
     };
 
-    let move: Awaited<ReturnType<typeof payVendorFromBalance>>;
-    try {
+    let move: Awaited<ReturnType<typeof payVendorFromBalance>> = { ok: true } as Awaited<ReturnType<typeof payVendorFromBalance>>;
+    if (managedBill) {
+      try {
+        await gateAndPostManagedVendorBill(auth.db, managedBill);
+      } catch {
+        return NextResponse.json({ error: "Payment status is being reconciled. Retry this payment shortly.", code: "PAYMENT_STATUS_UNKNOWN" }, { status: 503 });
+      }
+    } else try {
       move = await payVendorFromBalance(auth.db, {
         managerUserId: auth.userId,
         vendorUserId,
