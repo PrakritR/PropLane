@@ -428,11 +428,11 @@ export const createWorkOrderTool = defineWriteTool({
     return {
       confirmedInput: { ...input, title },
       kind: "create_work_order",
-      title: "Create work order",
-      summary: `Create the work order "${title}"${property ? ` at ${property.label}` : ""}.`,
+      title: "Create service",
+      summary: `Create the service "${title}"${property ? ` at ${property.label}` : ""}.`,
       fields: lines,
       ...withBodyWarnings(description, "work order description"),
-      confirmLabel: "Create work order",
+      confirmLabel: "Create service",
     };
   },
   handler: async (ctx, input) => {
@@ -454,9 +454,9 @@ export const createWorkOrderTool = defineWriteTool({
     });
     if (!audit.recorded) {
       if (audit.duplicate) {
-        return { reply: "A work order with this title and property was already created today — nothing new was created." };
+        return { reply: "A service with this title and property was already created today, so nothing new was created." };
       }
-      throw new Error("Could not record the action; the work order was not created.");
+      throw new Error("Could not record the action; the service was not created.");
     }
 
     const residentEmail = resident ? String(resident.email ?? "").trim().toLowerCase() : undefined;
@@ -489,7 +489,7 @@ export const createWorkOrderTool = defineWriteTool({
     });
     if (error) {
       await updateAuditResult(ctx, dedupeKey, { error: "insert_failed" }, { clearDedupeKey: true });
-      throw new Error(`Could not create the work order: ${error.message}`);
+      throw new Error(`Could not create the service: ${error.message}`);
     }
     await updateAuditResult(ctx, dedupeKey, { workOrderId: id, created: true });
     // Imported lazily: `work-order-dispatch.server` reaches the vendor agent,
@@ -500,7 +500,7 @@ export const createWorkOrderTool = defineWriteTool({
       .then((m) => m.prepareDispatch(ctx.db, id))
       .catch(() => undefined);
     return {
-      reply: `Created work order "${title}"${property ? ` at ${property.label}` : ""} (id ${id}). Vendor matching is running now.`,
+      reply: `Created service "${title}"${property ? ` at ${property.label}` : ""} (id ${id}). Vendor matching is running now.`,
       resultSummary: { workOrderId: id },
     };
   },
@@ -519,14 +519,14 @@ export const assignVendorTool = defineWriteTool({
   preview: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
     if (!owned) {
-      throw new Error("No work order with this id belongs to this landlord. Use list_work_orders for valid ids.");
+      throw new Error("No service with this id belongs to this landlord. Use list_work_orders for valid ids.");
     }
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, input.vendorId, ctx.landlordId);
     if (rejected || !vendor) {
       throw new Error("This vendor id is not in the landlord's vendor directory (or shared with it). Use list_vendors for valid ids.");
     }
     if (owned.row.vendorId === input.vendorId.trim()) {
-      throw new Error(`${vendor.name || "This vendor"} is already assigned to this work order.`);
+      throw new Error(`${vendor.name || "This vendor"} is already assigned to this service.`);
     }
     // N007: expired insurance blocks a NEW assignment — never an already-in-progress
     // job. A vendor with no tracked insurance at all (the common case for a
@@ -541,7 +541,7 @@ export const assignVendorTool = defineWriteTool({
       }
     }
     const lines = [
-      { label: "Work order", value: owned.row.title || owned.id },
+      { label: "Service", value: owned.row.title || owned.id },
       { label: "Vendor", value: `${vendor.name || input.vendorId}${vendor.trade ? ` (${vendor.trade})` : ""}` },
     ];
     if (owned.row.vendorId && owned.row.vendorName) {
@@ -557,7 +557,7 @@ export const assignVendorTool = defineWriteTool({
   },
   handler: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
-    if (!owned) throw new Error("No matching work order for this landlord.");
+    if (!owned) throw new Error("No matching service for this landlord.");
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, input.vendorId, ctx.landlordId);
     if (rejected || !vendor) throw new Error("This vendor is not available to this landlord.");
     if (vendor.vendorUserId) {
@@ -577,7 +577,7 @@ export const assignVendorTool = defineWriteTool({
       dedupeKey,
     });
     if (!audit.recorded) {
-      if (audit.duplicate) return { reply: "This vendor was already assigned to this work order." };
+      if (audit.duplicate) return { reply: "This vendor was already assigned to this service." };
       throw new Error("Could not record the action; the vendor was not assigned.");
     }
 
@@ -635,7 +635,7 @@ export const offerToVendorsTool = defineWriteTool({
   preview: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
     if (!owned) {
-      throw new Error("No work order with this id belongs to this landlord. Use list_work_orders for valid ids.");
+      throw new Error("No service with this id belongs to this landlord. Use list_work_orders for valid ids.");
     }
     const uniqueIds = [...new Set(input.vendorIds.map((id) => id.trim()).filter(Boolean))].sort();
     const vendors = await vendorDirectoryRowsById(ctx.db, uniqueIds);
@@ -663,7 +663,7 @@ export const offerToVendorsTool = defineWriteTool({
   },
   handler: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
-    if (!owned) throw new Error("No matching work order for this landlord.");
+    if (!owned) throw new Error("No matching service for this landlord.");
     const uniqueIds = [...new Set(input.vendorIds.map((id) => id.trim()).filter(Boolean))].sort();
 
     const dedupeKey = `offer_to_vendors:${ctx.landlordId}:${owned.id}:${hashKey(uniqueIds.join(","))}`;
@@ -674,7 +674,7 @@ export const offerToVendorsTool = defineWriteTool({
       dedupeKey,
     });
     if (!audit.recorded) {
-      if (audit.duplicate) return { reply: "These vendors were already invited to bid on this work order." };
+      if (audit.duplicate) return { reply: "These vendors were already invited to bid on this service." };
       throw new Error("Could not record the action; no invitations were sent.");
     }
 
@@ -749,10 +749,10 @@ export const scheduleVendorVisitTool = defineWriteTool({
   preview: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
     if (!owned) {
-      throw new Error("No work order with this id belongs to this landlord. Use list_work_orders for valid ids.");
+      throw new Error("No service with this id belongs to this landlord. Use list_work_orders for valid ids.");
     }
     if (!owned.row.vendorId) {
-      throw new Error("No vendor is assigned to this work order yet. Assign one with assign_vendor first.");
+      throw new Error("No vendor is assigned to this service yet. Assign one with assign_vendor first.");
     }
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, owned.row.vendorId, ctx.landlordId);
     if (rejected || !vendor) {
@@ -766,7 +766,7 @@ export const scheduleVendorVisitTool = defineWriteTool({
       title: "Schedule vendor visit",
       summary: `Schedule ${vendor.name || "the vendor"} for "${owned.row.title || owned.id}" on ${visitTimeLabel(time.iso)}.`,
       fields: [
-          { label: "Work order", value: owned.row.title || owned.id },
+          { label: "Service", value: owned.row.title || owned.id },
           { label: "Vendor", value: `${vendor.name || owned.row.vendorId}${vendor.trade ? ` (${vendor.trade})` : ""}` },
           { label: "Visit time", value: `${visitTimeLabel(time.iso)}${time.auto ? " (vendor's next available slot)" : ""}` },
           { label: "Notify", value: "Vendor is emailed the visit details and notified in their Axis inbox." },
@@ -776,8 +776,8 @@ export const scheduleVendorVisitTool = defineWriteTool({
   },
   handler: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
-    if (!owned) throw new Error("No matching work order for this landlord.");
-    if (!owned.row.vendorId) throw new Error("No vendor is assigned to this work order.");
+    if (!owned) throw new Error("No matching service for this landlord.");
+    if (!owned.row.vendorId) throw new Error("No vendor is assigned to this service.");
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, owned.row.vendorId, ctx.landlordId);
     if (rejected || !vendor) throw new Error("The assigned vendor is no longer available to this landlord.");
     const whenIso = input.whenIso?.trim();
@@ -898,7 +898,7 @@ export const acceptBidTool = defineWriteTool({
       title: "Accept bid",
       summary: `Accept ${vendorName}'s ${centsLabel(amountCents)} bid on "${owned?.row.title || String(bid.work_order_id)}".`,
       fields: [
-          { label: "Work order", value: owned?.row.title || String(bid.work_order_id) },
+          { label: "Service", value: owned?.row.title || String(bid.work_order_id) },
           { label: "Vendor", value: vendorName },
           { label: "Labor", value: centsLabel(amountCents) },
           { label: "Materials", value: centsLabel(materialsCents) },
@@ -999,15 +999,15 @@ export const completeWorkOrderTool = defineWriteTool({
     if (!gate.ok) throw new Error(gate.error);
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
     if (!owned) {
-      throw new Error("No work order with this id belongs to this landlord. Use list_work_orders for valid ids.");
+      throw new Error("No service with this id belongs to this landlord. Use list_work_orders for valid ids.");
     }
     if (owned.row.bucket === "completed") {
-      throw new Error("This work order is already completed.");
+      throw new Error("This service is already completed.");
     }
     const costs = await resolveCompletionCosts(ctx, owned.id, owned.row, input);
     const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category as WorkOrderCategory] ?? "maintenance";
     const lines = [
-      { label: "Work order", value: owned.row.title || owned.id },
+      { label: "Service", value: owned.row.title || owned.id },
       { label: "Vendor", value: owned.row.vendorName || "—" },
       {
         label: "Labor",
@@ -1023,7 +1023,7 @@ export const completeWorkOrderTool = defineWriteTool({
     ];
     return {
       kind: "complete_work_order",
-      title: "Complete work order",
+      title: "Complete service",
       summary: `Mark "${owned.row.title || owned.id}" completed and log its costs to expenses.`,
       fields: lines,
       confirmLabel: "Mark completed",
@@ -1033,8 +1033,8 @@ export const completeWorkOrderTool = defineWriteTool({
     const gate = await assertFinancialsTier(ctx.landlordId);
     if (!gate.ok) throw new Error(gate.error);
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
-    if (!owned) throw new Error("No matching work order for this landlord.");
-    if (owned.row.bucket === "completed") throw new Error("This work order is already completed.");
+    if (!owned) throw new Error("No matching service for this landlord.");
+    if (owned.row.bucket === "completed") throw new Error("This service is already completed.");
     const costs = await resolveCompletionCosts(ctx, owned.id, owned.row, input);
 
     const dedupeKey = `complete_work_order:${ctx.landlordId}:${owned.id}`;
@@ -1045,8 +1045,8 @@ export const completeWorkOrderTool = defineWriteTool({
       dedupeKey,
     });
     if (!audit.recorded) {
-      if (audit.duplicate) return { reply: "This work order was already completed." };
-      throw new Error("Could not record the action; the work order was not completed.");
+      if (audit.duplicate) return { reply: "This service was already completed." };
+      throw new Error("Could not record the action; the service was not completed.");
     }
 
     try {
@@ -1077,7 +1077,7 @@ export const completeWorkOrderTool = defineWriteTool({
       return { reply: `Marked "${owned.row.title || owned.id}" completed. Payment has not been recorded.`, resultSummary: { workOrderId: owned.id, expenseEntryIds } };
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "complete_failed" }, { clearDedupeKey: true });
-      throw new Error(e instanceof Error ? e.message : "The work order could not be completed.");
+      throw new Error(e instanceof Error ? e.message : "The service could not be completed.");
     }
   },
 });
@@ -1100,10 +1100,10 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     if (!gate.ok) throw new Error(gate.error);
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
     if (!owned) {
-      throw new Error("No work order with this id belongs to this landlord. Use list_work_orders for valid ids.");
+      throw new Error("No service with this id belongs to this landlord. Use list_work_orders for valid ids.");
     }
     if (owned.row.automationStatus === "paid") {
-      throw new Error("This work order has already been approved and paid.");
+      throw new Error("This service has already been approved and paid.");
     }
     const bid = await findAcceptedBid(ctx, owned.id);
     // The anchored payout amount: accepted bid first, else the work order's own
@@ -1115,7 +1115,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     const channel = "card" as const;
     const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category as WorkOrderCategory] ?? "maintenance";
     const lines = [
-      { label: "Work order", value: owned.row.title || owned.id },
+      { label: "Service", value: owned.row.title || owned.id },
       { label: "Vendor", value: owned.row.vendorName || "—" },
       {
         label: "Labor payout",
@@ -1137,7 +1137,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     }
     return {
       kind: "approve_and_pay_work_order",
-      title: "Approve and pay work order",
+      title: "Approve and pay service",
       summary: `Open payment review for "${owned.row.title || owned.id}" to pay ${owned.row.vendorName || "the vendor"} ${centsLabel(laborCents)} via ${channel.toUpperCase()}.`,
       fields: lines,
       confirmLabel: "Open payment review",
@@ -1148,9 +1148,9 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     const gate = await assertFinancialsTier(ctx.landlordId);
     if (!gate.ok) throw new Error(gate.error);
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
-    if (!owned) throw new Error("No matching work order for this landlord.");
+    if (!owned) throw new Error("No matching service for this landlord.");
     if (owned.row.automationStatus === "paid") {
-      throw new Error("This work order has already been approved and paid.");
+      throw new Error("This service has already been approved and paid.");
     }
     const bid = await findAcceptedBid(ctx, owned.id);
     const laborCents = bid?.amountCents ?? owned.row.vendorCostCents ?? 0;
@@ -1213,10 +1213,10 @@ export const sendWorkOrderReminderTool = defineWriteTool({
   preview: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
     if (!owned) {
-      throw new Error("No work order with this id belongs to this landlord. Use list_work_orders for valid ids.");
+      throw new Error("No service with this id belongs to this landlord. Use list_work_orders for valid ids.");
     }
     if (!owned.row.vendorId) {
-      throw new Error("No vendor is assigned to this work order. Assign one with assign_vendor first.");
+      throw new Error("No vendor is assigned to this service. Assign one with assign_vendor first.");
     }
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, owned.row.vendorId, ctx.landlordId);
     if (rejected || !vendor) {
@@ -1232,7 +1232,7 @@ export const sendWorkOrderReminderTool = defineWriteTool({
       title: "Send vendor reminder",
       summary: `Remind ${vendor.name || "the vendor"} about "${owned.row.title || owned.id}".`,
       fields: [
-          { label: "Work order", value: owned.row.title || owned.id },
+          { label: "Service", value: owned.row.title || owned.id },
           { label: "Vendor", value: `${vendor.name || owned.row.vendorId}${vendor.trade ? ` (${vendor.trade})` : ""}` },
           { label: "Visit time", value: visitPart },
           { label: "Delivery", value: "Email + Axis inbox" },
@@ -1242,8 +1242,8 @@ export const sendWorkOrderReminderTool = defineWriteTool({
   },
   handler: async (ctx, input) => {
     const owned = await findOwnedWorkOrder(ctx, input.workOrderId);
-    if (!owned) throw new Error("No matching work order for this landlord.");
-    if (!owned.row.vendorId) throw new Error("No vendor is assigned to this work order.");
+    if (!owned) throw new Error("No matching service for this landlord.");
+    if (!owned.row.vendorId) throw new Error("No vendor is assigned to this service.");
     const { vendor, rejected } = await resolveOwnedVendor(ctx.db, owned.row.vendorId, ctx.landlordId);
     if (rejected || !vendor) throw new Error("The assigned vendor is no longer available to this landlord.");
     if (!vendor.email.includes("@")) throw new Error("The assigned vendor has no email on file.");
@@ -1256,7 +1256,7 @@ export const sendWorkOrderReminderTool = defineWriteTool({
       dedupeKey,
     });
     if (!audit.recorded) {
-      if (audit.duplicate) return { reply: "A reminder for this work order was already sent to the vendor today." };
+      if (audit.duplicate) return { reply: "A reminder for this service was already sent to the vendor today." };
       throw new Error("Could not record the action; no reminder was sent.");
     }
 
