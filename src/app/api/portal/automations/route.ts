@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 
 /** The workspace's automations: every visible preset with its mode and wording, plus the drafts waiting to send. */
 export async function GET() {
-  const auth = await requireKnowledgeActor();
+  const auth = await requireKnowledgeActor("read");
   if (!auth.ok) return auth.response;
   const { actor } = auth;
   const saved = await loadAutomationSettings(actor.db, actor.workspaceId);

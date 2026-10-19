@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { isMissingSchemaError, loadSharedLineConfig } from "@/lib/one-number/config.server";
 import type { SharedLineRole } from "@/lib/one-number/contracts";
 import { loadThreadPause, pauseThreadAi, resumeThreadAi } from "@/lib/one-number/session.server";
+import { resolveCommunicationGrant } from "@/lib/one-number/communication-grant.server";
 import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
+import { viewerMayActOnSmsProjection } from "@/lib/sms/sms-projection-inbox.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -29,7 +33,7 @@ type Resolved =
  * then require that the conversation belongs to that workspace's owner and carries no other
  * workspace's messages. A conversation id is not authorization.
  */
-async function resolveThread(conversationId: string): Promise<Resolved & { userId?: string }> {
+async function resolveThread(conversationId: string, level: "read" | "edit"): Promise<Resolved & { userId?: string }> {
   if (!UUID.test(conversationId)) return { ok: false, status: 400, error: "Conversation is required." };
   const auth = await createSupabaseServerClient();
   const { data: { user } } = await auth.auth.getUser();
@@ -37,12 +41,25 @@ async function resolveThread(conversationId: string): Promise<Resolved & { userI
   const db = createSupabaseServiceRoleClient();
   // Per-workspace numbers (today's default) have no shared-line pause: the control is simply absent.
   if ((await loadSharedLineConfig(db)).mode === "per_workspace") return { ok: false, status: 404, error: "Not available." };
+  // Role first: resolving the workspace provisions one for an account that has none.
+  let manager = false;
+  try {
+    manager = await userHoldsManagerRole(db, user.id, user.user_metadata?.role);
+  } catch {
+    return { ok: false, status: 503, error: "Could not verify your account." };
+  }
+  if (!manager) return { ok: false, status: 403, error: "Forbidden." };
+  const ownerRefusal = await refuseOwnerOnly(db, user.id);
+  if (ownerRefusal) return { ok: false, status: ownerRefusal.status, error: "Forbidden." };
   let workspace;
   try {
     workspace = await resolveActiveWorkspaceFromRequest(db, user.id);
   } catch {
     return { ok: false, status: 503, error: "Workspace unavailable." };
   }
+  // House membership is not a grant: a teammate needs Communication on the conversation's house.
+  const grant = await resolveCommunicationGrant(db, user.id, workspace, level);
+  if (!grant.ok) return { ok: false, status: grant.status, error: grant.error };
   const access = await assertManagerCommunicationAllowedForWorkspace(db, user.id, workspace.id).catch(() => null);
   if (!access?.allowed) return { ok: false, status: 403, error: "Communication is not available." };
 
@@ -54,6 +71,15 @@ async function resolveThread(conversationId: string): Promise<Resolved & { userI
   const row = conversation as { owner_manager_user_id?: string; counterparty_role?: string; counterparty_phone?: string } | null;
   if (error || !row || row.owner_manager_user_id !== workspace.ownerUserId) {
     return { ok: false, status: 404, error: "Conversation not found." };
+  }
+  if (!grant.grant.isOwner) {
+    let mayAct = false;
+    try {
+      mayAct = await viewerMayActOnSmsProjection(db, user.id, conversationId, level);
+    } catch {
+      return { ok: false, status: 503, error: "Conversation unavailable." };
+    }
+    if (!mayAct) return { ok: false, status: 403, error: "You do not have access to this conversation." };
   }
   const role = ROLE_FOR_COUNTERPARTY[String(row.counterparty_role ?? "")];
   const phoneKey = normalizeConsentPhone(String(row.counterparty_phone ?? ""));
@@ -76,7 +102,7 @@ async function resolveThread(conversationId: string): Promise<Resolved & { userI
 
 export async function GET(req: Request) {
   const conversationId = new URL(req.url).searchParams.get("conversationId")?.trim() ?? "";
-  const thread = await resolveThread(conversationId);
+  const thread = await resolveThread(conversationId, "read");
   if (!thread.ok) return NextResponse.json({ error: thread.error }, { status: thread.status });
   const db = createSupabaseServiceRoleClient();
   const pause = await loadThreadPause(db, thread.phoneKey, thread.workspaceId);
@@ -93,7 +119,7 @@ export async function POST(req: Request) {
   }
   const action = body.action === "pause" || body.action === "resume" ? body.action : null;
   if (!action) return NextResponse.json({ error: "Action must be pause or resume." }, { status: 400 });
-  const thread = await resolveThread(typeof body.conversationId === "string" ? body.conversationId.trim() : "");
+  const thread = await resolveThread(typeof body.conversationId === "string" ? body.conversationId.trim() : "", "edit");
   if (!thread.ok) return NextResponse.json({ error: thread.error }, { status: thread.status });
   const db = createSupabaseServiceRoleClient();
   const ok =

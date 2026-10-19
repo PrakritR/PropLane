@@ -3,7 +3,7 @@ import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
 import { legacyPhoneWriteDecision, PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
@@ -36,7 +36,9 @@ export async function POST(req: Request) {
     const axisId = typeof body.axisId === "string" ? body.axisId.trim() : "";
 
     const svc = createSupabaseServiceRoleClient();
-    const shared = (await loadSharedLineConfig(svc)).mode === "shared";
+    const line = await loadSharedLineConfigStrict(svc);
+    if (!line.ok) return NextResponse.json({ error: "Could not verify your phone settings. Try again." }, { status: 503 });
+    const shared = line.config.mode === "shared";
     const { data: existingProfile, error: profileReadError } = await svc.from("profiles").select("*").eq("id", user.id).maybeSingle();
     if (shared && profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
     const decision = legacyPhoneWriteDecision(existingProfile, phone || existingProfile?.phone || null, shared);

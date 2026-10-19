@@ -11,7 +11,7 @@ export const runtime = "nodejs";
  * `?propertyId=<id>` = that house; `?scope=team` = team-wide answers; neither = everything.
  */
 export async function GET(req: Request) {
-  const auth = await requireKnowledgeActor();
+  const auth = await requireKnowledgeActor("read");
   if (!auth.ok) return auth.response;
   const { actor } = auth;
   const params = new URL(req.url).searchParams;

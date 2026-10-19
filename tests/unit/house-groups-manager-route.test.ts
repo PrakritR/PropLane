@@ -19,7 +19,18 @@ vi.mock("@/lib/house-groups/residents.server", () => ({
 const posts = vi.hoisted(() => ({ postToHouseGroup: vi.fn(async () => ({ ok: true, messageSid: "IM1" })) }));
 vi.mock("@/lib/house-groups/post.server", () => posts);
 
+// The teammate's Communication (inbox) grant, by level: { read?: houses, edit?: houses } for one owner.
+const grants = vi.hoisted(() => ({ byLevel: {} as Record<string, string[]>, fail: false }));
+vi.mock("@/lib/auth/co-manager-module-scope", () => ({
+  linkedOwnerScopeForModule: vi.fn(async (_db: unknown, _user: string, module: string, level: string) => {
+    if (grants.fail) throw new Error("read failed");
+    const ids = module === "inbox" ? (grants.byLevel[level] ?? []) : [];
+    return { ownerIds: new Set(ids.length ? ["owner-1"] : []), propertyIdsByOwner: new Map(ids.length ? [["owner-1", new Set(ids)]] : []), propertyIds: new Set(ids) };
+  }),
+}));
+
 import { GET, POST } from "@/app/api/portal/house-groups/route";
+import { announceRequestKey } from "@/lib/house-groups/announce.server";
 
 const groupRows = () => ({
   house_group_conversations: [{ id: "g1", workspace_id: WS, property_id: HOUSE, conversation_sid: "CH1", status: "active", member_hash: "h" }],
@@ -37,6 +48,8 @@ const post = (body: Record<string, unknown>) =>
 
 beforeEach(() => {
   ctxState.ctx = null;
+  grants.byLevel = {};
+  grants.fail = false;
   sync.mockClear();
   posts.postToHouseGroup.mockClear();
 });
@@ -96,7 +109,7 @@ describe("POST /api/portal/house-groups", () => {
     expect(res.status).toBe(200);
     expect(posts.postToHouseGroup).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ workspaceId: WS, propertyId: HOUSE, kind: "announcement", idempotencyKey: "announce:r1:prop-1" }),
+      expect.objectContaining({ workspaceId: WS, propertyId: HOUSE, kind: "announcement", idempotencyKey: `announce:${announceRequestKey({ userId: OWNER, workspaceId: WS, propertyId: HOUSE, text: "Water off Tuesday 9 to 12.", clientRequestId: "r1" })}:prop-1` }),
       expect.anything(),
     );
     expect((await post({ action: "announce", propertyId: HOUSE, text: "   " })).status).toBe(400);
@@ -114,5 +127,63 @@ describe("POST /api/portal/house-groups", () => {
   it("rejects an unknown action", async () => {
     setCtx(fakeDb(groupRows()).db);
     expect((await post({ action: "delete-everything", propertyId: HOUSE })).status).toBe(400);
+  });
+});
+
+describe("house chat is a Communication permission, not house membership", () => {
+  const TEAMMATE = "a-teammate";
+
+  it("refuses a teammate whose grant is another module (calendar only) on every action", async () => {
+    setCtx(fakeDb(groupRows()).db, { userId: TEAMMATE });
+    expect((await get()).status).toBe(403);
+    expect((await post({ action: "sync", propertyId: HOUSE })).status).toBe(403);
+    expect((await post({ action: "announce", propertyId: HOUSE, text: "Hi" })).status).toBe(403);
+    expect(sync).not.toHaveBeenCalled();
+    expect(posts.postToHouseGroup).not.toHaveBeenCalled();
+  });
+
+  it("view access reads the group but cannot sync or announce", async () => {
+    grants.byLevel = { read: [HOUSE] };
+    setCtx(fakeDb(groupRows()).db, { userId: TEAMMATE });
+    expect((await get()).status).toBe(200);
+    expect((await post({ action: "sync", propertyId: HOUSE })).status).toBe(403);
+    expect((await post({ action: "announce", propertyId: HOUSE, text: "Hi" })).status).toBe(403);
+    expect(sync).not.toHaveBeenCalled();
+    expect(posts.postToHouseGroup).not.toHaveBeenCalled();
+  });
+
+  it("edit access on the house syncs and announces; another house of the workspace stays 404", async () => {
+    grants.byLevel = { read: [HOUSE], edit: [HOUSE] };
+    setCtx(fakeDb(groupRows()).db, { userId: TEAMMATE });
+    ctxState.ctx = { ...(ctxState.ctx as object), workspace: { id: WS, ownerUserId: OWNER, propertyIds: [HOUSE, "prop-2"] } };
+    expect((await post({ action: "sync", propertyId: HOUSE })).status).toBe(200);
+    expect((await post({ action: "announce", propertyId: HOUSE, text: "Hi" })).status).toBe(200);
+    expect((await post({ action: "sync", propertyId: "prop-2" })).status).toBe(404);
+    expect((await get("prop-2")).status).toBe(404);
+  });
+
+  it("a grant that cannot be read is a 503, not access", async () => {
+    grants.fail = true;
+    setCtx(fakeDb(groupRows()).db, { userId: TEAMMATE });
+    expect((await get()).status).toBe(503);
+  });
+
+  it("derives the announcement key on the server: the same words to the same house inside the window post once", async () => {
+    setCtx(fakeDb(groupRows()).db);
+    await post({ action: "announce", propertyId: HOUSE, text: "Trash day moved." });
+    await post({ action: "announce", propertyId: HOUSE, text: "  trash   day moved. " });
+    const keys = posts.postToHouseGroup.mock.calls.map((c) => (c as unknown as [unknown, { idempotencyKey: string }])[1].idempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[0]).not.toMatch(/\d{13}/);
+  });
+
+  it("a client request id is scoped to the sender, so it cannot pre-claim another sender's key", () => {
+    const a = announceRequestKey({ userId: "u1", workspaceId: WS, propertyId: HOUSE, text: "x", clientRequestId: "same" });
+    const b = announceRequestKey({ userId: "u2", workspaceId: WS, propertyId: HOUSE, text: "x", clientRequestId: "same" });
+    expect(a).not.toBe(b);
+    const later = announceRequestKey({ userId: "u1", workspaceId: WS, propertyId: HOUSE, text: "x", clientRequestId: "", now: Date.now() + 6 * 60 * 1000 });
+    const now = announceRequestKey({ userId: "u1", workspaceId: WS, propertyId: HOUSE, text: "x", clientRequestId: "", now: Date.now() });
+    expect(later).not.toBe(now);
   });
 });

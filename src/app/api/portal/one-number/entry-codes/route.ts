@@ -6,6 +6,7 @@ import {
   presentEntryCode,
 } from "@/lib/one-number/entry-codes-api.server";
 import { createEntryCode, listEntryCodes, suggestEntryCode } from "@/lib/one-number/entry-codes.server";
+import { grantCoversHouse, resolveCommunicationGrant } from "@/lib/one-number/communication-grant.server";
 import { propertyInWorkspace, resolveListingChannelContext } from "@/lib/listing-channels/route-context.server";
 
 export const runtime = "nodejs";
@@ -21,11 +22,15 @@ export async function GET(request: Request) {
   const config = await loadSharedLineConfig(ctx.db);
   if (config.mode === "per_workspace" || !config.sharedNumber || workspaceHasDedicatedNumber(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
+  // House membership is not a grant: a teammate sees the codes of the houses they hold Communication on.
+  const access = await resolveCommunicationGrant(ctx.db, ctx.userId, ctx.workspace, "read");
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() ?? "";
-  if (propertyId && !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
+  if (propertyId && (!grantCoversHouse(access.grant, propertyId) || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId)))) {
     return NextResponse.json({ error: "Property not found." }, { status: 404 });
   }
-  const held = new Set(ctx.workspace.propertyIds);
+  const held = new Set(ctx.workspace.propertyIds.filter((id) => grantCoversHouse(access.grant, id)));
   const records = (await listEntryCodes(ctx.db, { workspaceId: ctx.workspace.id, propertyId: propertyId || null })).filter((r) => held.has(r.propertyId));
   const suggestion =
     propertyId && records.every((r) => !r.active)
@@ -51,8 +56,11 @@ export async function POST(request: Request) {
   const config = await loadSharedLineConfig(ctx.db);
   if (config.mode === "per_workspace" || !config.sharedNumber || workspaceHasDedicatedNumber(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
+  const access = await resolveCommunicationGrant(ctx.db, ctx.userId, ctx.workspace, "edit");
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
   const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
-  if (!propertyId || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
+  if (!propertyId || !grantCoversHouse(access.grant, propertyId) || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
     return NextResponse.json({ error: "Property not found." }, { status: 404 });
   }
   const created = await createEntryCode(ctx.db, {
