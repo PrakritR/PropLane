@@ -105,6 +105,8 @@ export async function runResidentSmsAgentTurn(
     residentPhoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
+    /** Photos texted with this message, read by the model (urgency, what is wrong). */
+    inboundImages?: import("@anthropic-ai/sdk").default.ImageBlockParam[];
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null; targetListingId: string };
     /** One-number shared line: answer top house questions from stored facts, no model. */
     fastPath?: boolean;
@@ -134,6 +136,7 @@ export async function runResidentSmsAgentTurn(
     phoneE164: args.residentPhoneE164,
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
+    inboundImages: args.inboundImages,
     testActor: args.testActor ? { ...args.testActor, mode: "resident" } : undefined,
     precomputedReply:
       fast?.reply ??

@@ -136,6 +136,28 @@ describe("resident text on the shared line", () => {
     expect(m.debounce.mock.calls[0]![1]).toMatchObject({ immediate: true });
   });
 
+  it("a texted photo is shown to the resident agent so it can read what is wrong", async () => {
+    const image = { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } };
+    m.images.mockResolvedValue([image]);
+    m.residentTurn.mockResolvedValue({ reply: "Filed as urgent.", sessionId: "s1", traceId: "tr1", lane: "agent", model: "claude-sonnet-4-6" });
+    await runClaimedInbound(
+      fakeDb({ ...PAYLOAD, body: "my ceiling is leaking", media: { NumMedia: "1" }, sharedLine: true }),
+      claim({ sharedLine: true, body: "my ceiling is leaking", media: { NumMedia: "1" } }),
+    );
+    expect(m.images).toHaveBeenCalledWith(expect.anything(), { ownerUserId: "owner-a", messageSid: "SM1" });
+    const turn = m.residentTurn.mock.calls[0]![1];
+    expect(turn.inboundImages).toEqual([image]);
+    expect(turn.inboundText).toMatch(/attached 1 photo \(shown\).*emergency, urgent or routine/);
+    expect(turn.inboundText).toMatch(/my ceiling is leaking$/);
+  });
+
+  it("a text with no photo reads no images and says nothing about photos", async () => {
+    await runClaimedInbound(fakeDb({ ...PAYLOAD, sharedLine: true }), claim({ sharedLine: true }));
+    expect(m.images).not.toHaveBeenCalled();
+    expect(m.residentTurn.mock.calls[0]![1].inboundImages).toBeUndefined();
+    expect(m.residentTurn.mock.calls[0]![1].inboundText).toBe("wifi password?");
+  });
+
   it("a photo from a vendor on an accepted dispatched job is the job's, and no other agent answers it", async () => {
     m.vendorMedia.mockResolvedValue({ handled: true, vendorUserId: "v-1" });
     const res = await runClaimedInbound(
