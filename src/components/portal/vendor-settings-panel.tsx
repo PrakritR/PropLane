@@ -141,6 +141,9 @@ export function VendorSettingsPanel() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  // The vendor's own business record: the one source for the business name and trades that Profile, Business details,
+  // Trades & service area and Answers all show (it mirrors the name into every linked directory row on save).
+  const business = useVendorBusinessProfile(!demo);
   const [profileDraft, setProfileDraft] = useState<VendorProfileDraft>(() => (demo ? DEMO_VENDOR_PROFILE : EMPTY_PROFILE));
   const [trades, setTrades] = useState<string[]>(() => (demo ? DEMO_VENDOR_TRADES : []));
   const [profileLoading, setProfileLoading] = useState(() => !demo);
@@ -231,6 +234,22 @@ export function VendorSettingsPanel() {
       .finally(() => setProfileLoading(false));
   }, [demo]);
 
+  // One business name: once the vendor's own record has loaded, the Profile field shows IT (the directory row is only its mirror).
+  const businessNameLoaded = !business.loading ? business.profile.businessName : "";
+  useEffect(() => {
+    if (demo || !businessNameLoaded) return;
+    setProfileDraft((d) => (d.name === businessNameLoaded ? d : { ...d, name: businessNameLoaded }));
+    savedProfileRef.current = { ...savedProfileRef.current, name: businessNameLoaded };
+  }, [demo, businessNameLoaded]);
+
+  // One set of trades: the picker and Answers read the same list (the business record's, else the directory row's).
+  const businessTrades = business.profile.trades;
+  const [tradesTouched, setTradesTouched] = useState(false);
+  const shownTrades = useMemo(
+    () => (tradesTouched || trades.length > 0 ? trades : (businessTrades ?? [])),
+    [tradesTouched, trades, businessTrades],
+  );
+
   /**
    * One field, saved on blur (text) or immediately (select/checkbox). A
    * failed save keeps whatever was typed and shows why underneath it; an
@@ -273,6 +292,8 @@ export function VendorSettingsPanel() {
         setDirectoryFieldError((e) => ({ ...e, [field]: data.error ?? "Could not save." }));
         return;
       }
+      // The name is the business record's too: write it there so Business details (and every linked row) agree.
+      if (field === "name") void business.save({ businessName: value });
       markSaved();
     } catch {
       setDirectoryFieldState((s) => ({ ...s, [field]: "error" }));
@@ -319,6 +340,7 @@ export function VendorSettingsPanel() {
 
   async function commitTrades(next: string[]) {
     setTrades(next);
+    setTradesTouched(true);
     setCapabilitiesState("saving");
     const markSaved = () => {
       setCapabilitiesState("saved");
@@ -339,6 +361,8 @@ export function VendorSettingsPanel() {
         setCapabilitiesState("error");
         return;
       }
+      // The same list goes onto the business record (Answers, onboarding and the directory listing read it there).
+      void business.save({ trades: next });
       markSaved();
     } catch {
       setCapabilitiesState("error");
@@ -348,8 +372,6 @@ export function VendorSettingsPanel() {
   // Both writable panes are dead until a manager links the account, so the
   // banner rides with them rather than sitting once at the top of a scroll the
   // vendor may never reach.
-  const business = useVendorBusinessProfile(!demo);
-
   const unlinkedBanner = unlinked ? (
     <p
       className="rounded-lg border px-4 py-3 text-sm portal-banner-pending"
@@ -445,7 +467,7 @@ export function VendorSettingsPanel() {
           </>
         );
       case "ai-info":
-        return <VendorAiInfoPane ctx={business} />;
+        return <VendorAiInfoPane ctx={business} trades={shownTrades} />;
       case "invoicing":
         return <VendorInvoicingSettings />;
       case "quick-replies":
@@ -555,7 +577,7 @@ export function VendorSettingsPanel() {
             {unlinkedBanner}
             <VendorTradesServiceAreaPane
               ctx={business}
-              trades={trades}
+              trades={shownTrades}
               tradeOptions={VENDOR_TRADE_OPTIONS}
               onTradesChange={(next) => void commitTrades(next)}
               tradesState={capabilitiesState}

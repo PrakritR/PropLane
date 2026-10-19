@@ -67,6 +67,8 @@ export function VendorQuickRepliesSettings() {
       <PortalListControlStack
         className="mb-2"
         variant="command"
+        // The + adds a quick reply, so it stays with that list; published to the page title it read as a Settings-wide create.
+        embedded
         destinationAriaLabel="Quick replies"
         destinationRow={
           <LocalDestinationNav

@@ -277,10 +277,17 @@ export function AttentionPanel({
       ) : (
         <ul className="divide-y divide-border">
           {rows.map((row) => (
-            <li key={row.id} className={rowClassName} data-attr={`dashboard-attention-${row.id}`}>
+            <li key={row.id} className={cn(rowClassName, row.iconAction && "relative")} data-attr={`dashboard-attention-${row.id}`}>
               <DashboardGlyphTile icon={ROW_GLYPH[row.id] ?? ClipboardList} tone={row.tone} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-foreground">{row.title}</span>
+                {row.iconAction ? (
+                  // An icon-only action row opens from anywhere on it: the title's link covers the row, the chevron stays a link of its own.
+                  <Link href={row.href} tabIndex={-1} className="block truncate text-sm font-semibold text-foreground after:absolute after:inset-0" data-attr={`dashboard-attention-${row.id}-row-link`}>
+                    {row.title}
+                  </Link>
+                ) : (
+                  <span className="block truncate text-sm font-semibold text-foreground">{row.title}</span>
+                )}
                 {!hideRowDetail && row.detail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
               </span>
               {row.iconAction ? (
@@ -289,7 +296,7 @@ export function AttentionPanel({
                   aria-label={row.actionLabel}
                   title={row.actionLabel}
                   data-attr={`dashboard-attention-${row.id}-action`}
-                  className="grid size-11 shrink-0 place-items-center rounded-[7px] border border-border bg-card text-foreground transition hover:bg-[var(--secondary)] lg:size-8"
+                  className="relative z-10 grid size-11 shrink-0 place-items-center rounded-[7px] border border-border bg-card text-foreground transition hover:bg-[var(--secondary)] lg:size-8"
                 >
                   <ChevronRight className="size-4" aria-hidden />
                 </Link>

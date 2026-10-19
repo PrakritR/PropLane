@@ -1,10 +1,11 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadOwnerFinances } from "@/lib/managed-finance/finances.server";
+import { loadOwnerFinances, loadOwnerMonthlyChart } from "@/lib/managed-finance/finances.server";
 import { listManagedWorkspacesForOwner } from "@/lib/owner-management/policies.server";
+import { pacificCalendarMonthKey } from "@/lib/pacific-time";
 import { grantedHouses, type OwnerGrant } from "@/lib/property-owner/access.server";
-import type { OwnerAttentionItem, OwnerOverviewExtras, OwnerUpcomingItem } from "@/lib/property-owner/projection";
+import { ownerMonthKeys, type OwnerAttentionItem, type OwnerChartPoint, type OwnerOverviewExtras, type OwnerUpcomingItem } from "@/lib/property-owner/projection";
 
 const MISSING_SCHEMA = new Set(["42P01", "42703", "PGRST205"]);
 const UPCOMING_DAYS = 30;
@@ -39,6 +40,8 @@ export async function loadOwnerOverviewExtras(
 
   const attention: OwnerAttentionItem[] = [];
   let firstManagedId: string | null = null;
+  let managedChart: OwnerChartPoint[] | null = null;
+  const chartMonths = ownerMonthKeys(pacificCalendarMonthKey(now.getTime()), 12);
   let managedTotals: { rentCents: number; feeCents: number; netCents: number; availableCents: number } | null = null;
   for (const workspace of managedWorkspaces) {
     try {
@@ -51,6 +54,16 @@ export async function loadOwnerOverviewExtras(
         availableCents: sums.availableCents + view.balance.availableCents,
       };
       firstManagedId ??= workspace.workspaceId;
+      try {
+        const points = await loadOwnerMonthlyChart(db, { ownerUserId, workspaceId: workspace.workspaceId, months: chartMonths });
+        managedChart = chartMonths.map((month, i) => ({
+          month,
+          incomeCents: (managedChart?.[i]?.incomeCents ?? 0) + (points[i]?.incomeCents ?? 0),
+          expensesCents: (managedChart?.[i]?.expensesCents ?? 0) + (points[i]?.expensesCents ?? 0),
+        }));
+      } catch {
+        // The chart is the one thing a workspace may lose without losing its cards.
+      }
       for (const approval of view.pendingApprovals) {
         attention.push({ kind: "repair", id: approval.id, title: approval.title, amountCents: approval.amountCents, workspaceId: workspace.workspaceId });
       }
@@ -117,5 +130,5 @@ export async function loadOwnerOverviewExtras(
   }
 
   const managed: OwnerOverviewExtras["managed"] = managedTotals && firstManagedId ? { workspaceId: firstManagedId, ...managedTotals } : null;
-  return { managed, attention, upcoming };
+  return { managed, managedChart: managed ? managedChart : null, attention, upcoming };
 }

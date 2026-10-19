@@ -13,7 +13,9 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { RecordActionContext } from "@/components/ui/record-action-context";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatMoney } from "@/components/portal/portal-payouts-panel";
@@ -56,6 +58,9 @@ function draftFrom(profile: VendorW9Profile | null): Draft {
     attested: false,
   };
 }
+
+/** Embedded in Documents > Tax these rows continue the document list below them: no gap between the surfaces. */
+const EMBEDDED_SURFACE_FLUSH = "pb-0 max-lg:pb-0 lg:pb-0";
 
 /** The page shell, or nothing when the panel sits inside another page (Documents > Tax). */
 function TaxShell({ embedded, children }: { embedded: boolean; children: ReactNode }) {
@@ -105,10 +110,25 @@ export function VendorTaxPanel({ basePath, embedded = false }: { basePath: strin
       ) : (
         <>
           {/* The ONE W-9 row, with its state (submitted · Tax ID, or not submitted); the row opens the W-9 form. */}
-          <PortalRecordListSurface isEmpty={false} dataAttr="vendor-tax-w9">
+          <PortalRecordListSurface isEmpty={false} dataAttr="vendor-tax-w9" className={embedded ? EMBEDDED_SURFACE_FLUSH : undefined}>
+            {/* The same lone-action row the document rows below it use (its icon, in the same column), so the W-9 state lines up with theirs. */}
+            <RecordActionContext.Provider
+              value={{
+                scope: "W-9",
+                clear: () => {},
+                actions: (
+                  <Button type="button" variant="outline" data-attr="vendor-tax-w9-action" data-record-action-id="edit" onClick={() => setEditing(true)}>
+                    {hasW9 ? "Edit W-9" : "Add W-9"}
+                  </Button>
+                ),
+              }}
+            >
             <PortalPropertyRecordRow
               title="W-9"
               attention={!hasW9}
+              omitActionView
+              checked={false}
+              onSelectedChange={() => undefined}
               leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
               facts={
                 hasW9 && profile ? (
@@ -127,6 +147,7 @@ export function VendorTaxPanel({ basePath, embedded = false }: { basePath: strin
               onOpen={() => setEditing(true)}
               dataAttr="vendor-tax-edit"
             />
+            </RecordActionContext.Provider>
           </PortalRecordListSurface>
           {embedded ? null : (
             <PortalListControlStack
@@ -149,6 +170,7 @@ export function VendorTaxPanel({ basePath, embedded = false }: { basePath: strin
             isEmpty={data.years.length === 0}
             emptyCard={{ title: "No tax years yet", section: "financials", tone: "muted" }}
             dataAttr="vendor-tax-years"
+            className={embedded ? EMBEDDED_SURFACE_FLUSH : undefined}
           >
             {data.years.map((year) => (
               <PortalPropertyRecordRow

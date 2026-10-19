@@ -14,7 +14,7 @@ const WHO_TEXTS = [
   { role: "Prospects", href: "/rent/browse" },
   { role: "Residents", href: RESIDENT_GET_STARTED_HREF },
   { role: "Vendors", href: VENDOR_GET_STARTED_HREF },
-  { role: "Owners", href: "#service" },
+  { role: "Owners", href: "#how-owners" },
 ] as const;
 
 /** A green Messages-style tile with a white speech bubble, drawn inline (no trademarked image file). */
