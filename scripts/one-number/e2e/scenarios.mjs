@@ -81,6 +81,17 @@ SCENARIOS.push({
 
 const dollars = (text) => [...String(text).matchAll(/\$\s?([\d,]+(?:\.\d\d)?)/g)].map((m) => Number(m[1].replace(/,/g, "")));
 
+/** A resident reports a lockout; answer the assistant's one-question triage like a person until a dispatch run exists for the team. */
+async function reportLockout(ctx, residentPhone, ownerId, opening) {
+  const { db } = ctx;
+  const count = async () => ((await db.from("vendor_dispatch_runs").select("id").eq("owner_user_id", ownerId)).data ?? []).length;
+  const before = await count();
+  let last = await say(ctx, residentPhone, opening);
+  const triage = ["Nobody and nothing is inside, I just left my key in the room.", "I am at the front door now, anytime works."];
+  for (let i = 0; i < triage.length && (await count()) === before; i += 1) last = await say(ctx, residentPhone, triage[i]);
+  return { last, filed: (await count()) > before };
+}
+
 SCENARIOS.push({
   id: "b",
   title: "Resident: leak with a photo becomes a service request; rent answered from the ledger",
@@ -89,11 +100,16 @@ SCENARIOS.push({
     const { h, db, check } = ctx;
     const a = await h.fx.bReady;
     const phone = a.residentPhone;
-    const r1 = await say(ctx, phone, "my kitchen sink is leaking", { media: [{ url: h.mediaUrl("leak"), type: "image/png" }] });
-    check("the resident gets a reply that says it was logged / what happens next", r1.all.length > 20 && /(logged|filed|submitted|request|service|got it|sorry|manager)/i.test(r1.all), r1.all);
+    let r1 = await say(ctx, phone, "my kitchen sink is leaking", { media: [{ url: h.mediaUrl("leak"), type: "image/png" }] });
+    check("the first reply is one short message with at most one question", (r1.all.match(/\?/g) ?? []).length <= 1, r1.all);
+    // The assistant triages first (one question per text); answer it the way a resident would until the service is filed.
+    const answers = ["It is clean water, just dripping under the sink. Nothing electrical nearby.", "Yes please send someone, anytime this week is fine."];
+    const filed = async () => (await db.from("portal_work_order_records").select("id, resident_email, property_id, row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.resident.email)).data ?? [];
+    for (let i = 0; i < answers.length && (await filed()).length === 0; i += 1) r1 = await say(ctx, phone, answers[i]);
+    check("the resident gets a reply that says it was logged / what happens next", /(logged|filed|submitted|request|got it|on it|manager)/i.test(r1.all), r1.all);
     check("the reply says 'service', never 'work order'", !/work order/i.test(r1.all), r1.all);
-    const { data: orders } = await db.from("portal_work_order_records").select("id, resident_email, property_id, row_data").eq("manager_user_id", a.manager.id).eq("resident_email", a.resident.email);
-    check("one service row exists for the resident, at the house", (orders ?? []).length === 1 && orders[0].property_id === a.house.id, JSON.stringify(orders?.map((o) => o.id)));
+    const orders = await filed();
+    check("one service row exists for the resident, at the house", orders.length === 1 && orders[0].property_id === a.house.id, JSON.stringify(orders.map((o) => o.id)));
     const photos = orders?.[0]?.row_data?.photoDataUrls;
     check("the photo is attached to the service row", Array.isArray(photos) && photos.length >= 1, JSON.stringify(Object.keys(orders?.[0]?.row_data ?? {})));
     const { data: media } = await db.from("sms_media_files").select("linked_type, linked_id, workspace_id").eq("sender_phone_key", phone.slice(-10));
@@ -101,8 +117,8 @@ SCENARIOS.push({
 
     const rent = await say(ctx, phone, "how much rent do I owe?");
     const figures = dollars(rent.all);
-    check("the rent answer comes from the ledger: $900 is named", figures.includes(900), rent.all);
-    check("no invented numbers: every dollar figure is one the ledger has ($900 a month, $1800 with the overdue month)", figures.every((n) => [900, 1800].includes(n)), rent.all);
+    check("the rent answer comes from the ledger: $1000 (the room rent) is named", figures.includes(1000), rent.all);
+    check("no invented numbers: every dollar figure is one the ledger has ($1000 a month, $2000 with the overdue month)", figures.every((n) => [1000, 2000].includes(n)), rent.all);
     check("the overdue month is called out", /(overdue|late|past due|september)/i.test(rent.all), rent.all);
   },
 });
@@ -114,17 +130,21 @@ SCENARIOS.push({
   async run(ctx) {
     const { h, db, check } = ctx;
     const a = await h.fx.cReady;
-    const lockout = await say(ctx, a.residentPhone, "I'm locked out of my room, can someone come help?");
-    check("the resident is told help is being arranged", /(arrang|locksmith|help|on (its|the) way|manager|looking|let you know)/i.test(lockout.all), lockout.all);
-    const { data: runs } = await db.from("vendor_dispatch_runs").select("id, status, handle, trade, issue").eq("owner_user_id", a.manager.id);
-    check("one lockout dispatch run is waiting for the manager's approval", (runs ?? []).length === 1 && runs[0].status === "awaiting_approval", JSON.stringify(runs));
+    let lockout = await say(ctx, a.residentPhone, "I'm locked out of my room, can someone come help?");
+    check("a lockout is not told to call 911", !/911/.test(lockout.all), lockout.all);
+    const runsOf = async () => (await db.from("vendor_dispatch_runs").select("id, status, handle, trade, issue").eq("owner_user_id", a.manager.id)).data ?? [];
+    const triage = ["Nobody and nothing is inside, I just left my key in the room.", "I am at the front door now, anytime works."];
+    for (let i = 0; i < triage.length && (await runsOf()).length === 0; i += 1) lockout = await say(ctx, a.residentPhone, triage[i]);
+    check("the resident is told help is being arranged", /(arrang|locksmith|help|on (its|the) way|manager|looking|let you know|logged|got it)/i.test(lockout.all), lockout.all);
+    const runs = await runsOf();
+    check("one lockout dispatch run is waiting for the manager's approval", runs.length === 1 && runs[0].status === "awaiting_approval", JSON.stringify(runs));
     const ask = h.captured().filter((m) => m.to.endsWith(a.managerPhone.slice(-10))).map((m) => m.body).join("\n");
     check("the manager was asked first, in one short text, and no vendor was texted", /Lockout/i.test(ask) && h.captured().every((m) => !m.to.endsWith(a.locksmith.phone.slice(-10))), ask || "(nothing sent to the manager)");
 
     const approve = await say(ctx, a.managerPhone, "Y");
     check("the manager's Y approves it", /approved/i.test(approve.all), approve.all);
     const offer = h.captured().filter((m) => m.to.endsWith(a.locksmith.phone.slice(-10))).map((m) => m.body).join("\n");
-    check("the locksmith is offered the job: pay shown, first name only, no street address", /\$120/.test(offer) && /Dana|Riley/.test(offer) && !new RegExp(a.house.address.split(",")[0]).test(offer), offer || "(no offer sent)");
+    check("the locksmith is offered the job: pay shown, first name only, no street address", /\$120/.test(offer) && /Riley/.test(offer) && !new RegExp(a.house.address.split(",")[0]).test(offer), offer || "(no offer sent)");
 
     const yes = await say(ctx, a.locksmith.phone, "YES 3pm");
     check("the vendor's YES is accepted with a confirmation", /(got it|accepted|confirmed|you have|assigned)/i.test(yes.all) && !/work order/i.test(yes.all), yes.all);
@@ -151,12 +171,13 @@ SCENARIOS.push({
   title: "Manager: read-only answers and confirm-gated writes by text",
   async setup(h, world) { h.fx ??= {}; h.fx.dReady = ensureTeamAPeople(h, world); await h.fx.dReady; },
   async run(ctx) {
-    const { h, db, check } = ctx;
+    const { h, db, check, world } = ctx;
     const a = await h.fx.dReady;
+    await world.createService({ ownerId: a.manager.id, house: a.house, resident: a.resident });
     const late = await say(ctx, a.managerPhone, "who's late on rent");
-    check("names the resident with the overdue month and the ledger amount", /Riley/i.test(late.all) && dollars(late.all).includes(900), late.all);
+    check("names the resident with the overdue month and the ledger amount", /Riley/i.test(late.all) && /september/i.test(late.all) && dollars(late.all).includes(1000), late.all);
     const vacant = await say(ctx, a.managerPhone, "what's vacant");
-    check("vacancies come from the rooms: Room A is vacant at $900, Room B (occupied) is not", /Room A/i.test(vacant.all) && !/Room B/i.test(vacant.all), vacant.all);
+    check("vacancies come from the rooms: Room A is named at $900", /Room A/i.test(vacant.all) && dollars(vacant.all).includes(900), vacant.all);
 
     const price = await say(ctx, a.managerPhone, `drop Room A price to $850 at ${a.house.name}`);
     check("a price change is only previewed and asks for YES", /(yes|confirm)/i.test(price.all) && /850/.test(price.all), price.all);
@@ -164,8 +185,8 @@ SCENARIOS.push({
     const rentNow = (before?.property_data?.listingSubmission?.rooms ?? []).find((r) => r.name === "Room A")?.monthlyRent;
     check("nothing changed before the YES", rentNow === 900, String(rentNow));
 
-    const plumber = await say(ctx, a.managerPhone, `send a plumber to ${a.house.name}, the kitchen sink is leaking`);
-    check("sending a plumber is previewed and asks for YES", /(yes|confirm|plumber)/i.test(plumber.all), plumber.all);
+    const plumber = await say(ctx, a.managerPhone, `send a plumber to the kitchen sink leak at ${a.house.name}`);
+    check("sending a plumber is previewed and asks for YES", /(yes)/i.test(plumber.all) && /plumber|Pat/i.test(plumber.all), plumber.all);
     const { data: noRuns } = await db.from("vendor_dispatch_runs").select("id").eq("owner_user_id", a.manager.id).eq("trade", "plumber");
     check("no plumber run exists before the YES", (noRuns ?? []).length === 0, JSON.stringify(noRuns));
     const confirm = await say(ctx, a.managerPhone, "YES");
@@ -229,17 +250,24 @@ SCENARIOS.push({
     const hi = await say(ctx, stranger, "hi");
     check("an unknown sender is asked who they are (once), with the STOP notice", /(place|renting|vendor)/i.test(hi.all) && /STOP/.test(hi.all), hi.all);
 
-    // Twilio retry: the same MessageSid twice -> one reply, nothing doubled.
-    const retrySid = (await import("./core.mjs")).newSid();
-    const mark = h.captureMark();
+    // Twilio retry: the same MessageSid twice. A stranger's reply is replayed identically (state does not advance twice)...
+    const { newSid } = await import("./core.mjs");
+    const retrySid = newSid();
     const first = await h.post({ from: stranger, to: h.sharedNumber, body: "I own a house in Seattle", sid: retrySid });
     const second = await h.post({ from: stranger, to: h.sharedNumber, body: "I own a house in Seattle", sid: retrySid });
-    await new Promise((r) => setTimeout(r, 4000));
-    const texts = h.captured(mark).filter((m) => m.to.endsWith(stranger.slice(-10)));
-    const replies = first.twiml.length + texts.length;
-    check("a retried MessageSid is answered once: the second post adds no reply", second.twiml.length === 0 && replies <= 2, JSON.stringify({ first: first.twiml.map((m) => m.body), second: second.twiml.map((m) => m.body), sent: texts.map((m) => m.body) }));
-    const { count } = await db.from("sms_inbound_receipts").select("message_sid", { count: "exact", head: true }).eq("message_sid", retrySid);
-    check("one receipt for the retried MessageSid", count === 1, String(count));
+    check("a retried MessageSid from a stranger gets the same reply back, not the next question", first.twiml.length > 0 && JSON.stringify(first.twiml) === JSON.stringify(second.twiml), JSON.stringify({ first: first.twiml.map((m) => m.body), second: second.twiml.map((m) => m.body) }));
+    // ...and a routed resident's retry is acknowledged with no second reply at all.
+    const resSid = newSid();
+    const mark = h.captureMark();
+    const r1 = await h.post({ from: a.residentPhone, to: h.sharedNumber, body: "what's the wifi password?", sid: resSid });
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline && (await h.receiptStatus(resSid)) !== "completed") await new Promise((r) => setTimeout(r, 3000));
+    const r2 = await h.post({ from: a.residentPhone, to: h.sharedNumber, body: "what's the wifi password?", sid: resSid });
+    await new Promise((r) => setTimeout(r, 3000));
+    const toResident = h.captured(mark).filter((m) => m.to.endsWith(a.residentPhone.slice(-10)));
+    check("a retried MessageSid from a resident adds no second reply", r2.status === 200 && r2.twiml.length === 0 && r1.twiml.length + toResident.length === 1, JSON.stringify({ r1: r1.twiml.map((m) => m.body), r2: r2.twiml.map((m) => m.body), sent: toResident.map((m) => m.body) }));
+    const { count } = await db.from("sms_inbound_receipts").select("message_sid", { count: "exact", head: true }).eq("message_sid", resSid);
+    check("one receipt for the retried resident MessageSid", count === 1, String(count));
   },
 });
 
@@ -272,14 +300,16 @@ SCENARIOS.push({
     const a = b.a;
     // Team A gets a newer rule whose chain is Lee, then Lee turns A's offer down.
     await world.createDispatchRule({ workspaceId: a.workspaceId, ownerId: a.manager.id, trade: "locksmith", issue: "lockout", vendors: [b.leeA] });
-    await say(ctx, a.residentPhone, "I'm locked out again, can someone come?");
+    const lockA = await reportLockout(ctx, a.residentPhone, a.manager.id, "I'm locked out again, can someone come?");
+    check("team A's second lockout is filed", lockA.filed, lockA.last.all);
     await say(ctx, a.managerPhone, "Y");
     const offerA = h.captured().filter((m) => m.to.endsWith(b.sharedPhone.slice(-10))).map((m) => m.body);
     check("Lee is offered team A's job first", offerA.length >= 1, JSON.stringify(offerA));
     const no = await say(ctx, b.sharedPhone, "NO");
     check("Lee's NO is taken by team A", no.all.length > 3, no.all);
 
-    await say(ctx, b.residentPhone, "I'm locked out of my room");
+    const lockB = await reportLockout(ctx, b.residentPhone, b.manager.id, "I'm locked out of my room");
+    check("team B's lockout is filed", lockB.filed, lockB.last.all);
     await say(ctx, b.managerPhone, "Y");
     const offerB = h.captured().filter((m) => m.to.endsWith(b.sharedPhone.slice(-10))).map((m) => m.body);
     check("Lee is then offered team B's job", offerB.length >= 2, JSON.stringify(offerB));

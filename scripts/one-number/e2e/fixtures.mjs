@@ -185,4 +185,15 @@ export class World {
     }), "owner policy");
     return user;
   }
+
+  /** An open service (a leak) already filed by the resident, so "send a plumber" has something to send to. */
+  async createService({ ownerId, house, resident, title = "Kitchen sink leak", category = "plumbing" }) {
+    const id = `e2e-svc-${this.runId}-${hex(5)}`;
+    await must(() => this.db.from("portal_work_order_records").upsert({
+      id, manager_user_id: ownerId, resident_email: resident.email, property_id: house.id, assigned_property_id: house.id,
+      row_data: { id, propertyName: house.name, unit: resident.room.name, title, priority: "Medium", status: "Open", bucket: "open", description: "Water under the kitchen sink.",
+        scheduled: "-", cost: "-", propertyId: house.id, assignedPropertyId: house.id, managerUserId: ownerId, residentName: "Riley Resident", residentEmail: resident.email, category, testRunId: this.runId },
+    }, { onConflict: "id" }), "service");
+    return { id, title };
+  }
 }
