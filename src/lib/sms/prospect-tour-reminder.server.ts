@@ -9,7 +9,7 @@ import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 export const PROSPECT_TOUR_REMINDER_PURPOSE = "prospect_tour_followup";
 export const PROSPECT_TOUR_REMINDER_BODY =
-  "Still interested in a tour? Reply to continue, and I’ll check the latest published opening.";
+  "Still interested in a tour? Reply to continue, and I will check the latest published opening.";
 
 type DurableFact = {
   tool?: unknown;
