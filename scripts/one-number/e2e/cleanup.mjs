@@ -87,6 +87,7 @@ export async function cleanup(db, fx, log = () => {}) {
     ["sms_media_files", "sender_phone_key", phoneKeys],
     ["inbound_sms_log", "from_phone", e164s],
     ["manager_sms_contacts", "phone_e164", e164s],
+    ["manager_sms_numbers", "phone_number", e164s],
     ["manager_sms_messages", "workspace_id", workspaceIds],
     ["prospect_sms_bursts", "counterparty_phone_e164", e164s],
     ["sms_outbox", "recipient_phone", e164s],

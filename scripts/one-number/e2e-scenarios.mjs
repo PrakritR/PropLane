@@ -6,6 +6,8 @@
  *   npm run seed:env                                   # once per worktree
  *   node scripts/one-number/e2e-scenarios.mjs          # all scenarios, own dev server on :3010
  *   node scripts/one-number/e2e-scenarios.mjs --only a,f --port 3010 --keep
+ *   node scripts/one-number/e2e-scenarios.mjs --mode per_workspace --only m-prospect   # what production runs: each workspace's own number
+ *   node scripts/one-number/e2e-scenarios.mjs --check-config    # read line_mode + service owner; restore the dev baseline if a killed run left them changed
  *   node scripts/one-number/e2e-scenarios.mjs --reap /path/to/ledger.json   # clean up a crashed run
  *
  * What it does: snapshots sms_runtime_config, flips it to `shared` with a pilot list holding only this run's
@@ -24,7 +26,7 @@ import { World } from "./e2e/fixtures.mjs";
 import { SCENARIOS } from "./e2e/scenarios.mjs";
 
 function parse(argv) {
-  const flags = { port: "3010", only: null, keep: false, reap: null, sweep: false, help: false };
+  const flags = { mode: "shared", port: "3010", only: null, keep: false, reap: null, sweep: false, help: false };
   for (let i = 0; i < argv.length; i += 1) {
     const t = argv[i];
     if (t === "--keep") flags.keep = true;
@@ -33,6 +35,7 @@ function parse(argv) {
     else if (t === "--check-config") flags.checkConfig = true;
     else if (t === "--tick") flags.tick = true;
     else if (t === "--port") flags.port = argv[++i];
+    else if (t === "--mode") { flags.mode = argv[++i]; if (!["shared", "per_workspace"].includes(flags.mode)) throw new Error("--mode shared|per_workspace"); }
     else if (t === "--only") flags.only = argv[++i].split(",").map((s) => s.trim().toLowerCase());
     else if (t === "--reap") flags.reap = argv[++i];
     else throw new Error(`Unknown option ${t}`);
@@ -101,6 +104,8 @@ async function main() {
   h.world = world;
   h.tick = Boolean(flags.tick);
   h.runId = runId;
+  h.mode = flags.mode;
+  h.report = [];
 
   let cfg = null;
   let cfgError = null;
@@ -127,14 +132,15 @@ async function main() {
   process.on("SIGTERM", onSignal);
 
   try {
-    const selected = SCENARIOS.filter((s) => !flags.only || flags.only.includes(s.id));
+    const selected = SCENARIOS.filter((s) => (!flags.only || flags.only.includes(s.id)) && (s.modes ?? ["shared"]).includes(flags.mode));
+    if (!selected.length) throw new Error(`no scenario runs in mode ${flags.mode} for --only ${flags.only?.join(",") ?? "(all)"}`);
     for (const s of selected) await s.setup?.(h, world);
     writeLedger();
     // Shared line on for this run only, limited to this run's workspaces (a pilot list), and restored below.
     const pilot = world.workspaceIds;
-    const { error } = await db.from("sms_runtime_config").update({ line_mode: "shared", shared_pilot_workspace_ids: pilot, pilot_manager_user_ids: [...new Set([...(configSnapshot.pilot_manager_user_ids ?? []), ...world.ownerIds])] }).eq("singleton", true);
+    const { error } = await db.from("sms_runtime_config").update({ line_mode: flags.mode, shared_pilot_workspace_ids: flags.mode === "shared" ? pilot : (configSnapshot.shared_pilot_workspace_ids ?? []), pilot_manager_user_ids: [...new Set([...(configSnapshot.pilot_manager_user_ids ?? []), ...world.ownerIds])] }).eq("singleton", true);
     if (error) throw new Error(`cannot switch the line: ${error.message}`);
-    console.log(`e2e: line_mode=shared pilot=[${pilot.length} workspaces] number=${h.sharedNumber}`);
+    console.log(`e2e: line_mode=${flags.mode} pilot=[${flags.mode === "shared" ? pilot.length : 0} workspaces] number=${h.sharedNumber}`);
     await h.startServer();
     console.log(`e2e: dev server ready on ${h.base}; full server log ${h.logFile}`);
 
@@ -164,6 +170,11 @@ async function main() {
     }
   }
 
+  if (h.report.length) {
+    writeFileSync(join(dir, "matrix-report.json"), JSON.stringify(h.report, null, 2));
+    console.log(`\n== Matrix (${flags.mode}); full detail in ${join(dir, "matrix-report.json")}`);
+    for (const r of h.report) console.log(`${r.status.padEnd(4)}  #${String(r.item).padEnd(3)} ${r.title}  | ${r.firstMs ?? "-"} ms | ${String(r.reply ?? "").replace(/\s+/g, " ").slice(0, 160)}`);
+  }
   console.log("\n== Summary");
   for (const r of results) console.log(`${r.failed ? "FAIL" : "PASS"}  ${r.id.toUpperCase()}  ${r.title}  (${r.passed} ok, ${r.failed} failed)`);
   return exitCode;
