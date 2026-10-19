@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { vendorPortal } from "@/lib/portals/vendor";
 import { NATIVE_BOTTOM_NAV_VENDOR_PRIMARY } from "@/lib/native/portal-bottom-nav";
-import { NAV_FOLDS } from "@/lib/portals/nav-groups";
 import {
   parseVendorWorkOrderTab,
   VENDOR_WORK_ORDER_TAB_LABELS,
@@ -27,15 +26,13 @@ describe("vendor portal matches manager chrome", () => {
     expect(finances?.tabs).toEqual([]);
   });
 
-  it("native bar is Services (Work row) · Dashboard · Communication · Money", () => {
+  it("native bar is Services · Calendar · Dashboard · Communication", () => {
     expect([...NATIVE_BOTTOM_NAV_VENDOR_PRIMARY]).toEqual([
       "work-orders",
+      "calendar",
       "dashboard",
       "communication",
-      "payments",
     ]);
-    // Calendar and Reviews are tabs of the Work row, which the Services slot opens.
-    expect(NAV_FOLDS.vendor.work!.sections).toEqual(["work-orders", "calendar", "reviews"]);
   });
 
   it("Services tabs are the one service vocabulary (Open, Assigned, Scheduled, Completed), with legacy URLs mapped", () => {
