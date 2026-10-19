@@ -49,6 +49,8 @@ const REVIEWED: Record<string, string> = {
   "lib/admin/admin-account-detail.server.ts": "admin record shows all accepted links, owner rows included, grants nothing",
   // Owner readers.
   "lib/property-owner/access.server.ts": "the owner readers",
+  // PropLane Service: the admin Service tab lists and edits a workspace's whole team, owner-role members included, on purpose.
+  "lib/service/service-workspaces.server.ts": "admin-only: lists every live member of a service workspace so the owner of record can be set",
 };
 
 describe("account_link_invites readers", () => {

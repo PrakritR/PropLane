@@ -48,6 +48,7 @@ describe("admin nav groups", () => {
       "communication",
       "axis-users",
       "subscribers",
+      "service",
       "test-accounts",
       "payments",
       "promo-codes",
@@ -113,6 +114,7 @@ describe("admin nav groups", () => {
 describe("admin Money and Subscribers sections resolve", () => {
   const sections = [
     { section: "subscribers", label: "Subscribers", handler: "AdminSubscribersPanel" },
+    { section: "service", label: "Service", handler: "AdminServicePanel" },
     { section: "payments", label: "Payments", handler: "AdminPaymentsPanel" },
     { section: "promo-codes", label: "Promo codes", handler: "AdminPromoCodesPanel" },
     { section: "finances", label: "Finances", handler: "AdminFinancesPanel" },

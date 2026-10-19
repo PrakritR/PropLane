@@ -4,7 +4,7 @@ import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { hasCoManagerPermissionLevel, type OwnerPermissionId } from "@/lib/co-manager-permissions";
-import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { stampTeamRoleOnProperties, withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { effectiveHouseIds } from "@/lib/workspaces/membership";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -42,10 +42,28 @@ const KEY_BY_FIELD: Record<Exclude<keyof OwnerHouseGrant, "propertyId">, OwnerPe
   messages: "ownerMessages",
 };
 
+/**
+ * The PropLane Service workspaces `userId` still OWNS as a client (admin Service tab, "attach"): the owner of an
+ * `is_service` workspace that is not the service owner's own IS its owner of record, so the owner portal reads their
+ * workspace's books with no membership row. Read tolerantly: before the migration that adds `is_service` the read
+ * errors and nobody qualifies, so every other account is unaffected. The service owner (who owns the workspaces
+ * PropLane created) never qualifies.
+ */
+async function ownedServiceWorkspaceIds(db: SupabaseClient, uid: string): Promise<string[]> {
+  const { data, error } = await db.from("portal_workspaces").select("id").eq("owner_user_id", uid).eq("is_service", true);
+  if (error || !data || data.length === 0) return [];
+  const settings = await db.from("platform_service_settings").select("owner_user_id").eq("singleton", true).maybeSingle();
+  // Fail closed: if the service owner cannot be read we cannot tell the client from PropLane itself.
+  if (settings.error) return [];
+  if (String((settings.data as { owner_user_id?: unknown } | null)?.owner_user_id ?? "") === uid) return [];
+  return data.map((r) => String(r.id));
+}
+
 /** Every accepted Property owner membership of `userId`, with the houses it reaches right now. */
 export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promise<OwnerGrant[]> {
   const uid = userId.trim();
   if (!uid) return [];
+  const ownServiceGrants = await loadOwnServiceWorkspaceGrants(db, uid);
   const { data: rows, error } = await db
     .from("account_link_invites")
     .select(`id, inviter_user_id, workspace_id, ${INVITE_PERMISSION_COLUMNS}`)
@@ -55,7 +73,19 @@ export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promi
     .eq("team_role", "property_owner");
   if (error) throw new Error("Could not load owner access.");
   const links = rows ?? [];
-  if (links.length === 0) return [];
+  if (links.length === 0) return ownServiceGrants;
+
+  // The owner of record of a PropLane Service workspace (admin Service tab) is an owner of EVERY house in that
+  // workspace, including houses added after the invite. Read tolerantly: before the migration that adds the flag
+  // the read errors and nobody is flagged, so every other owner is unaffected.
+  const flaggedRes = await db
+    .from("account_link_invites")
+    .select("id")
+    .eq("invitee_user_id", uid)
+    .eq("status", "accepted")
+    .eq("team_role", "property_owner")
+    .eq("is_owner_of_record", true);
+  const ownerOfRecordLinkIds = new Set(flaggedRes.error ? [] : (flaggedRes.data ?? []).map((r) => String(r.id)));
 
   const inviterIds = [...new Set(links.map((l) => String(l.inviter_user_id ?? "").trim()).filter(Boolean))];
   const { data: profiles } = await db.from("profiles").select("id, email").in("id", [uid, ...inviterIds]);
@@ -76,17 +106,24 @@ export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promi
     else if (assigned.length > 0) query = query.in("id", assigned);
     const { data: owned, error: ownedError } = assigned.length === 0 && !workspaceId ? { data: [], error: null } : await query;
     if (ownedError) throw new Error("Could not load owner houses.");
+    const ownedIds = (owned ?? []).map((r) => String(r.id));
+    const ofRecord = ownerOfRecordLinkIds.has(String(link.id)) && Boolean(workspaceId);
     const reach = effectiveHouseIds({
       // An owner is never "all houses": a legacy "all" row reaches only its
-      // assigned houses, never the workspace's later-added ones.
+      // assigned houses, never the workspace's later-added ones. The owner of
+      // record of a service workspace is the one exception (its whole workspace).
       houseScope: "selected",
-      assignedPropertyIds: assigned,
-      workspacePropertyIds: (owned ?? []).map((r) => String(r.id)),
+      assignedPropertyIds: ofRecord ? [...new Set([...assigned, ...ownedIds])] : assigned,
+      workspacePropertyIds: ownedIds,
     });
 
     // Forced to "selected" so the flat all-houses fallback never turns owner keys
     // on for a house with no per-house entry.
-    const map = readPropertyPermissionsFromRow({ ...link, house_scope: "selected" } as Parameters<typeof readPropertyPermissionsFromRow>[0]);
+    const stored = readPropertyPermissionsFromRow({ ...link, house_scope: "selected" } as Parameters<typeof readPropertyPermissionsFromRow>[0]);
+    // A house the owner of record picked up later has no entry yet: it starts from the owner default.
+    const map = ofRecord
+      ? { ...stampTeamRoleOnProperties("property_owner", reach.filter((id) => stored[id] === undefined), {}), ...stored }
+      : stored;
     const houses: OwnerHouseGrant[] = [];
     for (const propertyId of reach) {
       const perms = map[propertyId];
@@ -101,6 +138,27 @@ export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promi
       if (grant.performance || grant.statements || grant.documents || grant.messages) houses.push(grant);
     }
     grants.push({ linkId: String(link.id), managerUserId, houses });
+  }
+  return [...grants, ...ownServiceGrants];
+}
+
+/**
+ * One grant per PropLane Service workspace the user owns as its owner of record: every house of that workspace on
+ * the owner defaults (Performance, Statements, Documents; Messages off - the owner is the manager of record there,
+ * there is no thread to open). Resolved from the workspace row and the authenticated user id, never a request.
+ */
+async function loadOwnServiceWorkspaceGrants(db: SupabaseClient, uid: string): Promise<OwnerGrant[]> {
+  const workspaceIds = await ownedServiceWorkspaceIds(db, uid);
+  if (workspaceIds.length === 0) return [];
+  const grants: OwnerGrant[] = [];
+  for (const workspaceId of workspaceIds) {
+    const { data, error } = await db.from("manager_property_records").select("id").eq("manager_user_id", uid).eq("workspace_id", workspaceId);
+    if (error) throw new Error("Could not load owner houses.");
+    grants.push({
+      linkId: `workspace:${workspaceId}`,
+      managerUserId: uid,
+      houses: (data ?? []).map((r) => ({ propertyId: String(r.id), performance: true, statements: true, documents: true, messages: false })),
+    });
   }
   return grants;
 }
@@ -304,21 +362,31 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   // revoked owner keeps the manager role row from owner sign-up, and must stay
   // owner-only (an empty owner portal) rather than fall into the manager shell.
   // Pending / declined rows prove nothing and never count.
-  const { data: ownerRows, error } = await db
-    .from("account_link_invites")
-    .select("id, status")
-    .eq("invitee_user_id", uid)
-    .eq("team_role", "property_owner")
-    .in("status", ["accepted", "cancelled"]);
+  const [ownerRowsRes, ownedServiceIds] = await Promise.all([
+    db
+      .from("account_link_invites")
+      .select("id, status")
+      .eq("invitee_user_id", uid)
+      .eq("team_role", "property_owner")
+      .in("status", ["accepted", "cancelled"]),
+    // The owner of record of a service workspace they still own is an owner too (their books are read-only to them).
+    ownedServiceWorkspaceIds(db, uid),
+  ]);
+  const { data: ownerRows, error } = ownerRowsRes;
   // A read error is not "no owner row": answering NONE would hand an owner-only
   // account the manager shell and let `refuseOwnerOnly` wave it through. The
   // callers turn this into a denial (503 / no manager context), never access.
   if (error) throw new OwnerAccessUnavailableError();
-  if (!ownerRows || ownerRows.length === 0) return NONE;
-  const hasActiveOwner = ownerRows.some((r) => r.status === "accepted");
+  if ((!ownerRows || ownerRows.length === 0) && ownedServiceIds.length === 0) return NONE;
+  const ownerOfRecordOfService = ownedServiceIds.length > 0;
+  const hasActiveOwner = ownerOfRecordOfService || (ownerRows ?? []).some((r) => r.status === "accepted");
 
   const [own, teammate, purchase, roles] = await Promise.all([
-    db.from("manager_property_records").select("id").eq("manager_user_id", uid).limit(1),
+    // An owner of record of a service workspace owns houses only there as far as this goes: their houses outside the
+    // service still make them a manager. Everyone else needs just one house to decide.
+    ownerOfRecordOfService
+      ? db.from("manager_property_records").select("id, workspace_id").eq("manager_user_id", uid)
+      : db.from("manager_property_records").select("id").eq("manager_user_id", uid).limit(1),
     // No `.limit`: the owner rows are filtered out of the result, so a limit of 1
     // could be spent on one of them and hide a real teammate row behind it.
     db
@@ -333,9 +401,13 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   // Fail closed in the direction that withholds MANAGER surface: a read error is
   // treated as "has something else" only when it is certain; unknown stays
   // owner-only so an owner is never handed the manager shell by an outage.
-  const hasOwn = (own.data ?? []).length > 0;
+  const serviceIds = new Set(ownedServiceIds);
+  const hasOwn = ownerOfRecordOfService
+    ? (own.data ?? []).some((h) => !serviceIds.has(String((h as { workspace_id?: unknown }).workspace_id ?? "")))
+    : (own.data ?? []).length > 0;
   const hasTeammate = (teammate.data ?? []).length > 0;
-  const hasPurchase = (purchase.data ?? []).length > 0;
+  // A managed client's plan row does not make them a manager: PropLane Service runs their workspace.
+  const hasPurchase = !ownerOfRecordOfService && (purchase.data ?? []).length > 0;
   const isAdmin = (roles.data ?? []).some((r) => String(r.role).toLowerCase() === "admin");
   const ownerOnly = !hasOwn && !hasTeammate && !hasPurchase && !isAdmin;
 

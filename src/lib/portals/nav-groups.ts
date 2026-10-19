@@ -98,7 +98,7 @@ export type AdminSectionTabGroup = { label: string; sections: readonly string[] 
  * sections actually present.
  */
 export const ADMIN_SECTION_TABS: Record<string, AdminSectionTabGroup> = {
-  accounts: { label: "Accounts", sections: ["axis-users", "subscribers", "test-accounts"] },
+  accounts: { label: "Accounts", sections: ["axis-users", "subscribers", "service", "test-accounts"] },
   money: { label: "Money", sections: ["payments", "promo-codes", "finances"] },
   support: { label: "Support", sections: ["bugs-feedback", "events", "health"] },
 };

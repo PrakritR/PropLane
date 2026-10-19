@@ -306,7 +306,7 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminPromoCodesPanel,
+    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminServicePanel, AdminPromoCodesPanel,
     AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentTourPanel, ResidentLeasePanel,
@@ -781,6 +781,11 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "subscribers") {
     if (tabParts?.length) notFound();
     return <AdminSubscribersPanel />;
+  }
+
+  if (kind === "admin" && section === "service") {
+    if (tabParts?.length) notFound();
+    return <AdminServicePanel />;
   }
 
   if (kind === "admin" && section === "payments") {

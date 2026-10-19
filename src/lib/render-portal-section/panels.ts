@@ -18,6 +18,7 @@ import type { AdminBugFeedbackClient } from "@/components/portal/admin-bug-feedb
 import type { AdminHealthClient } from "@/components/portal/admin-health-client";
 import type { AdminPaymentsPanel } from "@/components/portal/admin-payments-panel";
 import type { AdminSubscribersPanel } from "@/components/portal/admin-subscribers-panel";
+import type { AdminServicePanel } from "@/components/portal/admin-service-panel";
 import type { AdminPromoCodesPanel } from "@/components/portal/admin-promo-codes-panel";
 import type { AdminFinancesPanel } from "@/components/portal/admin-finances-panel";
 import type { GrowthAdminClient } from "@/components/portal/growth-admin-client";
@@ -90,6 +91,7 @@ export type PortalPanels = Partial<{
   AdminHealthClient: typeof AdminHealthClient;
   AdminPaymentsPanel: typeof AdminPaymentsPanel;
   AdminSubscribersPanel: typeof AdminSubscribersPanel;
+  AdminServicePanel: typeof AdminServicePanel;
   AdminPromoCodesPanel: typeof AdminPromoCodesPanel;
   AdminFinancesPanel: typeof AdminFinancesPanel;
   GrowthAdminClient: typeof GrowthAdminClient;

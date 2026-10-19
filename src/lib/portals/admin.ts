@@ -22,6 +22,8 @@ export const adminPortal: PortalDefinition = {
     // Who pays, who is on a trial, who came in on a promo code - decided by the resolvers
     // enforcement uses (`admin-subscribers-model.ts`).
     { section: "subscribers", label: "Subscribers", tabs: [] },
+    // PropLane's own managed-property workspaces, one per city (admin Service tab).
+    { section: "service", label: "Service", tabs: [] },
     { section: "test-accounts", label: "Test accounts", tabs: [] },
     // Money: a live read of PropLane's platform Stripe account, the promo codes that discount it and
     // the P&L (plan admin-money-1008). `/admin/payments` used to be a dead redirect to the
@@ -64,6 +66,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Communication", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Subscribers", path: "/admin/subscribers" },
+  { label: "Service", path: "/admin/service" },
   { label: "Payments", path: "/admin/payments" },
   { label: "Promo codes", path: "/admin/promo-codes" },
   { label: "Finances", path: "/admin/finances" },

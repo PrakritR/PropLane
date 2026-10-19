@@ -63,6 +63,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 4,
     manager: { ids: ["owner_user_id"] },
   },
+  {
+    // The singleton naming PropLane's service owner (admin Service tab). Deleting that account
+    // clears it, so the cap exemption and the Service tab fail closed until a new owner is set.
+    table: "platform_service_settings",
+    phase: 1,
+    manager: { ids: ["owner_user_id"] },
+  },
   // ---------------------------------------------------------------- phase 1: child rows
   {
     // Extra people (a name, a phone, an email) who get the workspace's manager notices. Owned by the
