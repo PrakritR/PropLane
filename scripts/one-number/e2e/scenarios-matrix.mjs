@@ -229,6 +229,11 @@ MATRIX_SCENARIOS.push({
       r = await say(ctx, T, fx.to, "yes");
       c.reply(r, "confirm");
       c.check("the tour is confirmed", /(booked|you.?re all set|confirmed|see you|scheduled)/i.test(r.all), r.all);
+      if (!/(booked|you.?re all set|confirmed|see you|scheduled)/i.test(r.all)) {
+        const { data: burstRows } = await db.from("prospect_sms_bursts").select("candidate_context, status").eq("counterparty_phone_e164", T).order("updated_at", { ascending: false }).limit(1);
+        const facts = (burstRows?.[0]?.candidate_context ?? []).filter((f) => /prepare|confirm|slot|tour/i.test(String(f.tool)));
+        c.note(`tour tool facts: ${JSON.stringify(facts).slice(0, 1800)}`);
+      }
       const { data: bookings } = await db.from("prospect_tour_bookings").select("id, status, confirmation_status").eq("manager_user_id", fx.manager.id);
       c.check("one tour booking row exists for the manager", (bookings ?? []).length >= 1, JSON.stringify(bookings));
       const { data: reservations } = await db.from("tour_slot_reservations").select("property_id, slot_key, status").eq("manager_user_id", fx.manager.id);
