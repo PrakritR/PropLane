@@ -58,24 +58,25 @@
 .home-swiss .swiss-service-grid .swiss-service-list li:first-child { padding-top: 0; }
 @media (max-width: 860px) { .home-swiss .swiss-service-grid .swiss-service-list li { padding-block: 11px; font-size: 20px; } }
 
-/* ── Join free ── */
+/* ── Join free ── a section like the others (the shared header), then one row per role: role · line · the number
+   (Messages tile + number, the row's first action) · Sign up free. */
 .home-swiss .home-join { padding-block: 8px 56px; }
-.home-swiss .home-join-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px 24px; align-items: start; border-top: 1px solid var(--swiss-rule); padding-top: 24px; }
-.home-swiss .home-join-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #656a72; line-height: 1.6; }
-.home-swiss .home-join-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
-.home-swiss .home-join-rows li { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding-block: 12px; border-bottom: 1px solid var(--swiss-rule); font-size: 17px; letter-spacing: -0.015em; }
-.home-swiss .home-join-rows li:first-child { padding-top: 0; }
+.home-swiss .home-join-wrap { border-top: 1px solid var(--swiss-rule); padding-top: 24px; }
+.home-swiss .home-join-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--swiss-rule); }
+.home-swiss .home-join-rows li { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; align-items: center; gap: 16px 24px; padding-block: 14px; border-bottom: 1px solid var(--swiss-rule); font-size: 19px; letter-spacing: -0.015em; }
 .home-swiss .home-join-role { font-weight: 600; }
 .home-swiss .home-join-line { color: #4a5059; }
-.home-swiss .home-join-cta { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding-inline: 4px; font-weight: 600; font-size: 15px; color: var(--home-accent); text-decoration: none; }
+.home-swiss .home-join-actions { display: flex; align-items: center; gap: 8px 20px; flex-wrap: wrap; justify-content: flex-end; }
+.home-swiss .home-join-text { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 16px 6px 6px; border-radius: 3px; background: #2f5fd0; color: #fff; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap; text-decoration: none; }
+.home-swiss .home-join-text:hover { background: #2249a8; }
+.home-swiss .home-join-text-icon { width: 30px; height: 30px; flex: none; display: block; }
+.home-swiss .home-join-cta { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding-inline: 4px; font-weight: 600; font-size: 15px; color: var(--home-accent); text-decoration: none; white-space: nowrap; }
 .home-swiss .home-join-cta:hover { text-decoration: underline; text-underline-offset: 4px; }
 @media (max-width: 860px) {
   .home-swiss .home-join { padding-bottom: 32px; }
-  .home-swiss .home-join-wrap { grid-template-columns: minmax(0, 1fr); }
-  .home-swiss .home-join-rows li { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; }
-  .home-swiss .home-join-role { grid-column: 1; }
-  .home-swiss .home-join-line { grid-column: 1; font-size: 15px; }
-  .home-swiss .home-join-cta { grid-column: 2; grid-row: 1 / span 2; }
+  .home-swiss .home-join-rows li { grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 17px; }
+  .home-swiss .home-join-line { font-size: 15px; }
+  .home-swiss .home-join-actions { justify-content: flex-start; margin-top: 8px; }
 }
 
 /* ── Billing switch (two radios, no script) ── */

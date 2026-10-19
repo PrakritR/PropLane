@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { HomeSectionHeader } from "@/components/marketing/home-section-header";
 import { HomeJoinFree } from "@/components/marketing/home-join-free";
 import { RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { publicTextingConfig } from "@/lib/marketing/public-texting";
 
 afterEach(cleanup);
 
@@ -28,6 +29,29 @@ describe("homepage section headers", () => {
 });
 
 describe("join free row", () => {
+  it("wears the shared section header, like Contact (captain #22)", () => {
+    render(<HomeJoinFree config={{ phone: null, smsHref: null }} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Join free" })).toHaveClass("home-section-head");
+  });
+
+  it("puts the number first on each row: a resident finds housing by text, a vendor gets jobs by text", () => {
+    const config = publicTextingConfig("+12025550123");
+    render(<HomeJoinFree config={config} />);
+    expect(screen.getByText("Find housing by text")).toBeInTheDocument();
+    expect(screen.getByText("Get jobs by text")).toBeInTheDocument();
+    const texts = screen.getAllByRole("link", { name: "Text (202) 555-0123" });
+    expect(texts).toHaveLength(2);
+    for (const link of texts) {
+      expect(link).toHaveAttribute("href", config.smsHref);
+      expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("shows no number it does not have", () => {
+    render(<HomeJoinFree config={{ phone: null, smsHref: null }} />);
+    expect(document.querySelector('a[href^="sms:"]')).toBeNull();
+  });
+
   it("links each role to its own preselected sign-up", () => {
     render(<HomeJoinFree />);
     const links = screen.getAllByRole("link", { name: /Sign up free/ });

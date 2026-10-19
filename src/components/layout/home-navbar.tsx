@@ -10,6 +10,7 @@ import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import styles from "@/components/layout/home-navbar.module.css";
+import { MessagesTile } from "@/components/marketing/messages-tile";
 
 const HomeMobileMenu = dynamic(
   () => import("@/components/layout/home-mobile-menu"),
@@ -139,10 +140,9 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   }, [pathname]);
 
   const onHome = pathname === "/";
-  // On the homepage the cover's own button texts the number, so the bar offers Start free (captain #19).
-  const navTexts = configured && !onHome;
-  const navHref = navTexts ? textHref : GET_STARTED_HREF;
-  const textLabel = navTexts ? phone : "Start free";
+  // The bar's top-right action is the number itself (captain #22), Messages tile + number; Start free only when no
+  // number is configured.
+  const textLabel = configured ? phone : "Start free";
   return (
     <>
       <div className={styles.spacer} aria-hidden="true" />
@@ -176,10 +176,12 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           </nav>
           <div className={styles.desktopActions}>
             <a
-              href={navHref}
+              href={textHref}
               className={styles.textAction}
+              aria-label={configured ? `Text ${phone}` : undefined}
               data-attr="home-nav-text-desktop"
             >
+              {configured ? <MessagesTile className={styles.textIcon} /> : null}
               {textLabel}
             </a>
             <Link
@@ -193,11 +195,13 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           </div>
           <div className={styles.mobileActions}>
             <a
-              href={navHref}
+              href={textHref}
               className={styles.textAction}
+              aria-label={configured ? `Text ${phone}` : undefined}
               data-attr="home-nav-text-mobile"
             >
-              {navTexts ? "Text us" : "Start free"}
+              {configured ? <MessagesTile className={styles.textIcon} /> : null}
+              {textLabel}
             </a>
             <button
               ref={menuTrigger}
