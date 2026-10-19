@@ -38,3 +38,24 @@ export async function waitHealthy(resolved, env, log = console.log, { backoffMs 
   }
   return p;
 }
+
+/**
+ * Other agents run this harness against the same dev project. Two runs flip the same sms_runtime_config singleton, so a second
+ * one corrupts the first. Wait (polling the process table) until no other `node ... e2e-scenarios.mjs` is running.
+ */
+export async function waitForOtherRuns(log = console.log, { maxWaitMs = 60 * 60_000 } = {}) {
+  const { execFileSync } = await import("node:child_process");
+  const others = () => {
+    let out = "";
+    try { out = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" }); } catch { return []; }
+    return out.split("\n").map((l) => l.trim()).filter((l) => /^\d+\s+(\S*\/)?node\s+\S*e2e-scenarios\.mjs/.test(l) && !l.includes("--check-config") && !l.includes("--reap") && !l.startsWith(`${process.pid} `));
+  };
+  const deadline = Date.now() + maxWaitMs;
+  let list = others();
+  while (list.length) {
+    if (Date.now() > deadline) throw new Error(`another e2e run is still going: ${list[0]}`);
+    log(`  another e2e run is active (${list[0].slice(0, 120)}); waiting 30 s`);
+    await sleep(30_000);
+    list = others();
+  }
+}

@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Harness, hex, loadDevEnv, createDb } from "./e2e/core.mjs";
 import { cleanup } from "./e2e/cleanup.mjs";
-import { waitHealthy } from "./e2e/health.mjs";
+import { waitHealthy, waitForOtherRuns } from "./e2e/health.mjs";
 import { restoreBaseline, DEV_BASELINE } from "./e2e/baseline.mjs";
 import { World } from "./e2e/fixtures.mjs";
 import { SCENARIOS } from "./e2e/scenarios.mjs";
@@ -96,6 +96,7 @@ async function main() {
     return 0;
   }
 
+  await waitForOtherRuns(console.log);
   const runId = hex(6);
   const dir = mkdtempSync(join(tmpdir(), `one-number-e2e-${runId}-`));
   const ledgerFile = join(dir, "ledger.json");
