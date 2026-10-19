@@ -30,6 +30,17 @@ export function readManifest() {
     }));
 }
 
+/** Run async tasks with at most `n` in flight (the shared dev API is slow; one at a time would take an hour). */
+async function pool(tasks, n, each) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      await each(await task());
+    }
+  }));
+}
+
 async function del(db, table, column, values) {
   if (!values.length) return 0;
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -52,10 +63,10 @@ export async function cleanup(db, fx, log = () => {}) {
   const phoneKeys = [...new Set(fx.phones.map((p) => p.replace(/\D/g, "").slice(-10)))];
   const e164s = phoneKeys.map((k) => `+1${k}`);
 
-  // Rows keyed by house / workspace first (some are not account-owned).
+  const jobs = [];
+  // Rows keyed by house / workspace / phone first (some are not account-owned).
   for (const [table, column, values] of [
     ["sms_entry_codes", "workspace_id", workspaceIds],
-    ["manager_property_records", "id", houseIds],
     ["sms_unassigned_lead_turns", "phone_key", phoneKeys],
     ["sms_unassigned_leads", "phone_key", phoneKeys],
     ["sms_line_sessions", "phone_key", phoneKeys],
@@ -66,22 +77,38 @@ export async function cleanup(db, fx, log = () => {}) {
     ["inbound_sms_log", "from_phone", e164s],
     ["manager_sms_contacts", "phone_e164", e164s],
     ["manager_sms_messages", "workspace_id", workspaceIds],
-  ]) note(await del(db, table, column, values));
-  // Receipts and logs written under the harness's synthetic MessageSids.
+    ["prospect_sms_bursts", "counterparty_phone_e164", e164s],
+    ["sms_outbox", "recipient_phone", e164s],
+  ]) jobs.push(() => del(db, table, column, values));
   for (const table of ["sms_inbound_receipts", "sms_onboarding_replies"]) {
-    const { error } = await db.from(table).delete().like("message_sid", "SMe2e%");
-    if (error && !/does not exist|schema cache|Could not find|column/i.test(error.message ?? "")) problems.push(`${table}: ${error.message}`);
+    jobs.push(async () => {
+      const { error } = await db.from(table).delete().like("message_sid", "SMe2e%");
+      return error && !/does not exist|schema cache|Could not find|column/i.test(error.message ?? "") ? { error: `${table}: ${error.message}` } : 0;
+    });
   }
+  await pool(jobs, 8, note);
 
-  // Account-owned rows, children first.
-  const manifest = readManifest().sort((a, b) => a.phase - b.phase);
-  for (const rule of manifest) {
-    for (const [scope, ids] of [["manager", userIds], ["resident", userIds], ["vendor", userIds]]) {
-      for (const column of rule[scope]) note(await del(db, rule.table, column, ids));
+  // Account-owned rows. The auth user goes first: nearly every account table cascades from it. The manifest sweep after it
+  // catches what does not (set-null columns, tables keyed by workspace owner), phase by phase, tables in parallel.
+  for (const id of userIds) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await db.auth.admin.deleteUser(id);
+      if (!error || /not found/i.test(error.message ?? "")) { lastError = null; break; }
+      lastError = error;
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
     }
+    if (lastError) problems.push(`auth user ${id} NOT deleted (${lastError.message || JSON.stringify(lastError)}); run --sweep`);
   }
-  // Workspace-keyed leftovers the manifest does not name.
-  note(await del(db, "portal_workspaces", "id", workspaceIds));
+  const manifest = readManifest();
+  for (const phase of [1, 2, 3, 4]) {
+    const tasks = [];
+    for (const rule of manifest.filter((r) => r.phase === phase)) {
+      for (const scope of ["manager", "resident", "vendor"]) for (const column of rule[scope]) tasks.push(() => del(db, rule.table, column, userIds));
+    }
+    await pool(tasks, 12, note);
+  }
+  await pool([() => del(db, "manager_property_records", "id", houseIds), () => del(db, "portal_workspaces", "id", workspaceIds)], 2, note);
 
   // Private media written for the fixture owners.
   for (const id of userIds) {
@@ -95,16 +122,6 @@ export async function cleanup(db, fx, log = () => {}) {
     } catch { /* bucket absent */ }
   }
 
-  for (const id of userIds) {
-    let lastError = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const { error } = await db.auth.admin.deleteUser(id);
-      if (!error || /not found/i.test(error.message ?? "")) { lastError = null; break; }
-      lastError = error;
-      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-    }
-    if (lastError) problems.push(`auth user ${id} NOT deleted (${lastError.message || JSON.stringify(lastError)}); run --sweep`);
-  }
   log(problems.length ? `cleanup finished with ${problems.length} note(s):\n  ${problems.slice(0, 12).join("\n  ")}` : "cleanup finished clean");
   return problems;
 }
