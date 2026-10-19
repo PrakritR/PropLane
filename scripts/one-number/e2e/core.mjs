@@ -36,8 +36,8 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const hex = (n) => randomBytes(Math.ceil(n / 2)).toString("hex").slice(0, n);
 export const uuid = () => crypto.randomUUID();
 
-/** A synthetic Twilio MessageSid the dev-only capture transport recognises (SM + e2e + 27 hex). */
-export const newSid = () => "SMe2e" + hex(27);
+/** A synthetic Twilio MessageSid the dev-only capture transport recognises (SM + e2e + 29 hex (32 hex after SM)). */
+export const newSid = () => "SMe2e" + hex(29);
 
 export class Harness {
   constructor({ env, resolved, port, captureFile }) {

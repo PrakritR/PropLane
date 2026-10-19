@@ -6,6 +6,7 @@ import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { isConfiguredSharedNumber } from "@/lib/one-number/shared-line-number.server";
+import { captureE2eSms } from "@/lib/sms/e2e-transport.server";
 
 /**
  * Back-compat re-export for the server-side callers that already import it from here.
@@ -120,6 +121,11 @@ export async function sendSms(
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }
   }
+
+  // End-to-end harness (dev only, off in production): record the text instead of calling Twilio. Runs
+  // after every gate above, so consent, credit and shield behave exactly as they would for a real send.
+  const e2eSent = captureE2eSms({ to: toNorm, from: fromNorm, body, ...(opts?.mediaUrls?.length ? { mediaUrls: opts.mediaUrls } : {}) });
+  if (e2eSent) return { ...e2eSent, providerAttempted: true };
 
   const messagingServiceSid = opts?.messagingServiceSid !== undefined
     ? opts.messagingServiceSid?.trim()
