@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { clearPortalBrowserCache } from "@/lib/auth/clear-portal-browser-cache";
 import { isViewAsExitRequest } from "@/lib/auth/view-as-token";
 
-const PORTAL_LABEL = { manager: "Manager", resident: "Resident", vendor: "Vendor" } as const;
+const PORTAL_LABEL = { manager: "Property", resident: "Resident", vendor: "Vendor" } as const;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export type ViewAsBannerProps = {

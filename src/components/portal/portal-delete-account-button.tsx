@@ -42,7 +42,7 @@ function deleteCopyForPortal(portal: PortalKind): DeleteCopy {
     default:
       return {
         title: "Delete property account",
-        lead: "This removes your property manager portal access now. You can recover your retained data for 30 days.",
+        lead: "This removes your Property portal access now. You can recover your retained data for 30 days.",
         body:
           "Deleting removes your properties, listings, applications, leases, payments, messages, documents, and co-manager links tied to this property portal. Residents and vendors keep their own logins and independently owned financial history. Your other portal accounts remain available. Return within 30 days to choose Recover or Start fresh. Otherwise, the retained data is permanently deleted.",
       };

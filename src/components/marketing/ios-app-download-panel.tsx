@@ -102,7 +102,7 @@ export function MobileAppDownloadPanel({
           {showPortalLink ? (
             <Button asChild variant="outline" className="h-11 min-h-0 rounded-full px-6 text-sm">
               <Link href="/portal/app" data-attr="mobile-app-download-portal-tab">
-                Open in manager portal
+                Open in Property portal
               </Link>
             </Button>
           ) : null}

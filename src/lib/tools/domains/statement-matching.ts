@@ -11,7 +11,7 @@ export const suggestStatementMatchesTool = defineTool({
   handler: async (ctx: AgentContext, input) => {
     const access = await assertFinancialsTier(ctx.landlordId);
     if (!access.ok) throw new Error(access.error);
-    if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Open the owning manager's portal for bank reconciliation");
+    if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Open the workspace owner's Property portal for bank reconciliation");
     // Bank accounts/statements carry no property or workspace column at all
     // (there is no per-workspace bank account today), so they are account-level
     // by nature — not the exception. Follow the same rule every other

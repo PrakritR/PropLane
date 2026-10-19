@@ -41,7 +41,7 @@ const props = {
 describe("ViewAsBanner", () => {
   it("names who is viewed, the portal, read-only and the minutes left", () => {
     render(<ViewAsBanner {...props} />);
-    expect(screen.getByRole("status").textContent).toContain("Viewing as Mia Manager · Manager portal · read-only · 30 min left");
+    expect(screen.getByRole("status").textContent).toContain("Viewing as Mia Manager · Property portal · read-only · 30 min left");
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
   });
 

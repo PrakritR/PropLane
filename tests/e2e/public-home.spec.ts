@@ -164,7 +164,7 @@ test.describe("Public home", () => {
     };
     const portals: Record<string, { label: string; sidebar: string[] }> = {
       manager: {
-        label: "Manager portal",
+        label: "Property portal",
         // The real manager sidebar, row for row (`PORTAL_NAV_GROUPS`; tests/unit/home-demo-nav-parity.test.ts).
         sidebar: [
           "Dashboard", "Tasks", "Calendar", "Communication",

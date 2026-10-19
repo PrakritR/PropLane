@@ -96,7 +96,7 @@ function portalBrandCopy(kind: PortalKind): { subtitle: string; ariaLabel: strin
     case "vendor":
       return { subtitle: "Vendor", ariaLabel: "PropLane Vendor Portal home" };
     default:
-      return { subtitle: "Manager", ariaLabel: "PropLane Manager Portal home" };
+      return { subtitle: "Property", ariaLabel: "PropLane Property Portal home" };
   }
 }
 

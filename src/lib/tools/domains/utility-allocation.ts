@@ -30,7 +30,7 @@ const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 async function resolveAllocation(ctx: AgentContext, input: Input) {
   const gate = await assertFinancialsTier(ctx.landlordId);
   if (!gate.ok) throw new Error(gate.error);
-  if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Open the owning manager's portal for utility allocations");
+  if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Open the workspace owner's Property portal for utility allocations");
   const { data: bill, error: billError } = await ctx.db.from("manager_bills").select("id,property_id,amount_cents,status,description,category_code,vendor_invoice_id").eq("id", input.billId).eq("manager_user_id", ctx.landlordId).single();
   if (billError || !bill || !["approved", "scheduled", "paid"].includes(bill.status) || bill.category_code !== "utilities") throw new Error("Select an approved utility bill in your portfolio");
   // A utility bill always names a property (it is split across that
