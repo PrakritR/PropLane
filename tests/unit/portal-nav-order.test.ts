@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FREE_SUBSCRIPTION_SECTIONS, managerSectionAllowedForTier } from "@/lib/manager-access";
-import { NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER, orderNativeBottomNavItems } from "@/lib/native/portal-bottom-nav";
+import { orderNativeBottomNavItems } from "@/lib/native/portal-bottom-nav";
 import { adminPortal } from "@/lib/portals/admin";
 import { proPortal } from "@/lib/portals/pro";
 import {
@@ -36,12 +36,10 @@ describe("portal nav order contracts", () => {
     expect(proPortal.sections.find((section) => section.section === "applications")?.label).toBe("Applications");
   });
 
-  it("pro native order follows the sidebar rows (the footer order constant) with settings last (no Teams page)", () => {
+  it("pro native order matches web registry with settings last", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
-    // The phone's strip and More sheet follow the sidebar's rows, not the registry's listing order.
-    expect(ordered).toEqual([...(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER as readonly string[])].filter((id) => ordered.includes(id)).concat("profile"));
-    expect([...ordered].sort()).toEqual([...sectionIds(proPortal.sections)].sort());
+    expect(ordered).toEqual(sectionIds(proPortal.sections));
     expect(ordered).not.toContain("teams");
     expect(ordered.at(-1)).toBe("profile");
   });
