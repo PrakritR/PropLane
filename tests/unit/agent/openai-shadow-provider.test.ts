@@ -24,6 +24,46 @@ describe("OpenAI Responses provider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each(["string", "text-blocks", "text-and-tool"] as const)("serializes %s assistant history as output text before a later multimodal user turn", async (format) => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "resp_history", status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: "red" }] }],
+      usage: { input_tokens: 20, output_tokens: 1 },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const assistant: Anthropic.MessageParam = { role: "assistant", content: format === "string" ? "READY" : [
+      { type: "text", text: "REA" }, { type: "text", text: "DY" },
+      ...(format === "text-and-tool" ? [{ type: "tool_use" as const, id: "call_prior", name: "lookup", input: { key: "synthetic" } }] : []),
+    ] };
+    await completeOpenAIResponses({ ...base, model: "gpt-6-luna", messages: [
+      { role: "user", content: "Reply READY" }, assistant,
+      ...(format === "text-and-tool" ? [{ role: "user" as const, content: [{ type: "tool_result" as const, tool_use_id: "call_prior", content: "synthetic result" }] }] : []),
+      { role: "user", content: "Next plain-text turn" },
+      { role: "user", content: [
+        { type: "text", text: "Read these fictional attachments" },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "aGVsbG8=" } },
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: "aGVsbG8=" } },
+      ] },
+    ] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const input = JSON.parse(String(fetchMock.mock.calls[0]![1].body)).input;
+    expect(input[1]).toEqual({ role: "user", content: [{ type: "input_text", text: "Reply READY" }] });
+    expect(input[2]).toEqual({ role: "assistant", content: [{ type: "output_text", text: "READY", annotations: [] }] });
+    if (format === "text-and-tool") {
+      expect(input.slice(3, 5)).toEqual([
+        { type: "function_call", call_id: "call_prior", name: "lookup", arguments: '{"key":"synthetic"}' },
+        { type: "function_call_output", call_id: "call_prior", output: "synthetic result" },
+      ]);
+    }
+    expect(input.at(-2)).toEqual({ role: "user", content: [{ type: "input_text", text: "Next plain-text turn" }] });
+    expect(input.at(-1).content).toEqual([
+      { type: "input_text", text: "Read these fictional attachments" },
+      { type: "input_image", image_url: "data:image/jpeg;base64,aGVsbG8=", detail: "auto" },
+      { type: "input_file", filename: "document.pdf", file_data: "data:application/pdf;base64,aGVsbG8=" },
+    ]);
+  });
+
   it("forces a named function and keeps images, PDFs, and stable cache prefix", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
