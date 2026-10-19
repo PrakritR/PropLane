@@ -43,6 +43,11 @@ export async function say(ctx, from, to, body, opts = {}) {
     ]);
     note(`NO REPLY. receipt=${receipt.data?.status ?? "none"} bursts=${JSON.stringify(bursts.data ?? bursts.error?.message)} outbox=${JSON.stringify(outbox.data ?? outbox.error?.message)}\nserver log problems:\n${h.logProblemsSince(logMark).slice(0, 12).join("\n")}`);
   }
+  if (opts.trace) {
+    const { data: rows } = await h.db.from("prospect_sms_bursts").select("candidate_context").eq("counterparty_phone_e164", from).order("updated_at", { ascending: false }).limit(1);
+    const facts = Array.isArray(rows?.[0]?.candidate_context) ? rows[0].candidate_context : [];
+    note(`tools used: ${facts.map((f) => `${f.tool}${f.output && typeof f.output === "object" && "ok" in f.output ? (f.output.ok ? "" : "(failed)") : ""}`).join(", ") || "(none recorded)"}`);
+  }
   note(`> ${body}${(opts.media ?? []).length ? `  [+${opts.media.length} photo]` : ""}\n< [${r.status}] (${r.firstMs === null ? "no reply" : `first reply ${(r.firstMs / 1000).toFixed(1)} s, settled ${(r.totalMs / 1000).toFixed(1)} s`}) ${r.all || "(no reply)"}${r.media.length ? `\n  media: ${r.media.join(", ")}` : ""}`);
   return r;
 }
@@ -243,15 +248,17 @@ MATRIX_SCENARIOS.push({
       const { data: notices } = await db.from("portal_inbox_thread_records").select("thread_type, row_data").eq("owner_user_id", fx.manager.id).order("created_at", { ascending: false }).limit(10);
       const sawNotice = toManager.length > 0 || (notices ?? []).some((n) => /tour|jordan/i.test(JSON.stringify(n.row_data)));
       c.check("the manager was told (a text to the manager or a notice in the inbox)", sawNotice, JSON.stringify({ toManager: toManager.map((m) => m.body), notices: (notices ?? []).map((n) => n.thread_type) }));
-      const { data: outbox } = await db.from("sms_outbox").select("purpose, status, send_after").eq("recipient_phone", T);
-      c.note(`sms_outbox rows for the prospect (reminders): ${JSON.stringify(outbox ?? [])}`);
-      c.check("a reminder or follow-up is scheduled for the prospect", (outbox ?? []).some((o) => ["queued", "deferred", "claimed"].includes(String(o.status))), JSON.stringify(outbox));
+      const { data: outbox } = await db.from("sms_outbox").select("purpose, status, available_at, body").eq("recipient_phone", T);
+      const { data: planned } = await db.from("portal_scheduled_inbox_message_records").select("id, send_at, status, row_data").eq("manager_user_id", fx.manager.id);
+      const tourReminders = (planned ?? []).filter((x) => x.row_data?.messageKind === "tour_reminder");
+      c.note(`texts to the prospect (outbox): ${JSON.stringify((outbox ?? []).map((o) => ({ s: o.status, at: o.available_at, b: String(o.body).slice(0, 40) })))}; scheduled tour reminders for the manager: ${tourReminders.length}`);
+      c.check("a reminder is scheduled for the prospect (a future-dated text, or a scheduled tour reminder)", tourReminders.length > 0 || (outbox ?? []).some((o) => /remind/i.test(String(o.purpose)) || (new Date(o.available_at) > new Date(Date.now() + 3600_000))), "no reminder row: the tour reminder sweep needs an attendee email, and an SMS booking has none");
     });
 
     await item(5, "'how do I apply' returns an apply link bound to the phone", async (c) => {
       const A = world.phone();
       await say(ctx, A, fx.to, `I'm interested in the home at ${fx.house.address.split(",")[0]}`);
-      const r = await say(ctx, A, fx.to, "how do I apply for it?");
+      const r = await say(ctx, A, fx.to, "how do I apply for it?", { trace: true });
       c.reply(r, "apply");
       const apply = urlsOf(r.all).find((u) => /\/rent\/apply|\/l\/|apply/i.test(u));
       c.check("an apply link is in the reply", Boolean(apply), r.all);
@@ -266,7 +273,7 @@ MATRIX_SCENARIOS.push({
     await item(6, "the application fee link works and quotes the listing's fee", async (c) => {
       const F = world.phone();
       await say(ctx, F, fx.to, `I'm interested in the home at ${fx.house.address.split(",")[0]}`);
-      const r = await say(ctx, F, fx.to, "how much is the application fee and how do I pay it?");
+      const r = await say(ctx, F, fx.to, "how much is the application fee and how do I pay it?", { trace: true });
       c.reply(r, "fee");
       c.check("the fee quoted is the listing's $45", dollars(r.all).includes(45), r.all);
       const preview = await h.api("/api/public/application-fee-preview", { method: "POST", body: { propertyId: fx.house.id, managerUserId: fx.manager.id } });
