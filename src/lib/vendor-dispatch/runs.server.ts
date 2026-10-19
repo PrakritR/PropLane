@@ -62,6 +62,12 @@ export type CreateDispatchRunInput = {
   at?: Date;
   /** The caller is itself the manager's approval (a confirmed assistant write): do not text them to approve. */
   skipApprovalRequest?: boolean;
+  /**
+   * An explicit, new request from the manager (the assistant's dispatch_vendor): an
+   * `exhausted` run for this job is finished business, so start a fresh run instead of
+   * handing the old one back. Automatic triggers leave this off and stay idempotent.
+   */
+  restartExhausted?: boolean;
 };
 
 export type CreateDispatchRunResult =
@@ -70,7 +76,12 @@ export type CreateDispatchRunResult =
 
 const OPEN_FOR_SOURCE = ["awaiting_approval", "offering", "exhausted", "accepted"];
 
-async function findRunForSource(db: SupabaseClient, sourceType: string, sourceId: string): Promise<DispatchRunRow | null> {
+async function findRunForSource(
+  db: SupabaseClient,
+  sourceType: string,
+  sourceId: string,
+  opts: { skipExhausted?: boolean } = {},
+): Promise<DispatchRunRow | null> {
   const { data, error } = await db
     .from("vendor_dispatch_runs")
     .select("*")
@@ -81,7 +92,7 @@ async function findRunForSource(db: SupabaseClient, sourceType: string, sourceId
     throw new Error(error.message);
   }
   const rows = ((data ?? []) as DispatchRunRow[])
-    .filter((row) => OPEN_FOR_SOURCE.includes(row.status))
+    .filter((row) => OPEN_FOR_SOURCE.includes(row.status) && !(opts.skipExhausted && row.status === "exhausted"))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   return rows[0] ?? null;
 }
@@ -99,7 +110,7 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
   const sourceId = input.sourceId.trim();
   if (!sourceId || !input.workspaceId || !input.ownerUserId) return { ok: false, reason: "unavailable" };
 
-  const existing = await findRunForSource(db, input.sourceType, sourceId);
+  const existing = await findRunForSource(db, input.sourceType, sourceId, { skipExhausted: input.restartExhausted === true });
   if (existing) {
     if (existing.owner_user_id !== input.ownerUserId) return { ok: false, reason: "unavailable" };
     return { ok: true, created: false, run: existing };
@@ -177,7 +188,7 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
   });
   if (insertError) {
     if (insertError.code === "23505") {
-      const raced = await findRunForSource(db, input.sourceType, sourceId);
+      const raced = await findRunForSource(db, input.sourceType, sourceId, { skipExhausted: input.restartExhausted === true });
       if (raced && raced.owner_user_id === input.ownerUserId) return { ok: true, created: false, run: raced };
     }
     return { ok: false, reason: "unavailable" };

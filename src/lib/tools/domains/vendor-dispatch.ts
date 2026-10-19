@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
-import { writeAuditLog } from "../audit";
+import { updateAuditResult, writeAuditLog } from "../audit";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 import { canActorApprove, loadAttempts, loadRunByHandle, loadVendorContacts, vendorNamesForApproval } from "@/lib/vendor-dispatch/engine.server";
@@ -35,6 +35,18 @@ async function loadOwnedWorkOrder(ctx: AgentContext, workOrderId: string) {
   const row = (data.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (!rowAllowedInAgentWorkspace(ctx, row)) return null;
   return { id: String(data.id), row };
+}
+
+/** The status of the newest dispatch run filed for a service, or null when it has none. */
+async function latestRunStatus(db: AgentContext["db"], workOrderId: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("vendor_dispatch_runs")
+    .select("status, created_at")
+    .eq("source_type", "work_order")
+    .eq("source_id", workOrderId);
+  if (error || !Array.isArray(data) || data.length === 0) return null;
+  const newest = [...(data as Array<{ status: string; created_at: string }>)].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  return newest?.status ?? null;
 }
 
 export const listVendorDispatchesTool = defineTool({
@@ -121,24 +133,36 @@ export const approveVendorDispatchTool = defineWriteTool({
   handler: async (ctx, input) => {
     const run = await loadRunByHandle(ctx.db, ctx.landlordId, input.handle);
     if (!run) throw new Error("No matching dispatch for this landlord.");
+    const dedupeKey = `approve_vendor_dispatch:${ctx.landlordId}:${run.id}`;
     const audit = await writeAuditLog(ctx, {
       action: "approve_vendor_dispatch",
       toolName: "approve_vendor_dispatch",
       inputSummary: { runId: run.id, handle: run.handle, pickPosition: input.pickPosition ?? null },
-      dedupeKey: `approve_vendor_dispatch:${ctx.landlordId}:${run.id}`,
+      dedupeKey,
     });
     if (!audit.recorded && audit.duplicate) return { reply: `Dispatch #${run.handle} was already approved.` };
     if (!audit.recorded) throw new Error("Could not record the approval; nothing was sent.");
-    const result = await approveDispatchRun(ctx.db, {
-      ownerUserId: run.owner_user_id,
-      actorUserId: ctx.userId,
-      channel: "sms",
-      runId: run.id,
-      pickPosition: input.pickPosition ? input.pickPosition - 1 : null,
-      rawText: "approved in chat",
-    });
+    // The key is permanent only once vendors were really texted; every failure frees it so a retry can run.
+    const fail = async (error: string, message: string): Promise<never> => {
+      await updateAuditResult(ctx, dedupeKey, { error }, { clearDedupeKey: true });
+      throw new Error(message);
+    };
+    let result: Awaited<ReturnType<typeof approveDispatchRun>>;
+    try {
+      result = await approveDispatchRun(ctx.db, {
+        ownerUserId: run.owner_user_id,
+        actorUserId: ctx.userId,
+        channel: "sms",
+        runId: run.id,
+        pickPosition: input.pickPosition ? input.pickPosition - 1 : null,
+        rawText: "approved in chat",
+      });
+    } catch (error) {
+      return fail("approve_threw", error instanceof Error ? error.message : "Could not approve the dispatch.");
+    }
     if (!result.ok) {
-      throw new Error(
+      return fail(
+        result.reason,
         result.reason === "wrong_state"
           ? `Dispatch #${run.handle} is no longer waiting for approval.`
           : result.reason === "not_allowed"
@@ -146,6 +170,7 @@ export const approveVendorDispatchTool = defineWriteTool({
             : "Nobody is left to text for this dispatch.",
       );
     }
+    await updateAuditResult(ctx, dedupeKey, { approved: true, runId: run.id });
     return { reply: `Approved dispatch #${run.handle}. The vendor is being texted now.` };
   },
 });
@@ -212,51 +237,95 @@ export const dispatchVendorTool = defineWriteTool({
     const propertyId = row.assignedPropertyId || row.propertyId || null;
     const scope = await resolveOwnerAndWorkspace(ctx.db, { ownerUserId: ctx.landlordId, propertyId });
     if (!scope) throw new Error("Could not place this service in a workspace.");
-    const audit = await writeAuditLog(ctx, {
+    const dedupeKey = `dispatch_vendor:${ctx.landlordId}:${owned.id}`;
+    const auditArgs = {
       action: "dispatch_vendor",
       toolName: "dispatch_vendor",
       inputSummary: { workOrderId: owned.id, trade },
-      dedupeKey: `dispatch_vendor:${ctx.landlordId}:${owned.id}`,
-    });
+      dedupeKey,
+    };
+    let audit = await writeAuditLog(ctx, auditArgs);
+    if (!audit.recorded && audit.duplicate && (await latestRunStatus(ctx.db, owned.id)) === "exhausted") {
+      // The earlier dispatch ran out of vendors: this is a new request, not a double confirm.
+      await updateAuditResult(ctx, dedupeKey, { superseded: "exhausted" }, { clearDedupeKey: true });
+      audit = await writeAuditLog(ctx, auditArgs);
+    }
     if (!audit.recorded && audit.duplicate) return { reply: "This service was already sent to a vendor." };
     if (!audit.recorded) throw new Error("Could not record the action; nothing was sent.");
-    const created = await createDispatchRun(ctx.db, {
-      workspaceId: scope.workspaceId,
-      ownerUserId: scope.ownerUserId,
-      sourceType: "work_order",
-      sourceId: owned.id,
-      trade,
-      issue: inferred?.trade === trade ? inferred.issue : null,
-      urgency: inferred?.urgency ?? "routine",
-      propertyId,
-      createdBy: ctx.userId,
-      residentEmail: row.residentEmail ?? null,
-      workOrder: row,
-      skipApprovalRequest: true,
-      details: {
-        what: row.title || undefined,
-        area: workOrderGeneralArea(row),
-        houseLabel: row.propertyName || "",
-        address: row.propertyAddress || "",
-        room: row.unit && row.unit !== "—" ? row.unit : undefined,
-        personFirstName: firstNameOf(row.residentName),
-        summary: row.description || undefined,
-      },
-    });
-    if (!created.ok) {
-      throw new Error(created.reason === "no_vendors" ? "No vendor on file can be texted for this job." : "Could not start the dispatch.");
-    }
-    if (created.run.status === "awaiting_approval") {
-      const approved = await approveDispatchRun(ctx.db, {
+    // The key stays only when this call really started a dispatch; every other outcome frees it.
+    const fail = async (error: string, message: string): Promise<never> => {
+      await updateAuditResult(ctx, dedupeKey, { error }, { clearDedupeKey: true });
+      throw new Error(message);
+    };
+    const release = (outcome: string) => updateAuditResult(ctx, dedupeKey, { outcome }, { clearDedupeKey: true });
+    let created: Awaited<ReturnType<typeof createDispatchRun>>;
+    try {
+      created = await createDispatchRun(ctx.db, {
+        workspaceId: scope.workspaceId,
         ownerUserId: scope.ownerUserId,
-        actorUserId: ctx.userId,
-        channel: "sms",
-        runId: created.run.id,
-        rawText: "dispatched in chat",
+        sourceType: "work_order",
+        sourceId: owned.id,
+        trade,
+        issue: inferred?.trade === trade ? inferred.issue : null,
+        urgency: inferred?.urgency ?? "routine",
+        propertyId,
+        createdBy: ctx.userId,
+        residentEmail: row.residentEmail ?? null,
+        workOrder: row,
+        skipApprovalRequest: true,
+        restartExhausted: true,
+        details: {
+          what: row.title || undefined,
+          area: workOrderGeneralArea(row),
+          houseLabel: row.propertyName || "",
+          address: row.propertyAddress || "",
+          room: row.unit && row.unit !== "—" ? row.unit : undefined,
+          personFirstName: firstNameOf(row.residentName),
+          summary: row.description || undefined,
+        },
       });
-      if (!approved.ok) throw new Error("The dispatch was created but could not be started. Approve it from Services.");
+    } catch (error) {
+      return fail("create_threw", error instanceof Error ? error.message : "Could not start the dispatch.");
     }
-    return { reply: `Dispatch #${created.run.handle} started. The first vendor is being texted now.` };
+    if (!created.ok) {
+      return fail(created.reason, created.reason === "no_vendors" ? "No vendor on file can be texted for this job." : "Could not start the dispatch.");
+    }
+    const { run } = created;
+    if (!created.created) {
+      // A run for this service already exists: say what it is doing, never "started".
+      if (run.status === "accepted") {
+        await release("already_accepted");
+        const contacts = run.accepted_vendor_directory_id
+          ? await loadVendorContacts(ctx.db, run.owner_user_id, [run.accepted_vendor_directory_id]).catch(() => new Map())
+          : new Map();
+        const name = run.accepted_vendor_directory_id ? contacts.get(run.accepted_vendor_directory_id)?.name : null;
+        return { reply: `Dispatch #${run.handle} was already accepted${name ? ` by ${name}` : ""}. Nothing new was sent.` };
+      }
+      if (run.status === "exhausted") {
+        await release("exhausted");
+        return { reply: `Every vendor on dispatch #${run.handle} declined or did not answer. Ask me to dispatch again to restart it, or add another vendor in Vendors.` };
+      }
+      if (run.status === "offering") {
+        return { reply: `Dispatch #${run.handle} is already out to a vendor. Nothing new was sent.` };
+      }
+    }
+    if (run.status === "awaiting_approval") {
+      let approved: Awaited<ReturnType<typeof approveDispatchRun>>;
+      try {
+        approved = await approveDispatchRun(ctx.db, {
+          ownerUserId: scope.ownerUserId,
+          actorUserId: ctx.userId,
+          channel: "sms",
+          runId: run.id,
+          rawText: "dispatched in chat",
+        });
+      } catch (error) {
+        return fail("approve_threw", error instanceof Error ? error.message : "The dispatch was created but could not be started. Approve it from Services.");
+      }
+      if (!approved.ok) return fail(approved.reason, "The dispatch was created but could not be started. Approve it from Services.");
+    }
+    await updateAuditResult(ctx, dedupeKey, { runId: run.id, started: true });
+    return { reply: `Dispatch #${run.handle} started. The first vendor is being texted now.` };
   },
 });
 
