@@ -199,7 +199,7 @@ function DemoAssistantDockRail({ open, onClose }: { open: boolean; onClose: () =
   );
 }
 
-/** Small "Manager | Resident | Vendor" segmented control, above the shell
+/** Small "Property | Resident | Vendor" segmented control, above the shell
  * itself — not `DemoPortalShell`'s old pill bar. Purely local state;
  * switching role resets to that portal's Dashboard. */
 function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onChange: (next: DemoPortalRole) => void }) {
@@ -223,7 +223,7 @@ function DemoRoleSwitchControl({ role, onChange }: { role: DemoPortalRole; onCha
             role === r ? "bg-primary text-white" : "text-muted hover:text-foreground",
           )}
         >
-          {r}
+          {r === "manager" ? "property" : r}
         </button>
       ))}
     </div>

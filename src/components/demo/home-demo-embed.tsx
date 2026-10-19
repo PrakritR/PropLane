@@ -12,7 +12,7 @@ import { DemoManagerShell } from "@/app/demo/demo-manager-shell";
 import { preloadHomeDemoPanels } from "@/components/demo/demo-section-renderer";
 import { installHomeDemoGuards } from "@/components/demo/home-demo-fetch-guard";
 import { applyHomeDemoEffect, type HomeDemoEffectContext } from "@/components/demo/home-demo-effects";
-import { HOME_DEMO_JOURNEY, type HomeDemoStep, type HomeDemoTarget } from "@/components/demo/home-demo-script";
+import { HOME_DEMO_JOURNEY, homeDemoJumpPlan, type HomeDemoJumpPlan, type HomeDemoStep, type HomeDemoTarget } from "@/components/demo/home-demo-script";
 import { DemoCursor, sleep, type DemoCursorApi } from "@/components/marketing/resident-lifecycle-cursor";
 import { setDemoResidentIdentity, setDemoRole } from "@/lib/demo/demo-session";
 import {
@@ -21,6 +21,7 @@ import {
   HOME_DEMO_INTERACT,
   HOME_DEMO_PORTAL_LABEL,
   HOME_DEMO_READY,
+  isHomeDemoPortal,
   type HomeDemoControl,
   type HomeDemoEvent,
   type HomeDemoPortal,
@@ -71,6 +72,11 @@ function navigateLikeALink(section: string, portal: HomeDemoPortal) {
   anchor.remove();
 }
 
+/** A jump to the portal the journey opens in (outside reduced motion) is just a restart: nothing to replay. */
+function toRunPlan(plan: HomeDemoJumpPlan, staticMode: boolean): HomeDemoJumpPlan | null {
+  return staticMode || plan.resumeAt > 0 ? plan : null;
+}
+
 export function HomeDemoEmbed() {
   const cursorRef = useRef<DemoCursorApi>(null);
   const tokenRef = useRef(0);
@@ -78,6 +84,11 @@ export function HomeDemoEmbed() {
   const touchedRef = useRef(false);
   const staticRef = useRef(false);
   const skipToRef = useRef<string | null>(null);
+  /** Set by the portal switcher: where the next run lands (read by `play`). */
+  const planRef = useRef<HomeDemoJumpPlan | null>(null);
+  /** Every panel the journey opens has loaded (the first run waits for it); a jump chosen before then is kept for it. */
+  const panelsReadyRef = useRef(false);
+  const pendingJumpRef = useRef<{ plan: HomeDemoJumpPlan } | null>(null);
   /** The real portal on screen, read by the steps (a `nav` target resolves against it). */
   const portalRef = useRef<HomeDemoPortal>(HOME_DEMO_JOURNEY.portal);
   const [portal, setPortal] = useState<HomeDemoPortal>(HOME_DEMO_JOURNEY.portal);
@@ -87,6 +98,8 @@ export function HomeDemoEmbed() {
   const [run, setRun] = useState(0);
   const [started, setStarted] = useState(false);
   const [instant, setInstant] = useState(false);
+  /** A jump is catching the stores up to its portal: the screen is covered until that portal's first frame is drawn. */
+  const [seeking, setSeeking] = useState(false);
 
   // Before any child effect runs: nothing in the sample portal may reach a server.
   useLayoutEffect(() => installHomeDemoGuards(), []);
@@ -96,13 +109,19 @@ export function HomeDemoEmbed() {
   }, []);
 
   const play = useCallback(
-    async (token: number, staticMode: boolean) => {
+    async (token: number, staticMode: boolean, plan: HomeDemoJumpPlan | null) => {
       const journey = HOME_DEMO_JOURNEY;
       const ctx: HomeDemoEffectContext = { nowMs: Date.now() };
       const shown = journey.phones.map((phone) => phone.initial ?? 0);
       let phoneIndex = 0;
       // Reduced motion runs every step instantly; `?skipto=<mark>` does the same for the steps before that mark.
-      let noMotion = staticMode || skipToRef.current !== null;
+      // A jump (the portal switcher) replays what happened before its portal's first step as store writes only, then
+      // plays that step and the rest with motion. In reduced motion it runs every step instantly up to the end of
+      // that portal's part. Either way nothing is announced until it lands.
+      let seekTo = plan && !staticMode && plan.resumeAt > 0 ? plan.resumeAt : null;
+      const lastStep = plan && staticMode ? plan.until : journey.steps.length;
+      let quiet = plan !== null;
+      let noMotion = staticMode || skipToRef.current !== null || seekTo !== null;
       const guard = async () => {
         if (tokenRef.current !== token) throw new Cancelled();
         while (pausedRef.current && !noMotion) {
@@ -119,6 +138,7 @@ export function HomeDemoEmbed() {
         await guard();
       };
       const announce = (step: number, typing: "in" | "out" | null, done: boolean) => {
+        if (quiet) return;
         const phone = journey.phones[phoneIndex]!;
         const event: HomeDemoEvent = {
           type: HOME_DEMO_EVENT,
@@ -164,9 +184,26 @@ export function HomeDemoEmbed() {
       try {
         await guard();
         announce(-1, null, false);
-        for (let index = 0; index < journey.steps.length; index += 1) {
+        for (let index = 0; index < lastStep; index += 1) {
           const step = journey.steps[index]!;
           await guard();
+          if (seekTo !== null && index < seekTo) {
+            // Before the portal the visitor chose: only what each step wrote, so its tabs are full when it opens.
+            if (step.do === "say") {
+              if (step.phone !== undefined && step.phone !== phoneIndex) phoneIndex = step.phone;
+              shown[phoneIndex] = Math.min(journey.phones[phoneIndex]!.items.length, shown[phoneIndex]! + (step.count ?? 1));
+              if (step.effect) applyHomeDemoEffect(step.effect, ctx);
+            } else if (step.do === "click") {
+              if (step.effect) applyHomeDemoEffect(step.effect, ctx);
+            } else if (step.do === "effect") {
+              applyHomeDemoEffect(step.effect, ctx);
+            } else if (step.do === "portal") {
+              if (step.effect) applyHomeDemoEffect(step.effect, ctx);
+            } else if (step.do === "stage") {
+              setStage(step.stage);
+            }
+            continue;
+          }
           if (step.do === "mark") {
             if (noMotion && !staticMode && skipToRef.current === step.id) {
               noMotion = false;
@@ -203,10 +240,19 @@ export function HomeDemoEmbed() {
           } else {
             applyHomeDemoEffect(step.effect, ctx);
           }
+          if (seekTo !== null && index === seekTo) {
+            // Landed: that portal's first step has drawn, so the cover comes off and the run goes on with motion.
+            seekTo = null;
+            quiet = false;
+            noMotion = skipToRef.current !== null;
+            setSeeking(false);
+          }
           announce(index, null, false);
         }
+        quiet = false;
+        setSeeking(false);
         cursorRef.current?.hide();
-        announce(journey.steps.length - 1, null, true);
+        announce(lastStep - 1, null, lastStep === journey.steps.length);
       } catch (error) {
         if (!(error instanceof Cancelled)) throw error;
       }
@@ -215,8 +261,10 @@ export function HomeDemoEmbed() {
   );
 
   /** Start the journey from its first frame: a fresh shell re-seeds the fixture world, then the script runs. */
-  const start = useCallback((noMotion: boolean) => {
+  const start = useCallback((noMotion: boolean, plan: HomeDemoJumpPlan | null = null) => {
     tokenRef.current += 1;
+    planRef.current = plan;
+    setSeeking(plan !== null);
     // The journey opens in its own portal, as its own person, before the shell mounts.
     const journey = HOME_DEMO_JOURNEY;
     portalRef.current = journey.portal;
@@ -233,7 +281,7 @@ export function HomeDemoEmbed() {
 
   useEffect(() => {
     if (run === 0) return;
-    void play(tokenRef.current, staticRef.current);
+    void play(tokenRef.current, staticRef.current, planRef.current);
   }, [run, play]);
 
   useEffect(() => {
@@ -245,7 +293,11 @@ export function HomeDemoEmbed() {
     // Every panel the journey opens is loaded before the first frame, so none is ever drawn as "Loading…".
     let cancelled = false;
     void preloadHomeDemoPanels().then(() => {
-      if (!cancelled) start(staticRef.current);
+      if (cancelled) return;
+      panelsReadyRef.current = true;
+      const pending = pendingJumpRef.current;
+      pendingJumpRef.current = null;
+      start(staticRef.current, pending ? toRunPlan(pending.plan, staticRef.current) : null);
     });
 
     const onMessage = (event: MessageEvent) => {
@@ -256,6 +308,13 @@ export function HomeDemoEmbed() {
       else if (data.action === "restart") {
         pausedRef.current = false;
         start(staticRef.current);
+      } else if (data.action === "jump" && isHomeDemoPortal(data.portal)) {
+        // The portal switcher: cancel this run and begin that portal's part (reduced motion: draw its end frame).
+        pausedRef.current = Boolean(data.paused);
+        const plan = homeDemoJumpPlan(data.portal);
+        // Chosen before the panels have loaded: the first run starts there instead (a second would restart it).
+        if (!panelsReadyRef.current) pendingJumpRef.current = { plan };
+        else start(staticRef.current, toRunPlan(plan, staticRef.current));
       } else if (data.action === "play") {
         pausedRef.current = false;
         // A visitor who used the portal by hand has left the script's track: start the journey over.
@@ -289,6 +348,11 @@ export function HomeDemoEmbed() {
           residentProfile={{ ...HOME_DEMO_JOURNEY.resident, stage }}
           vendorName={HOME_DEMO_VENDOR_NAME}
         />
+      ) : null}
+      {seeking ? (
+        <div className="absolute inset-0 grid place-items-center bg-white text-sm text-[#626b76]" style={{ zIndex: 2147483000 }} role="status">
+          Loading sample…
+        </div>
       ) : null}
       {started && !instant ? <DemoCursor key={`cursor-${run}`} label={HOME_DEMO_PORTAL_LABEL[portal]} apiRef={cursorRef} /> : null}
     </div>

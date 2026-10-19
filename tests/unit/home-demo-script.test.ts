@@ -5,6 +5,8 @@ import {
   HOME_DEMO_PHOTOS,
   homeDemoEndPhone,
   homeDemoEndPortal,
+  homeDemoJumpPlan,
+  homeDemoPhoneAfter,
   type HomeDemoStep,
 } from "@/components/demo/home-demo-script";
 import { DISCOVERY_LINES, discoveryLineAsText } from "@/components/marketing/home-discovery-script";
@@ -54,7 +56,34 @@ describe("homepage Software demo journey", () => {
     // Each beat: the resident acts, then the manager answers (the vendor moment goes resident, vendor, manager).
     expect(roles).toEqual(["manager", "resident", "manager", "resident", "manager", "manager", "resident", "vendor", "manager"]);
     expect(homeDemoEndPortal()).toBe("manager");
-    expect(HOME_DEMO_PORTAL_LABEL).toEqual({ resident: "Resident", vendor: "Vendor", manager: "Manager" });
+    expect(HOME_DEMO_PORTAL_LABEL).toEqual({ resident: "Resident", vendor: "Vendor", manager: "Property" });
+  });
+
+  it("the portal switcher jumps to each portal's first step, and its end frame is where that portal's last stretch ends", () => {
+    const portalAt = (index: number) => {
+      const step = steps[index]!;
+      return step.do === "portal" ? step.role : null;
+    };
+    // The journey opens in the resident portal: its first step is the start.
+    expect(homeDemoJumpPlan("resident").resumeAt).toBe(0);
+    for (const role of ["manager", "vendor"] as const) {
+      const { resumeAt } = homeDemoJumpPlan(role);
+      expect(portalAt(resumeAt)).toBe(role);
+      // No earlier step opens that portal.
+      expect(steps.slice(0, resumeAt).some((s) => s.do === "portal" && s.role === role)).toBe(false);
+    }
+    // The end of a portal's part is the step that leaves it for another portal (or the journey's end).
+    // (the resident's part stops before the text that offers the service to the vendor: that text is the vendor's.)
+    const residentEnd = homeDemoJumpPlan("resident").until;
+    expect(steps.slice(residentEnd).findIndex((s) => s.do === "portal" && s.role === "vendor")).toBeGreaterThan(-1);
+    expect(homeDemoPhoneAfter(residentEnd).label).toBe("Jordan’s phone");
+    expect(portalAt(homeDemoJumpPlan("vendor").until)).toBe("manager");
+    expect(homeDemoJumpPlan("manager").until).toBe(steps.length);
+    // The vendor's part ends after the YES, and its phone has said so.
+    expect(homeDemoPhoneAfter(homeDemoJumpPlan("vendor").until).items.length).toBe(3);
+    // Before the vendor portal opens, the vendor's text has only just arrived.
+    expect(homeDemoPhoneAfter(homeDemoJumpPlan("vendor").resumeAt).label).toBe("Vendor’s phone");
+    expect(homeDemoPhoneAfter().items).toEqual(homeDemoEndPhone().items);
   });
 
   it("lands every effect at the press (or the switch) that opens what it fills, so no tab or panel is ever empty", () => {
