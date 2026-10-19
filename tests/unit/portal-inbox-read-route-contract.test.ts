@@ -44,6 +44,15 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   collapsePersonInboxThreads: (rows: unknown[]) => rows,
 }));
 
+// The fake db has no workspace tables; the managed view-only lock has its own tests (managed-read-only-inbox-delete).
+vi.mock("@/lib/auth/managed-read-only.server", () => ({
+  isManagedReadOnly: async () => false,
+  managedReadOnlyOwnerLocked: async () => false,
+  managedReadOnlyWorkspaceIds: async () => [],
+}));
+vi.mock("@/lib/workspaces/active.server", () => ({
+  resolveActiveWorkspaceFromRequest: async () => ({ id: "ws-1", ownerUserId: "owner-1" }),
+}));
 import { POST } from "@/app/api/portal-inbox-threads/route";
 import { portalInboxReadObservation } from "@/lib/portal-inbox-read-state.server";
 
