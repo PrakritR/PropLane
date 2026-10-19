@@ -149,7 +149,7 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
               return (
                 <li key={s.id ?? i} className="flex gap-3 rounded-2xl border border-border bg-card p-3" data-attr="admin-growth-reel-scene" data-state={state}>
                   <div
-                    className="flex h-24 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#2863f0] to-[#0b1f6b] text-white"
+                    className="flex h-24 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#2863f0] text-white"
                   >
                     {asset?.publicUrl && /\.(png|jpe?g|webp)(\?|$)/i.test(asset.publicUrl) ? (
                       // eslint-disable-next-line @next/next/no-img-element

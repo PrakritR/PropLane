@@ -17,10 +17,13 @@ export function PublicApplyAccountPrompt({
   gateKey,
   applyReturnPath,
   propertyTitle,
+  ps = false,
 }: {
   gateKey: string;
   applyReturnPath: string;
   propertyTitle?: string;
+  /** Journey styling for the public `.ps` apply page; the resident portal keeps the default. */
+  ps?: boolean;
 }) {
   const [resolved, setResolved] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -47,6 +50,35 @@ export function PublicApplyAccountPrompt({
   if (!resolved || signedIn) return null;
 
   const listing = propertyTitle?.trim() || "this home";
+
+  if (ps) {
+    return (
+      <div className="ps-j-gate">
+        <p className="ps-j-eyebrow">Before you apply</p>
+        <h2 className="ps-h3">Create your resident account</h2>
+        <p>
+          A resident account is required to apply for {listing}. Create one and apply from your portal, where you
+          track your application, messages, and payments. Already have an account? Sign in.
+        </p>
+        <div className="ps-j-btn-row">
+          <Link
+            href={publicApplyCreateAccountHref(gateKey, applyReturnPath)}
+            className="ps-btn ps-btn-blue"
+            data-attr="public-apply-create-account"
+          >
+            Create account
+          </Link>
+          <Link
+            href={publicApplySignInHref(gateKey, applyReturnPath)}
+            className="ps-btn ps-btn-line"
+            data-attr="public-apply-sign-in"
+          >
+            Sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">

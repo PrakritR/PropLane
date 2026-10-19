@@ -17,26 +17,33 @@ export function SmsConsentCheckbox({
   checked,
   onChange,
   inputId,
+  ps = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   inputId: string;
+  /** Journey styling (`.ps` pages): hairline block, same wording and behavior. */
+  ps?: boolean;
 }) {
   return (
     <label
       htmlFor={inputId}
       data-attr="sms-consent-checkbox"
       data-wording-version={SMS_CONSENT_WORDING_VERSION}
-      className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-accent/20 px-4 py-3"
+      className={
+        ps
+          ? "ps-j-consent"
+          : "flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-accent/20 px-4 py-3"
+      }
     >
       <input
         id={inputId}
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/30"
+        className={ps ? undefined : "mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-primary/30"}
       />
-      <span className="text-xs leading-relaxed text-muted">
+      <span className={ps ? undefined : "text-xs leading-relaxed text-muted"}>
         I agree to receive text messages from PropLane about my rental application and account. Msg &amp; data
         rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help. See our{" "}
         <Link href="/privacy" target="_blank" className="font-semibold text-primary hover:underline">

@@ -4,7 +4,7 @@ import { Settings, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
 import { useHasAxisAssistant } from "@/components/portal/axis-assistant";
 import { useAssistantLauncher } from "@/components/portal/use-assistant-launcher";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
@@ -152,7 +152,7 @@ export function PortalMobileNavBar({
             data-attr="portal-mobile-assistant"
             className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] text-primary outline-none transition hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-primary/30 active:bg-primary/15"
           >
-            <AxisAssistantSparkleIcon className="h-5 w-5" />
+            <AxisAssistantChatIcon className="h-5 w-5" />
           </button>
         ) : null}
         <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>

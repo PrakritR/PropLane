@@ -123,9 +123,9 @@ describe("ResidentHousingChat inline", () => {
 
 describe("the Ask inside the filter sheet", () => {
   it("survives the sheet's own apply button", async () => {
-    // The Ask lives inside a DRAFTED panel: answering it has to move the drafts as well as
-    // the page, or "Show N homes" commits the controls as they were before the question and
-    // throws the answer away (lease type, budget floor and bedroom all reverted).
+    // The Ask lives inside the filter sheet: answering it has to move the page's filters, and
+    // pressing "Show N homes" afterwards must not throw the answer away (lease type, budget
+    // floor and bedroom all reverted).
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -145,10 +145,13 @@ describe("the Ask inside the filter sheet", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(screen.getByText("Understood")).toBeTruthy());
-    expect(screen.getByText("Clear filters (4)")).toBeTruthy();
+    // Filters apply live: the phone trigger's count shows the four things the answer set
+    // (budget floor, bedrooms, lease type, area).
+    expect(screen.getByText("Filters · 4")).toBeTruthy();
 
-    const apply = '[data-attr="resident-browse-filter-apply"], [data-attr="portal-filter-save"]';
-    fireEvent.click(document.querySelector(apply) as Element);
-    await waitFor(() => expect(screen.getByText("Clear filters (4)")).toBeTruthy());
+    // Closing the sheet keeps the answer; nothing is committed back over it.
+    fireEvent.click(document.querySelector('[data-attr="resident-browse-filter-apply"]') as Element);
+    await waitFor(() => expect(document.querySelector('[data-attr="resident-browse-filter-sheet"]')).toBeNull());
+    expect(screen.getByText("Filters · 4")).toBeTruthy();
   });
 });

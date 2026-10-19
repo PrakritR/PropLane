@@ -134,11 +134,11 @@ describe("the assistant floats above the bar", () => {
     expect(css).not.toContain("--listing-sticky-bar-h");
   });
 
-  it("the public page's bar keeps its two rows and still publishes its height", () => {
+  it("the non-dock bar keeps its two rows", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     expect(bar().hasAttribute("data-slim")).toBe(false);
     expect(bar().textContent).toContain("Apply");
-    expect(bar().textContent).toContain("Schedule tour");
+    expect(bar().textContent).toContain("Book a tour");
     expect(bar().textContent).not.toContain("Apply long term");
   });
 });

@@ -108,8 +108,9 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
     expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
     expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')).toBeNull();
-    expect(card.textContent).toContain("Application fee");
-    expect(card.textContent).not.toContain("Lease fee");
+    // The fees live in the Costs section now; the card carries the price and the doors.
+    expect(document.querySelector('[data-attr="listing-price-rows"]')!.textContent).toContain("Application fee");
+    expect(document.body.textContent).not.toContain("Lease fee");
   });
 
   it("offers short stays as a Monthly | Short stay segment, never a second Apply door or a booking link", () => {

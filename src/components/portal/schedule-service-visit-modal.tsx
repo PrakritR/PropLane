@@ -27,7 +27,7 @@ type SuggestSource = "availability" | "proplane-pick" | "none";
 
 const SUGGEST_SOURCE_LABEL: Record<SuggestSource, string> = {
   availability: "From your availability",
-  "proplane-pick": "✦ PropLane pick",
+  "proplane-pick": "Suggested",
   none: "Nothing free in 14 days",
 };
 

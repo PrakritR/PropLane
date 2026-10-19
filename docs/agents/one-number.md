@@ -793,6 +793,18 @@ owner without that role, and refuses to seed one.
 the manager portal's Team pane (that route enforces its own Pro/Business invite gate); the Team pop-up adds
 admins directly and links to the portal for role invites.
 
+## W22 - Bring existing owners' workspaces under PropLane Service
+
+No migration, no flag, no product code: one guarded operations script. Runbook (exact commands, undo): [`one-number-runbook.md`](one-number-runbook.md) section 5b.
+
+- `scripts/one-number/move-houses-to-service.mjs` (+ `lib/move-plan.mjs`, `backup.mjs --owner-email`). One owner per run. Dry run is the default and lists every house with residents, leases (open), bookings (upcoming), charges (open), services, applications and conversations.
+- **`--mode attach` (default).** The workspace keeps its owner. Writes only `portal_workspaces` (`is_service`, `city`, `name`, `owner_of_record_name`, owner pinned in the `where`) and one `account_link_invites` row (service owner, accepted Admin, all houses, `ADMIN_STAMP` = `stampTeamRolePermissions("admin")`, pinned by a test). An existing accepted Admin row is kept (and not removed by undo); any other row refuses. Proof: a snapshot with a fingerprint of every row (all columns) of the houses and of ~50 house-keyed tables, compared after; only the workspace row and that membership may differ, owners unchanged. Any difference or error undoes the run (exit 1). Undo deletes the membership we added and restores the workspace columns.
+- **`--mode transfer`.** The app's `transfer_portal_workspace_ownership` RPC (migrations 20260921000000 / 20261012121000): the service owner is first seated as an accepted member (the RPC only hands a workspace to a member), the former owner stays as Admin and owner of record, `is_service`/`city`/name are set, and an owner whose default workspace this was gets a fresh one from `ensure_default_portal_workspace` (undo removes it only while empty). Refuses without `--acknowledge-unmoved`: the RPC re-keys only twelve house-keyed tables; ~30 others (documents, bills, service requests, deposits, move-in forms, inspections, owner settings, tour state) keep the old owner's id, and workspace-keyed history keeps its owner column. The dry run lists them as LEFT BEHIND. `property_data.managerUserId` is not rewritten (the app's own transfer does not either). No promoted/demoted emails (RPC called directly).
+- City gate: every house must read as the city (an explicit city field, else `street, City, ST zip`); a mixed workspace, or one with an unreadable city, STOPS the run (never splits). `--workspace-id` is the captain's explicit override that skips the gate (an empty draft with no address). Two Seattle workspaces need `--workspace-id` to choose.
+- Guards: `--expect-houses <n>` (the dry run's count) on apply; journal (mode 0600) written before the first change and after each step; production needs the standard guards plus a backup taken with the same `--owner-email` (`meta.move`).
+- Attach mode and the admin Service routes: `loadServiceWorkspace` still requires the workspace to be owned by the service owner, so an attached owner-held workspace is reachable through the manager workspace switcher (the service owner is an Admin member) and from Admin > Service only once the production port's attach action relaxes that check.
+- Tests: `tests/unit/one-number-migration-move-houses.test.ts` (fake db with a port of the RPC: city rules, refusals, production guards, attach apply / re-run / undo / stray-write detection, transfer apply / undo / auto-undo, backup section). Proven on dev with two fixture owners: attach, SQL row-fingerprint identical before and after, undo, override for a no-address draft, transfer refusal without the flag; fixtures removed.
+
 ## W17 - Owner management: PropLane-held funds, party ledger, owner and vendor withdrawals
 
 Authoritative design, Stripe research, ledger and legal flag: [`owner-management.md`](owner-management.md). Migration `20261018270000_owner_management.sql` (dev applied, ledger row recorded). Dev proof: `scripts/prove-managed-finance.ts` (Stripe TEST mode only, dev database only; refuses anything else).
@@ -864,3 +876,48 @@ Captain (Oct 18): "design owner portal better, work on full design for it to mat
   `owner-portal-scope.test.ts` (narrowing, tiles, overview extras, house detail, photo and cost parsing, owner sees only their houses),
   `owner-statements-held.test.ts`, `owner-portal-guards.test.ts` (no pills, no subtext, no list titles, no sparkle, shared shell classes),
   plus the updated `property-owner-sections`, `-review-fixes`, `-membership-decides` and `owner-finances` suites.
+=======
+## W19 - Portal simplification (fold rows, tab strips, merged Settings pages)
+
+Captain: "keep the portal heavy but not too many tabs; simplify; nothing should look too AI". Nothing is dropped:
+every section id, URL, handler, tier gate, stage guard and push deep link is unchanged. Only the sidebar rows, the
+labels, the icons and the Settings grouping changed.
+
+- **One mechanism, every portal.** `src/lib/portals/nav-groups.ts` `NAV_FOLDS` / `NAV_ROW_ORDER` fold sections into
+  sidebar rows (generalising the admin pattern). `collapseNavItems`, `mergeGroupCounts`, `navRowSection`,
+  `navSectionTabsFor` are the only derivations. A row is keyed on `key` (default: its first section) and remembers
+  its members in `groupSections`. The admin names (`collapseAdminNavItems` ...) are thin wrappers.
+- **Rows.** Manager 18 to 6 (Home: Dashboard, Calendar, Tasks · Communication · Properties: Properties, Bookings,
+  Promotion · Leasing: Tours, Applications, Leases, Forms · People: Residents, Vendors, Services · Money: Incoming,
+  Outgoing, Finances, Documents). Resident 11 to 5 (Home: Dashboard, Stays · Communication · My home: My home,
+  Lease, Forms, Services · Applying: Tour, Application · Money: Payments, Documents). Vendor 9 to 4 (Home · Work:
+  Services, Calendar, Reviews · Communication · Money). Admin 8 to 7 (Settings · Dashboard with Feedback, Meetings,
+  Health · Communication · Properties · Accounts · Money · Growth; Settings is the first sidebar row and no longer
+  in the account menu; `portalDashboardPath("admin")` is `/admin/profile`).
+- **Tab strip.** `PortalSectionTabs` (mounted in the four layouts) draws a folded row's tabs along the top of the
+  LIST pages of its sections only (`isSectionListPath`: fail closed, a record page never gets a strip). Every tab is a
+  real link to its own section.
+- **Locks are per tab.** A tab is locked on its own section (`portalNavLockKind`: Free-plan upsell, resident
+  `notice` / `inert`); a row is locked only when every tab is (`portalNavRowLockKind`), so a free tab is never hidden
+  behind a sibling's paywall. A row opens on its first unlocked tab. A locked tab shows a padlock; an inert one does
+  not navigate. `portalBottomBarShowsSection` takes the row's members.
+- **Phone bar.** The curated primary lists stay per SECTION (`RESIDENT_BOTTOM_NAV_PRIMARY` and
+  `STAGE_UNLOCKED_SECTIONS` are untouched and still agree); `splitNativeBottomNavItems` maps each primary onto its
+  ROW and drops the duplicates (Lease and Services both take the My home slot).
+- **Demo.** `demo-nav.ts` folds the same way; the workspace marks a row active on any member and the cursor's
+  `nav-<id>` target resolves through `demoRowFor`.
+- **Settings.** Manager 10 to 8 pages (Billing & plan and Balance & payouts are "Billing & payouts" with id `payments`;
+  `?tab=billing` and `?tab=payouts` open it; Account is a section of Login & security, `?tab=account` opens it).
+  Vendor 14 to 10 (Quick replies and Work number & email are sections of Phone & notifications, Account is a section
+  of Login & security; `feedback` lands on Profile). Resident drops the Feedback page (Help & feedback is in the
+  account menu). Old `?tab=` ids all still resolve.
+- **Dead and stale.** Tasks registry tabs are the real four (Open, Assigned, Scheduled, Completed); the Documents
+  registry lists all ten routable tabs; the report documents (Rent, Expense, Occupancy, 1099, Tax summary) are also
+  rows in Finances > Reports (URLs stay under `/documents`), which has a search field.
+  `MANAGER_PORTAL_SETTINGS_TABS` is NOT dead (the Settings modal and `settings-module-page` read it): kept.
+- **AI-look chrome.** Sparkle icons became search/chat/pencil/book/pin glyphs, the "Ask PropLane" pill is an
+  icon-only chat button and the search placeholder says "Search", "PropLane pick" is "Suggested", "Draft with AI" is
+  "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
+  AI-review legal disclaimers are untouched.
+- Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.
+>>>>>>> claude-1

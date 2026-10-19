@@ -15,11 +15,12 @@
  */
 import Link from "next/link";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { listingContactRows, listingPrimaryCtaClass, listingSecondaryCtaClass, listingTextLinkClass } from "@/components/marketing/listing-contact-card";
+import { listingContactRows, listingPrimaryCtaClass } from "@/components/marketing/listing-contact-card";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import { QuickApplySheet } from "@/components/marketing/quick-apply-sheet";
 import { ShortStayBookingBlock, useShortStay } from "@/components/marketing/short-stay-booking";
-import { formatMoneyInLabel } from "@/components/marketing/listing-key-facts";
+import { usePublicTexting } from "@/components/marketing/public-texting-context";
+import { renterSmsHref } from "@/components/public-site/journey-paths";
 import { DateField } from "@/components/ui/date-field";
 import { Select } from "@/components/ui/input";
 import type { ListingRichContent } from "@/data/listing-rich-content";
@@ -32,7 +33,7 @@ import {
   type QuickApplyReadiness,
 } from "@/hooks/use-quick-apply-eligibility";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
-import { listingMonthlyPriceLine, listingPriceRows } from "@/lib/listing-price-line";
+import { listingMonthlyPriceLine } from "@/lib/listing-price-line";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import { listingShortStayNightlyFrom } from "@/lib/short-stay-request";
 
@@ -174,7 +175,7 @@ function SegmentControl({ value, onChange }: { value: "monthly" | "short"; onCha
     { id: "short" as const, label: "Short stay" },
   ];
   return (
-    <div role="group" aria-label="Stay type" className="mt-3 grid grid-cols-2 rounded-full border border-border bg-accent/30 p-0.5" data-attr="listing-stay-segments">
+    <div role="group" aria-label="Stay type" className="ps-ld-seg" data-attr="listing-stay-segments">
       {options.map((option) => (
         <button
           key={option.id}
@@ -182,7 +183,6 @@ function SegmentControl({ value, onChange }: { value: "monthly" | "short"; onCha
           aria-pressed={value === option.id}
           onClick={() => onChange(option.id)}
           data-attr={`listing-stay-${option.id}`}
-          className="min-h-[40px] rounded-full px-3 text-[13px] font-semibold text-muted transition aria-pressed:bg-card aria-pressed:text-foreground aria-pressed:shadow-sm"
         >
           {option.label}
         </button>
@@ -191,41 +191,89 @@ function SegmentControl({ value, onChange }: { value: "monthly" | "short"; onCha
   );
 }
 
+/** "$1,650 / mo" → the figure large, the unit small. The text content stays the one label. */
+export function PriceFigure({ label, className = "", "data-attr": dataAttr }: { label: string; className?: string; "data-attr"?: string }) {
+  const match = /^(.*?)(\s*\/\s*\S+)$/.exec(label);
+  return (
+    <p className={`ps-figure ps-ld-price ${className}`} data-attr={dataAttr}>
+      {match ? (
+        <>
+          {match[1]}
+          <span className="ps-ld-unit">{match[2]}</span>
+        </>
+      ) : (
+        label
+      )}
+    </p>
+  );
+}
+
+/**
+ * "Text us": the listing's own work number when it has one (so the reply knows which home), otherwise the
+ * PropLane line from the public layout. Null when neither is configured: the button is not drawn.
+ */
+export function useListingTextHref(property: MockProperty): string | null {
+  const publicLine = usePublicTexting().phone;
+  const own = listingContactRows(property).phone?.smsHref ?? null;
+  if (own) return own;
+  const title = property.buildingName?.trim() || property.title?.trim() || property.address?.trim() || "this home";
+  return renterSmsHref(publicLine, `Hi PropLane, I'm interested in ${title}`);
+}
+
+export const BOOK_TOUR_LABEL = "Book a tour";
+
 export function ListingPriceCard({
   property,
   rich,
   newTab,
   className = "",
+  variant = "aside",
+  showActions = true,
+  availableLine = null,
 }: {
   property: MockProperty;
   rich: ListingRichContent;
   newTab: boolean;
   className?: string;
+  /** `aside` is the sticky desktop card (price first); `inline` is the phone's block of pickers under the overview. */
+  variant?: "aside" | "inline";
+  /** The phone dock carries the actions on the public page, so its inline block leaves them out. */
+  showActions?: boolean;
+  /** "Available now" / "Next opening Oct 24" — plain text under the price. */
+  availableLine?: string | null;
 }) {
   const stay = useShortStay();
   const actions = useListingActions();
+  const textHref = useListingTextHref(property);
   const entireHome = listingIsEntireHome(property);
   const priceLine = listingMonthlyPriceLine(rich);
   const nightlyFrom = listingShortStayNightlyFrom(property.listingSubmission);
-  const priceRows = listingPriceRows(rich, property.listingSubmission as Parameters<typeof listingPriceRows>[1], stay?.offered === true ? nightlyFrom : 0, formatMoneyInLabel);
   // `stay.offered` already answers "is a short stay on offer" (a room to hold AND a nightly rate to
   // price it), which is the same answer the phone sticky bar reads.
   const segments = stay?.offered === true;
   const segment = segments && stay ? stay.segment : "monthly";
-  const contact = listingContactRows(property).phone;
   const freeRooms = stay ? stay.rooms.filter((room) => stay.verdictFor(room.id)?.free !== false) : [];
   const today = pacificTodayKey();
+  const inline = variant === "inline";
+  const showFields = Boolean(stay) && !newTab && segment !== "short";
+  const hasBody = segments || showFields || segment === "short" || showActions;
+  if (inline && !hasBody) return null;
 
   return (
-    <div className={`overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm listing-detail-surface ${className}`} data-attr="listing-price-card">
-      {segment === "short" ? (
-        <p className="text-3xl font-bold tracking-tight text-foreground" data-attr="listing-price-line">
-          from ${nightlyFrom.toLocaleString("en-US")}
-          <span className="ml-1 text-sm font-semibold text-muted">/ night</span>
-        </p>
-      ) : priceLine ? (
-        <p className="text-3xl font-bold tracking-tight text-foreground" data-attr="listing-price-line">
-          {priceLine.label}
+    <div
+      className={`${inline ? "ps-card-soft ps-ld-inline" : "ps-card ps-ld-card"} ${className}`}
+      data-attr={inline ? "listing-inline-card" : "listing-price-card"}
+    >
+      {!inline ? (
+        segment === "short" ? (
+          <PriceFigure label={`from $${nightlyFrom.toLocaleString("en-US")} / night`} data-attr="listing-price-line" />
+        ) : priceLine ? (
+          <PriceFigure label={priceLine.label} data-attr="listing-price-line" />
+        ) : null
+      ) : null}
+      {!inline && availableLine ? (
+        <p className="ps-ld-avail" data-attr="listing-available-line">
+          {availableLine}
         </p>
       ) : null}
       {segments && stay ? <SegmentControl value={stay.segment} onChange={stay.setSegment} /> : null}
@@ -234,24 +282,14 @@ export function ListingPriceCard({
         <ShortStayBookingBlock className="mt-4" quickBook={actions?.quickEligible ? actions.identity : null} />
       ) : (
         <>
-          {priceRows.length > 0 ? (
-            <dl className="mt-3 divide-y divide-border border-y border-border text-sm" data-attr="listing-price-rows">
-              {priceRows.map((row) => (
-                <div key={row.key} className="flex items-baseline justify-between gap-3 py-2">
-                  <dt className="text-muted">{row.label}</dt>
-                  <dd className="font-bold tracking-tight text-foreground">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : null}
-          {stay && !newTab ? (
-            <div className="mt-4 grid grid-cols-1 gap-2.5" data-attr="listing-monthly-fields">
-              <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="listing-move-in">
+          {showFields && stay ? (
+            <div className="ps-ld-fields" data-attr="listing-monthly-fields">
+              <label data-attr="listing-move-in">
                 Move-in
                 <DateField value={stay.moveIn} onChange={stay.setMoveIn} min={today} className="mt-1" aria-label="Move-in" />
               </label>
               {!entireHome && stay.rooms.length > 1 ? (
-                <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="listing-room-select">
+                <label data-attr="listing-room-select">
                   Room
                   <Select aria-label="Room" className="mt-1" value={stay.roomId} onChange={(e) => stay.setRoomId(e.target.value)}>
                     <option value="">Any room</option>
@@ -263,21 +301,27 @@ export function ListingPriceCard({
               ) : null}
             </div>
           ) : null}
-          <div className="mt-4 space-y-2.5">
-            <MonthlyPrimaryCta property={property} newTab={newTab} />
-            {segments && stay ? (
-              <button type="button" className={listingSecondaryCtaClass} data-attr="listing-book-short-term" onClick={() => stay.setSegment("short")}>
-                Book short term
-              </button>
-            ) : null}
-            <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className={listingSecondaryCtaClass} newTab={newTab}>
-              Schedule tour
-            </ProspectListingCta>
-          </div>
-          {contact ? (
-            <a href={contact.smsHref} className={listingTextLinkClass} data-attr="listing-text-tour">
-              Text {contact.label}
-            </a>
+          {showActions ? (
+            <div className="ps-ld-acts">
+              <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className="ps-btn ps-btn-blue" newTab={newTab}>
+                {BOOK_TOUR_LABEL}
+              </ProspectListingCta>
+              <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" />
+              {textHref ? (
+                <a href={textHref} className="ps-btn ps-btn-line" data-attr="listing-text-tour">
+                  Text us
+                </a>
+              ) : null}
+              {segments && stay ? (
+                <button type="button" className="ps-link ps-ld-more" data-attr="listing-book-short-term" onClick={() => stay.setSegment("short")}>
+                  Book short term
+                </button>
+              ) : null}
+            </div>
+          ) : segments && stay ? (
+            <button type="button" className="ps-link ps-ld-more" data-attr="listing-book-short-term" onClick={() => stay.setSegment("short")}>
+              Book short term
+            </button>
           ) : null}
         </>
       )}

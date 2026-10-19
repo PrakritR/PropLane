@@ -3,16 +3,9 @@ import { CalendarClock, CircleDollarSign, Clock3, FileText, MessageCircle, Messa
 
 import type { PendingAction } from "@/lib/axis-assistant/use-assistant-conversation";
 
-/** Small four-point sparkle used across the assistant surfaces. */
-export function AxisAssistantSparkleIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <path
-        d="M12 4.5l2.2 5.3 5.3 2.2-5.3 2.2L12 19.5l-2.2-5.3-5.3-2.2 5.3-2.2L12 4.5Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+/** Chat-bubble glyph used across the assistant surfaces. */
+export function AxisAssistantChatIcon({ className }: { className?: string }) {
+  return <MessageCircle className={className} aria-hidden="true" />;
 }
 
 /**

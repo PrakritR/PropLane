@@ -38,3 +38,13 @@ The **one-time** 5257 → 5259 pricing copy was captain-approved via
 If pricing or move-in copy must change again, the captain edits via the manager
 portal on production or issues a **new** explicit production waiver with a
 one-shot script name — never routine agent work.
+
+## Waiver — 2026-10-18 (captain, explicit, one shot)
+
+Captain: "yes you have my explicit permissions for this change" — move the SEATTLE HOMES workspace
+(owner Ambika Mago; houses 5259 Brooklyn Ave NE, 4709A 8th Ave NE, 5257 Brooklyn Ave NE — current ids
+`mgr-5257-brooklyn-ave-copy-9-rooms-7mbwr0uza0nq`, `mgr-5259-brooklyn-ave-copy-9-rooms-7mdlyj0h2vfg`,
+`mgr-listing-1x3tiu0489ha`) and Vinod's empty workspace into admin PropLane Service workspaces
+("1. Ambika", "2. Vinod") and make both owner accounts. Scope: ONE run of
+`scripts/one-number/move-houses-to-service.mjs` per owner in production, with backup, journal and verify.
+Ownership transfer only; listing content (pricing, rooms, photos, move-in) is not edited. Do not re-run.

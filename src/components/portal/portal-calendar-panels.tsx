@@ -4316,7 +4316,7 @@ export function PortalCalendarPanels({
         ? flowScroll
           ? "border-b border-border/50 bg-background"
           : "border-b border-border/50"
-        : "border-b border-border/60 bg-gradient-to-b from-accent/35 to-accent/15 [html[data-theme=dark]_&]:portal-calendar-week-banner",
+        : "border-b border-border/60 bg-accent/25 [html[data-theme=dark]_&]:portal-calendar-week-banner",
     );
     const compactBodyClass = cn(
       "portal-calendar-compact-body min-w-0 max-w-full overflow-x-hidden",

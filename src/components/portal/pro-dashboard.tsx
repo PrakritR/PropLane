@@ -136,7 +136,6 @@ import {
   MapPin,
   MessageSquare,
   SlidersHorizontal,
-  Sparkles,
   Users,
   Wallet,
   Wrench,
@@ -437,7 +436,7 @@ function AiDraftsGroup({
               data-attr="dashboard-attention-ai-draft"
               className="flex items-center gap-2.5 px-3.5 py-2.5 [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
             >
-              <DashboardGlyphTile icon={Sparkles} tone="info" />
+              <DashboardGlyphTile icon={MessageSquare} tone="info" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-foreground">{title}</span>
                 <span className="block line-clamp-2 text-[12.5px] text-muted">{subtitle}</span>

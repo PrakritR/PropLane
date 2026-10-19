@@ -46,7 +46,7 @@ export function NoImagePlaceholder({
     <div
       className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${
         branded
-          ? "bg-gradient-to-br from-accent/25 via-accent/15 to-primary/10 text-muted"
+          ? "bg-accent/20 text-muted"
           : "bg-accent/40 text-muted"
       } ${className}`}
       role="img"

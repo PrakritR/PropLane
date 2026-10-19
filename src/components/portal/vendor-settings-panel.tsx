@@ -16,7 +16,7 @@ import {
   MessageSquareText,
   Phone,
   SlidersHorizontal,
-  Sparkles,
+  BookOpen,
   UserCog,
   UserRound,
   Wrench,
@@ -58,7 +58,6 @@ import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-se
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
-import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -89,7 +88,7 @@ const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ c
   account: UserCog,
   business: Building2,
   capabilities: Wrench,
-  "ai-info": Sparkles,
+  "ai-info": BookOpen,
   integrations: CalendarSync,
   payouts: Landmark,
   invoicing: FileText,
@@ -565,15 +564,18 @@ export function VendorSettingsPanel() {
           </>
         );
       case "integrations":
-        return <VendorIntegrationsSettings onManage={() => openGroup("work-number-email")} />;
+        return <VendorIntegrationsSettings onManage={() => openGroup("messaging")} />;
       case "work-number-email":
         return <VendorWorkNumberSettings />;
       case "messaging":
-        // Phone & notifications: verify the phone job texts come to, then what reaches the inbox and phone.
+        // Phone & notifications: verify the phone job texts come to, then what reaches the inbox and phone,
+        // then the work number and email, then quick replies (their own pages until Oct 18).
         return (
           <>
             <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} title="Verify your phone" />
             <VendorNotificationsPane ctx={business} />
+            <VendorWorkNumberSettings />
+            <VendorQuickRepliesSettings />
           </>
         );
       case "preferences":
@@ -589,13 +591,13 @@ export function VendorSettingsPanel() {
                 already use for this same panel — a modal here would be the one-off
                 inconsistency, not the established pattern (studio VD69). */}
             <PortalChangePasswordPanel accountEmail={profileDraft.email} />
-            <PortalSettingsSection title="Sign out">
+            {/* Account (Oct 18) is a section of this page: who you sign in as, switch portals, sign out, delete. */}
+            <PortalSettingsSection title="Account">
               <PortalSettingsGroup>
-                <div className="px-4 py-3.5">
-                  <PortalSignOutButton dataAttr="vendor-settings-security-sign-out" />
-                </div>
+                <PortalSettingsField label="Signed in as" value={signedInEmail ?? "—"} />
               </PortalSettingsGroup>
             </PortalSettingsSection>
+            <PortalSettingsExtras currentKind="vendor" variant="session" />
           </>
         );
       case "feedback":

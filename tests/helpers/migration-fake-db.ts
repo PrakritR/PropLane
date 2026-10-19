@@ -139,6 +139,12 @@ export function fakeMigrationDb(seed: Record<string, FakeRow[]> = {}, options: O
         gte(c: string, v: unknown) { touched.push(c); filters.push((r) => compare(r[c], v) >= 0); return builder; },
         lt(c: string, v: unknown) { touched.push(c); filters.push((r) => compare(r[c], v) < 0); return builder; },
         lte(c: string, v: unknown) { touched.push(c); filters.push((r) => compare(r[c], v) <= 0); return builder; },
+        ilike(c: string, pattern: string) {
+          touched.push(c);
+          const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "i");
+          filters.push((r) => re.test(String(r[c] ?? "")));
+          return builder;
+        },
         in(c: string, vs: unknown[]) { touched.push(c); filters.push((r) => vs.includes(r[c])); return builder; },
         is(c: string, v: unknown) { touched.push(c); filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return builder; },
         not(c: string, op: string, v: unknown) {

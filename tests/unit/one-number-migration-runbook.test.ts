@@ -40,7 +40,7 @@ describe("the cutover runbook cannot rot", () => {
       for (const command of commands) {
         const script = /scripts\/one-number\/([a-z-]+\.mjs)/.exec(command)![1]!;
         const source = readFileSync(join(root, "scripts/one-number", script), "utf8");
-        const prelude = ["backfill.mjs", "backup.mjs", "cutover.mjs", "verify.mjs", "shadow-report.mjs", "create-service-workspace.mjs"].includes(script);
+        const prelude = ["backfill.mjs", "backup.mjs", "cutover.mjs", "verify.mjs", "shadow-report.mjs", "create-service-workspace.mjs", "move-houses-to-service.mjs"].includes(script);
         for (const flag of [...command.matchAll(/ --([a-z][a-z-]*)/g)].map((m) => m[1]!)) {
           const accepted = (prelude && COMMON.includes(flag)) || source.includes(`"${flag}"`) || source.includes(`flags.${flag}`) || source.includes(`"--${flag}"`);
           expect(accepted, `${script} does not accept --${flag}`).toBe(true);
