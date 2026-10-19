@@ -52,6 +52,8 @@ const REVIEWED: Record<string, string> = {
   // Owner management: the owner of record of a managed workspace is a workspace member, owner-role members included, on purpose.
   "lib/owner-management/policies.server.ts": "membership check: the owner of record is a workspace member and may hold the Property owner role",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
+  // PropLane Service: the admin Service tab lists and edits a workspace's whole team, owner-role members included, on purpose.
+  "lib/service/service-workspaces.server.ts": "admin-only: lists every live member of a service workspace so the owner of record can be set",
 };
 
 describe("account_link_invites readers", () => {

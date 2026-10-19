@@ -107,10 +107,10 @@ describe("the manager's reply lands where the owner reads", () => {
     // What one send does: the recipient filter decides, then the re-scope does.
     expect(await managerMayMessageOwner(db, MANAGER, OWNER)).toBe(true);
     expect([...(await ownerMessagingRecipientIdsForManager(db, MANAGER, [OWNER]))]).toEqual([OWNER]);
-    // `loadOwnerGrants` is 2 + one-per-link reads; memoized it runs once, and
-    // the candidate list is one query however often it is asked.
+    // `loadOwnerGrants` is 3 + one-per-link reads (the candidate list, the owner-of-record flag, the
+    // recipient filter); memoized it runs once, and the candidate list is one query however often it is asked.
     expect(reads.manager_property_records).toBe(1);
-    expect(reads.account_link_invites).toBe(2);
+    expect(reads.account_link_invites).toBe(3);
     expect(await loadOwnerGrantsOnce(db, OWNER)).toHaveLength(1);
     expect(reads.manager_property_records).toBe(1);
     // A different client starts clean.

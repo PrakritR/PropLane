@@ -254,16 +254,18 @@ describe("opening a service workspace", () => {
     expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_A, id)).toMatchObject({ ok: false, status: 403 });
   });
 
-  it("treats any workspace that is not a service workspace of the owner as not found", async () => {
+  it("treats any workspace without the service flag as not found; the flag alone is never authorization", async () => {
     const other = "66666666-6666-4666-8666-666666666666";
     db.tables.portal_workspaces.push(
       { id: other, owner_user_id: MANAGER, name: "Manager WS", is_default: true, is_service: false },
       { id: "88888888-8888-4888-8888-888888888888", owner_user_id: MANAGER, name: "Fake service", is_default: false, is_service: true },
       { id: "99999999-9999-4999-8999-999999999999", owner_user_id: OWNER, name: "Owner non-service", is_default: false, is_service: false },
     );
-    for (const id of [other, "88888888-8888-4888-8888-888888888888", "99999999-9999-4999-8999-999999999999", "nope", ""]) {
+    for (const id of [other, "99999999-9999-4999-8999-999999999999", "nope", ""]) {
       expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_A, id)).toMatchObject({ ok: false, status: 404 });
     }
+    // Flagged but owned by a client: it IS a service workspace, yet an operator who is not on its team still cannot open it.
+    expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_A, "88888888-8888-4888-8888-888888888888")).toMatchObject({ ok: false, status: 403 });
   });
 });
 
@@ -351,21 +353,64 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
     expect(db.tables.portal_workspaces[0]!.owner_of_record_name).toBe("Birch LLC");
   });
 
-  it("invites the property owner by PropLane ID as a PENDING Admin member flagged owner of record", async () => {
+  it("invites the property owner by PropLane ID as a PENDING Property owner (owner portal) flagged owner of record", async () => {
     const id = await made();
+    db.tables.manager_property_records.push(
+      { id: "house-a", manager_user_id: OWNER, workspace_id: id },
+      { id: "house-b", manager_user_id: OWNER, workspace_id: id },
+      { id: "house-x", manager_user_id: OWNER, workspace_id: "other-ws" },
+    );
     const res = await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true });
     expect(res.ok).toBe(true);
-    expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({
+    const row = db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)!;
+    expect(row).toMatchObject({
       inviter_user_id: OWNER,
       workspace_id: id,
-      team_role: "admin",
-      house_scope: "all",
+      team_role: "property_owner",
+      house_scope: "selected",
+      assigned_property_ids: ["house-a", "house-b"],
       status: "pending",
       is_owner_of_record: true,
     });
+    // Owner keys only (never a module grant), per house.
+    expect(Object.keys(row.property_co_manager_permissions as object).sort()).toEqual(["house-a", "house-b"]);
+    expect(row.property_co_manager_permissions).toMatchObject({ "house-a": { ownerPerformance: { read: true }, ownerStatements: { read: true }, ownerDocuments: { read: true } } });
+    expect(JSON.stringify(row.co_manager_permissions)).not.toMatch(/"(properties|payments|financials|residents)"/);
     // Nothing of the client's own accounts or workspaces is touched.
     expect(db.tables.portal_workspaces).toHaveLength(1);
     expect(db.tables.profile_roles).toHaveLength(4);
+  });
+
+  it("invites someone on the client's side (not the owner of record) as an Admin member", async () => {
+    const id = await made();
+    expect((await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })).ok).toBe(true);
+    expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({ team_role: "admin", house_scope: "all", is_owner_of_record: false });
+  });
+
+  it("never makes a PropLane admin the owner of record, on invite or on flag", async () => {
+    const id = await made();
+    db.tables.profiles.find((p) => p.id === ADMIN_B)!.manager_id = "AX-BBBB";
+    db.tables.profile_roles.push({ user_id: ADMIN_B, role: "manager" });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-BBBB", ownerOfRecord: true })).toMatchObject({ ok: false, status: 409 });
+    const added = (await svc.addServiceTeamMember(client(), ADMIN_A, { id, userId: ADMIN_B })) as { linkId: string };
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: added.linkId, value: true })).toMatchObject({ ok: false, status: 409 });
+    expect(db.tables.account_link_invites.find((l) => l.id === added.linkId)).toMatchObject({ team_role: "admin", is_owner_of_record: false });
+  });
+
+  it("flagging an existing client member converts them to a Property owner of the workspace's houses", async () => {
+    const id = await made();
+    db.tables.manager_property_records.push({ id: "house-a", manager_user_id: OWNER, workspace_id: id });
+    const sent = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })) as { linkId: string };
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: sent.linkId, value: true })).toEqual({ ok: true });
+    expect(db.tables.account_link_invites.find((l) => l.id === sent.linkId)).toMatchObject({
+      team_role: "property_owner",
+      house_scope: "selected",
+      assigned_property_ids: ["house-a"],
+      is_owner_of_record: true,
+    });
+    // Clearing the flag leaves the owner role in place.
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: sent.linkId, value: false })).toEqual({ ok: true });
+    expect(db.tables.account_link_invites.find((l) => l.id === sent.linkId)).toMatchObject({ team_role: "property_owner", is_owner_of_record: false });
   });
 
   it("shows a pending invitee by the invite-time name snapshot only, with no email", async () => {
@@ -373,7 +418,7 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
     await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true });
     const team = await svc.listServiceTeam(client(), ADMIN_A, id);
     const row = team.ok ? team.members.find((m) => m.userId === CLIENT)! : null;
-    expect(row).toMatchObject({ status: "pending", email: "", ownerOfRecord: true, role: "admin" });
+    expect(row).toMatchObject({ status: "pending", email: "", ownerOfRecord: true, role: "property_owner" });
     expect(team.ok && team.candidates.map((c) => c.userId)).not.toContain(CLIENT);
   });
 
@@ -383,8 +428,6 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
     db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)!.status = "accepted";
     const list = await svc.listServiceWorkspaces(client(), ADMIN_A);
     expect(list.ok && list.payload.workspaces[0]!.ownerOfRecord).toEqual({ name: "Name aaaa", linked: true });
-    // The accepted client opens it in the normal portal like any Admin member.
-    expect(await svc.authorizeOpenServiceWorkspace(client(), CLIENT, id)).toEqual({ ok: true, id });
   });
 
   it("allows only one owner of record per workspace, on invite and on flag", async () => {
@@ -420,5 +463,205 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
     const sent = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })) as { linkId: string };
     expect(await svc.removeServiceTeamMember(client(), ADMIN_A, { id, linkId: sent.linkId })).toEqual({ ok: true });
     expect(db.tables.account_link_invites.find((l) => l.id === sent.linkId)!.status).toBe("cancelled");
+  });
+});
+
+describe("attaching an existing workspace to PropLane Service (a flag plus memberships, not ownership)", () => {
+  const CLIENT_WS = "cccccccc-1111-4111-8111-cccccccccccc";
+
+  function seedClientWorkspace() {
+    db.tables.portal_workspaces.push({ id: CLIENT_WS, owner_user_id: CLIENT, name: "Ambika Homes", is_default: true, is_service: false, city: null });
+    db.tables.manager_property_records.push(
+      { id: "house-1", manager_user_id: CLIENT, workspace_id: CLIENT_WS, row_data: { rent: 1 } },
+      { id: "house-2", manager_user_id: CLIENT, workspace_id: CLIENT_WS, row_data: { rent: 2 } },
+    );
+    db.tables.audit_log = [];
+  }
+  const snapshotRows = () => JSON.stringify([db.tables.manager_property_records]);
+
+  it("flags the workspace, seats the service owner and the operator as accepted Admins, flags the owner as owner of record, and changes nothing else", async () => {
+    seedClientWorkspace();
+    const before = snapshotRows();
+    const res = await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika - Seattle", reason: "Client asked for service" });
+    expect(res).toEqual({ ok: true, id: CLIENT_WS });
+
+    const ws = db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)!;
+    // Owner and default flag are exactly as they were; the label is the workspace's name now.
+    expect(ws).toMatchObject({ owner_user_id: CLIENT, name: "Ambika - Seattle", is_default: true, is_service: true, city: "Seattle" });
+    // No property (or lease / charge) row was written, and no workspace was created or moved.
+    expect(snapshotRows()).toBe(before);
+    expect(db.rpcCalls).toEqual([]);
+    expect(db.tables.portal_workspaces).toHaveLength(1);
+
+    const links = db.tables.account_link_invites.filter((l) => l.workspace_id === CLIENT_WS);
+    expect(links.map((l) => l.invitee_user_id).sort()).toEqual([OWNER, ADMIN_A].sort());
+    for (const l of links) {
+      expect(l).toMatchObject({ inviter_user_id: CLIENT, team_role: "admin", house_scope: "all", status: "accepted", is_owner_of_record: false });
+    }
+    // Audited, with the operator as the actor and the workspace owner as the subject, and stamped applied.
+    expect(db.tables.audit_log).toHaveLength(1);
+    expect(db.tables.audit_log[0]).toMatchObject({ actor_user_id: ADMIN_A, landlord_id: CLIENT, action: "admin_service_attach" });
+    expect(db.tables.audit_log[0]!.result_summary).toEqual({ applied: true });
+  });
+
+  it("the attached workspace is listed with the other service workspaces, labelled, with its owner as owner of record", async () => {
+    seedClientWorkspace();
+    await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: "Seattle" });
+    await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika - Seattle", reason: "Client asked for service" });
+    const list = await svc.listServiceWorkspaces(client(), ADMIN_A);
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    expect(list.payload.workspaces.map((w) => w.name).sort()).toEqual(["Ambika - Seattle", "PropLane Seattle"]);
+    const attached = list.payload.workspaces.find((w) => w.name === "Ambika - Seattle")!;
+    expect(attached).toMatchObject({ city: "Seattle", houseCount: 2, ownerOfRecord: { name: "Name aaaa", linked: true }, viewerRole: "admin", canManage: true, teamCount: 2 });
+    // An admin who is not on its team sees it but cannot open it.
+    const asB = await svc.listServiceWorkspaces(client(), ADMIN_B);
+    expect(asB.ok && asB.payload.workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ viewerRole: null, canManage: false });
+    expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_B, CLIENT_WS)).toMatchObject({ ok: false, status: 403 });
+    // The operator who attached it is a member, so Open (the workspace cookie) works for them.
+    expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_A, CLIENT_WS)).toEqual({ ok: true, id: CLIENT_WS });
+  });
+
+  it("rename changes the workspace's name and city and never its owner", async () => {
+    seedClientWorkspace();
+    await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika - Seattle", reason: "Client asked for service" });
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: CLIENT_WS, name: "Ambika Portland", city: "Portland" })).toEqual({ ok: true });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ name: "Ambika Portland", city: "Portland", owner_user_id: CLIENT });
+  });
+
+  it("the owner of an attached workspace is its owner of record, so no member can also be", async () => {
+    seedClientWorkspace();
+    await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" });
+    db.tables.profiles.find((p) => p.id === CLIENT2)!.manager_id = "AX-CLNT2";
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id: CLIENT_WS, proplaneId: "AX-CLNT2", ownerOfRecord: true })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("refuses to attach a client workspace that already has a member flagged owner of record", async () => {
+    seedClientWorkspace();
+    db.tables.account_link_invites.push({ id: "ofr", inviter_user_id: CLIENT, invitee_user_id: CLIENT2, workspace_id: CLIENT_WS, team_role: "property_owner", status: "accepted", is_owner_of_record: true });
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 409 });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)!.is_service).toBe(false);
+  });
+
+  it("is admin-only, re-derived server-side: a non-admin is refused before anything is read or written", async () => {
+    seedClientWorkspace();
+    expect(await svc.attachWorkspaceToService(client(), MANAGER, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 403 });
+    expect(await svc.listServiceAttachCandidates(client(), MANAGER, "")).toMatchObject({ ok: false, status: 403 });
+    expect(db.tables.portal_workspaces[0]).toMatchObject({ is_service: false });
+    expect(db.tables.audit_log).toHaveLength(0);
+    expect(db.tables.account_link_invites).toHaveLength(0);
+  });
+
+  it("refuses a bad id, an unknown workspace, one already on the service, and an unconfigured service owner", async () => {
+    seedClientWorkspace();
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: "nope", city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 400 });
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: "dddddddd-1111-4111-8111-dddddddddddd", city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 404 });
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "c".repeat(81), label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 400 });
+    expect((await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).ok).toBe(true);
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 409 });
+    db.tables.platform_service_settings = [];
+    db.tables.portal_workspaces.push({ id: "eeeeeeee-1111-4111-8111-eeeeeeeeeeee", owner_user_id: CLIENT2, name: "Other", is_default: true, is_service: false });
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: "eeeeeeee-1111-4111-8111-eeeeeeeeeeee", city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("writes the audit row first: with no audit row nothing changes", async () => {
+    seedClientWorkspace();
+    db.failInsertOn.add("audit_log");
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 503 });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ is_service: false, city: null });
+    expect(db.tables.account_link_invites).toHaveLength(0);
+  });
+
+  it("rolls the flag and any seat it added back when a member cannot be seated", async () => {
+    seedClientWorkspace();
+    db.failInsertOn.add("account_link_invites");
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "X", reason: "Client asked for service" })).toMatchObject({ ok: false });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ is_service: false, city: null, name: "Ambika Homes", owner_user_id: CLIENT });
+    expect(db.tables.audit_log[0]!.result_summary).toMatchObject({ applied: false });
+  });
+
+  it("refuses to seat a service owner who is already on the team with a weaker role", async () => {
+    seedClientWorkspace();
+    db.tables.account_link_invites.push({ id: "vv", inviter_user_id: CLIENT, invitee_user_id: OWNER, workspace_id: CLIENT_WS, team_role: "viewer", status: "accepted" });
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 409 });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)!.is_service).toBe(false);
+  });
+
+  it("attaching a workspace the service owner already owns seats only the operator", async () => {
+    await svc.createServiceWorkspace(client(), OWNER, { name: "Plain", city: null });
+    // An owner's workspace that was not created as a service one.
+    db.tables.portal_workspaces.push({ id: "ffffffff-1111-4111-8111-ffffffffffff", owner_user_id: OWNER, name: "Own", is_default: false, is_service: false });
+    expect((await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: "ffffffff-1111-4111-8111-ffffffffffff", city: null, label: null, reason: "Client asked for service" })).ok).toBe(true);
+    expect(db.tables.account_link_invites.map((l) => l.invitee_user_id)).toEqual([ADMIN_A]);
+  });
+
+  it("refuses an attach without a usable reason (400) and writes nothing", async () => {
+    seedClientWorkspace();
+    for (const reason of [undefined, "", "  ", "ab", "r".repeat(501), 5]) {
+      expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason })).toMatchObject({ ok: false, status: 400 });
+    }
+    expect(db.tables.portal_workspaces[0]!.is_service).toBe(false);
+    expect(db.tables.audit_log).toHaveLength(0);
+    expect(db.tables.account_link_invites).toHaveLength(0);
+  });
+
+  it("stores the trimmed reason in the audit row", async () => {
+    seedClientWorkspace();
+    await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "  Owner asked us to run it  " });
+    expect(db.tables.audit_log[0]!.input_summary).toMatchObject({ reason: "Owner asked us to run it" });
+  });
+
+  it("lists attach candidates (never a service workspace), narrowed by a search over workspace and owner", async () => {
+    seedClientWorkspace();
+    db.tables.portal_workspaces.push({ id: "eeeeeeee-1111-4111-8111-eeeeeeeeeeee", owner_user_id: OUTSIDER, name: "Birch", is_default: true, is_service: false });
+    await svc.createServiceWorkspace(client(), ADMIN_A, { name: "Already", city: null });
+    const all = await svc.listServiceAttachCandidates(client(), ADMIN_A, "");
+    expect(all.ok && all.candidates.map((c) => c.name).sort()).toEqual(["Ambika Homes", "Birch"]);
+    const some = await svc.listServiceAttachCandidates(client(), ADMIN_A, "ambika");
+    expect(some.ok && some.candidates).toEqual([{ id: CLIENT_WS, name: "Ambika Homes", ownerName: "Name aaaa", ownerEmail: "aaaa@example.com" }]);
+  });
+});
+
+describe("owner-of-record and team changes leave an audit row first", () => {
+  async function made() {
+    return ((await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: "Seattle" })) as { id: string }).id;
+  }
+  const actions = () => db.tables.audit_log.map((r) => r.action);
+
+  it("records create and rename (best effort)", async () => {
+    const id = await made();
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id, name: "PropLane Seattle 2", city: "Seattle" })).toEqual({ ok: true });
+    expect(actions()).toEqual(["admin_service_create", "admin_service_rename"]);
+    expect(db.tables.audit_log[0]).toMatchObject({ actor_user_id: ADMIN_A, landlord_id: OWNER });
+  });
+
+  it("creates and renames even when the audit row cannot be written", async () => {
+    db.failInsertOn.add("audit_log");
+    const id = await made();
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id, name: "Other", city: null })).toEqual({ ok: true });
+  });
+
+  it("records an owner-of-record invite, a flag change, a team add and a removal", async () => {
+    const id = await made();
+    const sent = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true })) as { linkId: string };
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: sent.linkId, value: false })).toEqual({ ok: true });
+    const added = (await svc.addServiceTeamMember(client(), ADMIN_A, { id, userId: ADMIN_B })) as { linkId: string };
+    expect(await svc.removeServiceTeamMember(client(), ADMIN_A, { id, linkId: added.linkId })).toEqual({ ok: true });
+    expect(actions()).toEqual(["admin_service_create", "admin_service_team_invite", "admin_service_team_owner_of_record", "admin_service_team_add", "admin_service_team_remove"]);
+    expect(db.tables.audit_log[2]!.input_summary).toMatchObject({ linkId: sent.linkId, ownerOfRecord: false });
+  });
+
+  it("refuses 503 and changes nothing when the owner-of-record or team audit row cannot be written", async () => {
+    const id = await made();
+    const sent = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })) as { linkId: string };
+    const other = await made();
+    db.failInsertOn.add("audit_log");
+    const links = () => JSON.stringify(db.tables.account_link_invites);
+    const before = links();
+    expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: sent.linkId, value: true })).toMatchObject({ ok: false, status: 503 });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id: other, proplaneId: "AX-AAAA", ownerOfRecord: true })).toMatchObject({ ok: false, status: 503 });
+    expect(await svc.addServiceTeamMember(client(), ADMIN_A, { id, userId: ADMIN_B })).toMatchObject({ ok: false, status: 503 });
+    expect(await svc.removeServiceTeamMember(client(), ADMIN_A, { id, linkId: sent.linkId })).toMatchObject({ ok: false, status: 503 });
+    expect(links()).toBe(before);
   });
 });
