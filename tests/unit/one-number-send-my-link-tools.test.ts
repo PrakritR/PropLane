@@ -13,6 +13,7 @@ import {
   mintLinkForTexter,
   residentSendMyLinkTool,
   vendorSendMyLinkTool,
+  withResidentSendMyLinkTool,
   withSendMyLinkTool,
 } from "@/lib/tools/domains/one-number-links";
 import { linksFakeDb, type Row } from "../helpers/links-fake-db";
@@ -41,19 +42,54 @@ beforeEach(() => {
   mocks.listing.mockReset();
 });
 
-describe("send_my_link: flag safety", () => {
-  it("mints nothing while the workspace is not on the shared line", async () => {
+describe("send_my_link: leasing and vendor links still need the shared line", () => {
+  it("mints nothing for a prospect or vendor while the workspace is not on the shared line", async () => {
     const { db, rows } = world("per_workspace");
-    mocks.charges.mockResolvedValue([charge("c1")]);
-    expect(await residentSendMyLinkTool.handler(residentCtx(db), { purpose: "rent" })).toEqual({ ok: false, error: "links_unavailable" });
+    mocks.listing.mockResolvedValue("prop-1");
+    const prospect = { landlordId: "owner-a", userId: "owner-a", email: "", roles: [], isAdmin: false, db, leasingScope: { sessionId: "s", prospectPhoneE164: "+12065550155", channel: "sms" } } as never;
+    expect(await leasingSendMyLinkTool.handler(prospect, { purpose: "gallery", propertyId: "prop-1" })).toEqual({ ok: false, error: "links_unavailable" });
     expect(rows.phone_bound_links ?? []).toHaveLength(0);
   });
 
-  it("a pilot list that leaves the workspace out also mints nothing", async () => {
+  it("a pilot list that leaves the workspace out also mints no prospect link", async () => {
+    const { db, rows } = world("shared");
+    rows.sms_runtime_config![0]!.shared_pilot_workspace_ids = ["some-other-workspace"];
+    mocks.listing.mockResolvedValue("prop-1");
+    const prospect = { landlordId: "owner-a", userId: "owner-a", email: "", roles: [], isAdmin: false, db, leasingScope: { sessionId: "s", prospectPhoneE164: "+12065550155", channel: "sms" } } as never;
+    expect(await leasingSendMyLinkTool.handler(prospect, { purpose: "gallery", propertyId: "prop-1" })).toEqual({ ok: false, error: "links_unavailable" });
+  });
+});
+
+describe("resident send_my_link per workspace (on/smsowner)", () => {
+  it("mints a phone-bound rent link in per_workspace mode, bound to the verified phone and the charge's workspace", async () => {
+    const { db, rows } = world("per_workspace");
+    mocks.charges.mockResolvedValue([charge("c1")]);
+    const result = await residentSendMyLinkTool.handler(residentCtx(db), { purpose: "rent" });
+    expect(result).toMatchObject({ ok: true, purpose: "rent", requiresCode: true });
+    expect(rows.phone_bound_links![0]).toMatchObject({ phone_key: "2065550142", purpose: "rent", target_id: "c1", workspace_id: WS, requires_otp: true });
+  });
+
+  it("also mints for a workspace outside the shared pilot list (a number of its own)", async () => {
     const { db, rows } = world("shared");
     rows.sms_runtime_config![0]!.shared_pilot_workspace_ids = ["some-other-workspace"];
     mocks.charges.mockResolvedValue([charge("c1")]);
-    expect(await residentSendMyLinkTool.handler(residentCtx(db), { purpose: "rent" })).toEqual({ ok: false, error: "links_unavailable" });
+    expect(await residentSendMyLinkTool.handler(residentCtx(db), { purpose: "rent" })).toMatchObject({ ok: true });
+  });
+
+  it("still never mints for an unverified phone or a non-SMS turn, in any mode", async () => {
+    const { db, rows } = world("per_workspace");
+    mocks.charges.mockResolvedValue([charge("c1")]);
+    rows.profiles![0]!.phone_verified_at = null;
+    expect(await residentSendMyLinkTool.handler(residentCtx(db), { purpose: "rent" })).toEqual({ ok: false, error: "nothing_to_link" });
+    rows.profiles![0]!.phone_verified_at = "2026-09-01T00:00:00Z";
+    expect(await residentSendMyLinkTool.handler(residentCtx(db, { channel: "portal" }), { purpose: "rent" })).toEqual({ ok: false, error: "links_unavailable" });
+    expect(rows.phone_bound_links ?? []).toHaveLength(0);
+  });
+
+  it("the resident registry carries the tool on every line mode", () => {
+    const registry = new Map() as never as Parameters<typeof withResidentSendMyLinkTool>[0];
+    expect(withResidentSendMyLinkTool(registry, residentSendMyLinkTool as never).has("send_my_link")).toBe(true);
+    expect((registry as unknown as Map<string, unknown>).size).toBe(0);
   });
 });
 

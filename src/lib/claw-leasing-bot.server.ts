@@ -74,6 +74,7 @@ export {
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { isGreetingOnly, PROPLANE_FIRST_TEXT_REPLY } from "@/lib/sms/propline-first-text";
 import { TEAM_FOLLOW_UP_REPLY } from "@/lib/agent/leasing-sms-fallback";
+import { isHousingSearchText } from "@/lib/one-number/line-intent";
 
 export { clawMappedManagerEmails } from "@/lib/claw-resident-messaging.server";
 
@@ -928,7 +929,16 @@ export async function handleClawLeasingInbound(args: {
     // Non-CTA freeform from known payment/lease residents stays in the resident hub.
     const leasingThread = thread?.topic === "leasing";
     const knownResidentSender = Boolean(residentProfile) || Boolean(thread && !leasingThread);
-    if (looksLikeProspectLeasingCta(text) || leasingThread || !knownResidentSender) {
+    // on/smsowner: on the PropLane line a resident who is looking for a house is a prospect for that text (the PropLane
+    // catalog). The burst worker re-enters here, so the decision is made from the text and the line, not from a flag.
+    const residentSearchingOnServiceLine =
+      knownResidentSender &&
+      Boolean(scopedManagerId && workNumber) &&
+      isHousingSearchText(text) &&
+      (await (await import("@/lib/service/service-catalog.server"))
+        .isPropLaneServiceLine(createSupabaseServiceRoleClient(), { ownerUserId: scopedManagerId!, workNumber })
+        .catch(() => false));
+    if (looksLikeProspectLeasingCta(text) || leasingThread || !knownResidentSender || residentSearchingOnServiceLine) {
       // fall through to the prospect leasing responder below
     } else if (knownResidentSender) {
     const managerForThread =

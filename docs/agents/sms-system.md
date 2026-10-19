@@ -1783,3 +1783,10 @@ notice, then the agent's answer as "Replied: ...", into each person's OWN Assist
 (`managerAgentNoticeThreadId`), never the Team chat. The notices pass `sms: false` (the forward is their text), keyed
 `inbound-sms:<MessageSid>` / `inbound-sms-reply:<MessageSid>` so a redelivery notifies nobody twice. An unknown house no
 longer means owner-only: property managers, leasing and viewers still hear a no-house event.
+
+## Known senders on the PropLane line (Oct 19, `on/smsowner`)
+
+The PropLane line (the platform service owner's number) belongs to the PropLane service. A verified owner, teammate or owner of record of ANOTHER
+workspace gets read-only status of their own houses (never a write, never another workspace); a resident of another workspace asking to pay gets a
+phone-bound payment link for the workspace that holds their lease; a resident asking for a house is a prospect for that text. Identity is the verified
+profile phone every time; intent is decided per text (`src/lib/one-number/line-intent.ts`). Detail: `docs/agents/one-number.md` § W24.

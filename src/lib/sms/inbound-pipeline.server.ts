@@ -62,6 +62,9 @@ import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.serve
 import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { loadThreadPause } from "@/lib/one-number/session.server";
+import { answerPropLaneLineText } from "@/lib/one-number/line-inbound.server";
+import { isHousingSearchText } from "@/lib/one-number/line-intent";
+import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 import { gateAiReply } from "@/lib/one-number/knowledge/reply-modes.server";
 import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 import { attachVendorJobMedia, inboundImageBlocks, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
@@ -1170,6 +1173,57 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     return NextResponse.json({ error: "Manager assistant turn unavailable." }, { status: 503 });
   }
 
+  // ---- on/smsowner: known senders on the PropLane line ------------------------------------------------------------
+  // The PropLane line (the platform service owner's number, per_workspace mode) belongs to the PropLane service, not to
+  // the people who text it. An owner / teammate / owner of record of ANOTHER workspace gets read-only status of their own
+  // houses; a resident of another workspace asking to pay gets a phone-bound payment link. Anyone else, and any other
+  // topic, falls through below unchanged. The reply is deterministic, so a webhook retry re-derives the same text and the
+  // MessageSid dedupe key stops a second send.
+  if (!managerInbound && !(saved?.sharedLine || input.sharedLine)) {
+    const lineAnswer = await answerPropLaneLineText(db, { lineOwnerUserId: managerId, toPhone, fromPhone, body }).catch((error: unknown) => {
+      console.error("propline line answer failed", error instanceof Error ? error.name : "unknown");
+      return null;
+    });
+    if (lineAnswer) {
+      mark(`route:propline-${lineAnswer.kind}`);
+      const lineIdentity = {
+        workNumberOwnerId: managerId,
+        actorUserId: lineAnswer.actorUserId,
+        workNumber: normalizeE164(toPhone) ?? toPhone,
+        actorPhone: fromPhone,
+        access: { mode: "owner" as const, workNumberOwnerId: managerId, actorUserId: lineAnswer.actorUserId, dataOwnerIds: [], assignedPropertyIds: [] },
+      };
+      const lineConsent = await ensureManagerInboundReplyConsent(db, lineIdentity, messageSid);
+      if (lineConsent === "unavailable") {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Reply consent unavailable." }, { status: 503 });
+      }
+      if (lineConsent === "allowed") {
+        const delivered = await deliverManagerSmsReply({
+          managerUserId: managerId,
+          actorUserId: lineAnswer.actorUserId,
+          toPhone: fromPhone,
+          text: stripLongDashes(lineAnswer.reply),
+          workNumber,
+          inboundMessageSid: messageSid,
+          workspaceId: workspaceId ?? null,
+          bubbles: feel.bubbleReplies,
+          inboundText: body,
+        });
+        if (!delivered.ok && !delivered.durablyAccepted) {
+          await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+          return NextResponse.json({ error: delivered.error ?? "Reply delivery failed." }, { status: 503 });
+        }
+      }
+      // Not a Communication thread of the service owner: drop the raw inbound copy, as the manager branches do.
+      await db.from("inbound_sms_log").delete().eq("message_sid", messageSid).eq("manager_user_id", managerId).then(() => undefined, () => undefined);
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+  }
+
   // A vendor answering a dispatch offer (YES / NO / BUSY / DONE / INVOICE) is handled by code before
   // any vendor agent: the offer is the context, and the first YES must win in one conditional write.
   const dispatchVendor = await handleVendorDispatchReply(db, {
@@ -1309,8 +1363,15 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     fromPhone,
     ownerManagerUserId: managerId,
   });
-  mark(residentIdentity.ok ? "route:resident" : "route:leasing");
-  if (residentIdentity.ok) {
+  // on/smsowner: on the PropLane line a resident of the service workspace who is looking for a house gets the PropLane
+  // catalog (the prospect path below), not the resident-only agent. Decided per text; their next text about rent or a
+  // repair is a resident's again.
+  const residentSearchingForHousing =
+    residentIdentity.ok &&
+    isHousingSearchText(body) &&
+    (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone }).catch(() => false));
+  mark(residentIdentity.ok && !residentSearchingForHousing ? "route:resident" : "route:leasing");
+  if (residentIdentity.ok && !residentSearchingForHousing) {
     await projectClassifiedInbound(db, {
       managerUserId: managerId,
       role: "resident",

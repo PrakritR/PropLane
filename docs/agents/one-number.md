@@ -910,3 +910,31 @@ PropLane management.
 - **Latency.** `quietSecondsFor`: 5 s quiet window for a finished question or 4+ words, 10 s for a fragment.
 - **Scenario.** `svcline` in `scripts/one-number/e2e/scenarios-svcline.mjs` (flips to `per_workspace`, makes a fixture the service owner,
   restores both). No migration.
+
+## W24 - Owners, teammates and residents on the PropLane line (`on/smsowner`)
+
+Captain, Oct 19: "residents text 'hey is there any house available' and residents text as prospects; get sent links for payments etc.
+Managers/owners text about the status of their houses." Both line modes; no migration.
+
+- **Status for people who run houses.** `src/lib/one-number/line-member-status.server.ts` (`handleLineMemberText`). A VERIFIED phone
+  (`findVerifiedProfileByPhone`: two claimants = nobody) that is a workspace owner, an accepted teammate, or the owner of record
+  (`is_owner_of_record` Property owner seat) of an `is_service` workspace gets READ-ONLY status of THEIR workspace(s) on the PropLane
+  line: houses, rooms occupied, rent collected vs owed, open services, next tour, leases ending within 60 days
+  (`get_portfolio_status`, `portfolio-status.server.ts`, the same `summarizeRentForMonth` / availability / lease normalizer the portal and
+  digest use; a part that fails to read is named, never zero). Deterministic text, no model. A teammate sees only their assigned houses and
+  the modules granted on each (rent needs Payments); several workspaces: "Is this about A or B?" once, remembered under session key
+  `ls:<phone>` in `sms_line_sessions`. A change request is declined ("text your work number or use the portal"; a managed client is told
+  the account is view only). Never any workspace the phone does not belong to.
+- **Where it runs.** per_workspace: `answerPropLaneLineText` in `processClaimedInbound`, after the work-number manager fork, only when
+  `isPropLaneServiceLine` (the line owner's own team still gets the full manager agent). shared: the seam, before routing, for owners of
+  record only (owners and teammates already route to their workspace with the full agent, which also gains the `get_portfolio_status` tool).
+- **Residents as prospects.** `src/lib/one-number/line-intent.ts` decides intent per text (`classifyLineText`). A resident asking for a
+  house ("is there any house available", "looking for another place") is a prospect for that text: per_workspace skips the resident fork and
+  `handleClawLeasingInbound` ignores the known-resident hub on the service line; shared passes `asProspect` to the router so the lead agent
+  answers from the `is_service` catalog. Their next text about rent or a repair is a resident's again.
+- **Payment links by text.** The resident `send_my_link` (rent / move-in / lease) now mints in `per_workspace` too
+  (`withResidentSendMyLinkTool`, `allowPerWorkspace`): the same phone-bound `/l/<token>` + texted code, the code sent from the lease
+  workspace's own work number. A resident of ANOTHER workspace texting the PropLane line gets it from `handleLineResidentText`
+  (identity via `resolveResidentSmsAgentContext` bound to the landlord that holds the lease). Leasing and vendor links still need the
+  shared line. `start_rent_payment` stays the fallback; no hosted checkout link without the phone-bound unlock.
+- **Scenarios.** `owner-status`, `resident-prospect`, `resident-paylink` in `scripts/one-number/e2e/scenarios-smsowner.mjs`.

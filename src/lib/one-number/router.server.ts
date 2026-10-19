@@ -231,6 +231,11 @@ export type SharedLineRouteOptions = {
    * whose only matches are these gets `dedicatedRedirect`, and a mixed phone routes among the rest.
    */
   dedicatedWorkspaceIds?: readonly string[];
+  /**
+   * Treat the sender as a stranger for this one text: no workspace is looked up, so the lead agent answers from the
+   * PropLane catalog. For a resident asking for a new house; the caller decided that from the text, never the model.
+   */
+  asProspect?: boolean;
 };
 
 export type SharedLineRouteResult = {
@@ -280,7 +285,7 @@ export async function routeSharedLineInboundWithReply(
   session: SharedLineSession | null,
   options: SharedLineRouteOptions = {},
 ): Promise<SharedLineRouteResult> {
-  const candidates = await gatherCandidates(db, inbound);
+  const candidates = options.asProspect ? [] : await gatherCandidates(db, inbound);
   // An entry code is the way in for a stranger (spec step 6). It also settles a RETURNING PROSPECT who
   // texts another team's flyer code. For anyone with a stronger tie (team, resident, vendor, applicant)
   // the order stands and the code is ignored.

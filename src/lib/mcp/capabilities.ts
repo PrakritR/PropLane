@@ -99,6 +99,7 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "update_room_block",
   // Manager operations by text (one-number W8): they answer a texting manager and stay on the assistants.
   // A broadcast texts every resident of a house; payouts and application links are person-bound.
+  "get_portfolio_status",
   "list_tours_on_day",
   "list_unpaid_rent",
   "get_application_review_link",
