@@ -19,7 +19,6 @@ import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 // suspension otherwise exposes the short loading shell and shifts the footer.
 import "@/components/marketing/texting-home.css";
 import "@/components/marketing/home-scroll-stage.css";
-import "@/components/marketing/home-dashboard-stage.css";
 import "@/components/marketing/home-number-hero.css";
 import "@/components/marketing/resident-lifecycle-phone.css";
 import "@/components/marketing/resident-lifecycle-atmosphere.css";

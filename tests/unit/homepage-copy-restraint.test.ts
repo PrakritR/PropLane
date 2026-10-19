@@ -5,8 +5,6 @@ const homepageSources = [
   "src/app/(public)/page.tsx",
   "src/components/marketing/texting-home-hero.tsx",
   "src/components/marketing/home-number-stage.tsx",
-  "src/components/marketing/home-dashboard-stage.tsx",
-  "src/components/marketing/home-dashboard-data.ts",
   "src/components/layout/home-navbar.tsx",
 ];
 

@@ -200,36 +200,6 @@
   .home-swiss .home-section-head-row { margin-bottom: 14px; }
 }
 
-/* ── Hero phone: listing cards ── */
-.home-discovery-listings { display: flex; flex: none; flex-direction: column; gap: 6px; max-width: 94%; }
-.home-discovery-listing {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px 7px 7px;
-  border-radius: 13px;
-  background: #f0f0f2;
-  border: 1px solid #e4e4e7;
-}
-.home-discovery-tile { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: #f4f5f8; border: 1px solid #e4e4e7; color: #8a8f99; }
-.home-discovery-tile svg { width: 17px; height: 17px; stroke-width: 1.75; }
-.home-discovery-listing > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.home-discovery-listing strong { font-size: 11.5px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.home-discovery-listing span { font-size: 9.5px; line-height: 1.2; color: #64646b; white-space: nowrap; }
-.home-discovery-listing-meta { align-items: flex-end; text-align: right; }
-.home-discovery-listing-meta strong { color: #111113; }
-.home-discovery-phone .home-iphone-message > span { animation: home-discovery-in .28s ease-out both; }
-.home-discovery-phone :is(.home-iphone-card, .home-discovery-listings) { animation: home-discovery-in .28s ease-out both; }
-.home-discovery-phone .home-iphone-typing i { animation: home-discovery-dot 1s ease-in-out infinite; }
-.home-discovery-phone .home-iphone-typing i:nth-child(2) { animation-delay: .15s; }
-.home-discovery-phone .home-iphone-typing i:nth-child(3) { animation-delay: .3s; }
-@keyframes home-discovery-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes home-discovery-dot { 0%, 100% { opacity: .3; } 50% { opacity: .8; } }
-@media (prefers-reduced-motion: reduce) {
-  .home-discovery-phone * { animation: none !important; }
-}
-
 /* Contact: the number and email sit under the header, beside the form (not floating mid-height). */
 .home-swiss .swiss-contact .swiss-contact-grid { align-items: start; }
 .home-swiss .swiss-contact-grid .home-contact-intro { align-self: start; }
