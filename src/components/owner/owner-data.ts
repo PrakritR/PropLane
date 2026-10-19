@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
 
 export function formatOwnerUsd(cents: number): string {
   const sign = cents < 0 ? "-" : "";
@@ -24,15 +25,33 @@ export type OwnerFetchState<T> = {
   reload: () => void;
 };
 
+/**
+ * `url` narrowed to the active workspace. The finances list is left alone: with no `workspace` it means "my managed workspaces",
+ * and a call that already names one keeps it.
+ */
+export function withOwnerWorkspace(url: string, workspaceId: string | null): string {
+  if (!workspaceId || !url.startsWith("/api/owner/")) return url;
+  const path = url.split("?")[0]!;
+  if (path === "/api/owner/finances" || path === "/api/owner/workspaces" || /[?&]workspace=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspaceId)}`;
+}
+
 /** One owner GET. Loading and error are first-class; the caller renders all three. */
-export function useOwnerFetch<T>(url: string | null): OwnerFetchState<T> {
+export function useOwnerFetch<T>(rawUrl: string | null): OwnerFetchState<T> {
+  const workspace = useOwnerWorkspace();
+  // Inside the shell the first read waits for the workspace list, so nothing is fetched unscoped and then again scoped.
+  const waiting = workspace?.loading ?? false;
+  const url = rawUrl && !waiting ? withOwnerWorkspace(rawUrl, workspace?.activeId ?? null) : null;
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(Boolean(url));
+  const [loading, setLoading] = useState(Boolean(rawUrl));
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (!url) return;
+    if (!url) {
+      setLoading(Boolean(rawUrl) && waiting);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError(null);
@@ -50,7 +69,7 @@ export function useOwnerFetch<T>(url: string | null): OwnerFetchState<T> {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [url, tick]);
+  }, [url, tick, rawUrl, waiting]);
 
   const reload = useCallback(() => setTick((n) => n + 1), []);
   return { data, loading, error, reload };
