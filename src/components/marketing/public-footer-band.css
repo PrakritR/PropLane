@@ -16,7 +16,7 @@
 .public-simple-footer-grid { gap: 48px; align-items: center; }
 .public-simple-footer-number > a.public-simple-footer-logo { color: #f5f8ff; font-size: 22px; letter-spacing: -.035em; }
 .public-simple-footer-number > a.public-simple-footer-logo svg { color: #aecfff; width: 28px; height: 28px; }
-.public-simple-footer-number > a[data-attr="footer-text"] { color: #c6ddff; font-size: clamp(36px, 4vw, 58px); line-height: 1.08; letter-spacing: -.045em; margin-top: 18px; padding-block: 4px; }
+.public-simple-footer-number > a[data-attr="footer-text"] { color: #c6ddff; font-size: 15px; font-weight: 500; line-height: 1.4; letter-spacing: -.01em; margin-top: 10px; padding-block: 4px; }
 .public-simple-footer nav { gap: 8px 40px; }
 .public-simple-footer nav a { color: #e6eefb; font-size: 15px; font-weight: 500; padding-block: 10px; }
 .public-simple-footer a:hover { color: #fff; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 1px; }
@@ -25,7 +25,7 @@
 @media (max-width: 860px) {
   .public-simple-footer { padding: 32px 20px calc(100px + env(safe-area-inset-bottom)); }
   .public-simple-footer-grid { display: block; }
-  .public-simple-footer-number > a[data-attr="footer-text"] { font-size: clamp(32px, 9vw, 48px); margin-top: 14px; }
+  .public-simple-footer-number > a[data-attr="footer-text"] { font-size: 14px; margin-top: 10px; }
   .public-simple-footer nav { margin-top: 24px; gap: 4px 18px; }
   .public-simple-footer nav a { font-size: 14px; }
   .public-simple-footer-legal { margin-top: 24px; padding-top: 18px; }

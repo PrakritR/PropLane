@@ -24,17 +24,23 @@ describe("housing texting cover", () => {
   it("shows the headline, number, decorative housing scene and role strip", () => {
     const { container } = render(<TextingHomeHero config={config} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(HOME_HEADLINE);
-    expect(screen.getByRole("link", { name: "Text us (202) 555-0123" })).toHaveAttribute("href", config.smsHref);
+    const pill = screen.getByRole("link", { name: "Text PropLane (202) 555-0123" });
+    expect(pill).toHaveAttribute("href", config.smsHref);
+    expect(pill).toHaveTextContent("Text PropLane");
+    expect(pill.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector(".home-text-number")).toHaveTextContent("(202) 555-0123");
     expect(screen.getAllByRole("link")).toHaveLength(1);
     expect(container.querySelector(".home-housing-scene")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    expect(container.querySelector(".home-discovery-phone")).not.toBeNull();
     for (const role of ["Prospects", "Residents", "Vendors", "Owners"]) expect(screen.getByText(role)).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(container.querySelector(".rl-phone-wrap")).toBeNull();
     expect(container.querySelector("p")).toBeNull();
+    expect(container.querySelector(".home-big-number")).toBeNull();
     expect(screen.queryByText(/ONE NUMBER\. EVERY CONVERSATION\./)).not.toBeInTheDocument();
   });
 

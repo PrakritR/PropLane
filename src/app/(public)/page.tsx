@@ -4,7 +4,8 @@ import { HomeSoftwareDemo } from "@/components/marketing/home-software-demo";
 import { HomeNumberStage } from "@/components/marketing/home-number-stage";
 import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { BigNumber } from "@/components/marketing/big-number";
-import { PricingCards } from "@/components/marketing/site/pricing-cards";
+import "@/components/marketing/home-h1.css";
+import { HomePricingCompare } from "@/components/marketing/home-pricing-compare";
 import { ManagedServiceForm } from "@/components/marketing/site/managed-service-form";
 import { HOME_DESCRIPTION, HOME_HEADLINE } from "@/lib/marketing/home-copy";
 import { MANAGED_INCLUDES } from "@/lib/marketing/managed-service";
@@ -51,11 +52,23 @@ export default function HomePage() {
               <span>03</span>Service
             </div>
             <div className="swiss-service-grid">
-              <h2 className="swiss-title" id="home-service-title">
-                We manage
-                <br />
-                it for you
-              </h2>
+              <div className="swiss-service-intro">
+                <h2 className="swiss-title" id="home-service-title">
+                  We manage
+                  <br />
+                  it for you
+                </h2>
+                <p className="swiss-service-caption">
+                  Too much work to run yourself? We&apos;ll manage it for you.
+                </p>
+                <a
+                  href="#contact"
+                  className="home-btn-primary"
+                  data-attr="home-service-message-team"
+                >
+                  Message our team
+                </a>
+              </div>
               <ol className="swiss-service-list">
                 {MANAGED_INCLUDES.map((item, index) => (
                   <li key={item.id}>
@@ -84,9 +97,9 @@ export default function HomePage() {
           aria-labelledby="home-pricing-title"
         >
           <h2 className="swiss-section-label" id="home-pricing-title">
-            <span>04</span>Software plans
+            <span>04</span>Plans
           </h2>
-          <PricingCards variant="overview" />
+          <HomePricingCompare />
         </section>
         <section
           id="contact"
