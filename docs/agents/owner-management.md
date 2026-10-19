@@ -46,6 +46,17 @@ from a request. A workspace with no policy is not managed.
 7. **No flag changes behaviour for non-managed workspaces.** Code that reads a new table treats 42P01 / 42703 / PGRST205 as "not
    managed / nothing there" (production runs code before migrations).
 
+8. **A PropLane-managed workspace is view-only for its client.** `portal_workspaces.is_service` + owner = client, no
+   SELF-PAID plan (a Stripe subscription id, monthly/annual billing or an Apple anchor; admin grants, trials and waivers do
+   not count), and the client is neither a platform admin nor the platform service owner. The rule is
+   `public.managed_read_only_workspace_ids()` (migration `20261019100000`), mirrored in
+   `src/lib/auth/managed-read-only.server.ts`; it also locks an accepted `property_owner` seat. Enforced in the middleware
+   (non-allowlisted `/api/*` writes: `403 read_only_managed`, a failed lookup `503`; allowlist in
+   `managed-read-only-policy.ts`), `scopeManagerTool` (every write tool), `/api/portal-inbox-threads` (Team chat and the
+   Assistant thread only), `/api/workspaces` (rename/delete/move) and `resolveWorkspaceFromSettingsRequest`. The seated
+   admin member and platform staff keep write. Never hide it in the UI alone; deploy the migration BEFORE the code (a
+   missing function refuses every non-allowlisted write).
+
 ## Stripe model (docs.stripe.com, read Oct 18 2026)
 
 Separate charges and transfers. The charge is created on the platform account (no `transfer_data`); funds sit in the platform

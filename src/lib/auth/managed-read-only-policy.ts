@@ -68,7 +68,16 @@ export function normalizeApiPath(pathname: string): string {
       break;
     }
   }
-  const stripped = decoded.replace(/\/{2,}/g, "/");
+  const segments: string[] = [];
+  for (const segment of decoded.replace(/\/{2,}/g, "/").split("/")) {
+    if (segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length > 1) segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  const stripped = segments.join("/") || "/";
   return (stripped.length > 1 ? stripped.replace(/\/+$/, "") : stripped).toLowerCase();
 }
 
