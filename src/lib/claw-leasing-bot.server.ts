@@ -389,7 +389,7 @@ async function resolvePropertyByLabelHint(
         propertyLabel: label,
         managerUserId: p.managerUserId?.trim() || null,
       };
-      if (!catalogHomeMayAnswerHint({ scopedToOneManager, homeManagerUserId: candidate.managerUserId, managerIds: managers.map((m) => m.userId) })) continue;
+      if (!catalogHomeMayAnswerHint({ scopedToOneManager, homeManagerUserId: candidate.managerUserId ?? null, managerIds: managers.map((m) => m.userId) })) continue;
       if (hit === "exact") return candidate;
       if (!best) best = candidate;
     }
