@@ -348,7 +348,7 @@ export function PortalPropertyRecordRow({
         "portal-property-row flex w-full items-center gap-3 min-h-[56px] py-2 pl-[22px] pr-3.5 transition-colors max-lg:min-h-16 max-lg:pl-4 max-lg:pr-2",
         !flush && "border-b border-border",
         selected || checked
-          ? "bg-[var(--portal-selected-row,#f1f5ff)] shadow-[inset_2px_0_0_var(--primary)]"
+          ? "bg-[var(--portal-selected-row,#f0f4fc)] shadow-[inset_2px_0_0_var(--primary)]"
           : "hover:bg-[rgba(17,24,39,0.035)] active:bg-[rgba(17,24,39,0.07)] active:duration-75",
       )}
     >
@@ -591,7 +591,7 @@ export function PortalServiceRecordRow({
       data-record-row=""
       className={`portal-service-row flex w-full items-center gap-3 border-b border-border min-h-[56px] py-2 pl-[22px] pr-3.5 transition-colors max-lg:min-h-16 max-lg:pl-4 max-lg:pr-2 ${
         highlighted
-          ? "bg-[var(--portal-selected-row,#f1f5ff)] shadow-[inset_2px_0_0_var(--primary)]"
+          ? "bg-[var(--portal-selected-row,#f0f4fc)] shadow-[inset_2px_0_0_var(--primary)]"
           : "hover:bg-[rgba(17,24,39,0.035)] active:bg-[rgba(17,24,39,0.07)] active:duration-75"
       }`}
     >

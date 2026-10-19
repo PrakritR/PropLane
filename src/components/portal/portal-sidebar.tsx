@@ -104,7 +104,7 @@ function navLinkClass(active: boolean, locked?: boolean, unread?: boolean) {
   return cn(
     "group relative flex h-8 items-center justify-between gap-2 rounded-[7px] px-2 text-[15px] leading-5 tracking-[-0.003em] transition-colors duration-100",
     active
-      ? "bg-[var(--portal-sidebar-active-bg,#e9effe)] font-semibold text-[var(--portal-sidebar-active-fg,#1f55e0)]"
+      ? "bg-[var(--portal-sidebar-active-bg,#e9effe)] font-semibold text-[var(--portal-sidebar-active-fg,#2249a8)]"
       : locked
         ? "font-normal text-[#3c414b]/50 hover:bg-[rgba(17,24,39,0.045)]"
         : unread
@@ -794,7 +794,7 @@ export function PortalSidebar({
     <aside
       aria-hidden={collapsed || undefined}
       className={cn(
-        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,#f6f7f9)]",
+        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,#f7f7f4)]",
         // Collapsed sidebar = rail + content only.
         collapsed ? "lg:hidden" : "lg:flex",
       )}
