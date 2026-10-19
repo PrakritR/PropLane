@@ -23,7 +23,7 @@ async function relocate(db, house, { name, address, neighborhood, zip, lat, lng 
   house.name = name ?? house.name;
 }
 
-async function ensureServiceLine(h, world) {
+export async function ensureServiceLine(h, world) {
   h.fx ??= {};
   return (h.fx.svc ??= (async () => {
     const { db } = world;
@@ -58,7 +58,7 @@ async function ensureServiceLine(h, world) {
 }
 
 /** Point the platform at the fixture owner and per_workspace mode; returns a function that puts everything back. */
-async function enterPerWorkspace(db, fx) {
+export async function enterPerWorkspace(db, fx) {
   const { data: settings } = await db.from("platform_service_settings").select("*").eq("singleton", true).maybeSingle();
   const { data: cfg } = await db.from("sms_runtime_config").select("line_mode").eq("singleton", true).maybeSingle();
   const up = await db.from("platform_service_settings").upsert({ singleton: true, owner_user_id: fx.owner.id }, { onConflict: "singleton" });

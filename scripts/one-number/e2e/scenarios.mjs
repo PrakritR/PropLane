@@ -345,3 +345,5 @@ SCENARIOS.push({
 
 import { SVCLINE_SCENARIOS } from "./scenarios-svcline.mjs";
 SCENARIOS.push(...SVCLINE_SCENARIOS);
+import { SMSOWNER_SCENARIOS } from "./scenarios-smsowner.mjs";
+SCENARIOS.push(...SMSOWNER_SCENARIOS);
