@@ -89,7 +89,12 @@ async function main() {
   h.tick = Boolean(flags.tick);
   h.runId = runId;
 
-  const { data: cfg, error: cfgError } = await db.from("sms_runtime_config").select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids, pilot_manager_user_ids").eq("singleton", true).maybeSingle();
+  let cfg = null;
+  let cfgError = null;
+  for (let attempt = 0; attempt < 6 && !cfg; attempt += 1) {
+    ({ data: cfg, error: cfgError } = await db.from("sms_runtime_config").select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids, pilot_manager_user_ids").eq("singleton", true).maybeSingle());
+    if (!cfg) await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+  }
   if (cfgError || !cfg) throw new Error(`cannot read sms_runtime_config: ${cfgError?.message ?? "no row"}`);
   // A shared line that is already live with a pilot list is another run's (or a crashed run's): never snapshot it as "normal".
   if (cfg.line_mode === "shared" && (cfg.shared_pilot_workspace_ids ?? []).length > 0) {
@@ -151,4 +156,4 @@ async function main() {
   return exitCode;
 }
 
-main().then((code) => { process.exitCode = code; }, (error) => { console.error("e2e: FAILED.", error instanceof Error ? error.message : error); process.exitCode = 2; });
+main().then((code) => { process.exitCode = code; }, (error) => { console.error("e2e: harness error: FAILED.", error instanceof Error ? error.message : error); process.exitCode = 2; });
