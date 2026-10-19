@@ -170,8 +170,23 @@ export async function loadResidentManagerAttestedTenancy(
   const { data } = await query.order("updated_at", { ascending: false });
   return (data ?? []).some((record) => {
     const row = record.row_data as Record<string, unknown> | null;
-    return Boolean(row && typeof row.managerAttestedTenancyAt === "string" && row.managerAttestedTenancyAt.trim());
+    if (!row) return false;
+    if (typeof row.managerAttestedTenancyAt === "string" && row.managerAttestedTenancyAt.trim()) return true;
+    return leaseRowIsMidRenewal(row);
   });
+}
+
+/**
+ * A renewal or a move-out change clears both signatures on the SAME lease row while the new
+ * document is signed, so for that window the row reads unsigned even though the resident is
+ * mid-tenancy. The prior executed term is archived on `signedLeaseSnapshots` at that moment,
+ * which is what tells the two apart from a lease that was never signed. Without this the
+ * resident fell back to the pre-lease nav (My home, Services and Documents locked) for the
+ * whole renewal. A voided lease never counts.
+ */
+export function leaseRowIsMidRenewal(row: Record<string, unknown>): boolean {
+  if (row.status === "Voided" || (typeof row.voidedAt === "string" && row.voidedAt.trim())) return false;
+  return Array.isArray(row.signedLeaseSnapshots) && row.signedLeaseSnapshots.length > 0;
 }
 
 export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
