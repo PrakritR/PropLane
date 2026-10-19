@@ -58,6 +58,7 @@ export function itemRunner(ctx) {
     let firstMs = null;
     const c = {
       ctx,
+      note: ctx.note,
       check(name, ok, detail) { if (!ok) failed += 1; check(`#${n} ${name}`, ok, detail); },
       /** Record this reply as the item's evidence and run the hygiene checks on every bubble of it. */
       reply(r, label = "") {
@@ -66,6 +67,7 @@ export function itemRunner(ctx) {
         const tag = label ? ` (${label})` : "";
         if (!r.all) return;
         c.check(`no long dash${tag}`, !LONG_DASH.test(r.all), r.all);
+        c.check(`no markdown (** or ##) in a text message${tag}`, !/\*\*|^#{1,3} /m.test(r.all), r.all);
         c.check(`never says "work order"${tag}`, !/work ?order/i.test(r.all), r.all);
         c.check(`plain GSM-7 text${tag}`, !NON_GSM.test(r.all), JSON.stringify(r.all.match(NON_GSM)));
         const longest = Math.max(0, ...r.replies.map((b) => b.length));
@@ -178,7 +180,7 @@ MATRIX_SCENARIOS.push({
       const r = await say(ctx, P, fx.to, "hey");
       c.reply(r);
       c.check("a reply came", r.replies.length > 0, "no reply");
-      c.check("first reply within 20 s", r.firstMs !== null && r.firstMs < 20000, String(r.firstMs));
+      c.check("first reply within 45 s (10 s quiet window + model; the harness plays the scheduler)", r.firstMs !== null && r.firstMs < 45000, String(r.firstMs));
     });
 
     await item(2, "'any houses in seattle?' returns real homes", async (c) => {

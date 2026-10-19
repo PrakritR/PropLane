@@ -314,9 +314,20 @@ function propertyDisplayLabel(pd: { title?: string; address?: string; buildingNa
   return pd?.buildingName?.trim() || pd?.title?.trim() || pd?.address?.trim() || "";
 }
 
+/**
+ * May a home from the PUBLIC catalog (any owner) answer a house name in a text? Only on the old shared line, which is
+ * not scoped to one manager. A text to ONE manager's work number is that manager's conversation: a catalog home owned by
+ * anyone else would move the whole conversation (inbound log, inbox notice, reply, billing) to a stranger's account.
+ */
+export function catalogHomeMayAnswerHint(args: { scopedToOneManager: boolean; homeManagerUserId: string | null; managerIds: readonly string[] }): boolean {
+  if (!args.scopedToOneManager) return true;
+  return Boolean(args.homeManagerUserId) && args.managerIds.includes(args.homeManagerUserId as string);
+}
+
 async function resolvePropertyByLabelHint(
   labelHint: string | null,
   managers: ManagerTarget[],
+  scopedToOneManager = false,
 ): Promise<PropertyHint | null> {
   const needle = normalizeListingIdentity(labelHint ?? "");
   if (!needle) return null;
@@ -348,7 +359,8 @@ async function resolvePropertyByLabelHint(
         .property_data;
       const label = propertyDisplayLabel(pd);
       if (!id || !label) continue;
-      const hit = score(label);
+      // The house's title, building name or street address: a prospect says "the Ballard Ave house" as often as its name.
+      const hit = score(label) ?? (pd?.address?.trim() ? score(pd.address.trim()) : null);
       if (!hit) continue;
       best = {
         propertyId: id,
@@ -377,6 +389,7 @@ async function resolvePropertyByLabelHint(
         propertyLabel: label,
         managerUserId: p.managerUserId?.trim() || null,
       };
+      if (!catalogHomeMayAnswerHint({ scopedToOneManager, homeManagerUserId: candidate.managerUserId, managerIds: managers.map((m) => m.userId) })) continue;
       if (hit === "exact") return candidate;
       if (!best) best = candidate;
     }
@@ -1102,7 +1115,7 @@ export async function handleClawLeasingInbound(args: {
   let bundleId = extractBundleIdHint(text);
   const hinted =
     (await resolvePropertyHint(hintId, managers)) ??
-    (await resolvePropertyByLabelHint(extractPropertyLabelHint(text), managers));
+    (await resolvePropertyByLabelHint(extractPropertyLabelHint(text), managers, Boolean(scopedManagerId)));
   const propertyId = hinted?.propertyId || managers[0]?.defaultPropertyId || null;
   const propertyLabel =
     hinted?.propertyLabel || managers[0]?.defaultPropertyLabel || null;
