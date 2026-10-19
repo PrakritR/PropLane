@@ -38,7 +38,7 @@ export function AuthCard({
   return (
     <div className={shellClass}>
       <div
-        className="pointer-events-none absolute -inset-px rounded-[21px] bg-[linear-gradient(145deg,rgba(47,107,255,0.35),rgba(143,180,255,0.12),rgba(47,107,255,0.2))] opacity-80 sm:rounded-[25px]"
+        className="pointer-events-none absolute -inset-px rounded-[21px] bg-[linear-gradient(145deg,rgba(47,95,208,0.35),rgba(143,180,255,0.12),rgba(47,95,208,0.2))] opacity-80 sm:rounded-[25px]"
         aria-hidden
       />
       <div className="auth-card glass-card relative rounded-[20px] px-4 py-5 sm:rounded-[24px] sm:px-8 sm:py-8 md:px-10 md:py-10">

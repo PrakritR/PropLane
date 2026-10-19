@@ -57,7 +57,7 @@ export function SiteSection({
 
 export function SiteEyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2863f0)]", className)}>{children}</p>
+    <p className={cn("text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2f5fd0)]", className)}>{children}</p>
   );
 }
 

@@ -46,7 +46,7 @@ export default function BlogIndexPage() {
                   "flex h-full flex-col p-6 transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[#8fb0d4] sm:p-7",
                 )}
               >
-                <p className="text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2863f0)]">
+                <p className="text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2f5fd0)]">
                   {post.category}
                 </p>
                 <h2 className="site-display mt-3 flex-1 text-[22px] font-bold leading-snug tracking-tight text-[color:var(--site-ink,#17181a)]">

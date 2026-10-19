@@ -158,7 +158,7 @@ export function GeneralAssistantFab() {
       data-attr="general-assistant-fab"
       aria-label="Ask PropLane"
       aria-expanded={open}
-      className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-[60] flex h-14 w-14 items-center justify-center rounded-full border border-primary/20 bg-[var(--btn-primary)] text-white shadow-[0_12px_40px_-12px_rgba(47,107,255,0.75)] outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.97] lg:bottom-6 lg:right-6"
+      className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-[60] flex h-14 w-14 items-center justify-center rounded-full border border-primary/20 bg-[var(--btn-primary)] text-white shadow-[0_12px_40px_-12px_rgba(47,95,208,0.75)] outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-[0.97] lg:bottom-6 lg:right-6"
     >
       <ChatBubbleIcon className="h-6 w-6" />
     </button>
@@ -335,7 +335,7 @@ export function GeneralAssistant() {
                     className={
                       "inline-block max-w-[88%] rounded-2xl px-3.5 py-2.5 text-left " +
                       (m.role === "user"
-                        ? "whitespace-pre-wrap rounded-br-md text-white shadow-[0_8px_20px_-12px_rgba(47,107,255,0.6)]"
+                        ? "whitespace-pre-wrap rounded-br-md text-white shadow-[0_8px_20px_-12px_rgba(47,95,208,0.6)]"
                         : "rounded-bl-md border border-border bg-foreground/[0.04] text-foreground")
                     }
                     style={m.role === "user" ? { background: "var(--btn-primary)" } : undefined}

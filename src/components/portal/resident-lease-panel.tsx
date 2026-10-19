@@ -115,7 +115,7 @@ export function ResidentLeaseSignStickyBar({
       <Button
         type="button"
         variant="primary"
-        className="w-full max-w-md rounded-full py-3 text-base font-semibold shadow-[0_12px_28px_-12px_rgba(47,107,255,0.75)]"
+        className="w-full max-w-md rounded-full py-3 text-base font-semibold shadow-[0_12px_28px_-12px_rgba(47,95,208,0.75)]"
         disabled={disabled}
         data-attr="resident-lease-sign-sticky-bar-button"
         onClick={onSign}

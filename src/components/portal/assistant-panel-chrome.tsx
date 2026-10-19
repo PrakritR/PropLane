@@ -230,7 +230,7 @@ export function AssistantMessageList({
             className={
               "inline-block max-w-[88%] rounded-2xl px-3.5 py-2.5 text-left " +
               (m.role === "user"
-                ? "whitespace-pre-wrap rounded-br-md text-white shadow-[0_8px_20px_-12px_rgba(47,107,255,0.6)]"
+                ? "whitespace-pre-wrap rounded-br-md text-white shadow-[0_8px_20px_-12px_rgba(47,95,208,0.6)]"
                 : "rounded-bl-md border border-border bg-foreground/[0.04] text-foreground")
             }
             style={m.role === "user" ? { background: "var(--btn-primary)" } : undefined}

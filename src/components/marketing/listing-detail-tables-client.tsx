@@ -382,7 +382,7 @@ function ListingModalCta({
 }) {
   const className =
     variant === "primary"
-      ? "flex min-h-[48px] w-full items-center justify-center rounded-full bg-primary py-3 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(47,107,255,0.28)] transition hover:opacity-95"
+      ? "flex min-h-[48px] w-full items-center justify-center rounded-full bg-primary py-3 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(47,95,208,0.28)] transition hover:opacity-95"
       : "flex min-h-[48px] w-full items-center justify-center rounded-full border border-border bg-card py-3 text-sm font-semibold text-foreground transition hover:bg-accent/30";
   // sms: must use a plain anchor — Next Link treats it as an app route.
   if (href.startsWith("sms:")) {

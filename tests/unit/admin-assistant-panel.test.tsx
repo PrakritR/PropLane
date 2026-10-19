@@ -109,7 +109,7 @@ describe("assistant panel is always readable", () => {
     expect(dock).toMatch(/border border-border bg-card"/);
     // assistant bubble: a foreground tint with foreground text; user bubble: the primary button fill with white text
     expect(chrome).toContain("border border-border bg-foreground/[0.04] text-foreground");
-    expect(chrome).toContain('text-white shadow-[0_8px_20px_-12px_rgba(47,107,255,0.6)]');
+    expect(chrome).toContain('text-white shadow-[0_8px_20px_-12px_rgba(47,95,208,0.6)]');
     expect(chrome).toContain('"var(--btn-primary)"');
     for (const source of [rail, dock]) expect(source).not.toMatch(/(^|[\s"])dark:/);
   });

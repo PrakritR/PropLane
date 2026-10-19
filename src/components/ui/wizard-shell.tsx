@@ -58,7 +58,7 @@ export function WizardShell({
               <span
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                   active
-                    ? "bg-primary text-white shadow-[0_4px_12px_-4px_rgba(47,107,255,0.6)]"
+                    ? "bg-primary text-white shadow-[0_4px_12px_-4px_rgba(47,95,208,0.6)]"
                     : done
                       ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
                       : "border border-border bg-card text-muted"
