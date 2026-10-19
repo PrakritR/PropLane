@@ -21,7 +21,7 @@ const RULES: [SmsIntent, RegExp][] = [
     "faq",
     /\b(wi-?fi|wifi|wireless|internet|network name|password|door code|gate code|front door|key ?code|lock ?box|parking|park (my|the|a) |trash|garbage|recycl\w*|compost|bins?|laundry|washer|dryer|quiet hours|guests?|overnight|smok\w*|pets?|dogs?|cats?|house rules?|emergency (number|contact)|after hours)\b/i,
   ],
-  ["rent", /\b(rent|payment|pay(ing)?|late fee|balance|charges?|deposit|receipt|venmo|zelle|autopay|due date|owe)\b/i],
+  ["rent", /\b(rent|payment|pay(ing)?|late fee|balance|charges?|deposit|receipt|paid|autopay|due date|owe)\b/i],
   ["tour", /\b(tour|viewing|visit|see the (house|room|place)|available|availability|vacan\w+|open room|schedule a|book a)\b/i],
   ["application", /\b(appl(y|ied|ication|icant)|background check|screening|credit check|lease (sign|renew)|sign (the|my) lease|documents?)\b/i],
 ];

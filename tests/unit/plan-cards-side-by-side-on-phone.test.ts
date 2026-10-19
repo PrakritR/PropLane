@@ -17,7 +17,8 @@ import { describe, expect, it } from "vitest";
  */
 describe("plan cards on the pricing page (PRP-314 → C178)", () => {
   it("src/app/(public)/pricing/page.tsx stacks full-width on a phone and grids on desktop", () => {
-    const source = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
+    // The software plan grid moved out of the page into SoftwarePricingCards (pricing software/service tabs, Oct 18).
+    const source = readFileSync("src/components/marketing/site/pricing-cards.tsx", "utf8");
     const start = source.indexOf('data-attr="pricing-plan-stack"');
     expect(start).toBeGreaterThan(-1);
     const tag = source.slice(source.lastIndexOf("<div", start), start);

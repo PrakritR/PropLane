@@ -67,8 +67,8 @@ export function PhoneAuthForm({
     return () => controller.abort();
   }, [mode, statusVersion]);
 
-  const request = async (path: string, body: Record<string, string>): Promise<PhoneResponse> => {
-    const response = await fetch(`/api/auth/phone/${path}`, {
+  const request = async (path: "/api/auth/phone/start" | "/api/auth/phone/verify", body: Record<string, string>): Promise<PhoneResponse> => {
+    const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -98,14 +98,14 @@ export function PhoneAuthForm({
     setError(null);
     try {
       if (!challengeId || resend) {
-        const result = await request("start", { phone: submittedPhone, purpose });
+        const result = await request("/api/auth/phone/start", { phone: submittedPhone, purpose });
         if (!result.challengeId) throw new Error(REQUEST_ERROR);
         setPhone(submittedPhone);
         setChallengeId(result.challengeId);
         const codeField = formRef.current?.elements.namedItem("code") as HTMLInputElement | null;
         if (codeField) codeField.value = "";
       } else {
-        const result = await request("verify", { challengeId, code });
+        const result = await request("/api/auth/phone/verify", { challengeId, code });
         if (!result.ok) throw new Error(REQUEST_ERROR);
         if (purpose === "change_number_old") {
           if (!result.oldNumberVerified) throw new Error(REQUEST_ERROR);

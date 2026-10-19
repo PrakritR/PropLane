@@ -51,7 +51,11 @@ function mockSupabase(options: { shared?: boolean; profile?: Record<string, unkn
   const client = {
     from: (table: string) => table === "sms_runtime_config"
       ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: options.shared ? { line_mode: "shared", shared_number_e164: "+12065550999" } : null }) }) }) }
-      : (table === "manager_application_records" ? appLookup : profiles),
+      // loadSharedLineConfig also reads which workspaces hold a working number; none here. Without this table the
+      // read errors and the config deliberately falls back to per-workspace lines, which would hide the shared-line rule under test.
+      : table === "manager_sms_numbers"
+        ? { select: () => ({ not: async () => ({ data: [], error: null }) }) }
+        : (table === "manager_application_records" ? appLookup : profiles),
     auth: {
       admin: {
         getUserById: async () => ({ data: { user: { user_metadata: {} } } }),
