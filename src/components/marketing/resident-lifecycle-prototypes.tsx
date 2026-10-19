@@ -46,6 +46,7 @@ import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
+import { demoRowFor } from "@/components/marketing/site/product-mock/demo-nav";
 import { demoSidebar } from "@/components/marketing/site/product-mock/sidebar-data";
 import { worldFor } from "@/components/marketing/site/product-mock/world";
 import { DemoCursor, SETTLE_MS, sleep, type DemoCursorApi } from "./resident-lifecycle-cursor";
@@ -141,7 +142,7 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
         await sleep(step.ms);
         return finish();
       }
-      const target = await api.find(step.kind === "nav" ? `nav-${step.target}` : step.target!);
+      const target = await api.find(step.kind === "nav" ? `nav-${demoRowFor(portal, step.target!)}` : step.target!);
       if (cancelled) return;
       // A control that never renders (a visitor opened something else) must not stall the story.
       if (!target) return finish();

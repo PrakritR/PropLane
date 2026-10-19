@@ -17,7 +17,7 @@ import {
   MapPin,
   Ruler,
   ShieldCheck,
-  Sparkles,
+  Star,
   User,
   Users,
   type LucideIcon,
@@ -640,7 +640,7 @@ export function PropertyHouseDetailsListPanel({
             {splitOffer ? (
               <PortalPropertyRecordRow
                 title="Details found in your old notes"
-                leading={<PortalRowIconTile icon={Sparkles} />}
+                leading={<PortalRowIconTile icon={Star} />}
                 leadingShape="square"
                 onOpen={splitOffer.onReview}
                 dataAttr="house-info-split-banner"
@@ -682,12 +682,12 @@ export function PropertyHouseDetailsListPanel({
             {matches(`Amenities ${propertyAmenitiesSummary(sub)}`) ? (
               <PortalPropertyRecordRow
                 title="Amenities"
-                leading={<PortalRowIconTile icon={Sparkles} />}
+                leading={<PortalRowIconTile icon={Star} />}
                 leadingShape="square"
                 onOpen={() => openEditor({ kind: "amenities" })}
                 dataAttr="property-house-details-amenities-row"
                 facts={[
-                  <PortalRowFact key="amen" icon={Sparkles} srLabel="Amenities">
+                  <PortalRowFact key="amen" icon={Star} srLabel="Amenities">
                     {propertyAmenitiesSummary(sub)}
                   </PortalRowFact>,
                 ]}

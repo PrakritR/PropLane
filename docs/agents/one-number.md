@@ -810,3 +810,47 @@ Files:
 Invariants: see `owner-management.md` § Invariants. In one line: the ledger balances, every post is idempotent on a Stripe/source id, a party never withdraws more than the ledger says is matured and owed, ownership is re-derived from the policy / property / session at every write, and a managed capture that cannot be allocated throws (never falls back to a hold).
 
 Tests: `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`, `tests/unit/owner-finances.test.tsx`, `tests/unit/admin-managed-finance-panel.test.tsx`, `tests/unit/vendor-managed-balance.test.tsx`.
+
+## W19 - Portal simplification (fold rows, tab strips, merged Settings pages)
+
+Captain: "keep the portal heavy but not too many tabs; simplify; nothing should look too AI". Nothing is dropped:
+every section id, URL, handler, tier gate, stage guard and push deep link is unchanged. Only the sidebar rows, the
+labels, the icons and the Settings grouping changed.
+
+- **One mechanism, every portal.** `src/lib/portals/nav-groups.ts` `NAV_FOLDS` / `NAV_ROW_ORDER` fold sections into
+  sidebar rows (generalising the admin pattern). `collapseNavItems`, `mergeGroupCounts`, `navRowSection`,
+  `navSectionTabsFor` are the only derivations. A row is keyed on `key` (default: its first section) and remembers
+  its members in `groupSections`. The admin names (`collapseAdminNavItems` ...) are thin wrappers.
+- **Rows.** Manager 18 to 6 (Home: Dashboard, Calendar, Tasks · Communication · Properties: Properties, Bookings,
+  Promotion · Leasing: Tours, Applications, Leases, Forms · People: Residents, Vendors, Services · Money: Incoming,
+  Outgoing, Finances, Documents). Resident 11 to 5 (Home: Dashboard, Stays · Communication · My home: My home,
+  Lease, Forms, Services · Applying: Tour, Application · Money: Payments, Documents). Vendor 9 to 4 (Home · Work:
+  Services, Calendar, Reviews · Communication · Money). Admin 8 to 7 (Settings · Dashboard with Feedback, Meetings,
+  Health · Communication · Properties · Accounts · Money · Growth; Settings is the first sidebar row and no longer
+  in the account menu; `portalDashboardPath("admin")` is `/admin/profile`).
+- **Tab strip.** `PortalSectionTabs` (mounted in the four layouts) draws a folded row's tabs along the top of the
+  LIST pages of its sections only (`isSectionListPath`: fail closed, a record page never gets a strip). Every tab is a
+  real link to its own section.
+- **Locks are per tab.** A tab is locked on its own section (`portalNavLockKind`: Free-plan upsell, resident
+  `notice` / `inert`); a row is locked only when every tab is (`portalNavRowLockKind`), so a free tab is never hidden
+  behind a sibling's paywall. A row opens on its first unlocked tab. A locked tab shows a padlock; an inert one does
+  not navigate. `portalBottomBarShowsSection` takes the row's members.
+- **Phone bar.** The curated primary lists stay per SECTION (`RESIDENT_BOTTOM_NAV_PRIMARY` and
+  `STAGE_UNLOCKED_SECTIONS` are untouched and still agree); `splitNativeBottomNavItems` maps each primary onto its
+  ROW and drops the duplicates (Lease and Services both take the My home slot).
+- **Demo.** `demo-nav.ts` folds the same way; the workspace marks a row active on any member and the cursor's
+  `nav-<id>` target resolves through `demoRowFor`.
+- **Settings.** Manager 10 to 8 pages (Billing & plan and Balance & payouts are "Billing & payouts" with id `payments`;
+  `?tab=billing` and `?tab=payouts` open it; Account is a section of Login & security, `?tab=account` opens it).
+  Vendor 14 to 10 (Quick replies and Work number & email are sections of Phone & notifications, Account is a section
+  of Login & security; `feedback` lands on Profile). Resident drops the Feedback page (Help & feedback is in the
+  account menu). Old `?tab=` ids all still resolve.
+- **Dead and stale.** Tasks registry tabs are the real four (Open, Assigned, Scheduled, Completed); the Documents
+  registry lists all ten routable tabs; the report documents (Rent, Expense, Occupancy, 1099, Tax summary) are also
+  rows in Finances > Reports (URLs stay under `/documents`), which has a search field.
+  `MANAGER_PORTAL_SETTINGS_TABS` is NOT dead (the Settings modal and `settings-module-page` read it): kept.
+- **AI-look chrome.** Sparkle icons became search/chat/pencil/book/pin glyphs, the "Ask PropLane" pill is an
+  icon-only chat button and the search placeholder says "Search", "PropLane pick" is "Suggested", "Draft with AI" is
+  "Write for me", "AI info" is "Answers" (route id `ai-info` unchanged), decorative gradients are flat. The lease
+  AI-review legal disclaimers are untouched.
+- Tests: `tests/unit/portal-nav-fold.test.ts` (new), plus the updated pinned nav tests.

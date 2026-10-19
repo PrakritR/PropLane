@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowLeftRight, Check, Home, KeyRound, MapPin, ShieldCheck, Sparkles, type LucideIcon } from "lucide-react";
+import { AlertCircle, ArrowLeftRight, Check, Home, KeyRound, MapPin, ShieldCheck, BookOpen, type LucideIcon } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -50,7 +50,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   leasing: KeyRound,
   rules: ShieldCheck,
   area: MapPin,
-  custom: Sparkles,
+  custom: BookOpen,
 };
 
 function makeCustomId(): string {
@@ -393,11 +393,11 @@ export function ManagerPropertyAiInfoPanel({
             <PortalPropertyRecordRow
               key={entry.id}
               title={entry.title}
-              leading={<PortalRowIconTile icon={Sparkles} />}
+              leading={<PortalRowIconTile icon={BookOpen} />}
               leadingShape="square"
               facts={
                 <>
-                  <PortalRowFact icon={GROUP_ICONS[entry.group] ?? Sparkles} srLabel="Category">
+                  <PortalRowFact icon={GROUP_ICONS[entry.group] ?? BookOpen} srLabel="Category">
                     {groupLabel(entry.group)}
                   </PortalRowFact>
                   <PortalRowFact icon={ArrowLeftRight} srLabel="Applies to">

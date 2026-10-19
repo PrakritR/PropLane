@@ -591,6 +591,7 @@ export function ManagerFinancesPanel({
   }, [cashflowChartTick]);
   const [filters, setFilters] = useState(defaultFilters);
   const [overviewPeriod, setOverviewPeriod] = useState<FinancesPeriodKind>("year");
+  const [reportQuery, setReportQuery] = useState("");
   const [report, setReport] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [rowFilters, setRowFilters] = useState(emptyRowFilters);
@@ -1163,6 +1164,11 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
+        search={
+          isReportsHubTab
+            ? { value: reportQuery, onChange: setReportQuery, placeholder: "Search reports", dataAttr: "finances-reports-search" }
+            : undefined
+        }
         actions={isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={Landmark} label="Balance & payouts" data-attr="finances-balance-payouts" onClick={() => router.push(`${basePath}/profile?tab=payments`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
         primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={() => setEntryChooser(true)} /> : undefined}
 
@@ -1184,7 +1190,7 @@ export function ManagerFinancesPanel({
           propertyOptions={propertyOptions}
         />
       ) : isReportsHubTab ? (
-        <ManagerFinancesReports basePath={basePath} />
+        <ManagerFinancesReports basePath={basePath} query={reportQuery} />
       ) : tabId === "bills" ? (
         <ManagerBillsPanel ref={billsRef} />
       ) : tabId === "bank-reconciliation" ? (

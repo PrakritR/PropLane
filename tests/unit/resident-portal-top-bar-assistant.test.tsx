@@ -82,9 +82,9 @@ function renderStrip(kind: "resident" | "manager" | "vendor") {
 }
 
 describe("PortalTopBar launcher", () => {
-  it("renders the Ask PropLane or search bar for a resident and opens the palette on Cmd+K", () => {
+  it("renders the Search bar for a resident and opens the palette on Cmd+K", () => {
     renderStrip("resident");
-    expect(screen.getByText(/Ask PropLane or search Resident portal/)).toBeTruthy();
+    expect(screen.getByText(/^Search$/)).toBeTruthy();
     expect(document.querySelector('[data-attr="portal-ask-proplane"]')).not.toBeNull();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(document.querySelector('[data-attr="portal-command-palette"]')).not.toBeNull();
@@ -115,7 +115,7 @@ describe("PortalTopBar launcher", () => {
 
   it("keeps the launcher for the manager portal", () => {
     renderStrip("manager");
-    expect(screen.getByText(/Ask PropLane or search/)).toBeTruthy();
+    expect(screen.getByText(/^Search$/)).toBeTruthy();
   });
 
   it("the launcher is mounted for every portal kind with no per-kind branch", () => {

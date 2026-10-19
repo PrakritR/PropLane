@@ -15,7 +15,7 @@ import { smsBubbleSenderLabel } from "@/lib/manager-sms-messages";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { residentApplicationRowPlaceLine, residentApplicationRowTitle } from "@/lib/resident-application-row-label";
 import { firstNonEmptyTabToOpen } from "@/lib/portal-default-tab";
-import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
+import { NAV_FOLDS, PORTAL_NAV_GROUPS, SIDEBAR_EXCLUDED_SECTIONS, collapseNavItems, navFoldKey } from "@/lib/portals/nav-groups";
 import { RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
 import { residentPaymentsLandingBucket, residentPaymentsNavBadge } from "@/lib/resident-payments-tabs";
 import { residentDueRowCount } from "@/lib/resident-payments-due-count";
@@ -157,16 +157,28 @@ describe("R10 Lease and Forms open on the first tab with rows", () => {
   });
 });
 
-describe("R13 no group heading repeats its first row", () => {
-  it("every resident group heading differs from the label of its first row", () => {
-    for (const group of PORTAL_NAV_GROUPS.resident) {
-      const first = RESIDENT_UNIFIED_PORTAL_SECTIONS.find((section) => section.section === group.sections[0]);
-      if (!group.label || !first) continue;
-      expect(group.label.toLowerCase()).not.toBe(first.label.toLowerCase());
+describe("R13 no row label repeats another row's label", () => {
+  it("the resident sidebar has no group heading, and every row is named by its fold label", () => {
+    for (const group of PORTAL_NAV_GROUPS.resident) expect(group.label).toBeNull();
+    const rows = collapseNavItems("resident", RESIDENT_UNIFIED_PORTAL_SECTIONS);
+    const labels = rows.filter((row) => !SIDEBAR_EXCLUDED_SECTIONS.has(row.section)).map((row) => row.label.toLowerCase());
+    expect(new Set(labels).size).toBe(labels.length);
+    for (const fold of Object.values(NAV_FOLDS.resident)) {
+      const row = rows.find((r) => r.section === navFoldKey(fold));
+      expect(row?.label).toBe(fold.label);
     }
-    // The case the audit caught: "My home" over the "My home" row.
-    const myHome = PORTAL_NAV_GROUPS.resident.find((group) => group.id === "my-home");
-    expect(myHome?.label).toBeNull();
+  });
+  it("no fold label is the label of a section in a different row", () => {
+    for (const [id, fold] of Object.entries(NAV_FOLDS.resident)) {
+      for (const section of RESIDENT_UNIFIED_PORTAL_SECTIONS) {
+        if (fold.sections.includes(section.section)) continue;
+        expect({ fold: id, other: section.section, same: section.label.toLowerCase() === fold.label.toLowerCase() }).toEqual({
+          fold: id,
+          other: section.section,
+          same: false,
+        });
+      }
+    }
   });
 });
 

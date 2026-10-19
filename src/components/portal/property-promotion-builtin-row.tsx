@@ -8,7 +8,6 @@ import {
   Link2,
   Megaphone,
   QrCode,
-  Sparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
@@ -82,7 +81,7 @@ export function PropertyPromotionBuiltinFacts({
   kind: PropertyPromotionBuiltinDef["kind"];
   detail: string;
 }) {
-  const icon = kind === "print" ? QrCode : kind === "text" ? Sparkles : Megaphone;
+  const icon = kind === "print" ? QrCode : Megaphone;
   return (
     <>
       <PortalRowFact icon={icon}>{detail}</PortalRowFact>

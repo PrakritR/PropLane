@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, Clock, MessageSquare, Navigation, Send, Sparkles, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, Clock, MessageSquare, Navigation, Send, MapPin, type LucideIcon } from "lucide-react";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
 import { ServiceStageStepper } from "@/components/portal/service-details-section";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -1101,7 +1101,7 @@ export function VendorWorkOrdersPanel({
     const fact = vendorServiceFact({ row, bid, offer, invoiceSent: invoicedIds.has(row.id) });
     const actionItems = vendorServiceActions({ row, bid, offer, invoiceSent: invoicedIds.has(row.id) });
     const budgetCents = near ? (row.marketplacePublish?.budgetCents ?? 0) : 0;
-    const factIcon = stage === "scheduled" ? CalendarDays : stage === "completed" ? Check : near && !bid ? Sparkles : Clock;
+    const factIcon = stage === "scheduled" ? CalendarDays : stage === "completed" ? Check : near && !bid ? MapPin : Clock;
     return (
       <div key={row.id} id={`portal-work-order-${row.id}`}>
         <VendorServiceCardRow

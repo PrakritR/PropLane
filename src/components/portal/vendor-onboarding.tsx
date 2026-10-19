@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Building2, FileCheck2, MessageSquareText, ShieldCheck, Sparkles } from "lucide-react";
+import { Building2, FileCheck2, MessageSquareText, ShieldCheck, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
@@ -191,9 +191,9 @@ export function VendorOnboardingFlow() {
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4" data-attr="vendor-onboarding-done-ai-info">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden>
-            <Sparkles className="size-4" />
+            <BookOpen className="size-4" />
           </span>
-          <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">AI info</p>
+          <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">Answers</p>
           <Link
             href={vendorSettingsHref("ai-info")}
             className="text-sm font-semibold text-primary underline-offset-2 hover:underline"

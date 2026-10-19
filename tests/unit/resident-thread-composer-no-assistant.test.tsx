@@ -105,7 +105,7 @@ describe("resident thread composer", () => {
     await screen.findByPlaceholderText(/reply/i);
     expect(screen.queryByText(/auto-send/i)).toBeNull();
     expect(document.querySelector("[data-attr=resident-inbox-reply-auto-send]")).toBeNull();
-    expect(screen.queryByRole("button", { name: "AI" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Assistant" })).toBeNull();
     expect(document.querySelector("[data-attr=inbox-composer-ai-menu]")).toBeNull();
     expect(document.querySelector("[data-attr=inbox-ai-draft-generate]")).toBeNull();
     expect(screen.queryByText(/Draft with PropLane/i)).toBeNull();

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Settings > Business > AI info, and the end of vendor onboarding ("You're set up" with the number).
+// Settings > Business > Answers, and the end of vendor onboarding ("You're set up" with the number).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
@@ -24,10 +24,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Settings > Business > AI info", () => {
+describe("Settings > Business > Answers", () => {
   it("is a page in the Business group with its own deep link", () => {
     const business = VENDOR_SETTINGS_RAIL.find((g) => g.label === "Business")!;
-    expect(business.pages.map((p) => p.label)).toContain("AI info");
+    expect(business.pages.map((p) => p.label)).toContain("Answers");
     expect(resolveVendorSettingsTab("ai-info")).toBe("ai-info");
     expect(vendorSettingsHref("ai-info")).toBe("/vendor/profile?tab=ai-info");
     expect(readFileSync(join(process.cwd(), "src/components/portal/vendor-settings-panel.tsx"), "utf8")).toContain('case "ai-info"');
@@ -91,7 +91,7 @@ describe("vendor onboarding Finish", () => {
   }
   beforeEach(() => nav.push.mockClear());
 
-  it("asks the server to finish, then shows the number with a copy icon and the AI info link", async () => {
+  it("asks the server to finish, then shows the number with a copy icon and the Answers link", async () => {
     const patch = stubFetch({ status: "provisioned", phoneNumber: "+12065550177" });
     render(<VendorOnboardingFlow />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Finish" })).toBeTruthy());

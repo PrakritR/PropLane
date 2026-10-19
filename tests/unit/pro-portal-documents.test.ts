@@ -9,9 +9,20 @@ describe("pro portal documents section", () => {
     expect(sections).toContain("financials");
   });
 
-  it("documents tabs are applications, leases, and other", () => {
+  it("documents tabs are the three the strip draws, then every other routable tab", () => {
     const documents = proPortal.sections.find((s) => s.section === "documents");
-    expect(documents?.tabs.map((t) => t.id)).toEqual(["applications", "leases", "other"]);
+    expect(documents?.tabs.map((t) => t.id)).toEqual([
+      "applications",
+      "leases",
+      "other",
+      "library",
+      "templates",
+      "income-documents",
+      "expense-documents",
+      "occupancy",
+      "1099",
+      "tax-summary",
+    ]);
   });
 
   it("finances tabs are income and expenses only in nav", () => {

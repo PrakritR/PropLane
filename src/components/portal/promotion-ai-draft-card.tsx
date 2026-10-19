@@ -84,7 +84,7 @@ export function PromotionAiDraftCard({
   promptId,
   onDraft,
   drafting,
-  draftLabel = "Draft with AI",
+  draftLabel = "Write for me",
   draftingLabel = "Drafting…",
   draftDataAttr = "promotion-ai-draft",
   images,
