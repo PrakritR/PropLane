@@ -16,7 +16,7 @@ import {
   readRoleAnswer,
   type OnboardingRole,
 } from "@/lib/one-number/onboarding/role-detect";
-import { loadRecordedTurn, recordTurn } from "@/lib/one-number/onboarding/turn-replay.server";
+import { claimTurn, completeTurn, releaseTurn } from "@/lib/one-number/onboarding/turn-replay.server";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { readOnboardingState, saveOnboardingState, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
 import { handleUnassignedLeadInbound, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
@@ -95,13 +95,22 @@ async function landlordTurn(db: SupabaseClient, inbound: SharedLineInbound, stat
  * With `sms_onboarding_state` missing (code before the migration) this is exactly the old lead path.
  */
 export async function handleUnknownSenderInbound(db: SupabaseClient, inbound: SharedLineInbound, deps: UnknownSenderDeps = {}): Promise<UnknownSenderTurn> {
-  // Idempotent per MessageSid: a Twilio retry gets the recorded turn back unchanged and advances nothing.
+  // Idempotent per MessageSid, claimed BEFORE the turn runs: a Twilio retry that lands during a slow
+  // model call gets nothing (the first worker is still on it) or the recorded turn, never a second turn.
   const sid = inbound.messageSid?.trim();
   if (!sid) return runUnknownSenderTurn(db, inbound, deps);
-  const recorded = await loadRecordedTurn<UnknownSenderTurn>(db, sid, inbound.phoneKey, deps.now?.());
-  if (recorded) return recorded;
-  const turn = await runUnknownSenderTurn(db, inbound, deps);
-  await recordTurn(db, sid, inbound.phoneKey, turn, deps.now?.());
+  const claim = await claimTurn<UnknownSenderTurn>(db, sid, inbound.phoneKey, deps.now?.());
+  if (claim.kind === "replay") return claim.turn;
+  if (claim.kind === "inflight") return { leadId: null, reply: null, assignedWorkspaceId: null };
+  if (claim.kind === "unavailable") return runUnknownSenderTurn(db, inbound, deps);
+  let turn: UnknownSenderTurn;
+  try {
+    turn = await runUnknownSenderTurn(db, inbound, deps);
+  } catch (error) {
+    await releaseTurn(db, sid);
+    throw error;
+  }
+  await completeTurn(db, sid, turn, deps.now?.());
   return turn;
 }
 

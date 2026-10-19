@@ -12,7 +12,7 @@ export type LeadFakeDb = {
   db: never;
   rows: Record<string, LeadRow[]>;
   /** Every `{ table, op }` in order. */
-  log: { table: string; op: "select" | "insert" | "update" | "upsert" }[];
+  log: { table: string; op: "select" | "insert" | "update" | "upsert" | "delete" }[];
 };
 
 const read = (row: LeadRow, column: string): unknown => row[column];
@@ -29,7 +29,7 @@ export function leadFakeDb(
   const db = {
     from(table: string) {
       const filters: ((row: LeadRow) => boolean)[] = [];
-      let mode: "select" | "insert" | "update" | "upsert" = "select";
+      let mode: "select" | "insert" | "update" | "upsert" | "delete" = "select";
       let payload: LeadRow[] = [];
       let patch: LeadRow = {};
       let returning = false;
@@ -67,6 +67,11 @@ export function leadFakeDb(
           return { data: returning ? inserted : null, error: null };
         }
         const matched = list.filter((row) => filters.every((f) => f(row)));
+        if (mode === "delete") {
+          const doomed = list.filter((row) => filters.every((f) => f(row)));
+          rows[table] = list.filter((row) => !doomed.includes(row));
+          return { data: returning ? doomed : null, error: null };
+        }
         if (mode === "update") {
           for (const row of matched) Object.assign(row, patch);
           return { data: returning ? matched : null, error: null };
@@ -109,6 +114,7 @@ export function leadFakeDb(
           onConflict = (opts?.onConflict ?? "id").split(",").map((k) => k.trim());
           return q;
         },
+        delete() { mode = "delete"; return q; },
         update(value: LeadRow) { mode = "update"; patch = value; return q; },
         eq(column: string, value: unknown) { filters.push((r) => read(r, column) === value); return q; },
         in(column: string, values: unknown[]) { filters.push((r) => values.includes(read(r, column))); return q; },
@@ -142,5 +148,6 @@ export const LEAD_CONSTRAINTS: Record<string, Constraint> = {
     row.status === "open" && existing.some((r) => r.status === "open" && r.phone_key === row.phone_key) ? "23505" : null,
   sms_unassigned_lead_turns: (row, existing) =>
     row.message_sid != null && existing.some((r) => r.message_sid === row.message_sid) ? "23505" : null,
+  sms_onboarding_replies: (row, existing) => (existing.some((r) => r.message_sid === row.message_sid) ? "23505" : null),
   sms_entry_codes: (row, existing) => (existing.some((r) => r.code === row.code) ? "23505" : null),
 };
