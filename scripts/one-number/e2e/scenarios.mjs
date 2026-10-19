@@ -342,3 +342,6 @@ SCENARIOS.push({
     check("team A's declined run was not touched by the YES", runsA?.[0]?.status !== "accepted", JSON.stringify(runsA));
   },
 });
+
+import { SVCLINE_SCENARIOS } from "./scenarios-svcline.mjs";
+SCENARIOS.push(...SVCLINE_SCENARIOS);
