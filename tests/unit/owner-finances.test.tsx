@@ -30,7 +30,7 @@ function view(over: Record<string, unknown> = {}) {
       rows: [
         { id: "r1", date: "2026-10-03T10:00:00Z", kind: "rent", label: "Rent collected", amountCents: 100_000, propertyLabel: "12 Maple St" },
         { id: "r2", date: "2026-10-03T10:00:00Z", kind: "fee", label: "PropLane fee", amountCents: -10_000 },
-        { id: "r3", date: "2026-10-05T10:00:00Z", kind: "vendor_charge", label: "Leaky tap · Pipes Co", amountCents: -12_000, href: "/portal/services/abc" },
+        { id: "r3", date: "2026-10-05T10:00:00Z", kind: "vendor_charge", label: "Leaky tap · Pipes Co", amountCents: -12_000, href: "/portal/services/abc", propertyId: "house-1" },
       ],
       totals: { rentGrossCents: 100_000, feeCents: -10_000, vendorChargesCents: -12_000, otherCents: 0, netCents: 78_000, withdrawalsCents: 0 },
       endingCents: 178_000,
@@ -96,6 +96,8 @@ describe("OwnerFinancesPage", () => {
     expect(screen.getByText("12 Maple St")).toBeTruthy();
     expect(screen.getByText("Leaky tap · Pipes Co")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Leaky tap · Pipes Co" })).toBeTruthy();
+    // The ledger's own link is the manager's service record, which an owner account cannot open: it is never followed.
+    expect(document.body.innerHTML).not.toContain("/portal/services/abc");
     expect(screen.getByText("Completed")).toBeTruthy();
   });
 
