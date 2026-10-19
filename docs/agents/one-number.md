@@ -930,6 +930,13 @@ form bodies against the **dev** database (`emstjswhotsnyksqhqyf`; `resolveTarget
   users) and restores the config. `--only a,b`, `--keep`, `--reap <ledger.json>` (crashed run), `--sweep` (every leftover
   `e2e-*@proplane-e2e.test` user), `--tick` (also call the burst and outbox crons, which sweep the whole shared database).
 - **Guards.** A run refuses to start when the config is already `shared` with a pilot list (another run, or a crashed one).
-- Fixes it drove: see the git log of `on/msge2e` (shared-line workspace for the leasing turn and its billing, comms-pool funding row for
-  workspaces created after the backfill, projection of five inbound kinds, the pick carried to the leasing agent, a malformed listing no
-  longer silencing the lead search, burst original proof on the shared line `20261019010000`, today's date for the tour-slot tool).
+- **Concurrency.** `sms_runtime_config` is one shared dev row: two runs (or a run and someone's `--sweep`) at once clobber each other. A run
+  refuses to start when the config is already `shared` with a pilot list. `--reap <ledger>` leaves the config alone unless `--restore-config`.
+- **Known limits.** The dev model client (undici over HTTP/2) sometimes drops mid-turn ("could not finish that request"): the harness
+  resends once. The shared dev API gets slow under several panes; a run can time out, and its cleanup (`--reap`) is safe to repeat.
+  Resident and vendor LLM flows (B, C, G) are model-driven and were not seen passing end to end; D, E, F and A pass.
+- Fixes it drove (git log of `on/msge2e`): shared-line workspace for the leasing turn and its billing; comms-pool funding row for
+  workspaces created after the backfill; projection of five inbound kinds; the pick carried to the leasing agent; a malformed listing no
+  longer silencing the lead search; burst original proof on the shared line (`20261019010000`); today's date for the tour-slot tool; no
+  second claim completion (503) on a manager reply; lockout is not "call 911" and is filed as a service; "service" in the manager tools'
+  confirmations; plain quotes and "to" in SMS previews; one question per triage text; the rent figure from the ledger.
