@@ -103,11 +103,11 @@ describe("OTP lockout", () => {
     expect(await verifyLinkUnlockCode(db, link, right)).toEqual({ ok: false, reason: "locked" });
   });
 
-  it("a guesser gets at most 15 tries an hour: three codes of five, then the fourth code is refused", async () => {
+  it("a guesser gets at most 10 wrong tries: two codes of five, then the third code is refused (the phone-wide failure cap)", async () => {
     const { db } = world();
     const { link } = await rentLink(db);
     let tries = 0;
-    for (let round = 0; round < 3; round += 1) {
+    for (let round = 0; round < 2; round += 1) {
       expect((await requestLinkUnlockCode(db, link)).ok).toBe(true);
       const right = codeOf(round);
       for (let i = 0; i < 5; i += 1) {
@@ -116,9 +116,9 @@ describe("OTP lockout", () => {
       }
       expect(await verifyLinkUnlockCode(db, link, right)).toEqual({ ok: false, reason: "locked" });
     }
-    expect(tries).toBe(15);
+    expect(tries).toBe(10);
     expect(await requestLinkUnlockCode(db, link)).toEqual({ ok: false, reason: "rate_limited" });
-    expect(sim.texts).toHaveLength(3);
+    expect(sim.texts).toHaveLength(2);
   });
 
   it("a fresh code after a lockout works, and the locked one stays dead", async () => {
