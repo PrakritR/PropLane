@@ -643,8 +643,16 @@ over the SAME write, uploaded-lease reader and send gate as before
 `signedLeaseSnapshots`, clears signatures and the old executed PDF, and stashes
 `pendingRenewal`. Listing `rooms[].monthlyRent` is never written — house
 advertised price stays put. Future / pending rent follows the new terms only
-after both e-signatures **or** Mark as signed (`applySignedLeaseRenewal`). Paid
-charges stay.
+after both e-signatures **or** Mark as signed (`applySignedLeaseRenewal`), from
+either countersign surface (Leases and the resident record). Paid charges stay.
+A renewal **extends the tenancy, it is not a new move-in**: the application keeps its
+original start (`leaseStart` / `moveInDate`; only a short stay takes the renewal's
+dates), so the move-in schedule never rebuilds, and the recurring profile keeps
+`priorRent` so months before the renewal's first month bill the old rent and only
+months from it bill the new one. A Month-to-Month renewal has an empty `leaseEnd`
+and must survive row normalization. While the renewed lease is unsigned the
+resident keeps portal access (`leaseRowIsMidRenewal`: a prior executed term sits
+on `signedLeaseSnapshots`). Pinned by `tests/unit/lease-renewal-charges.test.ts`.
 - `executedJurisdiction` and `templateVersion` are null on every row until
   someone populates them at generation time.
 - Rows seeded as `externallySignedLease` carry synthetic signatures and no hash.
