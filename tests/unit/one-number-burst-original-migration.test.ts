@@ -15,7 +15,7 @@ describe("burst original on the shared line (SQL)", () => {
     expect(sql.slice(work, shared)).toMatch(/if v_line_count <> 1 then/);
   });
   it("requires a live shared line, the configured number, a router-stamped workspace and the same owner", () => {
-    for (const needle of ["c.line_mode = 'shared'", "c.shared_number_e164 = v_to", "w.owner_user_id = v_owner", "v_receipt.manager_user_id = v_owner", "inbound_payload->>'workspaceId'"]) {
+    for (const needle of ["c.line_mode = 'shared'", "c.shared_number_e164 = v_to", "w.owner_user_id = v_owner", "v_receipt.manager_user_id = v_owner", "inbound_payload->>'workspaceId'", "v_log.workspace_id"]) {
       expect(sql).toContain(needle);
     }
   });

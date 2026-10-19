@@ -109,13 +109,13 @@ begin
     if v_line_count <> 1 then
       -- The shared PropLane line has no manager_sms_numbers row. It is proven the same way the application proves
       -- it for the projection: the receipt was sent to the configured shared number while the line is live, and
-      -- the claim payload's workspace (stamped by the router, never by the sender) belongs to the projected owner,
+      -- the workspace the router stamped (on the claim payload while it is held, on the inbound log after it is completed; never by the sender) belongs to the projected owner,
       -- who is also the receipt holder. The line id of a shared line IS that workspace id.
       select count(*), (array_agg(w.id))[1] into v_line_count, v_line_id
         from public.sms_runtime_config c
         join public.portal_workspaces w
-          on w.id = case when v_receipt.inbound_payload->>'workspaceId' ~ '^[0-9a-fA-F-]{36}$'
-                         then (v_receipt.inbound_payload->>'workspaceId')::uuid end
+          on w.id = case when coalesce(nullif(v_receipt.inbound_payload->>'workspaceId',''), v_log.workspace_id::text) ~ '^[0-9a-fA-F-]{36}$'
+                         then coalesce(nullif(v_receipt.inbound_payload->>'workspaceId',''), v_log.workspace_id::text)::uuid end
         where c.singleton and c.line_mode = 'shared' and c.shared_number_e164 = v_to
           and w.owner_user_id = v_owner and v_receipt.manager_user_id = v_owner;
     end if;
