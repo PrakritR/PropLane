@@ -3,6 +3,7 @@ import { createSmsMediaSignedUrl } from "@/lib/sms-media.server";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadWorkspaces } from "@/lib/workspaces/server";
 
 export const runtime = "nodejs";
 
@@ -21,8 +22,16 @@ async function teammateMayReadSmsMedia(
       .maybeSingle();
     const workspaceId = String(file?.workspace_id ?? "").trim();
     if (!workspaceId) return false;
+    // Team membership is not a grant: the viewer needs Communication (inbox) on at least one house
+    // of the workspace the file belongs to. `ownerIds` / `grantedHousesByOwner` carry only houses
+    // positively granted at `read`.
     const scope = await resolveCommunicationScope(db, viewerId, "read");
-    return scope.teamWorkspacesByOwner?.get(ownerId)?.has(workspaceId) === true;
+    if (scope.teamWorkspacesByOwner?.get(ownerId)?.has(workspaceId) !== true) return false;
+    if (!scope.ownerIds.includes(ownerId)) return false;
+    const granted = scope.grantedHousesByOwner.get(ownerId);
+    if (!granted || granted.size === 0) return false;
+    const workspace = (await loadWorkspaces(db, viewerId)).find((w) => w.id === workspaceId);
+    return Boolean(workspace && workspace.ownerUserId === ownerId && workspace.propertyIds.some((id) => granted.has(String(id))));
   } catch {
     return false;
   }

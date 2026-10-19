@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createConversationFakeDb, type FakeDb } from "../helpers/conversation-fake-db";
 import { legacyPhoneWriteDecision } from "@/lib/auth/legacy-phone-write";
 
-const state = vi.hoisted(() => ({ db: null as unknown, shared: true, sendSms: vi.fn() }));
+const state = vi.hoisted(() => ({ db: null as unknown, shared: true, readFailed: false, sendSms: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: "user", email: "u@example.test" } } }) } }),
 }));
 vi.mock("@/lib/auth/session-rejection", () => ({ getUserOrRejection: async () => ({ user: { id: "user" } }) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
-vi.mock("@/lib/one-number/config.server", () => ({ loadSharedLineConfig: async () => ({ mode: state.shared ? "shared" : "per_workspace" }) }));
+vi.mock("@/lib/one-number/config.server", () => ({
+  loadSharedLineConfig: async () => ({ mode: state.shared ? "shared" : "per_workspace" }),
+  loadSharedLineConfigStrict: async () => (state.readFailed ? { ok: false } : { ok: true, config: { mode: state.shared ? "shared" : "per_workspace" } }),
+}));
 vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: async () => undefined }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecord: async () => ({ id: "vendor", managerUserId: "owner", row: { id: "vendor", phone: "+12065550100" } }) }));
@@ -29,6 +32,7 @@ function request(body: object) {
 }
 beforeEach(() => {
   state.shared = true;
+  state.readFailed = false;
   state.sendSms.mockReset();
   db = createConversationFakeDb({ profiles: [{ id: "user", role: "vendor", phone: PHONE, phone_verified_at: "2026-10-18T00:00:00Z" }], manager_vendor_records: [{ id: "vendor", row_data: { phone: PHONE } }] });
   state.db = db;
@@ -80,6 +84,18 @@ describe("shared-line legacy phone write boundary", () => {
     state.shared = false;
     expect((await patchProfile(request({ phone: NEXT }))).status).toBe(200);
     expect(db.tables.profiles[0]).toMatchObject({ phone: NEXT, phone_verified_at: null });
+  });
+
+  it.each([
+    ["profile", patchProfile], ["backfill", backfill], ["vendor", patchVendor], ["legacy send", legacySend], ["legacy verify", legacyVerify],
+  ] as const)("%s refuses with 503 when the line config cannot be read (never fails open)", async (_name, action) => {
+    state.readFailed = true;
+    state.shared = false;
+    const response = await action(request({ phone: NEXT, code: "123456", fullName: "Updated" }));
+    expect(response.status).toBe(503);
+    expect(db.tables.profiles[0]).toMatchObject({ phone: PHONE, phone_verified_at: "2026-10-18T00:00:00Z" });
+    expect(state.sendSms).not.toHaveBeenCalled();
+    expect(db.tables.phone_verifications ?? []).toEqual([]);
   });
 
   it("shared identity cannot be erased before attaching another phone", () => {

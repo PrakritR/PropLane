@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 /** `?status=open|resolved`. The workspace is the signed-in actor's; a co-manager sees only their houses. */
 export async function GET(req: Request) {
-  const auth = await requireKnowledgeActor();
+  const auth = await requireKnowledgeActor("read");
   if (!auth.ok) return auth.response;
   const { actor } = auth;
   const status = new URL(req.url).searchParams.get("status") === "resolved" ? "resolved" : "open";

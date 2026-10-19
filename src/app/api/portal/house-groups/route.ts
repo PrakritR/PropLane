@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ANNOUNCE_MAX_CHARS, announceOutcomeLine, announceToHouses } from "@/lib/house-groups/announce.server";
+import { ANNOUNCE_MAX_CHARS, announceOutcomeLine, announceRequestKey, announceToHouses } from "@/lib/house-groups/announce.server";
 import { syncHouseGroup } from "@/lib/house-groups/manager.server";
 import { selectGroupMembers } from "@/lib/house-groups/members";
 import { loadHouseResidentCandidates } from "@/lib/house-groups/residents.server";
@@ -7,6 +7,7 @@ import { loadActiveGroup, loadMembers, loadSettings, saveSettings } from "@/lib/
 import { pacificDayKey } from "@/lib/house-groups/time";
 import { propertyInWorkspace, resolveListingChannelContext } from "@/lib/listing-channels/route-context.server";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { grantCoversHouse, resolveCommunicationGrant } from "@/lib/one-number/communication-grant.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,8 +24,12 @@ export async function GET(request: Request) {
   const config = await loadSharedLineConfig(ctx.db);
   if (!workspaceOnSharedLine(config, ctx.workspace.id)) return NextResponse.json({ error: "Not available." }, { status: 404 });
 
+  // House membership is not a grant: a teammate needs Communication on this house.
+  const access = await resolveCommunicationGrant(ctx.db, ctx.userId, ctx.workspace, "read");
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() ?? "";
-  if (!propertyId || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
+  if (!propertyId || !grantCoversHouse(access.grant, propertyId) || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
     return NextResponse.json({ error: "Property not found." }, { status: 404 });
   }
   const settings = await loadSettings(ctx.db, ctx.workspace.id);
@@ -83,6 +88,10 @@ export async function POST(request: Request) {
   const action = typeof body.action === "string" ? body.action : "";
   const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
 
+  // Changing the chat (settings, sync, announce) is an edit on Communication, on this house for the last two.
+  const access = await resolveCommunicationGrant(ctx.db, ctx.userId, ctx.workspace, "edit");
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
   if (action === "settings") {
     if (ctx.userId !== ctx.workspace.ownerUserId) return NextResponse.json({ error: "Only the workspace owner can change house chat." }, { status: 403 });
     const saved = await saveSettings(ctx.db, ctx.workspace.id, ctx.userId, {
@@ -93,7 +102,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, ...saved.settings });
   }
 
-  if (!propertyId || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
+  if (!propertyId || !grantCoversHouse(access.grant, propertyId) || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
     return NextResponse.json({ error: "Property not found." }, { status: 404 });
   }
 
@@ -106,8 +115,14 @@ export async function POST(request: Request) {
     const text = typeof body.text === "string" ? body.text.trim() : "";
     if (!text) return NextResponse.json({ error: "Write the announcement first." }, { status: 400 });
     if (text.length > ANNOUNCE_MAX_CHARS) return NextResponse.json({ error: `Keep it under ${ANNOUNCE_MAX_CHARS} characters.` }, { status: 400 });
-    const requestId = typeof body.requestId === "string" && body.requestId.trim() ? body.requestId.trim().slice(0, 64) : `${ctx.userId}:${Date.now()}`;
-    const outcomes = await announceToHouses(ctx.db, { workspaceId: ctx.workspace.id, propertyIds: [propertyId], text, requestKey: requestId });
+    const requestKey = announceRequestKey({
+      userId: ctx.userId,
+      workspaceId: ctx.workspace.id,
+      propertyId,
+      text,
+      clientRequestId: typeof body.requestId === "string" ? body.requestId.trim().slice(0, 64) : "",
+    });
+    const outcomes = await announceToHouses(ctx.db, { workspaceId: ctx.workspace.id, propertyIds: [propertyId], text, requestKey });
     const posted = outcomes.every((o) => o.result.ok);
     return NextResponse.json({ ok: posted, message: announceOutcomeLine(outcomes) }, { status: posted ? 200 : 409 });
   }

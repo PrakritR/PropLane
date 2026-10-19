@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getUserOrRejection } from "@/lib/auth/session-rejection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
 import { legacyPhoneWriteDecision, PHONE_VERIFICATION_PATH, VERIFIED_PHONE_CHANGE_MESSAGE } from "@/lib/auth/legacy-phone-write";
 
 export const runtime = "nodejs";
@@ -87,7 +87,9 @@ export async function PATCH(req: Request) {
     // `user` server-side, and every write below is pinned to `user.id`. The
     // caller cannot name the row or the columns.
     const db = createSupabaseServiceRoleClient();
-    const shared = (await loadSharedLineConfig(db)).mode === "shared";
+    const line = await loadSharedLineConfigStrict(db);
+    if (!line.ok) return NextResponse.json({ error: "Could not verify your phone settings. Try again." }, { status: 503 });
+    const shared = line.config.mode === "shared";
     const { data: currentProfile, error: profileReadError } = shared
       ? await db.from("profiles").select("phone, phone_verified_at").eq("id", user.id).maybeSingle()
       : await db.from("profiles").select("phone").eq("id", user.id).maybeSingle();

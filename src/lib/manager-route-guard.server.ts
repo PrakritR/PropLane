@@ -6,6 +6,32 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 /**
+ * Whether one account is a manager: the additive `profile_roles` "manager" row, or a legacy
+ * `profiles.role` / metadata role of manager/owner/pro/admin. `profile_roles` is the authority;
+ * the legacy value is the role the account was CREATED as and is consulted only as a fallback.
+ * A read that fails is "not a manager" (fail closed).
+ */
+export async function userHoldsManagerRole(
+  db: SupabaseClient,
+  userId: string,
+  metadataRole?: unknown,
+): Promise<boolean> {
+  const [{ data: profile }, { data: roles }] = await Promise.all([
+    db.from("profiles").select("role").eq("id", userId).maybeSingle(),
+    db.from("profile_roles").select("role").eq("user_id", userId),
+  ]);
+  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
+  const legacy = String(profile?.role ?? metadataRole ?? "").toLowerCase();
+  return (
+    roleList.includes("manager") ||
+    legacy === "manager" ||
+    legacy === "owner" ||
+    legacy === "pro" ||
+    legacy === "admin"
+  );
+}
+
+/**
  * One canonical "is the caller a manager?" guard for manager-portal API
  * routes, so sibling routes of the same feature can never disagree about who
  * gets in (the Application settings modal vs. the waiver-code routes it hosts
@@ -40,19 +66,7 @@ export async function requireManagerRouteUser(
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
-  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager =
-    roleList.includes("manager") ||
-    legacy === "manager" ||
-    legacy === "owner" ||
-    legacy === "pro" ||
-    legacy === "admin";
-  if (!isManager) return null;
+  if (!(await userHoldsManagerRole(db, user.id, user.user_metadata?.role))) return null;
   // A Property owner carries the manager role row only to load the owner
   // shell; they are not a manager and every manager-portal API refuses them.
   if (await withholdManagerSurface(db, user.id)) return null;

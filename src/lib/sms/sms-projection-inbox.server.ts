@@ -345,6 +345,50 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
   };
 }
 
+const SUMMARY_COLUMNS = "id,owner_manager_user_id,counterparty_role,work_line_id,work_line_phone,identity_key,identity_kind,counterparty_user_id,counterparty_phone,legacy_conversation_key,last_body,last_direction,last_event_at,last_event_id,last_inbound_at,last_inbound_event_id,event_count,metadata,merged_into_id";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function summaryFromRow(row: any): SmsProjectionSummary {
+  return {
+    id: String(row.id), ownerManagerUserId: String(row.owner_manager_user_id), counterpartyRole: row.counterparty_role,
+    workLineId: row.work_line_id, workLinePhone: row.work_line_phone, identityKey: row.identity_key, identityKind: row.identity_kind,
+    counterpartyUserId: row.counterparty_user_id, phone: row.counterparty_phone, legacyKey: row.legacy_conversation_key,
+    lastBody: row.last_body, lastDirection: row.last_direction, lastEventAt: row.last_event_at, lastEventId: row.last_event_id,
+    lastInboundAt: row.last_inbound_at, lastInboundEventId: row.last_inbound_event_id,
+    count: Number(row.event_count), metadata: row.metadata ?? {},
+  };
+}
+
+/**
+ * May this viewer act on ONE SMS conversation at `level`? The same house, residency, line and
+ * workspace resolver as the list and the detail reader, without loading any turns. A conversation
+ * the viewer's Communication grant does not reach (another house, an untagged thread of someone
+ * else's, a house granted only at `read` when `edit` is asked) answers false, exactly as if it were
+ * not there. A read that fails throws: the caller refuses rather than guessing.
+ */
+export async function viewerMayActOnSmsProjection(
+  db: SupabaseClient,
+  viewerId: string,
+  conversationId: string,
+  level: "read" | "edit",
+): Promise<boolean> {
+  const { data: row, error } = await db.from("sms_projection_conversations").select(SUMMARY_COLUMNS).eq("id", conversationId).maybeSingle();
+  if (error) throw new Error("Could not read the conversation.");
+  if (!row || row.merged_into_id) return false;
+  const scope = await resolveCommunicationScope(db, viewerId, level);
+  if (!scope.ownerIds.includes(String(row.owner_manager_user_id))) return false;
+  const summary = summaryFromRow(row);
+  const context = await loadPageContext(db, viewerId, [summary]);
+  const line = summary.workLinePhone;
+  return conversationVisible(scope, {
+    ownerId: summary.ownerManagerUserId,
+    houseIds: context.houseIds.get(summary.id) ?? [],
+    untaggedTurns: true,
+    lines: line ? [line] : [],
+    sharedLineWorkspaceId: sharedLineWorkspaceIdOf(summary, context.sharedNumber),
+  });
+}
+
 /** Authorize a selected summary again before returning its independent turn page. */
 export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewerId: string, conversationId: string, before: SmsProjectionCursor | null, level: "read" | "edit" | "delete" = "read", redirected = false) {
   const { data: row, error } = await db.from("sms_projection_conversations")
@@ -357,14 +401,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
   }
   const scope = await resolveCommunicationScope(db, viewerId, level);
   if (!scope.ownerIds.includes(String(row.owner_manager_user_id))) return null;
-  const summary: SmsProjectionSummary = {
-    id: String(row.id), ownerManagerUserId: String(row.owner_manager_user_id), counterpartyRole: row.counterparty_role,
-    workLineId: row.work_line_id, workLinePhone: row.work_line_phone, identityKey: row.identity_key, identityKind: row.identity_kind,
-    counterpartyUserId: row.counterparty_user_id, phone: row.counterparty_phone, legacyKey: row.legacy_conversation_key,
-    lastBody: row.last_body, lastDirection: row.last_direction, lastEventAt: row.last_event_at, lastEventId: row.last_event_id,
-    lastInboundAt: row.last_inbound_at, lastInboundEventId: row.last_inbound_event_id,
-    count: Number(row.event_count), metadata: row.metadata ?? {},
-  };
+  const summary = summaryFromRow(row);
   const context = await loadPageContext(db, viewerId, [summary]);
   const line = summary.workLinePhone;
   if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: sharedLineWorkspaceIdOf(summary, context.sharedNumber) })) return null;

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import type { CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -59,9 +60,10 @@ export async function authorizeDispatchActor(
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
     return fail(403, "Vendor access is unavailable for this account.");
   }
-  const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  if (role !== "manager" && role !== "pro" && !(await isAdminUser(user.id))) return fail(403, "Forbidden.");
+  // `profile_roles` is the authority; `profiles.role` is the role the account was created as.
+  if (!(await userHoldsManagerRole(db, user.id, user.user_metadata?.role)) && !(await isAdminUser(user.id))) {
+    return fail(403, "Forbidden.");
+  }
   // A Property owner carries the manager role row only to host /portal/owner.
   const ownerRefusal = await refuseOwnerOnly(db, user.id);
   if (ownerRefusal) return { ok: false, response: ownerRefusal };

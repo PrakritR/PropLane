@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 /** `?phone=<counterparty phone>`: what the Communication thread shows beside a conversation. */
 export async function GET(req: Request) {
-  const auth = await requireKnowledgeActor();
+  const auth = await requireKnowledgeActor("read");
   if (!auth.ok) return auth.response;
   const phoneKey = normalizeConsentPhone(new URL(req.url).searchParams.get("phone") ?? "");
   if (!phoneKey) return NextResponse.json({ error: "A phone is required." }, { status: 400 });

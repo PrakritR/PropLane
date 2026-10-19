@@ -146,4 +146,17 @@ describe("draft routes", () => {
     expect(fake.rows.sms_ai_reply_drafts!.find((d) => d.id === ID2)!.status).toBe("pending");
     expect((await postDraft(json({ action: "bogus" }), ctx(ID1))).status).toBe(400);
   });
+
+  it("a teammate can reject or review only drafts about a house they hold", async () => {
+    const fake = setup({ owner: false, rows: { sms_ai_reply_drafts: [
+      { id: ID1, workspace_id: WS, topic: "tour", mode: "draft", status: "pending", property_id: "p1" },
+      { id: ID2, workspace_id: WS, topic: "tour", mode: "draft", status: "pending", property_id: "p9" },
+      { id: ID3, workspace_id: WS, topic: "tour", mode: "auto_review", status: "pending", property_id: null },
+    ] } });
+    expect((await postDraft(json({ action: "reject" }), ctx(ID2))).status).toBe(404);
+    expect((await postDraft(json({ action: "ok" }), ctx(ID3))).status).toBe(404);
+    expect(fake.rows.sms_ai_reply_drafts!.map((d) => d.status)).toEqual(["pending", "pending", "pending"]);
+    expect((await postDraft(json({ action: "reject" }), ctx(ID1))).status).toBe(200);
+    expect(fake.rows.sms_ai_reply_drafts!.find((d) => d.id === ID1)!.status).toBe("rejected");
+  });
 });

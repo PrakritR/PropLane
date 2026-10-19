@@ -5,6 +5,9 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() })
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecord: vi.fn() }));
+vi.mock("@/lib/one-number/config.server", () => ({
+  loadSharedLineConfigStrict: async () => ({ ok: true, config: { mode: "per_workspace" } }),
+}));
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";

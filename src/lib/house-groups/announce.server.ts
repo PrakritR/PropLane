@@ -5,6 +5,7 @@ import { propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { postToHouseGroup, type PostDeps } from "./post.server";
 import { loadGroupsWithStatus, loadMembers, loadSettings } from "./store.server";
 import type { HouseGroupPostResult } from "./types";
+import { createHash } from "node:crypto";
 
 export const ANNOUNCE_MAX_CHARS = 320;
 
@@ -89,4 +90,27 @@ export function announceOutcomeLine(outcomes: readonly AnnounceOutcome[]): strin
     parts.push(`${o.label}: ${why}.`);
   }
   return parts.join(" ") || "Nothing was posted.";
+}
+
+/** An announcement retried within this window (a double tap, a dropped response) is the same post. */
+const ANNOUNCE_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * The idempotency key of one announcement, derived on the server. A client request id only narrows it
+ * (it is hashed with the sender, workspace and house, so it cannot collide with or pre-claim another
+ * sender's key); with none, the same sender repeating the same words to the same house inside the
+ * window is one post, never a second.
+ */
+export function announceRequestKey(input: {
+  userId: string;
+  workspaceId: string;
+  propertyId: string;
+  text: string;
+  clientRequestId: string;
+  now?: number;
+}): string {
+  const base = input.clientRequestId
+    ? `id:${input.clientRequestId}`
+    : `text:${input.text.replace(/\s+/g, " ").trim().toLowerCase()}:${Math.floor((input.now ?? Date.now()) / ANNOUNCE_DEDUPE_WINDOW_MS)}`;
+  return createHash("sha256").update(`${input.userId}\0${input.workspaceId}\0${input.propertyId}\0${base}`).digest("hex").slice(0, 40);
 }
