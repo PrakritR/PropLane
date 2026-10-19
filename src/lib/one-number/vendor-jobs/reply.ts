@@ -7,7 +7,7 @@ import type { OpenJobNear } from "@/lib/open-jobs-near.server";
 
 export const VENDOR_LINE_COPY = {
   welcome: "Hi, this is PropLane. Reply STOP to opt out.",
-  anyArea: "Open jobs right now. Text me your neighborhood or zip to narrow them:",
+  anyArea: "right now. Text me your neighborhood or zip to narrow them:",
   none: "No open jobs match yet. I saved your details and you will see new ones as they post.",
   help: "Text me what work you do and where, like 'plumbing in Ballard', and I will show open jobs.",
   signUp: "Create your free vendor account to request jobs:",
@@ -48,7 +48,7 @@ export function composeVendorJobsReply(input: {
   if (input.jobs.length === 0) {
     lines.push(`No open ${what}${where} right now. ${VENDOR_LINE_COPY.none}`);
   } else {
-    lines.push(input.filteredByArea || input.placeLabel ? `Open ${what}${where}:` : VENDOR_LINE_COPY.anyArea);
+    lines.push(input.filteredByArea || input.placeLabel ? `Open ${what}${where}:` : `Open ${what} ${VENDOR_LINE_COPY.anyArea}`);
     input.jobs.forEach((job, i) => lines.push(jobLine(i + 1, job)));
     if (input.total > input.jobs.length) lines.push(`+${input.total - input.jobs.length} more.`);
   }

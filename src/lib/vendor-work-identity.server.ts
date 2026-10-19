@@ -617,7 +617,13 @@ export async function setupVendorWorkIdentity(
   } catch (error) {
     await setReconcileState(db, ensured, claim.operation_id, channel, error);
   }
-  return getVendorWorkIdentity(db, vendorUserId, provider);
+  const result = await getVendorWorkIdentity(db, vendorUserId, provider);
+  // W24: their own number is live, so the chat they had with the PropLane line continues on it (idempotent, never throws).
+  if (channel === "sms" && result.sms.state === "ready") {
+    const { carryOverPropLaneLineHistory } = await import("@/lib/one-number/vendor-jobs/history-transfer.server");
+    await carryOverPropLaneLineHistory(db, vendorUserId, "vendor");
+  }
+  return result;
 }
 
 /** Re-reads actual provider attachment/carrier state; it never purchases a replacement number. */

@@ -910,3 +910,31 @@ PropLane management.
 - **Latency.** `quietSecondsFor`: 5 s quiet window for a finished question or 4+ words, 10 s for a fragment.
 - **Scenario.** `svcline` in `scripts/one-number/e2e/scenarios-svcline.mjs` (flips to `per_workspace`, makes a fixture the service owner,
   restores both). No migration.
+
+## W24 - Vendors on the PropLane line: jobs near me, sign-up link, history that follows them (`on/smsvendor`)
+
+Captain, Oct 19: a vendor texts the PropLane line "hey is there any available jobs in the area to do" and gets the jobs they can do, is added to the
+vendor list, is offered a vendor-account link, and the chat is kept; if they take their own PropLane Number the chat moves with them.
+
+- **Where it engages.** `handlePropLaneLineVendorInbound` (`src/lib/sms/vendor-line-inbound.server.ts`) is ONE block in `inbound-pipeline.server.ts`,
+  after the manager / job-session / resident forks and before the leasing fallback. It runs on the PropLane line in `per_workspace` mode
+  (`isPropLaneServiceLine`: every text from a known vendor or lead is answered; a stranger who reads as a vendor is captured and answered) and on the
+  shared number (only a jobs or link ask). In shared mode an unknown number that asks for work is routed by `handleUnknownSenderInbound` to the same
+  flow (`asksForJobs`); "I do cleaning in Seattle" keeps the four intake questions. `inferSenderRole` now reads "any jobs available" as a vendor.
+- **No silent vendor.** Every text from a known vendor (a VERIFIED phone on a profile with a `vendor_business_profiles` row) or a lead on the line gets a reply.
+  A trade word no longer adds the phone to the service owner's `manager_vendor_records` with no answer; a PropLane-line vendor is captured ONLY in `sms_vendor_leads`.
+- **The jobs.** `list_open_jobs_near` (the only tool of `vendorLineRegistry`, context `VendorLineContext`; no write) is `listOpenJobsNear` over
+  `loadOpenBoardCandidates` (the Find work board's own read) and `publicServiceProjection`: published, unassigned, still-open services only,
+  filtered by the Seattle place or zip the text names (`resolveSeattlePlace`, nearest first) and by trade; a known vendor's saved trades / service area
+  apply when the text names none. The text shows trade, a general area (zip neighborhood), when and a published budget; the title is scrubbed of any street
+  (`titleWithoutAddress`). An area the table does not hold is named back, never answered with other places' jobs. Dispatch jobs appear only if published.
+- **The link.** One per text. A vendor with an account gets `/vendor/work-orders/find-work`; a stranger gets `mintSetupLink({kind:"vendor"})` bound to the phone,
+  minted at most once per 6 hours (`SIGNUP_LINK_WINDOW_MS`; later texts say it is in the earlier text) unless they ask for LINK; minting is also rate limited per phone.
+- **History.** `agent_sessions` kind `vendor_line_sms` (one per service owner + phone, unique index) with `agent_messages` keyed on the MessageSid; the next text reloads
+  it (a trade or place named earlier still counts), and the inbound/outbound texts are also in the owner's Communication thread (role vendor). No model runs in this flow.
+- **Upgrade.** `copyPropLaneLineHistory(db, {phoneE164, role, newOwnerId, newWorkspaceId?})` (`history-transfer.server.ts`) copies the agent session + messages (`propline_carryover`,
+  `copiedFrom` per message) and the inbox thread (`deliverPortalMessageThreadSide`, `propline-copy:<owner>:<id>`) onto the new owner; idempotent, the PropLane-line copy is never changed.
+  Called (never throws) when a vendor's SMS number is ready (`setupVendorWorkIdentity`) and when a resident's is (`provisionResidentAgentNumber`), with the VERIFIED phone from the profile.
+- **Migration.** `20261019130000_vendor_line_history.sql` (two partial unique indexes, no table).
+
+Tests: `tests/unit/vendor-line-{intent,open-jobs,turn,inbound,shared-unknown,history-transfer}.test.ts`. Scenario: `vendor-jobs` in `scripts/one-number/e2e/`.
