@@ -49,6 +49,8 @@ const SEARCHER_PATTERNS: RegExp[] = [
   /\b(room|unit|apartment|listing)\s*#?\w{0,3}\s*(still )?(available|open|vacant)\b/,
   /\b(is|are) (it|they|that|this) (still )?(available|open)\b/,
   /\bany (rooms?|openings?|vacanc(y|ies)|units?)\b/,
+  /\b(any|are there|is there|do you (have|got)|got any|have any)\b[^.?!]{0,30}\b(houses?|homes?|places?|apartments?|apts?|rentals?|studios?|listings?|rooms?|units?)\b[^.?!]{0,60}\b(available|for rent|to rent|open|vacant|to lease|for lease)\b/,
+  /\b(houses?|homes?|apartments?|rentals?|rooms?|studios?) (available )?(for rent|to rent|for lease)\b/,
   /\b(how much|what'?s the|what is the) (is )?(rent|price|deposit)\b/,
   /\b(schedule|book|set up|see|view|get) (a )?(tour|showing|viewing)\b/,
   /\b(saw|found|seen) (your|the|a) (listing|post|ad|flyer|sign)\b/,
