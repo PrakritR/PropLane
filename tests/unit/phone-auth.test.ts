@@ -128,6 +128,25 @@ describe("phone auth start and gate", () => {
     expect(phoneCodeHash(ID, "000007")).not.toBe(phoneCodeHash(OLD, "000007"));
   });
 
+  it.each(["+442079460958", "+4915123456789", "+8613800138000", "+2348012345678"])("refuses a non-US/CA destination %s before reserving or sending", async (phone) => {
+    const { db, rpc } = database();
+    await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone, purpose: "sign_in" })).rejects.toThrow(PHONE_AUTH_ERROR);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("refuses a +1 number with an impossible NANP shape", async () => {
+    const { db, rpc } = database();
+    await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: "+10015550100", purpose: "sign_in" })).rejects.toThrow(PHONE_AUTH_ERROR);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("an explicit calling-code allowlist widens the destinations", async () => {
+    vi.stubEnv("PHONE_AUTH_ALLOWED_CALLING_CODES", "1,44");
+    const { db } = database();
+    await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: "+442079460958", purpose: "sign_in" })).resolves.toHaveProperty("challengeId");
+  });
+
   it("never sends when the database refuses the three-per-hour reservation", async () => {
     const { db, state } = database();
     state.refused.add("phone_auth_start");

@@ -113,6 +113,31 @@ describe("verifyPhoneOtp", () => {
     expect(await verify(db, wrong)).toEqual({ ok: false, reason: "locked" });
   });
 
+  it("locks the phone for 24 hours after 10 wrong codes in total, even for a fresh right code", async () => {
+    const past = new Date(T0.getTime() - 60_000).toISOString();
+    // Two earlier challenges whose five tries were all wrong: 10 lifetime failures.
+    const { db, rows } = linksFakeDb({
+      phone_otp_challenges: [0, 1].map((i) => ({ id: `old-${i}`, phone_key: PHONE, purpose: "link_unlock", subject_id: "other-link", attempts: 5, consumed_at: past, created_at: past })),
+    });
+    const { code } = await request(db, { now: new Date(T0.getTime() - 30_000) });
+    expect(await verify(db, code)).toEqual({ ok: false, reason: "locked" });
+    // No new text goes to a locked phone either.
+    expect((await request(db, { now: new Date(T0.getTime() + HOUR + 10_000) })).result).toEqual({ ok: false, reason: "rate_limited" });
+    // The failures age out after 24 hours.
+    expect((await request(db, { now: new Date(T0.getTime() + 24 * HOUR + 10_000) })).result.ok).toBe(true);
+  });
+
+  it("a successful code is not counted as a failure toward the cap", async () => {
+    const past = new Date(T0.getTime() - 60_000).toISOString();
+    const { db } = linksFakeDb({
+      phone_otp_challenges: Array.from({ length: 9 }, (_, i) => ({
+        id: `ok-${i}`, phone_key: PHONE, purpose: "link_unlock", subject_id: "x", attempts: 1, verified_at: past, consumed_at: past, created_at: past,
+      })),
+    });
+    const { code } = await request(db, { now: new Date(T0.getTime() + HOUR + 1000) });
+    expect(await verify(db, code, new Date(T0.getTime() + HOUR + 2000))).toEqual({ ok: true });
+  });
+
   it("the fifth try can still succeed", async () => {
     const { db } = linksFakeDb();
     const { code } = await request(db);

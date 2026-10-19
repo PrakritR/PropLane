@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  rate: vi.fn(),
   getUser: vi.fn(), setSession: vi.fn(), start: vi.fn(), verify: vi.fn(), enabled: vi.fn(), identity: vi.fn(),
   needsPhone: vi.fn(), profile: vi.fn(), cookieSet: vi.fn(), values: new Map<string, string>(), role: "resident",
 }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rate, clientIpFrom: () => "203.0.113.9" }));
 vi.mock("react", async (original) => ({ ...(await original<typeof import("react")>()), cache: <T>(fn: T) => fn }));
 vi.mock("next/headers", () => ({ cookies: async () => ({
   get: (name: string) => mocks.values.has(name) ? { value: mocks.values.get(name) } : undefined,
@@ -44,6 +46,7 @@ beforeEach(() => {
   mocks.role = "resident";
   mocks.getUser.mockResolvedValue({ data: { user: { id: "user" } }, error: null });
   mocks.setSession.mockResolvedValue({ error: null });
+  mocks.rate.mockResolvedValue({ ok: true });
   mocks.start.mockResolvedValue({ challengeId: ID });
   mocks.verify.mockResolvedValue({ ok: true });
   mocks.enabled.mockResolvedValue(true);
@@ -79,6 +82,29 @@ describe("phone auth routes", () => {
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ userId: "user", browser: "new-browser-secret" }));
     expect(mocks.cookieSet).toHaveBeenCalledWith("proplane_phone_browser", "new-browser-secret", expect.objectContaining({ httpOnly: true, secure: true, sameSite: "strict", maxAge: 600 }));
     expect(await response.json()).toEqual({ challengeId: ID });
+  });
+
+  it("limits sends per IP and for the whole endpoint, before any challenge or cookie", async () => {
+    await start(request({ phone: "+12065550100", purpose: "sign_in" }));
+    expect(mocks.rate.mock.calls).toEqual([
+      ["phone-auth-start-ip:203.0.113.9", 5, 3_600_000],
+      ["phone-auth-start-global", 300, 3_600_000],
+    ]);
+  });
+
+  it.each([0, 1])("refuses with the generic message when rate bucket %s is exhausted", async (bucket) => {
+    mocks.rate.mockImplementation(async () => ({ ok: mocks.rate.mock.calls.length - 1 !== bucket }));
+    const response = await start(request({ phone: "+12065550100", purpose: "sign_in" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: PHONE_AUTH_ERROR });
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it("a limiter outage refuses too (fail closed)", async () => {
+    mocks.rate.mockResolvedValue({ ok: false, unavailable: true });
+    expect((await start(request({ phone: "+12065550100", purpose: "sign_in" }))).status).toBe(400);
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 
   it.each([start, verify])("rejects cross-origin writes before any proof handling", async (action) => {

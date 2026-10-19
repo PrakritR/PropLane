@@ -4,8 +4,9 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
 import { loadSharedLineConfig } from "@/lib/one-number/config.server";
-import { normalizeE164 } from "@/lib/phone-e164";
+import { isAllowedPhoneAuthDestination, normalizeE164 } from "@/lib/phone-e164";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
+import { phoneAuthHookEnabled } from "@/lib/auth/phone-hook-flag";
 import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -76,6 +77,8 @@ export async function startPhoneChallenge(input: {
   const current = userId ? await readPhoneIdentity(db, userId) : null;
   const phone = purpose === "change_number_old" ? current?.phone : normalizeE164(input.phone);
   if (!phone || !/^\+[1-9]\d{7,14}$/.test(phone)) throw new Error(PHONE_AUTH_ERROR);
+  // SMS pumping guard: texts go only to allowed countries (+1 by default), before any send budget.
+  if (!isAllowedPhoneAuthDestination(phone)) throw new Error(PHONE_AUTH_ERROR);
   if (purpose === "change_number_old" && !current?.verified) throw new Error(PHONE_AUTH_ERROR);
   if (purpose === "verify_phone" && current?.verified && current.phone !== phone) throw new Error(PHONE_AUTH_ERROR);
   if (purpose === "change_number_new" && (!current?.verified || current.phone === phone)) throw new Error(PHONE_AUTH_ERROR);
@@ -86,7 +89,7 @@ export async function startPhoneChallenge(input: {
   // Hosted SMS is opt-in, never inferred from a secret alone. Only an already
   // canonical Auth phone uses it: creating an Auth phone account before checking
   // legacy profile identity would duplicate existing email/social accounts.
-  if (purpose === "sign_in" && process.env.SUPABASE_PHONE_AUTH_HOOK_ENABLED === "true") {
+  if (purpose === "sign_in" && phoneAuthHookEnabled()) {
     const owners = await phoneOwners(db, phone);
     if (owners.length === 1) {
       const { data, error } = await db.auth.admin.getUserById(owners[0]);
