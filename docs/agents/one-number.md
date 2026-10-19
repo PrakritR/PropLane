@@ -909,3 +909,27 @@ Checklist of every spec line with its code and test: `~/.cockpit/briefs/one-numb
 
 Tests: `tests/integration/one-number-e2e/{routing-and-safety,vendor-dispatch-chain,prospect-journey}.test.ts`, `tests/unit/one-number-{lead-match,
 mms-vision,listing-photos,feel-pipeline}.test.ts`.
+
+## W19 - End-to-end scenario harness against the real webhook (`on/msge2e`)
+
+`scripts/one-number/e2e-scenarios.mjs` (`npm run one-number:e2e`) drives the real `POST /api/twilio/inbound` with Twilio-signed
+form bodies against the **dev** database (`emstjswhotsnyksqhqyf`; `resolveTarget` refuses any other project). Nothing is sent.
+
+- **Transport capture, dev only.** `src/lib/sms/e2e-transport.server.ts`: with `SMS_E2E_CAPTURE_FILE` set on a non-production, non-Vercel
+  runtime, `sendSms` appends the text (after consent, credit and shield have run) to that file as JSON and answers `sent: true`;
+  synthetic `SMe2e...` MessageSids pass the control-keyword time look-up (`fetchTwilioMessageCreatedAt`) and loopback media URLs are
+  fetched without credentials (`fetchTwilioMessageMedia`). The harness also starts the dev server with a fake Twilio account, a fake
+  QStash that refuses connections (the app runs each prospect burst inline, its documented outage path) and
+  `PROSPECT_SMS_BURSTS_ENABLED=1`. Unset, or on production/Vercel, every one of these paths is the real one.
+- **What a run does.** Snapshots `sms_runtime_config`, flips it to `shared` with `shared_pilot_workspace_ids` = only this run's
+  workspaces (and adds its managers to `pilot_manager_user_ids`), creates throwaway fixtures (`e2e-<run>-...@proplane-e2e.test`,
+  `+1206555 01xx` numbers: manager and workspace, a live house with photos and tour slots, a resident with an overdue month, roster
+  vendors, dispatch rules, a second team sharing a vendor, a managed-workspace owner), starts `next dev --webpack -p 3010`, posts the
+  scenarios (prospect, resident, vendor dispatch, manager, owner, STOP/START/HELP/retry), asserts reply text (in voice, "service" never
+  "work order", plain GSM-7) and the rows written, then removes the fixtures (account-purge manifest + phone-keyed sms tables + auth
+  users) and restores the config. `--only a,b`, `--keep`, `--reap <ledger.json>` (crashed run), `--sweep` (every leftover
+  `e2e-*@proplane-e2e.test` user), `--tick` (also call the burst and outbox crons, which sweep the whole shared database).
+- **Guards.** A run refuses to start when the config is already `shared` with a pilot list (another run, or a crashed one).
+- Fixes it drove: see the git log of `on/msge2e` (shared-line workspace for the leasing turn and its billing, comms-pool funding row for
+  workspaces created after the backfill, projection of five inbound kinds, the pick carried to the leasing agent, a malformed listing no
+  longer silencing the lead search, burst original proof on the shared line `20261019010000`, today's date for the tour-slot tool).

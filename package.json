@@ -28,6 +28,7 @@
     "one-number:service-workspace": "node scripts/one-number/create-service-workspace.mjs",
     "one-number:move-houses": "node scripts/one-number/move-houses-to-service.mjs",
     "one-number:cutover": "node scripts/one-number/cutover.mjs",
+    "one-number:e2e": "node scripts/one-number/e2e-scenarios.mjs",
     "one-number:shadow-report": "node scripts/one-number/shadow-report.mjs",
     "one-number:migrations": "node scripts/one-number/list-migrations.mjs",
     "test:integration": "vitest run tests/integration",
