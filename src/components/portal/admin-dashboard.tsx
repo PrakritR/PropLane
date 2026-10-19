@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ManagerPortalPageShell,
-  portalDashboardWelcomeSubtitle,
   PORTAL_DASHBOARD_STACK,
 } from "@/components/portal/portal-metrics";
 import { AttentionPanel, KpiCard, PanelShell, type AttentionRow } from "@/components/portal/pro-dashboard-kpis";
@@ -81,7 +80,7 @@ export function buildAdminAttentionRows(overview: AdminOverview): AttentionRow[]
   return rows;
 }
 
-export function AdminDashboard({ displayName }: { displayName: string }) {
+export function AdminDashboard() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -115,7 +114,6 @@ export function AdminDashboard({ displayName }: { displayName: string }) {
   return (
     <ManagerPortalPageShell
       title="Dashboard"
-      subtitle={portalDashboardWelcomeSubtitle(displayName)}
       hideTitleOnNative
     >
       <div className={PORTAL_DASHBOARD_STACK}>
