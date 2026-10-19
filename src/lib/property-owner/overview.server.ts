@@ -38,16 +38,18 @@ export async function loadOwnerOverviewExtras(
   }
 
   const attention: OwnerAttentionItem[] = [];
-  let managed: OwnerOverviewExtras["managed"] = null;
+  let firstManagedId: string | null = null;
+  let managedTotals: { feeCents: number; netCents: number; availableCents: number } | null = null;
   for (const workspace of managedWorkspaces) {
     try {
       const view = await loadOwnerFinances(db, null, { ownerUserId, workspaceId: workspace.workspaceId }, now);
-      managed = {
-        workspaceId: workspace.workspaceId,
-        feeCents: (managed?.feeCents ?? 0) + view.statement.totals.feeCents,
-        netCents: (managed?.netCents ?? 0) + view.statement.totals.netCents,
-        availableCents: (managed?.availableCents ?? 0) + view.balance.availableCents,
+      const sums: { feeCents: number; netCents: number; availableCents: number } = managedTotals ?? { feeCents: 0, netCents: 0, availableCents: 0 };
+      managedTotals = {
+        feeCents: sums.feeCents + view.statement.totals.feeCents,
+        netCents: sums.netCents + view.statement.totals.netCents,
+        availableCents: sums.availableCents + view.balance.availableCents,
       };
+      firstManagedId ??= workspace.workspaceId;
       for (const approval of view.pendingApprovals) {
         attention.push({ kind: "repair", id: approval.id, title: approval.title, amountCents: approval.amountCents, workspaceId: workspace.workspaceId });
       }
@@ -113,5 +115,6 @@ export async function loadOwnerOverviewExtras(
     }
   }
 
+  const managed: OwnerOverviewExtras["managed"] = managedTotals && firstManagedId ? { workspaceId: firstManagedId, ...managedTotals } : null;
   return { managed, attention, upcoming };
 }

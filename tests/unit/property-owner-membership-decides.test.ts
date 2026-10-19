@@ -282,7 +282,7 @@ describe("the texted service-link number is shown back to the manager", () => {
 describe("the Statements house filter survives a failed filter", () => {
   it("the tab band renders above the loading / error / empty switch", () => {
     const src = read("src/components/owner/owner-statements.tsx");
-    const band = src.indexOf("<OwnerBand");
+    const band = src.indexOf("<PortalListControlStack");
     const branch = src.indexOf("{loading && !data ?");
     expect(band).toBeGreaterThan(-1);
     expect(band).toBeLessThan(branch);

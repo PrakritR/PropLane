@@ -208,6 +208,7 @@ describe("the Statements house filter follows the Statements grant", () => {
     const src = read("src/components/owner/owner-statements.tsx");
     expect(src).not.toContain("/api/owner/summary");
     expect(src).toContain("all.data?.houses ?? []");
+    expect(src).toContain("OwnerStatementHouse");
   });
 });
 
