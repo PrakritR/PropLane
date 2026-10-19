@@ -1,3 +1,18 @@
+## One Software frame (captain feedback 10–11, October 18)
+
+The homepage mounts `HomeSoftwareDemo` once at `#dashboard`, after the number
+system. Desktop and mobile navigation call it Software. Its six-scene story and
+hands-on portal share `HomeDashboardPanel`, the canonical folded navigation and
+section tabs. The first scene already includes the phone’s incoming message in
+the manager inbox. Pausing or finishing hands the same mounted frame to the
+visitor; selecting a portal also pauses. Replay is explicit, and reduced motion
+keeps scenes static. There is no second dashboard/demo section on the homepage.
+
+`public-footer-band.css` owns the shared footer’s opaque ink-blue surface. Do
+not restore transparent footer rules in the wave styles or a separate gradient
+in `site-display.css`. Verify actual painted links and text contrast in addition
+to geometry on both the homepage and public journey pages.
+
 # Marketing mocks & guide art
 
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
@@ -8,24 +23,31 @@ authoritative copy. Read it before changing code in this area.
 The public front is one page with four distinct stories: the number (cover +
 `#how`), the software (`#dashboard`), the managed service (`#service`), and
 software plans (`#pricing`), followed by the contact form. The cover says
-“Your Housing Assistant”. The top bar links to How it works, Service, Pricing
+“Your Housing Assistant”. The top bar links to How it works, Software, Service, Pricing
 and Contact, with the configured number and Portal at the right. Phones get
 an accessible menu and a sticky text action after the cover. There is no QR. `HomeScrollStage` uses native scroll and midpoint sentinels; rail links
 scroll to scenes, with no wheel interception. Reduced motion and no JavaScript
 keep the conversations readable.
 
-`HomeNumberStage` reuses the real message-thread component and shared sample
-scripts. Its owner scene reads the aggregate `owner-statement` fixture, never
+`HomeNumberStage` reuses shared sample scripts in `HomeIphonePhone`: an iOS
+Messages frame with a Dynamic Island, status bar and the configured PropLane
+number in its contact header. No phone number is hard-coded. Its owner scene reads the aggregate `owner-statement` fixture, never
 resident details. Network captions describe the shipped public-listing router,
 approved vendor jobs, and keeping the PropLane number when moving homes; they
 make no claims about sharing a private workspace thread.
 
-`HomeDashboardStage` presents the real Manager, Resident, Vendor and Owner UI
-with sample data in one shared frame. Desktop scrolling and the portal switch
-select the same view; mobile uses the switch without pinning. No-JavaScript
-views preserve all portal examples. The frame is interactive: sidebar navigation and in-page tabs, records and menus
+`HomeSoftwareDemo` presents the real Manager, Resident, Vendor and Owner UI
+with sample data in one shared frame. The folded sidebar and section strip
+derive from the canonical portal navigation model; `PortalSectionTabsView` is
+shared with the live portal, with local callbacks in the preview. The guided story runs once, then the portal switch
+selects the same frame; pausing also allows hands-on exploration. The frame is interactive: sidebar navigation and in-page tabs, records and menus
 run on the existing fixture adapters in client state. There are no per-portal
-captions below the frame. Preview controls never fetch live data or persist a write. Owner examples contain only aggregate fixture data: statement income/expenses and
+captions below the frame. Ask PropLane mounts the real assistant presentation
+(header, suggestions, messages, composer and chat history) with local answers
+from the same fixture snapshot as the active portal. It has no model or network
+connection. Account Settings opens the shared settings presentation; Sign out
+ends only that sample frame and Resume restores it. The owner portal preserves its real shell's absence of an assistant.
+Preview controls never fetch live data or persist a write. Owner examples contain only aggregate fixture data: statement income/expenses and
 property occupancy counts. The real overview, properties, statements and profile
 views accept local navigation callbacks. Sample statement downloads are generated
 as CSV in the browser; unknown year-to-date amounts show a dash.
@@ -43,12 +65,27 @@ The five texting beats are Prospects, Residents, Vendors, Owners and Every home.
 Each phone uses only its own beat's messages, not a cumulative prospect thread.
 The rail and visible scene share one scroll index in both directions.
 All operating claims derive from `TRACK_RECORD`. Pricing comes from the rate
-card, and each software card selects five to seven included lines from
+card, and each software card selects five included lines from
 `MANAGER_PLAN_TIERS` via `managerPlanFeatureSummary`. Service inclusions come
 from `MANAGED_INCLUDES`. The compact contact form
 requires an email because the existing contact route does, and preserves its
 inputs after a failed send. Marketing redirects, sitemap and crawl links share
 `src/lib/seo/marketing-routes.ts`.
+`HomeSoftwareDemo` follows the cover with six sample scenes: incoming text,
+manager inbox, draft, approval, booked tour and paid rent. Its lazy panels reuse
+the existing fixture adapters. One clock drives both the phone and portal;
+approval clicks the fixture composer's handler before advancing. Hover, focus,
+manual pause, offscreen visibility and a hidden document stop playback. Reduced
+motion leaves manually selectable static frames. There are no live writes.
+
+The active stages fit below the top bar and above the mobile text action at
+100% zoom. The compact pricing grid is four columns on desktop and two by two
+on phones, with five canonical software feature lines and all six managed
+service inclusions. Processing-fee disclosure appears once below the grid.
+Text zoom may grow static sections rather than clip their contents.
+The closing footer is a full-width ink-blue band with faint waves, the configured
+number as a text link, the existing six-link grid and a current-year copyright.
+
 The older reusable lifecycle engine below remains available to other surfaces.
 
 ## The home page's product rows reuse REAL portal components, statically

@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -97,7 +98,7 @@ describe("GET /api/public/approved-room-occupancy", () => {
       }),
     );
 
-    const res = await roomOccupancy();
+    const res = await roomOccupancy(new NextRequest("http://localhost/api/public/approved-room-occupancy"));
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -123,7 +124,7 @@ describe("GET /api/public/approved-room-occupancy", () => {
       }),
     );
 
-    const res = await roomOccupancy();
+    const res = await roomOccupancy(new NextRequest("http://localhost/api/public/approved-room-occupancy"));
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -141,7 +142,7 @@ describe("GET /api/public/approved-room-occupancy", () => {
       }),
     );
 
-    const res = await roomOccupancy();
+    const res = await roomOccupancy(new NextRequest("http://localhost/api/public/approved-room-occupancy"));
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -165,7 +166,7 @@ describe("GET /api/public/approved-room-occupancy", () => {
       }),
     );
 
-    const res = await roomOccupancy();
+    const res = await roomOccupancy(new NextRequest("http://localhost/api/public/approved-room-occupancy"));
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -200,7 +201,7 @@ describe("GET /api/public/approved-room-occupancy", () => {
       }),
     );
 
-    const res = await roomOccupancy();
+    const res = await roomOccupancy(new NextRequest("http://localhost/api/public/approved-room-occupancy"));
     const data = await res.json();
 
     expect(res.status).toBe(200);

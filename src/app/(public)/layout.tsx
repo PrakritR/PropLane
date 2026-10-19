@@ -25,6 +25,10 @@ import "@/components/marketing/resident-lifecycle-phone.css";
 import "@/components/marketing/resident-lifecycle-atmosphere.css";
 import "@/components/marketing/site/pricing-cards.css";
 import "@/components/marketing/home-swiss.css";
+import "@/components/marketing/home-viewport.css";
+import "@/components/marketing/home-iphone-phone.css";
+import "@/components/marketing/home-software-demo.css";
+import "@/components/marketing/public-footer-band.css";
 
 /**
  * Smart App Banner: iPhone Safari shows the native "Open in App Store" strip on

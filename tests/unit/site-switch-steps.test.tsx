@@ -45,7 +45,7 @@ describe("SiteSwitchSteps", () => {
   it("stays reusable without adding an import section to the single-page story", () => {
     const page = read("../../src/app/(public)/page.tsx");
     expect(page).not.toContain("<SiteSwitchSteps />");
-    expect(page).toContain("<HomeDashboardStage />");
+    expect(page).toContain("<HomeSoftwareDemo />");
   });
 });
 

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { TextingHomeHero } from "@/components/marketing/texting-home-hero";
+import { HomeSoftwareDemo } from "@/components/marketing/home-software-demo";
 import { HomeNumberStage } from "@/components/marketing/home-number-stage";
 import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
-import { HomeDashboardStage } from "@/components/marketing/home-dashboard-stage";
 import { BigNumber } from "@/components/marketing/big-number";
 import { PricingCards } from "@/components/marketing/site/pricing-cards";
 import { ManagedServiceForm } from "@/components/marketing/site/managed-service-form";
@@ -40,7 +40,7 @@ export default function HomePage() {
         <HomeNumberStage />
       </section>
       <div className="home-editorial">
-        <HomeDashboardStage />
+        <HomeSoftwareDemo />
         <section
           id="service"
           className="home-swiss-service"

@@ -52,6 +52,7 @@ export default function HomeMobileMenu({
         <nav aria-label="Mobile navigation" className={styles.menuLinks}>
           {[
             ["/#how", "How it works", "01"],
+            ["/#dashboard", "Software", "02"],
             ["/#service", "Service", "03"],
             ["/#pricing", "Pricing", "04"],
             ["/#contact", "Contact", "05"],

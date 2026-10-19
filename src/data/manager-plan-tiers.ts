@@ -151,9 +151,9 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
 /** Public card selection from the same advertised features used in Billing & plan. */
 export function managerPlanFeatureSummary(tier: ManagerPlanTierDefinition) {
   const indexes: Record<PlanTierId, readonly number[]> = {
-    free: [0, 1, 2, 4, 6, 8],
-    pro: [0, 3, 4, 5, 6, 7, 8],
-    business: [0, 3, 4, 5, 6, 7, 9],
+    free: [0, 1, 2, 4, 6],
+    pro: [0, 3, 4, 5, 6],
+    business: [0, 4, 5, 6, 9],
   };
   return indexes[tier.id]
     .map((index) => tier.features[index])

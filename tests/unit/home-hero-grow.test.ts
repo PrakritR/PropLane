@@ -71,7 +71,7 @@ describe("single-page homepage composition", () => {
     const order = [
       "<TextingHomeHero",
       "<HomeNumberStage",
-      "<HomeDashboardStage",
+      "<HomeSoftwareDemo",
       'id="service"',
       'id="pricing"',
       'id="contact"',

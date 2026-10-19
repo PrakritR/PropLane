@@ -100,7 +100,7 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           for (const entry of entries) {
             if (entry.isIntersecting)
               setActiveSection(
-                entry.target.id === "dashboard" ? "how" : entry.target.id,
+                entry.target.id,
               );
           }
         },
@@ -152,6 +152,7 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           <nav aria-label="Main navigation" className={styles.desktopLinks}>
             {[
               ["how", "How it works"],
+              ["dashboard", "Software"],
               ["service", "Service"],
               ["pricing", "Pricing"],
               ["contact", "Contact"],

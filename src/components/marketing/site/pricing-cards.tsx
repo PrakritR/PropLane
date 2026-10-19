@@ -337,6 +337,7 @@ export function PricingCards({
 }) {
   const compact = variant === "overview";
   return (
+    <>
     <div
       className={cn("pl-pricing-options", compact && "pl-pricing-overview")}
       role="region"
@@ -348,5 +349,7 @@ export function PricingCards({
       ))}
       <ManagedPlanCard compact={compact} />
     </div>
+    {compact && <p className="pl-pricing-fee-note">{MANAGER_PLAN_TIERS[0].features[8].text}.</p>}
+    </>
   );
 }

@@ -14,7 +14,7 @@ let observers: { callback: IntersectionObserverCallback; options?: IntersectionO
 const observe = vi.fn();
 const disconnect = vi.fn();
 const texting = publicTextingConfig("+12025550123");
-const desktopPaths = ["/#how", "/#service", "/#pricing", "/#contact"];
+const desktopPaths = ["/#how", "/#dashboard", "/#service", "/#pricing", "/#contact"];
 
 beforeEach(() => {
   route.pathname = "/";
@@ -33,7 +33,7 @@ const update = (id: string, isIntersecting: boolean, bottom: number) => act(() =
 });
 
 describe("simple public navigation", () => {
-  it("uses four direct links, then the configured number and Portal at the far right without auth or menus", () => {
+  it("uses five direct links, then the configured number and Portal at the far right without auth or menus", () => {
     render(<PublicNavbar texting={texting} />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(desktopPaths);
@@ -103,7 +103,7 @@ describe("simple public navigation", () => {
     active("pricing");
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("aria-current", "location");
     active("dashboard");
-    expect(screen.getByRole("link", { name: "How it works" })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("link", { name: "Software" })).toHaveAttribute("aria-current", "location");
     active("how");
     expect(screen.getByRole("link", { name: "How it works" })).toHaveAttribute("aria-current", "location");
     expect(screen.getByRole("link", { name: "Pricing" })).not.toHaveAttribute("aria-current");

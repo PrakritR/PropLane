@@ -427,8 +427,6 @@
   }
 }
 
-/* The existing page atmosphere owns the continuous gradient, including the footer. */
-.axis-page-frame:has(.home-wavy) .public-simple-footer { background: transparent !important; }
 @media (max-width: 860px) {
   .home-swiss :is(#how, #dashboard, #service, #pricing, #contact) { scroll-margin-top: 76px; }
 }

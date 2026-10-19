@@ -1,5 +1,5 @@
 import { HomeScrollStage } from "./home-scroll-stage";
-import { ResidentLifecyclePhone } from "./resident-lifecycle-phone";
+import { HomeIphonePhone } from "./home-iphone-phone";
 import { STORIES, type PhoneItem } from "./resident-lifecycle-script";
 import { PROPERTY_ROWS } from "./site/product-mock/fixtures";
 import { OPS_REPORTS } from "./site/product-mock/fixtures-popups-ops";
@@ -18,13 +18,7 @@ function beatItems(role: "resident" | "vendor", id: string): PhoneItem[] {
 function PhoneScene({ role, items }: { role: string; items: PhoneItem[] }) {
   return (
     <div className="home-number-phone">
-      <ResidentLifecyclePhone
-        caption={`${role}’s phone`}
-        contact={{ initials: "PL", name: "PropLane", sub: `${role}’s phone` }}
-        items={items}
-        readOnly
-        hideCaption
-      />
+      <HomeIphonePhone label={`${role}’s phone`} items={items} />
       <span className="home-sample-label">Sample conversation</span>
     </div>
   );

@@ -5,7 +5,7 @@ import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 
-/** A quiet public footer with the same configured number and a way into the portal. */
+/** A closing ink-blue band with the configured number and existing public links. */
 export function PublicFooter({
   compact = false,
   texting,
@@ -28,6 +28,9 @@ export function PublicFooter({
       data-home-footer
       className={`public-simple-footer ${compact ? "public-simple-footer-compact" : ""}`}
     >
+      <svg className="public-footer-waves" viewBox="0 0 1440 360" preserveAspectRatio="none" aria-hidden="true">
+        {Array.from({ length: 9 }, (_, index) => <path key={index} d={`M-80 ${index * 32 + 32} C240 ${index * 22 - 70}, 490 ${index * 28 + 150}, 820 ${index * 25 + 60} S1250 ${index * 28 - 20}, 1520 ${index * 32 + 90}`} />)}
+      </svg>
       <div className="public-simple-footer-inner">
         <div className="public-simple-footer-grid">
           <div className="public-simple-footer-number">
@@ -66,7 +69,7 @@ export function PublicFooter({
           </nav>
         </div>
         <div className="public-simple-footer-legal">
-          <span>PropLane</span>
+          <span>© {new Date().getFullYear()} PropLane</span>
           <span>Seattle</span>
         </div>
       </div>

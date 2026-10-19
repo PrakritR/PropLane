@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HomeDashboardPanel from "@/components/marketing/home-dashboard-panel";
+import { DEMO_TABS } from "@/components/marketing/site/product-mock/demo-nav";
 import { HOME_DASHBOARD_PORTALS } from "@/components/marketing/home-dashboard-data";
 // Transform the real dashboard graph before measuring rendering behavior.
 import "@/components/marketing/site/product-mock/dashboards";
@@ -30,8 +31,9 @@ describe("the guided dashboard uses real fixture panels", () => {
     fireEvent.click(navigation.getByRole("button", { name: "Communication", exact: true }));
     expect(navigation.getByRole("button", { name: "Communication", exact: true })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(container.querySelector(".rlp-panel-frame")?.textContent).toMatch(/Active/), { timeout: 15000 });
-    fireEvent.click(navigation.getByRole("button", { name: "Dashboard", exact: true }));
-    expect(navigation.getByRole("button", { name: "Dashboard", exact: true })).toHaveAttribute("aria-current", "page");
+    const homeLabel = DEMO_TABS[portal].find((row) => row.members.includes("dashboard"))!.label;
+    fireEvent.click(navigation.getByRole("button", { name: homeLabel, exact: true }));
+    expect(navigation.getByRole("button", { name: homeLabel, exact: true })).toHaveAttribute("aria-current", "page");
     expect(fetch).not.toHaveBeenCalled();
   });
 

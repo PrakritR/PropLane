@@ -14,22 +14,19 @@
  */
 
 import "./resident-lifecycle-shell.css";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowUp,
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   CircleHelp,
-  History,
   LogOut,
   PanelLeft,
   PanelRight,
   Plus,
   Settings,
-  Sparkles,
   SquarePen,
   Users,
-  X,
 } from "lucide-react";
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
@@ -38,7 +35,11 @@ import type { DemoPortal, DemoTab } from "@/components/marketing/site/product-mo
 import { PROPERTY_ROWS } from "@/components/marketing/site/product-mock/fixtures";
 import { DemoPopupHostContext } from "@/components/marketing/site/product-mock/demo-popup-host";
 import { portalSwitchTargets } from "@/lib/portal-switch-targets";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
+import type { DemoStory } from "./site/product-mock/world";
 import { PORTAL_META } from "./resident-lifecycle-script";
+import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
 /** One row of the assistant panel's "Needs attention": a title and the place it is about. */
 export type AssistantNeed = { id: string; title: string; detail?: string };
@@ -68,16 +69,20 @@ function groupTabs(tabs: DemoTab[]): TabGroup[] {
  * (`portal-workspace-rail.tsx`): the avatar opens the account card, Settings, and
  * one "Switch to ... portal" row for each of the OTHER portals (the real list
  * comes from `portalSwitchTargets`, so the labels and order are the product's
- * own), then Sign out. Settings and Sign out do nothing: it is a sample.
+ * own), then Sign out. These actions affect only this mounted sample.
  */
 function AccountMenu({
   portal,
   onSwitchPortal,
   onOpenChange,
+  onSettings,
+  onSignOut,
 }: {
   portal: DemoPortal;
   onSwitchPortal?: (portal: DemoPortal) => void;
   onOpenChange?: (open: boolean) => void;
+  onSettings(): void;
+  onSignOut(): void;
 }) {
   const meta = PORTAL_META[portal];
   const [open, setOpenState] = useState(false);
@@ -133,7 +138,7 @@ function AccountMenu({
             <strong>{meta.profile.name}</strong>
             <span>{meta.profile.email}</span>
           </div>
-          <button type="button" role="menuitem" onClick={() => setOpen(false)}>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onSettings(); }}>
             <Settings aria-hidden /> Settings
           </button>
           {targets.map((target) => (
@@ -152,7 +157,7 @@ function AccountMenu({
             </button>
           ))}
           <hr />
-          <button type="button" role="menuitem" className="rlp-account-signout" onClick={() => setOpen(false)}>
+          <button type="button" role="menuitem" className="rlp-account-signout" onClick={() => { setOpen(false); onSignOut(); }}>
             <LogOut aria-hidden /> Sign out
           </button>
         </div>
@@ -161,60 +166,14 @@ function AccountMenu({
   );
 }
 
-/**
- * The AI assistant, the shell's only right panel: PropLane, New, History and close in its header, then
- * the greeting, Needs attention (the same rows the Dashboard draws, counted from them) and the composer.
- */
-function AssistantPanel({ needs, name, onClose }: { needs: AssistantNeed[]; name: string; onClose: () => void }) {
-  return (
-    <aside className="pls-assistant" aria-label="PropLane assistant">
-      <header className="pls-assistant-head">
-        <ProPlaneMarkIcon className="pls-assistant-mark" />
-        <strong>PropLane</strong>
-        <span className="pls-assistant-actions">
-          <button type="button" aria-label="New chat" title="New chat">
-            <SquarePen aria-hidden />
-          </button>
-          <button type="button" aria-label="History" title="History">
-            <History aria-hidden />
-          </button>
-          <button type="button" aria-label="Close assistant" title="Close" onClick={onClose}>
-            <X aria-hidden />
-          </button>
-        </span>
-      </header>
-      <div className="pls-assistant-body">
-        <h3>Welcome back, {name}</h3>
-        {needs.length ? (
-          <section aria-label="Needs attention">
-            <p className="pls-assistant-label">
-              Needs attention <b>{needs.length}</b>
-            </p>
-            <ul>
-              {needs.map((need) => (
-                <li key={need.id}>
-                  <strong>{need.title}</strong>
-                  {need.detail ? <span>{need.detail}</span> : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-      </div>
-      <div className="pls-assistant-composer">
-        <span>Ask PropLane</span>
-        <ArrowUp aria-hidden />
-      </div>
-    </aside>
-  );
-}
+const AssistantPanel = lazy(() => import("./home-preview-assistant"));
 
 export function ResidentLifecycleWorkspace({
   portal,
   tabs,
   active,
   badges,
-  needs,
+  story,
   onSelect,
   onSwitchPortal,
   onMenuOpenChange,
@@ -225,8 +184,10 @@ export function ResidentLifecycleWorkspace({
   tabs: DemoTab[];
   active: string;
   badges?: Record<string, number>;
-  /** The Dashboard's attention rows. When given, the strip's right icon docks the assistant panel. */
+  /** Legacy story input, retained for callers; the assistant now reads the fixture snapshot. */
   needs?: AssistantNeed[];
+  /** Exact fixture snapshot displayed by the local panels. */
+  story?: DemoStory;
   onSelect(tab: string, sub?: string): void;
   /** Switch the demo to another portal from the account menu; without it the menu lists no portals. */
   onSwitchPortal?: (portal: DemoPortal) => void;
@@ -237,9 +198,24 @@ export function ResidentLifecycleWorkspace({
 }) {
   const meta = PORTAL_META[portal];
   const [sideOpen, setSideOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
+  const previousSection = useRef(active);
+  const navigate = (tab: string, sub?: string) => {
+    setSettingsOpen(false);
+    previousSection.current = tab;
+    onSelect(tab, sub);
+  };
+  const openSettings = () => {
+    if (active !== "profile") previousSection.current = active;
+    setSettingsOpen(true);
+    onSelect("profile");
+  };
   /** Where the panels' pop-ups draw: over the screen, inside the window, never over the page behind it. */
   const [popupHost, setPopupHost] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const askRef = useRef<HTMLButtonElement>(null);
+  const closeAssistant = () => { setAssistantOpen(false); askRef.current?.focus(); };
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [subOpened, setSubOpened] = useState<Record<string, boolean>>({});
   const mainRef = useRef<HTMLDivElement>(null);
@@ -281,7 +257,7 @@ export function ResidentLifecycleWorkspace({
       mutations.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [signedOut]);
 
   // Only the manager portal is a workspace portal (a workspace switcher); the resident and vendor sidebars say "PropLane".
   const isWorkspace = portal === "manager";
@@ -294,12 +270,19 @@ export function ResidentLifecycleWorkspace({
     .slice(0, 2)
     .toUpperCase();
 
+  if (signedOut) return <section className="rlp-workspace pls relative" aria-label={`Illustrative PropLane ${portal} workspace`}>
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-card p-6">
+      <h2 className="text-lg font-semibold" role="status">Sample session ended</h2>
+      <button type="button" className="min-h-11 rounded-lg border border-border px-4 text-sm font-semibold" onClick={() => { setSignedOut(false); navigate(previousSection.current); }}>Resume sample</button>
+    </div>
+  </section>;
+
   return (
     <section
       id="resident-lifecycle-workspace"
       className="rlp-workspace pls"
       data-side={sideOpen ? "open" : "closed"}
-      data-assistant={needs && assistantOpen ? "open" : "closed"}
+      data-assistant={assistantOpen ? "open" : "closed"}
       aria-label={`Illustrative PropLane ${portal} workspace`}
     >
       <header className="rlp-topbar pls-strip">
@@ -318,14 +301,13 @@ export function ResidentLifecycleWorkspace({
             <strong>PropLane</strong>
           </span>
         </div>
-        <button type="button" className="rlp-assistant pls-search" onClick={() => needs && setAssistantOpen(true)}>
-          <Sparkles aria-hidden />
+        <button ref={askRef} type="button" className="rlp-assistant pls-search" aria-expanded={assistantOpen} onClick={() => setAssistantOpen(true)}>
+          <AxisAssistantChatIcon />
           <span>Ask PropLane or search {isWorkspace ? meta.workspace : meta.label}</span>
           <kbd>⌘K</kbd>
         </button>
         <div className="pls-strip-right">
-          {needs ? (
-            <button
+          <button
               type="button"
               className="pls-strip-icon"
               aria-label="Toggle assistant panel"
@@ -334,7 +316,6 @@ export function ResidentLifecycleWorkspace({
             >
               <PanelRight aria-hidden />
             </button>
-          ) : null}
         </div>
       </header>
       <div className="pls-rail">
@@ -350,14 +331,17 @@ export function ResidentLifecycleWorkspace({
         <span className="pls-rail-help" aria-hidden>
           <CircleHelp />
         </span>
-        <AccountMenu portal={portal} onSwitchPortal={onSwitchPortal} onOpenChange={onMenuOpenChange} />
+        <AccountMenu portal={portal} onSwitchPortal={onSwitchPortal} onOpenChange={onMenuOpenChange} onSettings={openSettings} onSignOut={() => { setAssistantOpen(false); setSignedOut(true); }} />
       </div>
       <aside className="rlp-sidebar pls-side" aria-label={`${meta.label} sidebar`}>
         <div className="pls-side-head">
           {isWorkspace ? (
-            <button type="button" className="rlp-workspace-name pls-workspace-name" onClick={() => {}}>
-              <strong>{meta.workspace}</strong> <ChevronDown aria-hidden />
-            </button>
+            <label className="rlp-workspace-name pls-workspace-name">
+              <select aria-label="Workspace" defaultValue={meta.workspace} className="min-h-11 min-w-0 flex-1 appearance-none bg-transparent font-semibold outline-offset-2">
+                <option value={meta.workspace}>{meta.workspace}</option>
+              </select>
+              <ChevronDown aria-hidden />
+            </label>
           ) : (
             <p className="rlp-workspace-name pls-workspace-name pls-brand-name">
               <strong>PropLane</strong>
@@ -410,7 +394,7 @@ export function ResidentLifecycleWorkspace({
                             data-unread={alert ? "true" : undefined}
                             onClick={() => {
                               if (tab.subItems?.length) setSubOpened((state) => ({ ...state, [tab.id]: !subOpen }));
-                              onSelect(tab.id);
+                              navigate(tab.id);
                             }}
                           >
                             <PortalNavIcon section={tab.id} active={isActive} className="pls-item-icon" />
@@ -423,7 +407,7 @@ export function ResidentLifecycleWorkspace({
                           {subOpen ? (
                             <div className="pls-subnav">
                               {tab.subItems!.map((sub) => (
-                                <button type="button" key={sub.id} className="pls-subitem" onClick={() => onSelect(tab.id, sub.id)}>
+                                <button type="button" key={sub.id} className="pls-subitem" onClick={() => navigate(tab.id, sub.id)}>
                                   <PortalNavIcon section={tab.id} sectionTabId={sub.id} className="pls-subitem-icon" />
                                   <span>{sub.label}</span>
                                 </button>
@@ -441,12 +425,22 @@ export function ResidentLifecycleWorkspace({
       <div className="rlp-main pls-main" ref={mainRef}>
         <DemoPopupHostContext.Provider value={popupHost}>
           <div id="rlp-workspace-panel" ref={canvasRef} className={panel ? "rlp-canvas rlp-canvas-panel" : "rlp-canvas"}>
-            {children}
+            {settingsOpen ? <div className="w-full min-w-0 p-4 lg:p-8" data-attr="home-demo-settings">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold">Settings</h2>
+                <PortalIconAction icon={ArrowLeft} label="Back to sample" onClick={() => navigate(previousSection.current)} />
+              </div>
+              <PortalSettingsSection title="Profile"><PortalSettingsGroup>
+                <PortalSettingsRow label="Name">{meta.profile.name}</PortalSettingsRow>
+                <PortalSettingsRow label="Email">{meta.profile.email}</PortalSettingsRow>
+                {isWorkspace && <PortalSettingsRow label="Workspace">{meta.workspace}</PortalSettingsRow>}
+              </PortalSettingsGroup></PortalSettingsSection>
+            </div> : children}
           </div>
         </DemoPopupHostContext.Provider>
       </div>
       <div ref={setPopupHost} className="pls-popup-host" />
-      {needs && assistantOpen ? <AssistantPanel needs={needs} name={meta.profile.name} onClose={() => setAssistantOpen(false)} /> : null}
+      {assistantOpen ? <Suspense fallback={<aside className="pls-assistant pls-assistant-live" role="status">Loading sample assistant…</aside>}><AssistantPanel key={portal} portal={portal} name={meta.profile.name} story={story} onClose={closeAssistant} /></Suspense> : null}
     </section>
   );
 }
