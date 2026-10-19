@@ -11,7 +11,13 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ 
 beforeEach(() => {
   vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("Marketing panels must never fetch"); });
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  cleanup();
+  // Sidebar navigation starts real lazy page imports, which outlive unmounting.
+  // Finish that graph while jsdom and the no-network guard are still available.
+  await vi.dynamicImportSettled();
+  vi.restoreAllMocks();
+}, 30_000);
 
 describe("the guided dashboard uses real fixture panels", () => {
   it.each(HOME_DASHBOARD_PORTALS)("mounts $id without fetching and exposes interactive controls", async ({ id }) => {
