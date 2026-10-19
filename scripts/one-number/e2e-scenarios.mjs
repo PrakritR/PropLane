@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Harness, hex, loadDevEnv, createDb } from "./e2e/core.mjs";
 import { cleanup } from "./e2e/cleanup.mjs";
-import { waitHealthy, waitForOtherRuns } from "./e2e/health.mjs";
+import { waitHealthy, waitForOtherRuns, acquireE2eLock } from "./e2e/health.mjs";
 import { restoreBaseline, DEV_BASELINE } from "./e2e/baseline.mjs";
 import { World } from "./e2e/fixtures.mjs";
 import { SCENARIOS } from "./e2e/scenarios.mjs";
@@ -63,6 +63,15 @@ async function main() {
   console.log(`e2e: target=dev project=${resolved.ref}`);
   const db = createDb(resolved);
 
+  // The dev database and the sms_runtime_config / platform_service_settings rows are shared: one run at a time, by lock.
+  const needsLock = !flags.sweep && !(flags.reap && !flags.restoreConfig);
+  const releaseLock = needsLock ? await acquireE2eLock(console.log) : () => {};
+  process.once("SIGINT", () => { releaseLock(); });
+  process.once("SIGTERM", () => { releaseLock(); });
+  try { return await mainLocked(flags, { env, resolved, db }); } finally { releaseLock(); }
+}
+
+async function mainLocked(flags, { env, resolved, db }) {
   // The dev database is shared and fragile: nothing below starts until it answers fast.
   await waitHealthy(resolved, env, console.log);
 

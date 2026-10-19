@@ -59,3 +59,38 @@ export async function waitForOtherRuns(log = console.log, { maxWaitMs = 60 * 60_
     list = others();
   }
 }
+
+/**
+ * The dev e2e lock the coordinator asked for: `mkdir $HOME/.cockpit/slots-1018/e2e.lock` (atomic; fails when held). Holder info
+ * (branch + pid) goes in `holder`. A lock whose pid is dead is stale and is taken over. Retries every 60 s up to `maxWaitMs`.
+ * Returns a release() function (idempotent); also released on exit/SIGINT/SIGTERM by the caller.
+ */
+export async function acquireE2eLock(log = console.log, { branch = "on/smsmatrix", maxWaitMs = 3 * 60 * 60_000 } = {}) {
+  const { mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const base = `${homedir()}/.cockpit/slots-1018`;
+  const lock = `${base}/e2e.lock`;
+  mkdirSync(base, { recursive: true });
+  const deadline = Date.now() + maxWaitMs;
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      writeFileSync(`${lock}/owner`, `${branch} pid ${process.pid}\n`);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let holder = "";
+      try { holder = readFileSync(`${lock}/owner`, "utf8").trim(); } catch { /* being written */ }
+      const pid = Number(/pid[= ](\d+)/.exec(holder)?.[1] ?? NaN);
+      if (Number.isFinite(pid) && !alive(pid)) { log(`  e2e lock held by dead pid ${pid} (${holder}); taking over`); rmSync(lock, { recursive: true, force: true }); continue; }
+      if (Date.now() > deadline) throw new Error(`e2e lock still held after ${Math.round(maxWaitMs / 60000)} min: ${holder}`);
+      log(`  e2e lock held (${holder || "unknown holder"}); retrying in 60 s`);
+      await sleep(60_000);
+    }
+  }
+  let released = false;
+  const release = () => { if (released) return; released = true; try { rmSync(lock, { recursive: true, force: true }); } catch { /* gone */ } };
+  process.on("exit", release);
+  return release;
+}
