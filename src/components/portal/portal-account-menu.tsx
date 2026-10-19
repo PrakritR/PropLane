@@ -80,6 +80,7 @@ export function PortalAccountMenu({
             data-attr="portal-top-bar-settings"
             onSelect={(event) => {
               event.preventDefault();
+              setOpen(false);
               router.push(`${basePath}/profile`);
             }}
           >
@@ -96,7 +97,7 @@ export function PortalAccountMenu({
         ) : null}
 
         <div className="px-0">
-          <PortalRoleSwitcher currentKind={kind} />
+          <PortalRoleSwitcher currentKind={kind} onSwitched={() => setOpen(false)} />
         </div>
 
         {onOpenHelp ? (

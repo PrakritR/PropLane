@@ -87,6 +87,12 @@ export function PortalMobileNavBar({
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   const barRef = useRef<HTMLDivElement>(null);
 
+  // The menu belongs to the screen it was opened on: any navigation (Settings, a portal
+  // switch, a link inside it) closes it, so it never lingers over the next screen.
+  useEffect(() => {
+    setProfileMenuOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     const el = barRef.current;
     if (!el) return;
@@ -175,6 +181,7 @@ export function PortalMobileNavBar({
               onSelect={(event) => {
                 // Explicit navigation is reliable inside the iOS WebView.
                 event.preventDefault();
+                setProfileMenuOpen(false);
                 router.push(`${definition.basePath}/profile`);
               }}
             >
@@ -182,9 +189,7 @@ export function PortalMobileNavBar({
               Settings
             </DropdownMenuItem>
 
-            <div className="px-1">
-              <PortalRoleSwitcher currentKind={definition.kind} />
-            </div>
+            <PortalRoleSwitcher currentKind={definition.kind} onSwitched={() => setProfileMenuOpen(false)} />
 
             <DropdownMenuSeparator />
 

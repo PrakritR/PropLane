@@ -10,6 +10,7 @@ import {
 import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { canGoBackInApp } from "@/lib/portal-history";
 import Link from "next/link";
 import { useSharedPhoneAuth } from "@/hooks/use-shared-phone-auth";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
@@ -737,13 +738,21 @@ export function PortalProfileClient({
       window.history.back();
       return;
     }
-    if (variant === "manager" && !["profile", "security", "developer", "account"].includes(paneGroup.id)) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tab");
+    if (variant !== "manager") {
+      // Admin has no "profile home": with no tab the page IS its Settings list.
+      const query = params.toString();
+      window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+      return;
+    }
+    if (!["profile", "security", "developer", "account"].includes(paneGroup.id) && canGoBackInApp()) {
       router.back();
       return;
     }
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("tab");
-    params.set("profileHome", "1");
+    // A deep link has nowhere in-app to go back to: show the Settings list instead of leaving the site.
+    if (["profile", "security", "developer", "account"].includes(paneGroup.id)) params.set("profileHome", "1");
+    else params.set("settingsHome", "1");
     window.history.replaceState(null, "", `${pathname}?${params}`);
   }, [variant, paneGroup.id, router, searchParams, pathname]);
   // Reset scroll when the pane changes. On desktop the content column is its own
@@ -922,7 +931,7 @@ export function PortalProfileClient({
         </nav>
         <div ref={contentColRef} className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
           {homeVisible ? <div className="space-y-6 lg:hidden" data-attr="settings-home">
-            <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => router.back()}><ChevronLeft className="h-6 w-6" /></button>
+            <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => (canGoBackInApp() ? router.back() : router.replace(pathname.replace(/\/profile$/, "/dashboard")))}><ChevronLeft className="h-6 w-6" /></button>
             <h2 className="text-[30px] font-semibold tracking-tight">Settings</h2>
             <div className="space-y-2">
               {variant === "manager" ? <p className={`${groupLabelClass} pt-0`}>Profile</p> : null}

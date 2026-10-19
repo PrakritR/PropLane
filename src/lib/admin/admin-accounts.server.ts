@@ -97,9 +97,12 @@ export async function countMatchingAccounts(
   db: SupabaseClient,
   ids: string[],
   match: string | null,
+  opts: { activeOnly?: boolean } = {},
 ): Promise<number> {
   return countByIdChunks(ids, (chunk) => {
-    const query = db.from("profiles").select("id", { count: "exact", head: true }).in("id", chunk);
+    let query = db.from("profiles").select("id", { count: "exact", head: true }).in("id", chunk);
+    // Same rule as `countActiveAccounts`: disabled is an explicit `false`, a null stays active.
+    if (opts.activeOnly) query = query.not("application_approved", "is", false);
     return match ? query.or(match) : query;
   });
 }

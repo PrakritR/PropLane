@@ -10,6 +10,7 @@ import type { PortalKind } from "@/lib/portal-types";
 export function PortalRoleSwitcher({
   currentKind,
   asSettingsRow = false,
+  onSwitched,
 }: {
   currentKind: PortalKind;
   /**
@@ -18,6 +19,8 @@ export function PortalRoleSwitcher({
    * padding and must stay aligned with their sibling menu items.
    */
   asSettingsRow?: boolean;
+  /** A menu host closes itself when a switch is chosen (the row is not a menu item, so nothing else would). */
+  onSwitched?: () => void;
 }) {
   const router = useRouter();
   const [targets, setTargets] = useState<PortalSwitchTarget[]>([]);
@@ -60,11 +63,20 @@ export function PortalRoleSwitcher({
     <button
       key={target.role}
       type="button"
-      onClick={() => void switchPortal(target.role)}
+      onClick={() => {
+        onSwitched?.();
+        void switchPortal(target.role);
+      }}
       disabled={busyRole !== null}
-      className="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-foreground transition hover:bg-accent/40 disabled:opacity-50"
+      className={
+        asSettingsRow
+          ? "flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-foreground transition hover:bg-accent/40 disabled:opacity-50"
+          : // In a dropdown menu it is a sibling of Settings: the same row metrics as
+            // `DropdownMenuItem`, so icon, indent and type line up with it.
+            "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13.5px] font-medium text-foreground outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal"
+      }
     >
-      <Users aria-hidden className="h-[18px] w-[18px] text-muted" />
+      <Users aria-hidden className={asSettingsRow ? "h-[18px] w-[18px] text-muted" : "h-[16px] w-[16px] shrink-0 text-muted"} />
       {busyRole === target.role ? "Switching…" : target.label}
     </button>
   ));

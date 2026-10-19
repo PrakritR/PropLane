@@ -128,6 +128,15 @@ describe("GET /api/admin/accounts/search", () => {
     expect(body.counts).toEqual({ manager: 2, resident: 1, vendor: 1 });
   });
 
+  it("also totals ACTIVE accounts, so a tab pill can match the rows under the default Active status", async () => {
+    asAdmin();
+    const body = await (await search("kind=manager&q=")).json();
+    // m2 (Grace) is disabled: counted in `counts`, not in `activeCounts`.
+    expect(body.activeCounts).toEqual({ manager: 1, resident: 1, vendor: 1 });
+    const activeRows = body.rows.filter((r: { active: boolean }) => r.active).length;
+    expect(body.activeCounts.manager).toBe(activeRows);
+  });
+
   it("returns residents and vendors without a workspace count", async () => {
     asAdmin();
     const residents = await (await search("kind=resident")).json();

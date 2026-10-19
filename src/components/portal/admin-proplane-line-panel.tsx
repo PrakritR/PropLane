@@ -41,8 +41,11 @@ type State =
 
 /** The glyph facts on the PropLane line row: mode, how many workspaces answer on it. */
 export function proplaneLineFacts(line: Line): PortalEntryRowFact[] {
+  const modeLabel = PROPLANE_LINE_MODE_LABEL[line.mode];
+  const status = proplaneLineStatus(line.mode, line.sharedNumber);
   return [
-    { icon: Layers, label: `${PROPLANE_LINE_MODE_LABEL[line.mode]} · ${proplaneLineStatus(line.mode, line.sharedNumber)}`, srLabel: "Mode" },
+    // Shadow's mode and status are the same word: say it once, never "Shadow · Shadow".
+    { icon: Layers, label: status === modeLabel ? modeLabel : `${modeLabel} · ${status}`, srLabel: "Mode" },
     { icon: MapPin, label: line.pilotWorkspaceIds.length === 0 ? "All workspaces" : `${line.pilotWorkspaceIds.length} workspaces`, srLabel: "Workspaces" },
   ];
 }
