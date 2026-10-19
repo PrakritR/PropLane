@@ -4,6 +4,7 @@ import {
   getReportsAuthContext,
 } from "@/lib/reports/auth";
 import { listSecurityDeposits } from "@/lib/reports/security-deposits";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,10 @@ export async function GET(req: Request) {
       | "applied_to_damages"
       | undefined;
 
-    const deposits = await listSecurityDeposits(auth.db, auth.userId, { propertyId, status });
+    // The active workspace narrows this list exactly as it narrows the Money overview's "Held deposits"
+    // tile (the financial-activity report), so the two can never disagree about which houses count.
+    const workspacePropertyIds = await activeWorkspacePropertyScope(auth.db, auth.userId);
+    const deposits = await listSecurityDeposits(auth.db, auth.userId, { propertyId, status, workspacePropertyIds });
     return NextResponse.json({ deposits });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to list deposits.";
