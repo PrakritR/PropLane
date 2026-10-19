@@ -132,7 +132,7 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
         if (file && accepts(file)) onPick(file);
       }}
       className={cn(
-        "mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
+        "mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition",
         dragOver ? "border-primary bg-primary/[0.06]" : "border-border bg-[var(--pl-surface-muted)]",
         off && "opacity-60",
         className,
@@ -150,12 +150,12 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-card text-[var(--pl-blue-deep)]">
         <Upload className="h-[18px] w-[18px]" aria-hidden />
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[14px] font-bold text-foreground">Start from a file</span>
+      <span className="min-w-[9rem] flex-1">
+        <span className="block whitespace-nowrap text-[14px] font-bold text-foreground">Start from a file</span>
         {fileName ? <span className="mt-1 block truncate text-[12.5px] font-semibold text-foreground" data-attr={`${dataAttr}-file-name`}>{fileName}</span> : null}
         {scanError ? <span role="alert" className="mt-1 block text-[12px] font-semibold text-destructive">{scanError}</span> : null}
       </span>
-      <span className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+      <span className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
         {canCapture ? <button type="button" disabled={off || scanning} onClick={() => cameraRef.current?.click()} className={cn(button, "md:hidden")}><Camera className="mr-1.5 inline size-4" aria-hidden />Take photo</button> : null}
         {acceptsPdf ? <button type="button" disabled={off || scanning} onClick={() => scanRef.current?.click()} className={cn(button, "md:hidden")}><ScanLine className="mr-1.5 inline size-4" aria-hidden />Scan</button> : null}
         {extraItems?.map((item) => <button key={item.label} type="button" disabled={off} data-attr={item.dataAttr} onClick={item.onSelect} className={button}>{item.label}</button>)}
