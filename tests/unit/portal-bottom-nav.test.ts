@@ -38,10 +38,12 @@ function folded(kind: PortalKind, sections: { section: string; label: string }[]
 }
 
 describe("orderNativeBottomNavItems", () => {
-  it("preserves pro registry order with settings last (no Teams page)", () => {
+  it("pro native order follows the sidebar rows (the footer order constant) with settings last (no Teams page)", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
-    expect(ordered).toEqual(sectionIds(proPortal.sections));
+    // The phone's strip and More sheet follow the sidebar's rows, not the registry's listing order.
+    expect(ordered).toEqual([...(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER as readonly string[])].filter((id) => ordered.includes(id)).concat("profile"));
+    expect([...ordered].sort()).toEqual([...sectionIds(proPortal.sections)].sort());
     expect(ordered).not.toContain("teams");
     expect(ordered.at(-1)).toBe("profile");
   });
