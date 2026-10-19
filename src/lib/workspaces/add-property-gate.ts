@@ -15,6 +15,8 @@ import type { PortalWorkspace } from "@/lib/workspaces/types";
  *  - `switch`   — exactly one writable workspace; switch to it, then open.
  *  - `ask-pick` — several writable workspaces; the manager chooses which.
  *  - `no-owned` — nowhere writable, so a property has nowhere to go.
+ *  - `read-only` — the active workspace is view-only (PropLane manages it for the
+ *                 viewer): no create action at all, not even a toast-and-wait.
  *
  * Pure and context-shaped (not the React context itself) so it is unit-tested
  * without rendering the Properties page.
@@ -24,18 +26,23 @@ export type AddPropertyWorkspaceAction =
   | { kind: "wait" }
   | { kind: "switch"; workspaceId: string }
   | { kind: "ask-pick" }
-  | { kind: "no-owned" };
+  | { kind: "no-owned" }
+  | { kind: "read-only" };
 
-function canCreateHere(workspace: Pick<PortalWorkspace, "owned" | "canAddProperties"> | null): boolean {
+type GateWorkspace = Pick<PortalWorkspace, "owned" | "canAddProperties" | "readOnly">;
+
+function canCreateHere(workspace: GateWorkspace | null): boolean {
   if (!workspace) return false;
+  // A view-only workspace owns nothing the viewer may add to, however it is owned.
+  if (workspace.readOnly === true) return false;
   return workspace.owned || workspace.canAddProperties === true;
 }
 
 export function resolveAddPropertyWorkspaceAction(
   ctx: {
     loading: boolean;
-    active: Pick<PortalWorkspace, "owned" | "canAddProperties"> | null;
-    workspaces: Pick<PortalWorkspace, "id" | "owned" | "canAddProperties">[];
+    active: GateWorkspace | null;
+    workspaces: (GateWorkspace & Pick<PortalWorkspace, "id">)[];
   } | null,
 ): AddPropertyWorkspaceAction {
   // No workspace context (hosts/tests): don't block — the server stays the authority.
@@ -45,6 +52,7 @@ export function resolveAddPropertyWorkspaceAction(
   if (ctx.loading) return { kind: "wait" };
   if (!ctx.active) return { kind: "open" };
   if (canCreateHere(ctx.active)) return { kind: "open" };
+  if (ctx.active.readOnly === true) return { kind: "read-only" };
   const writable = ctx.workspaces.filter((w) => canCreateHere(w));
   if (writable.length === 0) return { kind: "no-owned" };
   if (writable.length === 1) return { kind: "switch", workspaceId: writable[0]!.id };

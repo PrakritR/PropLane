@@ -12,7 +12,9 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, Plus, type LucideIcon } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Copy, Pencil, Plus, SquarePen, Trash2, type LucideIcon } from "lucide-react";
+import { usePortalReadOnly } from "@/components/portal/portal-read-only";
+import { isWriteActionLabel } from "@/lib/workspaces/read-only";
 import { cn } from "@/lib/utils";
 import { CrossfadeFace, CrossfadeSlot } from "@/components/ui/motion/crossfade-slot";
 import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
@@ -104,6 +106,9 @@ function chain<E>(own: ((e: E) => void) | undefined, ours: () => void) {
   };
 }
 
+/** Glyphs that only ever mean "change this record": a view-only viewer is not shown them. */
+const WRITE_ICONS: ReadonlySet<LucideIcon> = new Set([Pencil, SquarePen, Trash2, Archive, ArchiveRestore, Plus]);
+
 /**
  * Utility control — Filter, Settings, Share, Export, Edit, Delete.
  *
@@ -156,6 +161,9 @@ export const PortalIconAction = forwardRef<
 ) {
   const tip = useIconTip(label, ring ? "end" : "center");
   const accessibleName = ariaLabel?.trim() || label;
+  // A view-only workspace (PropLane manages it for the viewer) shows no Edit / Delete / Archive / Add chrome at all.
+  const readOnly = usePortalReadOnly();
+  if (readOnly && (WRITE_ICONS.has(Icon) || isWriteActionLabel(label))) return null;
   return (
     <>
     <button
@@ -288,6 +296,9 @@ export const PortalPrimaryIconAction = forwardRef<
   }
 >(function PortalPrimaryIconAction({ label, icon: Icon = Plus, className, type = "button", onMouseEnter, onMouseLeave, onFocus, onBlur, onClick, ...rest }, ref) {
   const tip = useIconTip(label, "center");
+  // The page's one create action is not drawn on a view-only workspace: this is the single seam behind every list's round +.
+  const readOnly = usePortalReadOnly();
+  if (readOnly) return null;
   return (
     <>
     <button
