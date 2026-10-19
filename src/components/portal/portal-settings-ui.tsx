@@ -76,10 +76,13 @@ export function PortalSettingsRow({
   label,
   children,
   className,
+  controlClassName,
 }: {
   label: ReactNode;
   children?: ReactNode;
   className?: string;
+  /** Classes for the control column - `shrink-0` keeps a fixed-width control from being squeezed by a wrapping label. */
+  controlClassName?: string;
 }) {
   return (
     <div
@@ -91,7 +94,7 @@ export function PortalSettingsRow({
       <div className="min-w-0">
         <p className="text-[15px] font-normal text-foreground">{label}</p>
       </div>
-      {children ? <div className="min-w-0 text-right">{children}</div> : null}
+      {children ? <div className={cn("min-w-0 text-right", controlClassName)}>{children}</div> : null}
     </div>
   );
 }

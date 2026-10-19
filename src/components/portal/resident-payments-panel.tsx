@@ -1199,7 +1199,9 @@ export function ResidentPaymentsPanel({
 
   const residentPayeeLabel = isDemoModeActive() ? CANONICAL_DEMO_MANAGER_NAME : "Property manager";
 
-  const renderExpandedActions = (row: HouseholdCharge) => {
+  // `payOnDesktopOnly`: a charge record's phone view carries the sticky Pay bar, so its header Pay
+  // is drawn from `lg` up only - a header action reaches a phone exactly once.
+  const renderExpandedActions = (row: HouseholdCharge, { payOnDesktopOnly = false }: { payOnDesktopOnly?: boolean } = {}) => {
     const payable = isPayableHouseholdCharge(row);
     const rowPayIds = filterChargesForPayMethod([row]).map((c) => c.id);
     const group = moveInGroups.find((entry) => entry.id === row.id);
@@ -1220,7 +1222,7 @@ export function ResidentPaymentsPanel({
           <Button
             type="button"
             variant="primary"
-            className={PORTAL_DETAIL_BTN}
+            className={cn(PORTAL_DETAIL_BTN, payOnDesktopOnly && "max-lg:hidden")}
             data-attr="resident-payments-row-pay"
             onClick={(event) => {
               event.stopPropagation();
@@ -1748,7 +1750,7 @@ export function ResidentPaymentsPanel({
           bareHeader
           dataAttrBack="resident-payment-detail-back"
           inlineActions
-          actions={renderExpandedActions(detailCharge)}
+          actions={renderExpandedActions(detailCharge, { payOnDesktopOnly: chargePayable && chargeStickyPayIds.length > 0 })}
         >
           <PortalRecordSectionChrome
             sections={chargeSections}
@@ -1807,6 +1809,10 @@ export function ResidentPaymentsPanel({
             )}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
+        {chargePayable && chargeStickyPayIds.length > 0 ? (
+          // The bar is fixed over the bottom of the page: this spacer lets the last card scroll clear of it.
+          <div aria-hidden className="h-24 lg:hidden" data-attr="resident-payment-sticky-pay-spacer" />
+        ) : null}
         {chargePayable && chargeStickyPayIds.length > 0 ? (
           <ResidentPaymentStickyPayBar
             label={`Pay ${formatChargeMoneyLabel(detailCharge.balanceLabel)}`}

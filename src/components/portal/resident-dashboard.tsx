@@ -945,7 +945,8 @@ export function ResidentDashboard({
           />
           ) : null}
 
-          {visibility.lease ? (
+          {/* Lease opens with approval: before it `/resident/lease` redirects home, so no group, no link. */}
+          {visibility.lease && leaseUnlocked ? (
           <AttentionGroup
             title="Lease"
             href={`${BASE}/lease`}
