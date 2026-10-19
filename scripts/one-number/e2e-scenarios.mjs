@@ -8,7 +8,7 @@
  *   node scripts/one-number/e2e-scenarios.mjs --only a,f --port 3010 --keep
  *   node scripts/one-number/e2e-scenarios.mjs --mode per_workspace --only m-prospect   # what production runs: each workspace's own number
  *   node scripts/one-number/e2e-scenarios.mjs --check-config    # read line_mode + service owner; restore the dev baseline if a killed run left them changed
- *   node scripts/one-number/e2e-scenarios.mjs --reap /path/to/ledger.json   # clean up a crashed run
+ *   node scripts/one-number/e2e-scenarios.mjs --reap /path/to/ledger.json [--restore-config]   # clean up a crashed run
  *
  * What it does: snapshots sms_runtime_config, flips it to `shared` with a pilot list holding only this run's
  * workspaces, creates throwaway fixtures (manager, workspace, house, resident, vendor...), starts
@@ -34,6 +34,7 @@ function parse(argv) {
     else if (t === "--sweep") flags.sweep = true;
     else if (t === "--check-config") flags.checkConfig = true;
     else if (t === "--tick") flags.tick = true;
+    else if (t === "--restore-config") flags.restoreConfig = true;
     else if (t === "--port") flags.port = argv[++i];
     else if (t === "--mode") { flags.mode = argv[++i]; if (!["shared", "per_workspace"].includes(flags.mode)) throw new Error("--mode shared|per_workspace"); }
     else if (t === "--only") flags.only = argv[++i].split(",").map((s) => s.trim().toLowerCase());
@@ -89,8 +90,8 @@ async function main() {
 
   if (flags.reap) {
     const ledger = JSON.parse(readFileSync(flags.reap, "utf8"));
-    await restoreConfig(db, ledger.configSnapshot);
-    await restoreBaseline(db, console.log);
+    // The line config is a shared singleton (another run may be using it right now): only put it back when asked.
+    if (flags.restoreConfig) { await restoreConfig(db, ledger.configSnapshot); await restoreBaseline(db, console.log); }
     await cleanup(db, ledger.fixtures, console.log);
     return 0;
   }

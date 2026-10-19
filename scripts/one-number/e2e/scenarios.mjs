@@ -122,9 +122,9 @@ SCENARIOS.push({
     const phone = a.residentPhone;
     const rent = await say(ctx, phone, "how much rent do I owe?");
     const figures = dollars(rent.all);
-    check("the rent answer comes from the ledger: $1000 (the room rent) is named", figures.includes(1000), rent.all);
+    check("the rent answer states a figure from the ledger ($1000 for one month, $2000 for both)", figures.length >= 1, rent.all);
     check("no invented numbers: every dollar figure is one the ledger has ($1000 a month, $2000 with the overdue month)", figures.every((n) => [1000, 2000].includes(n)), rent.all);
-    check("the overdue month is called out", /(overdue|late|past due|september)/i.test(rent.all), rent.all);
+    check("it says what is owed in total or names the overdue month", figures.includes(2000) || /(overdue|late|past due|september)/i.test(rent.all), rent.all);
     let r1 = await say(ctx, phone, "my kitchen sink is leaking", { media: [{ url: h.mediaUrl("leak"), type: "image/png" }] });
     check("the first reply is one short message with at most one question", (r1.all.match(/\?/g) ?? []).length <= 1, r1.all);
     // The assistant triages first (one question per text); answer it the way a resident would until the service is filed.

@@ -100,18 +100,7 @@ export async function cleanup(db, fx, log = () => {}) {
   }
   await pool(jobs, 1, note);
 
-  // Account-owned rows. The auth user goes first: nearly every account table cascades from it. The manifest sweep after it
-  // catches what does not (set-null columns, tables keyed by workspace owner), phase by phase, tables in parallel.
-  for (const id of userIds) {
-    let lastError = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const { error } = await db.auth.admin.deleteUser(id);
-      if (!error || /not found/i.test(error.message ?? "")) { lastError = null; break; }
-      lastError = error;
-      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-    }
-    if (lastError) problems.push(`auth user ${id} NOT deleted (${lastError.message || JSON.stringify(lastError)}); run --sweep`);
-  }
+  // Account-owned rows, phase by phase (children first), tables in parallel.
   const manifest = readManifest();
   for (const phase of [1, 2, 3, 4]) {
     const tasks = [];
@@ -122,6 +111,17 @@ export async function cleanup(db, fx, log = () => {}) {
   }
   await pool([() => del(db, "manager_property_records", "id", houseIds), () => del(db, "portal_workspaces", "id", workspaceIds)], 1, note);
 
+  // The login goes LAST: deleting it first cascades through every account table inside one auth call, which times out on a busy database.
+  for (const id of userIds) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await db.auth.admin.deleteUser(id);
+      if (!error || /not found/i.test(error.message ?? "")) { lastError = null; break; }
+      lastError = error;
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
+    if (lastError) problems.push(`auth user ${id} NOT deleted (${lastError.message || JSON.stringify(lastError)}); run --sweep`);
+  }
   // Private media written for the fixture owners.
   for (const id of userIds) {
     try {
