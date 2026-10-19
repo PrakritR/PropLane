@@ -30,7 +30,6 @@ import {
   MANAGED_READ_ONLY_BODY,
   MANAGED_READ_ONLY_CODE,
 } from "@/lib/auth/managed-read-only-policy";
-import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 const PROTECTED_PREFIXES = ["/portal", "/pro", "/manager", "/owner", "/resident", "/admin", "/vendor"];
 
@@ -72,29 +71,45 @@ async function viewAsGuard(request: NextRequest): Promise<{ payload: ViewAsPaylo
 
 /**
  * Managed (PropLane Service) workspaces are view-only for their client. For a write to /api/* that is
- * not on the allowlist, ask the database (`managed_read_only_workspace_ids()`, with the caller's own
- * session so `auth.uid()` is the caller) which workspaces are locked for her. Nothing is cached across
+ * not on the allowlist, ask the database (`managed_read_only_owner_locked()`, with the caller's own
+ * session so `auth.uid()` is the caller) whether she OWNS a locked service workspace. The lock is
+ * account-wide: the workspace cookie is request input and never decides it. Nothing is cached across
  * requests. A failed lookup (including the function missing) refuses the write: fail closed.
  */
-async function managedReadOnlyGuard(
-  supabase: ReturnType<typeof createServerClient>,
-  request: NextRequest,
-): Promise<NextResponse | null> {
+async function managedReadOnlyGuard(supabase: ReturnType<typeof createServerClient>): Promise<NextResponse | null> {
   const headers = { "Cache-Control": "no-store" };
   try {
-    const { data, error } = await supabase.rpc("managed_read_only_workspace_ids");
+    const { data, error } = await supabase.rpc("managed_read_only_owner_locked");
     if (error) throw error;
-    const locked = Array.isArray(data) ? data.map(String) : [];
-    if (managedReadOnlyBlocks(locked, request.cookies.get(WORKSPACE_COOKIE)?.value)) {
+    if (managedReadOnlyBlocks(data === true)) {
       return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403, headers });
     }
     return null;
   } catch {
-    return NextResponse.json(
-      { error: "We could not verify this workspace's access. Please retry.", code: `${MANAGED_READ_ONLY_CODE}_unverified` },
-      { status: 503, headers },
-    );
+    return managedUnverifiedResponse();
   }
+}
+
+function managedUnverifiedResponse(): NextResponse {
+  return NextResponse.json(
+    { error: "We could not verify this workspace's access. Please retry.", code: `${MANAGED_READ_ONLY_CODE}_unverified` },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+/**
+ * A getUser() error that definitively says there is no usable session (so the request is not a signed-in
+ * write): a dead refresh token, a revoked session, a missing session, or an invalid / expired JWT (400-403).
+ * Everything else (429, 5xx, network, unknown) says nothing about the session.
+ */
+function isDefiniteDeadSessionError(error: unknown): boolean {
+  if (isStaleRefreshTokenError(error) || isRevokedSessionError(error)) return true;
+  if (!error || typeof error !== "object") return false;
+  const record = error as { name?: string; status?: number; code?: string };
+  if (record.name === "AuthSessionMissingError") return true;
+  const code = String(record.code ?? "").toLowerCase();
+  if (code === "bad_jwt" || code === "session_expired" || code === "session_not_found") return true;
+  return record.status === 400 || record.status === 401 || record.status === 403;
 }
 
 /** A Supabase auth cookie is present (a signed-in browser); webhooks and API-key callers carry none. */
@@ -240,8 +255,14 @@ export async function middleware(request: NextRequest) {
     return stampCrawlPolicy(request, NextResponse.redirect(redirectUrl));
   }
 
+  // A managed candidate whose session lookup failed for a reason that is not a definite dead session
+  // (429, 5xx, network) must not skip the lock: refuse, fail closed.
+  if (managedCandidate && !user && userError && !isDefiniteDeadSessionError(userError)) {
+    return stampCrawlPolicy(request, managedUnverifiedResponse());
+  }
+
   if (managedCandidate && user) {
-    const refusal = await managedReadOnlyGuard(supabase, request);
+    const refusal = await managedReadOnlyGuard(supabase);
     if (refusal) return stampCrawlPolicy(request, refusal);
   }
 
