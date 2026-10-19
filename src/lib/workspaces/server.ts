@@ -17,6 +17,7 @@ import {
   mergeCoManagerPermissions,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { lockedOwnedServiceWorkspaceIds } from "@/lib/auth/managed-read-only.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { maxResidentsForManagerTier } from "@/lib/manager-access";
 import { EMPTY_PLAN_ADDON_QUANTITIES } from "@/lib/plan-addons";
@@ -33,7 +34,7 @@ import {
 /** Workspace selection narrows already-authorized data; it never grants access. */
 export async function loadWorkspaces(db: SupabaseClient, userId: string): Promise<PortalWorkspace[]> {
   const [owned, links] = await Promise.all([
-    db.from("portal_workspaces").select("id,name,owner_user_id,is_default").eq("owner_user_id", userId).order("created_at"),
+    db.from("portal_workspaces").select("id,name,owner_user_id,is_default,is_service").eq("owner_user_id", userId).order("created_at"),
     db.from("account_link_invites")
       .select("id,inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions,team_role,house_scope")
       .eq("invitee_user_id", userId).eq("status", "accepted"),
@@ -139,6 +140,16 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   };
   const rows = new Map([...(owned.data ?? []), ...(shared.data ?? [])].map((w) => [w.id, w]));
 
+  // View-only: a PropLane Service workspace the viewer owns without a plan of her own, and a seat
+  // that is the retired Property owner role. An unreadable plan locks (fail closed).
+  const ownedServiceIds = (owned.data ?? []).filter((w) => (w as { is_service?: boolean | null }).is_service === true).map((w) => w.id);
+  let lockedOwnedService: Set<string>;
+  try {
+    lockedOwnedService = new Set(await lockedOwnedServiceWorkspaceIds(db, userId, ownedServiceIds));
+  } catch {
+    lockedOwnedService = new Set(ownedServiceIds);
+  }
+
   // Memberships of every workspace the viewer runs: their own, and any shared
   // one where their role carries the members right. One row per (person,
   // workspace) since the memberships migration; a row with no workspace yet is
@@ -179,8 +190,10 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     ];
     const ownedHere = w.owner_user_id === userId;
     const standing = standingByWorkspace.get(w.id) ?? null;
-    const canManageMembers = ownedHere || Boolean(standing?.rights.members);
-    const members: WorkspaceMember[] = canManageMembers
+    const readOnly = (ownedHere && lockedOwnedService.has(w.id)) || (!ownedHere && standing?.role === "property_owner");
+    const seesMembers = ownedHere || Boolean(standing?.rights.members);
+    const canManageMembers = !readOnly && seesMembers;
+    const members: WorkspaceMember[] = seesMembers
       ? memberships
           .filter((link) => {
             if (String(link.inviter_user_id) !== w.owner_user_id) return false;
@@ -259,8 +272,9 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       members,
       viewerRole: ownedHere ? "owner" : (standing?.role ?? null),
       viewerHouseScope: ownedHere ? "all" : (standing?.houseScope ?? "selected"),
-      canAddProperties: ownedHere || Boolean(standing?.rights.houses),
+      canAddProperties: !readOnly && (ownedHere || Boolean(standing?.rights.houses)),
       canManageMembers,
+      ...(readOnly ? { readOnly: true } : {}),
     };
   });
 }

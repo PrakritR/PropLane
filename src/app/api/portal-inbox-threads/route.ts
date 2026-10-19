@@ -47,6 +47,9 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
+import { isManagedReadOnly } from "@/lib/auth/managed-read-only.server";
+import { MANAGED_READ_ONLY_BODY, managedReadOnlyInboxThreadAllowed, managedReadOnlyInboxWrites } from "@/lib/auth/managed-read-only-policy";
+
 export const runtime = "nodejs";
 
 function normalizeInboxRow(row: Record<string, unknown>): PersistedInboxThread {
@@ -525,6 +528,21 @@ export async function POST(req: Request) {
     if (ctx.user.role !== "admin" && scopeKey === MANAGER_INBOX_SCOPE) {
       const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
       if (ownerRefusal) return ownerRefusal;
+    }
+
+    // A PropLane-managed workspace is view-only for its client: she may write only the workspace Team
+    // chat and her own Assistant thread. Resolved from the session + cookie, never from the body.
+    if (scopeKey === MANAGER_INBOX_SCOPE && ctx.user.role !== "admin") {
+      const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
+      const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
+      if (await isManagedReadOnly(ctx.db, ctx.user.id, active.id)) {
+        const ids = managedReadOnlyInboxWrites(body);
+        const allowed =
+          ids !== null &&
+          ids.length > 0 &&
+          ids.every((id) => managedReadOnlyInboxThreadAllowed(id, active.id, active.ownerUserId));
+        if (!allowed) return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
+      }
     }
 
     if (body.action === "dismissContacts" || body.action === "clearDismissedContacts") {

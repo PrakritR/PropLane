@@ -1,5 +1,7 @@
 import type { AgentContext } from "./context";
 import type { ToolDefinition } from "./registry";
+import { isManagedReadOnly, managedReadOnlyWorkspaceIds } from "@/lib/auth/managed-read-only.server";
+import { MANAGED_READ_ONLY_TOOL_MESSAGE } from "@/lib/auth/managed-read-only-policy";
 import { agentWorkspaceScopeUnresolved } from "@/lib/agent/manager-workspace-scope";
 import {
   MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
@@ -68,6 +70,28 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
   "list_bookings", "check_room_availability", "list_room_blocks", "block_room_dates", "update_room_block",
 ]);
 
+/**
+ * A PropLane-managed workspace is view-only for its client: every write tool is refused, in the
+ * preview AND the handler (so a stale approval can never run). No second confirm path. A turn with
+ * no workspace scope at all is left alone; a scope that failed to resolve refuses when the user has
+ * any locked workspace (fail closed). A failed lookup counts as locked.
+ */
+async function assertWorkspaceWritable(ctx: AgentContext): Promise<void> {
+  const workspace = ctx.workspace;
+  if (!workspace) return;
+  let locked: boolean;
+  if (agentWorkspaceScopeUnresolved(workspace)) {
+    try {
+      locked = (await managedReadOnlyWorkspaceIds(ctx.db, ctx.userId)).length > 0;
+    } catch {
+      locked = true;
+    }
+  } else {
+    locked = await isManagedReadOnly(ctx.db, ctx.userId, workspace.id);
+  }
+  if (locked) throw new Error(MANAGED_READ_ONLY_TOOL_MESSAGE);
+}
+
 export function scopeManagerTool<Input, Output>(
   tool: ToolDefinition<Input, Output, AgentContext>,
 ): ToolDefinition<Input, Output, AgentContext> {
@@ -82,7 +106,9 @@ export function scopeManagerTool<Input, Output>(
     return { ...ctx, landlordId: ctx.userId, managerSmsAccess: undefined };
   };
   const sendsMessages = COMMUNICATION_SENDING_TOOLS.has(tool.name);
+  const isWrite = tool.kind === "write";
   const scoped = async (ctx: AgentContext): Promise<AgentContext> => {
+    if (isWrite) await assertWorkspaceWritable(ctx);
     const next = context(ctx);
     if (sendsMessages) await assertToolMayCommunicate(next);
     return next;
