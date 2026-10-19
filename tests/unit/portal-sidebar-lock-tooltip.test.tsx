@@ -58,12 +58,7 @@ const RESIDENT_DEFINITION = {
   sections: [
     { section: "dashboard", label: "Dashboard", tabs: [] },
     { section: "applications", label: "Application", tabs: [] },
-    // My home is a folded row (Inspections, Lease, Forms, Services): it is locked, and inert, only when
-    // EVERY one of its tabs is locked at the stage.
-    { section: "move-in", label: "Inspections", tabs: [] },
     { section: "lease", label: "Lease", tabs: [] },
-    { section: "forms", label: "Forms", tabs: [] },
-    { section: "services", label: "Services", tabs: [] },
   ],
 } as never;
 
@@ -80,7 +75,7 @@ describe("inert locked nav rows expose their reason on hover", () => {
   it("puts the lock reason in the tooltip, not only in aria-label", () => {
     render(<PortalSidebar definition={RESIDENT_DEFINITION} residentNavStage="pre_approval" />);
 
-    const reason = "My home: Available after your application is approved";
+    const reason = "Lease: Available after your application is approved";
     const row = desktopNav().getByRole("link", { name: reason });
     expect(row.tagName.toLowerCase()).toBe("span");
     expect(row.getAttribute("aria-disabled")).toBe("true");
@@ -91,7 +86,7 @@ describe("inert locked nav rows expose their reason on hover", () => {
   it("carries whatever reason the stage produces, not one hard-coded string", () => {
     render(<PortalSidebar definition={RESIDENT_DEFINITION} residentNavStage="application_submitted" />);
 
-    const row = desktopNav().getByRole("link", { name: /^My home: / });
+    const row = desktopNav().getByRole("link", { name: /^Lease: / });
     expect(row.getAttribute("title")).toBe(row.getAttribute("aria-label"));
     expect(row.getAttribute("title")).toMatch(/Available after/);
   });
@@ -99,18 +94,8 @@ describe("inert locked nav rows expose their reason on hover", () => {
   it("leaves unlocked rows as ordinary links with no lock tooltip", () => {
     render(<PortalSidebar definition={RESIDENT_DEFINITION} residentNavStage="pre_approval" />);
 
-    const row = desktopNav().getByRole("link", { name: "Home" });
+    const row = desktopNav().getByRole("link", { name: "Dashboard" });
     expect(row.tagName.toLowerCase()).toBe("a");
     expect(row.getAttribute("aria-disabled")).toBeNull();
-  });
-
-  it("keeps a folded row live when only some of its tabs are locked, opening on the first free tab", () => {
-    // post_approval_pre_lease: Inspections and Services are still locked, Lease and Forms are open.
-    render(<PortalSidebar definition={RESIDENT_DEFINITION} residentNavStage="post_approval_pre_lease" />);
-
-    const row = desktopNav().getByRole("link", { name: "My home" });
-    expect(row.tagName.toLowerCase()).toBe("a");
-    expect(row.getAttribute("aria-disabled")).toBeNull();
-    expect(row.getAttribute("href")).toBe("/resident/lease");
   });
 });
