@@ -115,16 +115,6 @@
 .textAction:hover {
   background: #2249a8;
 }
-.textAction:has(.textIcon) {
-  padding-left: 8px;
-  gap: 8px;
-}
-.textIcon {
-  width: 28px;
-  height: 28px;
-  flex: none;
-  display: block;
-}
 .mobileActions {
   display: none;
   align-items: center;
@@ -269,15 +259,6 @@
   .textAction {
     min-width: 0;
     padding: 0 14px;
-  }
-  .textAction:has(.textIcon) {
-    padding: 0 10px 0 5px;
-    gap: 6px;
-    font-size: 13.5px;
-  }
-  .textIcon {
-    width: 24px;
-    height: 24px;
   }
   .stickyCta {
     position: fixed;

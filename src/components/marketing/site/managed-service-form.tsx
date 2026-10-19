@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { BOOK_DEMO_EVENT, BOOK_DEMO_NOTE, BOOK_DEMO_TOPIC } from "@/lib/marketing/public-contact";
 import { MANAGED_SERVICE_TOPIC } from "@/lib/marketing/managed-service";
 import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 import { SITE_BTN_PRIMARY } from "@/components/marketing/site/primitives";
@@ -60,6 +61,32 @@ export function ManagedServiceForm({
     "idle",
   );
   const [problem, setProblem] = useState("");
+  const nameInput = useRef<HTMLInputElement>(null);
+
+  // Book a demo (the top bar, and every other "Book a demo" link) opens this form as a demo request: the Message is
+  // prefilled and Name takes focus. Arriving from another page reads `?topic=`; on the homepage the link fires an event.
+  useEffect(() => {
+    if (variant !== "swiss") return;
+    const open = () => {
+      setNote((current) => current.trim() || BOOK_DEMO_NOTE);
+      nameInput.current?.focus({ preventScroll: true });
+    };
+    let settle: number | undefined;
+    if (new URLSearchParams(window.location.search).get("topic") === BOOK_DEMO_TOPIC) {
+      open();
+      // Arriving from another page, the browser's own #contact jump lands before the sections above it finish
+      // laying out; bring the form into view once they have.
+      settle = window.setTimeout(() => {
+        nameInput.current?.closest("section")?.scrollIntoView({ block: "start" });
+        nameInput.current?.focus({ preventScroll: true });
+      }, 400);
+    }
+    window.addEventListener(BOOK_DEMO_EVENT, open);
+    return () => {
+      window.clearTimeout(settle);
+      window.removeEventListener(BOOK_DEMO_EVENT, open);
+    };
+  }, [variant]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -136,6 +163,7 @@ export function ManagedServiceForm({
         <div className="swiss-field">
           <label htmlFor={`${attrPrefix}-name`}>Name</label>
           <input
+            ref={nameInput}
             id={`${attrPrefix}-name`}
             autoComplete="name"
             required

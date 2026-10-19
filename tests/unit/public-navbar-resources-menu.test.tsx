@@ -132,6 +132,6 @@ describe("public navbar Resources dropdown", () => {
   it("offers Start free and Book a demo on every page", async () => {
     render(<PublicNavbar />);
     expect((await screen.findAllByRole("link", { name: /start free/i })).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /book a demo/i })[0]).toHaveAttribute("href", "/contact?tab=schedule");
+    expect(screen.getAllByRole("link", { name: /book a demo/i })[0]).toHaveAttribute("href", "/?topic=book-a-demo#contact");
   });
 });

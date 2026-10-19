@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeNavbar } from "@/components/layout/home-navbar";
 import { PublicNavbar } from "@/components/layout/public-navbar";
 import { publicTextingConfig } from "@/lib/marketing/public-texting";
+import { BOOK_DEMO_EVENT, BOOK_DEMO_HREF, BOOK_DEMO_TOPIC } from "@/lib/marketing/public-contact";
 
 const route = vi.hoisted(() => ({ pathname: "/" }));
 vi.mock("@/components/marketing/fonts/home-swiss-font", () => ({ homeSwissFont: { variable: "swiss-font" } }));
@@ -33,40 +34,47 @@ const update = (id: string, isIntersecting: boolean, bottom: number) => act(() =
 });
 
 describe("simple public navigation", () => {
-  it("uses five direct links, then the number (Messages tile + number) and Portal at the far right, without auth or menus", () => {
+  it("uses five direct links, then Book a demo and Portal at the far right, without auth or menus", () => {
     render(<PublicNavbar texting={texting} />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(desktopPaths);
-    // Captain #22: the top-right action is the number itself, in Start free's place.
-    for (const attr of ["home-nav-text-desktop", "home-nav-text-mobile"]) {
-      const text = document.querySelector(`[data-attr="${attr}"]`)!;
-      expect(text).toHaveAttribute("href", texting.smsHref);
-      expect(text).toHaveTextContent("(202) 555-0123");
-      expect(text).toHaveAttribute("aria-label", "Text (202) 555-0123");
-      expect(text.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    // Captain #26: the top-right action is Book a demo at every width; the number lives in the hero and Contact.
+    for (const attr of ["home-nav-book-demo-desktop", "home-nav-book-demo-mobile"]) {
+      const link = document.querySelector(`[data-attr="${attr}"]`)!;
+      expect(link).toHaveAttribute("href", BOOK_DEMO_HREF);
+      expect(link).toHaveTextContent("Book a demo");
+      expect(link.querySelector("svg")).toBeNull();
     }
+    expect(document.querySelector('header a[href^="sms:"]')).toBeNull();
     expect(screen.queryByText("Start free")).not.toBeInTheDocument();
-    const text = document.querySelector('[data-attr="home-nav-text-desktop"]')!;
-    expect(text.nextElementSibling).toHaveTextContent("Portal");
+    const desktop = document.querySelector('[data-attr="home-nav-book-demo-desktop"]')!;
+    expect(desktop.nextElementSibling).toHaveTextContent("Portal");
     expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /search|pricing|why proplane|product|resources/i })).not.toBeInTheDocument();
     expect(document.querySelector("details")).toBeNull();
   });
 
-  it("uses the same simple bar and real pricing route on other public pages", () => {
+  it("uses the same simple bar, real pricing route and Book a demo on other public pages", () => {
     route.pathname = "/blog";
     render(<PublicNavbar texting={texting} />);
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/#pricing");
-    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveAttribute("href", texting.smsHref);
-    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("(202) 555-0123");
+    expect(document.querySelector('[data-attr="home-nav-book-demo-desktop"]')).toHaveAttribute("href", BOOK_DEMO_HREF);
     expect(screen.getByRole("link", { name: "Portal" })).toHaveAttribute("href", "/auth/sign-in");
     expect(screen.queryByRole("button", { name: /resources|product/i })).not.toBeInTheDocument();
   });
 
-  it("offers Start free when no shared number is configured", () => {
-    render(<HomeNavbar texting={{ phone: null, smsHref: null }} />);
-    for (const link of screen.getAllByRole("link", { name: "Start free" })) expect(link).toHaveAttribute("href", "/auth/create-account");
-    expect(document.querySelector('a[href^="sms:"]')).toBeNull();
+  it("opens the homepage Contact form in place as a demo request", () => {
+    const opened = vi.fn();
+    window.addEventListener(BOOK_DEMO_EVENT, opened);
+    const scrollIntoView = vi.fn();
+    render(<><section id="contact" /><HomeNavbar texting={texting} /></>);
+    document.getElementById("contact")!.scrollIntoView = scrollIntoView;
+    fireEvent.click(document.querySelector('[data-attr="home-nav-book-demo-desktop"]')!);
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(window.location.search).toBe(`?topic=${BOOK_DEMO_TOPIC}`);
+    window.removeEventListener(BOOK_DEMO_EVENT, opened);
+    window.history.replaceState(null, "", "/");
   });
 
   it("shows the sticky number after the hero, including while contact is in view", () => {
@@ -76,7 +84,6 @@ describe("simple public navigation", () => {
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toBeNull();
     update("home-hero", false, -1);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("aria-label", "Text (202) 555-0123");
-    expect(document.querySelector('[data-attr="home-nav-text-desktop"]')).toHaveTextContent("(202) 555-0123");
     update("home-close", true, 700);
     expect(document.querySelector('[data-attr="home-sticky-text"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="home-sticky-text"]')).toHaveAttribute("href", texting.smsHref);

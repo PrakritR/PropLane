@@ -16,7 +16,7 @@ test.describe("Public home", () => {
     await expect(page.getByRole("heading", { level: 1, name: /your ai property management assistant/i })).toBeVisible();
     const hero = page.locator(".rlp-hero");
     await expect(hero.getByRole("link", { name: /start free/i })).toHaveAttribute("href", "/auth/create-account");
-    await expect(hero.getByRole("link", { name: /book a demo/i })).toHaveAttribute("href", "/contact?tab=schedule");
+    await expect(hero.getByRole("link", { name: /book a demo/i })).toHaveAttribute("href", "/?topic=book-a-demo#contact");
     await expect(hero.locator(".rlp-hero-actions a")).toHaveCount(3);
     // Exactly two lines, centered: "Your AI property" over "management assistant."
     const lines = await page.locator(".rlp-hero h1 .rlp-h1-line").evaluateAll((nodes) =>

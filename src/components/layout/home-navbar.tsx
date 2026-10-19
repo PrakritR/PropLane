@@ -3,14 +3,13 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { ArrowRight } from "lucide-react";
-import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { BOOK_DEMO_EVENT, BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import styles from "@/components/layout/home-navbar.module.css";
-import { MessagesTile } from "@/components/marketing/messages-tile";
 
 const HomeMobileMenu = dynamic(
   () => import("@/components/layout/home-mobile-menu"),
@@ -140,9 +139,16 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   }, [pathname]);
 
   const onHome = pathname === "/";
-  // The bar's top-right action is the number itself (captain #22), Messages tile + number; Start free only when no
-  // number is configured.
-  const textLabel = configured ? phone : "Start free";
+  // The bar's top-right action is Book a demo at every width on every public page (captain #26); the number stays in
+  // the hero, the Contact section and the footer. On the homepage it opens the Contact form in place.
+  const bookDemo = (event: MouseEvent<HTMLAnchorElement>) => {
+    const form = onHome ? document.getElementById("contact") : null;
+    if (!form || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.history.pushState(null, "", BOOK_DEMO_HREF);
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.dispatchEvent(new Event(BOOK_DEMO_EVENT));
+  };
   return (
     <>
       <div className={styles.spacer} aria-hidden="true" />
@@ -176,13 +182,12 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           </nav>
           <div className={styles.desktopActions}>
             <a
-              href={textHref}
+              href={BOOK_DEMO_HREF}
               className={styles.textAction}
-              aria-label={configured ? `Text ${phone}` : undefined}
-              data-attr="home-nav-text-desktop"
+              onClick={bookDemo}
+              data-attr="home-nav-book-demo-desktop"
             >
-              {configured ? <MessagesTile className={styles.textIcon} /> : null}
-              {textLabel}
+              Book a demo
             </a>
             <Link
               href="/auth/sign-in"
@@ -195,13 +200,12 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           </div>
           <div className={styles.mobileActions}>
             <a
-              href={textHref}
+              href={BOOK_DEMO_HREF}
               className={styles.textAction}
-              aria-label={configured ? `Text ${phone}` : undefined}
-              data-attr="home-nav-text-mobile"
+              onClick={bookDemo}
+              data-attr="home-nav-book-demo-mobile"
             >
-              {configured ? <MessagesTile className={styles.textIcon} /> : null}
-              {textLabel}
+              Book a demo
             </a>
             <button
               ref={menuTrigger}

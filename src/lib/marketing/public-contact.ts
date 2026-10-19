@@ -39,7 +39,14 @@ export const VENDOR_GET_STARTED_HREF =
 /** Resident signup with the role already decided (the homepage "Join free" row). */
 export const RESIDENT_GET_STARTED_HREF =
   "/auth/create-account?mode=create&role=resident";
-export const BOOK_DEMO_HREF = "/contact?tab=schedule";
+/** The `?topic=` that asks the homepage Contact form to open as a demo request. */
+export const BOOK_DEMO_TOPIC = "book-a-demo";
+/** The Message line the Contact form is prefilled with when it opens as a demo request. */
+export const BOOK_DEMO_NOTE = "Book a demo";
+/** Every "Book a demo" lands on the homepage Contact form, prefilled and focused (captain #26; /contact redirects there). */
+export const BOOK_DEMO_HREF = `/?topic=${BOOK_DEMO_TOPIC}#contact`;
+/** Fired on the homepage when a Book a demo link is used in place (no reload), so the form prefills and focuses. */
+export const BOOK_DEMO_EVENT = "proplane:book-demo";
 
 /**
  * Public social profiles, rendered as the footer icon row: Instagram, TikTok,
